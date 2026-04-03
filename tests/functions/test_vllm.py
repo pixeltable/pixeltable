@@ -5,11 +5,18 @@ import pixeltable as pxt
 from ..utils import rerun, skip_test_if_not_installed, validate_update_status
 
 
-@pytest.mark.expensive
+def _skip_if_no_gpu() -> None:
+    """Skip if CUDA is not available (vLLM requires a GPU)."""
+    torch = pytest.importorskip('torch')
+    if not torch.cuda.is_available():
+        pytest.skip('vLLM requires a CUDA-capable GPU')
+
+
 @rerun(reruns=3, reruns_delay=15)
 class TestVllm:
     def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('vllm')
+        _skip_if_no_gpu()
         from pixeltable.functions import vllm
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -21,17 +28,16 @@ class TestVllm:
             ]
         )
 
-        # We use a small model for testing.
         t.add_computed_column(
             output=vllm.chat_completions(
-                t.messages, model='Qwen/Qwen2.5-0.5B-Instruct', engine_kwargs={'max_model_len': 512}
+                t.messages, model='Qwen/Qwen2.5-0.5B-Instruct', engine_args={'max_model_len': 512}
             )
         )
         t.add_computed_column(
             output2=vllm.chat_completions(
                 t.messages,
                 model='Qwen/Qwen2.5-0.5B-Instruct',
-                engine_kwargs={'max_model_len': 512},
+                engine_args={'max_model_len': 512},
                 sampling_params={'max_tokens': 100, 'temperature': 0.7, 'top_p': 0.9, 'top_k': 20},
             )
         )
@@ -47,12 +53,13 @@ class TestVllm:
 
     def test_generate(self, uses_db: None) -> None:
         skip_test_if_not_installed('vllm')
+        _skip_if_no_gpu()
         from pixeltable.functions import vllm
 
         t = pxt.create_table('test_gen_tbl', {'prompt': pxt.String})
 
         t.add_computed_column(
-            output=vllm.generate(t.prompt, model='Qwen/Qwen2.5-0.5B-Instruct', engine_kwargs={'max_model_len': 512})
+            output=vllm.generate(t.prompt, model='Qwen/Qwen2.5-0.5B-Instruct', engine_args={'max_model_len': 512})
         )
 
         validate_update_status(t.insert(prompt='The capital of France is'), expected_rows=1)

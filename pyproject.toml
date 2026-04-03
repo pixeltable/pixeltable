@@ -191,11 +191,11 @@ test = [
     "pytest-benchmark>=5.1",
     "coverage>=7.9",
     "filelock>=3.13",
+    "vllm>=0.6.0 ; sys_platform == 'linux'",
 ]
 extra-dev = [
     # This is for dependencies that will be installed locally for devs (via `make install`), but not in CI.
     "llama-cpp-python>=0.3.16 ; sys_platform != 'win32'",
-    "vllm>=0.6.0 ; sys_platform == 'linux'",
 ]
 storage-sdks = [
     # Used for CI configurations that need only the storage SDKs (in addition to basic dependencies).
@@ -247,10 +247,6 @@ show_error_codes = true
 strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
-
-[[tool.mypy.overrides]]
-module = "vllm.*"
-ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = '-v -m "not remote_api and not expensive and not benchmark" --strict-markers'

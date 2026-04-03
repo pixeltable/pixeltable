@@ -21,7 +21,7 @@ def chat_completions(
     messages: list[dict],
     *,
     model: str,
-    engine_kwargs: dict[str, Any] | None = None,
+    engine_args: dict[str, Any] | None = None,
     sampling_params: dict[str, Any] | None = None,
 ) -> dict:
     """
@@ -41,12 +41,12 @@ def chat_completions(
         messages: A list of messages to generate a response for. Each message should be a dict
             with `role` and `content` keys, following the OpenAI chat format.
         model: The HuggingFace model identifier (e.g., `'Qwen/Qwen2.5-0.5B-Instruct'`).
-        engine_kwargs: Additional keyword args for the vLLM `LLM` constructor, such as `dtype`,
+        engine_args: Additional keyword args for the vLLM `LLM` constructor, such as `dtype`,
             `max_model_len`, `gpu_memory_utilization`, `tensor_parallel_size`. For details, see the
-            [vLLM engine args documentation](https://docs.vllm.ai/en/stable/serving/engine_args.html).
+            [vLLM engine args documentation](https://docs.vllm.ai/en/stable/configuration/engine_args/).
         sampling_params: Keyword args for vLLM `SamplingParams`, such as `max_tokens`,
             `temperature`, `top_p`, `top_k`. For details, see the
-            [vLLM sampling params documentation](https://docs.vllm.ai/en/stable/dev/sampling_params.html).
+            [vLLM sampling params documentation](https://docs.vllm.ai/en/stable/api/vllm/sampling_params.html).
 
     Returns:
         A dict containing the vLLM `RequestOutput` in its native format.
@@ -73,25 +73,20 @@ def chat_completions(
     Env.get().require_package('vllm', min_version=[0, 6, 0])
     import vllm
 
-    llm = _lookup_model(model, engine_kwargs or {})
-    sp = vllm.SamplingParams(**(sampling_params or {})) if sampling_params else None
+    llm = _lookup_model(model, engine_args or {})
+    sp = vllm.SamplingParams(**sampling_params) if sampling_params is not None else None
 
     chat_kwargs: dict[str, Any] = {'use_tqdm': False}
     if sp is not None:
         chat_kwargs['sampling_params'] = sp
 
-    chat_messages: Any = [messages]
-    outputs = llm.chat(chat_messages, **chat_kwargs)
+    outputs = llm.chat([messages], **chat_kwargs)  # type: ignore[arg-type]
     return _request_output_to_dict(outputs[0])
 
 
 @pxt.udf(is_deterministic=False)
 def generate(
-    prompt: str,
-    *,
-    model: str,
-    engine_kwargs: dict[str, Any] | None = None,
-    sampling_params: dict[str, Any] | None = None,
+    prompt: str, *, model: str, engine_args: dict[str, Any] | None = None, sampling_params: dict[str, Any] | None = None
 ) -> dict:
     """
     Generate text completion for a given prompt using vLLM.
@@ -109,12 +104,12 @@ def generate(
     Args:
         prompt: The text prompt to generate a completion for.
         model: The HuggingFace model identifier (e.g., `'Qwen/Qwen2.5-0.5B-Instruct'`).
-        engine_kwargs: Additional keyword args for the vLLM `LLM` constructor, such as `dtype`,
+        engine_args: Additional keyword args for the vLLM `LLM` constructor, such as `dtype`,
             `max_model_len`, `gpu_memory_utilization`, `tensor_parallel_size`. For details, see the
-            [vLLM engine args documentation](https://docs.vllm.ai/en/stable/serving/engine_args.html).
+            [vLLM engine args documentation](https://docs.vllm.ai/en/stable/configuration/engine_args/).
         sampling_params: Keyword args for vLLM `SamplingParams`, such as `max_tokens`,
             `temperature`, `top_p`, `top_k`. For details, see the
-            [vLLM sampling params documentation](https://docs.vllm.ai/en/stable/dev/sampling_params.html).
+            [vLLM sampling params documentation](https://docs.vllm.ai/en/stable/api/vllm/sampling_params.html).
 
     Returns:
         A dict containing the vLLM `RequestOutput` in its native format.
@@ -129,8 +124,8 @@ def generate(
     Env.get().require_package('vllm', min_version=[0, 6, 0])
     import vllm
 
-    llm = _lookup_model(model, engine_kwargs or {})
-    sp = vllm.SamplingParams(**(sampling_params or {})) if sampling_params else None
+    llm = _lookup_model(model, engine_args or {})
+    sp = vllm.SamplingParams(**sampling_params) if sampling_params is not None else None
 
     gen_kwargs: dict[str, Any] = {'use_tqdm': False}
     if sp is not None:
@@ -140,17 +135,17 @@ def generate(
     return _request_output_to_dict(outputs[0])
 
 
-def _lookup_model(model: str, engine_kwargs: dict[str, Any]) -> 'vllm.LLM':
+def _lookup_model(model: str, engine_args: dict[str, Any]) -> 'vllm.LLM':
     import vllm
 
-    kwargs_key = json.dumps(engine_kwargs, sort_keys=True, default=str) if engine_kwargs else ''
-    key = (model, kwargs_key)
+    args_key = json.dumps(engine_args, sort_keys=True, default=str) if engine_args else ''
+    key = (model, args_key)
     if key not in _model_cache:
-        _model_cache[key] = vllm.LLM(model=model, **engine_kwargs)
+        _model_cache[key] = vllm.LLM(model=model, **engine_args)
     return _model_cache[key]
 
 
-def _request_output_to_dict(output: Any) -> dict:
+def _request_output_to_dict(output: 'vllm.RequestOutput') -> dict:
     """Convert a vLLM RequestOutput to a JSON-serializable dict, preserving native structure."""
     return {
         'request_id': output.request_id,
@@ -171,7 +166,7 @@ def _request_output_to_dict(output: Any) -> dict:
     }
 
 
-_model_cache: dict[tuple, 'vllm.LLM'] = {}
+_model_cache: dict[tuple[str, str], 'vllm.LLM'] = {}
 
 
 __all__ = local_public_names(__name__)
