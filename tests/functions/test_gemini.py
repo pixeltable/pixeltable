@@ -1,3 +1,6 @@
+import logging
+import random
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +22,8 @@ from ..utils import (
     validate_update_status,
 )
 from .tool_utils import run_tool_invocations_test
+
+_logger = logging.getLogger('pixeltable')
 
 
 @pytest.mark.remote_api
@@ -280,6 +285,44 @@ class TestGemini:
         sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
+
+    @pytest.mark.expensive
+    def test_generate_content_scheduler(self, uses_db: None) -> None:
+        """
+        Scheduler stress test: 30 rows on gemini-2.5-flash free tier (~10 RPM) triggers 429s
+        and verifies that retry logic recovers all rows.
+
+        Meant to be used in conjunction with a free tier gemini api key, to manually verify that
+        the retry logic in RateLimitsScheduler is working properly. If the test fails with a non-zero
+        number of exceptions, check the logs to see if they were 429 errors and if retries were attempted.
+        """
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_content
+
+        with open('tests/data/random_words', encoding='utf-8') as f:
+            wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
+
+        num_rows = 30
+        model = 'gemini-2.5-flash'
+
+        t = pxt.create_table('scheduler_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t.add_computed_column(prompt='Use "' + t.word1 + '" and "' + t.word2 + '" in one short sentence.')
+        t.add_computed_column(response=generate_content(t.prompt, model=model))
+
+        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(num_rows))]
+
+        t0 = time.monotonic()
+        status = t.insert(rows, on_error='ignore')
+        elapsed = time.monotonic() - t0
+
+        succeeded = num_rows - status.num_excs
+        _logger.debug(
+            f'model={model}, rows={num_rows}, succeeded={succeeded}, errors={status.num_excs}, '
+            f'elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
+        )
+
+        assert status.num_excs == 0, f'{status.num_excs} rows failed permanently — retries did not recover them'
 
     def test_embed_content_multimodal(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')

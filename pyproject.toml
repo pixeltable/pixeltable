@@ -214,6 +214,7 @@ template = "__version__: str = '{version}'\n"
 exclude = [
     ".pytest_cache",
     ".pytype",
+    "dashboard",
     "docs",
     "local",
     "tests",
@@ -224,10 +225,14 @@ exclude = [
 exclude = [
     ".pytest_cache",
     ".pytype",
+    "dashboard",
     "docs",
     "local",
     "tests",
     "tool",
+]
+artifacts = [
+    "pixeltable/dashboard/static/**",
 ]
 
 [tool.isort]

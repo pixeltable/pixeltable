@@ -1,4 +1,7 @@
+import logging
 import os
+import random
+import time
 
 import PIL.Image
 import pytest
@@ -10,6 +13,8 @@ from pixeltable.config import Config
 
 from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
+
+_logger = logging.getLogger('pixeltable')
 
 
 @pytest.mark.remote_api
@@ -609,6 +614,50 @@ class TestOpenai:
         validate_update_status(t.insert(input='Where did the game of Backgammon originate?'), 1)
         result = t.collect()
         assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
+
+    @pytest.mark.expensive
+    def test_chat_completions_scheduler(self, uses_db: None) -> None:
+        """
+        Scheduler throughput test: 20 rows through gpt-4o-mini to verify the rate-limit
+        scheduler dispatches and completes requests without errors.
+
+        Meant to be used in conjunction with a rate limit enabled openai api key, to manually verify that
+        the retry logic in RateLimitsScheduler is working properly. If the test fails with a non-zero
+        number of exceptions, check the logs to see if they were 429 errors and if retries were attempted.
+        """
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import chat_completions
+
+        with open('tests/data/random_words', encoding='utf-8') as f:
+            wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
+
+        num_rows = 20
+        model = 'gpt-4o-mini'
+
+        t = pxt.create_table('scheduler_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t.add_computed_column(
+            prompt=[
+                {'role': 'system', 'content': 'You are a helpful assistant. Be concise.'},
+                {'role': 'user', 'content': 'Use ' + t.word1 + ' and ' + t.word2 + ' in one short sentence.'},
+            ]
+        )
+        t.add_computed_column(response=chat_completions(t.prompt, model=model))
+
+        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(num_rows))]
+
+        t0 = time.monotonic()
+        status = t.insert(rows, on_error='ignore')
+        elapsed = time.monotonic() - t0
+
+        succeeded = num_rows - status.num_excs
+        _logger.debug(
+            f'model={model}, rows={num_rows}, '
+            f'succeeded={succeeded}, errors={status.num_excs}, '
+            f'elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
+        )
+
+        assert status.num_excs == 0, f'{status.num_excs} rows failed permanently'
 
     def test_shared_rate_limits_pool_different_signatures(self, uses_db: None) -> None:
         """Verify that functions sharing a rate-limits pool with different get_request_resources signatures

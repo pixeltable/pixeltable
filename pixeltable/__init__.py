@@ -76,7 +76,7 @@ from .type_system import (
 )
 
 # This import must go last to avoid circular imports.
-from . import functions, io, iterators  # isort: skip
+from . import dashboard, functions, io, iterators  # isort: skip
 
 # This is the safest / most maintainable way to construct __all__: start with the default and "blacklist"
 # stuff that we don't want in there. (Using a "whitelist" is considerably harder to maintain.)
