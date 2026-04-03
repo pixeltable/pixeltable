@@ -1,7 +1,6 @@
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 
 from .utils import ReloadTester, validate_update_status
