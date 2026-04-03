@@ -354,11 +354,11 @@ class Catalog:
                             raise
                         except sql_exc.DBAPIError as e:
                             # Handle retriable errors
+                            has_exc = True
                             if isinstance(
                                 e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
                             ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
                                 _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
-                                has_exc = True
                                 num_retries += 1
                                 time.sleep(random.uniform(0.1, 0.5))
                                 conn.rollback()  # attempt failed -- don't try to commit the transaction before retrying
