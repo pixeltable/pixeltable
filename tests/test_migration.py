@@ -407,13 +407,9 @@ class TestMigration:
         good_idx_name = f'pk_idx_{good_tbl_id.hex}'
         bad_idx_name = f'pk_idx_{bad_tbl_id.hex}'
         with Env.get().engine.begin() as conn:
-            result = conn.execute(
-                sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': good_idx_name}
-            )
+            result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': good_idx_name})
             assert result.fetchone() is not None, f'Expected pk index {good_idx_name} to exist for pk_test_good'
-            result = conn.execute(
-                sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name}
-            )
+            result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name})
             assert result.fetchone() is None, f'Expected pk index {bad_idx_name} to NOT exist for pk_test_bad'
 
 
