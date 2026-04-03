@@ -34,11 +34,11 @@ def _version_error_total(tbl: Table) -> int:
 
 def _column_error_counts(tbl: Table) -> dict[str, int]:
     """Count rows with errors per computed or media column. Returns {col_name: count}."""
-    select_list: dict[str, exprs.Expr] = {}
-    for col_name in tbl.columns():
-        col_ref = getattr(tbl, col_name)
-        if col_ref.col.is_computed or col_ref.col_type.is_media_type():
-            select_list[col_name] = pxtf.count(col_ref.errortype)
+    md = tbl.get_metadata()
+    select_list: dict[str, Any] = {}
+    for col_name, col_info in md['columns'].items():
+        if col_info['is_computed'] or col_info['media_validation'] is not None:
+            select_list[col_name] = pxtf.count(getattr(tbl, col_name).errortype)
     if not select_list:
         return {}
     results = tbl.select(**select_list).collect()
