@@ -392,7 +392,7 @@ class TestMigration:
 
     @classmethod
     def _verify_v49(cls) -> None:
-        """Verify that every table with is_pk columns has a primary_index_md."""
+        """Verify user-visible primary-key metadata and pk_idx index presence for migrated tables."""
         pk_good = pxt.get_table('pk_test_good')
         pk_good_md = pk_good.get_metadata()
         assert pk_good_md['columns']['id']['is_primary_key'] == True
