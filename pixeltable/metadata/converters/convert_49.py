@@ -17,10 +17,10 @@ def _(engine: sql.engine.Engine) -> None:
 def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, updated_table_md: dict) -> None:
     """Create primary key indexes for tables that have is_pk columns but no index yet.
 
-    Old tables only have is_pk on individual columns in column_md; primary_index_md didn't
-    exist before this migration. This converter builds the primary_index_md and creates the
-    corresponding PostgreSQL unique index. On failure (e.g. duplicates), the PK metadata is
-    removed.
+    Older tables may only mark primary-key columns via column_md[*]['is_pk']. This converter
+    creates the corresponding PostgreSQL unique index when it does not already exist. If index
+    creation fails (for example because duplicate values exist), it clears is_pk for those
+    columns in the table metadata.
     """
     from pixeltable.index.btree import BtreeIndex
     from pixeltable.metadata.schema import Table
