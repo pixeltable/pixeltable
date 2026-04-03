@@ -79,33 +79,60 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
         col_names = []
     data: dict[str, Any] = {}
 
-    # avoid fields with empty dicts, they cannot be serialized as a struct in Parquet
-    sample_dict = {
-        'detections': [
-            {
-                'id': '637e8e073b28441a453564cf',
-                'tags': [],
-                'label': 'potted plant',
-                'bounding_box': [0.37028125, 0.3345305164319249, 0.038593749999999996, 0.16314553990610328],
-                'mask': None,
-                'confidence': None,
-                'index': None,
-                'supercategory': 'furniture',
-                'iscrowd': 0,
-            },
-            {
-                'id': '637e8e073b28441a453564cf',
-                'tags': [],
-                'label': 'potted plant',
-                'bounding_box': [0.37028125, 0.3345305164319249, 0.038593749999999996, 0.16314553990610328],
-                'mask': None,
-                'confidence': None,
-                'index': None,
-                'supercategory': 'furniture',
-                'iscrowd': 0,
-            },
-        ]
-    }
+    # Each sample exercises different valid JSON literal types (see JsonType.__is_valid_json_literal).
+    # Avoid empty dicts: they cannot be serialized as a struct in Parquet.
+    sample_json_values = [
+        # 0: nested dict with strings, ints, floats, bools, None, and lists
+        {
+            'detections': [
+                {
+                    'id': '637e8e073b28441a453564cf',
+                    'tags': ['a', 'b'],
+                    'label': 'potted plant',
+                    'bounding_box': [0.370, 0.335, 0.039, 0.163],
+                    'mask': None,
+                    'confidence': 0.95,
+                    'iscrowd': 0,
+                    'verified': True,
+                }
+            ]
+        },
+        # 1: dict with embedded PIL image
+        {'label': 'synthetic', 'thumbnail': PIL.Image.new('RGB', (4, 4), color=(255, 0, 0))},
+        # 2: dict with embedded numpy array
+        {'label': 'embedding', 'vector': np.zeros(8, dtype=np.float64)},
+        # 3: dict with embedded bytes
+        {'label': 'binary_payload', 'raw': b'\xde\xad\xbe\xef'},
+        # 4: dict with mixed nested list containing image, array, bytes
+        {
+            'label': 'mixed_list',
+            'items': [
+                'text_item',
+                42,
+                3.14,
+                True,
+                None,
+                PIL.Image.new('L', (2, 2)),
+                np.ones(3, dtype=np.float32),
+                b'\x00\x01',
+            ],
+        },
+        # 5: deeply nested structure
+        {'level1': {'level2': {'level3': [1, 2.0, 'three', False, None]}}},
+        # 6: list at top level (valid JSON literal)
+        [{'key': 'val1', 'n': 1}, {'key': 'val2', 'n': 2}],
+        # 7: all scalar types in one dict
+        {
+            's': 'hello',
+            'i': 42,
+            'f': 2.718,
+            'b': False,
+            'n': None,
+            'bin': b'\xca\xfe',
+            'arr': np.array([1.0, 2.0], dtype=np.float64),
+            'img': PIL.Image.new('RGBA', (3, 3)),
+        },
+    ]
 
     if len(col_names) == 0:
         col_names = [c.name for c in t._tbl_version_path.columns() if not c.is_computed]
@@ -132,7 +159,7 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
         if col_type.is_binary_type():
             col_data = [b'1$\x03\xfe'] * num_rows
         if col_type.is_json_type():
-            col_data = [sample_dict] * num_rows
+            col_data = [sample_json_values[i % len(sample_json_values)] for i in range(num_rows)]
         if col_type.is_array_type():
             assert isinstance(col_type, ts.ArrayType)
             col_data = [np.ones(col_type.shape, dtype=col_type.dtype)] * num_rows
