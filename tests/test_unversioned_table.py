@@ -34,7 +34,7 @@ class TestUnversionedTable:
         store_name = tbl._tbl_version.get().store_tbl.sa_tbl.name
 
         with get_runtime().begin_xact() as conn:
-            inspector = sql.inspect(Env.get().engine)
+            inspector = sql.inspect(conn)
             col_names = {col['name'] for col in inspector.get_columns(store_name)}
             col_names.remove('rowid')
             assert all(name.startswith('col_') for name in col_names), col_names
