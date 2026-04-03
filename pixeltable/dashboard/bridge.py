@@ -344,20 +344,13 @@ def _parse_deps(value_expr: exprs.Expr | None, own_name: str = '') -> list[str]:
 
 
 def _get_iterator_info(tbl: Table) -> tuple[str | None, set[str]]:
-    """Return (iterator_class_name, set_of_iterator_column_names) for a view.
-
-    Uses the fixed ``TableVersion.is_iterator_column`` (v0.5.19+) which
-    correctly identifies iterator-produced columns by column id.
-    """
-    try:
-        tv = tbl._tbl_version_path.tbl_version.get()
-        if tv.iterator_call is not None:
-            name = tv.iterator_call.it.name
-            iter_cols = {c.name for c in tv.cols if c.name and tv.is_iterator_column(c)}
-            return name, iter_cols
-    except Exception:
-        pass
-    return None, set()
+    """Return (iterator_class_name, set_of_iterator_column_names) for a view."""
+    md = tbl.get_metadata()
+    if md['iterator_call'] is None:
+        return None, set()
+    iterator_name = md['iterator_call'].split('(')[0]
+    iter_cols = {name for name, col_info in md['columns'].items() if col_info['is_iterator_col']}
+    return iterator_name, iter_cols
 
 
 def get_pipeline() -> dict[str, Any]:
