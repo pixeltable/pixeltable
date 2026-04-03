@@ -38,7 +38,11 @@ if TYPE_CHECKING:
 
 
 def init(config_overrides: dict[str, Any] | None = None) -> None:
-    """Initializes the Pixeltable environment."""
+    """Initializes the Pixeltable environment.
+
+    Args:
+        config_overrides: Optional dictionary of configuration overrides.
+    """
     if config_overrides is None:
         config_overrides = {}
     Config.init(config_overrides)
@@ -165,7 +169,6 @@ def create_table(
         ...     primary_key=['id'],
         ... )
     """
-    from pixeltable.io.table_data_conduit import UnkTableDataConduit
     from pixeltable.io.utils import normalize_primary_key_parameter
 
     if (schema is None) == (source is None):
@@ -187,9 +190,7 @@ def create_table(
                 "replica_tbl = pxt.replicate('pxt://path/to/remote_table', 'local_replica_name')\n"
                 "pxt.create_table('new_table_name', source=replica_tbl)"
             )
-        tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
-        tds.check_source_format()
-        data_source = tds.specialize()
+        data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
         src_schema_overrides: dict[str, ts.ColumnType] = {}
         if schema_overrides is not None:
             for col_name, py_type in schema_overrides.items():
@@ -241,6 +242,7 @@ def create_table(
             with get_runtime().catalog.begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
                 tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
         elif data_source is not None and not is_direct_query:
+            assert isinstance(tbl, catalog.InsertableTable)
             tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
     return tbl

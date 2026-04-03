@@ -3,11 +3,8 @@ from __future__ import annotations
 import enum
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Literal, Sequence, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Sequence, overload
 from uuid import UUID
-
-import pydantic
-import pydantic_core
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
@@ -15,7 +12,6 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.pydantic import is_json_convertible
 
 from .column import Column
 from .globals import MediaValidation
@@ -139,45 +135,28 @@ class InsertableTable(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.io.table_data_conduit import UnkTableDataConduit
+        from pixeltable.io.table_data_conduit import TableDataConduit
 
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.Error('Cannot insert an empty sequence.')
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            table = self
-            start_ts = time.monotonic()
+        if source is None:
+            source = [kwargs]
+            kwargs = None
 
-            # TODO: unify with TableDataConduit
-            if source is not None and isinstance(source, Sequence) and isinstance(source[0], pydantic.BaseModel):
-                status = self._insert_pydantic(
-                    cast(Sequence[pydantic.BaseModel], source),  # needed for mypy
-                    print_stats=print_stats,
-                    fail_on_exception=fail_on_exception,
-                )
-                Env.get().console_logger.info(status.insert_msg(start_ts))
-                FileCache.get().emit_eviction_warnings()
-                return status
+        data_source = TableDataConduit.create(
+            source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
+        )
+        if data_source.source_column_map is None:
+            data_source.src_pk = []
 
-            if source is None:
-                source = [kwargs]
-                kwargs = None
+        data_source.add_table_info(self)
+        data_source.prepare_for_insert_into_table()
 
-            tds = UnkTableDataConduit(
-                source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
-            )
-            data_source = tds.specialize()
-            if data_source.source_column_map is None:
-                data_source.src_pk = []
-
-            assert isinstance(table, Table)
-            data_source.add_table_info(table)
-            data_source.prepare_for_insert_into_table()
-
-            return table.insert_table_data_source(
-                data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
-            )
+        return self.insert_table_data_source(
+            data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
+        )
 
     def insert_table_data_source(
         self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
@@ -185,127 +164,22 @@ class InsertableTable(Table):
         """Insert row batches into this table from a `TableDataConduit`."""
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
 
+        start_ts = time.perf_counter()
+        status = pxt.UpdateStatus()
         with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            start_ts = time.perf_counter()
             if isinstance(data_source, QueryTableDataConduit):
-                status = pxt.UpdateStatus()
                 status += self._tbl_version.get().insert(
                     rows=None, query=data_source.pxt_query, print_stats=print_stats, fail_on_exception=fail_on_exception
                 )
             else:
-                status = pxt.UpdateStatus()
                 for row_batch in data_source.valid_row_batch():
                     status += self._tbl_version.get().insert(
                         rows=row_batch, query=None, print_stats=print_stats, fail_on_exception=fail_on_exception
                     )
 
         Env.get().console_logger.info(status.insert_msg(start_ts))
-
         FileCache.get().emit_eviction_warnings()
         return status
-
-    def _insert_pydantic(
-        self, rows: Sequence[pydantic.BaseModel], print_stats: bool = False, fail_on_exception: bool = True
-    ) -> UpdateStatus:
-        model_class = type(rows[0])
-        self._validate_pydantic_model(model_class)
-        # convert rows one-by-one in order to be able to print meaningful error messages
-        pxt_rows: list[dict[str, Any]] = []
-        for i, row in enumerate(rows):
-            try:
-                pxt_rows.append(row.model_dump(mode='json'))
-            except pydantic_core.PydanticSerializationError as e:
-                raise excs.Error(f'Row {i}: error serializing pydantic model to JSON:\n{e}') from e
-
-        # explicitly check that all required columns are present and non-None in the rows,
-        # because we ignore nullability when validating the pydantic model
-        reqd_col_names = [col.name for col in self._tbl_version_path.columns() if col.is_required_for_insert]
-        for i, pxt_row in enumerate(pxt_rows):
-            if type(rows[i]) is not model_class:
-                raise excs.Error(
-                    f'Expected an instance of `{model_class.__name__}`; got `{type(rows[i]).__name__}` (in row {i})'
-                )
-            for col_name in reqd_col_names:
-                if pxt_row.get(col_name) is None:
-                    raise excs.Error(f'Missing required column {col_name!r} in row {i}')
-
-        status = self._tbl_version.get().insert(
-            rows=pxt_rows, query=None, print_stats=print_stats, fail_on_exception=fail_on_exception
-        )
-        return status
-
-    def _validate_pydantic_model(self, model: type[pydantic.BaseModel]) -> None:
-        """
-        Check if a Pydantic model is compatible with this table for insert operations.
-
-        A model is compatible if:
-        - All required table columns have corresponding model fields with compatible types
-        - Model does not define fields for computed columns
-        - Model field types are compatible with table column types
-        """
-        assert isinstance(model, type) and issubclass(model, pydantic.BaseModel)
-
-        schema = self._get_schema()
-        required_cols = set(self._tbl_version.get().get_required_col_names())
-        computed_cols = set(self._tbl_version.get().get_computed_col_names())
-        model_fields = model.model_fields
-        model_field_names = set(model_fields.keys())
-
-        missing_required = required_cols - model_field_names
-        if missing_required:
-            raise excs.Error(
-                f'Pydantic model `{model.__name__}` is missing required columns: ' + ', '.join(missing_required)
-            )
-
-        computed_in_model = computed_cols & model_field_names
-        if computed_in_model:
-            raise excs.Error(
-                f'Pydantic model `{model.__name__}` has fields for computed columns: ' + ', '.join(computed_in_model)
-            )
-
-        # validate type compatibility
-        common_fields = model_field_names & set(schema.keys())
-        if len(common_fields) == 0:
-            raise excs.Error(
-                f'Pydantic model `{model.__name__}` has no fields that map to columns in table {self._name!r}'
-            )
-        for field_name in common_fields:
-            pxt_col_type = schema[field_name]
-            model_field = model_fields[field_name]
-            model_type = model_field.annotation
-
-            # we ignore nullability: we want to accept optional model fields for required table columns, as long as
-            # the model instances provide a non-null value
-            # allow_enum=True: model_dump(mode='json') converts enums to their values
-            inferred_pxt_type = ts.ColumnType.from_python_type(model_type, infer_pydantic_json=True)
-            if inferred_pxt_type is None:
-                raise excs.Error(
-                    f'Pydantic model `{model.__name__}`: cannot infer Pixeltable type for column {field_name!r}'
-                )
-
-            if pxt_col_type.is_media_type():
-                # media types require file paths, either as str or Path
-                if not inferred_pxt_type.is_string_type():
-                    raise excs.Error(
-                        f'Column {field_name!r} requires a `str` or `Path` field in `{model.__name__}`, but it is '
-                        f'`{model_type.__name__}`'
-                    )
-            else:
-                if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
-                    raise excs.Error(
-                        f'Pydantic model `{model.__name__}` has incompatible type `{model_type.__name__}` '
-                        f'for column {field_name!r} (of Pixeltable type `{pxt_col_type}`)'
-                    )
-
-                if (
-                    isinstance(model_type, type)
-                    and issubclass(model_type, pydantic.BaseModel)
-                    and not is_json_convertible(model_type)
-                ):
-                    raise excs.Error(
-                        f'Pydantic model `{model.__name__}` has field {field_name!r} with nested model '
-                        f'`{model_type.__name__}`, which is not JSON-convertible'
-                    )
 
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         """Delete rows in this table.

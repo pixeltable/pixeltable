@@ -6,7 +6,7 @@ import random
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypedDict, cast
 
 import av
 import numpy as np
@@ -14,7 +14,6 @@ import pandas as pd
 import PIL.Image
 import pydantic
 import pytest
-from jsonschema.exceptions import ValidationError
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -310,6 +309,9 @@ class TestTable:
                             'defined_in': 'test',
                             'is_primary_key': False,
                             'is_stored': True,
+                            'is_computed': False,
+                            'is_iterator_col': False,
+                            'destination': None,
                             'media_validation': media_val,
                             'custom_metadata': None,
                             'comment': None,
@@ -323,6 +325,8 @@ class TestTable:
                     'is_view': False,
                     'is_snapshot': False,
                     'is_replica': False,
+                    'kind': 'table',
+                    'iterator_call': None,
                     'name': 'test',
                     'media_validation': media_val,
                     'path': tbl_path,
@@ -342,6 +346,9 @@ class TestTable:
                             'defined_in': 'test',
                             'is_primary_key': False,
                             'is_stored': True,
+                            'is_computed': False,
+                            'is_iterator_col': False,
+                            'destination': None,
                             'media_validation': media_val,
                             'custom_metadata': None,
                             'comment': None,
@@ -369,6 +376,8 @@ class TestTable:
                     'is_view': True,
                     'is_snapshot': False,
                     'is_replica': False,
+                    'kind': 'view',
+                    'iterator_call': None,
                     'name': 'test_view',
                     'media_validation': media_val,
                     'path': view_path,
@@ -388,6 +397,9 @@ class TestTable:
                             'defined_in': 'test',
                             'is_primary_key': False,
                             'is_stored': True,
+                            'is_computed': False,
+                            'is_iterator_col': False,
+                            'destination': None,
                             'media_validation': media_val,
                             'comment': None,
                             'name': 'col',
@@ -401,6 +413,8 @@ class TestTable:
                     'is_view': True,
                     'is_snapshot': True,
                     'is_replica': False,
+                    'kind': 'snapshot',
+                    'iterator_call': None,
                     'name': 'test_puresnap',
                     'media_validation': media_val,
                     'path': puresnap_path,
@@ -420,6 +434,9 @@ class TestTable:
                             'defined_in': 'test',
                             'is_primary_key': False,
                             'is_stored': True,
+                            'is_computed': False,
+                            'is_iterator_col': False,
+                            'destination': None,
                             'media_validation': media_val,
                             'custom_metadata': None,
                             'name': 'col',
@@ -432,6 +449,9 @@ class TestTable:
                             'defined_in': 'test_snap',
                             'is_primary_key': False,
                             'is_stored': True,
+                            'is_computed': True,
+                            'is_iterator_col': False,
+                            'destination': None,
                             'media_validation': media_val,
                             'custom_metadata': None,
                             'name': 'col2',
@@ -445,6 +465,8 @@ class TestTable:
                     'is_view': True,
                     'is_snapshot': True,
                     'is_replica': False,
+                    'kind': 'snapshot',
+                    'iterator_call': None,
                     'name': 'test_snap',
                     'media_validation': media_val,
                     'path': snap_path,
@@ -671,7 +693,7 @@ class TestTable:
         assert t.where(t.i < 50).count() == 100
 
         # missing required keys in input
-        with pytest.raises(pxt.Error, match="Missing required column 's'"):
+        with pytest.raises(pxt.Error, match="Missing required column 'en'"):
             rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
             _ = t.insert(rows3)
 
@@ -774,7 +796,7 @@ class TestTable:
             s: str
             i: int
             h: Literal['abc', 'def']
-            u: int | str
+            u: str
             r: list[int]
             t: tuple[int, str]
             d: dict[str, int]
@@ -791,7 +813,7 @@ class TestTable:
                     s=f'str_{i}',
                     i=i,
                     h='abc' if i % 2 == 0 else 'def',
-                    u=i if i % 2 == 0 else f'str_{i}',
+                    u=f'str_{i}',
                     r=[i, i + 1],
                     t=(i, f'str_{i}'),
                     d={'a': i},
@@ -825,7 +847,9 @@ class TestTable:
             _ = t.insert([BadModel1(s='str_0', j=N2(s='str_0', i=0, c=PIL.Image.new('RGB', (100, 100))))])
 
         # nested model with field that's not json-convertible
-        with pytest.raises(pxt.Error, match="field 'j' with nested model `N4`, which is not JSON-convertible"):
+        with pytest.raises(
+            pxt.Error, match=r"Field 's' in Pydantic model `N3` is not a valid Pixeltable type: set\[int\]"
+        ):
 
             class N3(pydantic.BaseModel):
                 s: set[int]
@@ -1281,37 +1305,70 @@ class TestTable:
                 assert os.path.exists(path) and os.path.isfile(path)
 
     def test_validate_json(self, uses_db: None) -> None:
-        json_schema = {
-            'properties': {
-                'a': {'type': 'string'},
-                'b': {'type': 'integer'},
-                'c': {'type': 'number'},
-                'd': {'type': 'boolean'},
-            },
-            'required': ['a', 'b'],
-        }
+        class MySchema(TypedDict):
+            a: str
+            b: int
+            c: float
+            d: bool
+
+        class MySchemaOpt(TypedDict, total=False):
+            a: str
+            b: int
+            c: float
+            d: bool
 
         t = pxt.create_table(
             'test',
             {
-                'json_col': pxt.Json[json_schema]  # type: ignore[misc]
+                'json_col_1': MySchema,
+                'json_col_2': MySchemaOpt,
+                'json_col_3': pxt.Json[tuple[pxt.Int, pxt.String]],  # type: ignore[misc]
+                'json_col_4': pxt.Json[tuple[pxt.Int, ...]],  # type: ignore[misc]
+                'json_col_5': pxt.Json[(pxt.Int, pxt.String, ...)],  # type: ignore[misc]  # noqa: RUF031
             },
         )
-        t.insert(json_col={'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True})
-        t.update({'json_col': {'a': 'mangoes', 'b': 2}})  # Omit optional properties
+        t.insert(json_col_1={'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True})
+        t.update({'json_col_2': {'a': 'mangoes', 'b': 2}})  # Omit optional properties ok since total=False
+        t.update({'json_col_3': [1, 'two']})  # List of correct length ok
+        t.update({'json_col_4': []})  # Variadic list of minimal length ok
+        t.update({'json_col_4': [1, 2, 3, 4]})  # Longer variadic list ok
+        t.update({'json_col_5': [1]})  # Variadic list of minimal length ok
+        t.update({'json_col_5': [1, 'two', 'three', 'four']})  # Longer variadic list ok
 
-        with pytest.raises(ValidationError) as exc_info:
-            t.insert(json_col={'a': 'apples', 'b': 'elephant'})  # Wrong type
-        assert "'elephant' is not of type 'integer'" in str(exc_info.value)
+        with pytest.raises(pxt.Error, match=r"expected a list; got `str`: 'not a list'"):
+            t.insert(json_col_3='not a list')  # Wrong type
 
-        with pytest.raises(ValidationError) as exc_info:
-            t.insert(json_col={'a': 'apples'})  # Missing required field
-        assert "'b' is a required property" in str(exc_info.value)
+        with pytest.raises(pxt.Error, match=r'expected string, got int'):
+            t.insert(json_col_3=[1, 2])  # Wrong type of list item
+
+        with pytest.raises(pxt.Error, match=r'expected int, got str'):
+            t.insert(json_col_4=[1, 2, 3, 'four'])  # Wrong type of variadic list item
+
+        with pytest.raises(pxt.Error, match=r'expected string, got float'):
+            t.insert(json_col_5=[1, 'two', 'three', 4.0])  # Wrong type of variadic list item
+
+        with pytest.raises(pxt.Error, match=r'too few items in list: expected exactly 2; got 1'):
+            t.insert(json_col_3=[1])  # List is too short
+
+        with pytest.raises(pxt.Error, match=r'too many items in list: expected exactly 2; got 3'):
+            t.insert(json_col_3=[1, 'two', 'three'])  # Non-variadic list is too long
+
+        with pytest.raises(pxt.Error, match=r'too few items in list: expected at least 1; got 0'):
+            t.insert(json_col_5=[])  # Variadic list is too short
+
+        with pytest.raises(pxt.Error, match=r"expected a dict; got `str`: 'not a dict'"):
+            t.insert(json_col_1='not a dict')  # Wrong type
+
+        with pytest.raises(pxt.Error, match=r'expected int, got str'):
+            t.insert(json_col_2={'a': 'apples', 'b': 'elephant'})  # Wrong type of dict value
+
+        with pytest.raises(pxt.Error, match=r"missing required key: 'b'"):
+            t.insert(json_col_1={'a': 'apples'})  # Missing required field
 
         with pytest.raises(
-            pxt.Error, match=r'Type `Json` of value.*is not compatible with the type.*of column \'json_col\''
+            pxt.Error, match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'"
         ):
-            t.update({'json_col': {'a': 'apples'}})  # Validation error on update
+            t.update({'json_col_2': {'a': 15}})  # Validation error on update
 
     def test_validate_image(self, uses_db: None) -> None:
         rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
@@ -1329,7 +1386,8 @@ class TestTable:
         self.check_bad_media(rows, pxt.Audio)
 
     def test_validate_docs(self, uses_db: None) -> None:
-        skip_test_if_not_installed('mistune')
+        skip_test_if_not_installed('markitdown', 'mistune')
+
         valid_doc_paths = get_documents()
         invalid_doc_paths = [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
         doc_paths = valid_doc_paths + invalid_doc_paths
