@@ -27,6 +27,8 @@ from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
+from pixeltable.utils.object_stores import ObjectPath, ObjectOps
+from pixeltable.utils.s3_store import S3Store
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient
@@ -75,15 +77,18 @@ def _to_base64_str(media: PIL.Image.Image | str) -> str:
     with open(media, 'rb') as f:
         return b64encode(f.read()).decode('utf-8')
 
+
 def _to_binary(media: PIL.Image.Image | str) -> bytes:
     """Convert PIL image or file path to raw bytes for the Converse API (expects bytes, not base64)."""
     if isinstance(media, PIL.Image.Image):
         import io
+
         buf = io.BytesIO()
         media.save(buf, format='JPEG')
         return buf.getvalue()
     with open(media, 'rb') as f:
         return f.read()
+
 
 def _to_data_uri(media: PIL.Image.Image | str) -> str:
     return f'data:image/jpeg;base64,{_to_base64_str(media)}'
@@ -105,39 +110,37 @@ def _to_data_uri(media: PIL.Image.Image | str) -> str:
 #     imageGenerationConfig.conditionImage, inPaintingParams.image, outPaintingParams.image
 #   stability.  (e.g. stability.sd3-5-large-v1:0, stability.stable-image-core-v1:1):
 #     init_image
+#   us.stability.  (e.g. us.stability.sd3-5-large-v1:0):
+#     init_image
 #   amazon.nova-2-multimodal-embeddings  (e.g. amazon.nova-2-multimodal-embeddings-v1:0):
 #     singleEmbeddingParams -> image|audio|video -> source -> bytes  (sync path, files < 25 MB)
 _DIRECT_MEDIA_PATHS: dict[str, list[tuple[list[str], Callable]]] = {
     # Marengo: media nested under inputType key (e.g. image.mediaSource.base64String)
     'twelvelabs.marengo': [
-        (['image',      'mediaSource', 'base64String'], _to_base64_str),
-        (['audio',      'mediaSource', 'base64String'], _to_base64_str),
-        (['video',      'mediaSource', 'base64String'], _to_base64_str),
+        (['image', 'mediaSource', 'base64String'], _to_base64_str),
+        (['audio', 'mediaSource', 'base64String'], _to_base64_str),
+        (['video', 'mediaSource', 'base64String'], _to_base64_str),
         (['text_image', 'mediaSource', 'base64String'], _to_base64_str),
     ],
     # Pegasus: flat schema, mediaSource at top level
-    'twelvelabs.pegasus': [
-        (['mediaSource', 'base64String'], _to_base64_str),
-    ],
-    'amazon.titan-embed-image': [
-        (['inputImage'], _to_base64_str),
-    ],
+    'twelvelabs.pegasus': [(['mediaSource', 'base64String'], _to_base64_str)],
+    'amazon.titan-embed-image': [(['inputImage'], _to_base64_str)],
     'amazon.nova-canvas': [
-        (['textToImageParams',            'conditionImage'],   _to_base64_str),
-        (['inPaintingParams',             'image'],            _to_base64_str),
-        (['outPaintingParams',            'image'],            _to_base64_str),
-        (['imageVariationParams',         'images'],           _to_base64_str),
-        (['colorGuidedGenerationParams',  'referenceImage'],   _to_base64_str),
-        (['imageConditioningParams',      'conditionImage'],   _to_base64_str),
+        (['textToImageParams', 'conditionImage'], _to_base64_str),
+        (['inPaintingParams', 'image'], _to_base64_str),
+        (['outPaintingParams', 'image'], _to_base64_str),
+        (['imageVariationParams', 'images'], _to_base64_str),
+        (['colorGuidedGenerationParams', 'referenceImage'], _to_base64_str),
+        (['imageConditioningParams', 'conditionImage'], _to_base64_str),
     ],
     'amazon.titan-image-generator': [
         (['imageGenerationConfig', 'conditionImage'], _to_base64_str),
-        (['inPaintingParams',      'image'],          _to_base64_str),
-        (['outPaintingParams',     'image'],          _to_base64_str),
+        (['inPaintingParams', 'image'], _to_base64_str),
+        (['outPaintingParams', 'image'], _to_base64_str),
     ],
-    'stability.': [
-        (['init_image'], _to_base64_str),
-    ],
+    'stability.': [(['init_image'], _to_base64_str)],
+    # Cross-region inference profile variant (e.g. us.stability.sd3-5-large-v1:0)
+    'us.stability.': [(['init_image'], _to_base64_str)],
     'amazon.nova-2-multimodal-embeddings': [
         (['singleEmbeddingParams', 'image', 'source', 'bytes'], _to_base64_str),
         (['singleEmbeddingParams', 'audio', 'source', 'bytes'], _to_base64_str),
@@ -176,36 +179,52 @@ def _apply_direct_conversions(body: dict, model_id: str) -> dict:
 #   qwen.qwen3-vl-235b-a22b, cohere.embed-v4:0) use
 #   messages[*].content[*].image_url.url  encoded as a data URI
 #
+#   Cohere embed-v4 additionally uses an inputs[] array (same image_url schema):
+#   inputs[*].content[*].image_url.url  encoded as a data URI
+#
 # Meta Llama models (llama3-2-11b-instruct-v1:0, llama4-maverick-17b-instruct-v1:0) use
 #   body.images[*]
-_MESSAGES_BYTES_PREFIXES = frozenset({
-    'amazon.nova-lite',
-    'amazon.nova-pro',
-    'amazon.nova-premier',
-    'amazon.nova-2-lite',
-})
+# Note: cross-region inference profile IDs carry a leading "us." (e.g. us.meta.llama3-2-11b-instruct-v1:0);
+#       both the bare and prefixed forms are matched.
+_MESSAGES_BYTES_PREFIXES = frozenset(
+    {'amazon.nova-lite', 'amazon.nova-pro', 'amazon.nova-premier', 'amazon.nova-2-lite'}
+)
 
-_MESSAGES_ANTHROPIC_PREFIXES = frozenset({
-    'anthropic.',
-})
+_MESSAGES_ANTHROPIC_PREFIXES = frozenset({'anthropic.'})
 
-_MESSAGES_IMAGE_URL_PREFIXES = frozenset({
-    'mistral.pixtral',
-    'mistral.mistral-large-3',
-    'mistral.magistral',
-    'mistral.ministral',
-    'google.gemma-3',
-    'nvidia.nemotron-nano-12b',
-    'moonshot.',
-    'moonshotai.',
-    'qwen.qwen3-vl',
-    'cohere.embed-v4',
-})
+_MESSAGES_IMAGE_URL_PREFIXES = frozenset(
+    {
+        'mistral.pixtral',
+        'us.mistral.pixtral',
+        'mistral.mistral-large-3',
+        'us.mistral.mistral-large-3',
+        'mistral.magistral',
+        'us.mistral.magistral',
+        'mistral.ministral',
+        'us.mistral.ministral',
+        'google.gemma-3',
+        'nvidia.nemotron-nano-12b',
+        'moonshot.',
+        'moonshotai.',
+        'qwen.qwen3-vl',
+        'cohere.embed-v4',
+    }
+)
 
-_TOP_LEVEL_IMAGES_PREFIXES = frozenset({
-    'meta.llama3-2',
-    'meta.llama4',
-})
+_TOP_LEVEL_IMAGES_PREFIXES = frozenset({'meta.llama3-2', 'us.meta.llama3-2', 'meta.llama4', 'us.meta.llama4'})
+
+
+def _apply_image_url_conversions_in_content(content_list: list) -> None:
+    """Convert image_url media values to data URIs within a content block list (in-place)."""
+    for block in content_list:
+        if not isinstance(block, dict):
+            continue
+        img_url = block.get('image_url')
+        if isinstance(img_url, dict):
+            if 'url' in img_url and _is_media(img_url['url']):
+                img_url['url'] = _to_data_uri(img_url['url'])
+        elif _is_media(img_url):
+            block['image_url'] = _to_data_uri(img_url)
 
 
 def _apply_recursive_conversions(body: dict, model_id: str) -> dict:
@@ -240,16 +259,13 @@ def _apply_recursive_conversions(body: dict, model_id: str) -> dict:
                         src['data'] = _to_base64_str(src['data'])
 
     if use_image_url:
+        # messages[*].content[*] — standard OpenAI-compatible chat path
         for msg in body.get('messages', []):
-            for block in msg.get('content', []):
-                if not isinstance(block, dict):
-                    continue
-                img_url = block.get('image_url')
-                if isinstance(img_url, dict):
-                    if 'url' in img_url and _is_media(img_url['url']):
-                        img_url['url'] = _to_data_uri(img_url['url'])
-                elif _is_media(img_url):
-                    block['image_url'] = _to_data_uri(img_url)
+            _apply_image_url_conversions_in_content(msg.get('content', []))
+        # inputs[*].content[*] — Cohere embed-v4 uses "inputs" instead of "messages"
+        for item in body.get('inputs', []):
+            if isinstance(item, dict):
+                _apply_image_url_conversions_in_content(item.get('content', []))
 
     if use_top_level_images:
         images = body.get('images', [])
@@ -277,13 +293,13 @@ def _apply_converse_conversions(messages: list[dict]) -> list[dict]:
 
 # Default embedding dimensions for known models, used by conditional_return_type.
 _embedding_dimensions: dict[str, int] = {
-    'amazon.titan-embed-text-v1':               1536,
-    'amazon.titan-embed-text-v2:0':             1024,
-    'amazon.titan-embed-image-v1':              1024,
+    'amazon.titan-embed-text-v1': 1536,
+    'amazon.titan-embed-text-v2:0': 1024,
+    'amazon.titan-embed-image-v1': 1024,
     'amazon.nova-2-multimodal-embeddings-v1:0': 3072,
-    'cohere.embed-english-v3':                  1024,
-    'cohere.embed-multilingual-v3':             1024,
-    'cohere.embed-v4:0':                        1536,
+    'cohere.embed-english-v3': 1024,
+    'cohere.embed-multilingual-v3': 1024,
+    'cohere.embed-v4:0': 1536,
 }
 
 
@@ -336,7 +352,9 @@ async def invoke_model(
         ...     'image': {'mediaSource': {'base64String': tbl.image}},
         ... }
         >>> tbl.add_computed_column(
-        ...     response=invoke_model(body, model_id='twelvelabs.marengo-embed-3-0-v1:0')
+        ...     response=invoke_model(
+        ...         body, model_id='twelvelabs.marengo-embed-3-0-v1:0'
+        ...     )
         ... )
 
         Invoke Anthropic Claude with an image:
@@ -344,28 +362,46 @@ async def invoke_model(
         >>> body = {
         ...     'anthropic_version': 'bedrock-2023-05-31',
         ...     'max_tokens': 1024,
-        ...     'messages': [{
-        ...         'role': 'user',
-        ...         'content': [
-        ...             {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': tbl.image}},
-        ...             {'type': 'text', 'text': "What's in this image?"},
-        ...         ],
-        ...     }],
+        ...     'messages': [
+        ...         {
+        ...             'role': 'user',
+        ...             'content': [
+        ...                 {
+        ...                     'type': 'image',
+        ...                     'source': {
+        ...                         'type': 'base64',
+        ...                         'media_type': 'image/jpeg',
+        ...                         'data': tbl.image,
+        ...                     },
+        ...                 },
+        ...                 {'type': 'text', 'text': "What's in this image?"},
+        ...             ],
+        ...         }
+        ...     ],
         ... }
         >>> tbl.add_computed_column(
-        ...     response=invoke_model(body, model_id='anthropic.claude-3-haiku-20240307-v1:0')
+        ...     response=invoke_model(
+        ...         body, model_id='anthropic.claude-3-haiku-20240307-v1:0'
+        ...     )
         ... )
 
         Invoke Amazon Nova Lite with a video column:
 
         >>> body = {
-        ...     'messages': [{
-        ...         'role': 'user',
-        ...         'content': [
-        ...             {'video': {'format': 'mp4', 'source': {'bytes': tbl.video}}},
-        ...             {'text': 'What happens in this video?'},
-        ...         ],
-        ...     }],
+        ...     'messages': [
+        ...         {
+        ...             'role': 'user',
+        ...             'content': [
+        ...                 {
+        ...                     'video': {
+        ...                         'format': 'mp4',
+        ...                         'source': {'bytes': tbl.video},
+        ...                     }
+        ...                 },
+        ...                 {'text': 'What happens in this video?'},
+        ...             ],
+        ...         }
+        ...     ]
         ... }
         >>> tbl.add_computed_column(
         ...     response=invoke_model(body, model_id='amazon.nova-lite-v1:0')
@@ -389,24 +425,9 @@ async def invoke_model(
     return json.loads(response['body'].read())
 
 
-def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
-    """Parse an S3 URI into (bucket, key_prefix). Raises ValueError if the URI is malformed."""
-    if not s3_uri.startswith('s3://'):
-        raise ValueError(f'Invalid S3 URI (must start with s3://): {s3_uri!r}')
-    without_scheme = s3_uri[len('s3://'):]
-    if '/' not in without_scheme:
-        return without_scheme, ''
-    bucket, prefix = without_scheme.split('/', 1)
-    return bucket, prefix.rstrip('/')
-
-
 @pxt.udf(is_deterministic=False)
 async def invoke_model_async(
-    body: dict,
-    *,
-    model_id: str,
-    output_location: str,
-    poll_interval_secs: float = 5.0,
+    body: dict, *, model_id: str, output_location: str, poll_interval_secs: float = 5.0
 ) -> dict:
     """
     Invoke a Bedrock model asynchronously via the StartAsyncInvoke API.
@@ -491,8 +512,6 @@ async def invoke_model_async(
         ...     )
         ... )
     """
-    import boto3
-
     body = _apply_direct_conversions(body, model_id)
     body = _apply_recursive_conversions(body, model_id)
 
@@ -504,56 +523,50 @@ async def invoke_model_async(
         outputDataConfig={'s3OutputDataConfig': {'s3Uri': output_location}},
     )
     invocation_arn: str = response['invocationArn']
-    invocation_id: str = invocation_arn.split('/')[-1]
+    invocation_id: str = invocation_arn.rsplit('/', maxsplit=1)[-1]
 
     # Poll until terminal state.
     while True:
         await asyncio.sleep(poll_interval_secs)
-        job: dict[str, Any] = await asyncio.to_thread(
-            _bedrock_client().get_async_invoke,
-            invocationArn=invocation_arn,
-        )
+        job: dict[str, Any] = await asyncio.to_thread(_bedrock_client().get_async_invoke, invocationArn=invocation_arn)
         status: str = job['status']  # 'InProgress' | 'Completed' | 'Failed'
         if status == 'Completed':
             break
         if status == 'Failed':
-            raise pxt.Error(
-                f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}'
-            )
-    # AH TODO use object store/obj path or fetch uri
-    bucket, prefix = _parse_s3_uri(output_location)
-    # Read result from S3. Bedrock writes output under <prefix>/<invocation_id>/.
-    result_prefix = f'{prefix}/{invocation_id}' if prefix else invocation_id
-    s3 = boto3.client('s3')
+            raise pxt.Error(f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}')
 
-    # List objects to find what Bedrock wrote — the key name varies by model
-    # (e.g. output.json for embedding models, output.mp4 for video generation).
-    listed: dict[str, Any] = await asyncio.to_thread(
-        s3.list_objects_v2,
-        Bucket=bucket,
+    soa = ObjectPath.parse_object_storage_addr(output_location, allow_obj_name=False)
+    result_prefix = f'{soa.prefix}{invocation_id}/'
+    store = ObjectOps.get_store(soa, allow_obj_name=False)
+    assert isinstance(store, S3Store), f'Expected S3Store for output_location, got {type(store).__name__}'
+
+    listed = await asyncio.to_thread(
+        store.client().list_objects_v2,
+        Bucket=store.bucket_name,
         Prefix=result_prefix,
     )
-    objects: list[dict[str, Any]] = listed.get('Contents', [])
-    if not objects:
-        raise pxt.Error(f'No output found at s3://{bucket}/{result_prefix} after job {invocation_id} completed')
+    keys = [obj['Key'] for obj in listed.get('Contents', [])]
+    if not keys:
+        raise pxt.Error(f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed')
 
-    # Bedrock writes two files: manifest.json (status metadata) and the actual output
-    # (output.json for embeddings/text, output.mp4 for video generation models).
-    # Skip the manifest and read whatever the model wrote.
-    result_key: str = next(o['Key'] for o in objects if not o['Key'].endswith('manifest.json'))
-    obj: dict[str, Any] = await asyncio.to_thread(s3.get_object, Bucket=bucket, Key=result_key)
-    raw: bytes = obj['Body'].read()
+    # Skip manifest.json and read the actual output file.
+    result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
+    if result_key is None:
+        raise pxt.Error(f'No output file (only manifest) found for job {invocation_id}')
 
-    # Parse JSON results; return raw bytes as a base64 string for binary outputs (e.g. mp4).
-    try:
-        result: dict[str, Any] = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        result = {'output': b64encode(raw).decode('utf-8')}
+    obj = await asyncio.to_thread(
+        store.client().get_object, Bucket=store.bucket_name, Key=result_key
+    )
 
-    # Delete the staging S3 object — result is now stored in the Pixeltable computed column.
-    for s3_obj in objects:
-        await asyncio.to_thread(s3.delete_object, Bucket=bucket, Key=s3_obj['Key'])
+    if result_key.endswith('.json'):
+        raw_text = obj['Body'].read().decode('utf-8')
+        result = json.loads(raw_text)
+    else:
+        # Binary output (e.g. .mp4) — encode as base64
+        result = {'output': b64encode(obj['Body'].read()).decode('utf-8')}
 
+    for key in keys:
+        await asyncio.to_thread(store.client().delete_object, Bucket=store.bucket_name, Key=key)
     return result
 
 
@@ -603,18 +616,22 @@ async def converse(
 
         >>> msgs = [{'role': 'user', 'content': [{'text': tbl.prompt}]}]
         >>> tbl.add_computed_column(
-        ...     response=converse(msgs, model_id='anthropic.claude-3-haiku-20240307-v1:0')
+        ...     response=converse(
+        ...         msgs, model_id='anthropic.claude-3-haiku-20240307-v1:0'
+        ...     )
         ... )
 
         Pass an image via the Converse API:
 
-        >>> msgs = [{
-        ...     'role': 'user',
-        ...     'content': [
-        ...         {'image': {'format': 'jpeg', 'source': {'bytes': tbl.image}}},
-        ...         {'text': "What's in this image?"},
-        ...     ],
-        ... }]
+        >>> msgs = [
+        ...     {
+        ...         'role': 'user',
+        ...         'content': [
+        ...             {'image': {'format': 'jpeg', 'source': {'bytes': tbl.image}}},
+        ...             {'text': "What's in this image?"},
+        ...         ],
+        ...     }
+        ... ]
         >>> tbl.add_computed_column(
         ...     response=converse(msgs, model_id='amazon.nova-lite-v1:0')
         ... )
@@ -652,12 +669,7 @@ async def converse(
 
 
 @pxt.udf
-async def embed(
-    text: str,
-    *,
-    model_id: str,
-    dimensions: int | None = None,
-) -> pxt.Array[(None,), np.float32]:
+async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> pxt.Array[(None,), np.float32]:
     """
     Generate text embeddings using Amazon Titan, Amazon Nova, or Cohere embedding models.
 
@@ -690,14 +702,15 @@ async def embed(
 
         >>> tbl.add_embedding_index(
         ...     tbl.text,
-        ...     string_embed=embed.using(model_id='amazon.titan-embed-text-v2:0', dimensions=512),
+        ...     string_embed=embed.using(
+        ...         model_id='amazon.titan-embed-text-v2:0', dimensions=512
+        ...     ),
         ... )
 
         Add an embedding index using Cohere:
 
         >>> tbl.add_embedding_index(
-        ...     tbl.text,
-        ...     string_embed=embed.using(model_id='cohere.embed-english-v3'),
+        ...     tbl.text, string_embed=embed.using(model_id='cohere.embed-english-v3')
         ... )
     """
     from botocore.exceptions import ClientError
@@ -744,12 +757,7 @@ async def embed(
 
 
 @embed.overload
-async def _(
-    image: PIL.Image.Image,
-    *,
-    model_id: str,
-    dimensions: int | None = None,
-) -> pxt.Array[(None,), np.float32]:
+async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = None) -> pxt.Array[(None,), np.float32]:
     """
     Generate image embeddings using Amazon Titan, Amazon Nova, or Cohere Embed v4.
 
@@ -796,11 +804,7 @@ async def _(
         if dimensions is not None:
             body['singleEmbeddingParams']['embeddingDimension'] = dimensions
     elif model_id.startswith('cohere.embed-v4'):
-        body = {
-            'images': [_to_data_uri(image)],
-            'input_type': 'search_document',
-            'embedding_types': ['float'],
-        }
+        body = {'images': [_to_data_uri(image)], 'input_type': 'search_document', 'embedding_types': ['float']}
         if dimensions is not None:
             body['output_dimension'] = dimensions
     else:
