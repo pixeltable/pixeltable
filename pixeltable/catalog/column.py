@@ -488,7 +488,7 @@ class Column:
         value_expr = self.value_expr
         if value_expr is None:
             return False
-        return value_expr.contains(cls=exprs.FunctionCall, filter=lambda e: not e.fn.is_builtin)
+        return value_expr.contains_(cls=exprs.FunctionCall, filter=lambda e: not e.fn.is_builtin)
 
     @property
     def is_stored(self) -> bool:
