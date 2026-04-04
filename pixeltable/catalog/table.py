@@ -117,6 +117,14 @@ class Table(SchemaObject):
         columns = tvp.columns()
         column_info: dict[str, ColumnMetadata] = {}
         for col in columns:
+            dependencies: list[tuple[str, str]] | None = None
+            if col.is_computed:
+                value_expr = col.value_expr
+                assert value_expr is not None
+                dependencies = [
+                    (col_ref.col.tbl_handle.get().name, col_ref.col.name)
+                    for col_ref in value_expr.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False)
+                ]
             column_info[col.name] = ColumnMetadata(
                 name=col.name,
                 type_=col.col_type._to_str(as_schema=True),
@@ -126,6 +134,8 @@ class Table(SchemaObject):
                 media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
                 is_computed=col.is_computed,
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
+                is_builtin=(not col.calls_custom_udf) if col.value_expr is not None else None,
+                depends_on=dependencies,
                 defined_in=col.get_tbl().name,
                 comment=col.comment,
                 custom_metadata=col.custom_metadata,

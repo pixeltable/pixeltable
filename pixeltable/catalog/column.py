@@ -484,6 +484,13 @@ class Column:
         return self._value_expr is not None or self.value_expr_dict is not None
 
     @property
+    def calls_custom_udf(self) -> bool:
+        value_expr = self.value_expr
+        if value_expr is None:
+            return False
+        return value_expr.contains(cls=exprs.FunctionCall, filter=lambda e: not e.fn.is_builtin)
+
+    @property
     def is_stored(self) -> bool:
         """Returns True if column is materialized in the stored table."""
         assert self.stored is not None
