@@ -771,19 +771,124 @@ class TestTable:
             vmd,
         )
 
-        # Iterator view: iterator-produced columns
-        t2 = pxt.create_table('test2', {'n': pxt.Int})
-        t2.insert(n=3)
-        iv = pxt.create_view('iter_view', t2, iterator=DummyIterator(t2.n))
+    def test_iterator_view_metadata(self, uses_db: None) -> None:
+        """Test metadata for iterator views: iterator-produced columns, inherited columns, and computed columns."""
+        t = pxt.create_table('test', {'n': pxt.Int})
+        t.insert(n=3)
+        iv = pxt.create_view('iter_view', t, iterator=DummyIterator(t.n))
+        # Add a computed column on the iterator view to cover that corner case
+        iv.add_computed_column(derived=iv.out2 + 1)
 
-        ivmd = iv.get_metadata()
-        assert ivmd['iterator_call'] is not None
-        assert 'DummyIterator' in ivmd['iterator_call']
-        # Iterator-produced columns
-        assert ivmd['columns']['out1']['is_iterator_col'] is True
-        assert ivmd['columns']['out2']['is_iterator_col'] is True
-        # Inherited base column
-        assert ivmd['columns']['n']['is_iterator_col'] is False
+        assert_table_metadata_eq(
+            {
+                'name': 'iter_view',
+                'path': 'iter_view',
+                'kind': 'view',
+                'is_view': True,
+                'is_snapshot': False,
+                'is_replica': False,
+                'base': 'test',
+                'iterator_call': 'DummyIterator(limit=n)',
+                'version': 1,
+                'schema_version': 1,
+                'comment': None,
+                'custom_metadata': None,
+                'media_validation': 'on_write',
+                'indices': {},
+                'columns': {
+                    # pos column: system column exposed in metadata for iterator views
+                    'pos': {
+                        'name': 'pos',
+                        'type_': 'Required[Int]',
+                        'version_added': 0,
+                        'is_stored': False,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'iter_view',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    # Iterator-produced columns
+                    'out1': {
+                        'name': 'out1',
+                        'type_': 'Required[String]',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'iter_view',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': True,
+                        'destination': None,
+                    },
+                    'out2': {
+                        'name': 'out2',
+                        'type_': 'Required[Int]',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'iter_view',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': True,
+                        'destination': None,
+                    },
+                    # Inherited base column
+                    'n': {
+                        'name': 'n',
+                        'type_': 'Int',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    # Computed column added to iterator view
+                    'derived': {
+                        'name': 'derived',
+                        'type_': 'Required[Int]',
+                        'version_added': 1,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': True,
+                        'computed_with': 'out2 + 1',
+                        'is_builtin': True,
+                        'depends_on': [('iter_view', 'out2')],
+                        'defined_in': 'iter_view',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                },
+            },
+            iv.get_metadata(),
+        )
 
     def test_media_validation(self, uses_db: None) -> None:
         tbl_schema: dict[str, ColumnSpec | type] = {
