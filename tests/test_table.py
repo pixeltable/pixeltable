@@ -772,11 +772,9 @@ class TestTable:
         )
 
     def test_iterator_view_metadata(self, uses_db: None) -> None:
-        """Test metadata for iterator views: iterator-produced columns, inherited columns, and computed columns."""
         t = pxt.create_table('test', {'n': pxt.Int})
         t.insert(n=3)
         iv = pxt.create_view('iter_view', t, iterator=DummyIterator(t.n))
-        # Add a computed column on the iterator view to cover that corner case
         iv.add_computed_column(derived=iv.out2 + 1)
 
         assert_table_metadata_eq(
@@ -796,7 +794,6 @@ class TestTable:
                 'media_validation': 'on_write',
                 'indices': {},
                 'columns': {
-                    # pos column: system column exposed in metadata for iterator views
                     'pos': {
                         'name': 'pos',
                         'type_': 'Required[Int]',
@@ -814,7 +811,6 @@ class TestTable:
                         'is_iterator_col': False,
                         'destination': None,
                     },
-                    # Iterator-produced columns
                     'out1': {
                         'name': 'out1',
                         'type_': 'Required[String]',
@@ -849,7 +845,6 @@ class TestTable:
                         'is_iterator_col': True,
                         'destination': None,
                     },
-                    # Inherited base column
                     'n': {
                         'name': 'n',
                         'type_': 'Int',
@@ -867,7 +862,6 @@ class TestTable:
                         'is_iterator_col': False,
                         'destination': None,
                     },
-                    # Computed column added to iterator view
                     'derived': {
                         'name': 'derived',
                         'type_': 'Required[Int]',

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.catalog.table_metadata import TableMetadata
+from pixeltable.catalog.table_metadata import ColumnMetadata, TableMetadata
 from pixeltable.config import Config
 from pixeltable.env import Env
 
@@ -50,14 +50,14 @@ def _column_error_counts(tbl: pxt.Table) -> dict[str, int]:
 
 def _build_select(
     tbl: pxt.Table, *, include_errors: bool = False
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, str], dict[str, tuple[str, str]]]:
+) -> tuple[list[dict[str, Any]], dict[str, exprs.Expr], dict[str, str], dict[str, tuple[str, str]]]:
     """Build column info list, select dict, media URL map, and error column map.
 
     Returns (columns, select_dict, media_url_cols, error_cols).
     """
     md = tbl.get_metadata()
     columns: list[dict[str, Any]] = []
-    select_dict: dict[str, Any] = {}
+    select_dict: dict[str, exprs.Expr] = {}
     media_url_cols: dict[str, str] = {}
     error_cols: dict[str, tuple[str, str]] = {}
 
@@ -292,7 +292,7 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
         table_matches = query_lower in tbl_path.lower()
 
         # Only fetch table metadata once, and only when needed
-        tbl_md = None
+        tbl_md: TableMetadata | None = None
         if table_matches or len(results['columns']) < limit:
             try:
                 tbl = pxt.get_table(tbl_path)
@@ -335,7 +335,7 @@ def get_pipeline() -> dict[str, Any]:
         try:
             tbl = pxt.get_table(path)
             md = tbl.get_metadata()
-            column_md = md['columns']
+            column_md: dict[str, ColumnMetadata] = md['columns']
             row_count = tbl.count()
 
             col_errors = _column_error_counts(tbl)
