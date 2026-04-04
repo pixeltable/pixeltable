@@ -64,6 +64,7 @@
                   "howto/providers/working-with-pydantic",
                   "howto/providers/working-with-replicate",
                   "howto/providers/working-with-reve",
+                  "howto/providers/working-with-runwayml",
                   "howto/providers/working-with-tigris",
                   "howto/providers/working-with-together",
                   "howto/providers/working-with-twelvelabs",
