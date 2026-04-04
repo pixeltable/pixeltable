@@ -502,9 +502,11 @@ class Column:
         return f'{self.get_tbl().name}.{self.name}'
 
     @property
-    def media_validation(self) -> MediaValidation:
+    def media_validation(self) -> MediaValidation | None:
         if self._media_validation is not None:
             return self._media_validation
+        if not self.col_type.is_media_type():
+            return None
         assert self.get_tbl() is not None
         return self.get_tbl().media_validation
 
