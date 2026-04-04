@@ -487,6 +487,304 @@ class TestTable:
                 snap.get_metadata(),
             )
 
+    def test_column_metadata(self, uses_db: None) -> None:
+        """Test all ColumnMetadata fields across tables and views with various column types."""
+        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image})
+        # Builtin computed, single dependency
+        t.add_computed_column(plus1=t.c1 + 1)
+        # Builtin computed, multiple dependencies
+        t.add_computed_column(sum12=t.c1 + t.c2)
+        # Custom UDF computed
+        t.add_computed_column(custom=TestTable.f1(t.c1))
+
+        md = t.get_metadata()
+        custom_cw = md['columns']['custom']['computed_with']
+        assert custom_cw is not None  # exact string depends on UDF registration; verify it round-trips
+
+        assert_table_metadata_eq(
+            {
+                'base': None,
+                'columns': {
+                    'c1': {
+                        'name': 'c1',
+                        'type_': 'Int',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'c2': {
+                        'name': 'c2',
+                        'type_': 'Int',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'img': {
+                        'name': 'img',
+                        'type_': 'Image',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': 'on_write',
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'plus1': {
+                        'name': 'plus1',
+                        'type_': 'Int',
+                        'version_added': 1,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': True,
+                        'computed_with': 'c1 + 1',
+                        'is_builtin': True,
+                        'depends_on': [('test', 'c1')],
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'sum12': {
+                        'name': 'sum12',
+                        'type_': 'Int',
+                        'version_added': 2,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': True,
+                        'computed_with': 'c1 + c2',
+                        'is_builtin': True,
+                        'depends_on': [('test', 'c1'), ('test', 'c2')],
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'custom': {
+                        'name': 'custom',
+                        'type_': 'Float',
+                        'version_added': 3,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': True,
+                        'computed_with': custom_cw,
+                        'is_builtin': False,
+                        'depends_on': [('test', 'c1')],
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                },
+                'comment': None,
+                'custom_metadata': None,
+                'indices': {},
+                'is_view': False,
+                'is_snapshot': False,
+                'is_replica': False,
+                'kind': 'table',
+                'iterator_call': None,
+                'name': 'test',
+                'media_validation': 'on_write',
+                'path': 'test',
+                'schema_version': 3,
+                'version': 3,
+            },
+            md,
+        )
+
+        # View: inherits columns from base, adds its own computed column
+        v = pxt.create_view('test_view', t)
+        v.add_computed_column(derived=v.c1 * 2)
+
+        vmd = v.get_metadata()
+        assert_table_metadata_eq(
+            {
+                'base': 'test',
+                'columns': {
+                    'c1': {
+                        'name': 'c1',
+                        'type_': 'Int',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'c2': {
+                        'name': 'c2',
+                        'type_': 'Int',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'img': {
+                        'name': 'img',
+                        'type_': 'Image',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': 'on_write',
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'plus1': {
+                        'name': 'plus1',
+                        'type_': 'Int',
+                        'version_added': 1,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': True,
+                        'computed_with': 'c1 + 1',
+                        'is_builtin': True,
+                        'depends_on': [('test', 'c1')],
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'sum12': {
+                        'name': 'sum12',
+                        'type_': 'Int',
+                        'version_added': 2,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': True,
+                        'computed_with': 'c1 + c2',
+                        'is_builtin': True,
+                        'depends_on': [('test', 'c1'), ('test', 'c2')],
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'custom': {
+                        'name': 'custom',
+                        'type_': 'Float',
+                        'version_added': 3,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': True,
+                        'computed_with': custom_cw,
+                        'is_builtin': False,
+                        'depends_on': [('test', 'c1')],
+                        'defined_in': 'test',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'derived': {
+                        'name': 'derived',
+                        'type_': 'Int',
+                        'version_added': 1,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': True,
+                        'computed_with': 'c1 * 2',
+                        'is_builtin': True,
+                        'depends_on': [('test', 'c1')],
+                        'defined_in': 'test_view',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                },
+                'comment': None,
+                'custom_metadata': None,
+                'indices': {},
+                'is_view': True,
+                'is_snapshot': False,
+                'is_replica': False,
+                'kind': 'view',
+                'iterator_call': None,
+                'name': 'test_view',
+                'media_validation': 'on_write',
+                'path': 'test_view',
+                'schema_version': 1,
+                'version': 1,
+            },
+            vmd,
+        )
+
+        # Iterator view: iterator-produced columns
+        t2 = pxt.create_table('test2', {'n': pxt.Int})
+        t2.insert(n=3)
+        iv = pxt.create_view('iter_view', t2, iterator=DummyIterator(t2.n))
+
+        ivmd = iv.get_metadata()
+        assert ivmd['iterator_call'] is not None
+        assert 'DummyIterator' in ivmd['iterator_call']
+        # Iterator-produced columns
+        assert ivmd['columns']['out1']['is_iterator_col'] is True
+        assert ivmd['columns']['out2']['is_iterator_col'] is True
+        # Inherited base column
+        assert ivmd['columns']['n']['is_iterator_col'] is False
+
     def test_media_validation(self, uses_db: None) -> None:
         tbl_schema: dict[str, ColumnSpec | type] = {
             'img': {'type': pxt.Image, 'media_validation': 'on_write'},
