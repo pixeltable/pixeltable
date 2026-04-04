@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.catalog.table import Table
 from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -29,12 +28,12 @@ if TYPE_CHECKING:
     from pixeltable import exprs
 
 
-def _version_error_total(tbl: Table) -> int:
+def _version_error_total(tbl: pxt.Table) -> int:
     """Sum errors across all versions of a table (cheap, no row scans)."""
     return sum(v['errors'] for v in tbl.get_versions())
 
 
-def _column_error_counts(tbl: Table) -> dict[str, int]:
+def _column_error_counts(tbl: pxt.Table) -> dict[str, int]:
     """Count rows with errors per computed or media column. Returns {col_name: count}."""
     md = tbl.get_metadata()
     select_list: dict[str, exprs.Expr] = {}
@@ -50,7 +49,7 @@ def _column_error_counts(tbl: Table) -> dict[str, int]:
 
 
 def _build_select(
-    tbl: Table, *, include_errors: bool = False
+    tbl: pxt.Table, *, include_errors: bool = False
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, str], dict[str, tuple[str, str]]]:
     """Build column info list, select dict, media URL map, and error column map.
 
@@ -381,7 +380,7 @@ def get_pipeline() -> dict[str, Any]:
                     'is_iterator_col': is_iter_col,
                     'computed_with': value_expr,
                     'defined_in': defined_in,
-                    'defined_in_self': defined_in == tbl._name,
+                    'defined_in_self': defined_in == md['name'],
                     'func_name': iterator_name if is_iter_col else value_expr,
                     'func_type': func_type,
                     'error_count': col_errors.get(col_name, 0),
