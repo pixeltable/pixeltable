@@ -95,6 +95,10 @@ class Function(ABC):
         return len(self.signatures) > 1
 
     @property
+    def is_builtin(self) -> bool:
+        return self.self_path is not None and self.self_path.startswith('pixeltable.')
+
+    @property
     def signature(self) -> Signature:
         assert not self.is_polymorphic
         return self.signatures[0]

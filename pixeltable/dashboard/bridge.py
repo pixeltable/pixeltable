@@ -14,17 +14,19 @@ import json
 import logging
 import urllib.parse
 import urllib.request
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import exprs
 from pixeltable.catalog.table import Table
 from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
+
+if TYPE_CHECKING:
+    from pixeltable import exprs
 
 
 def _version_error_total(tbl: Table) -> int:
@@ -35,10 +37,11 @@ def _version_error_total(tbl: Table) -> int:
 def _column_error_counts(tbl: Table) -> dict[str, int]:
     """Count rows with errors per computed or media column. Returns {col_name: count}."""
     md = tbl.get_metadata()
-    select_list: dict[str, Any] = {}
-    for col_name, col_info in md['columns'].items():
-        if col_info['is_computed'] or col_info['media_validation'] is not None:
-            select_list[col_name] = pxtf.count(getattr(tbl, col_name).errortype)
+    select_list: dict[str, exprs.Expr] = {}
+    for col_name, info in md['columns'].items():
+        if info['is_computed'] or info['media_validation'] is not None:
+            col_ref = getattr(tbl, col_name)
+            select_list[col_name] = pxtf.count(col_ref.errortype)
     if not select_list:
         return {}
     results = tbl.select(**select_list).collect()
@@ -53,18 +56,18 @@ def _build_select(
 
     Returns (columns, select_dict, media_url_cols, error_cols).
     """
+    md = tbl.get_metadata()
     columns: list[dict[str, Any]] = []
     select_dict: dict[str, Any] = {}
     media_url_cols: dict[str, str] = {}
     error_cols: dict[str, tuple[str, str]] = {}
 
-    md = tbl.get_metadata()
-    for col_name, col_info in md['columns'].items():
-        is_media = col_info['media_validation'] is not None
-        is_computed = col_info['is_computed']
-        columns.append({'name': col_name, 'type': col_info['type_'], 'is_media': is_media, 'is_computed': is_computed})
-
+    for col_name, info in md['columns'].items():
         col_ref = getattr(tbl, col_name)
+        is_media = info['media_validation'] is not None
+        is_computed = info['is_computed']
+        columns.append({'name': col_name, 'type': info['type_'], 'is_media': is_media, 'is_computed': is_computed})
+
         if is_media:
             # Only fetch the URL — never download the actual media file
             url_key = f'{col_name}__url'
@@ -322,37 +325,6 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
     return results
 
 
-def _classify_udf(value_expr: exprs.Expr | None) -> str | None:
-    """Classify the salient UDF in an expression as 'builtin' or 'custom_udf'.
-
-    Returns None if the expression contains no UDF call.
-    """
-    if value_expr is None:
-        return None
-    fn = value_expr.get_first_udf()
-    if fn is None:
-        return None
-    path = fn.self_path
-    return 'builtin' if path and path.startswith('pixeltable.') else 'custom_udf'
-
-
-def _parse_deps(value_expr: exprs.Expr | None, own_name: str = '') -> list[str]:
-    """Extract column names referenced in an expression."""
-    if value_expr is None:
-        return []
-    return sorted({ref.col.name for ref in value_expr.subexprs(exprs.ColumnRef) if ref.col.name != own_name})
-
-
-def _get_iterator_info(tbl: Table) -> tuple[str | None, set[str]]:
-    """Return (iterator_class_name, set_of_iterator_column_names) for a view."""
-    md = tbl.get_metadata()
-    if md['iterator_call'] is None:
-        return None, set()
-    iterator_name = md['iterator_call'].split('(')[0]
-    iter_cols = {name for name, col_info in md['columns'].items() if col_info['is_iterator_col']}
-    return iterator_name, iter_cols
-
-
 def get_pipeline() -> dict[str, Any]:
     """Return the full DAG metadata for the Pipeline Inspector."""
     table_paths = sorted(pxt.list_tables('', recursive=True))
@@ -370,49 +342,53 @@ def get_pipeline() -> dict[str, Any]:
             col_errors = _column_error_counts(tbl)
             table_error_total = _version_error_total(tbl)
 
-            is_view = md['is_view']
             iterator_name: str | None = None
-            iter_col_names: set[str] = set()
-            if is_view:
-                iterator_name, iter_col_names = _get_iterator_info(tbl)
+            if md['is_view']:
+                # parse name out of iterator call
+                iterator_name = md['iterator_call']
 
             columns: list[dict[str, Any]] = []
             computed_cols: list[str] = []
 
             for col_name, info in column_md.items():
-                col_ref: exprs.ColumnRef = getattr(tbl, col_name)
-                col = col_ref.col
-                cw = info['computed_with']
-                is_iter_col = col_name in iter_col_names
+                # col_ref: exprs.ColumnRef = getattr(tbl, col_name)
+                # col = col_ref.col
+                value_expr = info['computed_with']
+                is_iter_col = info['is_iterator_col']
 
                 # Iterator-produced columns: use the iterator name as computed_with
-                if is_iter_col and cw is None:
-                    cw = iterator_name
+                if is_iter_col and value_expr is None:
+                    value_expr = iterator_name
 
-                is_computed = cw is not None
+                is_computed = value_expr is not None
                 if is_computed:
                     computed_cols.append(col_name)
                 defined_in = info['defined_in']
 
-                cw_str = str(cw)[:200] if cw else None
-                salient_fn = col.value_expr.get_first_udf() if col.value_expr is not None else None
-                func_name = salient_fn.display_name if salient_fn is not None else None
+                value_expr = value_expr[:200] if value_expr is not None else None
+                func_type: str
+                if is_iter_col:
+                    func_type = 'iterator'
+                elif info['is_builtin'] is not None and not info['is_builtin']:
+                    func_type = 'custom_udf'
+                else:
+                    func_type = 'builtin'
 
                 col_entry: dict[str, Any] = {
                     'name': col_name,
                     'type': info['type_'],
                     'is_computed': is_computed,
                     'is_iterator_col': is_iter_col,
-                    'computed_with': cw_str,
+                    'computed_with': value_expr,
                     'defined_in': defined_in,
                     'defined_in_self': defined_in == tbl._name,
-                    'func_name': iterator_name if is_iter_col else func_name,
-                    'func_type': 'iterator' if is_iter_col else _classify_udf(col.value_expr),
+                    'func_name': iterator_name if is_iter_col else value_expr,
+                    'func_type': func_type,
                     'error_count': col_errors.get(col_name, 0),
                 }
 
-                if is_computed and cw_str and not is_iter_col:
-                    col_entry['depends_on'] = _parse_deps(col.value_expr, col_name)
+                if is_computed and value_expr is not None and not is_iter_col:
+                    col_entry['depends_on'] = [d[1] for d in info['depends_on']]
 
                 columns.append(col_entry)
 
@@ -431,10 +407,11 @@ def get_pipeline() -> dict[str, Any]:
 
             base_path = md['base']
 
+            is_view = md['kind'] == 'view'
             nodes.append(
                 {
                     'path': path,
-                    'name': tbl._name,
+                    'name': md['name'],
                     'is_view': is_view,
                     'base': base_path,
                     'row_count': row_count,
