@@ -373,6 +373,42 @@ Iterators are powerful tools for processing large media files. They work seamles
 When using `token_limit` with `document_splitter`, ensure the limit accounts for any model context windows in your pipeline.
 </Warning>
 
+## Custom iterators with `@pxt.iterator`
+
+You can create your own iterators using the `@pxt.iterator` decorator on a Python generator function. This is the simplest way to define a custom iterator that splits one row into many.
+
+```python
+import pixeltable as pxt
+
+@pxt.iterator(output_columns={'word': pxt.String, 'position': pxt.Int})
+def word_iterator(text: str):
+    for i, word in enumerate(text.split()):
+        yield {'word': word, 'position': i}
+
+# Use as a view iterator
+words_view = pxt.create_view(
+    'text/words',
+    text_table,
+    iterator=word_iterator(text_table.content)
+)
+```
+
+Use `unstored_cols` to mark columns that should not be persisted:
+
+```python
+@pxt.iterator(
+    output_columns={'frame': pxt.Image, 'timestamp': pxt.Float},
+    unstored_cols=['frame']
+)
+def my_frame_extractor(video: pxt.Video):
+    # Custom frame extraction logic
+    ...
+```
+
+<Card title="Custom Iterators Cookbook" icon="code" href="/howto/cookbooks/core/custom-iterators">
+  Step-by-step guide to building custom iterators
+</Card>
+
 ## Additional resources
 
 <CardGroup cols={3}>

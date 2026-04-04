@@ -407,13 +407,18 @@
           <outline text="udf|pixeltable.functions.uuid.uuid7" />
           <outline text="udf|pixeltable.functions.uuid.to_string" />
         </outline>
-        <outline text="module|pixeltable.functions.vllm">
-          <outline text="udf|pixeltable.functions.vllm.chat_completions" />
-          <outline text="udf|pixeltable.functions.vllm.generate" />
-        </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />
-          <outline text="func|pixeltable.functions.vision.draw_bounding_boxes" />
+          <outline text="uda|pixeltable.functions.vision.mean_ap" />
+          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
+          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
+          <outline text="func|pixeltable.functions.vision.bboxes_scale" />
+          <outline text="func|pixeltable.functions.vision.bboxes_pad" />
+          <outline text="func|pixeltable.functions.vision.bboxes_clip_to_canvas" />
+          <outline text="func|pixeltable.functions.vision.bboxes_crop_canvas" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize_canvas" />
+          <outline text="func|pixeltable.functions.vision.overlay_segmentation" />
         </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />
