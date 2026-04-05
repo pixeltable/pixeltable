@@ -113,6 +113,73 @@ class TestOpenai:
             t.insert(input='Say something interesting.')
         assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
 
+    def test_responses(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import responses
+
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [{'role': 'user', 'content': t.input}]
+        t.add_computed_column(input_msgs=msgs)
+        # Basic responses call with instructions
+        t.add_computed_column(
+            resp_output=responses(model='gpt-4o-mini', input=t.input_msgs, instructions='You are a helpful assistant.')
+        )
+        # with inlined messages
+        t.add_computed_column(resp_output_2=responses(model='gpt-4o-mini', input=msgs))
+        # test model_kwargs (temperature, max_output_tokens)
+        t.add_computed_column(
+            resp_output_3=responses(
+                model='gpt-4o-mini',
+                input=msgs,
+                instructions='You are a helpful assistant.',
+                model_kwargs={'temperature': 0.7, 'max_output_tokens': 300, 'store': False},
+            )
+        )
+        validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)
+        result = t.collect()
+        assert len(result['resp_output'][0]['output_text']) > 0
+        assert len(result['resp_output_2'][0]['output_text']) > 0
+        assert len(result['resp_output_3'][0]['output_text']) > 0
+
+    @rerun(reruns=6, reruns_delay=8)
+    def test_responses_tool_invocations(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions import openai
+
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
+            messages = [{'role': 'user', 'content': t.prompt}]
+            t.add_computed_column(
+                response=openai.responses(model='gpt-4o-mini', input=messages, tools=tools, tool_choice=tool_choice)
+            )
+            t.add_computed_column(tool_calls=openai.invoke_tools(tools, t.response))
+            return t
+
+        run_tool_invocations_test(make_table, test_tool_choice=True, test_individual_tool_choice=True)
+
+    def test_responses_custom_tool_invocations(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import invoke_tools, responses
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        tools = pxt.tools(
+            pxt.tool(
+                stock_price, name='banana_quantity', description='Use this to compute the banana quantity of a symbol.'
+            )
+        )
+        t.add_computed_column(response=responses(model='gpt-4o-mini', input=messages, tools=tools))
+        t.add_computed_column(output=t.response.output_text)
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        t.insert(prompt='What is the banana quantity of the symbol NVDA?')
+        res = t.select(t.output, t.tool_calls).head()
+
+        assert res[0]['output'] is None or res[0]['output'] == ''
+        assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
+
     @pytest.mark.expensive
     def test_reasoning_models(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
