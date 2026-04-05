@@ -1214,7 +1214,9 @@ def overlay_image(
 
     overlay_label: str
     if scale is not None:
-        filters.append(f'[1:v]scale=-1:trunc(ih*{scale}/2)*2[ovr_scaled]')
+        md = av_utils.get_metadata(str(video))
+        video_height = next(s for s in md['streams'] if s['type'] == 'video')['height']
+        filters.append(f'[1:v]scale=-2:trunc({video_height}*{scale}/2)*2[ovr_scaled]')
         overlay_label = '[ovr_scaled]'
     else:
         overlay_label = '[1:v]'
