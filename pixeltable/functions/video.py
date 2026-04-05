@@ -91,6 +91,47 @@ class make_video(pxt.Aggregator):
         return str(self.out_file)
 
 
+@pxt.udf
+def image_to_video(
+    image: pxt.Image,
+    *,
+    duration: float,
+    fps: int = 24,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Convert a single still image into a video of a specified duration.
+
+    Unlike `make_video`, which requires a sequence of frames, this function efficiently creates a video from a
+    single image without replicating frames in memory.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        image: Input image to convert to video.
+        duration: Duration of the output video in seconds.
+        fps: Frames per second for the output video.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A video displaying the input image for the specified duration.
+
+    Examples:
+        Create a 5-second video from an image:
+
+        >>> tbl.select(image_to_video(tbl.image, duration=5.0)).collect()
+
+        Create a 10-second video at 30 fps:
+
+        >>> tbl.select(image_to_video(tbl.image, duration=10.0, fps=30)).collect()
+    """
+    raise NotImplementedError()
+
+
 @pxt.udf(is_method=True)
 def extract_audio(
     video_path: pxt.Video, stream_idx: int = 0, format: str = 'wav', codec: str | None = None
@@ -754,6 +795,58 @@ def with_audio(
 
 
 @pxt.udf(is_method=True)
+def mix_audio(
+    video: pxt.Video,
+    audio: pxt.Audio,
+    *,
+    audio_volume: float = 1.0,
+    original_volume: float = 1.0,
+    audio_start_time: float = 0.0,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Mix an audio track into a video's existing audio, blending both tracks together.
+
+    Unlike `with_audio`, which replaces the video's audio entirely, this function combines the original audio
+    with the new audio track. Volume levels for each track can be controlled independently.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video (must have an existing audio stream).
+        audio: Audio track to mix in.
+        audio_volume: Volume multiplier for the added audio track. 1.0 is original volume.
+        original_volume: Volume multiplier for the video's existing audio track. 1.0 is original volume.
+        audio_start_time: Time in seconds at which the added audio begins playing in the output.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video with both audio tracks mixed together.
+
+    Examples:
+        Add background music at 30% volume:
+
+        >>> tbl.select(tbl.video.mix_audio(tbl.music, audio_volume=0.3)).collect()
+
+        Mix audio starting at second 5, with the original audio reduced:
+
+        >>> tbl.select(
+        ...     tbl.video.mix_audio(
+        ...         tbl.music,
+        ...         audio_volume=0.5,
+        ...         original_volume=0.7,
+        ...         audio_start_time=5.0,
+        ...     )
+        ... ).collect()
+    """
+    raise NotImplementedError()
+
+
+@pxt.udf(is_method=True)
 def overlay_text(
     video: pxt.Video,
     text: str,
@@ -953,6 +1046,73 @@ def _create_drawtext_params(
             drawtext_params.append(f'boxborderw={"|".join(map(str, box_border))}')
 
     return drawtext_params
+
+
+@pxt.udf(is_method=True)
+def overlay_image(
+    video: pxt.Video,
+    image: pxt.Image,
+    *,
+    horizontal_align: Literal['left', 'center', 'right'] = 'center',
+    horizontal_margin: int = 0,
+    vertical_align: Literal['top', 'center', 'bottom'] = 'center',
+    vertical_margin: int = 0,
+    scale: float | None = None,
+    opacity: float = 1.0,
+    start_time: float | None = None,
+    end_time: float | None = None,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Overlay an image or logo on a video with customizable positioning, scaling, opacity, and timing.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video to overlay the image on.
+        image: Image to overlay (e.g., a logo or watermark).
+        horizontal_align: Horizontal alignment of the overlay (`'left'`, `'center'`, `'right'`).
+        horizontal_margin: Horizontal margin in pixels from the alignment edge.
+        vertical_align: Vertical alignment of the overlay (`'top'`, `'center'`, `'bottom'`).
+        vertical_margin: Vertical margin in pixels from the alignment edge.
+        scale: Scale factor for the overlay image relative to the video height. For example, 0.1 scales the
+            image to 10% of the video height while preserving aspect ratio. If None, uses the original size.
+        opacity: Overlay opacity from 0.0 (transparent) to 1.0 (opaque).
+        start_time: Time in seconds when the overlay appears. If None, the overlay is visible from the start.
+        end_time: Time in seconds when the overlay disappears. If None, the overlay is visible until the end.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video with the image overlay applied.
+
+    Examples:
+        Add a logo to the top-right corner:
+
+        >>> tbl.select(
+        ...     tbl.video.overlay_image(
+        ...         tbl.logo, horizontal_align='right', vertical_align='top'
+        ...     )
+        ... ).collect()
+
+        Add a watermark at 50% opacity, scaled to 10% of video height:
+
+        >>> tbl.select(
+        ...     tbl.video.overlay_image(tbl.logo, scale=0.1, opacity=0.5)
+        ... ).collect()
+
+        Show a logo only between seconds 2 and 8:
+
+        >>> tbl.select(
+        ...     tbl.video.overlay_image(
+        ...         tbl.logo, start_time=2.0, end_time=8.0, horizontal_align='right'
+        ...     )
+        ... ).collect()
+    """
+    raise NotImplementedError()
 
 
 @pxt.udf(is_method=True)
@@ -1331,6 +1491,73 @@ def fade_out(
     )
 
 
+@pxt.udf
+def transition(
+    video1: pxt.Video,
+    video2: pxt.Video,
+    *,
+    effect: Literal[
+        'fade',
+        'wipeleft',
+        'wiperight',
+        'wipeup',
+        'wipedown',
+        'slideleft',
+        'slideright',
+        'slideup',
+        'slidedown',
+        'dissolve',
+        'smoothleft',
+        'smoothright',
+        'smoothup',
+        'smoothdown',
+    ] = 'fade',
+    duration: float = 1.0,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Join two video clips with a transition effect.
+
+    Applies a crossfade or other transition effect between the end of the first clip and the beginning of
+    the second clip. The transition overlaps the last `duration` seconds of `video1` with the first `duration`
+    seconds of `video2`, so the total output duration is `len(video1) + len(video2) - duration`.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video1: First video clip.
+        video2: Second video clip.
+        effect: Transition effect type. Common options:
+
+            - `'fade'`: Classic crossfade (default).
+            - `'dissolve'`: Dissolve transition.
+            - `'wipeleft'`, `'wiperight'`, `'wipeup'`, `'wipedown'`: Wipe transitions.
+            - `'slideleft'`, `'slideright'`, `'slideup'`, `'slidedown'`: Slide transitions.
+            - `'smoothleft'`, `'smoothright'`, `'smoothup'`, `'smoothdown'`: Smooth transitions.
+        duration: Duration of the transition in seconds.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video with the transition applied between the two clips.
+
+    Examples:
+        Join two clips with a 1-second crossfade:
+
+        >>> tbl.select(transition(tbl.clip1, tbl.clip2)).collect()
+
+        Join with a 2-second wipe-left transition:
+
+        >>> tbl.select(
+        ...     transition(tbl.clip1, tbl.clip2, effect='wipeleft', duration=2.0)
+        ... ).collect()
+    """
+    raise NotImplementedError()
+
+
 @pxt.udf(is_method=True)
 def speed(
     video: pxt.Video,
@@ -1561,6 +1788,107 @@ def grayscale(
     # compatible with most encoders. Using format=gray would produce a single-channel output that
     # many players and encoders don't handle well.
     cmd = ['-i', str(video), '-vf', 'hue=s=0', '-c:a', 'copy']
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
+
+
+@pxt.udf(is_method=True)
+def adjust_brightness(
+    video: pxt.Video,
+    *,
+    factor: float,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Adjust the brightness of a video by a multiplicative factor.
+
+    A factor of 1.0 leaves the video unchanged; values below 1.0 dim the video (e.g., 0.5 for 50% brightness),
+    and values above 1.0 brighten it (e.g., 1.5 for 150% brightness).
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        factor: Brightness multiplier. 0.0 produces a black video, 1.0 is unchanged, values > 1.0 brighten.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video with adjusted brightness.
+
+    Examples:
+        Dim a video to 50% brightness:
+
+        >>> tbl.select(tbl.video.adjust_brightness(factor=0.5)).collect()
+
+        Brighten a video by 20%:
+
+        >>> tbl.select(tbl.video.adjust_brightness(factor=1.2)).collect()
+    """
+    raise NotImplementedError()
+
+
+@pxt.udf(is_method=True)
+def ffmpeg_filter(
+    video: pxt.Video,
+    *,
+    vf: str,
+    af: str | None = None,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Apply an arbitrary FFmpeg filter expression to a video.
+
+    The `vf` string is passed directly as the `-vf` argument to FFmpeg. If `af` is
+    also provided, it is passed as the `-af` argument; otherwise the audio stream is copied unchanged.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        vf: FFmpeg video filter string, passed as `-vf`.
+        af: Optional FFmpeg audio filter string, passed as `-af`. If None, the audio stream is copied
+            unchanged.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video with the filter(s) applied.
+
+    Examples:
+        Apply a sepia tone:
+
+        >>> tbl.select(
+        ...     tbl.video.ffmpeg_filter(vf='colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131')
+        ... ).collect()
+
+        Sharpen a video:
+
+        >>> tbl.select(tbl.video.ffmpeg_filter(vf='unsharp=5:5:1.5')).collect()
+
+        Add a vignette with audio normalization:
+
+        >>> tbl.select(tbl.video.ffmpeg_filter(vf='vignette', af='loudnorm')).collect()
+
+        Chain multiple video filters:
+
+        >>> tbl.select(tbl.video.ffmpeg_filter(vf='eq=brightness=0.1,hue=h=30')).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    cmd = ['-i', str(video), '-vf', vf]
+    if af is not None:
+        cmd.extend(['-af', af])
+    else:
+        cmd.extend(['-c:a', 'copy'])
     return av_utils.run_ffmpeg_cmdline(
         cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
     )
@@ -2919,337 +3247,6 @@ def _(bound_args: dict[str, Any]) -> None:
             raise excs.Error("Cannot specify video_encoder for mode='fast'")
         if video_encoder_args is not None:
             raise excs.Error("Cannot specify video_encoder_args for mode='fast'")
-
-
-@pxt.udf(is_method=True)
-def ffmpeg_filter(
-    video: pxt.Video,
-    *,
-    vf: str,
-    af: str | None = None,
-    video_encoder: str | None = None,
-    video_encoder_args: dict[str, Any] | None = None,
-) -> pxt.Video:
-    """
-    Apply an arbitrary FFmpeg filter expression to a video.
-
-    This is the escape hatch for FFmpeg filters that don't have a dedicated UDF. The `vf` string is passed
-    directly as the `-vf` argument to FFmpeg, so any valid FFmpeg video filter expression works. If `af` is
-    also provided, it is passed as the `-af` argument; otherwise the audio stream is copied unchanged.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        video: Input video.
-        vf: FFmpeg video filter string, passed as `-vf`. Supports the full FFmpeg filter expression syntax
-            including chained filters (separated by `,`) and filter parameters (e.g., `'eq=brightness=0.1'`,
-            `'hue=h=90:s=1'`, `'unsharp=5:5:1.0'`).
-        af: Optional FFmpeg audio filter string, passed as `-af`. If None, the audio stream is copied
-            unchanged. Examples: `'volume=0.5'`, `'atempo=1.5'`, `'aecho=0.8:0.88:60:0.4'`.
-        video_encoder: Video encoder to use. If not specified, uses the default encoder.
-        video_encoder_args: Additional arguments to pass to the video encoder.
-
-    Returns:
-        A new video with the filter(s) applied.
-
-    Examples:
-        Apply a sepia tone:
-
-        >>> tbl.select(
-        ...     tbl.video.ffmpeg_filter(vf='colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131')
-        ... ).collect()
-
-        Sharpen a video:
-
-        >>> tbl.select(tbl.video.ffmpeg_filter(vf='unsharp=5:5:1.5')).collect()
-
-        Add a vignette with audio normalization:
-
-        >>> tbl.select(tbl.video.ffmpeg_filter(vf='vignette', af='loudnorm')).collect()
-
-        Chain multiple video filters:
-
-        >>> tbl.select(tbl.video.ffmpeg_filter(vf='eq=brightness=0.1,hue=h=30')).collect()
-    """
-    Env.get().require_binary('ffmpeg')
-
-    output_path = str(TempStore.create_path(extension='.mp4'))
-    cmd = ['-i', str(video), '-vf', vf]
-    if af is not None:
-        cmd.extend(['-af', af])
-    else:
-        cmd.extend(['-c:a', 'copy'])
-    return av_utils.run_ffmpeg_cmdline(
-        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
-    )
-
-
-@pxt.udf(is_method=True)
-def overlay_image(
-    video: pxt.Video,
-    image: pxt.Image,
-    *,
-    horizontal_align: Literal['left', 'center', 'right'] = 'center',
-    horizontal_margin: int = 0,
-    vertical_align: Literal['top', 'center', 'bottom'] = 'center',
-    vertical_margin: int = 0,
-    scale: float | None = None,
-    opacity: float = 1.0,
-    start_time: float | None = None,
-    end_time: float | None = None,
-    video_encoder: str | None = None,
-    video_encoder_args: dict[str, Any] | None = None,
-) -> pxt.Video:
-    """
-    Overlay an image or logo on a video with customizable positioning, scaling, opacity, and timing.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        video: Input video to overlay the image on.
-        image: Image to overlay (e.g., a logo or watermark).
-        horizontal_align: Horizontal alignment of the overlay (`'left'`, `'center'`, `'right'`).
-        horizontal_margin: Horizontal margin in pixels from the alignment edge.
-        vertical_align: Vertical alignment of the overlay (`'top'`, `'center'`, `'bottom'`).
-        vertical_margin: Vertical margin in pixels from the alignment edge.
-        scale: Scale factor for the overlay image relative to the video height. For example, 0.1 scales the
-            image to 10% of the video height while preserving aspect ratio. If None, uses the original size.
-        opacity: Overlay opacity from 0.0 (transparent) to 1.0 (opaque).
-        start_time: Time in seconds when the overlay appears. If None, the overlay is visible from the start.
-        end_time: Time in seconds when the overlay disappears. If None, the overlay is visible until the end.
-        video_encoder: Video encoder to use. If not specified, uses the default encoder.
-        video_encoder_args: Additional arguments to pass to the video encoder.
-
-    Returns:
-        A new video with the image overlay applied.
-
-    Examples:
-        Add a logo to the top-right corner:
-
-        >>> tbl.select(
-        ...     tbl.video.overlay_image(
-        ...         tbl.logo, horizontal_align='right', vertical_align='top'
-        ...     )
-        ... ).collect()
-
-        Add a watermark at 50% opacity, scaled to 10% of video height:
-
-        >>> tbl.select(
-        ...     tbl.video.overlay_image(tbl.logo, scale=0.1, opacity=0.5)
-        ... ).collect()
-
-        Show a logo only between seconds 2 and 8:
-
-        >>> tbl.select(
-        ...     tbl.video.overlay_image(
-        ...         tbl.logo, start_time=2.0, end_time=8.0, horizontal_align='right'
-        ...     )
-        ... ).collect()
-    """
-    raise NotImplementedError()
-
-
-@pxt.udf
-def image_to_video(
-    image: pxt.Image,
-    *,
-    duration: float,
-    fps: int = 24,
-    video_encoder: str | None = None,
-    video_encoder_args: dict[str, Any] | None = None,
-) -> pxt.Video:
-    """
-    Convert a single still image into a video of a specified duration.
-
-    Unlike `make_video`, which requires a sequence of frames, this function efficiently creates a video from a
-    single image without replicating frames in memory.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        image: Input image to convert to video.
-        duration: Duration of the output video in seconds.
-        fps: Frames per second for the output video.
-        video_encoder: Video encoder to use. If not specified, uses the default encoder.
-        video_encoder_args: Additional arguments to pass to the video encoder.
-
-    Returns:
-        A video displaying the input image for the specified duration.
-
-    Examples:
-        Create a 5-second video from an image:
-
-        >>> tbl.select(image_to_video(tbl.image, duration=5.0)).collect()
-
-        Create a 10-second video at 30 fps:
-
-        >>> tbl.select(image_to_video(tbl.image, duration=10.0, fps=30)).collect()
-    """
-    raise NotImplementedError()
-
-
-@pxt.udf(is_method=True)
-def adjust_brightness(
-    video: pxt.Video,
-    *,
-    factor: float,
-    video_encoder: str | None = None,
-    video_encoder_args: dict[str, Any] | None = None,
-) -> pxt.Video:
-    """
-    Adjust the brightness of a video by a multiplicative factor.
-
-    A factor of 1.0 leaves the video unchanged; values below 1.0 dim the video (e.g., 0.5 for 50% brightness),
-    and values above 1.0 brighten it (e.g., 1.5 for 150% brightness).
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        video: Input video.
-        factor: Brightness multiplier. 0.0 produces a black video, 1.0 is unchanged, values > 1.0 brighten.
-        video_encoder: Video encoder to use. If not specified, uses the default encoder.
-        video_encoder_args: Additional arguments to pass to the video encoder.
-
-    Returns:
-        A new video with adjusted brightness.
-
-    Examples:
-        Dim a video to 50% brightness:
-
-        >>> tbl.select(tbl.video.adjust_brightness(factor=0.5)).collect()
-
-        Brighten a video by 20%:
-
-        >>> tbl.select(tbl.video.adjust_brightness(factor=1.2)).collect()
-    """
-    raise NotImplementedError()
-
-
-@pxt.udf(is_method=True)
-def mix_audio(
-    video: pxt.Video,
-    audio: pxt.Audio,
-    *,
-    audio_volume: float = 1.0,
-    original_volume: float = 1.0,
-    audio_start_time: float = 0.0,
-    video_encoder: str | None = None,
-    video_encoder_args: dict[str, Any] | None = None,
-) -> pxt.Video:
-    """
-    Mix an audio track into a video's existing audio, blending both tracks together.
-
-    Unlike `with_audio`, which replaces the video's audio entirely, this function combines the original audio
-    with the new audio track. Volume levels for each track can be controlled independently.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        video: Input video (must have an existing audio stream).
-        audio: Audio track to mix in.
-        audio_volume: Volume multiplier for the added audio track. 1.0 is original volume.
-        original_volume: Volume multiplier for the video's existing audio track. 1.0 is original volume.
-        audio_start_time: Time in seconds at which the added audio begins playing in the output.
-        video_encoder: Video encoder to use. If not specified, uses the default encoder.
-        video_encoder_args: Additional arguments to pass to the video encoder.
-
-    Returns:
-        A new video with both audio tracks mixed together.
-
-    Examples:
-        Add background music at 30% volume:
-
-        >>> tbl.select(tbl.video.mix_audio(tbl.music, audio_volume=0.3)).collect()
-
-        Mix audio starting at second 5, with the original audio reduced:
-
-        >>> tbl.select(
-        ...     tbl.video.mix_audio(
-        ...         tbl.music,
-        ...         audio_volume=0.5,
-        ...         original_volume=0.7,
-        ...         audio_start_time=5.0,
-        ...     )
-        ... ).collect()
-    """
-    raise NotImplementedError()
-
-
-@pxt.udf
-def transition(
-    video1: pxt.Video,
-    video2: pxt.Video,
-    *,
-    effect: Literal[
-        'fade',
-        'wipeleft',
-        'wiperight',
-        'wipeup',
-        'wipedown',
-        'slideleft',
-        'slideright',
-        'slideup',
-        'slidedown',
-        'dissolve',
-        'smoothleft',
-        'smoothright',
-        'smoothup',
-        'smoothdown',
-    ] = 'fade',
-    duration: float = 1.0,
-    video_encoder: str | None = None,
-    video_encoder_args: dict[str, Any] | None = None,
-) -> pxt.Video:
-    """
-    Join two video clips with a transition effect.
-
-    Applies a crossfade or other transition effect between the end of the first clip and the beginning of
-    the second clip. The transition overlaps the last `duration` seconds of `video1` with the first `duration`
-    seconds of `video2`, so the total output duration is `len(video1) + len(video2) - duration`.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        video1: First video clip.
-        video2: Second video clip.
-        effect: Transition effect type. Common options:
-
-            - `'fade'`: Classic crossfade (default).
-            - `'dissolve'`: Dissolve transition.
-            - `'wipeleft'`, `'wiperight'`, `'wipeup'`, `'wipedown'`: Wipe transitions.
-            - `'slideleft'`, `'slideright'`, `'slideup'`, `'slidedown'`: Slide transitions.
-            - `'smoothleft'`, `'smoothright'`, `'smoothup'`, `'smoothdown'`: Smooth transitions.
-        duration: Duration of the transition in seconds.
-        video_encoder: Video encoder to use. If not specified, uses the default encoder.
-        video_encoder_args: Additional arguments to pass to the video encoder.
-
-    Returns:
-        A new video with the transition applied between the two clips.
-
-    Examples:
-        Join two clips with a 1-second crossfade:
-
-        >>> tbl.select(transition(tbl.clip1, tbl.clip2)).collect()
-
-        Join with a 2-second wipe-left transition:
-
-        >>> tbl.select(
-        ...     transition(tbl.clip1, tbl.clip2, effect='wipeleft', duration=2.0)
-        ... ).collect()
-    """
-    raise NotImplementedError()
 
 
 __all__ = local_public_names(__name__)
