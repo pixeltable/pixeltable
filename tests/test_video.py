@@ -16,6 +16,7 @@ from pixeltable.utils.object_stores import ObjectOps
 from .utils import (
     generate_test_video,
     get_audio_files,
+    get_image_files,
     get_video_files,
     reload_catalog,
     skip_test_if_not_installed,
@@ -1674,3 +1675,294 @@ class TestVideo:
 
         default_encoder = Env.get().default_video_encoder
         assert default_encoder == 'libx264'
+
+    def test_image_to_video(self, uses_db: None, tmp_path: Path) -> None:
+        from pixeltable.functions.video import image_to_video
+
+        image_filepaths = get_image_files()[:3]
+        t = pxt.create_table('image_to_video_test', {'image': pxt.Image})
+        validate_update_status(t.insert({'image': f} for f in image_filepaths), expected_rows=len(image_filepaths))
+
+        # 5-second video at default fps
+        t.add_computed_column(vid=image_to_video(t.image, duration=5.0))
+        result = t.select(vid=t.vid, duration=t.vid.get_duration()).collect()
+        assert all(row['vid'] is not None for row in result)
+        assert all(row['duration'] == pytest.approx(5.0, abs=0.2) for row in result)
+
+        # different fps
+        t.add_computed_column(vid30=image_to_video(t.image, duration=2.0, fps=30))
+        result = t.select(vid=t.vid30, duration=t.vid30.get_duration()).collect()
+        assert all(row['duration'] == pytest.approx(2.0, abs=0.2) for row in result)
+
+        self._validate_videos(t.select(t.vid).collect()['vid'])
+        self._validate_videos(t.select(t.vid30).collect()['vid30'])
+
+    def test_image_to_video_errors(self, uses_db: None) -> None:
+        from pixeltable.functions.video import image_to_video
+
+        image_filepaths = get_image_files()[:1]
+        t = pxt.create_table('image_to_video_err', {'image': pxt.Image})
+        validate_update_status(t.insert({'image': f} for f in image_filepaths), expected_rows=1)
+
+        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+            t.select(image_to_video(t.image, duration=0)).collect()
+        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+            t.select(image_to_video(t.image, duration=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'fps must be positive'):
+            t.select(image_to_video(t.image, duration=1.0, fps=0)).collect()
+
+    def test_mix_audio(self, uses_db: None, tmp_path: Path) -> None:
+        # generate videos with audio so we have a known baseline
+        video = generate_test_video(tmp_path, duration=3.0, has_audio=True)
+        audio_filepaths = get_audio_files()
+        assert len(audio_filepaths) > 0
+
+        t = pxt.create_table('mix_audio_test', {'video': pxt.Video, 'audio': pxt.Audio})
+        validate_update_status(t.insert([{'video': video, 'audio': audio_filepaths[0]}]), expected_rows=1)
+
+        # basic mix: output duration should match the original video
+        t.add_computed_column(mixed=t.video.mix_audio(t.audio, audio_volume=0.3))
+        result = t.select(orig_duration=t.video.get_duration(), mixed_duration=t.mixed.get_duration()).collect()
+        assert all(row['mixed_duration'] == pytest.approx(row['orig_duration'], abs=0.1) for row in result)
+
+        # mix with delayed audio
+        t.add_computed_column(delayed=t.video.mix_audio(t.audio, audio_start_time=1.0, audio_volume=0.5))
+        result = t.select(orig_duration=t.video.get_duration(), delayed_duration=t.delayed.get_duration()).collect()
+        assert all(row['delayed_duration'] == pytest.approx(row['orig_duration'], abs=0.1) for row in result)
+
+        self._validate_videos(t.select(t.mixed).collect()['mixed'])
+
+    def test_mix_audio_errors(self, uses_db: None, tmp_path: Path) -> None:
+        video = generate_test_video(tmp_path, duration=2.0, has_audio=True)
+        audio_filepaths = get_audio_files()
+
+        t = pxt.create_table('mix_audio_err', {'video': pxt.Video, 'audio': pxt.Audio})
+        validate_update_status(t.insert([{'video': video, 'audio': audio_filepaths[0]}]), expected_rows=1)
+
+        with pytest.raises(pxt.Error, match=r'audio_volume must be non-negative'):
+            t.select(t.video.mix_audio(t.audio, audio_volume=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'original_volume must be non-negative'):
+            t.select(t.video.mix_audio(t.audio, original_volume=-0.5)).collect()
+        with pytest.raises(pxt.Error, match=r'audio_start_time must be non-negative'):
+            t.select(t.video.mix_audio(t.audio, audio_start_time=-1.0)).collect()
+
+    def test_overlay_text_timed(self, uses_db: None, tmp_path: Path) -> None:
+        """Test start_time/end_time parameters on overlay_text."""
+        video = generate_test_video(tmp_path, duration=5.0)
+        t = pxt.create_table('overlay_text_timed', {'video': pxt.Video})
+        validate_update_status(t.insert([{'video': video}]), expected_rows=1)
+
+        # timed text overlay: should produce a valid video with same duration
+        t.add_computed_column(
+            timed=t.video.overlay_text('Hello', start_time=1.0, end_time=3.0, color='white', font_size=24)
+        )
+        result = t.select(
+            timed=t.timed, orig_duration=t.video.get_duration(), timed_duration=t.timed.get_duration()
+        ).collect()
+        assert all(row['timed'] is not None for row in result)
+        assert all(row['timed_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
+
+        # start_time only
+        t.add_computed_column(start_only=t.video.overlay_text('Late text', start_time=2.0))
+        result = t.select(t.start_only).collect()
+        assert all(row['start_only'] is not None for row in result)
+
+        # end_time only
+        t.add_computed_column(end_only=t.video.overlay_text('Early text', end_time=2.0))
+        result = t.select(t.end_only).collect()
+        assert all(row['end_only'] is not None for row in result)
+
+        self._validate_videos(t.select(t.timed).collect()['timed'])
+
+    def test_overlay_text_timed_errors(self, uses_db: None, tmp_path: Path) -> None:
+        video = generate_test_video(tmp_path, duration=5.0)
+        t = pxt.create_table('overlay_text_timed_err', {'video': pxt.Video})
+        validate_update_status(t.insert([{'video': video}]), expected_rows=1)
+
+        with pytest.raises(pxt.Error, match=r'start_time must be non-negative'):
+            t.select(t.video.overlay_text('x', start_time=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'end_time must be non-negative'):
+            t.select(t.video.overlay_text('x', end_time=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
+            t.select(t.video.overlay_text('x', start_time=3.0, end_time=1.0)).collect()
+
+    def test_overlay_image(self, uses_db: None, tmp_path: Path) -> None:
+        video_filepaths = get_video_files()
+        image_filepaths = get_image_files()[:1]
+
+        t = pxt.create_table('overlay_image_test', {'video': pxt.Video, 'logo': pxt.Image})
+        validate_update_status(t.insert([{'video': video, 'logo': image_filepaths[0]} for video in video_filepaths]), expected_rows=len(video_filepaths))
+
+        # basic overlay: centered, full opacity
+        t.add_computed_column(basic=t.video.overlay_image(t.logo))
+        result = t.select(
+            basic=t.basic, orig_duration=t.video.get_duration(), basic_duration=t.basic.get_duration()
+        ).collect()
+        assert all(row['basic'] is not None for row in result)
+        assert all(row['basic_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
+
+        # positioned overlay with scale and opacity
+        t.add_computed_column(
+            styled=t.video.overlay_image(
+                t.logo, horizontal_align='right', vertical_align='top', scale=0.1, opacity=0.5
+            )
+        )
+        result = t.select(t.styled, orig_duration = t.video.get_duration(), styled_duration = t.styled.get_duration() ).collect()
+        assert all(row['styled'] is not None for row in result)
+        assert all(row['styled_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
+
+        # timed overlay
+        t.add_computed_column(timed=t.video.overlay_image(t.logo, start_time=0.5, end_time=2.0))
+        result = t.select(t.timed, orig_duration=t.video.get_duration(), timed_duration=t.timed.get_duration()).collect()
+        assert all(row['styled'] is not None for row in result)
+        assert all(row['timed_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
+
+        self._validate_videos(t.select(t.basic).collect()['basic'])
+        self._validate_videos(t.select(t.styled).collect()['styled'])
+        self._validate_videos(t.select(t.timed).collect()['timed'])
+
+    def test_overlay_image_errors(self, uses_db: None, tmp_path: Path) -> None:
+        video = generate_test_video(tmp_path, duration=2.0)
+        image_filepaths = get_image_files()[:1]
+
+        t = pxt.create_table('overlay_image_err', {'video': pxt.Video, 'logo': pxt.Image})
+        validate_update_status(t.insert([{'video': video, 'logo': image_filepaths[0]}]), expected_rows=1)
+
+        with pytest.raises(pxt.Error, match=r'opacity must be between'):
+            t.select(t.video.overlay_image(t.logo, opacity=1.5)).collect()
+        with pytest.raises(pxt.Error, match=r'scale must be positive'):
+            t.select(t.video.overlay_image(t.logo, scale=0.0)).collect()
+        with pytest.raises(pxt.Error, match=r'horizontal_margin must be non-negative'):
+            t.select(t.video.overlay_image(t.logo, horizontal_margin=-1)).collect()
+        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
+            t.select(t.video.overlay_image(t.logo, start_time=3.0, end_time=1.0)).collect()
+
+    def test_adjust_brightness(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('brightness_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+
+        # dim to 50%: should preserve duration and resolution
+        dimmed = t.video.adjust_brightness(factor=0.5)
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select( orig_md=md, dimmed=dimmed, dimmed_md=dimmed.get_metadata())
+            .collect()
+        )
+        assert len(result) > 0
+        assert all(row['dimmed'] is not None for row in result)
+        assert all(row['dimmed_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['dimmed_md']['streams'][0]['height'] == row['orig_h'] for row in result)
+
+        # brighten: also produces valid output
+        bright = t.video.adjust_brightness(factor=1.5)
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select( orig_md=md, bright=bright, bright_md=bright.get_metadata())
+            .collect()
+        )
+        assert all(row['bright'] is not None for row in result)
+        assert all(row['dimmed_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['dimmed_md']['streams'][0]['height'] == row['orig_h'] for row in result)
+
+        self._validate_videos(result['dimmed'])
+        self._validate_videos(result['bright'])
+
+    def test_adjust_brightness_errors(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('brightness_err', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        with pytest.raises(pxt.Error, match=r'factor must be non-negative'):
+            t.select(t.video.adjust_brightness(factor=-0.5)).collect()
+
+    def test_transition(self, uses_db: None, tmp_path: Path) -> None:
+        from pixeltable.functions.video import transition
+
+        # generate two videos with known durations for predictable output
+        v1 = generate_test_video(tmp_path, duration=3.0, size='640x360')
+        v2 = generate_test_video(tmp_path, duration=3.0, size='640x360')
+
+        t = pxt.create_table('transition_test', {'v1': pxt.Video, 'v2': pxt.Video})
+        validate_update_status(t.insert([{'v1': v1, 'v2': v2}]), expected_rows=1)
+
+        # crossfade: output duration = 3 + 3 - 1 = 5 seconds
+        t.add_computed_column(faded=transition(t.v1, t.v2, effect='fade', duration=1.0))
+        result = t.select(
+            d1=t.v1.get_duration(), d2=t.v2.get_duration(), faded_duration=t.faded.get_duration()
+        ).collect()
+        expected_duration = result[0]['d1'] + result[0]['d2'] - 1.0
+        assert result[0]['faded_duration'] == pytest.approx(expected_duration, abs=0.3)
+
+        # wipe transition
+        t.add_computed_column(wiped=transition(t.v1, t.v2, effect='wipeleft', duration=0.5))
+        result = t.select(
+            d1=t.v1.get_duration(), d2=t.v2.get_duration(), wiped_duration=t.wiped.get_duration()
+        ).collect()
+        expected_duration = result[0]['d1'] + result[0]['d2'] - 0.5
+        assert result[0]['wiped_duration'] == pytest.approx(expected_duration, abs=0.3)
+
+        self._validate_videos([result[0]['faded']])
+        self._validate_videos([result[0]['wiped']])
+
+    def test_transition_errors(self, uses_db: None, tmp_path: Path) -> None:
+        from pixeltable.functions.video import transition
+
+        v1 = generate_test_video(tmp_path, duration=2.0, size='640x360')
+        v2 = generate_test_video(tmp_path, duration=2.0, size='640x360')
+
+        t = pxt.create_table('transition_err', {'v1': pxt.Video, 'v2': pxt.Video})
+        validate_update_status(t.insert([{'v1': v1, 'v2': v2}]), expected_rows=1)
+
+        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+            t.select(transition(t.v1, t.v2, duration=0)).collect()
+        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+            t.select(transition(t.v1, t.v2, duration=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'transition duration.*exceeds video1 duration'):
+            t.select(transition(t.v1, t.v2, duration=10.0)).collect()
+
+    def test_ffmpeg_filter(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('ffmpeg_filter_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+
+        # simple video filter: hue shift
+        filtered = t.video.ffmpeg_filter(vf='hue=h=90')
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(
+                orig_md=md,
+                filtered=filtered,
+                filtered_md=filtered.get_metadata(),
+            )
+            .collect()
+        )
+        assert len(result) > 0
+        assert all(row['filtered'] is not None for row in result)
+        self._validate_videos(result['filtered'])
+        # resolution should be preserved
+        assert all(row['filtered_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['filtered_md']['streams'][0]['height'] == row['orig_w'] for row in result)
+
+        # chained filters
+        chained = t.video.ffmpeg_filter(vf='hue=s=0,eq=brightness=0.1')
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(
+                orig_md=md,
+                chained=chained,
+                chained_md=chained.get_metadata(),
+            )
+            .collect()
+        )
+        assert len(result) > 0
+        assert all(row['chained'] is not None for row in result)
+        self._validate_videos(result['chained'])
+        # resolution should be preserved
+        assert all(row['chained_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['chained_md']['streams'][0]['height'] == row['orig_w'] for row in result)
+
