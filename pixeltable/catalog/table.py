@@ -121,10 +121,12 @@ class Table(SchemaObject):
             if col.is_computed:
                 value_expr = col.value_expr
                 assert value_expr is not None
-                dependencies = [
-                    (col_ref.col.tbl_handle.get().name, col_ref.col.name)
-                    for col_ref in value_expr.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False)
-                ]
+                dependencies = sorted(
+                    {
+                        (col_ref.col.tbl_handle.get().name, col_ref.col.name)
+                        for col_ref in value_expr.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False)
+                    }
+                )
             column_info[col.name] = ColumnMetadata(
                 name=col.name,
                 type_=col.col_type._to_str(as_schema=True),

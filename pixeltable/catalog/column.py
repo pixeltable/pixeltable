@@ -129,6 +129,7 @@ class Column:
         self.id = col_id
         self.is_pk = is_pk
         self.is_iterator_col = is_iterator_col
+        assert media_validation is None or self.col_type.is_media_type()
         self._media_validation = media_validation
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
@@ -503,10 +504,10 @@ class Column:
 
     @property
     def media_validation(self) -> MediaValidation | None:
-        if self._media_validation is not None:
-            return self._media_validation
         if not self.col_type.is_media_type():
             return None
+        if self._media_validation is not None:
+            return self._media_validation
         assert self.get_tbl() is not None
         return self.get_tbl().media_validation
 
