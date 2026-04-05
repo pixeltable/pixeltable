@@ -129,7 +129,17 @@ def image_to_video(
 
         >>> tbl.select(image_to_video(tbl.image, duration=10.0, fps=30)).collect()
     """
-    raise NotImplementedError()
+    Env.get().require_binary('ffmpeg')
+    if duration <= 0:
+        raise pxt.Error(f'duration must be positive, got {duration}')
+    if fps <= 0:
+        raise pxt.Error(f'fps must be positive, got {fps}')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    cmd = ['-loop', '1', '-i', str(image), '-t', str(duration), '-r', str(fps), '-pix_fmt', 'yuv420p']
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
 
 
 @pxt.udf(is_method=True)
@@ -843,7 +853,30 @@ def mix_audio(
         ...     )
         ... ).collect()
     """
-    raise NotImplementedError()
+    Env.get().require_binary('ffmpeg')
+    if audio_volume < 0:
+        raise pxt.Error(f'audio_volume must be non-negative, got {audio_volume}')
+    if original_volume < 0:
+        raise pxt.Error(f'original_volume must be non-negative, got {original_volume}')
+    if audio_start_time < 0:
+        raise pxt.Error(f'audio_start_time must be non-negative, got {audio_start_time}')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    # Build audio filter: adjust volumes and mix
+    delay_filter = ''
+    if audio_start_time > 0:
+        delay_ms = int(audio_start_time * 1000)
+        delay_filter = f'adelay={delay_ms}|{delay_ms},'
+    filter_complex = (
+        f'[0:a]volume={original_volume}[a0];'
+        f'[1:a]{delay_filter}volume={audio_volume}[a1];'
+        f'[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]'
+    )
+    cmd = ['-i', str(video), '-i', str(audio), '-filter_complex', filter_complex, '-map', '0:v:0', '-map', '[aout]']
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
 
 
 @pxt.udf(is_method=True)
@@ -962,6 +995,13 @@ def overlay_text(
 
     output_path = str(TempStore.create_path(extension='.mp4'))
 
+    if start_time is not None and start_time < 0:
+        raise pxt.Error(f'start_time must be non-negative, got {start_time}')
+    if end_time is not None and end_time < 0:
+        raise pxt.Error(f'end_time must be non-negative, got {end_time}')
+    if start_time is not None and end_time is not None and start_time >= end_time:
+        raise pxt.Error(f'start_time must be less than end_time, got start_time={start_time}, end_time={end_time}')
+
     drawtext_params = _create_drawtext_params(
         text,
         font,
@@ -977,6 +1017,11 @@ def overlay_text(
         box_opacity,
         box_border,
     )
+
+    if start_time is not None or end_time is not None:
+        st = start_time if start_time is not None else 0
+        et = end_time if end_time is not None else 99999999
+        drawtext_params.append(f"enable='between(t,{st},{et})'")
 
     cmd = [
         '-i',
@@ -1112,7 +1157,69 @@ def overlay_image(
         ...     )
         ... ).collect()
     """
-    raise NotImplementedError()
+    Env.get().require_binary('ffmpeg')
+    if horizontal_margin < 0:
+        raise pxt.Error(f'horizontal_margin must be non-negative, got {horizontal_margin}')
+    if vertical_margin < 0:
+        raise pxt.Error(f'vertical_margin must be non-negative, got {vertical_margin}')
+    if opacity < 0.0 or opacity > 1.0:
+        raise pxt.Error(f'opacity must be between 0.0 and 1.0, got {opacity}')
+    if scale is not None and scale <= 0:
+        raise pxt.Error(f'scale must be positive, got {scale}')
+    if start_time is not None and start_time < 0:
+        raise pxt.Error(f'start_time must be non-negative, got {start_time}')
+    if end_time is not None and end_time < 0:
+        raise pxt.Error(f'end_time must be non-negative, got {end_time}')
+    if start_time is not None and end_time is not None and start_time >= end_time:
+        raise pxt.Error(f'start_time must be less than end_time, got start_time={start_time}, end_time={end_time}')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    # Build the overlay position expressions
+    if horizontal_align == 'left':
+        x_expr = str(horizontal_margin)
+    elif horizontal_align == 'center':
+        x_expr = '(W-w)/2'
+    else:  # right
+        x_expr = f'W-w-{horizontal_margin}' if horizontal_margin != 0 else 'W-w'
+
+    if vertical_align == 'top':
+        y_expr = str(vertical_margin)
+    elif vertical_align == 'center':
+        y_expr = '(H-h)/2'
+    else:  # bottom
+        y_expr = f'H-h-{vertical_margin}' if vertical_margin != 0 else 'H-h'
+
+    # Build filter_complex: optional scale, optional opacity, then overlay
+    filters: list[str] = []
+
+    # Scale the overlay image if requested
+    if scale is not None:
+        filters.append(f'[1:v]scale=-1:trunc(ih*{scale}/2)*2[ovr_scaled]')
+        ovr_label = '[ovr_scaled]'
+    else:
+        ovr_label = '[1:v]'
+
+    # Apply opacity to the overlay if not fully opaque
+    if opacity < 1.0:
+        out_label = '[ovr_alpha]'
+        filters.append(f'{ovr_label}format=rgba,colorchannelmixer=aa={opacity}{out_label}')
+        ovr_label = out_label
+
+    # Build enable clause for timed overlay
+    enable_clause = ''
+    if start_time is not None or end_time is not None:
+        st = start_time if start_time is not None else 0
+        et = end_time if end_time is not None else 99999999
+        enable_clause = f":enable='between(t,{st},{et})'"
+
+    filters.append(f'[0:v]{ovr_label}overlay={x_expr}:{y_expr}{enable_clause}[vout]')
+    filter_complex = ';'.join(filters)
+
+    cmd = ['-i', str(video), '-i', str(image), '-filter_complex', filter_complex, '-map', '[vout]', '-c:a', 'copy']
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
 
 
 @pxt.udf(is_method=True)
@@ -1555,7 +1662,51 @@ def transition(
         ...     transition(tbl.clip1, tbl.clip2, effect='wipeleft', duration=2.0)
         ... ).collect()
     """
-    raise NotImplementedError()
+    Env.get().require_binary('ffmpeg')
+    if duration <= 0:
+        raise pxt.Error(f'duration must be positive, got {duration}')
+
+    video1_duration = av_utils.get_video_duration(video1)
+    if video1_duration is None:
+        raise pxt.Error('Could not determine duration of video1')
+    if duration > video1_duration:
+        raise pxt.Error(f'transition duration ({duration}s) exceeds video1 duration ({video1_duration}s)')
+
+    offset = video1_duration - duration
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    # Build xfade filter; handle audio with acrossfade if both clips have audio
+    has_audio1 = av_utils.has_audio_stream(video1)
+    has_audio2 = av_utils.has_audio_stream(video2)
+
+    if has_audio1 and has_audio2:
+        filter_complex = (
+            f'[0:v][1:v]xfade=transition={effect}:duration={duration}:offset={offset}[vout];'
+            f'[0:a][1:a]acrossfade=d={duration}[aout]'
+        )
+        cmd = [
+            '-i',
+            str(video1),
+            '-i',
+            str(video2),
+            '-filter_complex',
+            filter_complex,
+            '-map',
+            '[vout]',
+            '-map',
+            '[aout]',
+        ]
+    else:
+        filter_complex = f'[0:v][1:v]xfade=transition={effect}:duration={duration}:offset={offset}[vout]'
+        cmd = ['-i', str(video1), '-i', str(video2), '-filter_complex', filter_complex, '-map', '[vout]']
+        if has_audio1:
+            cmd.extend(['-map', '0:a'])
+        elif has_audio2:
+            cmd.extend(['-map', '1:a'])
+
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
 
 
 @pxt.udf(is_method=True)
@@ -1829,7 +1980,21 @@ def adjust_brightness(
 
         >>> tbl.select(tbl.video.adjust_brightness(factor=1.2)).collect()
     """
-    raise NotImplementedError()
+    Env.get().require_binary('ffmpeg')
+    if factor < 0:
+        raise pxt.Error(f'factor must be non-negative, got {factor}')
+
+    # FFmpeg eq filter: brightness is additive (-1.0 to 1.0), gamma is multiplicative.
+    # Using curves filter with a master curve for true multiplicative brightness.
+    # For the eq filter, we use gamma_r/gamma_g/gamma_b which are multiplicative.
+    # However, the simplest approach: use the lut filter to multiply pixel values.
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    # Clamp to 0-255: min(val*factor, 255)
+    lut_expr = f"'min(val*{factor},255)'"
+    cmd = ['-i', str(video), '-vf', f'lutrgb=r={lut_expr}:g={lut_expr}:b={lut_expr}', '-c:a', 'copy']
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
 
 
 @pxt.udf(is_method=True)
@@ -1866,7 +2031,9 @@ def ffmpeg_filter(
         Apply a sepia tone:
 
         >>> tbl.select(
-        ...     tbl.video.ffmpeg_filter(vf='colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131')
+        ...     tbl.video.ffmpeg_filter(
+        ...         vf='colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131'
+        ...     )
         ... ).collect()
 
         Sharpen a video:
@@ -1875,11 +2042,15 @@ def ffmpeg_filter(
 
         Add a vignette with audio normalization:
 
-        >>> tbl.select(tbl.video.ffmpeg_filter(vf='vignette', af='loudnorm')).collect()
+        >>> tbl.select(
+        ...     tbl.video.ffmpeg_filter(vf='vignette', af='loudnorm')
+        ... ).collect()
 
         Chain multiple video filters:
 
-        >>> tbl.select(tbl.video.ffmpeg_filter(vf='eq=brightness=0.1,hue=h=30')).collect()
+        >>> tbl.select(
+        ...     tbl.video.ffmpeg_filter(vf='eq=brightness=0.1,hue=h=30')
+        ... ).collect()
     """
     Env.get().require_binary('ffmpeg')
 
