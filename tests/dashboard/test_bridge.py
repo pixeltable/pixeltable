@@ -274,9 +274,9 @@ class TestBridge:
         cols_by_name = {c['name']: c for c in node['columns']}
         assert cols_by_name['c1']['func_name'] is None
         assert cols_by_name['c1']['func_type'] is None
-        assert cols_by_name['upper']['func_name'] == 'upper'
+        assert cols_by_name['upper']['func_name'] == 'c1.upper()'
         assert cols_by_name['upper']['func_type'] == 'builtin'
-        assert cols_by_name['plus_one']['func_name'] == 'my_udf'
+        assert cols_by_name['plus_one']['func_name'] == 'my_udf(c1.len())'
         assert cols_by_name['plus_one']['func_type'] == 'custom_udf'
 
     def test_status(self, uses_db: None) -> None:

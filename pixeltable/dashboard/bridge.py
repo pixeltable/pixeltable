@@ -365,8 +365,10 @@ def get_pipeline() -> dict[str, Any]:
                 defined_in = info['defined_in']
 
                 value_expr = value_expr[:200] if value_expr is not None else None
-                func_type: str
-                if is_iter_col:
+                func_type: str | None
+                if not is_computed and not is_iter_col:
+                    func_type = None
+                elif is_iter_col:
                     func_type = 'iterator'
                 elif info['is_builtin'] is not None and not info['is_builtin']:
                     func_type = 'custom_udf'
