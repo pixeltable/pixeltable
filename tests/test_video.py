@@ -1711,6 +1711,8 @@ class TestVideo:
             t.select(image_to_video(t.image, duration=-1.0)).collect()
         with pytest.raises(pxt.Error, match=r'fps must be positive'):
             t.select(image_to_video(t.image, duration=1.0, fps=0)).collect()
+        with pytest.raises(pxt.Error, match=r'fps must be positive'):
+            t.select(image_to_video(t.image, duration=1.0, fps=-5)).collect()
 
     def test_mix_audio(self, uses_db: None, tmp_path: Path) -> None:
         # generate videos with audio so we have a known baseline
@@ -1789,6 +1791,8 @@ class TestVideo:
             t.select(t.video.overlay_text('x', end_time=-1.0)).collect()
         with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
             t.select(t.video.overlay_text('x', start_time=3.0, end_time=1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
+            t.select(t.video.overlay_text('x', start_time=2.0, end_time=2.0)).collect()
 
     def test_overlay_image(self, uses_db: None, tmp_path: Path) -> None:
         video_filepaths = get_video_files()
@@ -1839,12 +1843,24 @@ class TestVideo:
 
         with pytest.raises(pxt.Error, match=r'opacity must be between'):
             t.select(t.video.overlay_image(t.logo, opacity=1.5)).collect()
+        with pytest.raises(pxt.Error, match=r'opacity must be between'):
+            t.select(t.video.overlay_image(t.logo, opacity=-0.1)).collect()
         with pytest.raises(pxt.Error, match=r'scale must be positive'):
             t.select(t.video.overlay_image(t.logo, scale=0.0)).collect()
+        with pytest.raises(pxt.Error, match=r'scale must be positive'):
+            t.select(t.video.overlay_image(t.logo, scale=-1.0)).collect()
         with pytest.raises(pxt.Error, match=r'horizontal_margin must be non-negative'):
             t.select(t.video.overlay_image(t.logo, horizontal_margin=-1)).collect()
+        with pytest.raises(pxt.Error, match=r'vertical_margin must be non-negative'):
+            t.select(t.video.overlay_image(t.logo, vertical_margin=-1)).collect()
+        with pytest.raises(pxt.Error, match=r'start_time must be non-negative'):
+            t.select(t.video.overlay_image(t.logo, start_time=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'end_time must be non-negative'):
+            t.select(t.video.overlay_image(t.logo, end_time=-1.0)).collect()
         with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
             t.select(t.video.overlay_image(t.logo, start_time=3.0, end_time=1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
+            t.select(t.video.overlay_image(t.logo, start_time=2.0, end_time=2.0)).collect()
 
     def test_adjust_brightness(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
