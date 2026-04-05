@@ -1685,6 +1685,16 @@ def transition(
     if duration <= 0:
         raise pxt.Error(f'duration must be positive, got {duration}')
 
+    # xfade requires both inputs to have the same resolution
+    md1 = av_utils.get_metadata(str(video1))
+    v1_stream = next(s for s in md1['streams'] if s['type'] == 'video')
+    w1, h1 = v1_stream['width'], v1_stream['height']
+    md2 = av_utils.get_metadata(str(video2))
+    v2_stream = next(s for s in md2['streams'] if s['type'] == 'video')
+    w2, h2 = v2_stream['width'], v2_stream['height']
+    if (w1, h1) != (w2, h2):
+        raise pxt.Error(f'video1 and video2 must have the same resolution, got {w1}x{h1} and {w2}x{h2}')
+
     video1_duration = av_utils.get_video_duration(video1)
     if video1_duration is None:
         raise pxt.Error('Could not determine duration of video1')

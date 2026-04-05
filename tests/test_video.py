@@ -1976,6 +1976,14 @@ class TestVideo:
         with pytest.raises(pxt.Error, match=r'transition duration.*exceeds video1 duration'):
             t.select(transition(t.v1, t.v2, duration=10.0)).collect()
 
+        # mismatched resolutions
+        v_small = generate_test_video(tmp_path, duration=2.0, size='320x240')
+        v_large = generate_test_video(tmp_path, duration=2.0, size='640x360')
+        u = pxt.create_table('transition_res_err', {'v1': pxt.Video, 'v2': pxt.Video})
+        validate_update_status(u.insert([{'v1': v_small, 'v2': v_large}]), expected_rows=1)
+        with pytest.raises(pxt.Error, match=r'must have the same resolution'):
+            u.select(transition(u.v1, u.v2, duration=0.5)).collect()
+
     def test_ffmpeg_filter(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
         t = pxt.create_table('ffmpeg_filter_test', {'video': pxt.Video})
