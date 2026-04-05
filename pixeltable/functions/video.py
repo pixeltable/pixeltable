@@ -1036,7 +1036,7 @@ def overlay_text(
     if start_time is not None or end_time is not None:
         st = start_time if start_time is not None else 0
         et = end_time if end_time is not None else 99999999
-        drawtext_params.append(f"enable='between(t,{st},{et})'")
+        drawtext_params.append(f'enable=between(t\\,{st}\\,{et})')
 
     cmd = [
         '-i',

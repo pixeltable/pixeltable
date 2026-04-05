@@ -916,9 +916,29 @@ class TestVideo:
                 box_border=[10],
             )
         )
+        # timed text overlay: start_time + end_time
+        t.add_computed_column(
+            o6=t.clip_5s.overlay_text(text, start_time=1.0, end_time=3.0, color='white', font_size=24)
+        )
+        # start_time only
+        t.add_computed_column(o7=t.clip_5s.overlay_text(text, start_time=2.0))
+        # end_time only
+        t.add_computed_column(o8=t.clip_5s.overlay_text(text, end_time=2.0))
+
         rows = [{'video': v} for v in get_video_files()]
-        status = t.insert(rows)
-        assert status.num_excs == 0
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        # timed overlays: verify not-None, duration preserved, and valid output
+        md = t.clip_5s.get_metadata()
+        for col_ref in [t.o6, t.o7, t.o8]:
+            result = (
+                t.where(md.streams[0].duration_seconds != None)
+                .select(col=col_ref, orig_duration=md.streams[0].duration_seconds, col_duration=col_ref.get_duration())
+                .collect()
+            )
+            assert all(row['col'] is not None for row in result)
+            assert all(row['col_duration'] == pytest.approx(row['orig_duration'], abs=0.5) for row in result)
+            self._validate_videos(result['col'])
 
         # also check the generated drawtext commands
         assert pxtf.video._create_drawtext_params(
@@ -1059,33 +1079,32 @@ class TestVideo:
 
         with pytest.raises(pxt.Error, match='font_size must be positive'):
             t.select(t.video.overlay_text('Test', font_size=0)).collect()
-
         with pytest.raises(pxt.Error, match='font_size must be positive'):
             t.select(t.video.overlay_text('Test', font_size=-10)).collect()
-
         with pytest.raises(pxt.Error, match=re.escape('opacity must be between 0.0 and 1.0')):
             t.select(t.video.overlay_text('Test', opacity=-0.1)).collect()
-
         with pytest.raises(pxt.Error, match=re.escape('opacity must be between 0.0 and 1.0')):
             t.select(t.video.overlay_text('Test', opacity=1.1)).collect()
-
         with pytest.raises(pxt.Error, match=re.escape('horizontal_margin must be non-negative')):
             t.select(t.video.overlay_text('Test', horizontal_margin=-5)).collect()
-
         with pytest.raises(pxt.Error, match=re.escape('vertical_margin must be non-negative')):
             t.select(t.video.overlay_text('Test', vertical_margin=-10)).collect()
-
         with pytest.raises(pxt.Error, match=re.escape('box_opacity must be between 0.0 and 1.0')):
             t.select(t.video.overlay_text('Test', box=True, box_opacity=-0.5)).collect()
-
         with pytest.raises(pxt.Error, match=re.escape('box_opacity must be between 0.0 and 1.0')):
             t.select(t.video.overlay_text('Test', box=True, box_opacity=2.0)).collect()
-
         with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
             t.select(t.video.overlay_text('Test', box=True, box_border=[1, 2, 3, 4, 5])).collect()
-
         with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
             t.select(t.video.overlay_text('Test', box=True, box_border=[-5, 10])).collect()
+        with pytest.raises(pxt.Error, match=r'start_time must be non-negative'):
+            t.select(t.video.overlay_text('x', start_time=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'end_time must be non-negative'):
+            t.select(t.video.overlay_text('x', end_time=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
+            t.select(t.video.overlay_text('x', start_time=3.0, end_time=1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
+            t.select(t.video.overlay_text('x', start_time=2.0, end_time=2.0)).collect()
 
     @pytest.mark.parametrize(
         'bbox_format,bbox',
@@ -1749,50 +1768,6 @@ class TestVideo:
             t.select(t.video.mix_audio(t.audio, original_volume=-0.5)).collect()
         with pytest.raises(pxt.Error, match=r'audio_start_time must be non-negative'):
             t.select(t.video.mix_audio(t.audio, audio_start_time=-1.0)).collect()
-
-    def test_overlay_text_timed(self, uses_db: None, tmp_path: Path) -> None:
-        """Test start_time/end_time parameters on overlay_text."""
-        video = generate_test_video(tmp_path, duration=5.0)
-        t = pxt.create_table('overlay_text_timed', {'video': pxt.Video})
-        validate_update_status(t.insert([{'video': video}]), expected_rows=1)
-
-        # timed text overlay: should produce a valid video with same duration
-        t.add_computed_column(
-            timed=t.video.overlay_text('Hello', start_time=1.0, end_time=3.0, color='white', font_size=24)
-        )
-        result = t.select(
-            timed=t.timed, orig_duration=t.video.get_duration(), timed_duration=t.timed.get_duration()
-        ).collect()
-        assert all(row['timed'] is not None for row in result)
-        assert all(row['timed_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
-
-        # start_time only
-        t.add_computed_column(start_only=t.video.overlay_text('Late text', start_time=2.0))
-        result = t.select(t.start_only).collect()
-        assert all(row['start_only'] is not None for row in result)
-
-        # end_time only
-        t.add_computed_column(end_only=t.video.overlay_text('Early text', end_time=2.0))
-        result = t.select(t.end_only).collect()
-        assert all(row['end_only'] is not None for row in result)
-
-        self._validate_videos(t.select(t.timed).collect()['timed'])
-        self._validate_videos(t.select(t.start_only).collect()['start_only'])
-        self._validate_videos(t.select(t.end_only).collect()['end_only'])
-
-    def test_overlay_text_timed_errors(self, uses_db: None, tmp_path: Path) -> None:
-        video = generate_test_video(tmp_path, duration=5.0)
-        t = pxt.create_table('overlay_text_timed_err', {'video': pxt.Video})
-        validate_update_status(t.insert([{'video': video}]), expected_rows=1)
-
-        with pytest.raises(pxt.Error, match=r'start_time must be non-negative'):
-            t.select(t.video.overlay_text('x', start_time=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'end_time must be non-negative'):
-            t.select(t.video.overlay_text('x', end_time=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
-            t.select(t.video.overlay_text('x', start_time=3.0, end_time=1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
-            t.select(t.video.overlay_text('x', start_time=2.0, end_time=2.0)).collect()
 
     def test_overlay_image(self, uses_db: None, tmp_path: Path) -> None:
         video_filepaths = get_video_files()
