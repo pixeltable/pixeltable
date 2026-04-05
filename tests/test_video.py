@@ -1691,7 +1691,8 @@ class TestVideo:
 
         # different fps
         t.add_computed_column(vid30=image_to_video(t.image, duration=2.0, fps=30))
-        result = t.select(vid=t.vid30, duration=t.vid30.get_duration()).collect()
+        result = t.select(vid30=t.vid30, duration=t.vid30.get_duration()).collect()
+        assert all(row['vid30'] is not None for row in result)
         assert all(row['duration'] == pytest.approx(2.0, abs=0.2) for row in result)
 
         self._validate_videos(t.select(t.vid).collect()['vid'])
@@ -1731,6 +1732,7 @@ class TestVideo:
         assert all(row['delayed_duration'] == pytest.approx(row['orig_duration'], abs=0.1) for row in result)
 
         self._validate_videos(t.select(t.mixed).collect()['mixed'])
+        self._validate_videos(t.select(t.delayed).collect()['delayed'])
 
     def test_mix_audio_errors(self, uses_db: None, tmp_path: Path) -> None:
         video = generate_test_video(tmp_path, duration=2.0, has_audio=True)
@@ -1773,6 +1775,8 @@ class TestVideo:
         assert all(row['end_only'] is not None for row in result)
 
         self._validate_videos(t.select(t.timed).collect()['timed'])
+        self._validate_videos(t.select(t.start_only).collect()['start_only'])
+        self._validate_videos(t.select(t.end_only).collect()['end_only'])
 
     def test_overlay_text_timed_errors(self, uses_db: None, tmp_path: Path) -> None:
         video = generate_test_video(tmp_path, duration=5.0)
@@ -1862,12 +1866,22 @@ class TestVideo:
         assert all(row['dimmed'] is not None for row in result)
         assert all(row['dimmed_md']['streams'][0]['width'] == row['orig_w'] for row in result)
         assert all(row['dimmed_md']['streams'][0]['height'] == row['orig_h'] for row in result)
+        dimmed_result = result
 
-        # brighten: also produces valid output
+        # brighten: should also preserve resolution
         bright = t.video.adjust_brightness(factor=1.5)
-        result = t.select(bright=bright).collect()
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(
+                orig_w=md.streams[0].width, orig_h=md.streams[0].height, bright=bright, bright_md=bright.get_metadata()
+            )
+            .collect()
+        )
         assert all(row['bright'] is not None for row in result)
+        assert all(row['bright_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['bright_md']['streams'][0]['height'] == row['orig_h'] for row in result)
 
+        self._validate_videos(dimmed_result['dimmed'])
         self._validate_videos(result['bright'])
 
     def test_adjust_brightness_errors(self, uses_db: None) -> None:
@@ -1947,9 +1961,22 @@ class TestVideo:
         # resolution should be preserved
         assert all(row['filtered_md']['streams'][0]['width'] == row['orig_w'] for row in result)
         assert all(row['filtered_md']['streams'][0]['height'] == row['orig_h'] for row in result)
+        self._validate_videos(result['filtered'])
 
-        # chained filters
+        # chained filters: should also preserve resolution
         chained = t.video.ffmpeg_filter(vf='hue=s=0,eq=brightness=0.1')
-        result = t.select(chained=chained).collect()
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(
+                orig_w=md.streams[0].width,
+                orig_h=md.streams[0].height,
+                chained=chained,
+                chained_md=chained.get_metadata(),
+            )
+            .collect()
+        )
+        assert len(result) > 0
         assert all(row['chained'] is not None for row in result)
+        assert all(row['chained_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['chained_md']['streams'][0]['height'] == row['orig_h'] for row in result)
         self._validate_videos(result['chained'])
