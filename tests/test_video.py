@@ -1955,16 +1955,22 @@ class TestVideo:
         u = pxt.create_table('transition_audio1', {'v1': pxt.Video, 'v2': pxt.Video})
         validate_update_status(u.insert([{'v1': v1_audio, 'v2': v2_silent}]), expected_rows=1)
         u.add_computed_column(out=transition(u.v1, u.v2, duration=0.5))
-        result = u.select(u.out).collect()
+        result = u.select(
+            d1=u.v1.get_duration(), d2=u.v2.get_duration(), out=u.out, out_duration=u.out.get_duration()
+        ).collect()
         assert result[0]['out'] is not None
+        assert result[0]['out_duration'] == pytest.approx(result[0]['d1'] + result[0]['d2'] - 0.5, abs=0.3)
         self._validate_videos([result[0]['out']])
 
         # asymmetric audio: only v2 has audio
         u2 = pxt.create_table('transition_audio2', {'v1': pxt.Video, 'v2': pxt.Video})
         validate_update_status(u2.insert([{'v1': v2_silent, 'v2': v1_audio}]), expected_rows=1)
         u2.add_computed_column(out=transition(u2.v1, u2.v2, duration=0.5))
-        result = u2.select(u2.out).collect()
+        result = u2.select(
+            d1=u2.v1.get_duration(), d2=u2.v2.get_duration(), out=u2.out, out_duration=u2.out.get_duration()
+        ).collect()
         assert result[0]['out'] is not None
+        assert result[0]['out_duration'] == pytest.approx(result[0]['d1'] + result[0]['d2'] - 0.5, abs=0.3)
         self._validate_videos([result[0]['out']])
 
         # no audio on either clip
@@ -1972,8 +1978,11 @@ class TestVideo:
         u3 = pxt.create_table('transition_noaudio', {'v1': pxt.Video, 'v2': pxt.Video})
         validate_update_status(u3.insert([{'v1': v2_silent, 'v2': v2_silent2}]), expected_rows=1)
         u3.add_computed_column(out=transition(u3.v1, u3.v2, duration=0.5))
-        result = u3.select(u3.out).collect()
+        result = u3.select(
+            d1=u3.v1.get_duration(), d2=u3.v2.get_duration(), out=u3.out, out_duration=u3.out.get_duration()
+        ).collect()
         assert result[0]['out'] is not None
+        assert result[0]['out_duration'] == pytest.approx(result[0]['d1'] + result[0]['d2'] - 0.5, abs=0.3)
         self._validate_videos([result[0]['out']])
 
     def test_transition_errors(self, uses_db: None, tmp_path: Path) -> None:
@@ -2038,6 +2047,18 @@ class TestVideo:
 
         # video + audio filter combined
         with_af = t.video.ffmpeg_filter(vf='hue=h=45', af='volume=0.5')
-        result = t.select(with_af=with_af).collect()
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(
+                orig_w=md.streams[0].width,
+                orig_h=md.streams[0].height,
+                with_af=with_af,
+                with_af_md=with_af.get_metadata(),
+            )
+            .collect()
+        )
+        assert len(result) > 0
         assert all(row['with_af'] is not None for row in result)
+        assert all(row['with_af_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['with_af_md']['streams'][0]['height'] == row['orig_h'] for row in result)
         self._validate_videos(result['with_af'])
