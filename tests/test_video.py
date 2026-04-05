@@ -11,6 +11,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
 from pixeltable.functions.video import concat_videos_agg, frame_iterator, legacy_frame_iterator, video_splitter
+from pixeltable.utils import av as av_utils
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -1769,6 +1770,13 @@ class TestVideo:
         with pytest.raises(pxt.Error, match=r'audio_start_time must be non-negative'):
             t.select(t.video.mix_audio(t.audio, audio_start_time=-1.0)).collect()
 
+        # silent video should raise a clear error
+        silent_video = generate_test_video(tmp_path, duration=2.0, has_audio=False)
+        t2 = pxt.create_table('mix_audio_silent_err', {'video': pxt.Video, 'audio': pxt.Audio})
+        validate_update_status(t2.insert([{'video': silent_video, 'audio': audio_filepaths[0]}]), expected_rows=1)
+        with pytest.raises(pxt.Error, match=r'requires a video with an audio stream'):
+            t2.select(t2.video.mix_audio(t2.audio)).collect()
+
     def test_overlay_image(self, uses_db: None, tmp_path: Path) -> None:
         video_filepaths = get_video_files()
         image_filepaths = get_image_files()[:1]
@@ -1821,6 +1829,14 @@ class TestVideo:
         self._validate_videos(t.select(t.styled).collect()['styled'])
         self._validate_videos(t.select(t.corner).collect()['corner'])
         self._validate_videos(t.select(t.timed).collect()['timed'])
+
+        # overlay should preserve audio when present
+        video_with_audio = generate_test_video(tmp_path, duration=2.0, has_audio=True)
+        t2 = pxt.create_table('overlay_image_audio', {'video': pxt.Video, 'logo': pxt.Image})
+        validate_update_status(t2.insert([{'video': video_with_audio, 'logo': image_filepaths[0]}]), expected_rows=1)
+        t2.add_computed_column(overlaid=t2.video.overlay_image(t2.logo))
+        result_paths = t2.select(t2.overlaid).collect()['overlaid']
+        assert all(av_utils.has_audio_stream(str(p)) for p in result_paths)
 
     def test_overlay_image_errors(self, uses_db: None, tmp_path: Path) -> None:
         video = generate_test_video(tmp_path, duration=2.0)

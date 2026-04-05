@@ -876,6 +876,8 @@ def mix_audio(
         raise pxt.Error(f'original_volume must be non-negative, got {original_volume}')
     if audio_start_time < 0:
         raise pxt.Error(f'audio_start_time must be non-negative, got {audio_start_time}')
+    if not av_utils.has_audio_stream(str(video)):
+        raise pxt.Error('mix_audio() requires a video with an audio stream')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
 
@@ -1237,7 +1239,20 @@ def overlay_image(
     filters.append(f'[0:v]{overlay_label}overlay={x_expr}:{y_expr}{enable_clause}[vout]')
     filter_complex = ';'.join(filters)
 
-    cmd = ['-i', str(video), '-i', image_path, '-filter_complex', filter_complex, '-map', '[vout]', '-c:a', 'copy']
+    cmd = [
+        '-i',
+        str(video),
+        '-i',
+        image_path,
+        '-filter_complex',
+        filter_complex,
+        '-map',
+        '[vout]',
+        '-map',
+        '0:a?',
+        '-c:a',
+        'copy',
+    ]
     return av_utils.run_ffmpeg_cmdline(
         cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
     )
@@ -2037,7 +2052,7 @@ def ffmpeg_filter(
         video: Input video.
         vf: FFmpeg video filter string, passed as `-vf`.
         af: Optional FFmpeg audio filter string, passed as `-af`. If None, the audio stream is copied
-            unchanged.
+            unchanged. The input video must have an audio stream when `af` is provided.
         video_encoder: Video encoder to use. If not specified, uses the default encoder.
         video_encoder_args: Additional arguments to pass to the video encoder.
 
