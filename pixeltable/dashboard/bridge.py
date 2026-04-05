@@ -12,6 +12,7 @@ import datetime
 import io
 import json
 import logging
+import re
 import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any
@@ -324,6 +325,14 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
     return results
 
 
+# Matches the topmost function name in a display expression, e.g.
+#   'my_udf(c1.len())'  -> 'my_udf'
+#   'c1.upper()'         -> 'upper'
+#   'DummyIterator(n=3)' -> 'DummyIterator'
+# For bare operators like 'c1 + 1' there is no match.
+_TOPMOST_FUNC_RE = re.compile(r'(?:^|.*\.)(\w+)\(')
+
+
 def get_pipeline() -> dict[str, Any]:
     """Return the full DAG metadata for the Pipeline Inspector."""
     table_paths = sorted(pxt.list_tables('', recursive=True))
@@ -342,9 +351,9 @@ def get_pipeline() -> dict[str, Any]:
             table_error_total = _version_error_total(tbl)
 
             iterator_name: str | None = None
-            if md['is_view']:
-                # parse name out of iterator call
-                iterator_name = md['iterator_call']
+            if md['is_view'] and md['iterator_call'] is not None:
+                m = _TOPMOST_FUNC_RE.match(md['iterator_call'])
+                iterator_name = m.group(1) if m else md['iterator_call']
 
             columns: list[dict[str, Any]] = []
             computed_cols: list[str] = []
@@ -375,6 +384,14 @@ def get_pipeline() -> dict[str, Any]:
                 else:
                     func_type = 'builtin'
 
+                func_name: str | None = None  # the function name of the topmost call
+                if is_iter_col:
+                    func_name = iterator_name
+                elif value_expr is not None:
+                    match = _TOPMOST_FUNC_RE.match(value_expr)
+                    if match is not None:
+                        func_name = match.group(1)
+
                 col_entry: dict[str, Any] = {
                     'name': col_name,
                     'type': info['type_'],
@@ -383,7 +400,7 @@ def get_pipeline() -> dict[str, Any]:
                     'computed_with': value_expr,
                     'defined_in': defined_in,
                     'defined_in_self': defined_in == md['name'],
-                    'func_name': iterator_name if is_iter_col else value_expr,
+                    'func_name': func_name,
                     'func_type': func_type,
                     'error_count': col_errors.get(col_name, 0),
                 }
