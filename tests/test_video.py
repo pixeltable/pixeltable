@@ -1908,7 +1908,7 @@ class TestVideo:
         with pytest.raises(pxt.Error, match=r'factor must be non-negative'):
             t.select(t.video.adjust_brightness(factor=-0.5)).collect()
 
-    def tfterest_transition(self, uses_db: None, tmp_path: Path) -> None:
+    def test_transition(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.functions.video import transition
 
         # generate two videos with known durations for predictable output
