@@ -1112,7 +1112,22 @@ async def responses(
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
-    return json.loads(result.text)
+    response_dict = json.loads(result.text)
+    # output_text is an SDK convenience property not present in the raw JSON;
+    # replicate it here so users can access response.output_text directly
+    response_dict['output_text'] = _extract_output_text(response_dict)
+    return response_dict
+
+
+def _extract_output_text(response: dict) -> str:
+    """Replicates the OpenAI SDK's `output_text` convenience property from the raw response JSON."""
+    parts: list[str] = []
+    for item in response.get('output', []):
+        if item.get('type') == 'message':
+            for content in item.get('content', []):
+                if content.get('type') == 'output_text':
+                    parts.append(content.get('text', ''))
+    return '\n'.join(parts)
 
 
 #####################################
