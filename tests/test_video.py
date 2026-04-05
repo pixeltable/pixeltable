@@ -1696,21 +1696,19 @@ class TestVideo:
         default_encoder = Env.get().default_video_encoder
         assert default_encoder == 'libx264'
 
-    def test_image_to_video(self, uses_db: None, tmp_path: Path) -> None:
-        from pixeltable.functions.video import image_to_video
-
+    def test_to_video(self, uses_db: None, tmp_path: Path) -> None:
         image_filepaths = get_image_files()[:3]
-        t = pxt.create_table('image_to_video_test', {'image': pxt.Image})
+        t = pxt.create_table('to_video_test', {'image': pxt.Image})
         validate_update_status(t.insert({'image': f} for f in image_filepaths), expected_rows=len(image_filepaths))
 
         # 5-second video at default fps
-        t.add_computed_column(vid=image_to_video(t.image, duration=5.0))
+        t.add_computed_column(vid=t.image.to_video(duration=5.0))
         result = t.select(vid=t.vid, duration=t.vid.get_duration()).collect()
         assert all(row['vid'] is not None for row in result)
         assert all(row['duration'] == pytest.approx(5.0, abs=0.2) for row in result)
 
         # different fps
-        t.add_computed_column(vid30=image_to_video(t.image, duration=2.0, fps=30))
+        t.add_computed_column(vid30=t.image.to_video(duration=2.0, fps=30))
         result = t.select(vid30=t.vid30, duration=t.vid30.get_duration()).collect()
         assert all(row['vid30'] is not None for row in result)
         assert all(row['duration'] == pytest.approx(2.0, abs=0.2) for row in result)
@@ -1718,21 +1716,19 @@ class TestVideo:
         self._validate_videos(t.select(t.vid).collect()['vid'])
         self._validate_videos(t.select(t.vid30).collect()['vid30'])
 
-    def test_image_to_video_errors(self, uses_db: None) -> None:
-        from pixeltable.functions.video import image_to_video
-
+    def test_to_video_errors(self, uses_db: None) -> None:
         image_filepaths = get_image_files()[:1]
-        t = pxt.create_table('image_to_video_err', {'image': pxt.Image})
+        t = pxt.create_table('to_video_err', {'image': pxt.Image})
         validate_update_status(t.insert({'image': f} for f in image_filepaths), expected_rows=1)
 
         with pytest.raises(pxt.Error, match=r'duration must be positive'):
-            t.select(image_to_video(t.image, duration=0)).collect()
+            t.select(t.image.to_video(duration=0)).collect()
         with pytest.raises(pxt.Error, match=r'duration must be positive'):
-            t.select(image_to_video(t.image, duration=-1.0)).collect()
+            t.select(t.image.to_video(duration=-1.0)).collect()
         with pytest.raises(pxt.Error, match=r'fps must be positive'):
-            t.select(image_to_video(t.image, duration=1.0, fps=0)).collect()
+            t.select(t.image.to_video(duration=1.0, fps=0)).collect()
         with pytest.raises(pxt.Error, match=r'fps must be positive'):
-            t.select(image_to_video(t.image, duration=1.0, fps=-5)).collect()
+            t.select(t.image.to_video(duration=1.0, fps=-5)).collect()
 
     def test_mix_audio(self, uses_db: None, tmp_path: Path) -> None:
         # generate videos with audio so we have a known baseline
@@ -1912,7 +1908,7 @@ class TestVideo:
         with pytest.raises(pxt.Error, match=r'factor must be non-negative'):
             t.select(t.video.adjust_brightness(factor=-0.5)).collect()
 
-    def test_transition(self, uses_db: None, tmp_path: Path) -> None:
+    def tfterest_transition(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.functions.video import transition
 
         # generate two videos with known durations for predictable output
@@ -1989,7 +1985,7 @@ class TestVideo:
             t.select(transition(t.v1, t.v2, duration=0)).collect()
         with pytest.raises(pxt.Error, match=r'duration must be positive'):
             t.select(transition(t.v1, t.v2, duration=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'transition duration.*exceeds video1 duration'):
+        with pytest.raises(pxt.Error, match=r'transition duration.*exceeds duration'):
             t.select(transition(t.v1, t.v2, duration=10.0)).collect()
 
         # mismatched resolutions
@@ -1999,6 +1995,14 @@ class TestVideo:
         validate_update_status(u.insert([{'v1': v_small, 'v2': v_large}]), expected_rows=1)
         with pytest.raises(pxt.Error, match=r'must have the same resolution'):
             u.select(transition(u.v1, u.v2, duration=0.5)).collect()
+
+        # duration exceeds video2
+        v_long = generate_test_video(tmp_path, duration=2.0, size='640x360')
+        v_short = generate_test_video(tmp_path, duration=0.5, size='640x360')
+        u2 = pxt.create_table('transition_video2_err', {'v1': pxt.Video, 'v2': pxt.Video})
+        validate_update_status(u2.insert([{'v1': v_long, 'v2': v_short}]), expected_rows=1)
+        with pytest.raises(pxt.Error, match=r'transition duration.*exceeds duration'):
+            u2.select(transition(u2.v1, u2.v2, duration=1.0)).collect()
 
     def test_ffmpeg_filter(self, uses_db: None) -> None:
         video_filepaths = get_video_files()

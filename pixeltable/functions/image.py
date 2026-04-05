@@ -551,6 +551,79 @@ class tile_iterator(pxt.PxtIterator[Tile]):
             raise excs.Error(f'`overlap` dimensions {overlap} are not strictly smaller than `tile_size` {tile_size}')
 
 
+@pxt.udf(is_method=True)
+def to_video(
+    image: pxt.Image,
+    *,
+    duration: float,
+    fps: int = 24,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Convert a still image into a video of a specified duration with ffmpeg's `-loop` option.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        image: Input image to convert to video.
+        duration: Duration of the output video in seconds.
+        fps: Frames per second for the output video.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A video displaying the input image for the specified duration.
+
+    Examples:
+        Create a 5-second video from an image:
+
+        >>> tbl.select(tbl.image.to_video(duration=5.0)).collect()
+
+        Create a 10-second video at 30 fps from a rotated image:
+
+        >>> tbl.select(
+        ...     tbl.image.rotate(180).to_video(duration=10.0, fps=30)
+        ... ).collect()
+    """
+    import pixeltable.utils.av as av_utils
+    from pixeltable.env import Env
+    from pixeltable.utils.local_store import TempStore
+
+    Env.get().require_binary('ffmpeg')
+    if duration <= 0:
+        raise excs.Error(f'duration must be positive, got {duration}')
+    if fps <= 0:
+        raise excs.Error(f'fps must be positive, got {fps}')
+
+    # ffmpeg needs file input
+    image_path = str(TempStore.create_path(extension='.png'))
+    image.convert('RGB').save(image_path)
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    # Scale to even dimensions (required by most codecs like libx264)
+    even_filter = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
+    cmd = [
+        '-loop',
+        '1',
+        '-i',
+        image_path,
+        '-vf',
+        even_filter,
+        '-t',
+        str(duration),
+        '-r',
+        str(fps),
+        '-pix_fmt',
+        'yuv420p',
+    ]
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
+
+
 __all__ = local_public_names(__name__)
 
 

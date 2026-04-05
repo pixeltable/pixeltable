@@ -91,75 +91,6 @@ class make_video(pxt.Aggregator):
         return str(self.out_file)
 
 
-@pxt.udf
-def image_to_video(
-    image: pxt.Image,
-    *,
-    duration: float,
-    fps: int = 24,
-    video_encoder: str | None = None,
-    video_encoder_args: dict[str, Any] | None = None,
-) -> pxt.Video:
-    """
-    Convert a single still image into a video of a specified duration with ffmpeg's `-loop` option.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        image: Input image to convert to video.
-        duration: Duration of the output video in seconds.
-        fps: Frames per second for the output video.
-        video_encoder: Video encoder to use. If not specified, uses the default encoder.
-        video_encoder_args: Additional arguments to pass to the video encoder.
-
-    Returns:
-        A video displaying the input image for the specified duration.
-
-    Examples:
-        Create a 5-second video from an image:
-
-        >>> tbl.select(image_to_video(tbl.image, duration=5.0)).collect()
-
-        Create a 10-second video at 30 fps from a rotated image:
-
-        >>> tbl.select(
-        ...     image_to_video(tbl.image.rotate(180), duration=10.0, fps=30)
-        ... ).collect()
-    """
-    Env.get().require_binary('ffmpeg')
-    if duration <= 0:
-        raise pxt.Error(f'duration must be positive, got {duration}')
-    if fps <= 0:
-        raise pxt.Error(f'fps must be positive, got {fps}')
-
-    # ffmpeg needs file input
-    image_path = str(TempStore.create_path(extension='.png'))
-    image.convert('RGB').save(image_path)
-
-    output_path = str(TempStore.create_path(extension='.mp4'))
-    # Scale to even dimensions (required by most codecs like libx264)
-    even_filter = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
-    cmd = [
-        '-loop',
-        '1',
-        '-i',
-        image_path,
-        '-vf',
-        even_filter,
-        '-t',
-        str(duration),
-        '-r',
-        str(fps),
-        '-pix_fmt',
-        'yuv420p',
-    ]
-    return av_utils.run_ffmpeg_cmdline(
-        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
-    )
-
-
 @pxt.udf(is_method=True)
 def extract_audio(
     video_path: pxt.Video, stream_idx: int = 0, format: str = 'wav', codec: str | None = None
@@ -1715,9 +1646,14 @@ def transition(
 
     video1_duration = av_utils.get_video_duration(video1)
     if video1_duration is None:
-        raise pxt.Error('Could not determine duration of video1')
+        raise pxt.Error(f'Could not determine duration of {video1}')
     if duration > video1_duration:
-        raise pxt.Error(f'transition duration ({duration}s) exceeds video1 duration ({video1_duration}s)')
+        raise pxt.Error(f'transition duration ({duration}s) exceeds duration ({video1_duration}s) of {video1}')
+    video2_duration = av_utils.get_video_duration(video2)
+    if video2_duration is None:
+        raise pxt.Error(f'Could not determine duration of {video2}')
+    if duration > video2_duration:
+        raise pxt.Error(f'transition duration ({duration}s) exceeds duration ({video2_duration}s) of {video2}')
 
     offset = video1_duration - duration
     output_path = str(TempStore.create_path(extension='.mp4'))
@@ -1731,11 +1667,11 @@ def transition(
         filter_complex += f';[0:a][1:a]acrossfade=d={duration}[aout]'
     cmd = ['-i', str(video1), '-i', str(video2), '-filter_complex', filter_complex, '-map', '[vout]']
     if has_audio1 and has_audio2:
-        cmd.extend(['-map', '[aout]'])
+        cmd.extend(['-map', '[aout]', '-c:a', 'aac'])
     elif has_audio1:
-        cmd.extend(['-map', '0:a'])
+        cmd.extend(['-map', '0:a', '-c:a', 'copy'])
     elif has_audio2:
-        cmd.extend(['-map', '1:a'])
+        cmd.extend(['-map', '1:a', '-c:a', 'copy'])
 
     return av_utils.run_ffmpeg_cmdline(
         cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args

@@ -156,6 +156,7 @@
           <outline text="udf|pixeltable.functions.image.width" />
           <outline text="udf|pixeltable.functions.image.height" />
           <outline text="udf|pixeltable.functions.image.mode" />
+          <outline text="udf|pixeltable.functions.image.to_video" />
         </outline>
         <outline text="module|pixeltable.functions.json">
           <outline text="udf|pixeltable.functions.json.dumps" />
@@ -270,6 +271,34 @@
           <outline text="udf|pixeltable.functions.video.scene_detect_histogram" />
           <outline text="udf|pixeltable.functions.video.scene_detect_threshold" />
           <outline text="udf|pixeltable.functions.video.with_audio" />
+          <outline text="udf|pixeltable.functions.video.mix_audio" />
+          <outline text="udf|pixeltable.functions.video.overlay_image" />
+          <outline text="udf|pixeltable.functions.video.transition" />
+          <outline text="udf|pixeltable.functions.video.adjust_brightness" />
+          <outline text="udf|pixeltable.functions.video.ffmpeg_filter" />
+          <outline text="udf|pixeltable.functions.video.resize" />
+          <outline text="udf|pixeltable.functions.video.reverse" />
+          <outline text="udf|pixeltable.functions.video.fade_in" />
+          <outline text="udf|pixeltable.functions.video.fade_out" />
+          <outline text="udf|pixeltable.functions.video.speed" />
+          <outline text="udf|pixeltable.functions.video.mirror_x" />
+          <outline text="udf|pixeltable.functions.video.mirror_y" />
+          <outline text="udf|pixeltable.functions.video.rotate" />
+          <outline text="udf|pixeltable.functions.video.grayscale" />
+          <outline text="udf|pixeltable.functions.video.scroll" />
+          <outline text="udf|pixeltable.functions.video.zoom" />
+        </outline>
+        <outline text="module|pixeltable.functions.vision">
+          <outline text="func|pixeltable.functions.vision.eval_detections" />
+          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
+          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
+          <outline text="udf|pixeltable.functions.vision.bboxes_scale" />
+          <outline text="udf|pixeltable.functions.vision.bboxes_pad" />
+          <outline text="udf|pixeltable.functions.vision.bboxes_clip_to_canvas" />
+          <outline text="udf|pixeltable.functions.vision.bboxes_crop_canvas" />
+          <outline text="udf|pixeltable.functions.vision.bboxes_resize_canvas" />
+          <outline text="udf|pixeltable.functions.vision.overlay_segmentation" />
         </outline>
       </outline>
 
@@ -375,12 +404,6 @@
           <outline text="udf|pixeltable.functions.uuid.uuid4" />
           <outline text="udf|pixeltable.functions.uuid.uuid7" />
           <outline text="udf|pixeltable.functions.uuid.to_string" />
-        </outline>
-        <outline text="module|pixeltable.functions.vision">
-          <outline text="func|pixeltable.functions.vision.eval_detections" />
-          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
-          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
-          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
         </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />
