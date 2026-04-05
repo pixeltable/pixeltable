@@ -211,6 +211,21 @@ class DetrForObjectDetectionResponse(TypedDict):
     boxes: list[list[float]]
 
 
+def _detr_config(model_id: str, revision: str) -> Any:
+    """Load DetrConfig with workaround for dilation=None validation error.
+
+    The no_timm revision of facebook/detr-resnet-50 stores dilation: null
+    in its config, but newer huggingface_hub versions reject None for the
+    bool-typed field.
+    """
+    from transformers import DetrConfig
+
+    config = DetrConfig.from_pretrained(model_id, revision=revision)
+    if config.dilation is None:
+        config.dilation = False
+    return config
+
+
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(
     image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'no_timm'
@@ -262,7 +277,9 @@ def detr_for_object_detection(
     from transformers import DetrForObjectDetection, DetrImageProcessor
 
     model = _lookup_model(
-        model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision=revision), device=device
+        model_id,
+        lambda x: DetrForObjectDetection.from_pretrained(x, revision=revision, config=_detr_config(x, revision)),
+        device=device,
     )
     processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision=revision))
     normalized_images = [normalize_image_mode(img) for img in image]
