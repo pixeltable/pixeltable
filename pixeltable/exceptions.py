@@ -11,26 +11,26 @@ Exception Class           HTTP  Error Codes
 ------------------------  ----  -------------------------------------------
 Error                     500   INTERNAL_ERROR, MISSING_CREDENTIALS,
                                 INVALID_CONFIGURATION
+                          499   CANCELLED
 NotFoundError             404   COLUMN_NOT_FOUND, PATH_NOT_FOUND,
                                 DIRECTORY_NOT_FOUND, INDEX_NOT_FOUND,
                                 FUNCTION_NOT_FOUND, ROW_NOT_FOUND,
                                 STORAGE_NOT_FOUND
 AlreadyExistsError        409   COLUMN_ALREADY_EXISTS, PATH_ALREADY_EXISTS,
                                 INDEX_ALREADY_EXISTS, FUNCTION_ALREADY_EXISTS
-SchemaError               422   INVALID_COLUMN_NAME, INVALID_PATH,
+RequestError              422   INVALID_COLUMN_NAME, INVALID_PATH,
                                 INVALID_EXPRESSION, INVALID_TYPE,
                                 INVALID_SCHEMA, INVALID_ARGUMENT,
                                 INVALID_DATA_FORMAT, MISSING_REQUIRED,
                                 TYPE_MISMATCH, CONSTRAINT_VIOLATION
-OperationError            400   UNSUPPORTED_OPERATION, INVALID_STATE,
+                          400   UNSUPPORTED_OPERATION, INVALID_STATE,
                                 IMMUTABLE
 AuthorizationError        403   INSUFFICIENT_PRIVILEGES
 ExternalServiceError      502   PROVIDER_ERROR
-RateLimitError            429   RATE_LIMITED
+                          429   RATE_LIMITED
 ServiceUnavailableError   503   DATABASE_UNAVAILABLE, STORE_UNAVAILABLE
 ConcurrencyError          409   SERIALIZATION_FAILURE,
                                 CONCURRENT_MODIFICATION
-CancellationError         499   CANCELLED
 
 Error Code Ranges
 =================
@@ -39,17 +39,14 @@ Each error code group is assigned a stable numeric range with room for future
 additions.  Ranges start at multiples of 1000 to avoid any confusion with HTTP
 status codes.
 
-    0xxx  — General / internal
-    1xxx  — Not found
-    2xxx  — Already exists
-    3xxx  — Schema / validation
-    4xxx  — Operation
-    5xxx  — Authorization
-    6xxx  — External service
-    7xxx  — Service unavailable
-    8xxx  — Concurrency
-    9xxx  — Configuration
-    10xxx — Cancellation
+    0xxx  - Error (general / internal / configuration)
+    1xxx  - NotFoundError
+    2xxx  - AlreadyExistsError
+    3xxx  - RequestError
+    4xxx  - AuthorizationError
+    5xxx  - ExternalServiceError
+    6xxx  - ServiceUnavailableError
+    7xxx  - ConcurrencyError
 """
 
 from __future__ import annotations
@@ -70,8 +67,11 @@ class ErrorCode(enum.Enum):
     existing values.
     """
 
-    # General (0xxx)
+    # Error (0xxx)
     INTERNAL_ERROR = 0
+    MISSING_CREDENTIALS = 1
+    INVALID_CONFIGURATION = 2
+    CANCELLED = 3
 
     # NotFoundError (1xxx)
     COLUMN_NOT_FOUND = 1000
@@ -88,7 +88,7 @@ class ErrorCode(enum.Enum):
     INDEX_ALREADY_EXISTS = 2002
     FUNCTION_ALREADY_EXISTS = 2003
 
-    # SchemaError (3xxx)
+    # RequestError (3xxx)
     INVALID_COLUMN_NAME = 3000
     INVALID_PATH = 3001
     INVALID_EXPRESSION = 3002
@@ -99,42 +99,85 @@ class ErrorCode(enum.Enum):
     MISSING_REQUIRED = 3007
     TYPE_MISMATCH = 3008
     CONSTRAINT_VIOLATION = 3009
+    UNSUPPORTED_OPERATION = 3010
+    INVALID_STATE = 3011
+    IMMUTABLE = 3012
 
-    # OperationError (4xxx)
-    UNSUPPORTED_OPERATION = 4000
-    INVALID_STATE = 4001
-    IMMUTABLE = 4002
+    # AuthorizationError (4xxx)
+    INSUFFICIENT_PRIVILEGES = 4000
 
-    # AuthorizationError (5xxx)
-    INSUFFICIENT_PRIVILEGES = 5000
+    # ExternalServiceError (5xxx)
+    PROVIDER_ERROR = 5000
+    RATE_LIMITED = 5001
 
-    # ExternalServiceError (6xxx)
-    PROVIDER_ERROR = 6000
-    RATE_LIMITED = 6001
+    # ServiceUnavailableError (6xxx)
+    DATABASE_UNAVAILABLE = 6000
+    STORE_UNAVAILABLE = 6001
 
-    # ServiceUnavailableError (7xxx)
-    DATABASE_UNAVAILABLE = 7000
-    STORE_UNAVAILABLE = 7001
+    # ConcurrencyError (7xxx)
+    SERIALIZATION_FAILURE = 7000
+    CONCURRENT_MODIFICATION = 7001
 
-    # ConcurrencyError (8xxx)
-    SERIALIZATION_FAILURE = 8000
-    CONCURRENT_MODIFICATION = 8001
 
-    # Configuration (9xxx) — used with base Error
-    MISSING_CREDENTIALS = 9000
-    INVALID_CONFIGURATION = 9001
-
-    # CancellationError (10xxx)
-    CANCELLED = 10000
+# Canonical mapping from every ErrorCode to its HTTP status code.
+HTTP_STATUS: dict[ErrorCode, int] = {
+    # Error (0xxx)
+    ErrorCode.INTERNAL_ERROR: 500,
+    ErrorCode.MISSING_CREDENTIALS: 500,
+    ErrorCode.INVALID_CONFIGURATION: 500,
+    ErrorCode.CANCELLED: 499,
+    # NotFoundError (1xxx)
+    ErrorCode.COLUMN_NOT_FOUND: 404,
+    ErrorCode.PATH_NOT_FOUND: 404,
+    ErrorCode.DIRECTORY_NOT_FOUND: 404,
+    ErrorCode.INDEX_NOT_FOUND: 404,
+    ErrorCode.FUNCTION_NOT_FOUND: 404,
+    ErrorCode.ROW_NOT_FOUND: 404,
+    ErrorCode.STORAGE_NOT_FOUND: 404,
+    # AlreadyExistsError (2xxx)
+    ErrorCode.COLUMN_ALREADY_EXISTS: 409,
+    ErrorCode.PATH_ALREADY_EXISTS: 409,
+    ErrorCode.INDEX_ALREADY_EXISTS: 409,
+    ErrorCode.FUNCTION_ALREADY_EXISTS: 409,
+    # RequestError (3xxx)
+    ErrorCode.INVALID_COLUMN_NAME: 422,
+    ErrorCode.INVALID_PATH: 422,
+    ErrorCode.INVALID_EXPRESSION: 422,
+    ErrorCode.INVALID_TYPE: 422,
+    ErrorCode.INVALID_SCHEMA: 422,
+    ErrorCode.INVALID_ARGUMENT: 422,
+    ErrorCode.INVALID_DATA_FORMAT: 422,
+    ErrorCode.MISSING_REQUIRED: 422,
+    ErrorCode.TYPE_MISMATCH: 422,
+    ErrorCode.CONSTRAINT_VIOLATION: 422,
+    ErrorCode.UNSUPPORTED_OPERATION: 400,
+    ErrorCode.INVALID_STATE: 400,
+    ErrorCode.IMMUTABLE: 400,
+    # AuthorizationError (4xxx)
+    ErrorCode.INSUFFICIENT_PRIVILEGES: 403,
+    # ExternalServiceError (5xxx)
+    ErrorCode.PROVIDER_ERROR: 502,
+    ErrorCode.RATE_LIMITED: 429,
+    # ServiceUnavailableError (6xxx)
+    ErrorCode.DATABASE_UNAVAILABLE: 503,
+    ErrorCode.STORE_UNAVAILABLE: 503,
+    # ConcurrencyError (7xxx)
+    ErrorCode.SERIALIZATION_FAILURE: 409,
+    ErrorCode.CONCURRENT_MODIFICATION: 409,
+}
 
 
 class Error(Exception):
-    """Base exception for user-facing Pixeltable errors."""
+    """Base exception for user-facing Pixeltable errors.
 
-    http_status: int = 500
+    http_status is derived automatically from the error code via
+    HTTP_STATUS_BY_ERROR_CODE.  Subclasses set a default ``error_code``
+    class attribute; callers can override per-instance.
+    """
+
     error_code: ErrorCode = ErrorCode.INTERNAL_ERROR
     retryable: bool = False
-    cause: Exception | None = None
+    http_status: int
 
     def __init__(
         self,
@@ -150,53 +193,50 @@ class Error(Exception):
         if retryable is not None:
             self.retryable = retryable
         if cause is not None:
-            self.cause = cause
             self.__cause__ = cause
+        self.http_status = HTTP_STATUS[self.error_code]
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation for REST error responses."""
-        return {'error_code': self.error_code.name, 'message': str(self), 'retryable': self.retryable}
+        d: dict[str, Any] = {'error_code': self.error_code.name, 'message': str(self), 'retryable': self.retryable}
+        if self.__cause__ is not None:
+            d['cause'] = str(self.__cause__)
+        return d
 
 
 class NotFoundError(Error):
     """Resource not found."""
 
-    http_status: int = 404
     error_code: ErrorCode = ErrorCode.PATH_NOT_FOUND
 
 
 class AlreadyExistsError(Error):
     """Resource already exists."""
 
-    http_status: int = 409
     error_code: ErrorCode = ErrorCode.PATH_ALREADY_EXISTS
 
 
-class SchemaError(Error):
-    """Invalid input, schema, or argument."""
+class RequestError(Error):
+    """Invalid request: bad input, schema violation, or unsupported operation.
 
-    http_status: int = 422
+    Covers both structural problems (invalid column name, type mismatch) and
+    operational problems (unsupported operation, invalid state). Use error codes
+    to distinguish the specific cause. HTTP status is derived automatically:
+    schema/validation codes -> 422, operation codes -> 400.
+    """
+
     error_code: ErrorCode = ErrorCode.INVALID_ARGUMENT
-
-
-class OperationError(Error):
-    """Operation not supported or not valid for the current target/state."""
-
-    http_status: int = 400
-    error_code: ErrorCode = ErrorCode.UNSUPPORTED_OPERATION
 
 
 class AuthorizationError(Error):
     """Caller lacks permission for the requested operation."""
 
-    http_status: int = 403
     error_code: ErrorCode = ErrorCode.INSUFFICIENT_PRIVILEGES
 
 
 class ExternalServiceError(Error):
     """An upstream provider or external store returned an error."""
 
-    http_status: int = 502
     error_code: ErrorCode = ErrorCode.PROVIDER_ERROR
     provider: str | None = None
     status_code: int | None = None
@@ -227,11 +267,9 @@ class ExternalServiceError(Error):
         return d
 
 
-
 class ServiceUnavailableError(Error):
     """Database, store, or other infrastructure is unreachable."""
 
-    http_status: int = 503
     error_code: ErrorCode = ErrorCode.DATABASE_UNAVAILABLE
     retryable: bool = True
 
@@ -239,7 +277,6 @@ class ServiceUnavailableError(Error):
 class ConcurrencyError(Error):
     """Serialization failure, deadlock, or concurrent modification conflict."""
 
-    http_status: int = 409
     error_code: ErrorCode = ErrorCode.SERIALIZATION_FAILURE
     retryable: bool = True
 
