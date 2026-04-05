@@ -139,14 +139,16 @@ def image_to_video(
     image.convert('RGB').save(image_path)
 
     output_path = str(TempStore.create_path(extension='.mp4'))
+    # Scale to even dimensions (required by most codecs like libx264)
+    even_filter = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
     cmd = [
         '-loop',
         '1',
         '-i',
         image_path,
         '-vf',
-        # scale to even dimensions (required by most codecs)
-        'scale=trunc(iw/2)*2:trunc(ih/2)*2-t',
+        even_filter,
+        '-t',
         str(duration),
         '-r',
         str(fps),
@@ -1698,7 +1700,7 @@ def transition(
 
     filter_complex = f'[0:v][1:v]xfade=transition={effect}:duration={duration}:offset={offset}[vout]'
     if has_audio1 and has_audio2:
-        filter_complex += f'[0:a][1:a]acrossfade=d={duration}[aout]'
+        filter_complex += f';[0:a][1:a]acrossfade=d={duration}[aout]'
     cmd = ['-i', str(video1), '-i', str(video2), '-filter_complex', filter_complex, '-map', '[vout]']
     if has_audio1 and has_audio2:
         cmd.extend(['-map', '[aout]'])

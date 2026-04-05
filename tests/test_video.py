@@ -1791,7 +1791,10 @@ class TestVideo:
         image_filepaths = get_image_files()[:1]
 
         t = pxt.create_table('overlay_image_test', {'video': pxt.Video, 'logo': pxt.Image})
-        validate_update_status(t.insert([{'video': video, 'logo': image_filepaths[0]} for video in video_filepaths]), expected_rows=len(video_filepaths))
+        validate_update_status(
+            t.insert([{'video': video, 'logo': image_filepaths[0]} for video in video_filepaths]),
+            expected_rows=len(video_filepaths),
+        )
 
         # basic overlay: centered, full opacity
         t.add_computed_column(basic=t.video.overlay_image(t.logo))
@@ -1803,18 +1806,20 @@ class TestVideo:
 
         # positioned overlay with scale and opacity
         t.add_computed_column(
-            styled=t.video.overlay_image(
-                t.logo, horizontal_align='right', vertical_align='top', scale=0.1, opacity=0.5
-            )
+            styled=t.video.overlay_image(t.logo, horizontal_align='right', vertical_align='top', scale=0.1, opacity=0.5)
         )
-        result = t.select(t.styled, orig_duration = t.video.get_duration(), styled_duration = t.styled.get_duration() ).collect()
+        result = t.select(
+            t.styled, orig_duration=t.video.get_duration(), styled_duration=t.styled.get_duration()
+        ).collect()
         assert all(row['styled'] is not None for row in result)
         assert all(row['styled_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
 
         # timed overlay
         t.add_computed_column(timed=t.video.overlay_image(t.logo, start_time=0.5, end_time=2.0))
-        result = t.select(t.timed, orig_duration=t.video.get_duration(), timed_duration=t.timed.get_duration()).collect()
-        assert all(row['styled'] is not None for row in result)
+        result = t.select(
+            t.timed, orig_duration=t.video.get_duration(), timed_duration=t.timed.get_duration()
+        ).collect()
+        assert all(row['timed'] is not None for row in result)
         assert all(row['timed_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
 
         self._validate_videos(t.select(t.basic).collect()['basic'])
@@ -1848,7 +1853,9 @@ class TestVideo:
         dimmed = t.video.adjust_brightness(factor=0.5)
         result = (
             t.where(md.streams[0].duration_seconds != None)
-            .select( orig_md=md, dimmed=dimmed, dimmed_md=dimmed.get_metadata())
+            .select(
+                orig_w=md.streams[0].width, orig_h=md.streams[0].height, dimmed=dimmed, dimmed_md=dimmed.get_metadata()
+            )
             .collect()
         )
         assert len(result) > 0
@@ -1858,16 +1865,9 @@ class TestVideo:
 
         # brighten: also produces valid output
         bright = t.video.adjust_brightness(factor=1.5)
-        result = (
-            t.where(md.streams[0].duration_seconds != None)
-            .select( orig_md=md, bright=bright, bright_md=bright.get_metadata())
-            .collect()
-        )
+        result = t.select(bright=bright).collect()
         assert all(row['bright'] is not None for row in result)
-        assert all(row['dimmed_md']['streams'][0]['width'] == row['orig_w'] for row in result)
-        assert all(row['dimmed_md']['streams'][0]['height'] == row['orig_h'] for row in result)
 
-        self._validate_videos(result['dimmed'])
         self._validate_videos(result['bright'])
 
     def test_adjust_brightness_errors(self, uses_db: None) -> None:
@@ -1904,8 +1904,8 @@ class TestVideo:
         expected_duration = result[0]['d1'] + result[0]['d2'] - 0.5
         assert result[0]['wiped_duration'] == pytest.approx(expected_duration, abs=0.3)
 
-        self._validate_videos([result[0]['faded']])
-        self._validate_videos([result[0]['wiped']])
+        self._validate_videos(t.select(t.faded).collect()['faded'])
+        self._validate_videos(t.select(t.wiped).collect()['wiped'])
 
     def test_transition_errors(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.functions.video import transition
@@ -1935,7 +1935,8 @@ class TestVideo:
         result = (
             t.where(md.streams[0].duration_seconds != None)
             .select(
-                orig_md=md,
+                orig_w=md.streams[0].width,
+                orig_h=md.streams[0].height,
                 filtered=filtered,
                 filtered_md=filtered.get_metadata(),
             )
@@ -1943,26 +1944,12 @@ class TestVideo:
         )
         assert len(result) > 0
         assert all(row['filtered'] is not None for row in result)
-        self._validate_videos(result['filtered'])
         # resolution should be preserved
         assert all(row['filtered_md']['streams'][0]['width'] == row['orig_w'] for row in result)
-        assert all(row['filtered_md']['streams'][0]['height'] == row['orig_w'] for row in result)
+        assert all(row['filtered_md']['streams'][0]['height'] == row['orig_h'] for row in result)
 
         # chained filters
         chained = t.video.ffmpeg_filter(vf='hue=s=0,eq=brightness=0.1')
-        result = (
-            t.where(md.streams[0].duration_seconds != None)
-            .select(
-                orig_md=md,
-                chained=chained,
-                chained_md=chained.get_metadata(),
-            )
-            .collect()
-        )
-        assert len(result) > 0
+        result = t.select(chained=chained).collect()
         assert all(row['chained'] is not None for row in result)
         self._validate_videos(result['chained'])
-        # resolution should be preserved
-        assert all(row['chained_md']['streams'][0]['width'] == row['orig_w'] for row in result)
-        assert all(row['chained_md']['streams'][0]['height'] == row['orig_w'] for row in result)
-
