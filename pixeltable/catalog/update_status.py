@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from IPython.lib.pretty import RepresentationPrinter
@@ -61,6 +61,8 @@ class UpdateStatus:
     """Columns that were updated."""
     cols_with_excs: list[str] = field(default_factory=list)
     """Columns that encountered exceptions."""
+    rows: list[dict[str, Any]] | None = None
+    """New rows produced by the call, if requested."""
 
     # stats for the rows affected by the operation
     row_count_stats: RowCountStats = field(default_factory=RowCountStats)

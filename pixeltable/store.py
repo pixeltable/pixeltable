@@ -414,11 +414,11 @@ class StoreBase:
         return num_excs
 
     def insert_rows(
-        self, exec_plan: ExecNode, v_min: int, rowids: Iterator[int] | None = None, abort_on_exc: bool = False
+        self, exec_plan: ExecNode, v_min: int, rowids: Iterator[int] | None = None, abort_on_exc: bool = False, return_rows: bool = False
     ) -> tuple[set[int], RowCountStats]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
-            number of inserted rows, number of exceptions, set of column ids that have exceptions
+            set of column ids that have exceptions, row count stats, newly inserted rows
         """
         assert v_min is not None
         # TODO: total?
@@ -430,6 +430,7 @@ class StoreBase:
         store_col_names = row_builder.store_column_names()
 
         table_rows: list[tuple[Any]] = []
+        inserted_rows: list[dict[str, Any]] = []
 
         with exec_plan:
             progress_reporter = exec_plan.ctx.add_progress_reporter(
@@ -462,6 +463,8 @@ class StoreBase:
                     self.sql_insert(self.sa_tbl, store_col_names, table_rows)
                     if progress_reporter is not None:
                         progress_reporter.update(len(table_rows))
+                    if return_rows:
+                        inserted_rows.extend(table_rows)
                     table_rows.clear()
 
             # insert any remaining rows
@@ -469,6 +472,8 @@ class StoreBase:
                 self.sql_insert(self.sa_tbl, store_col_names, table_rows)
                 if progress_reporter is not None:
                     progress_reporter.update(len(table_rows))
+                if return_rows:
+                    inserted_rows.extend(table_rows)
 
             row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
 
