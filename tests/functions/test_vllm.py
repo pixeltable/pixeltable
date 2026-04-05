@@ -12,6 +12,7 @@ def _skip_if_no_gpu() -> None:
         pytest.skip('vLLM requires a CUDA-capable GPU')
 
 
+@pytest.mark.expensive
 @rerun(reruns=3, reruns_delay=15)
 class TestVllm:
     def test_chat_completions(self, uses_db: None) -> None:

@@ -13,7 +13,7 @@ from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import vllm
+    import vllm  # type: ignore[import-not-found,unused-ignore]
 
 
 @pxt.udf(is_deterministic=False)
@@ -80,7 +80,7 @@ def chat_completions(
     if sp is not None:
         chat_kwargs['sampling_params'] = sp
 
-    outputs = llm.chat([messages], **chat_kwargs)  # type: ignore[arg-type]
+    outputs = llm.chat([messages], **chat_kwargs)  # type: ignore[arg-type,unused-ignore]
     return _request_output_to_dict(outputs[0])
 
 
