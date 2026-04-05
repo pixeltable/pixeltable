@@ -1822,6 +1822,18 @@ class TestVideo:
         assert all(row['styled'] is not None for row in result)
         assert all(row['styled_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
 
+        # left/bottom alignment with margins
+        t.add_computed_column(
+            corner=t.video.overlay_image(
+                t.logo, horizontal_align='left', horizontal_margin=10, vertical_align='bottom', vertical_margin=20
+            )
+        )
+        result = t.select(
+            t.corner, orig_duration=t.video.get_duration(), corner_duration=t.corner.get_duration()
+        ).collect()
+        assert all(row['corner'] is not None for row in result)
+        assert all(row['corner_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
+
         # timed overlay
         t.add_computed_column(timed=t.video.overlay_image(t.logo, start_time=0.5, end_time=2.0))
         result = t.select(
@@ -1832,6 +1844,7 @@ class TestVideo:
 
         self._validate_videos(t.select(t.basic).collect()['basic'])
         self._validate_videos(t.select(t.styled).collect()['styled'])
+        self._validate_videos(t.select(t.corner).collect()['corner'])
         self._validate_videos(t.select(t.timed).collect()['timed'])
 
     def test_overlay_image_errors(self, uses_db: None, tmp_path: Path) -> None:
@@ -1925,6 +1938,7 @@ class TestVideo:
         ).collect()
         expected_duration = result[0]['d1'] + result[0]['d2'] - 1.0
         assert result[0]['faded_duration'] == pytest.approx(expected_duration, abs=0.3)
+        self._validate_videos(t.select(t.faded).collect()['faded'])
 
         # wipe transition
         t.add_computed_column(wiped=transition(t.v1, t.v2, effect='wipeleft', duration=0.5))
@@ -1933,9 +1947,34 @@ class TestVideo:
         ).collect()
         expected_duration = result[0]['d1'] + result[0]['d2'] - 0.5
         assert result[0]['wiped_duration'] == pytest.approx(expected_duration, abs=0.3)
-
-        self._validate_videos(t.select(t.faded).collect()['faded'])
         self._validate_videos(t.select(t.wiped).collect()['wiped'])
+
+        # asymmetric audio: only v1 has audio
+        v1_audio = generate_test_video(tmp_path, duration=2.0, size='640x360', has_audio=True)
+        v2_silent = generate_test_video(tmp_path, duration=2.0, size='640x360', has_audio=False)
+        u = pxt.create_table('transition_audio1', {'v1': pxt.Video, 'v2': pxt.Video})
+        validate_update_status(u.insert([{'v1': v1_audio, 'v2': v2_silent}]), expected_rows=1)
+        u.add_computed_column(out=transition(u.v1, u.v2, duration=0.5))
+        result = u.select(u.out).collect()
+        assert result[0]['out'] is not None
+        self._validate_videos([result[0]['out']])
+
+        # asymmetric audio: only v2 has audio
+        u2 = pxt.create_table('transition_audio2', {'v1': pxt.Video, 'v2': pxt.Video})
+        validate_update_status(u2.insert([{'v1': v2_silent, 'v2': v1_audio}]), expected_rows=1)
+        u2.add_computed_column(out=transition(u2.v1, u2.v2, duration=0.5))
+        result = u2.select(u2.out).collect()
+        assert result[0]['out'] is not None
+        self._validate_videos([result[0]['out']])
+
+        # no audio on either clip
+        v2_silent2 = generate_test_video(tmp_path, duration=2.0, size='640x360', has_audio=False)
+        u3 = pxt.create_table('transition_noaudio', {'v1': pxt.Video, 'v2': pxt.Video})
+        validate_update_status(u3.insert([{'v1': v2_silent, 'v2': v2_silent2}]), expected_rows=1)
+        u3.add_computed_column(out=transition(u3.v1, u3.v2, duration=0.5))
+        result = u3.select(u3.out).collect()
+        assert result[0]['out'] is not None
+        self._validate_videos([result[0]['out']])
 
     def test_transition_errors(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.functions.video import transition
@@ -1996,3 +2035,9 @@ class TestVideo:
         assert all(row['chained_md']['streams'][0]['width'] == row['orig_w'] for row in result)
         assert all(row['chained_md']['streams'][0]['height'] == row['orig_h'] for row in result)
         self._validate_videos(result['chained'])
+
+        # video + audio filter combined
+        with_af = t.video.ffmpeg_filter(vf='hue=h=45', af='volume=0.5')
+        result = t.select(with_af=with_af).collect()
+        assert all(row['with_af'] is not None for row in result)
+        self._validate_videos(result['with_af'])
