@@ -1249,6 +1249,7 @@ def overlay_image(
         '-map',
         '[vout]',
         '-map',
+        # 0:a?: make the audio stream optional
         '0:a?',
         '-c:a',
         'copy',
