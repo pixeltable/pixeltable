@@ -1113,21 +1113,10 @@ async def responses(
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     response_dict = json.loads(result.text)
-    # output_text is an SDK convenience property not present in the raw JSON;
-    # replicate it here so users can access response.output_text directly
-    response_dict['output_text'] = _extract_output_text(response_dict)
+    # output_text is an SDK @property, not a wire-format field;
+    # delegate to the SDK rather than reimplementing the aggregation logic
+    response_dict['output_text'] = result.parse().output_text
     return response_dict
-
-
-def _extract_output_text(response: dict) -> str:
-    """Replicates the OpenAI SDK's `output_text` convenience property from the raw response JSON."""
-    parts: list[str] = []
-    for item in response.get('output', []):
-        if item.get('type') == 'message':
-            for content in item.get('content', []):
-                if content.get('type') == 'output_text':
-                    parts.append(content.get('text', ''))
-    return '\n'.join(parts)
 
 
 #####################################
