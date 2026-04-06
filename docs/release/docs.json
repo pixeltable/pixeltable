@@ -345,7 +345,6 @@
     "dark": "/_logo/pxt-dark.svg"
   },
   "background": {
-    "decoration": "gradient",
     "color": {
       "light": "#fafaf9",
       "dark": "#020704"
