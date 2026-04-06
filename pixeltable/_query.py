@@ -353,9 +353,9 @@ class Query:
                     yield row
 
     def _create_query_plan(self) -> exec.ExecNode:
-        # TODO this insufficient. need to check all tables, all join clauses, etc.
-        has_unversioned_tbl = not self._from_clause.tbls[0].tbl_version.get().is_versioned
+        has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in self._from_clause.tbls)
         if has_unversioned_tbl:
+            # For now, we only support queries of the simplest form on unversioned tables
             assert len(self._from_clause.tbls) == 1, 'PXT-975: not yet implemented'
             assert len(self._from_clause.join_clauses) == 0, 'PXT-975: not yet implemented'
             assert self.grouping_tbl is None, 'PXT-975: not yet implemented'
