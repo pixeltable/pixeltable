@@ -1,5 +1,11 @@
 /* Pixeltable Documentation - Minimal overrides */
 
+/* Remove default sidebar active background tint */
+#sidebar [data-active="true"],
+aside [data-active="true"] {
+  background: transparent !important;
+}
+
 /* ============================================
    NOTEBOOK OUTPUTS - Fix dark mode visibility
    ============================================ */
