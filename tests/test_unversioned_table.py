@@ -84,3 +84,20 @@ class TestUnversionedTable:
 
         rows = tbl.where(tbl.c_int > 100).collect()
         assert len(rows) == 0
+
+    def test_select_limit_offset(self, uses_db: None) -> None:
+        tbl = pxt.create_table('test', {'n': pxt.Int}, _versioned=False)
+        validate_update_status(tbl.insert([{'n': i} for i in range(10)]), 10)
+
+        rows = tbl.select(tbl.n).order_by(tbl.n).limit(3).collect()
+        assert list(rows['n']) == [0, 1, 2]
+
+        for limit in (10, 100):
+            rows = tbl.select(tbl.n).order_by(tbl.n).limit(limit).collect()
+            assert list(rows['n']) == list(range(10))
+
+        rows = tbl.select(tbl.n).order_by(tbl.n).limit(3, offset=4).collect()
+        assert list(rows['n']) == [4, 5, 6]
+
+        rows = tbl.select(tbl.n).order_by(tbl.n).limit(10, offset=10).collect()
+        assert len(rows) == 0
