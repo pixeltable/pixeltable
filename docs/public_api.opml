@@ -40,6 +40,8 @@
           <outline text="func|pixeltable.tools" />
           <outline text="func|pixeltable.tool" />
           <outline text="func|pixeltable.mcp_udfs" />
+          <outline text="func|pixeltable.retrieval_udf" />
+          <outline text="func|pixeltable.array" />
 
           <!-- Core classes with ALL their methods -->
           <outline text="class|pixeltable.Table">
@@ -100,6 +102,10 @@
           </outline>
 
           <outline text="class|pixeltable.ResultSet">
+            <outline text="property|pixeltable.ResultSet.schema" />
+            <outline text="method|pixeltable.ResultSet.__len__" />
+            <outline text="method|pixeltable.ResultSet.__iter__" />
+            <outline text="method|pixeltable.ResultSet.__getitem__" />
             <outline text="method|pixeltable.ResultSet.to_pandas" />
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
           </outline>
