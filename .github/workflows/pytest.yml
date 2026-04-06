@@ -158,7 +158,7 @@ jobs:
           conda-remove-defaults: true
       - name: Install python
         run: |
-          ./scripts/retry.sh 3 30 conda install -y -c conda-forge mamba
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge mamba  # Ensure mamba is installed on Windows
           ./scripts/retry.sh 3 30 mamba install -y -c conda-forge python=${{ matrix.python-version }}
           mamba info
       - name: Install tools and libraries
@@ -234,6 +234,9 @@ jobs:
           # Install quarto and mintlify in order to build the docs
           mamba install -y -c conda-forge quarto nodejs
           npm install -g mint@$MINTLIFY_VERSION
+          # Quarto packaging fix
+          mkdir -p "$CONDA_PREFIX/bin/tools/x86_64"
+          ln -sf "$CONDA_PREFIX/bin/deno" "$CONDA_PREFIX/bin/tools/x86_64/deno"
           python -m pixeltable_doctools.build
           cd target/docs && mint broken-links
       - name: Lint
