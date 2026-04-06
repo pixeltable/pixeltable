@@ -47,3 +47,40 @@ class TestUnversionedTable:
                     sql.text(f"SELECT COUNT(*) FROM {system_tbl} where tbl_id = '{tbl._id}'")
                 ).scalar()
                 assert row_count == 1, (system_tbl, row_count)
+
+    def test_select_where(self, uses_db: None) -> None:
+        schema = {'c_int': pxt.Int, 'c_str': pxt.String, 'c_float': pxt.Float, 'c_bool': pxt.Bool}
+        tbl = pxt.create_table('test', schema, _versioned=False)
+        validate_update_status(
+            tbl.insert(
+                [
+                    {'c_int': 0, 'c_str': 'alpha', 'c_float': 0.0, 'c_bool': True},
+                    {'c_int': 1, 'c_str': 'beta', 'c_float': 1.5, 'c_bool': False},
+                    {'c_int': 2, 'c_str': 'gamma', 'c_float': 2.7, 'c_bool': True},
+                    {'c_int': 3, 'c_str': 'delta', 'c_float': -1.0, 'c_bool': False},
+                    {'c_int': 4, 'c_str': 'epsilon', 'c_float': 3.14, 'c_bool': True},
+                    {'c_int': 5, 'c_str': 'zeta', 'c_float': 0.5, 'c_bool': False},
+                    {'c_int': 10, 'c_str': 'eta', 'c_float': 9.9, 'c_bool': True},
+                ]
+            ),
+            7,
+        )
+
+        rows = tbl.select(tbl.c_int).where(tbl.c_int > 3).order_by(tbl.c_int).collect()
+        assert list(rows['c_int']) == [4, 5, 10]
+
+        rows = tbl.where(tbl.c_bool).order_by(tbl.c_int).select(tbl.c_int).collect()
+        assert list(rows['c_int']) == [0, 2, 4, 10]
+
+        rows = tbl.select(tbl.c_int, tbl.c_str).where(tbl.c_float < 0).collect()
+        assert list(rows['c_int']) == [3]
+        assert list(rows['c_str']) == ['delta']
+
+        rows = tbl.select(tbl.c_str).where(tbl.c_str.contains('ta')).collect()
+        assert set(rows['c_str']) == {'beta', 'delta', 'zeta', 'eta'}
+
+        rows = tbl.select(tbl.c_int).where(~tbl.c_bool & (tbl.c_int < 4)).order_by(tbl.c_int).collect()
+        assert list(rows['c_int']) == [1, 3]
+
+        rows = tbl.where(tbl.c_int > 100).collect()
+        assert len(rows) == 0
