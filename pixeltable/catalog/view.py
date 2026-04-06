@@ -75,7 +75,6 @@ class View(Table):
     @classmethod
     def _create(
         cls,
-        dir_id: UUID,
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
@@ -278,6 +277,18 @@ class View(Table):
             base_path = '<anonymous base table>' if base_tbl is None else base_tbl._path()
             base_version = self._effective_base_versions[0]
             md['base'] = base_path if base_version is None else f'{base_path}:{base_version}'
+
+        tv = self._tbl_version_path.tbl_version.get()
+        if tv.iterator_call is not None:
+            # Mark iterator-produced columns
+            columns = self._tbl_version_path.columns()
+            for col in columns:
+                if col.name in md['columns'] and tv.is_iterator_column(col):
+                    md['columns'][col.name]['is_iterator_col'] = True
+            # Build the iterator expression string: "IteratorName(arg1=expr1, arg2=expr2)"
+            args_str = ', '.join(f'{k}={v.display_str(inline=False)}' for k, v in tv.iterator_call.bound_args.items())
+            md['iterator_call'] = f'{tv.iterator_call.it.name}({args_str})'
+
         return md
 
     def insert(
