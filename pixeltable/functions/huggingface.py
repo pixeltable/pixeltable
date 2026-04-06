@@ -7,7 +7,7 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
-from typing import Any, Callable, Literal, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Literal, TypedDict, TypeVar
 
 import av
 import numpy as np
@@ -23,6 +23,9 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 T = TypeVar('T')
+
+if TYPE_CHECKING:
+    from transformers import DetrConfig
 
 
 @pxt.udf(batch_size=32)
@@ -211,7 +214,7 @@ class DetrForObjectDetectionResponse(TypedDict):
     boxes: list[list[float]]
 
 
-def _detr_config(model_id: str, revision: str) -> Any:
+def _detr_config(model_id: str, revision: str) -> 'DetrConfig':
     """Load DetrConfig with workaround for dilation=None validation error.
 
     The no_timm revision of facebook/detr-resnet-50 stores dilation: null
