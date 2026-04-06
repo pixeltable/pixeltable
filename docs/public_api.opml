@@ -82,10 +82,6 @@
             <outline text="method|pixeltable.Table.unlink_external_stores" />
           </outline>
 
-          <outline text="class|pixeltable.InsertableTable" />
-          <outline text="class|pixeltable.View" />
-          <outline text="class|pixeltable.Column" />
-
           <outline text="class|pixeltable.Query">
             <outline text="method|pixeltable.Query.select" />
             <outline text="method|pixeltable.Query.where" />
