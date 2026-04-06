@@ -1,27 +1,117 @@
 /* Pixeltable Documentation - Kandinsky Design System */
 
-/* Sidebar icon ordering (existing) */
-#sidebar svg.h-4 {
-  order: 1;
-}
-
 /* ============================================
    KANDINSKY COLOR VARIABLES
    ============================================ */
 
 :root {
   --kandinsky-yellow: #F1AE03;
+  --kandinsky-yellow-hover: #f5c842;
   --kandinsky-red: #DC2404;
   --kandinsky-beige: #fafaf9;
   --kandinsky-beige-card: #f5f5f4;
   --kandinsky-beige-hover: #e7e5e4;
   --kandinsky-beige-border: #d4d4d4;
-  --kandinsky-text: #525252;
+  --kandinsky-text: #1a1a1a;
+  --kandinsky-text-muted: #525252;
   --kandinsky-cta: #070000;
   --kandinsky-black: #020704;
   --kandinsky-blue: #022A59;
   --kandinsky-blue-hover: #08407B;
   --kandinsky-blue-light: #7DA8EF;
+}
+
+/* ============================================
+   NAVBAR TABS - Kandinsky active state
+   ============================================ */
+
+/* Light mode: bold blue underline + tinted background on active tab */
+[role="tablist"] [role="tab"][aria-selected="true"],
+[role="tablist"] [data-state="active"],
+nav [data-active="true"],
+[data-selector="tab"][data-state="active"] {
+  color: var(--kandinsky-blue) !important;
+  border-bottom: 2px solid var(--kandinsky-blue) !important;
+  font-weight: 600 !important;
+}
+
+/* Dark mode: amber underline */
+.dark [role="tablist"] [role="tab"][aria-selected="true"],
+.dark [role="tablist"] [data-state="active"],
+.dark nav [data-active="true"],
+.dark [data-selector="tab"][data-state="active"] {
+  color: var(--kandinsky-yellow) !important;
+  border-bottom-color: var(--kandinsky-yellow) !important;
+}
+
+/* All tab labels should be semi-bold */
+[role="tab"],
+button[role="tab"],
+[data-selector="tab"] {
+  font-weight: 500 !important;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+/* ============================================
+   SIDEBAR - Active & hover states
+   ============================================ */
+
+/* Light mode: blue accent on active item */
+#sidebar [data-active="true"],
+#sidebar a[data-active="true"],
+aside [data-active="true"] {
+  background: linear-gradient(90deg, rgba(2, 42, 89, 0.08) 0%, transparent 100%) !important;
+  border-left: 2px solid var(--kandinsky-blue) !important;
+  color: var(--kandinsky-blue) !important;
+  font-weight: 600 !important;
+}
+
+/* Dark mode: amber accent on active item */
+.dark #sidebar [data-active="true"],
+.dark #sidebar a[data-active="true"],
+.dark aside [data-active="true"] {
+  background: linear-gradient(90deg, rgba(241, 174, 3, 0.1) 0%, transparent 100%) !important;
+  border-left-color: var(--kandinsky-yellow) !important;
+  color: var(--kandinsky-yellow) !important;
+}
+
+/* Sidebar hover in light mode */
+#sidebar a:hover:not([data-active="true"]),
+aside a:hover:not([data-active="true"]) {
+  background: rgba(2, 42, 89, 0.04) !important;
+}
+
+.dark #sidebar a:hover:not([data-active="true"]),
+.dark aside a:hover:not([data-active="true"]) {
+  background: rgba(241, 174, 3, 0.04) !important;
+}
+
+/* Sidebar icon ordering */
+#sidebar svg.h-4 {
+  order: 1;
+}
+
+/* ============================================
+   SIDEBAR GROUP TITLES - Kandinsky accent
+   ============================================ */
+
+#sidebar [class*="uppercase"],
+#sidebar [class*="tracking-wide"],
+nav[id="sidebar"] > div > div > div > span,
+#sidebar span.text-xs,
+#sidebar .text-sm.font-semibold:not(a),
+aside span[class*="font-"]:not(a):first-child {
+  color: var(--kandinsky-blue) !important;
+  font-weight: 600 !important;
+}
+
+.dark #sidebar [class*="uppercase"],
+.dark #sidebar [class*="tracking-wide"],
+.dark nav[id="sidebar"] > div > div > div > span,
+.dark #sidebar span.text-xs,
+.dark #sidebar .text-sm.font-semibold:not(a),
+.dark aside span[class*="font-"]:not(a):first-child {
+  color: var(--kandinsky-yellow) !important;
 }
 
 /* ============================================
@@ -49,7 +139,7 @@
 }
 
 /* ============================================
-   CODE BLOCKS - Warm styling
+   CODE BLOCKS - Polished styling
    ============================================ */
 
 [data-selector="code-block"] {
@@ -58,36 +148,22 @@
 }
 
 /* ============================================
-   SIDEBAR - Active state with Kandinsky colors
-   ============================================ */
-
-#sidebar [data-active="true"] {
-  background: linear-gradient(90deg, rgba(2, 42, 89, 0.08) 0%, transparent 100%);
-  border-left: 2px solid var(--kandinsky-blue);
-}
-
-.dark #sidebar [data-active="true"] {
-  background: linear-gradient(90deg, rgba(241, 174, 3, 0.08) 0%, transparent 100%);
-  border-left-color: var(--kandinsky-yellow);
-}
-
-/* ============================================
    HERO SECTION - Kandinsky gradient
    ============================================ */
 
 .hero-gradient {
-  background: linear-gradient(135deg, 
-    rgba(2, 42, 89, 0.06) 0%, 
-    transparent 50%, 
+  background: linear-gradient(135deg,
+    rgba(2, 42, 89, 0.06) 0%,
+    transparent 50%,
     rgba(241, 174, 3, 0.04) 100%
   );
   border: 1px solid rgba(2, 42, 89, 0.1);
 }
 
 .dark .hero-gradient {
-  background: linear-gradient(135deg, 
-    rgba(241, 174, 3, 0.08) 0%, 
-    transparent 50%, 
+  background: linear-gradient(135deg,
+    rgba(241, 174, 3, 0.08) 0%,
+    transparent 50%,
     rgba(2, 42, 89, 0.05) 100%
   );
   border-color: rgba(241, 174, 3, 0.12);
@@ -101,25 +177,22 @@ h1, h2, h3 {
   letter-spacing: -0.02em;
 }
 
-/* Ensure strong/bold text and links stay bold */
 strong, b {
   font-weight: 600 !important;
 }
 
-/* Links should be semi-bold */
 a {
   font-weight: 500;
 }
 
-/* Content links (in prose) should be bolder */
-article a, 
+article a,
 .prose a,
 [data-selector="content"] a {
   font-weight: 600 !important;
 }
 
 /* ============================================
-   NAVBAR - Backdrop blur
+   NAVBAR - Polished appearance
    ============================================ */
 
 #navbar {
@@ -138,6 +211,18 @@ article a,
   color: var(--kandinsky-yellow);
 }
 
+/* Active TOC link */
+#table-of-contents [data-active="true"],
+#table-of-contents a[aria-current="true"] {
+  color: var(--kandinsky-blue) !important;
+  font-weight: 600;
+}
+
+.dark #table-of-contents [data-active="true"],
+.dark #table-of-contents a[aria-current="true"] {
+  color: var(--kandinsky-yellow) !important;
+}
+
 /* ============================================
    ACCORDION - Smooth transitions
    ============================================ */
@@ -152,25 +237,6 @@ article a,
 
 .dark [data-selector="accordion"]:hover {
   background: rgba(241, 174, 3, 0.03);
-}
-
-/* ============================================
-   TABS - Active state with Kandinsky colors
-   ============================================ */
-
-[data-selector="tab"][data-state="active"] {
-  border-bottom-color: var(--kandinsky-blue);
-}
-
-.dark [data-selector="tab"][data-state="active"] {
-  border-bottom-color: var(--kandinsky-yellow);
-}
-
-/* Tab titles should be bold */
-[data-selector="tab"],
-[role="tab"],
-button[role="tab"] {
-  font-weight: 600 !important;
 }
 
 /* ============================================
@@ -214,7 +280,6 @@ footer a[href*="mintlify"] {
    BREADCRUMBS / EYEBROW - Kandinsky colors
    ============================================ */
 
-/* Light mode - blue breadcrumb links */
 .breadcrumb-item a,
 .breadcrumb-list a,
 [class*="breadcrumb"] a {
@@ -227,7 +292,6 @@ footer a[href*="mintlify"] {
   color: var(--kandinsky-blue-hover) !important;
 }
 
-/* Dark mode - yellow breadcrumb links */
 .dark .breadcrumb-item a,
 .dark .breadcrumb-list a,
 .dark [class*="breadcrumb"] a {
@@ -237,21 +301,20 @@ footer a[href*="mintlify"] {
 .dark .breadcrumb-item a:hover,
 .dark .breadcrumb-list a:hover,
 .dark [class*="breadcrumb"] a:hover {
-  color: #f5c842 !important;
+  color: var(--kandinsky-yellow-hover) !important;
 }
 
 /* ============================================
    CALLOUTS - Override Mintlify's default colors
    ============================================ */
 
-/* General callout styling */
 .callout,
 [class*="callout"],
 [data-callout] {
   border-radius: 12px !important;
 }
 
-/* Light mode - Tip callouts use subtle blue instead of green */
+/* Light mode: Tip callouts use subtle blue instead of green */
 .callout[class*="emerald"],
 .callout[class*="green"],
 [class*="bg-emerald"],
@@ -260,16 +323,15 @@ footer a[href*="mintlify"] {
 div[class*="emerald-50"],
 div[class*="emerald-100"],
 div[class*="emerald-200"] {
-  background: #f8fafc !important;
+  background: rgba(2, 42, 89, 0.04) !important;
   border-color: rgba(2, 42, 89, 0.15) !important;
 }
 
-/* Ensure callout text is normal color, not muted */
 [class*="bg-emerald"] p,
 [class*="bg-emerald"] span:not([class*="font-"]),
 div[class*="emerald-50"] p,
 div[class*="emerald-100"] p {
-  color: #374151 !important;
+  color: var(--kandinsky-text) !important;
 }
 
 .callout[class*="emerald"] svg,
@@ -277,16 +339,14 @@ div[class*="emerald-100"] p {
 [class*="bg-emerald"] svg,
 [data-callout="tip"] svg,
 div[class*="emerald-50"] svg {
-  color: #022A59 !important;
+  color: var(--kandinsky-blue) !important;
 }
 
-/* Override emerald text color for icons only */
 svg[class*="text-emerald"],
 [class*="text-emerald"] > svg {
-  color: #022A59 !important;
+  color: var(--kandinsky-blue) !important;
 }
 
-/* Reset text color inside emerald callouts - override the green text */
 [class*="bg-emerald"] [class*="text-emerald"],
 [class*="bg-emerald"] span[class*="text-emerald"],
 [class*="bg-emerald"] p[class*="text-emerald"],
@@ -295,7 +355,7 @@ div[class*="emerald-100"] [class*="text-emerald"] {
   color: inherit !important;
 }
 
-/* Dark mode - use solid dark blue-tinted background */
+/* Dark mode callouts */
 .dark .callout[class*="emerald"],
 .dark .callout[class*="green"],
 .dark [class*="bg-emerald"],
@@ -308,7 +368,6 @@ div[class*="emerald-100"] [class*="text-emerald"] {
   border-color: rgba(125, 168, 239, 0.25) !important;
 }
 
-/* Ensure callout text is normal color in dark mode */
 .dark [class*="bg-emerald"] p,
 .dark [class*="bg-emerald"] span:not([class*="font-"]),
 .dark div[class*="emerald-50"] p,
@@ -321,16 +380,14 @@ div[class*="emerald-100"] [class*="text-emerald"] {
 .dark [class*="bg-emerald"] svg,
 .dark [data-callout="tip"] svg,
 .dark div[class*="emerald-50"] svg {
-  color: #7DA8EF !important;
+  color: var(--kandinsky-blue-light) !important;
 }
 
-/* Override emerald text color for icons only in dark mode */
 .dark svg[class*="text-emerald"],
 .dark [class*="text-emerald"] > svg {
-  color: #7DA8EF !important;
+  color: var(--kandinsky-blue-light) !important;
 }
 
-/* Reset text color inside emerald callouts in dark mode */
 .dark [class*="bg-emerald"] [class*="text-emerald"],
 .dark [class*="bg-emerald"] span[class*="text-emerald"],
 .dark [class*="bg-emerald"] p[class*="text-emerald"],
@@ -350,7 +407,7 @@ div[class*="emerald-100"] [class*="text-emerald"] {
 .callout[class*="blue"] svg,
 [data-callout="note"] svg,
 [data-callout="info"] svg {
-  color: #022A59 !important;
+  color: var(--kandinsky-blue) !important;
 }
 
 .dark .callout[class*="blue"],
@@ -363,7 +420,7 @@ div[class*="emerald-100"] [class*="text-emerald"] {
 .dark .callout[class*="blue"] svg,
 .dark [data-callout="note"] svg,
 .dark [data-callout="info"] svg {
-  color: #7DA8EF !important;
+  color: var(--kandinsky-blue-light) !important;
 }
 
 /* Red/amber callouts (Warning, Danger) */
@@ -379,7 +436,7 @@ div[class*="emerald-100"] [class*="text-emerald"] {
 .callout[class*="amber"] svg,
 [data-callout="warning"] svg,
 [data-callout="danger"] svg {
-  color: #DC2404 !important;
+  color: var(--kandinsky-red) !important;
 }
 
 .dark .callout[class*="red"],
@@ -421,7 +478,6 @@ div[class*="emerald-100"] [class*="text-emerald"] {
   background: var(--kandinsky-yellow);
 }
 
-/* Step titles should be bold */
 [data-selector="step"] h3,
 [data-selector="step"] [class*="font-medium"],
 [data-selector="step"] > div:first-child,
@@ -433,41 +489,14 @@ div[class*="emerald-100"] [class*="text-emerald"] {
 }
 
 /* ============================================
-   SIDEBAR GROUP TITLES - Kandinsky accent
-   ============================================ */
-
-/* Light mode - Blue titles for sidebar group headers */
-#sidebar [class*="uppercase"],
-#sidebar [class*="tracking-wide"],
-nav[id="sidebar"] > div > div > div > span,
-#sidebar span.text-xs,
-#sidebar .text-sm.font-semibold:not(a),
-aside span[class*="font-"]:not(a):first-child {
-  color: var(--kandinsky-blue) !important;
-  font-weight: 600 !important;
-}
-
-/* Dark mode - Yellow titles */
-.dark #sidebar [class*="uppercase"],
-.dark #sidebar [class*="tracking-wide"],
-.dark nav[id="sidebar"] > div > div > div > span,
-.dark #sidebar span.text-xs,
-.dark #sidebar .text-sm.font-semibold:not(a),
-.dark aside span[class*="font-"]:not(a):first-child {
-  color: var(--kandinsky-yellow) !important;
-}
-
-/* ============================================
    NOTEBOOK OUTPUTS - Fix dark mode visibility
    ============================================ */
 
-/* Override inline color: black on notebook output pre tags in dark mode */
 .dark pre[style*="color: black"],
 .dark pre[style*="color:black"] {
   color: #e5e5e5 !important;
 }
 
-/* Also handle spans inside pre tags with inline black color */
 .dark pre[style*="color: black"] *,
 .dark pre[style*="color:black"] *,
 .dark pre span[style*="color: black"],
@@ -475,7 +504,6 @@ aside span[class*="font-"]:not(a):first-child {
   color: #e5e5e5 !important;
 }
 
-/* Generic fix for any element with inline black color in notebook outputs */
 .dark #content pre,
 .dark #content-area pre {
   color: #e5e5e5 !important;
