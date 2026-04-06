@@ -214,6 +214,7 @@ template = "__version__: str = '{version}'\n"
 exclude = [
     ".pytest_cache",
     ".pytype",
+    "dashboard",
     "docs",
     "local",
     "tests",
@@ -224,10 +225,14 @@ exclude = [
 exclude = [
     ".pytest_cache",
     ".pytype",
+    "dashboard",
     "docs",
     "local",
     "tests",
     "tool",
+]
+artifacts = [
+    "pixeltable/dashboard/static/**",
 ]
 
 [tool.isort]
@@ -255,7 +260,6 @@ addopts = '-v -m "not remote_api and not expensive and not benchmark" --strict-m
 markers = [
     "expensive: marks tests as expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
-    "corrupts_db: marks tests as corrupting the database and disables the database validation after the test",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "cockroachdb: tests to run against CockroachDB",
 ]
