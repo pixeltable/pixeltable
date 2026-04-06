@@ -122,6 +122,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         if len(bound_args) > 1:
             raise excs.Error('list_iterator(): Cannot specify both `elements` and keyword arguments')
         elements = bound_args['elements']
+
         el_col_type = elements.col_type
         if (
             not isinstance(el_col_type, ts.JsonType)
@@ -141,6 +142,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             raise excs.Error(
                 f'list_iterator(): Expected a type for `elements` matching `list[dict]`; got `{el_col_type}`'
             )
+
         return dict_type.type_schema.type_spec  # type: ignore[return-value]
 
     else:  # bound_args.get('element') is None
@@ -148,8 +150,10 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         kwargs = bound_args.get('kwargs', {})  # type: ignore[var-annotated]
         if len(kwargs) == 0:
             raise excs.Error('list_iterator(): No inputs provided')
-        type_schema: dict[str, ts.ColumnType] = {}
+
+        output_schema: dict[str, ts.ColumnType] = {}
         for name, expr in kwargs.items():
+            assert isinstance(expr, exprs.Expr)
             if (
                 not isinstance(expr.col_type, ts.JsonType)
                 or expr.col_type.type_schema is None
@@ -158,17 +162,20 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
                 raise excs.Error(
                     f'list_iterator(): Expected a type for `{name}` matching `list`; got `{expr.col_type}`'
                 )
-            relevant_types = expr.col_type.type_schema.type_spec
-            if expr.col_type.type_schema.variadic_type is not None:
-                relevant_types = [*relevant_types, expr.col_type.type_schema.variadic_type]
+            type_schema = expr.col_type.type_schema
+            relevant_types = type_schema.type_spec
+            assert isinstance(relevant_types, list)
+            if type_schema.variadic_type is not None:
+                relevant_types = [*relevant_types, type_schema.variadic_type]
             common_supertype = ts.ColumnType.common_supertype(relevant_types)
             assert common_supertype is not None  # at worst it is `Json`
             if mode is not None and (not isinstance(mode, exprs.Literal) or mode.val == 'padded'):
                 # If `mode` is 'padded' or a non-constant expression, then it's possible we may get a None value in the
                 # output, so we need to make the type nullable.
                 common_supertype = common_supertype.copy(nullable=True)
-            type_schema[name] = common_supertype
-        return type_schema  # type: ignore[return-value]
+            output_schema[name] = common_supertype
+
+        return output_schema  # type: ignore[return-value]
 
 
 __all__ = local_public_names(__name__)
