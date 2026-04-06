@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
@@ -16,6 +15,8 @@ from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
+from pixeltable.runtime import get_runtime
+from pixeltable.share.protocol import PxtUri
 from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
@@ -36,15 +37,16 @@ if TYPE_CHECKING:
     ]
 
 
-_logger = logging.getLogger('pixeltable')
-
-
 def init(config_overrides: dict[str, Any] | None = None) -> None:
-    """Initializes the Pixeltable environment."""
+    """Initializes the Pixeltable environment.
+
+    Args:
+        config_overrides: Optional dictionary of configuration overrides.
+    """
     if config_overrides is None:
         config_overrides = {}
     Config.init(config_overrides)
-    _ = Catalog.get()
+    _ = get_runtime().catalog
 
 
 def create_table(
@@ -167,7 +169,6 @@ def create_table(
         ...     primary_key=['id'],
         ... )
     """
-    from pixeltable.io.table_data_conduit import UnkTableDataConduit
     from pixeltable.io.utils import normalize_primary_key_parameter
 
     if (schema is None) == (source is None):
@@ -189,9 +190,7 @@ def create_table(
                 "replica_tbl = pxt.replicate('pxt://path/to/remote_table', 'local_replica_name')\n"
                 "pxt.create_table('new_table_name', source=replica_tbl)"
             )
-        tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
-        tds.check_source_format()
-        data_source = tds.specialize()
+        data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
         src_schema_overrides: dict[str, ts.ColumnType] = {}
         if schema_overrides is not None:
             for col_name, py_type in schema_overrides.items():
@@ -223,7 +222,7 @@ def create_table(
     except (TypeError, ValueError) as err:
         raise excs.Error('`custom_metadata` must be JSON-serializable') from err
 
-    tbl, was_created = Catalog.get().create_table(
+    tbl, was_created = get_runtime().catalog.create_table(
         path_obj,
         schema,
         if_exists=if_exists_,
@@ -240,9 +239,10 @@ def create_table(
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         if isinstance(data_source, QueryTableDataConduit):
             query = data_source.pxt_query
-            with Catalog.get().begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            with get_runtime().catalog.begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
                 tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
         elif data_source is not None and not is_direct_query:
+            assert isinstance(tbl, catalog.InsertableTable)
             tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
     return tbl
@@ -379,7 +379,7 @@ def create_view(
     except (TypeError, ValueError) as err:
         raise excs.Error('`custom_metadata` must be JSON-serializable') from err
 
-    return Catalog.get().create_view(
+    return get_runtime().catalog.create_view(
         path_obj,
         tbl_version_path,
         select_list=select_list,
@@ -507,13 +507,12 @@ def publish(
             - `'public'`: Anyone can access this replica.
             - `'private'`: Only the host organization can access.
     """
-    if not destination_uri.startswith('pxt://'):
-        raise excs.Error("`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+    pxt_uri = _parse_pxt_uri(destination_uri, 'destination_uri')
 
     if isinstance(source, str):
         source = get_table(source)
 
-    share.push_replica(destination_uri, source, bucket_name, access)
+    share.push_replica(pxt_uri, source, bucket_name, access)
 
 
 def replicate(remote_uri: str, local_path: str) -> catalog.Table:
@@ -531,10 +530,8 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     Returns:
         A handle to the newly created local replica table.
     """
-    if not remote_uri.startswith('pxt://'):
-        raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
-
-    return share.pull_replica(local_path, remote_uri)
+    pxt_uri = _parse_pxt_uri(remote_uri, 'remote_uri')
+    return share.pull_replica(local_path, pxt_uri)
 
 
 def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
@@ -573,7 +570,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     """
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     path_obj = catalog.Path.parse(path, allow_versioned_path=True)
-    tbl = Catalog.get().get_table(path_obj, if_not_exists_)
+    tbl = get_runtime().catalog.get_table(path_obj, if_not_exists_)
     return tbl
 
 
@@ -621,7 +618,7 @@ def move(
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.is_ancestor(new_path_obj):
         raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
-    Catalog.get().move(path_obj, new_path_obj, if_exists_, if_not_exists_)
+    get_runtime().catalog.move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
 def drop_table(
@@ -665,7 +662,7 @@ def drop_table(
     if isinstance(table, catalog.Table):
         # if we're dropping a table by handle, we first need to get the current path, then drop the S lock on
         # the Table record, and then get X locks in the correct order (first containing directory, then table)
-        with Catalog.get().begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False):
             tbl_path = table._path()
     else:
         assert isinstance(table, str)
@@ -673,16 +670,17 @@ def drop_table(
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
-    if tbl_path.startswith('pxt://'):
+    if PxtUri.is_pxt_uri(tbl_path):
+        pxt_uri = PxtUri(tbl_path)
         # Remote table
         if force:
             raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
         # TODO: Handle if_not_exists properly
-        share.delete_replica(tbl_path)
+        share.delete_replica(pxt_uri)
     else:
         # Local table
         path_obj = catalog.Path.parse(tbl_path)
-        Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+        get_runtime().catalog.drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
@@ -710,7 +708,7 @@ def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents
         >>> pxt.get_dir_contents('dir1')
     """
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
-    catalog_entries = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
+    catalog_entries = get_runtime().catalog.get_dir_contents(path_obj, recursive=recursive)
     dirs: list[str] = []
     tables: list[str] = []
     _assemble_dir_contents(dir_path, catalog_entries, dirs, tables)
@@ -764,7 +762,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
 def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths: bool = False) -> list[str]:
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True, allow_system_path=allow_system_paths)
-    contents = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
+    contents = get_runtime().catalog.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
 
@@ -817,7 +815,7 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    return Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
+    return get_runtime().catalog.create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
@@ -859,7 +857,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
+    get_runtime().catalog.drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
 def ls(path: str = '') -> pd.DataFrame:
@@ -875,7 +873,7 @@ def ls(path: str = '') -> pd.DataFrame:
     from pixeltable.catalog import retry_loop
     from pixeltable.metadata import schema
 
-    cat = Catalog.get()
+    cat = get_runtime().catalog
     path_obj = catalog.Path.parse(path, allow_empty_path=True)
     dir_entries = cat.get_dir_contents(path_obj)
 
@@ -964,7 +962,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
         ['my_dir', 'my_dir/sub_dir1']
     """
     path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
-    cat = Catalog.get()
+    cat = get_runtime().catalog
     contents = cat.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Dir)]
 
@@ -1094,3 +1092,15 @@ class DirContents(TypedDict):
     """List of directory paths contained in this directory."""
     tables: list[str]
     """List of table paths contained in this directory."""
+
+
+def _parse_pxt_uri(uri_str: str, param_name: str) -> PxtUri:
+    """Parse a URI string into a PxtUri, raising a user-friendly error on failure."""
+    try:
+        return PxtUri(uri_str)
+    except ValueError as e:
+        raise excs.Error(
+            f"`{param_name}` must be a remote Pixeltable URI with the prefix 'pxt://'"
+            " (such as 'pxt://org:db/path/to/table') or a pixeltable.com URL"
+            ' (such as https://pixeltable.com/t/org:db/path/to/table).'
+        ) from e

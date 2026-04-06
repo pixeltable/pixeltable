@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 Instructions for AI coding agents working with the Pixeltable codebase.
 
@@ -46,11 +46,11 @@ pixeltable/
 
 ## Setup Commands
 
-**Prerequisites:** Miniconda with a dedicated environment (not `base`)
+**Prerequisites:** Miniforge with a dedicated environment (not `base`)
 
 ```bash
 # Create and activate conda environment
-conda create --name pxt python=3.10
+mamba create --name pxt python=3.10
 conda activate pxt
 
 # Install development dependencies
@@ -111,16 +111,25 @@ pytest -m "remote_api" tests/functions/test_openai.py
 **Test markers:**
 - `@pytest.mark.expensive` - Long-running tests
 - `@pytest.mark.remote_api` - Tests calling external APIs
-- `@pytest.mark.corrupts_db` - Tests that modify database state destructively
+
+### Required After Every Code Change
+
+After every code change, run the following and ensure both pass before proceeding:
+
+```bash
+make format   # auto-formats code
+make check    # mypy + ruff static checks
+```
+
+Skip only if explicitly directed or if the environment makes it impossible.
 
 ### Creating a Pull Request
 
 1. Create a branch from `main`
 2. Make changes and add tests in `tests/`
-3. Run `make format` to format code
-4. Run `make check` to verify static checks pass
-5. Run `make test` to run the test suite
-6. Push and create PR via GitHub
+3. Run `make format` and `make check` (see above)
+4. Run `make test` to run the test suite
+5. Push and create PR via GitHub
 
 ## Code Conventions
 
@@ -312,23 +321,3 @@ def safe_process(value: Optional[str]) -> str:
         return ''
     return process(value)
 ```
-
-## Key Files Reference
-
-| File | Purpose |
-|------|---------|
-| `pixeltable/__init__.py` | Public API exports |
-| `pixeltable/catalog/table.py` | Table class implementation |
-| `pixeltable/catalog/view.py` | View class implementation |
-| `pixeltable/func/udf.py` | UDF decorator implementation |
-| `pixeltable/functions/` | AI provider integrations |
-| `pixeltable/io/` | Import/export functionality |
-| `pyproject.toml` | Dependencies and tool config |
-| `Makefile` | Build and test commands |
-
-## Getting Help
-
-- **Documentation**: https://docs.pixeltable.com/
-- **GitHub Issues**: https://github.com/pixeltable/pixeltable/issues
-- **Discord**: https://discord.gg/QPyqFYx2UN
-- **Discussions**: https://github.com/pixeltable/pixeltable/discussions

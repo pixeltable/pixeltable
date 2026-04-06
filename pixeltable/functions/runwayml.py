@@ -12,6 +12,7 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
@@ -27,7 +28,7 @@ def _(api_secret: str) -> 'AsyncRunwayML':
 
 
 def _runwayml_client() -> 'AsyncRunwayML':
-    return Env.get().get_client('runwayml')
+    return get_runtime().get_client('runwayml')
 
 
 def _image_to_data_uri(image: PIL.Image.Image) -> str:

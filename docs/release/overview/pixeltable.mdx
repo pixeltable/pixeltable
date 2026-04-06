@@ -125,10 +125,10 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
     
     ```python
     # Extract frames from video at 1 fps
-    frames = pxt.create_view('myapp.frames', t, iterator=FrameIterator(t.video, fps=1))
+    frames = pxt.create_view('myapp.frames', t, iterator=frame_iterator(t.video, fps=1))
     
     # Chunk documents for RAG
-    chunks = pxt.create_view('myapp.chunks', t, iterator=DocumentSplitter(t.document))
+    chunks = pxt.create_view('myapp.chunks', t, iterator=document_splitter(t.document))
     ```
     
     <CardGroup cols={2}>

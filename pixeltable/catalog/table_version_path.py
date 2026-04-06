@@ -5,11 +5,10 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from pixeltable.env import Env
 from pixeltable.metadata import schema
 
 from .column import Column
-from .globals import MediaValidation
+from .globals import MediaValidation, QColumnId
 from .table_version import TableVersion, TableVersionKey
 from .table_version_handle import TableVersionHandle
 
@@ -69,9 +68,9 @@ class TableVersionPath:
         return result
 
     def refresh_cached_md(self) -> None:
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
-        if Env.get().in_xact:
+        if get_runtime().in_xact:
             # when we're running inside a transaction, we need to make sure to supply current metadata;
             # mixing stale metadata with current metadata leads to query construction failures
             # (multiple sqlalchemy Table instances for the same underlying table create corrupted From clauses)
@@ -81,7 +80,7 @@ class TableVersionPath:
         elif self._cached_tbl_version is not None:
             return
 
-        with Catalog.get().begin_xact(tbl_id=self.tbl_version.id, for_write=False):
+        with get_runtime().catalog.begin_xact(tbl_id=self.tbl_version.id, for_write=False):
             self._cached_tbl_version = self.tbl_version.get()
 
     def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
@@ -196,15 +195,10 @@ class TableVersionPath:
             result.extend(c for c in base_cols if c.name not in self._cached_tbl_version.cols_by_name)
         return result
 
-    def cols_by_name(self) -> dict[str, Column]:
-        """Return a dict of all user columns visible in this tbl version path, including columns from bases"""
-        cols = self.columns()
-        return {col.name: col for col in cols}
-
-    def cols_by_id(self) -> dict[int, Column]:
-        """Return a dict of all user columns visible in this tbl version path, including columns from bases"""
-        cols = self.columns()
-        return {col.id: col for col in cols}
+    def get_column_by_qid(self, qcol_id: QColumnId) -> Column | None:
+        return next(
+            (col for col in self.columns() if col.id == qcol_id.col_id and col.tbl_handle.id == qcol_id.tbl_id), None
+        )
 
     def get_column(self, name: str) -> Column | None:
         """Return the column with the given name, or None if not found"""

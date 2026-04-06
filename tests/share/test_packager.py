@@ -19,12 +19,12 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
-from pixeltable.catalog import Catalog
 from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
 from pixeltable.metadata import schema
 from pixeltable.plan import FromClause
+from pixeltable.runtime import get_runtime
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.local_store import LocalStore, TempStore
 from tests.conftest import clean_db
@@ -250,22 +250,22 @@ class TestPackager:
 
         # Run the database consistency checks; this will ensure we check for consistency after every __check_table(),
         # not just at the end of the test.
-        Catalog.get().validate_store()
+        get_runtime().catalog.validate_store()
 
     def __extract_store_col_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
-        with Env.get().begin_xact():
+        with get_runtime().begin_xact():
             store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
             sql_text = (
                 f'SELECT column_name, data_type FROM information_schema.columns WHERE table_name = {store_tbl_name!r}'
             )
-            result = Env.get().conn.execute(sql.text(sql_text)).fetchall()
+            result = get_runtime().conn.execute(sql.text(sql_text)).fetchall()
             return {(col_name, data_type) for col_name, data_type in result}
 
     def __extract_store_idx_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
-        with Env.get().begin_xact():
+        with get_runtime().begin_xact():
             store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
             sql_text = f'SELECT indexname, indexdef FROM pg_indexes WHERE tablename = {store_tbl_name!r}'
-            result = Env.get().conn.execute(sql.text(sql_text)).fetchall()
+            result = get_runtime().conn.execute(sql.text(sql_text)).fetchall()
             return {(indexname, indexdef) for indexname, indexdef in result}
 
     def __purge_db(self) -> None:
@@ -292,8 +292,8 @@ class TestPackager:
         performance implications that are not user visible.
         """
         tv = tbl._tbl_version_path.tbl_version.get()
-        with Env.get().begin_xact():
-            head_version = Catalog.get()._collect_tbl_history(tbl._id, n=1)[0].version_md.version
+        with get_runtime().begin_xact():
+            head_version = get_runtime().catalog._collect_tbl_history(tbl._id, n=1)[0].version_md.version
             for idx_info in tv.idxs_by_name.values():
                 if isinstance(idx_info.idx, EmbeddingIndex):
                     q = sql.select(
@@ -304,7 +304,7 @@ class TestPackager:
                     ).order_by(*tv.store_tbl._pk_cols)
                     val_count = 0
                     undo_count = 0
-                    for result in Env.get().conn.execute(q).fetchall():
+                    for result in get_runtime().conn.execute(q).fetchall():
                         v_min, v_max, val, undo = result
                         if v_min <= head_version and v_max > head_version:
                             assert val is None or isinstance(val, (np.ndarray, pgvector.sqlalchemy.HalfVector))

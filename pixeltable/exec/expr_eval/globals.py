@@ -160,10 +160,6 @@ class ExprEvalCtx:
     ):
         self.row_builder = row_builder
         self.slot_evaluators = {}
-        # TODO: only include output_exprs dependencies
-        self.gc_targets = np.ones(self.row_builder.num_materialized, dtype=bool)
-        # we need to retain all slots that are part of the output
-        self.gc_targets[[e.slot_idx for e in self.row_builder.output_exprs]] = False
 
         output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
         self.all_exprs = output_ctx.exprs
@@ -171,6 +167,20 @@ class ExprEvalCtx:
         self.eval_ctx = np.zeros(self.row_builder.num_materialized, dtype=bool)
         non_literal_slot_idxs = [e.slot_idx for e in output_ctx.exprs if not isinstance(e, exprs.Literal)]
         self.eval_ctx[non_literal_slot_idxs] = True
+
+        # gc_targets: intermediate slots that can be safely garbage-collected using the
+        # transition-based GC (missing_dependents > 0 -> == 0) in dispatch().
+        # Since missing_dependents only counts eval_ctx slots, we can only GC a slot if ALL
+        # its dependents are within eval_ctx; otherwise the count would miss non-eval_ctx
+        # dependents and trigger GC prematurely.
+        output_slots = np.zeros(self.row_builder.num_materialized, dtype=bool)
+        output_slots[[e.slot_idx for e in self.row_builder.output_exprs]] = True
+        dependents = self.row_builder.dependents  # dependents[j, i] means slot i depends on slot j
+        num_dependents = dependents.astype(np.int16).sum(axis=1)  # (num_slots,)
+        num_dependents_in_ctx = dependents.astype(np.int16) @ self.eval_ctx.astype(np.int16)  # (num_slots,)
+        all_dependents_tracked = (num_dependents == 0) | (num_dependents_in_ctx == num_dependents)
+        self.gc_targets = ~output_slots & all_dependents_tracked
+
         self._init_slot_evaluators(dispatcher, non_literal_slot_idxs)
 
     def _init_slot_evaluators(self, dispatcher: Dispatcher, target_slot_idxs: list[int]) -> None:
@@ -191,10 +201,35 @@ class ExprEvalCtx:
                 self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, dispatcher, self)
 
     def init_rows(self, rows: list[exprs.DataRow]) -> None:
-        """Pre-populate rows with literals and initialize execution state"""
+        """Pre-populate rows with literals and initialize execution state
+
+        Uses 2D numpy arrays for vectorized computation of missing_dependents and missing_slots.
+        """
+        if len(rows) == 0:
+            return
+
+        # Set literals (still per-row since vals is an object array)
         for row in rows:
-            # set literals before missing_dependents/slots
             for slot_idx, val in self.literals.items():
                 row[slot_idx] = val
-            row.missing_dependents = np.sum(self.row_builder.dependencies[row.has_val == False], axis=0)
-            row.missing_slots = self.eval_ctx & (row.has_val == False)
+
+        # Stack has_val for vectorized computation
+        # Shape: (num_rows, num_slots)
+        has_val = np.stack([r.has_val for r in rows], axis=0)
+
+        # Vectorized missing_slots computation
+        # missing_slots = eval_ctx slots that don't have values yet
+        new_missing_slots = self.eval_ctx & (~has_val)  # (num_rows, num_slots)
+
+        # Vectorized missing_dependents computation
+        # missing_dependents[slot] = count of unevaluated eval_ctx slots that depend on 'slot'
+        # Uses missing_slots, consistent with dispatch()
+        dependencies = self.row_builder.dependencies  # (num_slots, num_slots)
+        new_missing_dependents = new_missing_slots.astype(np.int16) @ dependencies.astype(
+            np.int16
+        )  # (num_rows, num_slots)
+
+        # Write back to individual rows
+        for i, row in enumerate(rows):
+            row.missing_dependents = new_missing_dependents[i]
+            row.missing_slots = new_missing_slots[i]

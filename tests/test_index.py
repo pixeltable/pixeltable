@@ -26,6 +26,7 @@ from .utils import (
 )
 
 
+@pytest.mark.cockroachdb
 class TestIndex:
     # returns string
     @staticmethod
@@ -66,9 +67,8 @@ class TestIndex:
         # After the query is serialized, dropping the index should raise an error
         # on reload, because the index is no longer available
         t.drop_embedding_index(idx_name='img_idx1')
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r'(?i).*img_idx1.*not found.*'):
             reload_tester.run_reload_test(clear=False)
-        assert "index 'img_idx1' not found" in str(exc_info.value).lower()
 
         # After the query is serialized, dropping and recreating the index should work
         # on reload, because the index is available again even if it is not the exact
@@ -91,7 +91,7 @@ class TestIndex:
         sample_img = res[0, 'img']
         sample_img_localpath = res[0, 'img_localpath']
         sample_img_file_url = res[0, 'img_fileurl']
-        assert 'file://' in sample_img_file_url
+        assert 'file:/' in sample_img_file_url
         sample_img_filename = Path(sample_img_localpath).name
         sample_img_http_url = f'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/imagenette2-160/{sample_img_filename}'
 
@@ -719,10 +719,13 @@ class TestIndex:
             img_t.add_embedding_index('does_not_exist', idx_name='idx0', image_embed=clip_embed)
         assert 'Unknown column: does_not_exist' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error,
+            match=r'`embed`, `string_embed`, `image_embed`, `audio_embed`, `video_embed`, or `document_embed` '
+            'must be specified',
+        ):
             # no embedding function specified
             img_t.add_embedding_index('img')
-        assert '`embed`, `string_embed`, or `image_embed` must be specified' in str(exc_info.value)
 
         with pytest.raises(pxt.Error, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."):
             # wrong column type
@@ -754,7 +757,7 @@ class TestIndex:
         with pytest.raises(
             pxt.Error,
             match=r'The function `clip` is not a valid embedding: '
-            'it must take a single string, image, audio, or video parameter',
+            'it must take a single string, image, audio, video, or document parameter',
         ):
             # no matching signature
             img_t.add_embedding_index('img', embedding=clip)
@@ -983,6 +986,118 @@ class TestIndex:
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
 
+    def test_array_column_embedding_index(
+        self, uses_db: None, e5_embed: pxt.Function, reload_tester: ReloadTester
+    ) -> None:
+        skip_test_if_not_installed('transformers', 'sentence_transformers')
+
+        texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
+
+        t = pxt.create_table('array_embedding_test', {'id': pxt.Int, 'text': pxt.String})
+        validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
+
+        precomputed_embeddings = t.select(emb=e5_embed(t.text)).collect()['emb']
+        dim = len(precomputed_embeddings[0])
+        precomputed_embeddings_f64 = [v.astype(np.float64) for v in precomputed_embeddings]
+
+        t.add_column(precomputed_embeddings=pxt.Array[(dim,), np.float32])  # type: ignore[misc]
+        t.add_column(precomputed_embeddings_f64=pxt.Array[(dim,), np.float64])  # type: ignore[misc]
+
+        for i in range(len(texts)):
+            validate_update_status(
+                t.where(t.id == i).update(
+                    {
+                        'precomputed_embeddings': precomputed_embeddings[i],
+                        'precomputed_embeddings_f64': precomputed_embeddings_f64[i],
+                    }
+                ),
+                expected_rows=1,
+            )
+
+        t.add_computed_column(embedding=e5_embed(t.text))
+
+        # embedding index on text column
+        t.add_embedding_index('text', idx_name='emd_idx_text', embedding=e5_embed, metric='cosine', precision='fp32')
+
+        # embedding index on computed column
+        t.add_embedding_index(
+            'embedding', idx_name='emb_idx_computed', embedding=e5_embed, metric='cosine', precision='fp32'
+        )
+
+        # f32 precomputed embedding with string embedding function
+        t.add_embedding_index(
+            'precomputed_embeddings',
+            idx_name='emb_idx_stored',
+            string_embed=e5_embed,
+            metric='cosine',
+            precision='fp32',
+        )
+
+        # f64 precomputed embedding column without any embedding function, should be searchable by vector
+        t.add_embedding_index(
+            'precomputed_embeddings_f64', idx_name='emb_idx_stored64', metric='cosine', precision='fp32'
+        )
+
+        best = 'a cat sitting on a mat'
+        best_vec = precomputed_embeddings[texts.index(best)]
+
+        for col_name, idx_name, has_string_embed_fn in [
+            ('text', 'emd_idx_text', True),
+            ('embedding', 'emb_idx_computed', True),
+            ('precomputed_embeddings', 'emb_idx_stored', True),
+            ('precomputed_embeddings_f64', 'emb_idx_stored64', False),
+        ]:
+            col = getattr(t, col_name)
+
+            # search by string/text
+            if has_string_embed_fn:
+                sim = col.similarity(string='a cat', idx=idx_name)
+                query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
+                res = reload_tester.run_query(query)
+                assert len(res) == 3, col_name
+                assert res[0]['text'] == best, col_name
+                sim_vals = [r['sim'] for r in res]
+                assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
+                    f'{col_name}:{idx_name}: similarity scores must be descending; got {sim_vals}'
+                )
+
+            # search by embedding vector; should work with all embedding indices
+            sim = col.similarity(vector=best_vec, idx=idx_name)
+            query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
+            res = reload_tester.run_query(query)
+            assert len(res) == 3
+            assert res[0]['text'] == best
+            sim_vals = [r['sim'] for r in res]
+            assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
+                f'precomputed_embeddings({idx_name}): similarity scores must be descending; got {sim_vals}'
+            )
+
+        reload_tester.run_reload_test()
+
+    @staticmethod
+    @pxt.udf
+    def _embed_wrong_shape(x: str) -> pxt.Array[(256,), np.float32]:
+        return np.zeros(256, dtype=np.float32)
+
+    def test_array_embedding_index_validation_errors(self, uses_db: None) -> None:
+        t = pxt.create_table(
+            'arr_val_test',
+            {
+                'id': pxt.Int,
+                'vec': pxt.Array[(384,), np.float32],  # type: ignore[misc]
+                'vec2d': pxt.Array[(10, 10), np.float32],  # type: ignore[misc]
+            },
+            if_exists='replace',
+        )
+        t.insert([{'id': 0, 'vec': np.zeros(384, dtype=np.float32), 'vec2d': np.zeros((10, 10), dtype=np.float32)}])
+
+        with pytest.raises(pxt.Error, match='shape'):
+            t.add_embedding_index('vec', embedding=self._embed_wrong_shape)
+
+        # 2D array columns should be rejected
+        with pytest.raises(pxt.Error, match='1-dimensional'):
+            t.add_embedding_index('vec2d')
+
     @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
     def test_drop_index(self, index_type: str, uses_db: None, request: pytest.FixtureRequest) -> None:
         """Test that indices (B-tree and embedding) are properly dropped from the store"""
@@ -1020,3 +1135,44 @@ class TestIndex:
         reload_catalog()
         t = pxt.get_table('index_drop_test')
         assert idx_info.id not in t._tbl_version.get().idxs
+
+    def test_similarity_index_lifecycle(self, uses_db: None, e5_embed: pxt.Function) -> None:
+        """Test similarity when index is dropped, recreated, and column is dropped."""
+        skip_test_if_not_installed('transformers', 'sentence_transformers')
+
+        t = pxt.create_table('lifecycle_test', {'id': pxt.Int, 'text': pxt.String})
+        texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
+        validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
+        t.add_embedding_index('text', idx_name='emb_idx', string_embed=e5_embed)
+
+        sim = t.text.similarity(string='a cat', idx='emb_idx')
+        query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
+        res = query.collect()
+        assert res[0]['text'] == 'a cat sitting on a mat'
+
+        # verify query works after catalog reload
+        reload_catalog()
+        t = pxt.get_table('lifecycle_test')
+        res = query.collect()
+        assert res[0]['text'] == 'a cat sitting on a mat'
+
+        # drop index: query should fail with a clear error
+        t.drop_embedding_index(idx_name='emb_idx')
+        with pytest.raises(pxt.Error, match=r"(?i).*No embedding index found for column 'text'.*"):
+            query.collect()
+
+        # recreate index under same name: query should work again
+        t.add_embedding_index('text', idx_name='emb_idx', string_embed=e5_embed)
+        res = query.collect()
+        assert res[0]['text'] == 'a cat sitting on a mat'
+
+        # verify it still works after reload with recreated index
+        reload_catalog()
+        t = pxt.get_table('lifecycle_test')
+        res = query.collect()
+        assert res[0]['text'] == 'a cat sitting on a mat'
+
+        # drop the column: query should fail
+        t.drop_column('text')
+        with pytest.raises(pxt.Error, match=r'(?i).*column was dropped.*'):
+            query.collect()

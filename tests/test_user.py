@@ -1,8 +1,8 @@
 import pytest
 
 import pixeltable as pxt
-from pixeltable.catalog import Catalog
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 
 
 class TestUser:
@@ -13,7 +13,7 @@ class TestUser:
         _ = pxt.create_table('test_dir/subdir/test_tbl', {'col': pxt.Int})
         t.insert(col=5)
 
-        Catalog.get().create_user('marcel')
+        get_runtime().catalog.create_user('marcel')
         Env.get().user = 'marcel'
         pxt.create_dir('test_dir')
         pxt.create_dir('test_dir/subdir')
@@ -21,7 +21,7 @@ class TestUser:
         _ = pxt.create_table('test_dir/subdir/test_tbl', {'col': pxt.Int})
         marcel_t.insert(col=22)
 
-        Catalog.get().create_user('asiegel')
+        get_runtime().catalog.create_user('asiegel')
         Env.get().user = 'asiegel'
         pxt.create_dir('test_dir')
         pxt.create_dir('test_dir/subdir')
