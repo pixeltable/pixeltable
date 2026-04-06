@@ -155,8 +155,10 @@ jobs:
           miniforge-version: latest
           activate-environment: pxt
           use-mamba: true
+          conda-remove-defaults: true
       - name: Install python
         run: |
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge mamba
           ./scripts/retry.sh 3 30 mamba install -y -c conda-forge python=${{ matrix.python-version }}
           mamba info
       - name: Install tools and libraries
