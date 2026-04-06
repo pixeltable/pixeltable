@@ -154,6 +154,7 @@ jobs:
         with:
           miniforge-version: latest
           activate-environment: pxt
+          use-mamba: true
       - name: Install python
         run: |
           ./scripts/retry.sh 3 30 mamba install -y -c conda-forge python=${{ matrix.python-version }}
