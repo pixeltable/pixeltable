@@ -6,6 +6,37 @@ aside [data-active="true"] {
   background: transparent !important;
 }
 
+/* Callouts: neutral grey instead of green */
+[class*="bg-emerald"],
+[class*="border-emerald"],
+div[class*="emerald-50"],
+div[class*="emerald-100"],
+div[class*="emerald-200"] {
+  background: #f5f5f5 !important;
+  border-color: #d4d4d4 !important;
+}
+
+[class*="bg-emerald"] svg,
+svg[class*="text-emerald"],
+[class*="text-emerald"] > svg {
+  color: #525252 !important;
+}
+
+.dark [class*="bg-emerald"],
+.dark [class*="border-emerald"],
+.dark div[class*="emerald-50"],
+.dark div[class*="emerald-100"],
+.dark div[class*="emerald-200"] {
+  background: #262626 !important;
+  border-color: #404040 !important;
+}
+
+.dark [class*="bg-emerald"] svg,
+.dark svg[class*="text-emerald"],
+.dark [class*="text-emerald"] > svg {
+  color: #a3a3a3 !important;
+}
+
 /* ============================================
    NOTEBOOK OUTPUTS - Fix dark mode visibility
    ============================================ */
