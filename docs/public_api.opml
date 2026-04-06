@@ -110,12 +110,17 @@
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
           </outline>
 
-          <outline text="class|pixeltable.Function" />
-          <outline text="class|pixeltable.Aggregator" />
-          <outline text="class|pixeltable.PxtIterator" />
-          <outline text="class|pixeltable.Tools" />
-          <outline text="class|pixeltable.Tool" />
-          <outline text="class|pixeltable.ToolChoice" />
+          <outline text="class|pixeltable.Aggregator">
+            <outline text="method|pixeltable.Aggregator.update" />
+            <outline text="method|pixeltable.Aggregator.value" />
+          </outline>
+          <outline text="class|pixeltable.PxtIterator">
+            <outline text="method|pixeltable.PxtIterator.__next__" />
+            <outline text="method|pixeltable.PxtIterator.close" />
+          </outline>
+          <outline text="class|pixeltable.Tools">
+            <outline text="method|pixeltable.Tools.choice" />
+          </outline>
 
           <outline text="class|pixeltable.ColumnMetadata" />
           <outline text="class|pixeltable.DirContents" />
