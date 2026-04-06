@@ -99,7 +99,10 @@
             <outline text="method|pixeltable.Query.to_coco_dataset" />
           </outline>
 
-          <outline text="class|pixeltable.ResultSet" />
+          <outline text="class|pixeltable.ResultSet">
+            <outline text="method|pixeltable.ResultSet.to_pandas" />
+            <outline text="method|pixeltable.ResultSet.to_pydantic" />
+          </outline>
 
           <outline text="class|pixeltable.Function" />
           <outline text="class|pixeltable.Aggregator" />
