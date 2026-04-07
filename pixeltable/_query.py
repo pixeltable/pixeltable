@@ -141,6 +141,29 @@ class ResultSet:
     def __hash__(self) -> int:
         return hash(self.to_pandas())
 
+class Row:
+    def __init__(self, data: list[Any], columns: dict[str, int]):
+        self.data = data
+        self.columns = columns
+    
+    def __getitem__(self, key: str) -> Any:
+        if key not in self.columns:
+            raise excs.Error(f"Column {key} does not exist in the row.")
+        idx = self.columns[key]
+        return self.data[idx]
+
+class ResultCursor:
+    def __init__(self, query: Query):
+        self.query = copy.deepcopy(query)
+        self._row_iterator = None
+        self._closed = False
+
+    def open(self) -> None:
+        if self._row_iterator is not None:
+            raise excs.Error("Cursor is already open.")
+        if self._closed:
+            raise excs.Error("Cursor is closed and cannot be reopened.")
+        self._row_iterator = self.query._output_row_iterator()
 
 # # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
 # class AnalysisInfo:
