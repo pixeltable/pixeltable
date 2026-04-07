@@ -115,8 +115,10 @@ class Runtime:
             # this runs in the _run_coro_executor's thread, with its own Runtime instance
             loop = get_runtime().event_loop
             res = loop.run_until_complete(coro)
-            pending = asyncio.all_tasks(loop)
-            if pending:
+            while True:
+                pending = asyncio.all_tasks(loop)
+                if not pending:
+                    break
                 loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             return res
 
