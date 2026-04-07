@@ -1167,19 +1167,25 @@ class JsonType(ColumnType):
                         raise TypeError(f'Unexpected key: {key}')
 
         def to_json_schema(self) -> dict[str, Any]:
+            json_schema: dict[str, Any]
+
             if isinstance(self.type_spec, list):
-                json_schema: dict[str, Any] = {'type': 'array'}
+                json_schema = {'type': 'array'}
                 if len(self.type_spec) > 0:
                     json_schema['prefixItems'] = [t.to_json_schema() for t in self.type_spec]
                 json_schema['items'] = False if self.variadic_type is None else self.variadic_type.to_json_schema()
-                return json_schema
+
             else:
-                properties = {k: t.to_json_schema() for k, t in self.type_spec.items()}
+                json_schema = {
+                    'type': 'object',
+                    'properties': {k: t.to_json_schema() for k, t in self.type_spec.items()},
+                    'additionalProperties': False,
+                }
                 required = [k for k in self.type_spec if k not in self.optional_keys]
-                json_schema: dict[str, Any] = {'type': 'object', 'properties': properties, 'additionalProperties': False}
                 if len(required) > 0:
                     json_schema['required'] = required
-                return json_schema
+
+            return json_schema
 
         def __eq__(self, other: object) -> bool:
             return (
