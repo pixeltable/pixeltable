@@ -29,10 +29,11 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageObjectAddress
-from pixeltable.utils.s3_store import S3Store
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient
+
+    from pixeltable.utils.s3_store import S3Store
 
 _logger = logging.getLogger('pixeltable')
 
@@ -354,9 +355,11 @@ def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
 @asynccontextmanager
 async def _bedrock_async_invocation(
     model_id: str, body: dict, output_location: str, poll_interval_secs: float
-) -> AsyncIterator[tuple[S3Store, StorageObjectAddress, str]]:
+) -> AsyncIterator[tuple['S3Store', StorageObjectAddress, str]]:
     """Submit a Bedrock async job, poll until completion, yield (store, soa, result_key), and
     delete staging S3 objects on exit."""
+    from pixeltable.utils.s3_store import S3Store
+
     response = await asyncio.to_thread(
         _bedrock_client().start_async_invoke,
         modelId=model_id,
