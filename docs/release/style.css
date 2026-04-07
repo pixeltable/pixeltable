@@ -44,6 +44,11 @@ svg[class*="text-emerald"] {
   color: #a3a3a3 !important;
 }
 
+/* Hide "Powered by Mintlify" footer badge */
+a[href*="poweredBy"] {
+  display: none !important;
+}
+
 /* ============================================
    NOTEBOOK OUTPUTS - Fix dark mode visibility
    Only target pre tags with inline color:black
