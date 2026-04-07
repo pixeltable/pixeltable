@@ -113,9 +113,21 @@ class Runtime:
 
         def run(coro: Coroutine[Any, Any, _T]) -> _T:
             # this runs in the _run_coro_executor's thread, with its own Runtime instance
-            return get_runtime().event_loop.run_until_complete(coro)
+            loop = get_runtime().event_loop
+            res = loop.run_until_complete(coro)
+            # get_runtime().event_loop.run_until_complete(self._drain_event_loop())
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            return res
 
         return self._run_coro_executor.submit(run, coro).result()
+
+    async def _drain_event_loop(self) -> None:
+        """Run the event loop until all currently scheduled tasks are complete. Useful for testing."""
+        tasks = [t for t in asyncio.all_tasks(loop=self._event_loop) if t is not asyncio.current_task()]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     @contextmanager
     def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
