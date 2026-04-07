@@ -155,6 +155,7 @@ jobs:
           miniforge-version: latest
           activate-environment: pxt
           use-mamba: true
+          mamba-version: latest
           conda-remove-defaults: true
       - name: Install python
         run: |
@@ -237,6 +238,7 @@ jobs:
           # Quarto packaging fix
           mkdir -p "$CONDA_PREFIX/bin/tools/x86_64"
           ln -sf "$CONDA_PREFIX/bin/deno" "$CONDA_PREFIX/bin/tools/x86_64/deno"
+          ln -sf "$CONDA_PREFIX/bin/pandoc" "$CONDA_PREFIX/bin/tools/x86_64/pandoc"
           python -m pixeltable_doctools.build
           cd target/docs && mint broken-links
       - name: Lint
