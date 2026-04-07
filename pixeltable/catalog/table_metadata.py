@@ -16,7 +16,7 @@ class ColumnMetadata(TypedDict):
     is_primary_key: bool
     """`True` if this column is part of the table's primary key."""
     media_validation: Literal['on_read', 'on_write'] | None
-    """The media validation policy for this column. `None` if this column does not have a media type."""
+    """The media validation policy for this column. `None` if the type of this column is not a media type."""
     is_computed: bool
     """`True` if this column is a computed column."""
     computed_with: str | None

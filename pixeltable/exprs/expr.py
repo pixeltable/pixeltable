@@ -384,6 +384,8 @@ class Expr(abc.ABC):
     def contains_(self, cls: type[Expr] | None = None, filter: Callable[[Expr], bool] | None = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls and/or matches filter.
+
+        This is named 'contains_' to avoid a name conflict with the contains(s: str, ...) udf.
         """
         assert cls is not None or filter is not None
         try:

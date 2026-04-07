@@ -328,8 +328,8 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
 # Matches the topmost function name in a display expression, e.g.
 #   'my_udf(c1.len())'  -> 'my_udf'
 #   'c1.upper()'         -> 'upper'
-#   'DummyIterator(n=3)' -> 'DummyIterator'
-# For bare operators like 'c1 + 1' there is no match.
+#   'frame_iterator(t.video, fps=1)' -> 'frame_iterator'
+# For expressions without FunctionCalls like 'c1 + 1' there is no match.
 _TOPMOST_FUNC_RE = re.compile(r'(?:^|.*\.)(\w+)\(')
 
 
