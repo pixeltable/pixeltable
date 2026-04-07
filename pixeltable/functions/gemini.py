@@ -496,6 +496,72 @@ async def generate_speech(text: str, *, model: str, voice: str = 'Kore', config:
     return output_path
 
 
+@generate_speech.overload
+async def _(text: str, *, model: str, voices: dict[str, str], config: dict | None = None) -> pxt.Audio:
+    """
+    Multi-speaker variant: `voices` is a dict mapping speaker aliases to voice names.
+    The input text should contain speaker labels matching the dict keys, e.g.
+    `"Alice: Hello! Bob: Hi there!"`.
+
+    Args:
+        text: The text to synthesize, with speaker labels matching the keys of `voices`.
+        model: The model to use (e.g. `'gemini-2.5-flash-preview-tts'`).
+        voices: A mapping from speaker alias (as used in the text) to voice name. For example,
+            `{'Alice': 'Kore', 'Bob': 'Puck'}`.
+        config: Additional configuration, corresponding to keyword arguments of
+            `genai.types.GenerateContentConfig`. Keys such as `response_modalities` and `speech_config`
+            are set automatically and should not be included.
+
+    Returns:
+        An audio file (WAV, 24 kHz mono 16-bit) containing the synthesized multi-speaker speech.
+
+    Examples:
+        >>> tbl.add_computed_column(
+        ...     audio=generate_speech(
+        ...         tbl.dialogue,
+        ...         model='gemini-2.5-flash-preview-tts',
+        ...         voices={'Alice': 'Kore', 'Bob': 'Puck'},
+        ...     )
+        ... )
+    """
+    import wave
+
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
+
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
+    config_ = types.GenerateContentConfig(**(config or {}))
+    config_.response_modalities = ['AUDIO']
+    config_.speech_config = types.SpeechConfig(
+        multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+            speaker_voice_configs=[
+                types.SpeakerVoiceConfig(speaker=alias, voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+                ))
+                for alias, voice_name in voices.items()
+            ]
+        )
+    )
+
+    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    try:
+        data = response.candidates[0].content.parts[0].inline_data.data
+    except (IndexError, AttributeError) as exc:
+        raise excs.Error(f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.') from exc
+    if isinstance(data, str):
+        data = base64.b64decode(data)
+
+    output_path = str(TempStore.create_path(extension='.wav'))
+    with wave.open(output_path, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)
+        wf.writeframes(data)
+    return output_path
+
+
 @generate_speech.resource_pool
 def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'

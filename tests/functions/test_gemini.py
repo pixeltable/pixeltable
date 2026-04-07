@@ -251,6 +251,28 @@ class TestGemini:
         assert Path(audio_path).exists()
         assert audio_path.endswith('.wav')
 
+    def test_generate_speech_multispeaker(self, uses_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_speech
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t.add_computed_column(
+            audio=generate_speech(
+                t.text,
+                model='gemini-2.5-flash-preview-tts',
+                voices={'Alice': 'Kore', 'Bob': 'Puck'},
+            )
+        )
+        validate_update_status(
+            t.insert(text='Alice: Hello, how are you today? Bob: I am doing great, thanks for asking!'),
+            expected_rows=1,
+        )
+        results = t.collect()
+        audio_path = results['audio'][0]
+        assert Path(audio_path).exists()
+        assert audio_path.endswith('.wav')
+
     def test_transcribe(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
