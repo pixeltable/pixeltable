@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import PIL.Image
 import pytest
@@ -11,7 +12,6 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
-    rerun,
     skip_test_if_no_aws_credentials,
     skip_test_if_not_installed,
     validate_update_status,
@@ -22,31 +22,27 @@ from .tool_utils import run_tool_invocations_test
 @pytest.fixture()
 def s3_us_east1() -> Iterator[str]:
     """Configure the Bedrock client to use us-east-1. Yields the matching S3 async output location."""
+    Config.init(config_overrides={'bedrock.region_name': 'us-east-1'}, reinit=True)
     yield 's3://pxt-test-us-east-1/bedrock_outputs/'
 
 
 @pytest.fixture()
-def s3_us_west2() -> Iterator[str]:
-    yield 's3://pxt-test-us-west-2/bedrock_outputs/'
-
-
-def _skip_no_aws() -> None:
-    skip_test_if_not_installed('boto3')
-    skip_test_if_no_aws_credentials()
-
-
-@pytest.fixture()
-def bedrock_us_east_1() -> None:  # type: ignore[misc]
-    """Configure the Bedrock client to use us-east-1 for region-restricted models and async invocations."""
+def bedrock_us_east_1() -> Iterator[None]:
+    """Configure the Bedrock client to use us-east-1 for region-restricted models (no async output needed)."""
     Config.init(config_overrides={'bedrock.region_name': 'us-east-1'}, reinit=True)
     yield
 
 
 @pytest.fixture()
-def bedrock_us_west_2() -> None:  # type: ignore[misc]
+def bedrock_us_west_2() -> Iterator[None]:
     """Configure the Bedrock client to use us-west-2 for models only available in that region."""
     Config.init(config_overrides={'bedrock.region_name': 'us-west-2'}, reinit=True)
     yield
+
+
+def _skip_no_aws() -> None:
+    skip_test_if_not_installed('boto3')
+    skip_test_if_no_aws_credentials()
 
 
 def _tbl_name(model_id: str) -> str:
@@ -55,7 +51,7 @@ def _tbl_name(model_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Loop helpers — each runs one model_id through a full insert + collect cycle
+# Loop helpers
 # ---------------------------------------------------------------------------
 
 
@@ -70,6 +66,11 @@ def _run_converse_text(model_ids: list[str]) -> None:
         validate_update_status(t.insert(input='What is 2+2?'), expected_rows=1)
         results = t.collect()
         assert results[0]['output']['output']['message']['content']
+
+
+# ---------------------------------------------------------------------------
+# Assertion helpers
+# ---------------------------------------------------------------------------
 
 
 def _assert_twelvelabs_embedding(results: ResultSet) -> None:
@@ -107,8 +108,8 @@ _TEXT_ROWS = [
 ]
 
 
-# For OpenAI-compatible image_url schema (Mistral, Gemma, NVIDIA, Moonshot, Qwen)
 def _image_url_body(t: pxt.Table) -> dict:
+    """Request body for OpenAI-compatible image_url schema (Mistral, Gemma, NVIDIA, Moonshot, Qwen)."""
     return {
         'messages': [
             {
@@ -123,8 +124,8 @@ def _image_url_body(t: pxt.Table) -> dict:
     }
 
 
-# For Converse unified image schema
 def _converse_image_messages(t: pxt.Table) -> list:
+    """Messages for the Converse unified image schema."""
     return [
         {
             'role': 'user',
@@ -136,8 +137,8 @@ def _converse_image_messages(t: pxt.Table) -> list:
     ]
 
 
-#@pytest.mark.remote_api
-#@rerun(reruns=3, reruns_delay=8)
+# @pytest.mark.remote_api
+# @rerun(reruns=3, reruns_delay=8)
 class TestBedrock:
     # ------------------------------------------------------------------
     # TwelveLabs Marengo — invoke_model: image, text_image
@@ -178,9 +179,7 @@ class TestBedrock:
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         _assert_twelvelabs_embedding(t.select(t.response).collect())
 
-    def test_invoke_model_async_twelvelabs_marengo_audio(
-        self, uses_db: None, bedrock_us_east_1: None, s3_us_east1: str
-    ) -> None:
+    def test_invoke_model_async_twelvelabs_marengo_audio(self, uses_db: None, s3_us_east1: str) -> None:
         # Audio requires StartAsyncInvoke — InvokeModel only accepts image and text_image.
         _skip_no_aws()
         from pixeltable.functions.bedrock import invoke_model_async
@@ -197,9 +196,7 @@ class TestBedrock:
         validate_update_status(t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         _assert_twelvelabs_embedding(t.select(t.response).collect())
 
-    def test_invoke_model_async_twelvelabs_marengo_video(
-        self, uses_db: None, bedrock_us_east_1: None, s3_us_east1: str
-    ) -> None:
+    def test_invoke_model_async_twelvelabs_marengo_video(self, uses_db: None, s3_us_east1: str) -> None:
         # Video requires StartAsyncInvoke — InvokeModel only accepts image and text_image.
         _skip_no_aws()
         from pixeltable.functions.bedrock import invoke_model_async
@@ -231,7 +228,6 @@ class TestBedrock:
         video_filepaths = get_video_files()[:1]
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         results = t.select(t.response).collect()
-        # Pegasus returns a text description of the video, not embeddings
         assert results[0]['response']['message']
 
     # ------------------------------------------------------------------
@@ -308,7 +304,6 @@ class TestBedrock:
     # ------------------------------------------------------------------
     # Amazon Nova understanding — invoke_model: image, video
     #                             converse: image, video
-    # Nova Pro uses same schema as Nova Lite — one set of tests covers both.
     # ------------------------------------------------------------------
 
     def test_invoke_model_nova_image(self, uses_db: None) -> None:
@@ -389,23 +384,22 @@ class TestBedrock:
             }
         ]
         t.add_computed_column(output=converse(messages, model_id='amazon.nova-lite-v1:0'))
-        # Use an mp4 file — Nova requires format to match actual file MIME type
         video_filepaths = [p for p in get_video_files() if str(p).endswith('.mp4')][:1]
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
 
     # ------------------------------------------------------------------
-    # Amazon Nova Reel — invoke_model_async: text-to-video
-    # No sync path; always requires StartAsyncInvoke. us-east-1 only.
+    # Amazon Nova Reel — invoke_model_async: text-to-video (us-east-1 only)
+    # Returns pxt.Video via conditional_return_type.
     # ------------------------------------------------------------------
 
-    def test_invoke_model_async_nova_reel(self, uses_db: None, bedrock_us_east_1: None, s3_us_east1: str) -> None:
+    def test_invoke_model_async_nova_reel(self, uses_db: None, s3_us_east1: str) -> None:
         _skip_no_aws()
         from pixeltable.functions.bedrock import invoke_model_async
 
         t = pxt.create_table('tbl', {'prompt': pxt.String})
         t.add_computed_column(
-            response=invoke_model_async(
+            video=invoke_model_async(
                 {
                     'taskType': 'TEXT_VIDEO',
                     'textToVideoParams': {'text': t.prompt},
@@ -416,7 +410,8 @@ class TestBedrock:
             )
         )
         validate_update_status(t.insert(prompt='a dog running on a beach'), expected_rows=1)
-        assert t.collect()[0]['response']['output']
+        result = t.collect()[0]['video']
+        assert result is not None and Path(result).exists()
 
     # ------------------------------------------------------------------
     # Amazon Titan
@@ -459,18 +454,15 @@ class TestBedrock:
         _skip_no_aws()
         from pixeltable.functions.bedrock import embed
 
-        model_ids = ['amazon.titan-embed-image-v1']
         img_paths = get_image_files()[:3]
-        for model_id in model_ids:
+        for model_id in ['amazon.titan-embed-image-v1']:
             t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
             t.add_embedding_index('image', image_embed=embed.using(model_id=model_id))
             t.insert([{'image': p} for p in img_paths])
             _assert_image_similarity(t, img_paths)
 
     # ------------------------------------------------------------------
-    # Amazon Nova Multimodal Embeddings — embed: text, image
-    #                                     invoke_model: audio, video
-    # (us-east-1 only)
+    # Amazon Nova Multimodal Embeddings (us-east-1 only)
     # ------------------------------------------------------------------
 
     def test_embed_nova_multimodal_text(self, uses_db: None, bedrock_us_east_1: None) -> None:
@@ -553,16 +545,14 @@ class TestBedrock:
         _run_converse_text(['ai21.jamba-1-5-mini-v1:0', 'ai21.jamba-1-5-large-v1:0'])
 
     # ------------------------------------------------------------------
-    # Cohere — embed: text (v3 English, v3 Multilingual, v4), image (v4)
-    #          invoke_model: image via inputs[] (v4)
+    # Cohere
     # ------------------------------------------------------------------
 
     def test_embed_cohere_v3_text(self, uses_db: None) -> None:
         _skip_no_aws()
         from pixeltable.functions.bedrock import embed
 
-        model_ids = ['cohere.embed-english-v3', 'cohere.embed-multilingual-v3']
-        for model_id in model_ids:
+        for model_id in ['cohere.embed-english-v3', 'cohere.embed-multilingual-v3']:
             t = pxt.create_table(_tbl_name(model_id), {'text': pxt.String})
             t.add_embedding_index('text', string_embed=embed.using(model_id=model_id))
             t.insert(_TEXT_ROWS)
@@ -605,7 +595,6 @@ class TestBedrock:
             response=invoke_model(
                 {
                     # Cohere embed-v4 uses inputs[] instead of messages[] for embedding requests.
-                    # Each item's content[*].image_url.url is converted to a data URI automatically.
                     'inputs': [{'content': [{'type': 'image_url', 'image_url': {'url': t.image}}]}],
                     'input_type': 'search_document',
                     'embedding_types': ['float'],
@@ -618,77 +607,63 @@ class TestBedrock:
         assert t.select(t.response).collect()[0]['response']['embeddings']['float'][0]
 
     # ------------------------------------------------------------------
-    # DeepSeek — converse: text only
-    # R1 and V3 are cross-region inference only; V3.2 has single-region support.
-    # All three are available from us-west-2.
+    # DeepSeek — converse: text only (us-west-2)
     # ------------------------------------------------------------------
 
     def test_converse_deepseek(self, uses_db: None, bedrock_us_west_2: None) -> None:
         _skip_no_aws()
         _run_converse_text(
             [
-                'us.deepseek.r1-v1:0',  # cross-region inference profile (no single-region endpoint)
-                'deepseek.v3.2',  # single-region bare ID available in us-west-2
+                'us.deepseek.r1-v1:0',  # cross-region inference profile
+                'deepseek.v3.2',  # single-region bare ID
             ]
         )
 
     # ------------------------------------------------------------------
-    # Meta Llama vision — invoke_model: image (top-level images[])
-    #                     converse: image
-    # All Llama 3.2/4 models are cross-region inference only (us. prefix required).
-    # Llama 3.2 11B is Legacy — replaced with 90B which is active.
+    # Meta Llama 4 — converse: image (cross-region inference profile)
     # ------------------------------------------------------------------
 
     def test_converse_meta_llama_image(self, uses_db: None) -> None:
         _skip_no_aws()
         from pixeltable.functions.bedrock import converse
 
-        model_ids = ['us.meta.llama4-maverick-17b-instruct-v1:0']
         image_filepaths = get_image_files()[:1]
-        for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
-            t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
-            validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
-            assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
-                f'No converse response for {model_id}'
-            )
+        model_id = 'us.meta.llama4-maverick-17b-instruct-v1:0'
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
+        validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
+        assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
+            f'No converse response for {model_id}'
+        )
 
     # ------------------------------------------------------------------
-    # Mistral vision — invoke_model: image (image_url); converse: image
-    # Pixtral Large and Magistral Small have single-region support in us-east-1.
-    # Use bare model IDs (no us. prefix needed for single-region models).
+    # Mistral Pixtral — invoke_model and converse (us. prefix required)
     # ------------------------------------------------------------------
 
     def test_invoke_model_mistral_vision_image(self, uses_db: None) -> None:
         _skip_no_aws()
-        model_ids = [
-            'us.mistral.pixtral-large-2502-v1:0',  # cross-region profile required for invoke_model
-            'mistral.magistral-small-2509',
-        ]
-        image_filepaths = get_image_files()[:1]
         from pixeltable.functions.bedrock import invoke_model
 
+        model_ids = ['us.mistral.pixtral-large-2502-v1:0', 'mistral.magistral-small-2509']
+        image_filepaths = get_image_files()[:1]
         for model_id in model_ids:
             t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
             t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
             validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
-            results = t.select(t.response).collect()
-            _assert_openai_compat_response(results, model_id)
+            _assert_openai_compat_response(t.select(t.response).collect(), model_id)
 
     def test_converse_mistral_vision_image(self, uses_db: None) -> None:
         _skip_no_aws()
-        # Pixtral Large supports Converse; Magistral Small does not (no image Converse support).
-        model_ids = ['us.mistral.pixtral-large-2502-v1:0']
-        image_filepaths = get_image_files()[:1]
         from pixeltable.functions.bedrock import converse
 
-        for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
-            t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
-            validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
-            assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
-                f'No converse response for {model_id}'
-            )
+        image_filepaths = get_image_files()[:1]
+        model_id = 'us.mistral.pixtral-large-2502-v1:0'
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
+        validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
+        assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
+            f'No converse response for {model_id}'
+        )
 
     # ------------------------------------------------------------------
     # OpenAI — converse: text only
@@ -699,118 +674,107 @@ class TestBedrock:
         _run_converse_text(['openai.gpt-oss-safeguard-20b', 'openai.gpt-oss-safeguard-120b'])
 
     # ------------------------------------------------------------------
-    # Google Gemma 3 — invoke_model: image (image_url); converse: image
+    # Google Gemma 3 — invoke_model and converse: image
     # ------------------------------------------------------------------
 
     def test_invoke_model_gemma_image(self, uses_db: None) -> None:
         _skip_no_aws()
-        model_ids = ['google.gemma-3-4b-it', 'google.gemma-3-12b-it', 'google.gemma-3-27b-it']
-        image_filepaths = get_image_files()[:1]
         from pixeltable.functions.bedrock import invoke_model
 
+        model_ids = ['google.gemma-3-4b-it', 'google.gemma-3-12b-it', 'google.gemma-3-27b-it']
+        image_filepaths = get_image_files()[:1]
         for model_id in model_ids:
             t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
             t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
             validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
-            results = t.select(t.response).collect()
-            _assert_openai_compat_response(results, model_id)
+            _assert_openai_compat_response(t.select(t.response).collect(), model_id)
 
     def test_converse_gemma_image(self, uses_db: None) -> None:
         _skip_no_aws()
-        model_ids = ['google.gemma-3-12b-it']
-        image_filepaths = get_image_files()[:1]
         from pixeltable.functions.bedrock import converse
 
-        for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
-            t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
-            validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
-            assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
-                f'No converse response for {model_id}'
-            )
+        image_filepaths = get_image_files()[:1]
+        model_id = 'google.gemma-3-12b-it'
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
+        validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
+        assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
+            f'No converse response for {model_id}'
+        )
 
     # ------------------------------------------------------------------
-    # NVIDIA Nemotron — invoke_model: image (image_url); converse: image
+    # NVIDIA Nemotron — invoke_model and converse: image
     # ------------------------------------------------------------------
 
     def test_invoke_model_nvidia_image(self, uses_db: None) -> None:
         _skip_no_aws()
-        model_ids = ['nvidia.nemotron-nano-12b-v2']
-        image_filepaths = get_image_files()[:1]
         from pixeltable.functions.bedrock import invoke_model
 
-        for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
-            t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
-            validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
-            results = t.select(t.response).collect()
-            _assert_openai_compat_response(results, model_id)
+        image_filepaths = get_image_files()[:1]
+        model_id = 'nvidia.nemotron-nano-12b-v2'
+        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+        t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
+        validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
+        _assert_openai_compat_response(t.select(t.response).collect(), model_id)
 
     def test_converse_nvidia_image(self, uses_db: None) -> None:
         _skip_no_aws()
-        model_ids = ['nvidia.nemotron-nano-12b-v2']
-        image_filepaths = get_image_files()[:1]
         from pixeltable.functions.bedrock import converse
 
-        for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
-            t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
-            validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
-            assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
-                f'No converse response for {model_id}'
-            )
+        image_filepaths = get_image_files()[:1]
+        model_id = 'nvidia.nemotron-nano-12b-v2'
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
+        validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
+        assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
+            f'No converse response for {model_id}'
+        )
 
     # ------------------------------------------------------------------
-    # Moonshot AI — invoke_model: image (image_url); converse: image
+    # Moonshot AI — invoke_model and converse: image
     # ------------------------------------------------------------------
 
     def test_invoke_model_moonshot_image(self, uses_db: None) -> None:
         _skip_no_aws()
-        model_ids = ['moonshotai.kimi-k2.5']
-        image_filepaths = get_image_files()[:1]
         from pixeltable.functions.bedrock import invoke_model
 
-        for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
-            t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
-            validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
-            results = t.select(t.response).collect()
-            _assert_openai_compat_response(results, model_id)
+        image_filepaths = get_image_files()[:1]
+        model_id = 'moonshotai.kimi-k2.5'
+        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+        t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
+        validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
+        _assert_openai_compat_response(t.select(t.response).collect(), model_id)
 
     def test_converse_moonshot_image(self, uses_db: None) -> None:
         _skip_no_aws()
-        model_ids = ['moonshotai.kimi-k2.5']
-        image_filepaths = get_image_files()[:1]
         from pixeltable.functions.bedrock import converse
 
-        for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
-            t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
-            validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
-            assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
-                f'No converse response for {model_id}'
-            )
+        image_filepaths = get_image_files()[:1]
+        model_id = 'moonshotai.kimi-k2.5'
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
+        validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
+        assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
+            f'No converse response for {model_id}'
+        )
 
     # ------------------------------------------------------------------
-    # Qwen — invoke_model: image (image_url, VL only); converse: image (VL), text
+    # Qwen — invoke_model and converse: image (VL), text
     # ------------------------------------------------------------------
 
     def test_invoke_model_qwen_vl_image(self, uses_db: None) -> None:
         _skip_no_aws()
-        model_ids = ['qwen.qwen3-vl-235b-a22b']
-        image_filepaths = get_image_files()[:1]
         from pixeltable.functions.bedrock import invoke_model
 
-        for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
-            t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
-            validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
-            results = t.select(t.response).collect()
-            _assert_openai_compat_response(results, model_id)
+        image_filepaths = get_image_files()[:1]
+        model_id = 'qwen.qwen3-vl-235b-a22b'
+        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+        t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
+        validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
+        _assert_openai_compat_response(t.select(t.response).collect(), model_id)
 
     def test_converse_qwen_image_and_text(self, uses_db: None) -> None:
         _skip_no_aws()
-        # Vision model via converse image, plus text-only models via converse text
         from pixeltable.functions.bedrock import converse
 
         image_filepaths = get_image_files()[:1]
@@ -822,8 +786,8 @@ class TestBedrock:
         _run_converse_text(['qwen.qwen3-next-80b-a3b'])
 
     # ------------------------------------------------------------------
-    # Stability AI — invoke_model: image generation
-    # stability.sd3-5-large-v1:0 is single-region (us-west-2); use bare ID.
+    # Stability AI — invoke_model: image generation (us-west-2)
+    # response['images'][0] is decoded to PIL.Image by _decode_response_media.
     # ------------------------------------------------------------------
 
     def test_invoke_model_stability_image(self, uses_db: None, bedrock_us_west_2: None) -> None:
@@ -838,11 +802,10 @@ class TestBedrock:
             )
         )
         validate_update_status(t.insert(prompt='a cat sitting on a mat'), expected_rows=1)
-        assert t.collect()[0]['response']['images'][0]
+        assert isinstance(t.collect()[0]['response']['images'][0], PIL.Image.Image)
 
     # ------------------------------------------------------------------
-    # Writer — converse: text only
-    # Writer models are us-west-2 only and accessed via cross-region inference profiles.
+    # Writer — converse: text only (us-west-2, cross-region inference profiles)
     # ------------------------------------------------------------------
 
     def test_converse_writer(self, uses_db: None, bedrock_us_west_2: None) -> None:
