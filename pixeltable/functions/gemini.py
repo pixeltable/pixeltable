@@ -540,9 +540,12 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
     config_.speech_config = types.SpeechConfig(
         multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
             speaker_voice_configs=[
-                types.SpeakerVoiceConfig(speaker=alias, voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
-                ))
+                types.SpeakerVoiceConfig(
+                    speaker=alias,
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+                    ),
+                )
                 for alias, voice_name in voices.items()
             ]
         )

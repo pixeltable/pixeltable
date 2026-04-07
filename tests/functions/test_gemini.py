@@ -258,15 +258,10 @@ class TestGemini:
 
         t = pxt.create_table('test_tbl', {'text': pxt.String})
         t.add_computed_column(
-            audio=generate_speech(
-                t.text,
-                model='gemini-2.5-flash-preview-tts',
-                voices={'Alice': 'Kore', 'Bob': 'Puck'},
-            )
+            audio=generate_speech(t.text, model='gemini-2.5-flash-preview-tts', voices={'Alice': 'Kore', 'Bob': 'Puck'})
         )
         validate_update_status(
-            t.insert(text='Alice: Hello, how are you today? Bob: I am doing great, thanks for asking!'),
-            expected_rows=1,
+            t.insert(text='Alice: Hello, how are you today? Bob: I am doing great, thanks for asking!'), expected_rows=1
         )
         results = t.collect()
         audio_path = results['audio'][0]
