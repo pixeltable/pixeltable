@@ -21,12 +21,6 @@ from .tool_utils import run_tool_invocations_test
 
 
 @pytest.fixture()
-def s3_us_east1() -> Iterator[str]:
-    """Configure the Bedrock client to use us-east-1. Yields the matching S3 async output location."""
-    yield 's3://pxt-test-us-east-1/bedrock_outputs/'
-
-
-@pytest.fixture()
 def bedrock_us_east_1(uses_db: None) -> Iterator[None]:
     """Configure the Bedrock client to use us-east-1 for region-restricted models (no async output needed)."""
     Config.init(config_overrides={'bedrock.region_name': 'us-east-1'}, reinit=True)
@@ -38,6 +32,12 @@ def bedrock_us_west_2(uses_db: None) -> Iterator[None]:
     """Configure the Bedrock client to use us-west-2 for models only available in that region."""
     Config.init(config_overrides={'bedrock.region_name': 'us-west-2'}, reinit=True)
     yield
+
+
+@pytest.fixture()
+def s3_us_east1(bedrock_us_east_1: None) -> Iterator[str]:
+    """Configure the Bedrock client to use us-east-1. Yields the matching S3 async output location."""
+    yield 's3://pxt-test-us-east-1/bedrock_outputs/'
 
 
 def _skip_no_aws() -> None:
@@ -637,7 +637,7 @@ class TestBedrock:
         )
 
     # ------------------------------------------------------------------
-    # Mistral Pixtral — invoke_model and converse (us. prefix required)
+    # Mistral Pixtral — invoke_model and converse
     # ------------------------------------------------------------------
 
     def test_invoke_model_mistral_vision_image(self, uses_db: None) -> None:
