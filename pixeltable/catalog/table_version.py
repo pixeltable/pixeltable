@@ -1253,6 +1253,8 @@ class TableVersion:
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.bump_version(timestamp, bump_schema_version=False)
+            # soft delete must be done before insert, otherwise we would have duplicate primary key values
+            # upon insert since the rows would be duplicated until the soft delete occurs
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
             )
