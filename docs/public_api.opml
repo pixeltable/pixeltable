@@ -307,6 +307,8 @@
           <outline text="udf|pixeltable.functions.gemini.generate_content" />
           <outline text="udf|pixeltable.functions.gemini.generate_images" />
           <outline text="udf|pixeltable.functions.gemini.generate_videos" />
+          <outline text="udf|pixeltable.functions.gemini.generate_speech" />
+          <outline text="udf|pixeltable.functions.gemini.transcribe" />
           <outline text="func|pixeltable.functions.gemini.invoke_tools" />
         </outline>
         <outline text="module|pixeltable.functions.groq">
