@@ -13,7 +13,7 @@ from bs4.element import NavigableString, Tag
 from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, type_system as ts
+from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.documents import get_document_handle
 from pixeltable.utils.spacy import get_spacy_model
@@ -116,7 +116,7 @@ def _parse_elements(elements: list[Literal['text', 'image']] | None) -> list[Ele
 
 _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 
-_METADATA_COLUMN_TYPES: dict = {
+_METADATA_COLUMN_TYPES = {
     ChunkMetadata.TITLE: ts.String | None,
     ChunkMetadata.HEADING: ts.Json | None,
     ChunkMetadata.SOURCELINE: ts.Int | None,
@@ -559,17 +559,25 @@ class document_splitter(pxt.PxtIterator):
             Env.get().require_package('tiktoken')
 
     @classmethod
-    def conditional_output_schema(cls, bound_args: dict[str, Any]) -> dict[str, type]:
+    def conditional_output_schema(cls, bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         schema: dict[str, type] = {}
-        elements = _parse_elements(bound_args.get('elements', ['text']))
+
+        elements = [Element.TEXT]
+        if bound_args.get('elements') is not None:
+            if not isinstance(bound_args['elements'], exprs.Literal):
+                raise excs.Error('document_splitter(): `elements` must be a constant expression.')
+            elements = _parse_elements(bound_args['elements'].val)
         for element in elements:
             if element == Element.TEXT:
                 schema['text'] = ts.String
             elif element == Element.IMAGE:
                 schema['image'] = ts.Image
 
-        md_fields = _parse_metadata(bound_args.get('metadata', ''))
-        for md_field in md_fields:
-            schema[md_field.name.lower()] = _METADATA_COLUMN_TYPES[md_field]
+        if bound_args.get('metadata') is not None:
+            if not isinstance(bound_args['metadata'], exprs.Literal):
+                raise excs.Error('document_splitter(): `metadata` must be a constant expression.')
+            md_fields = _parse_metadata(bound_args['metadata'].val)
+            for md_field in md_fields:
+                schema[md_field.name.lower()] = _METADATA_COLUMN_TYPES[md_field]  # type: ignore[assignment]
 
         return schema
