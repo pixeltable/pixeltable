@@ -1168,19 +1168,18 @@ class JsonType(ColumnType):
 
         def to_json_schema(self) -> dict[str, Any]:
             if isinstance(self.type_spec, list):
-                prefix_items_schema = [t.to_json_schema() for t in self.type_spec]
-                if self.variadic_type is None:
-                    return {'type': 'array', 'prefixItems': prefix_items_schema, 'items': False}
-                else:
-                    items_schema = self.variadic_type.to_json_schema()
-                    return {'type': 'array', 'prefixItems': prefix_items_schema, 'items': items_schema}
+                json_schema: dict[str, Any] = {'type': 'array'}
+                if len(self.type_spec) > 0:
+                    json_schema['prefixItems'] = [t.to_json_schema() for t in self.type_spec]
+                json_schema['items'] = False if self.variadic_type is None else self.variadic_type.to_json_schema()
+                return json_schema
             else:
                 properties = {k: t.to_json_schema() for k, t in self.type_spec.items()}
                 required = [k for k in self.type_spec if k not in self.optional_keys]
-                schema: dict[str, Any] = {'type': 'object', 'properties': properties, 'additionalProperties': False}
+                json_schema: dict[str, Any] = {'type': 'object', 'properties': properties, 'additionalProperties': False}
                 if len(required) > 0:
-                    schema['required'] = required
-                return schema
+                    json_schema['required'] = required
+                return json_schema
 
         def __eq__(self, other: object) -> bool:
             return (
