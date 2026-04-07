@@ -64,6 +64,7 @@ def _(api_key: str | None = None, region_name: str | None = None) -> 'BaseClient
     return boto3.client(**kwargs)
 
 
+# boto3 typing is weird; type information is dynamically defined, so the best we can do for the static checker is `Any`
 def _bedrock_client() -> Any:
     return get_runtime().get_client('bedrock')
 
@@ -318,9 +319,8 @@ async def invoke_model(
         ... }
         >>> tbl.add_computed_column(
         ...     response=invoke_model(body, model_id='stability.sd3-5-large-v1:0')
-        ...)
+        ... )
         >>> tbl.add_computed_column(image=tbl.response['images'][0])
-        >>>
     """
     body = _apply_invoke_model_request_conversions(body, model_id)
 
@@ -356,7 +356,7 @@ async def _bedrock_async_invocation(
     model_id: str, body: dict, output_location: str, poll_interval_secs: float
 ) -> AsyncIterator[tuple[S3Store, StorageObjectAddress, str]]:
     """Submit a Bedrock async job, poll until completion, yield (store, soa, result_key), and
-    delete staging S3 objects on exit"""
+    delete staging S3 objects on exit."""
     response = await asyncio.to_thread(
         _bedrock_client().start_async_invoke,
         modelId=model_id,
@@ -421,8 +421,8 @@ async def invoke_model_async(
         model_id: The model identifier to invoke.
         output_location: S3 URI where Bedrock writes the result, e.g. `s3://my-bucket/prefix`.
             The bucket must grant Bedrock permission to read and write objects. Each invocation
-            writes to a unique sub-path under this prefix; the staging object is deleted after
-            the result is stored in the computed column.
+            writes to a unique sub-path under this prefix; the staging objects written by Bedrock
+            are deleted after the result is stored in the computed column.
         poll_interval_secs: Seconds between `GetAsyncInvoke` status checks. Defaults to 5.0.
 
     Returns:
@@ -431,7 +431,7 @@ async def invoke_model_async(
         For all other models: a `dict` containing the model response.
 
     Examples:
-        TwelveLabs Marengo — audio embedding:
+        TwelveLabs Marengo — audio embedding (audio/video inputs require the async API):
 
         >>> body = {
         ...     'inputType': 'audio',
@@ -565,6 +565,7 @@ async def converse(
         kwargs['inferenceConfig'] = inference_config
     if additional_model_request_fields is not None:
         kwargs['additionalModelRequestFields'] = additional_model_request_fields
+
     if tool_config is not None:
         tool_config_ = {
             'tools': [
@@ -619,6 +620,16 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         Embedding vector.
 
     Examples:
+        Create an embedding index on a column `description` with Nova embeddings and custom dimensions:
+
+        >>> tbl.add_embedding_index(
+        ...     tbl.description,
+        ...     string_embed=embed.using(
+        ...         model_id='amazon.nova-2-multimodal-embeddings-v1:0',
+        ...         dimensions=1024,
+        ...     ),
+        ... )
+
         Add an embedding index using Amazon Titan:
 
         >>> tbl.add_embedding_index(
@@ -637,7 +648,7 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
     from botocore.exceptions import ClientError
 
     body: dict[str, Any]
-    if model_id.startswith('amazon.nova'):
+    if 'nova' in model_id:
         body = {
             'taskType': 'SINGLE_EMBEDDING',
             'singleEmbeddingParams': {
@@ -664,10 +675,11 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         'contentType': 'application/json',
         'accept': 'application/json',
     }
+
     try:
         response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
         response_body = json.loads(response['body'].read())
-        if model_id.startswith('amazon.nova'):
+        if 'nova' in model_id:
             return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
         elif model_id.startswith('cohere.embed'):
             return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
@@ -714,7 +726,7 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
     from botocore.exceptions import ClientError
 
     body: dict[str, Any]
-    if model_id.startswith('amazon.nova'):
+    if 'nova' in model_id:
         body = {
             'taskType': 'SINGLE_EMBEDDING',
             'singleEmbeddingParams': {
@@ -740,10 +752,11 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
         'contentType': 'application/json',
         'accept': 'application/json',
     }
+
     try:
         response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
         response_body = json.loads(response['body'].read())
-        if model_id.startswith('amazon.nova'):
+        if 'nova' in model_id:
             return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
         elif model_id.startswith('cohere.embed-v4'):
             return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
