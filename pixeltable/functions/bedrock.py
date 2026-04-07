@@ -37,6 +37,8 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
+_ASYNC_INVOCATION_TIMEOUT_SECS = 600.0
+
 
 @env.register_client('bedrock')
 def _(api_key: str | None = None, region_name: str | None = None) -> 'BaseClient':
@@ -72,7 +74,17 @@ def _bedrock_client() -> Any:
 
 def _is_media(v: Any) -> bool:
     """Return True if v is a PIL image or a file path (str) to a media file."""
-    return isinstance(v, PIL.Image.Image) or (isinstance(v, str) and not isinstance(v, bool) and Path(v).exists())
+    if isinstance(v, PIL.Image.Image):
+        return True
+    if not isinstance(v, str):
+        return False
+    mime = mimetypes.guess_type(v)[0]
+    if not mime or not mime.startswith(('image/', 'video/', 'audio/')):
+        return False
+    try:
+        return Path(v).exists()
+    except (OSError, ValueError):
+        return False
 
 
 def _to_base64_str(media: PIL.Image.Image | str) -> str:
@@ -170,7 +182,7 @@ def _decode_base64_images(value: str) -> str | PIL.Image.Image:
         mime = puremagic.from_string(raw, mime=True)
     except Exception:
         return value
-    if mime.startswith('image/'):
+    if mime and mime.startswith('image/'):
         return PIL.Image.open(io.BytesIO(raw))
     return value
 
@@ -345,20 +357,9 @@ async def invoke_model(
     return _decode_invoke_model_response(result, model_id)
 
 
-def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
-    """Parse an S3 URI into (bucket, key_prefix). Raises ValueError if the URI is malformed."""
-    if not s3_uri.startswith('s3://'):
-        raise ValueError(f'Invalid S3 URI (must start with s3://): {s3_uri!r}')
-    without_scheme = s3_uri[len('s3://') :]
-    if '/' not in without_scheme:
-        return without_scheme, ''
-    bucket, prefix = without_scheme.split('/', 1)
-    return bucket, prefix.rstrip('/')
-
-
 @asynccontextmanager
 async def _bedrock_async_invocation(
-    model_id: str, body: dict, output_location: str, poll_interval_secs: float
+    model_id: str, body: dict, output_location: str, poll_interval_secs: float, timeout_secs: float
 ) -> AsyncIterator[tuple['S3Store', StorageObjectAddress, str]]:
     """Submit a Bedrock async job, poll until completion, yield (store, soa, result_key), and
     delete staging S3 objects on exit."""
@@ -373,6 +374,7 @@ async def _bedrock_async_invocation(
     invocation_arn: str = response['invocationArn']
     invocation_id: str = invocation_arn.rsplit('/', maxsplit=1)[-1]
 
+    elapsed = 0.0
     while True:
         await asyncio.sleep(poll_interval_secs)
         job: dict[str, Any] = await asyncio.to_thread(_bedrock_client().get_async_invoke, invocationArn=invocation_arn)
@@ -381,6 +383,9 @@ async def _bedrock_async_invocation(
             break
         if status == 'Failed':
             raise pxt.Error(f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}')
+        elapsed += poll_interval_secs
+        if elapsed > timeout_secs:
+            raise pxt.Error(f'Async invocation {invocation_id} timed out after {timeout_secs}s')
 
     soa = ObjectPath.parse_object_storage_addr(output_location, allow_obj_name=False)
     store = ObjectOps.get_store(soa, allow_obj_name=False)
@@ -435,7 +440,6 @@ async def invoke_model_async(
 
     Returns:
         For video-generation models (`amazon.nova-reel`, `luma.`): a `pxt.Video`.
-        For audio-generation models: a `pxt.Audio`.
         For all other models: a `dict` containing the model response.
 
     Examples:
@@ -470,11 +474,9 @@ async def invoke_model_async(
     """
     body = _apply_invoke_model_request_conversions(body, model_id)
 
-    async with _bedrock_async_invocation(model_id, body, output_location, poll_interval_secs) as (
-        store,
-        soa,
-        result_key,
-    ):
+    async with _bedrock_async_invocation(
+        model_id, body, output_location, poll_interval_secs, _ASYNC_INVOCATION_TIMEOUT_SECS
+    ) as (store, soa, result_key):
         result_uri = f'{soa.prefix_free_uri}{result_key}'
         content_type = mimetypes.guess_type(result_key)[0] or 'application/json'
 
