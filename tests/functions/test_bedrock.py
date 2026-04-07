@@ -12,6 +12,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
+    rerun,
     skip_test_if_no_aws_credentials,
     skip_test_if_not_installed,
     validate_update_status,
@@ -137,8 +138,8 @@ def _converse_image_messages(t: pxt.Table) -> list:
     ]
 
 
-# @pytest.mark.remote_api
-# @rerun(reruns=3, reruns_delay=8)
+@pytest.mark.remote_api
+@rerun(reruns=3, reruns_delay=8)
 class TestBedrock:
     # ------------------------------------------------------------------
     # TwelveLabs Marengo — invoke_model: image, text_image
