@@ -473,14 +473,13 @@ async def generate_speech(text: str, *, model: str, voice: str = 'Kore', config:
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
-    config = types.GenerateContentConfig(**(config or {}))
-    config.response_modalities = ['AUDIO']
-    config.speech_config = types.SpeechConfig(
+    config_ = types.GenerateContentConfig(**(config or {}))
+    config_.response_modalities = ['AUDIO']
+    config_.speech_config = types.SpeechConfig(
         voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice))
     )
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config)
-
+    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError) as exc:
@@ -542,7 +541,7 @@ async def transcribe(
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
-    config = types.GenerateContentConfig(**config) if config else None
+    config_ = types.GenerateContentConfig(**config) if config else None
     client = _genai_client()
 
     try:
@@ -555,7 +554,7 @@ async def transcribe(
             response = await client.aio.models.generate_content(
                 model=model,
                 contents=[audio_part, prompt],  # type: ignore[arg-type]
-                config=config,
+                config=config_,
             )
     else:
         mime_type, _ = mimetypes.guess_type(audio, strict=False)
@@ -569,7 +568,7 @@ async def transcribe(
         response = await client.aio.models.generate_content(
             model=model,
             contents=[audio_part, prompt],  # type: ignore[arg-type]
-            config=config,
+            config=config_,
         )
 
     return response.text
