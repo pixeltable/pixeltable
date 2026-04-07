@@ -232,10 +232,6 @@ jobs:
           # Install quarto and mintlify in order to build the docs
           conda install -y -c conda-forge quarto nodejs
           npm install -g mint@$MINTLIFY_VERSION
-          # Quarto packaging fix
-          mkdir -p "$CONDA_PREFIX/bin/tools/x86_64"
-          ln -sf "$CONDA_PREFIX/bin/deno" "$CONDA_PREFIX/bin/tools/x86_64/deno"
-          ln -sf "$CONDA_PREFIX/bin/pandoc" "$CONDA_PREFIX/bin/tools/x86_64/pandoc"
           python -m pixeltable_doctools.build
           cd target/docs && mint broken-links
       - name: Lint
