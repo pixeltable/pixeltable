@@ -277,6 +277,22 @@ class View(Table):
             base_path = '<anonymous base table>' if base_tbl is None else base_tbl._path()
             base_version = self._effective_base_versions[0]
             md['base'] = base_path if base_version is None else f'{base_path}:{base_version}'
+
+        tv = self._tbl_version_path.tbl_version.get()
+        if tv.iterator_call is not None:
+            # Mark iterator-produced columns
+            columns = self._tbl_version_path.columns()
+            for col in columns:
+                if col.name in md['columns'] and tv.is_iterator_column(col):
+                    md['columns'][col.name]['is_iterator_col'] = True
+            # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)"
+            arg_strs: list[str] = []
+            for arg_expr in tv.iterator_call.args:
+                arg_strs.append(arg_expr.display_str(inline=True))
+            for arg_name, arg_expr in tv.iterator_call.kwargs.items():
+                arg_strs.append(f'{arg_name}={arg_expr.display_str(inline=True)}')
+            md['iterator_call'] = f'{tv.iterator_call.it.name}({", ".join(arg_strs)})'
+
         return md
 
     def insert(

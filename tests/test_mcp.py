@@ -31,8 +31,7 @@ class TestMcp:
         assert res[1]['pixelmultiple'] == str((5 + 22) * 6)
 
     def test_mcp_as_tools(self, uses_db: None, init_mcp_server: None) -> None:
-        skip_test_if_not_installed('mcp')
-        skip_test_if_not_installed('openai')
+        skip_test_if_not_installed('mcp', 'openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions import openai
 
