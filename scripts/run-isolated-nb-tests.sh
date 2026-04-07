@@ -13,6 +13,9 @@ if [ -z "$PY_VERSION" ]; then
     exit 1
 fi
 
+# Initialize conda in this subshell
+eval "$(conda shell.bash hook)"
+
 # Use a separate Pixeltable DB for these tests
 export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
