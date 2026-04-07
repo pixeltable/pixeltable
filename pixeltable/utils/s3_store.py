@@ -99,10 +99,9 @@ class S3Store(ObjectStoreBase):
     # resource to use when using pixeltable store running on top of S3 compatible object store
     _resource: ServiceResource
 
-    def __init__(self, soa: StorageObjectAddress,
-                 *,
-                 client: BaseClient | None = None,
-                 resource: ServiceResource | None = None):
+    def __init__(
+        self, soa: StorageObjectAddress, *, client: BaseClient | None = None, resource: ServiceResource | None = None
+    ):
         self.soa = soa
         self.__bucket_name = self.soa.container
         self.__prefix_name = self.soa.prefix

@@ -66,8 +66,9 @@ def get_presigned_url_from_cloud(
     Request a presigned URL from Pixeltable Cloud for a key in given bucket.
     Uses backend credentials on the cloud so URL expiry is independent of temp credential TTL.
     """
-    request = GetPresignedUrlRequest(org_slug=org_slug, db_slug=db_slug, bucket=bucket, key=key,
-                                     method=method, expiration=expiration)
+    request = GetPresignedUrlRequest(
+        org_slug=org_slug, db_slug=db_slug, bucket=bucket, key=key, method=method, expiration=expiration
+    )
     try:
         response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)
         if response.status_code != 200:
