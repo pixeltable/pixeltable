@@ -1,5 +1,12 @@
 /* Pixeltable Documentation - Minimal overrides */
 
+/* Widen main content area */
+article,
+[data-selector="content"],
+main > div > div {
+  max-width: 900px !important;
+}
+
 /* Remove default sidebar active background tint */
 #sidebar [data-active="true"],
 aside [data-active="true"] {
