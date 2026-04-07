@@ -4,7 +4,7 @@
 article,
 [data-selector="content"],
 main > div > div {
-  max-width: 900px !important;
+  max-width: 1050px !important;
 }
 
 /* Remove default sidebar active background tint */
@@ -46,6 +46,9 @@ svg[class*="text-emerald"] {
 
 /* ============================================
    NOTEBOOK OUTPUTS - Fix dark mode visibility
+   Only target pre tags with inline color:black
+   from notebook output cells. Do NOT touch
+   syntax-highlighted code blocks.
    ============================================ */
 
 .dark pre[style*="color: black"],
@@ -58,14 +61,4 @@ svg[class*="text-emerald"] {
 .dark pre span[style*="color: black"],
 .dark pre span[style*="color:black"] {
   color: #e5e5e5 !important;
-}
-
-.dark #content pre,
-.dark #content-area pre {
-  color: #e5e5e5 !important;
-}
-
-.dark #content pre *,
-.dark #content-area pre * {
-  color: inherit !important;
 }
