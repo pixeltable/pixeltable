@@ -98,13 +98,14 @@ jobs:
         with:
           miniforge-version: latest
           activate-environment: pxt
+          conda-remove-defaults: true
       - name: Install python
         run: |
-          ./scripts/retry.sh 3 30 mamba install -y -c conda-forge python=${{ matrix.python-version }}
-          mamba info
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }}
+          conda info
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
-        run: ./scripts/retry.sh 3 30 mamba install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
+        run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Delete source tree
         run: rm -rf pixeltable  # Ensure we use pypi pixeltable package for testing, not local source tree
       - name: Install dependencies
@@ -171,5 +172,6 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniforge-version: latest
+          conda-remove-defaults: true
       - name: Run isolated notebook tests
         run: ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }}

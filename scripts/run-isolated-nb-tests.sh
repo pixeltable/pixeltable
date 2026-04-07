@@ -27,15 +27,15 @@ FAILURES=0
 for nb in "$TEST_PATH"/*.ipynb; do
     echo "Testing notebook: $nb"
 
-    echo "Creating mamba environment $NB_CONDA_ENV ..."
-    mamba create -y --name "$NB_CONDA_ENV" python="$PY_VERSION"
+    echo "Creating conda environment $NB_CONDA_ENV ..."
+    conda create -y --name "$NB_CONDA_ENV" python="$PY_VERSION"
 
-    echo "Activating mamba environment ..."
-    mamba activate "$NB_CONDA_ENV"
-    mamba info
+    echo "Activating conda environment ..."
+    conda activate "$NB_CONDA_ENV"
+    conda info
 
     echo "Installing ffmpeg ..."
-    mamba install -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
+    conda install -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
 
     echo "Installing pytest ..."
     pip install -qU pip
@@ -52,11 +52,11 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Cleaning Hugging Face cache ..."
     rm -rf ~/.cache/huggingface
 
-    echo "Deactivating mamba environment ..."
-    mamba deactivate
+    echo "Deactivating conda environment ..."
+    conda deactivate
 
-    echo "Removing mamba environment ..."
-    mamba remove -y --name "$NB_CONDA_ENV" --all
+    echo "Removing conda environment ..."
+    conda remove -y --name "$NB_CONDA_ENV" --all
 
     echo "Done!"
 done
