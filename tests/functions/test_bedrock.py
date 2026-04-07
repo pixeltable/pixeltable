@@ -541,7 +541,7 @@ class TestBedrock:
     # AI21 Labs — converse: text only (us-east-1)
     # ------------------------------------------------------------------
 
-    def test_converse_ai21(self, uses_db: None) -> None:
+    def test_converse_ai21(self, uses_db: None, bedrock_us_east_1: None) -> None:
         _skip_no_aws()
         _run_converse_text(['ai21.jamba-1-5-mini-v1:0', 'ai21.jamba-1-5-large-v1:0'])
 

@@ -86,14 +86,18 @@ def _to_binary(media: PIL.Image.Image | str) -> bytes:
     """Convert PIL image or file path to raw bytes for the Converse API (expects bytes, not base64)."""
     if isinstance(media, PIL.Image.Image):
         buf = io.BytesIO()
-        media.save(buf, format='JPEG')
+        media.save(buf, format=media.format or 'JPEG')
         return buf.getvalue()
     with open(media, 'rb') as f:
         return f.read()
 
 
 def _to_data_uri(media: PIL.Image.Image | str) -> str:
-    return f'data:image/jpeg;base64,{_to_base64_str(media)}'
+    if isinstance(media, PIL.Image.Image):
+        mime = PIL.Image.MIME.get(media.format, 'image/jpeg')
+        return f'data:{mime};base64,{_to_base64_str(media)}'
+    mime = mimetypes.guess_type(media)[0] or 'application/octet-stream'
+    return f'data:{mime};base64,{_to_base64_str(media)}'
 
 
 #####################################
@@ -379,10 +383,11 @@ async def _bedrock_async_invocation(
             raise pxt.Error(f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}')
 
     soa = ObjectPath.parse_object_storage_addr(output_location, allow_obj_name=False)
-    result_prefix = f'{soa.prefix}{invocation_id}/'
     store = ObjectOps.get_store(soa, allow_obj_name=False)
-    assert isinstance(store, S3Store), f'Expected S3Store for output_location, got {type(store).__name__}'
+    if not isinstance(store, S3Store):
+        raise pxt.Error('output_location must be an s3:// URI for Bedrock async invocation output')
 
+    result_prefix = f'{soa.prefix}{invocation_id}/'
     listed = await asyncio.to_thread(store.client().list_objects_v2, Bucket=store.bucket_name, Prefix=result_prefix)
     keys = [obj['Key'] for obj in listed.get('Contents', [])]
     if not keys:
