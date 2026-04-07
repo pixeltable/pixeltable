@@ -399,10 +399,13 @@ async def _(
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
+    if image is None:
+        image = []
+
     if not image and prompt is None:
         raise excs.Error('At least one of `prompt` or `image` must be provided.')
 
-    if image is not None and len(image) > 3:
+    if len(image) > 3:
         raise excs.Error(f'At most 3 reference images are allowed, but {len(image)} were provided.')
 
     if reference_types is None:
