@@ -292,7 +292,10 @@ async def _generate_videos_impl(
             await asyncio.sleep(3)
             operation = await _genai_client().aio.operations.get(operation)
 
-    await asyncio.wait_for(_poll(), timeout=300)
+    try:
+        await asyncio.wait_for(_poll(), timeout=300)
+    except asyncio.TimeoutError as exc:
+        raise excs.Error(f'Video generation timed out after 300 seconds for Gemini model {model!r}.') from exc
 
     if operation.error:
         raise excs.Error(f'Video generation failed: {operation.error}')
