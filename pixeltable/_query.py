@@ -165,6 +165,19 @@ class ResultCursor:
             raise excs.Error("Cursor is closed and cannot be reopened.")
         self._row_iterator = self.query._output_row_iterator()
 
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._row_iterator = None
+        self._closed = True
+
+    def __enter__(self) -> ResultCursor:
+        self.open()
+        return self
+    
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None):
+        self.close()
+
 # # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
 # class AnalysisInfo:
 #     def __init__(self, tbl: catalog.TableVersion):
