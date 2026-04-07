@@ -9,12 +9,13 @@ import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import exprs, func
+from pixeltable.catalog.globals import _POS_COLUMN_NAME
 from pixeltable.func.iterator import IteratorOutput
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
 from .column import Column
-from .globals import _POS_COLUMN_NAME, MediaValidation
+from .globals import MediaValidation
 from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
@@ -74,7 +75,6 @@ class View(Table):
     @classmethod
     def _create(
         cls,
-        dir_id: UUID,
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
@@ -97,10 +97,9 @@ class View(Table):
         select_list_columns: List[Column] = []
         if not include_base_columns:
             r = cls.select_list_to_additional_columns(select_list)
-            select_list_columns = cls._create_columns(r)
+            select_list_columns = [Column.create(name, spec) for name, spec in r.items()]
 
-        columns_from_additional_columns = cls._create_columns(additional_columns)
-        columns = select_list_columns + columns_from_additional_columns
+        columns = select_list_columns + [Column.create(name, spec) for name, spec in additional_columns.items()]
         cls._verify_schema(columns)
 
         # verify that filters can be evaluated in the context of the base
@@ -150,10 +149,20 @@ class View(Table):
                     updated_outputs[unique_name] = output_info
                 iterator_call = dataclasses.replace(iterator_call, outputs=updated_outputs)
 
-            iterator_cols = [
-                Column(name, output_info.col_type, is_iterator_col=True, stored=(output_info.is_stored))
-                for name, output_info in iterator_call.outputs.items()
-            ]
+            iterator_cols = []
+            for col_name, output_info in iterator_call.outputs.items():
+                stores_cellmd = Column.should_store_cellmd(
+                    col_type=output_info.col_type, is_stored=output_info.is_stored, is_computed=False
+                )
+                iterator_cols.append(
+                    Column(
+                        col_name,
+                        col_type=output_info.col_type,
+                        is_iterator_col=True,
+                        stored=output_info.is_stored,
+                        stores_cellmd=stores_cellmd,
+                    )
+                )
 
             columns = iterator_cols + columns
 
@@ -268,6 +277,18 @@ class View(Table):
             base_path = '<anonymous base table>' if base_tbl is None else base_tbl._path()
             base_version = self._effective_base_versions[0]
             md['base'] = base_path if base_version is None else f'{base_path}:{base_version}'
+
+        tv = self._tbl_version_path.tbl_version.get()
+        if tv.iterator_call is not None:
+            # Mark iterator-produced columns
+            columns = self._tbl_version_path.columns()
+            for col in columns:
+                if col.name in md['columns'] and tv.is_iterator_column(col):
+                    md['columns'][col.name]['is_iterator_col'] = True
+            # Build the iterator expression string: "IteratorName(arg1=expr1, arg2=expr2)"
+            args_str = ', '.join(f'{k}={v.display_str(inline=False)}' for k, v in tv.iterator_call.bound_args.items())
+            md['iterator_call'] = f'{tv.iterator_call.it.name}({args_str})'
+
         return md
 
     def insert(

@@ -8,7 +8,7 @@ import math
 import subprocess
 from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, Literal, NamedTuple, NoReturn, TypedDict
+from typing import TYPE_CHECKING, Any, Iterator, Literal, NamedTuple, TypedDict
 
 import av
 import av.container
@@ -264,13 +264,6 @@ def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | No
         raise pxt.Error(f'extract_frame(): failed to extract frame: {e}') from e
 
 
-def _handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
-    error_msg = f'ffmpeg failed with return code {e.returncode}'
-    if e.stderr is not None:
-        error_msg += f':\n{e.stderr.strip()}'
-    raise pxt.Error(error_msg) from e
-
-
 @pxt.udf(is_method=True)
 def clip(
     video: pxt.Video,
@@ -328,29 +321,18 @@ def clip(
     if video_duration is not None and start_time > video_duration:
         return None
 
-    output_path = str(TempStore.create_path(extension='.mp4'))
-
     if end_time is not None:
         duration = end_time - start_time
-    cmd = av_utils.ffmpeg_clip_cmd(
+    ffmpeg_args = av_utils.ffmpeg_clip_args(
         str(video),
-        output_path,
         start_time,
         duration,
         fast=(mode == 'fast'),
         video_encoder=video_encoder,
         video_encoder_args=video_encoder_args,
     )
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    return av_utils.run_ffmpeg_cmdline(ffmpeg_args, output_path)
 
 
 @pxt.udf(is_method=True)
@@ -459,7 +441,7 @@ def segment_video(
             return output_paths
 
         except subprocess.CalledProcessError as e:
-            _handle_ffmpeg_error(e)
+            av_utils.handle_ffmpeg_error(e)
 
     else:
         # Fast mode: extract consecutive clips using stream copy (no re-encoding)
@@ -497,27 +479,19 @@ def segment_video(
             # clean up partial results
             for segment_path in output_paths:
                 Path(segment_path).unlink()
-            _handle_ffmpeg_error(e)
+            av_utils.handle_ffmpeg_error(e)
 
 
-@pxt.udf(is_method=True)
-def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
-    """
-    Merge multiple videos into a single video.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        videos: List of videos to merge.
-
-    Returns:
-        A new video containing the merged videos.
-    """
+def _concat_videos(
+    videos: list[str],
+    error_prefix: str,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> str | None:
+    """Concatenate videos and return the path to the output video, or None for an empty list"""
     Env.get().require_binary('ffmpeg')
     if len(videos) == 0:
-        raise pxt.Error('concat_videos(): empty argument list')
+        return None
 
     # Check that all videos have the same resolution
     resolutions: list[tuple[int, int]] = []
@@ -525,7 +499,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         metadata = av_utils.get_metadata(str(video))
         video_stream = next((stream for stream in metadata['streams'] if stream['type'] == 'video'), None)
         if video_stream is None:
-            raise pxt.Error(f'concat_videos(): file {video!r} has no video stream')
+            raise pxt.Error(f'{error_prefix}: file {video!r} has no video stream')
         resolutions.append((video_stream['width'], video_stream['height']))
 
     # check for divergence
@@ -533,7 +507,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     for i, (x, y) in enumerate(resolutions[1:], start=1):
         if (x0, y0) != (x, y):
             raise pxt.Error(
-                f'concat_videos(): requires that all videos have the same resolution, but:'
+                f'{error_prefix}: requires that all videos have the same resolution, but:'
                 f'\n  video 0 ({videos[0]!r}): {x0}x{y0}'
                 f'\n  video {i} ({videos[i]!r}): {x}x{y}.'
             )
@@ -549,7 +523,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     try:
         # First attempt: fast copy without re-encoding (works for compatible formats)
         cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', str(filelist_path), '-c', 'copy', '-y', str(output_path)]
-        _logger.debug(f'concat_videos(): {" ".join(cmd)}')
+        _logger.debug(f'_concat_videos(): {" ".join(cmd)}')
         try:
             _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return str(output_path)
@@ -590,9 +564,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         if all_have_audio:
             cmd.extend(['-map', '[outa]'])
 
-        video_encoder = Env.get().default_video_encoder
-        if video_encoder is not None:
-            cmd.extend(['-c:v', video_encoder])
+        av_utils.append_video_encoder(cmd, video_encoder, video_encoder_args)
         if all_have_audio:
             cmd.extend(['-c:a', 'aac'])
         cmd.extend(['-pix_fmt', 'yuv420p', str(output_path)])
@@ -601,9 +573,81 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         return str(output_path)
 
     except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+        av_utils.handle_ffmpeg_error(e)
     finally:
         filelist_path.unlink()
+
+
+@pxt.udf(is_method=True)
+def concat_videos(
+    videos: list[pxt.Video], *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
+) -> pxt.Video | None:
+    """
+    Merge multiple videos into a single video.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        videos: List of videos to merge.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video containing the merged videos, or None if the input list is empty.
+    """
+    Env.get().require_binary('ffmpeg')
+    videos = [v for v in videos if v is not None]
+    return _concat_videos(
+        videos, error_prefix='concat_videos()', video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
+
+
+@pxt.uda(requires_order_by=True)
+class concat_videos_agg(pxt.Aggregator):
+    """
+    Aggregate function that merges videos into a single video.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+    - All videos must have the same resolution
+
+    Args:
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video containing all input videos concatenated in order, or None if all inputs are None.
+
+    Examples:
+        Concatenate all videos in a table, ordered by timestamp:
+
+        >>> tbl.select(concat_videos_agg(tbl.timestamp, tbl.video)).collect()
+    """
+
+    videos: list[str]
+    video_encoder: str | None
+    video_encoder_args: dict[str, Any] | None
+
+    def __init__(self, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None) -> None:
+        Env.get().require_binary('ffmpeg')
+        self.videos = []
+        self.video_encoder = video_encoder
+        self.video_encoder_args = video_encoder_args
+
+    def update(self, video: pxt.Video) -> None:
+        if video is not None:
+            self.videos.append(str(video))
+
+    def value(self) -> pxt.Video | None:
+        return _concat_videos(
+            self.videos,
+            error_prefix='concat_videos_agg()',
+            video_encoder=self.video_encoder,
+            video_encoder_args=self.video_encoder_args,
+        )
 
 
 @pxt.udf
@@ -676,7 +720,7 @@ def with_audio(
 
     output_path = str(TempStore.create_path(extension='.mp4'))
 
-    cmd = ['ffmpeg']
+    cmd: list[str] = []
     if video_start_time > 0:
         # fast seek, must precede -i
         cmd.extend(['-ss', str(video_start_time)])
@@ -704,23 +748,9 @@ def with_audio(
             'copy',  # avoid re-encoding
             '-t',
             str(video_duration),  # limit output duration to video duration
-            '-loglevel',
-            'error',  # only show errors
-            output_path,
         ]
     )
-
-    _logger.debug(f'with_audio(): {" ".join(cmd)}')
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return av_utils.run_ffmpeg_cmdline(cmd, output_path)
 
 
 @pxt.udf(is_method=True)
@@ -740,6 +770,8 @@ def overlay_text(
     box_color: str = 'black',
     box_opacity: float = 1.0,
     box_border: list[int] | None = None,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
     Overlay text on a video with customizable positioning and styling.
@@ -768,6 +800,8 @@ def overlay_text(
             - `[10, 20]`: 10 pixels on top/bottom, 20 on left/right
             - `[10, 20, 30]`: 10 pixels on top, 20 on left/right, 30 on bottom
             - `[10, 20, 30, 40]`: 10 pixels on top, 20 on right, 30 on bottom, 40 on left
+        video_encoder: Video encoder to use. If not specified, uses the default encoder.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A new video with the text overlay applied.
@@ -848,28 +882,16 @@ def overlay_text(
     )
 
     cmd = [
-        'ffmpeg',
         '-i',
         str(video),
         '-vf',
         'drawtext=' + ':'.join(drawtext_params),
         '-c:a',
         'copy',  # Copy audio stream unchanged
-        '-loglevel',
-        'error',  # Only show errors
-        output_path,
     ]
-    _logger.debug(f'overlay_text(): {" ".join(cmd)}')
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
 
 
 def _create_drawtext_params(
@@ -1007,27 +1029,810 @@ def crop(
     else:
         raise pxt.Error(f"bbox_format must be one of ['xyxy', 'xywh', 'cxcywh'], got {bbox_format!r}")
 
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
+    cmd = ['-i', str(video), '-vf', f'crop={w}:{h}:{x}:{y}', '-c:a', 'copy']
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
+
+
+@pxt.udf(is_method=True)
+def resize(
+    video: pxt.Video,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    scale: float | None = None,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Resize a video using ffmpeg's scale filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        width: Width of the output video. Maintains the existing aspect ratio if no `height` is provided.
+        height: Height of the output video. Maintains the existing aspect ratio if no `width` is provided.
+        scale: Scale factor. Mutually exclusive with `width` and `height`.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        The resized video.
+
+    Examples:
+        Resize to a specific width, preserving aspect ratio:
+
+        >>> tbl.select(tbl.video.resize(width=640)).collect()
+
+        Resize to exact dimensions:
+
+        >>> tbl.select(tbl.video.resize(width=1280, height=720)).collect()
+
+        Scale down by half:
+
+        >>> tbl.select(tbl.video.resize(scale=0.5)).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+
+    if scale is not None and (width is not None or height is not None):
+        raise pxt.Error('`scale` is mutually exclusive with `width` and `height`')
+    if scale is not None:
+        if scale <= 0:
+            raise pxt.Error(f'`scale` must be positive, got {scale}')
+        scale_filter = f'scale=trunc(iw*{scale}/2)*2:trunc(ih*{scale}/2)*2'
+    elif width is not None or height is not None:
+        if width is not None and width <= 0:
+            raise pxt.Error(f'`width` must be positive, got {width}')
+        if height is not None and height <= 0:
+            raise pxt.Error(f'`height` must be positive, got {height}')
+
+        # Use -2 for the unspecified dimension: like -1 (preserve aspect ratio),
+        # but rounds to the nearest even value (required by most codecs)
+        w_expr = str(width) if width is not None else '-2'
+        h_expr = str(height) if height is not None else '-2'
+        scale_filter = f'scale={w_expr}:{h_expr}'
+    else:
+        raise pxt.Error('At least one of `width`, `height`, or `scale` must be specified')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    cmd = ['-i', str(video), '-vf', scale_filter, '-c:a', 'copy']
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
+
+
+@pxt.udf(is_method=True)
+def reverse(
+    video: pxt.Video,
+    audio: Literal['reverse', 'drop', 'keep'] = 'drop',
+    *,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Reverse a video using ffmpeg's reverse filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        audio: Specifies what to do with audio streams
+
+            - `'drop'`: drop the audio streams
+            - `'reverse'`: also reverse the audio streams
+            - `'keep'`: keep the audio streams
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        The reversed video.
+
+    Examples:
+        Reverse a video, dropping audio:
+
+        >>> tbl.select(tbl.video.reverse()).collect()
+
+        Reverse a video along with its audio:
+
+        >>> tbl.select(tbl.video.reverse(audio='reverse')).collect()
+    """
+
+    Env.get().require_binary('ffmpeg')
+
+    # ffmpeg's reverse filter requires all frames to be decoded into memory at once, which can exhaust RAM on
+    # long or high-resolution videos. To avoid this, we split the video into segments whose decoded frames fit
+    # within ~1 GB, reverse each segment independently, then concatenate the reversed segments in reverse order.
+    segment_bytes = 2**30
+    segment_duration = av_utils.estimate_segment_duration(video, segment_bytes)
+    if segment_duration is None:
+        raise pxt.Error(f'not a valid video: {video}')
+
+    duration = av_utils.get_video_duration(video)
+    if duration is None:
+        raise excs.Error(f'reverse(): could not determine video duration: {video}')
+
+    with av.open(video) as container:
+        has_audio = any(s.type == 'audio' for s in container.streams)
+
+    starts = [segment_duration * i for i in range(math.ceil(duration / segment_duration))]
+
+    # Build the filtergraph. For a 25s video with segment_duration=10, starts=[0, 10, 20] and the filtergraph is:
+    #
+    #   [0:v]trim=start=0:end=10,setpts=PTS-STARTPTS,reverse[v0];
+    #   [0:v]trim=start=10:end=20,setpts=PTS-STARTPTS,reverse[v1];
+    #   [0:v]trim=start=20,setpts=PTS-STARTPTS,reverse[v2];
+    #   [v2][v1][v0]concat=n=3:v=1:a=0[v]
+    #
+    # Each segment is: trim to time range -> reset timestamps -> reverse.
+    # The last segment omits :end= so it runs to the end of the stream.
+    # The concat inputs are listed in reverse order ([v2][v1][v0]) so the last segment of the original
+    # video becomes the first segment of the output.
+    n = len(starts)
+    filter_parts: list[str] = []
+
+    for i, start in enumerate(starts):
+        is_last = i == n - 1
+        end_clause = '' if is_last else f':end={start + segment_duration}'
+
+        filter_parts.append(f'[0:v]trim=start={start}{end_clause},setpts=PTS-STARTPTS,reverse[v{i}]')
+        if audio == 'reverse' and has_audio:
+            filter_parts.append(f'[0:a]atrim=start={start}{end_clause},asetpts=PTS-STARTPTS,areverse[a{i}]')
+
+    v_inputs = ''.join(f'[v{i}]' for i in range(n - 1, -1, -1))
+    filter_parts.append(f'{v_inputs}concat=n={n}:v=1:a=0[v]')
+
+    if audio == 'reverse' and has_audio:
+        a_inputs = ''.join(f'[a{i}]' for i in range(n - 1, -1, -1))
+        filter_parts.append(f'{a_inputs}concat=n={n}:v=0:a=1[a]')
+
+    filtergraph = '; '.join(filter_parts)
+
+    # Example commandline (audio='reverse'):
+    #   ffmpeg -i input.mp4 -filter_complex "<filtergraph>" -map [v] -map [a] -loglevel error out.mp4
+    # audio='keep': -map 0:a -c:a copy (passes original audio through without the filtergraph)
+    # audio='drop': no audio mapping, so ffmpeg omits audio from the output
+    cmd = ['-i', str(video), '-filter_complex', filtergraph, '-map', '[v]']
+    # we need to add the video encoder args at this point (not later)
+    av_utils.append_video_encoder(cmd, video_encoder, video_encoder_args)
+
+    if audio == 'reverse' and has_audio:
+        cmd.extend(['-map', '[a]'])
+    elif audio == 'keep' and has_audio:
+        cmd.extend(['-map', '0:a', '-c:a', 'copy'])
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    return av_utils.run_ffmpeg_cmdline(cmd, output_path)
+
+
+def _fade(
+    video: str,
+    direction: Literal['in', 'out'],
+    duration: float,
+    color: str,
+    video_duration: float | None = None,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> str:
+    Env.get().require_binary('ffmpeg')
+    if duration <= 0:
+        raise pxt.Error(f'duration must be positive, got {duration}')
+
+    if direction == 'in':
+        start_time = 0.0
+    else:
+        assert video_duration is not None
+        start_time = max(0, video_duration - duration)
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    fade_filter = f'fade={direction}:st={start_time}:d={duration}:color={color}'
+    cmd = ['-i', str(video), '-vf', fade_filter, '-c:a', 'copy']
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
+
+
+@pxt.udf(is_method=True)
+def fade_in(
+    video: pxt.Video,
+    *,
+    duration: float = 1.0,
+    color: str = 'black',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Apply a fade-in effect from a solid color at the start of a video using ffmpeg's fade filter.
+    The video transitions from a solid `color` to the full video content over `duration` seconds.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        duration: Duration of the fade-in effect in seconds.
+        color: Color to fade from (e.g., `'black'`, `'white'`, `'#FF0000'`).
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video with the fade-in effect applied.
+
+    Examples:
+        Apply a 1-second fade from black (default):
+
+        >>> tbl.select(tbl.video.fade_in()).collect()
+
+        Apply a 2-second fade from white:
+
+        >>> tbl.select(tbl.video.fade_in(duration=2.0, color='white')).collect()
+    """
+    return _fade(video, 'in', duration, color, video_encoder=video_encoder, video_encoder_args=video_encoder_args)
+
+
+@pxt.udf(is_method=True)
+def fade_out(
+    video: pxt.Video,
+    *,
+    duration: float = 1.0,
+    color: str = 'black',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Apply a fade-out effect to a solid color at the end of a video using ffmpeg's fade filter.
+    The video transitions from the full video content to a solid `color` over the final `duration` seconds.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        duration: Duration of the fade-out effect in seconds.
+        color: Color to fade to (e.g., `'black'`, `'white'`, `'#FF0000'`).
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video with the fade-out effect applied.
+
+    Examples:
+        Apply a 1-second fade to black (default):
+
+        >>> tbl.select(tbl.video.fade_out()).collect()
+
+        Apply a 3-second fade to white:
+
+        >>> tbl.select(tbl.video.fade_out(duration=3.0, color='white')).collect()
+    """
+    video_duration = av_utils.get_video_duration(video)
+    if video_duration is None:
+        raise pxt.Error('fade_out(): could not determine video duration')
+    return _fade(
+        video,
+        'out',
+        duration,
+        color,
+        video_duration=video_duration,
+        video_encoder=video_encoder,
+        video_encoder_args=video_encoder_args,
+    )
+
+
+@pxt.udf(is_method=True)
+def speed(
+    video: pxt.Video,
+    *,
+    factor: float,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Change the playback speed of a video using ffmpeg's setpts filter.
+
+    A factor of 2.0 doubles the speed (halves the duration); a factor of 0.5 halves the speed (doubles the duration).
+    Audio pitch is preserved using ffmpeg's `atempo` filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        factor: Speed multiplier. Must be positive. Values > 1.0 speed up, values < 1.0 slow down.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video with the adjusted playback speed.
+
+    Examples:
+        Double the speed:
+
+        >>> tbl.select(tbl.video.speed(factor=2.0)).collect()
+
+        Half speed (slow motion):
+
+        >>> tbl.select(tbl.video.speed(factor=0.5)).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+    if factor <= 0:
+        raise pxt.Error(f'factor must be positive, got {factor}')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    # setpts=PTS/<factor> adjusts video timing; atempo=<factor> adjusts audio speed (preserving pitch).
+    # atempo only accepts values in [0.5, 100.0]; for slower speeds, chain multiple atempo filters.
+    video_filter = f'setpts=PTS/{factor}'
+    has_audio = av_utils.has_audio_stream(video)
+
+    cmd = ['-i', str(video), '-vf', video_filter]
+    # add video encoder args here
+    av_utils.append_video_encoder(cmd, video_encoder, video_encoder_args)
+
+    if has_audio:
+        # Chain atempo filters for factors outside [0.5, 100.0]
+        atempo_parts = []
+        remaining = factor
+        while remaining < 0.5:
+            atempo_parts.append('atempo=0.5')
+            remaining /= 0.5
+        while remaining > 100.0:
+            atempo_parts.append('atempo=100.0')
+            remaining /= 100.0
+        atempo_parts.append(f'atempo={remaining}')
+        cmd.extend(['-af', ','.join(atempo_parts)])
+    else:
+        cmd.append('-an')
+
+    return av_utils.run_ffmpeg_cmdline(cmd, output_path)
+
+
+def _flip(
+    video: str,
+    orientation: Literal['h', 'v'],
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> str:
+    Env.get().require_binary('ffmpeg')
+    flip_filter = 'hflip' if orientation == 'h' else 'vflip'
+    cmd = ['-i', str(video), '-vf', flip_filter, '-c:a', 'copy']
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
+
+
+@pxt.udf(is_method=True)
+def mirror_x(
+    video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
+) -> pxt.Video:
+    """
+    Flip a video horizontally using ffmpeg's hflip filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A horizontally flipped video.
+
+    Examples:
+        >>> tbl.select(tbl.video.mirror_x()).collect()
+    """
+    return _flip(video, 'h', video_encoder, video_encoder_args)
+
+
+@pxt.udf(is_method=True)
+def mirror_y(
+    video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
+) -> pxt.Video:
+    """
+    Flip a video vertically using ffmpeg's vflip filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A vertically flipped video.
+
+    Examples:
+        >>> tbl.select(tbl.video.mirror_y()).collect()
+    """
+    return _flip(video, 'v', video_encoder, video_encoder_args)
+
+
+@pxt.udf(is_method=True)
+def rotate(
+    video: pxt.Video,
+    *,
+    angle: float,
+    unit: Literal['deg', 'rad'] = 'deg',
+    expand: bool = False,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Rotate a video by a fixed angle using ffmpeg's rotate filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        angle: Rotation angle. Positive values rotate counter-clockwise.
+        unit: Unit of the angle: `'deg'` for degrees or `'rad'` for radians.
+        expand: If True, the output frame is enlarged to contain the entire rotated frame (no cropping).
+            If False (default), the output frame keeps the original dimensions, cropping corners.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video rotated by the specified angle.
+
+    Examples:
+        Rotate 90 degrees counter-clockwise:
+
+        >>> tbl.select(tbl.video.rotate(angle=90)).collect()
+
+        Rotate 45 degrees with frame expansion to avoid cropping:
+
+        >>> tbl.select(tbl.video.rotate(angle=45, expand=True)).collect()
+
+        Rotate by pi/2 radians:
+
+        >>> tbl.select(tbl.video.rotate(angle=1.5708, unit='rad')).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+
+    # Convert to radians for ffmpeg's rotate filter
+    angle_rad = angle if unit == 'rad' else angle * math.pi / 180
+
+    if expand:
+        # Expand output to fit the rotated frame: compute new dimensions from the rotation angle
+        # For a WxH frame rotated by A: new_w = W*|cos(A)| + H*|sin(A)|, new_h = W*|sin(A)| + H*|cos(A)|
+        # Use ffmpeg's rotate filter with out_w/out_h expressions
+        rotate_filter = (
+            f'rotate={angle_rad}'
+            f":ow='ceil((iw*abs(cos({angle_rad}))+ih*abs(sin({angle_rad})))/2)*2'"
+            f":oh='ceil((iw*abs(sin({angle_rad}))+ih*abs(cos({angle_rad})))/2)*2'"
+            f':fillcolor=black'
+        )
+    else:
+        rotate_filter = f'rotate={angle_rad}:fillcolor=black'
+
+    cmd = ['-i', str(video), '-vf', rotate_filter, '-c:a', 'copy']
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
+
+
+@pxt.udf(is_method=True)
+def grayscale(
+    video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
+) -> pxt.Video:
+    """
+    Convert a video to grayscale
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A grayscale version of the video.
+
+    Examples:
+        >>> tbl.select(tbl.video.grayscale()).collect()
+    """
+    Env.get().require_binary('ffmpeg')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
 
-    cmd = ['ffmpeg', '-i', str(video), '-vf', f'crop={w}:{h}:{x}:{y}', '-c:a', 'copy', '-c:v', video_encoder]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
-    cmd.extend(['-loglevel', 'error', output_path])
-    _logger.debug(f'crop(): {" ".join(cmd)}')
+    # Convert to grayscale via hue filter (set saturation to 0), which keeps the yuv420p pixel format
+    # compatible with most encoders. Using format=gray would produce a single-channel output that
+    # many players and encoders don't handle well.
+    cmd = ['-i', str(video), '-vf', 'hue=s=0', '-c:a', 'copy']
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+
+def pan(video: Any, *, direction: Literal['left', 'right', 'up', 'down'] = 'right', crop_pct: float = 0.2) -> Any:
+    """
+    Apply a smooth pan effect across a video. Convenience function for
+    [`scroll()`][pixeltable.functions.video.scroll] that automatically computes viewport size and speed from the
+    video's dimensions and duration, panning across the full available range.
+
+    The effect crops a viewport that is `(1 - crop_pct)` of the original dimension in the pan direction and smoothly
+    slides it across the full available range over the video's duration.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: A pixeltable Video expression (e.g., `tbl.video`).
+        direction: Pan direction: `'left'`, `'right'`, `'up'`, or `'down'`.
+        crop_pct: Fraction of the dimension (width for left/right, height for up/down) used as panning range,
+            between 0.0 (exclusive) and 1.0 (exclusive). Larger values produce more pronounced panning but a
+            narrower output. Default is 0.2 (viewport is 80% of the original dimension).
+
+    Returns:
+        A panned video.
+
+    Examples:
+        Pan rightward (default):
+
+        >>> tbl.select(pan(tbl.video)).collect()
+
+        Pan leftward with a wider range:
+
+        >>> tbl.select(pan(tbl.video, direction='left', crop_pct=0.4)).collect()
+
+        Pan downward:
+
+        >>> tbl.select(pan(tbl.video, direction='down')).collect()
+    """
+    import pixeltable.functions.math as pxtmath
+
+    if crop_pct <= 0.0 or crop_pct >= 1.0:
+        raise pxt.Error(f'crop_pct must be between 0.0 and 1.0 (exclusive), got {crop_pct}')
+
+    md = video.get_metadata()
+    w = md.streams[0].width
+    h = md.streams[0].height
+    duration = video.get_duration()
+
+    if direction in ('left', 'right'):
+        viewport_w = pxtmath.floor(w * (1 - crop_pct)).to_int()
+        pan_range = w - viewport_w
+        speed = pan_range / duration
+        if direction == 'right':
+            return video.scroll(w=viewport_w, x_speed=speed)
+        else:
+            return video.scroll(w=viewport_w, x_start=pan_range.to_int(), x_speed=-speed)
+    elif direction in ('up', 'down'):
+        viewport_h = pxtmath.floor(h * (1 - crop_pct)).to_int()
+        pan_range = h - viewport_h
+        speed = pan_range / duration
+        if direction == 'down':
+            return video.scroll(h=viewport_h, y_speed=speed)
+        else:
+            return video.scroll(h=viewport_h, y_start=pan_range.to_int(), y_speed=-speed)
+    else:
+        raise pxt.Error(f"direction must be one of 'left', 'right', 'up', 'down', got {direction!r}")
+
+
+@pxt.udf(is_method=True)
+def scroll(
+    video: pxt.Video,
+    *,
+    w: int | None = None,
+    h: int | None = None,
+    x_speed: float = 0,
+    y_speed: float = 0,
+    x_start: int = 0,
+    y_start: int = 0,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Apply a scrolling viewport effect to a video using ffmpeg's crop filter.
+
+    Extracts a viewport of size `w` x `h` from each frame, starting at position (`x_start`, `y_start`) and moving
+    at (`x_speed`, `y_speed`) pixels per second. The viewport clamps at the frame edges: once it reaches a boundary,
+    it stops moving and the remaining frames show a static crop.
+
+    At least one of `w` or `h` must be smaller than the input dimensions for the effect to be visible.
+
+    The clip duration is unchanged. To pan across the full available range, set
+    `x_speed = (input_width - w) / duration`.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        w: Width of the output viewport in pixels. If None, uses the input width.
+        h: Height of the output viewport in pixels. If None, uses the input height.
+        x_speed: Horizontal scroll speed in pixels per second. Positive values scroll rightward (the viewport moves
+            right, revealing content to the right). Negative values scroll leftward.
+        y_speed: Vertical scroll speed in pixels per second. Positive values scroll downward. Negative values scroll
+            upward.
+        x_start: Initial horizontal offset of the viewport in pixels.
+        y_start: Initial vertical offset of the viewport in pixels.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video with the scrolling effect applied. Output dimensions are `w` x `h`.
+
+    Examples:
+        Pan rightward across a 1920x1080 video using a 1280-pixel-wide viewport, scrolling at 50 px/s:
+
+        >>> tbl.select(tbl.video.scroll(w=1280, x_speed=50)).collect()
+
+        Pan rightward across the full range of a 1920x1080 video in exactly its duration. The viewport is
+        1280 px wide, so the pan range is 1920 - 1280 = 640 px. For a 10-second video, set
+        `x_speed = 640 / 10 = 64`:
+
+        >>> tbl.select(tbl.video.scroll(w=1280, x_speed=64)).collect()
+
+        Pan leftward across a 1920x1080 video, starting from the right edge:
+
+        >>> tbl.select(tbl.video.scroll(w=1280, x_start=640, x_speed=-64)).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+
+    if x_speed == 0 and y_speed == 0:
+        raise pxt.Error('at least one of `x_speed` or `y_speed` must be non-zero')
+    if w is None and h is None:
+        raise pxt.Error('at least one of `w` or `h` must be specified')
+    if w is not None and w <= 0:
+        raise pxt.Error(f'`w` must be positive, got {w}')
+    if h is not None and h <= 0:
+        raise pxt.Error(f'`h` must be positive, got {h}')
+
+    # Read input dimensions to fill in defaults and validate
+    with av.open(video) as container:
+        video_stream = container.streams.video[0]
+        in_w = video_stream.width
+        in_h = video_stream.height
+
+    out_w = w if w is not None else in_w
+    out_h = h if h is not None else in_h
+
+    if out_w > in_w or out_h > in_h:
+        raise pxt.Error(f'viewport ({out_w}x{out_h}) must not exceed input dimensions ({in_w}x{in_h})')
+    if out_w == in_w and out_h == in_h:
+        raise pxt.Error(
+            f'viewport ({out_w}x{out_h}) equals input dimensions; at least one must be smaller for scrolling'
+        )
+
+    x_max = in_w - out_w
+    y_max = in_h - out_h
+    if x_start < 0 or x_start > x_max:
+        raise pxt.Error(f'x_start must be between 0 and {x_max}, got {x_start}')
+    if y_start < 0 or y_start > y_max:
+        raise pxt.Error(f'y_start must be between 0 and {y_max}, got {y_start}')
+
+    # Build the crop filter with time-dependent x/y expressions and edge clamping.
+    # Example for w=1280 on a 1920-wide input, x_start=0, x_speed=64:
+    # crop=1280:1080:min(640\,max(0\,0+64*t)):0
+    x_expr = f'min({x_max}\\,max(0\\,{x_start}+{x_speed}*t))'
+    y_expr = f'min({y_max}\\,max(0\\,{y_start}+{y_speed}*t))'
+    crop_filter = f'crop={out_w}:{out_h}:{x_expr}:{y_expr}'
+
+    cmd = ['-i', str(video), '-vf', crop_filter, '-c:a', 'copy']
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
+
+
+@pxt.udf(is_method=True)
+def zoom(
+    video: pxt.Video,
+    *,
+    start_scale: float = 1.0,
+    end_scale: float = 1.3,
+    center: list[float] | None = None,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Apply a smooth zoom effect over the duration of a video using ffmpeg's zoompan filter.
+
+    The zoom factor interpolates linearly from `start_scale` to `end_scale`. The effect works by computing a crop
+    region at each frame (centered on `center`) and scaling it back to the original resolution. Output dimensions
+    match the input.
+
+    - `start_scale < end_scale`: zoom in (frame progressively tightens)
+    - `start_scale > end_scale`: zoom out (frame progressively widens)
+    - `start_scale == end_scale`: static zoom (constant crop, no animation)
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        start_scale: Zoom factor at the start of the video. Must be >= 1.0.
+        end_scale: Zoom factor at the end of the video. Must be >= 1.0.
+        center: Zoom center as `[x, y]` in normalized coordinates (0.0 to 1.0), where `[0.5, 0.5]` is the frame
+            center. If None, defaults to `[0.5, 0.5]`.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        A new video with the zoom effect applied. Output resolution matches the input.
+
+    Examples:
+        Zoom in (default, 1.0x to 1.3x centered):
+
+        >>> tbl.select(tbl.video.zoom()).collect()
+
+        Zoom out from 2x to 1x:
+
+        >>> tbl.select(tbl.video.zoom(start_scale=2.0, end_scale=1.0)).collect()
+
+        Zoom in toward the upper-left quadrant:
+
+        >>> tbl.select(tbl.video.zoom(end_scale=1.5, center=[0.25, 0.25])).collect()
+
+        Static 1.5x zoom (no animation):
+
+        >>> tbl.select(tbl.video.zoom(start_scale=1.5, end_scale=1.5)).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+
+    if start_scale < 1.0:
+        raise pxt.Error(f'start_scale must be >= 1.0, got {start_scale}')
+    if end_scale < 1.0:
+        raise pxt.Error(f'end_scale must be >= 1.0, got {end_scale}')
+    if center is not None and (len(center) != 2 or not all(0.0 <= c <= 1.0 for c in center)):
+        raise pxt.Error(f'center must be [x, y] with values in [0.0, 1.0], got {center}')
+    cx, cy = center if center is not None else [0.5, 0.5]
+
+    with av.open(video) as container:
+        video_stream = container.streams.video[0]
+        in_w = video_stream.width
+        in_h = video_stream.height
+        fps = float(video_stream.average_rate)
+
+    # zoompan evaluates z/x/y expressions per frame.
+    # 'on' is the output frame number (0-based); we use it to interpolate the zoom factor linearly.
+    # 'd=1' means each input frame produces exactly 1 output frame
+
+    # Example for start_scale=1.0, end_scale=1.3, center=(0.5, 0.5), fps=25, 10s 1920x1080 video:
+    #   zoompan=z='1.0+(1.3-1.0)*on/249':x='iw*0.5*(1-1/zoom)':y='ih*0.5*(1-1/zoom)'
+    #           :d=1:s=1920x1080:fps=25
+    duration = av_utils.get_video_duration(video)
+    if duration is None:
+        raise pxt.Error('zoom(): could not determine video duration')
+    total_frames = max(1, round(fps * duration))
+
+    # z interpolates linearly from start_scale to end_scale over total_frames
+    z_expr = f'{start_scale}+({end_scale}-{start_scale})*on/{max(1, total_frames - 1)}'
+
+    # x/y position the crop so that the normalized center point (cx, cy) stays fixed.
+    # For center (cx, cy): x = iw*cx*(1 - 1/zoom)
+    x_expr = f'iw*{cx}*(1-1/zoom)'
+    y_expr = f'ih*{cy}*(1-1/zoom)'
+
+    zoompan_filter = f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d=1:s={in_w}x{in_h}:fps={fps}"
+
+    cmd = ['-i', str(video), '-vf', zoompan_filter, '-c:a', 'copy']
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    return av_utils.run_ffmpeg_cmdline(
+        cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
 
 
 @pxt.udf(is_method=True)

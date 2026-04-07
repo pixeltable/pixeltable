@@ -133,7 +133,7 @@ async def chat_completions(
     result = await _openrouter_client().chat.completions.create(
         messages=messages, model=model, extra_body=extra_body if extra_body else None, **model_kwargs
     )
-    return result.model_dump()
+    return result.model_dump(mode='json')
 
 
 __all__ = local_public_names(__name__)

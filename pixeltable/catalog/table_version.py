@@ -6,10 +6,9 @@ import itertools
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 from uuid import UUID
 
-import jsonschema.exceptions
 import sqlalchemy as sql
 from sqlalchemy import exc as sql_exc
 
@@ -325,7 +324,9 @@ class TableVersion:
             index_cols: list[Column] = []
             for col in (c for c in cols if cls._is_btree_indexable(c)):
                 idx = index.BtreeIndex()
-                val_col, undo_col = cls._create_index_columns(col, idx, 0, tbl_handle, id_cb=lambda: next(column_ids))
+                val_col, undo_col = Column.create_index_columns(
+                    tbl_handle, col, idx, next(column_ids), next(column_ids), 0
+                )
                 index_cols.extend([val_col, undo_col])
 
                 idx_id = next(index_ids)
@@ -431,7 +432,7 @@ class TableVersion:
         id_str = str(self.id)
         ops = [
             DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, status=OpStatus.PENDING),
-            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, status=OpStatus.PENDING),
+            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, status=OpStatus.PENDING, is_view=self.is_view),
             DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, status=OpStatus.PENDING),
         ]
         return ops
@@ -456,71 +457,22 @@ class TableVersion:
 
         # initialize IndexBase instances and collect sa_col_types
         idxs: dict[int, index.IndexBase] = {}
-        val_col_idxs: dict[int, index.IndexBase] = {}  # key: id of value column
-        undo_col_idxs: dict[int, index.IndexBase] = {}  # key: id of undo column
+        idxs_with_md: list[tuple[schema.IndexMd, index.IndexBase]] = []
         for md in self.tbl_md.index_md.values():
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index, cls_name)
             idx = cls.from_dict(md.init_args)
             idxs[md.id] = idx
-            val_col_idxs[md.index_val_col_id] = idx
-            undo_col_idxs[md.index_val_undo_col_id] = idx
+            idxs_with_md.append((md, idx))
 
         # initialize Columns
-        self.cols = []
+        self.cols = self._init_cols_from_md(idxs_with_md)
         self.cols_by_name = {}
         self.cols_by_id = {}
-        # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
-        # point backward.
-        sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
-        for col_md in sorted_column_md:
-            col_type = ts.ColumnType.from_dict(col_md.col_type)
-            schema_col_md = self.schema_version_md.columns.get(col_md.id)
-            media_val = (
-                MediaValidation[schema_col_md.media_validation.upper()]
-                if schema_col_md is not None and schema_col_md.media_validation is not None
-                else None
-            )
-
-            stores_cellmd: bool | None = None  # None: determined by the column properties (in the Column c'tor)
-            sa_col_type: sql.types.TypeEngine | None = None
-            if col_md.id in val_col_idxs:
-                idx = val_col_idxs[col_md.id]
-                # for index value columns, the index gets to override the default
-                stores_cellmd = idx.records_value_errors()
-                sa_col_type = idx.get_index_sa_type(col_type)
-            elif col_md.id in undo_col_idxs:
-                idx = undo_col_idxs[col_md.id]
-                # for index undo columns, we never store cellmd
-                stores_cellmd = False
-                sa_col_type = idx.get_index_sa_type(col_type)
-
-            # Iterator columns are those produced by the component view's iterator. The special pos (id=0) column
-            # is not considered an iterator column.
-            is_iterator_col = self.is_component_view and col_md.id > 0 and col_md.id < self.num_iterator_cols + 1
-            col = Column(
-                col_id=col_md.id,
-                name=schema_col_md.name if schema_col_md is not None else None,
-                col_type=col_type,
-                is_pk=col_md.is_pk,
-                is_iterator_col=is_iterator_col,
-                stored=col_md.stored,
-                media_validation=media_val,
-                sa_col_type=sa_col_type,
-                schema_version_add=col_md.schema_version_add,
-                schema_version_drop=col_md.schema_version_drop,
-                stores_cellmd=stores_cellmd,
-                value_expr_dict=col_md.value_expr,
-                tbl_handle=self.handle,
-                destination=col_md.destination,
-                custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
-                comment=schema_col_md.comment if schema_col_md is not None else '',
-            )
-
-            self.cols.append(col)
+        for col in self.cols:
             # populate lookup structures before Expr.from_dict()
-            if col_md.schema_version_add <= self.schema_version and (
-                col_md.schema_version_drop is None or col_md.schema_version_drop > self.schema_version
+            if col.schema_version_add <= self.schema_version and (
+                col.schema_version_drop is None or col.schema_version_drop > self.schema_version
             ):
                 if col.name is not None:
                     self.cols_by_name[col.name] = col
@@ -575,6 +527,57 @@ class TableVersion:
         else:
             self.store_tbl = StoreTable(self)
 
+    def _init_cols_from_md(self, indexes: list[tuple[schema.IndexMd, index.IndexBase]]) -> list[Column]:
+        # value column id -> index
+        val_col_idxs = {idx_md.index_val_col_id: idx for idx_md, idx in indexes}
+        # undo column id -> index
+        undo_col_idxs = {idx_md.index_val_undo_col_id: idx for idx_md, idx in indexes}
+
+        # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
+        # point backward.
+        sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
+        cols = []
+        for col_md in sorted_column_md:
+            col_type = ts.ColumnType.from_dict(col_md.col_type)
+            schema_col_md = self.schema_version_md.columns.get(col_md.id)
+            media_val = (
+                MediaValidation[schema_col_md.media_validation.upper()]
+                if schema_col_md is not None and schema_col_md.media_validation is not None
+                else None
+            )
+
+            sa_col_type: sql.types.TypeEngine | None = None
+            if col_md.id in val_col_idxs:
+                idx = val_col_idxs[col_md.id]
+                sa_col_type = idx.get_index_sa_type(col_type)
+            elif col_md.id in undo_col_idxs:
+                idx = undo_col_idxs[col_md.id]
+                sa_col_type = idx.get_index_sa_type(col_type)
+
+            # Iterator columns are those produced by the component view's iterator. The special pos (id=0) column
+            # is not considered an iterator column.
+            is_iterator_col = self.is_component_view and col_md.id > 0 and col_md.id < self.num_iterator_cols + 1
+            col = Column(
+                col_id=col_md.id,
+                name=schema_col_md.name if schema_col_md is not None else None,
+                col_type=col_type,
+                is_pk=col_md.is_pk,
+                is_iterator_col=is_iterator_col,
+                stored=col_md.stored,
+                media_validation=media_val,
+                sa_col_type=sa_col_type,
+                schema_version_add=col_md.schema_version_add,
+                schema_version_drop=col_md.schema_version_drop,
+                stores_cellmd=col_md.stores_cellmd,
+                value_expr_dict=col_md.value_expr,
+                tbl_handle=self.handle,
+                destination=col_md.destination,
+                custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
+                comment=schema_col_md.comment if schema_col_md is not None else '',
+            )
+            cols.append(col)
+        return cols
+
     def _lookup_column(self, qid: QColumnId) -> Column | None:
         """
         Look up the column with the given table id and column id, searching through the ancestors of this TableVersion
@@ -583,7 +586,7 @@ class TableVersion:
         This will search through *all* known columns, including columns that are not visible in this TableVersion.
         """
         if qid.tbl_id == self.id:
-            return next(col for col in self.cols if col.id == qid.col_id)
+            return next((col for col in self.cols if col.id == qid.col_id), None)
         elif self.base is not None:
             return self.base.get()._lookup_column(qid)
         else:
@@ -633,49 +636,6 @@ class TableVersion:
         status = self._add_index(col, idx_name=None, idx=index.BtreeIndex())
         return status
 
-    @classmethod
-    def _create_index_columns(
-        cls,
-        col: Column,
-        idx: index.IndexBase,
-        schema_version: int,
-        tbl_handle: TableVersionHandle,
-        id_cb: Callable[[], int],
-    ) -> tuple[Column, Column]:
-        """Create value and undo columns for the given index.
-        Args:
-            idx:  index for which columns will be created.
-        Returns:
-            A tuple containing the value column and the undo column, both of which are nullable.
-        """
-        value_expr = idx.create_value_expr(col)
-        val_col = Column(
-            col_id=id_cb(),
-            name=None,
-            computed_with=value_expr,
-            sa_col_type=idx.get_index_sa_type(value_expr.col_type),
-            stored=True,
-            stores_cellmd=idx.records_value_errors(),
-            schema_version_add=schema_version,
-            schema_version_drop=None,
-        )
-        val_col.col_type = val_col.col_type.copy(nullable=True)
-        val_col.tbl_handle = tbl_handle
-
-        undo_col = Column(
-            col_id=id_cb(),
-            name=None,
-            col_type=val_col.col_type,
-            sa_col_type=val_col.sa_col_type,
-            stored=True,
-            stores_cellmd=False,
-            schema_version_add=schema_version,
-            schema_version_drop=None,
-        )
-        undo_col.col_type = undo_col.col_type.copy(nullable=True)
-        undo_col.tbl_handle = tbl_handle
-        return val_col, undo_col
-
     def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
     ) -> int:
@@ -718,8 +678,8 @@ class TableVersion:
         self.store_tbl.create_index(idx_id)
 
     def _add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
-        val_col, undo_col = self._create_index_columns(
-            col, idx, self.schema_version, self.handle, id_cb=self.next_col_id
+        val_col, undo_col = Column.create_index_columns(
+            self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
         )
         # add the columns and update the metadata
         # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
@@ -779,8 +739,8 @@ class TableVersion:
             all_cols.append(col)
             if col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex()
-                val_col, undo_col = self._create_index_columns(
-                    col, idx, self.schema_version, self.handle, id_cb=self.next_col_id
+                val_col, undo_col = Column.create_index_columns(
+                    self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
                 )
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.append(val_col)
@@ -801,6 +761,7 @@ class TableVersion:
                 value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
                 stored=col.stored,
                 destination=col._explicit_destination,
+                stores_cellmd=col.stores_cellmd,
             )
             self._tbl_md.column_md[col.id] = col_md
 
@@ -854,8 +815,8 @@ class TableVersion:
             all_cols.append(col)
             if col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex()
-                val_col, undo_col = self._create_index_columns(
-                    col, idx, self.schema_version, self.handle, id_cb=self.next_col_id
+                val_col, undo_col = Column.create_index_columns(
+                    self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
                 )
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.append(val_col)
@@ -1218,7 +1179,7 @@ class TableVersion:
             try:
                 # check if this is a literal
                 value_expr = exprs.Literal(val, col_type=col.col_type)
-            except (TypeError, jsonschema.exceptions.ValidationError) as exc:
+            except TypeError as exc:
                 if not allow_exprs:
                     raise excs.Error(
                         f'Column {col_name!r}: value is not a valid literal for this column '
@@ -1232,7 +1193,7 @@ class TableVersion:
                     ) from exc
                 if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
                     raise excs.Error(
-                        f'Type `{value_expr.col_type}` of value {val!r} is not compatible with the type '
+                        f'The literal value {val!r} is not compatible with the type '
                         f'`{col.col_type}` of column {col_name!r}'
                     ) from exc
             update_targets[col] = value_expr

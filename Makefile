@@ -5,7 +5,8 @@ WORKERS := 12
 
 # Common test args
 PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 --reruns 2 \
-	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with'
+	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with' \
+	--benchmark-disable
 
 # Needed for LLaMA build to work correctly on some Linux systems
 CMAKE_ARGS := -DLLAVA_BUILD=OFF
@@ -95,6 +96,13 @@ endif
 	done
 	@touch .make-install/env
 
+# Get dashboard sources; exclude node_modules and build artifacts
+DASHBOARD_SOURCES := $(shell find dashboard -type f -not -path '*/node_modules/*')
+.make-install/dashboard: $(DASHBOARD_SOURCES)
+	@echo 'Building dashboard assets ...'
+	@(cd dashboard && npm install --silent && npm run build)
+	@touch .make-install/dashboard
+
 .PHONY: install-deps
 install-deps:
 	@echo 'Installing dependencies from uv ...'
@@ -108,7 +116,7 @@ install-deps:
 	@touch .make-install/others
 
 .PHONY: install
-install: setup-install .make-install/env install-deps .make-install/others
+install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others
 
 .PHONY: test
 test: pytest check
@@ -189,7 +197,10 @@ format: install
 
 .PHONY: release
 release: install
-	@scripts/release.sh
+	@if [ ! -f 'admin/scripts/release.sh' ]; then \
+		echo 'Release script not found. You must be a Pixeltable admin and check out the admin repo to run this target.'; exit 1; \
+	fi
+	@admin/scripts/release.sh
 
 .PHONY: docs
 docs: install
@@ -217,8 +228,8 @@ linkscheck: docs
 
 .PHONY: clean
 clean:
-	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
 	@rm -rf .make-install || true
+	@rm -rf pixeltable/dashboard/static || true
 	@rm -rf site || true
 	@rm -rf target || true
 	@rm -rf tests/target || true

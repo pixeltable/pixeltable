@@ -151,7 +151,7 @@ class TestView:
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})  # type: ignore[dict-item]
-        assert "invalid value for column 'v1'" in str(exc_info.value).lower()
+        assert "invalid spec for column 'v1'" in str(exc_info.value).lower()
 
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test if_exists parameter of create_view API"""
@@ -918,8 +918,11 @@ class TestView:
                         name: {
                             'computed_with': None,
                             'defined_in': 'test_tbl',
+                            'is_computed': False,
+                            'is_iterator_col': False,
                             'is_primary_key': False,
                             'is_stored': True,
+                            'destination': None,
                             'media_validation': 'on_write',
                             'name': name,
                             'type_': type_,
@@ -934,9 +937,11 @@ class TestView:
                     'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
+                    'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_tbl:{i}',
                     'path': f'dir/test_tbl:{i}',
+                    'iterator_call': None,
                     'schema_version': expected_schema_version,
                     'custom_metadata': None,
                     'version': i,
@@ -1033,8 +1038,11 @@ class TestView:
                         name: {
                             'computed_with': computed_with,
                             'defined_in': 'test_tbl' if name in ('c1', 'c2', 'balloon') else 'test_view',
+                            'is_computed': computed_with is not None,
+                            'is_iterator_col': False,
                             'is_primary_key': False,
                             'is_stored': True,
+                            'destination': None,
                             'media_validation': 'on_write',
                             'name': name,
                             'type_': type_,
@@ -1049,9 +1057,11 @@ class TestView:
                     'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
+                    'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_view:{i}',
                     'path': f'dir/test_view:{i}',
+                    'iterator_call': None,
                     'schema_version': expected_schema_version,
                     'custom_metadata': None,
                     'version': i,
@@ -1115,8 +1125,11 @@ class TestView:
                             else 'test_view'
                             if name in ('c3', 'hamburger', 'c4')
                             else 'test_subview',
+                            'is_computed': computed_with is not None,
+                            'is_iterator_col': False,
                             'is_primary_key': False,
                             'is_stored': True,
+                            'destination': None,
                             'media_validation': 'on_write',
                             'name': name,
                             'type_': type_,
@@ -1131,9 +1144,11 @@ class TestView:
                     'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
+                    'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_subview:{i}',
                     'path': f'dir/test_subview:{i}',
+                    'iterator_call': None,
                     'schema_version': expected_schema_version,
                     'custom_metadata': None,
                     'version': i,
