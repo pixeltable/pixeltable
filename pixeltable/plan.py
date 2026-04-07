@@ -509,7 +509,7 @@ class Planner:
             select_list=select_list,
             columns=copied_cols,
             ignore_errors=True,
-            deleted_at_version=[tbl.tbl_version],
+            deleted_at_current_version=[tbl.tbl_version],
         )
         evaluated_cols = updated_cols + list(recomputed_base_cols)  # same order as select_list
         # update row builder with column information
@@ -738,7 +738,7 @@ class Planner:
             sa_key_cols=sa_key_cols,
             key_vals=key_vals,
             cell_md_col_refs=cell_md_col_refs,
-            deleted_at_version=[tbl.tbl_version],
+            deleted_at_current_version=[tbl.tbl_version],
         )
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
         row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, sql_lookup_node)
@@ -815,8 +815,8 @@ class Planner:
             select_list,
             where_clause=target.predicate,
             ignore_errors=True,
-            exact_version_only=view.get_bases(),
-            deleted_at_version=[view.tbl_version],
+            created_at_current_version=view.get_bases(),
+            deleted_at_current_version=[view.tbl_version],
         )
         for i, col in enumerate(copied_cols + list(recomputed_cols)):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
@@ -884,7 +884,7 @@ class Planner:
             analyzer=base_analyzer,
             eval_ctx=base_eval_ctx,
             with_pk=True,
-            exact_version_only=view.get_bases() if propagates_insert else [],
+            created_at_current_version=view.get_bases() if propagates_insert else [],
         )
         exec_ctx = plan.ctx
         if target.is_component_view:
@@ -987,8 +987,8 @@ class Planner:
         offset: exprs.Expr | None = None,
         sample_clause: SampleClause | None = None,
         ignore_errors: bool = False,
-        exact_version_only: list[catalog.TableVersionHandle] | None = None,
-        deleted_at_version: list[catalog.TableVersionHandle] | None = None,
+        created_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
         """
         Return plan for executing a query.
@@ -998,7 +998,7 @@ class Planner:
         - materializes cell values of 'columns' (and their cellmd, if applicable) into DataRow.cell_vals/cell_md
 
         Updates 'select_list' in place to make it executable.
-        TODO: make exact_version_only a flag and use the versions from tbl
+        TODO: make created_at_current_version a flag and use the versions from tbl
         """
         if select_list is None:
             select_list = []
@@ -1006,10 +1006,10 @@ class Planner:
             columns = []
         if order_by_clause is None:
             order_by_clause = []
-        if exact_version_only is None:
-            exact_version_only = []
-        if deleted_at_version is None:
-            deleted_at_version = []
+        if created_at_current_version is None:
+            created_at_current_version = []
+        if deleted_at_current_version is None:
+            deleted_at_current_version = []
 
         analyzer = Analyzer(
             from_clause,
@@ -1037,8 +1037,8 @@ class Planner:
             limit=limit,
             offset=offset,
             with_pk=True,
-            exact_version_only=exact_version_only,
-            deleted_at_version=deleted_at_version,
+            created_at_current_version=created_at_current_version,
+            deleted_at_current_version=deleted_at_current_version,
         )
         plan.ctx.ignore_errors = ignore_errors
         select_list.clear()
@@ -1055,8 +1055,8 @@ class Planner:
         limit: exprs.Expr | None = None,
         offset: exprs.Expr | None = None,
         with_pk: bool = False,
-        exact_version_only: list[catalog.TableVersionHandle] | None = None,
-        deleted_at_version: list[catalog.TableVersionHandle] | None = None,
+        created_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.
@@ -1064,14 +1064,14 @@ class Planner:
         Args:
             plan_target: if not None, generate a plan that materializes only expression that can be evaluted
                 in the context of that table version (eg, if 'tbl' is a view, 'plan_target' might be the base)
-        TODO: make exact_version_only a flag and use the versions from tbl
+        TODO: make created_at_current_version a flag and use the versions from tbl
         """
         if columns is None:
             columns = []
-        if exact_version_only is None:
-            exact_version_only = []
-        if deleted_at_version is None:
-            deleted_at_version = []
+        if created_at_current_version is None:
+            created_at_current_version = []
+        if deleted_at_current_version is None:
+            deleted_at_current_version = []
         sql_elements = analyzer.sql_elements
         is_python_agg = not sql_elements.contains_all(analyzer.agg_fn_calls) or not sql_elements.contains_all(
             analyzer.window_fn_calls
@@ -1136,8 +1136,8 @@ class Planner:
                 columns=[c for c in columns if c.get_tbl().id == tbl.tbl_id],
                 set_pk=with_pk,
                 cell_md_col_refs=cls._cell_md_col_refs(tbl_scan_exprs),
-                exact_version_only=exact_version_only,
-                deleted_at_version=deleted_at_version,
+                created_at_current_version=created_at_current_version,
+                deleted_at_current_version=deleted_at_current_version,
             )
             tbl_scan_plans.append(plan)
 
