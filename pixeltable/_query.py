@@ -495,9 +495,8 @@ class Query:
         raise excs.Error(msg) from e
 
     def _output_row_iterator(self) -> Iterator[list]:
-        # TODO: extend begin_xact() to accept multiple TVPs for joins
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
-        with get_runtime().catalog.begin_xact(tbl=single_tbl, for_write=False):
+        with get_runtime().catalog.begin_xact(tvp_read_targets=self._from_clause.tbls):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
@@ -529,7 +528,7 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False) as conn:
+        with get_runtime().catalog.begin_xact(tvp_read_targets=[self._first_tbl]) as conn:
             count_stmt = Planner.create_count_stmt(self)
             result: int = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)
@@ -1217,7 +1216,9 @@ class Query:
             >>> person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._first_tbl], lock_mutable_tree=True
+        ):
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def recompute_columns(
@@ -1241,7 +1242,9 @@ class Query:
             >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
         self._validate_mutable('recompute_columns', False)
-        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._first_tbl], lock_mutable_tree=True
+        ):
             tbl = get_runtime().catalog.get_table_by_id(self._first_tbl.tbl_id)
 
         return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
@@ -1262,7 +1265,9 @@ class Query:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error('Cannot use `delete` on a view.')
-        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._first_tbl], lock_mutable_tree=True
+        ):
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
@@ -1328,7 +1333,7 @@ class Query:
         # we need to wrap the construction with a transaction, because it might need to load metadata
         from pixeltable.catalog import retry_loop
 
-        @retry_loop(for_write=False)
+        @retry_loop()
         def do_from_dict() -> 'Query':
             tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
             join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
@@ -1409,7 +1414,7 @@ class Query:
             return data_file_path
         else:
             # TODO: extend begin_xact() to accept multiple TVPs for joins
-            with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False):
+            with get_runtime().catalog.begin_xact(tvp_read_targets=[self._first_tbl]):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1454,7 +1459,7 @@ class Query:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False):
+            with get_runtime().catalog.begin_xact(tvp_read_targets=[self._first_tbl]):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)
 

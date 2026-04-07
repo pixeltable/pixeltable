@@ -76,7 +76,13 @@ T = TypeVar('T')
 
 
 def retry_loop(
-    *, tbl: TableVersionPath | None = None, tbl_id: UUID | None = None, for_write: bool, lock_mutable_tree: bool = False
+    *,
+    for_write: bool = False,
+    tvp_read_targets: list[TableVersionPath] | None = None,
+    tbl_id_read_targets: list[UUID] | None = None,
+    tvp_write_targets: list[TableVersionPath] | None = None,
+    tbl_id_write_targets: list[UUID] | None = None,
+    lock_mutable_tree: bool = False,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
@@ -94,9 +100,11 @@ def retry_loop(
                     # that are part of an ongoing transaction
                     assert not get_runtime().in_xact
                     with cat.begin_xact(
-                        tbl=tbl,
-                        tbl_id=tbl_id,
                         for_write=for_write,
+                        tvp_read_targets=tvp_read_targets,
+                        tbl_id_read_targets=tbl_id_read_targets,
+                        tvp_write_targets=tvp_write_targets,
+                        tbl_id_write_targets=tbl_id_write_targets,
                         convert_db_excs=False,
                         lock_mutable_tree=lock_mutable_tree,
                         finalize_pending_ops=True,
@@ -190,7 +198,7 @@ class Catalog:
     _tbl_versions: dict[TableVersionKey, TableVersion]
     _tbls: dict[tuple[UUID, int | None], Table]
     _in_write_xact: bool  # True if we're in a write transaction
-    _x_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for update in the current write transaction
+    _x_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for write in the current transaction
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
     _roll_forward_ids: set[UUID]  # ids of Tables that have pending TableOps
     _undo_actions: list[Callable[[], None]]
@@ -301,9 +309,11 @@ class Catalog:
     def begin_xact(
         self,
         *,
-        tbl: TableVersionPath | None = None,
-        tbl_id: UUID | None = None,
         for_write: bool = False,
+        tvp_read_targets: list[TableVersionPath] | None = None,
+        tbl_id_read_targets: list[UUID] | None = None,
+        tvp_write_targets: list[TableVersionPath] | None = None,
+        tbl_id_write_targets: list[UUID] | None = None,
         lock_mutable_tree: bool = False,
         convert_db_excs: bool = True,
         finalize_pending_ops: bool = True,
@@ -314,30 +324,35 @@ class Catalog:
         It is mandatory to call this method, not Env.begin_xact(), if the transaction accesses any table data
         or metadata.
 
-        If tbl != None, follows this locking protocol:
-        - validates/reloads the TableVersion instances of tbl's ancestors (in the hope that this reduces potential
-          SerializationErrors later on)
-        - if for_write == True, x-locks Table record (by updating Table.lock_dummy; see _acquire_tbl_lock())
-        - if for_write == False, validates TableVersion instance
-        - if lock_mutable_tree == True, also x-locks all mutable views of the table
-        - this needs to be done in a retry loop, because Postgres can decide to abort the transaction
+        Locking protocol (via _acquire_locks()):
+        - write targets (tvp_write_targets, tbl_id_write_targets): x-locks each Table record (see
+          _acquire_tbl_lock() / _acquire_path_locks())
+        - read targets (tvp_read_targets, tbl_id_read_targets): refreshes the metadata cache, no x-lock
+        - if lock_mutable_tree == True, also x-locks all mutable views of each write target
+        - if finalize_pending_ops == True and a PendingTableOpsError is raised, finalizes pending ops and retries
+        - this needs to be done in a retry loop, because Postgres can abort the transaction
           (SerializationFailure, LockNotAvailable)
         - for that reason, we do all lock acquisition prior to doing any real work (eg, compute column values),
           to minimize the probability of losing that work due to a forced abort
 
         If convert_db_excs == True, converts DBAPIErrors into excs.Errors.
         """
-        assert tbl is None or tbl_id is None  # at most one can be specified
+        tvp_read_targets = tvp_read_targets or []
+        tvp_write_targets = tvp_write_targets or []
+        tbl_id_read_targets = tbl_id_read_targets or []
+        tbl_id_write_targets = tbl_id_write_targets or []
         if get_runtime().in_xact:
-            # make sure that we requested the required table lock at the beginning of the transaction
-            if for_write:
-                if tbl is not None:
-                    assert tbl.tbl_id in self._x_locked_tbl_ids, f'{tbl.tbl_id} not in {self._x_locked_tbl_ids}'
-                elif tbl_id is not None:
-                    assert tbl_id in self._x_locked_tbl_ids, f'{tbl_id} not in {self._x_locked_tbl_ids}'
+            # make sure all required locks are already being held
+            for tvp in tvp_write_targets:
+                assert tvp.tbl_id in self._x_locked_tbl_ids, f'{tvp.tbl_id} not in {self._x_locked_tbl_ids}'
+            for tbl_id in tbl_id_write_targets:
+                assert tbl_id in self._x_locked_tbl_ids, f'{tbl_id} not in {self._x_locked_tbl_ids}'
             yield get_runtime().conn
             return
 
+        assert for_write or not (tvp_write_targets or tbl_id_write_targets), (
+            'for_write must be True when write targets are specified'
+        )
         num_retries = 0
         pending_ops_tbl_id: UUID | None = None
         has_exc = False  # True if we exited the 'with ...begin_xact()' block with an exception
@@ -357,40 +372,41 @@ class Catalog:
                 assert not self._undo_actions
                 with get_runtime().begin_xact(for_write=for_write) as conn:
                     with self.allow_tbl_md_read():
-                        if tbl is not None or tbl_id is not None:
-                            try:
-                                self._acquire_locks(
-                                    lock_target=tbl_id if tbl_id is not None else tbl,
-                                    for_write=for_write,
-                                    lock_mutable_tree=lock_mutable_tree,
-                                    finalize_pending_ops=finalize_pending_ops,
-                                )
-                                if for_write and lock_mutable_tree:
-                                    self._compute_column_dependents(self._x_locked_tbl_ids)
-                                if _logger.isEnabledFor(logging.DEBUG):
-                                    # validate only when we don't see errors
-                                    self.validate()
-                            except PendingTableOpsError as e:
-                                has_exc = True
-                                if finalize_pending_ops:
-                                    # we remember which table id to finalize
-                                    pending_ops_tbl_id = e.tbl_id
-                                # raise to abort the transaction
-                                raise
-                            except sql_exc.DBAPIError as e:
-                                # Handle retriable errors
-                                has_exc = True
-                                if isinstance(
-                                    e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
-                                ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
-                                    _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
-                                    num_retries += 1
-                                    time.sleep(random.uniform(0.1, 0.5))
-                                    # attempt failed -- don't try to commit the transaction before retrying
-                                    conn.rollback()
-                                    assert not self._undo_actions  # We should not have any undo actions at this point
-                                    continue
-                                raise
+                        try:
+                            self._acquire_locks(
+                                tvp_read_targets=tvp_read_targets,
+                                tbl_id_read_targets=tbl_id_read_targets,
+                                tvp_write_targets=tvp_write_targets,
+                                tbl_id_write_targets=tbl_id_write_targets,
+                                lock_mutable_tree=lock_mutable_tree,
+                                finalize_pending_ops=finalize_pending_ops,
+                            )
+                            if for_write and lock_mutable_tree:
+                                self._compute_column_dependents(self._x_locked_tbl_ids)
+                            if _logger.isEnabledFor(logging.DEBUG):
+                                # validate only when we don't see errors
+                                self.validate()
+                        except PendingTableOpsError as e:
+                            has_exc = True
+                            if finalize_pending_ops:
+                                # we remember which table id to finalize
+                                pending_ops_tbl_id = e.tbl_id
+                            # raise to abort the transaction
+                            raise
+                        except sql_exc.DBAPIError as e:
+                            # Handle retriable errors
+                            has_exc = True
+                            if isinstance(
+                                e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
+                            ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
+                                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
+                                num_retries += 1
+                                time.sleep(random.uniform(0.1, 0.5))
+                                # attempt failed -- don't try to commit the transaction before retrying
+                                conn.rollback()
+                                assert not self._undo_actions  # We should not have any undo actions at this point
+                                continue
+                            raise
 
                     assert not self._undo_actions
                     yield conn
@@ -407,7 +423,8 @@ class Catalog:
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
-                self.convert_sql_exc(e, tbl_id, tbl.tbl_version if tbl is not None else None, convert_db_excs)
+                # TODO clean this up, pass along table info, etc.
+                self.convert_sql_exc(e, tbl_id=None, tbl=None, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
             except (Exception, KeyboardInterrupt) as e:
@@ -435,38 +452,61 @@ class Catalog:
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.key)
                     # Clear potentially corrupted cached metadata
-                    if tbl is not None:
-                        tbl.clear_cached_md()
+                    for tvp in [*tvp_write_targets, *tvp_read_targets]:
+                        tvp.clear_cached_md()
 
                 self._undo_actions.clear()
                 self._modified_tvs.clear()
 
     def _acquire_locks(
-        self, lock_target: TableVersionPath | UUID, for_write: bool, lock_mutable_tree: bool, finalize_pending_ops: bool
+        self,
+        tvp_read_targets: list[TableVersionPath],
+        tbl_id_read_targets: list[UUID],
+        tvp_write_targets: list[TableVersionPath],
+        tbl_id_write_targets: list[UUID],
+        lock_mutable_tree: bool = False,
+        finalize_pending_ops: bool = True,
     ) -> None:
         """
-        Acquires transactional locks on the specified tables, and updates self._x_locked_tbl_ids accordingly.
+        Acquires locks on the specified write targets, and updates self._x_locked_tbl_ids accordingly.
+        Refreshes the metadata cache for read targets.
         """
         x_locked_ids: set[UUID] = set()
-        if isinstance(lock_target, TableVersionPath):
-            x_locked_ids.update(
-                self._acquire_path_locks(
-                    tbl=lock_target,
-                    for_write=for_write,
-                    lock_mutable_tree=lock_mutable_tree,
-                    check_pending_ops=finalize_pending_ops,
-                )
-            )
-        else:
-            assert isinstance(lock_target, UUID)
+        for tbl_id in tbl_id_write_targets:
+            if tbl_id in x_locked_ids:
+                continue
             x_locked_ids.update(
                 self._acquire_tbl_lock(
-                    tbl_id=lock_target,
-                    for_write=for_write,
+                    tbl_id=tbl_id,
+                    for_write=True,
                     lock_mutable_tree=lock_mutable_tree,
                     raise_if_not_exists=True,
                     check_pending_ops=finalize_pending_ops,
                 )
+            )
+        for tvp in tvp_write_targets:
+            if tvp.tbl_id in x_locked_ids:
+                continue
+            x_locked_ids.update(
+                self._acquire_path_locks(
+                    tbl=tvp, for_write=True, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
+                )
+            )
+        for tbl_id in tbl_id_read_targets:
+            if tbl_id in x_locked_ids:
+                continue
+            self._acquire_tbl_lock(
+                tbl_id=tbl_id,
+                for_write=False,
+                lock_mutable_tree=lock_mutable_tree,
+                raise_if_not_exists=True,
+                check_pending_ops=finalize_pending_ops,
+            )
+        for tvp in tvp_read_targets:
+            if tvp.tbl_id in x_locked_ids:
+                continue
+            self._acquire_path_locks(
+                tbl=tvp, for_write=False, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
             )
 
         self._x_locked_tbl_ids = x_locked_ids
@@ -560,6 +600,7 @@ class Catalog:
             _ = self._get_tbl_version(handle.key, validate_initialized=True)
         if not for_write:
             return set()  # nothing to lock
+        # TODO try to cleanup lock_mutable_tree behavior
         locked_ids = self._acquire_tbl_lock(
             tbl_id=tbl.tbl_id,
             for_write=True,
@@ -685,7 +726,7 @@ class Catalog:
         while True:
             try:
                 with self.begin_xact(
-                    tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
+                    for_write=True, tbl_id_write_targets=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
                 ) as conn:
                     # determine table status
                     q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
@@ -795,7 +836,7 @@ class Catalog:
                 # inside a transaction and therefore wouldn't end up here
 
                 with self.begin_xact(
-                    tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
+                    for_write=True, tbl_id_write_targets=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
                 ) as conn:
                     _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                     if is_final_op:
@@ -853,7 +894,7 @@ class Catalog:
                     # we got an error for the last op and can abort this statement: switch to rollback mode
                     exc = e
                     with self.begin_xact(
-                        tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
+                        for_write=True, tbl_id_write_targets=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
                     ) as conn:
                         stmt = (
                             sql.update(schema.Table)
@@ -1234,7 +1275,7 @@ class Catalog:
         self._roll_forward_ids.clear()
         tbl_id, is_created = create_fn()
         self._roll_forward()
-        with self.begin_xact(tbl_id=tbl_id, for_write=True):
+        with self.begin_xact(for_write=True, tbl_id_write_targets=[tbl_id]):
             tbl = self.get_table_by_id(tbl_id)
             _logger.info(f'Created table {tbl._name!r}, id={tbl._id}')
             Env.get().console_logger.info(f'Created table {tbl._name!r}.')
@@ -1307,14 +1348,14 @@ class Catalog:
 
         self._roll_forward()
 
-        @retry_loop(for_write=True, tbl_id=view_id)
+        @retry_loop(for_write=True, tbl_id_write_targets=[view_id])
         def get_table_fn() -> Table:
             return self.get_table_by_id(view_id)
 
         return get_table_fn()
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
-        @retry_loop(tbl=tbl, for_write=True, lock_mutable_tree=False)
+        @retry_loop(for_write=True, tvp_write_targets=[tbl], lock_mutable_tree=False)
         def add_fn() -> None:
             tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None, None), validate_initialized=True)
             md, ops = tv.add_columns_ops(cols)
@@ -1740,17 +1781,6 @@ class Catalog:
         return self._create_dir(path, if_exists, parents)
 
     def _create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
-        # existing = self._handle_path_collision(path, Dir, False, if_exists)
-        # if existing is not None:
-        #     assert isinstance(existing, Dir)
-        #     return existing
-        #
-        # parent = self._get_schema_object(path.parent)
-        # assert parent is not None
-        # dir = Dir._create(parent._id, path.name)
-        # Env.get().console_logger.info(f'Created directory {path!r}.')
-        # return dir
-
         if parents:
             # start walking down from the root
             last_parent: SchemaObject | None = None

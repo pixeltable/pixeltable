@@ -174,7 +174,7 @@ class Table(SchemaObject):
         return self._tbl_version_path.version()
 
     def _get_pxt_uri(self) -> str | None:
-        with get_runtime().catalog.begin_xact(tbl_id=self._id):
+        with get_runtime().catalog.begin_xact(tbl_id_read_targets=[self._id]):
             return get_runtime().catalog.get_additional_md(self._id).get('pxt_uri')
 
     def __hash__(self) -> int:
@@ -205,7 +205,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import retry_loop
 
         # we need retry_loop() here, because we end up loading Tables for the views
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tvp_read_targets=[self._tbl_version_path])
         def op() -> list[str]:
             return [t._path() for t in self._get_views(recursive=recursive)]
 
@@ -229,7 +229,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import retry_loop
         from pixeltable.plan import FromClause
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tvp_read_targets=[self._tbl_version_path])
         def do_select() -> 'pxt.Query':
             query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
             if len(items) == 0 and len(named_items) == 0:
@@ -245,7 +245,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import retry_loop
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tvp_read_targets=[self._tbl_version_path])
         def do_where() -> 'pxt.Query':
             return self.select().where(pred)
 
@@ -257,7 +257,7 @@ class Table(SchemaObject):
         """Join this table with another table."""
         from pixeltable.catalog import retry_loop
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tvp_read_targets=[self._tbl_version_path])
         def do_join() -> 'pxt.Query':
             return self.select().join(other, on=on, how=how)
 
@@ -270,7 +270,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import retry_loop
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tvp_read_targets=[self._tbl_version_path])
         def do_order_by() -> 'pxt.Query':
             return self.select().order_by(*items, asc=asc)
 
@@ -283,7 +283,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import retry_loop
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tvp_read_targets=[self._tbl_version_path])
         def do_group_by() -> 'pxt.Query':
             return self.select().group_by(*items)
 
@@ -403,7 +403,7 @@ class Table(SchemaObject):
         Constructs a list of descriptors for this table that can be pretty-printed.
         """
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        with get_runtime().catalog.begin_xact(tvp_read_targets=[self._tbl_version_path]):
             helper = DescriptionHelper()
             helper.append(self._table_descriptor())
             col_df, separator_idxs = self._col_descriptor()
@@ -618,7 +618,7 @@ class Table(SchemaObject):
         schema_copy = dict(schema)
 
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        @catalog.retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_columns() -> list[Column]:
             """Returns True if schema changed"""
             self.__check_mutable('add columns to')
@@ -767,7 +767,7 @@ class Table(SchemaObject):
             >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90), stored=False)
         """
 
-        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        @catalog.retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_computed_column() -> UpdateStatus:
             self.__check_mutable('add columns to')
             if len(kwargs) != 1:
@@ -860,7 +860,7 @@ class Table(SchemaObject):
         cat = get_runtime().catalog
 
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        @retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        @retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
         def do_drop_column() -> None:
             self.__check_mutable('drop columns from')
             col: Column = None
@@ -960,7 +960,9 @@ class Table(SchemaObject):
             ... tbl.rename_column('col1', 'col2')
         """
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=False
+        ):
             self._tbl_version.get().rename_column(old_name, new_name)
 
     def _list_index_info_for_test(self) -> list[dict[str, Any]]:
@@ -1074,13 +1076,15 @@ class Table(SchemaObject):
 
         # Resolve column parameter in a separate retry loop because we don't know if the column belogs to this table
         # or not
-        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        @catalog.retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
         def resolve_column() -> Column:
             return self._resolve_column_parameter(column)
 
         col = resolve_column()
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
+        ):
             self.__check_mutable('add an index to')
 
             if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
@@ -1172,7 +1176,7 @@ class Table(SchemaObject):
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        @catalog.retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
         def do_drop_embedding_index() -> None:
             col: Column = None
             if idx_name is None:
@@ -1253,7 +1257,9 @@ class Table(SchemaObject):
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
+        ):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)
@@ -1451,7 +1457,9 @@ class Table(SchemaObject):
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
+        ):
             self.__check_mutable('update')
             result = self._tbl_version.get().update(value_spec, where, cascade)
             FileCache.get().emit_eviction_warnings()
@@ -1498,7 +1506,9 @@ class Table(SchemaObject):
             ... )
         """
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
+        ):
             self.__check_mutable('update')
             rows = list(rows)
 
@@ -1574,7 +1584,7 @@ class Table(SchemaObject):
             >>> tbl.recompute_columns('c1', errors_only=True)
         """
 
-        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=False, lock_mutable_tree=True)
+        @catalog.retry_loop(tvp_read_targets=[self._tbl_version_path], lock_mutable_tree=True)
         def validate_where() -> None:
             if where is not None and not where.is_bound_by([self._tbl_version_path]):
                 raise excs.Error(f'`where` predicate ({where}) is not bound by {self._display_str()}')
@@ -1583,7 +1593,7 @@ class Table(SchemaObject):
 
         cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with cat.begin_xact(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True):
             self.__check_mutable('recompute columns of')
             if len(columns) == 0:
                 raise excs.Error('At least one column must be specified to recompute')
@@ -1640,7 +1650,9 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
+        ):
             self.__check_mutable('revert')
             self._tbl_version.get().revert()
             # remove cached md in order to force a reload on the next operation
@@ -1715,7 +1727,7 @@ class Table(SchemaObject):
         Links the specified `ExternalStore` to this table.
         """
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
+        with get_runtime().catalog.begin_xact(for_write=True, tvp_write_targets=[self._tbl_version_path]):
             self.__check_mutable('link an external store to')
             if store.name in self.external_stores():
                 raise excs.Error(f'Table {self._name!r} already has an external store with that name: {store.name}')
@@ -1742,7 +1754,7 @@ class Table(SchemaObject):
 
         if not self._tbl_version_path.is_mutable():
             return
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
+        with get_runtime().catalog.begin_xact(for_write=True, tvp_write_targets=[self._tbl_version_path]):
             all_stores = self.external_stores()
 
             if stores is None:
@@ -1784,7 +1796,9 @@ class Table(SchemaObject):
         # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
         # have their updates propagated down the tree
         base_tv = self._tbl_version_path.get_tbl_versions()[-1]
-        with get_runtime().catalog.begin_xact(tbl=TableVersionPath(base_tv), for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[TableVersionPath(base_tv)], lock_mutable_tree=True
+        ):
             all_stores = self.external_stores()
 
             if stores is None:

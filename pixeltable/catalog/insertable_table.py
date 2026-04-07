@@ -166,7 +166,9 @@ class InsertableTable(Table):
 
         start_ts = time.perf_counter()
         status = pxt.UpdateStatus()
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
+        ):
             if isinstance(data_source, QueryTableDataConduit):
                 status += self._tbl_version.get().insert(
                     rows=None, query=data_source.pxt_query, print_stats=print_stats, fail_on_exception=fail_on_exception
@@ -196,7 +198,9 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
+        ):
             return self._tbl_version.get().delete(where=where)
 
     def _get_base_table(self) -> 'Table' | None:

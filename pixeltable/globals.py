@@ -239,7 +239,9 @@ def create_table(
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         if isinstance(data_source, QueryTableDataConduit):
             query = data_source.pxt_query
-            with get_runtime().catalog.begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            with get_runtime().catalog.begin_xact(
+                for_write=True, tvp_write_targets=[tbl._tbl_version_path], lock_mutable_tree=True
+            ):
                 tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
         elif data_source is not None and not is_direct_query:
             assert isinstance(tbl, catalog.InsertableTable)
