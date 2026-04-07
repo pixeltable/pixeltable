@@ -285,9 +285,14 @@ async def _generate_videos_impl(
 ) -> str:
     """Shared implementation for video generation: submit request, poll for completion, download result."""
     operation = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, image=image, config=config)
-    while not operation.done:
-        await asyncio.sleep(3)
-        operation = await _genai_client().aio.operations.get(operation)
+
+    async def _poll() -> None:
+        nonlocal operation
+        while not operation.done:
+            await asyncio.sleep(3)
+            operation = await _genai_client().aio.operations.get(operation)
+
+    await asyncio.wait_for(_poll(), timeout=300)
 
     if operation.error:
         raise excs.Error(f'Video generation failed: {operation.error}')
@@ -371,7 +376,7 @@ async def generate_videos(
 @generate_videos.overload
 async def _(
     prompt: str | None = None,
-    image: list[PIL.Image.Image] = [],  # noqa: B006
+    image: list[PIL.Image.Image] | None = None,
     *,
     model: str,
     config: dict | None = None,
@@ -397,7 +402,7 @@ async def _(
     if not image and prompt is None:
         raise excs.Error('At least one of `prompt` or `image` must be provided.')
 
-    if len(image) > 3:
+    if image is not None and len(image) > 3:
         raise excs.Error(f'At most 3 reference images are allowed, but {len(image)} were provided.')
 
     if reference_types is None:
@@ -465,13 +470,13 @@ async def generate_speech(text: str, *, model: str, voice: str = 'Kore', config:
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
-    config_ = types.GenerateContentConfig(**(config or {}))
-    config_.response_modalities = ['AUDIO']
-    config_.speech_config = types.SpeechConfig(
+    config = types.GenerateContentConfig(**(config or {}))
+    config.response_modalities = ['AUDIO']
+    config.speech_config = types.SpeechConfig(
         voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice))
     )
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config)
 
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
@@ -534,7 +539,7 @@ async def transcribe(
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
-    config_ = types.GenerateContentConfig(**config) if config else None
+    config = types.GenerateContentConfig(**config) if config else None
     client = _genai_client()
 
     try:
@@ -547,7 +552,7 @@ async def transcribe(
             response = await client.aio.models.generate_content(
                 model=model,
                 contents=[audio_part, prompt],  # type: ignore[arg-type]
-                config=config_,
+                config=config,
             )
     else:
         mime_type, _ = mimetypes.guess_type(audio, strict=False)
@@ -561,7 +566,7 @@ async def transcribe(
         response = await client.aio.models.generate_content(
             model=model,
             contents=[audio_part, prompt],  # type: ignore[arg-type]
-            config=config_,
+            config=config,
         )
 
     return response.text
