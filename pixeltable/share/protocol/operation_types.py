@@ -22,7 +22,7 @@ class ReplicaOperationType(str, Enum):
 class PixeltableStoreOperationType(str, Enum):
     """Operation types for Pixeltable-managed storage (home buckets)."""
 
-    GET_HOME_BUCKET_CREDENTIALS = 'get_home_bucket_credentials'
+    GET_BUCKET_CREDENTIALS = 'get_bucket_credentials'
     GET_PRESIGNED_URL = 'get_presigned_url'
 
 

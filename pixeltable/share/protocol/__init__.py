@@ -6,7 +6,7 @@ that can be shared between pixeltable core and cloud implementations.
 """
 
 from .common import PxtUri, RequestBaseModel
-from .home_bucket import GetHomeBucketCredentialsRequest, GetHomeBucketCredentialsResponse
+from .bucket import GetHomeBucketCredentialsRequest, GetHomeBucketCredentialsResponse
 from .operation_types import PixeltableStoreOperationType, ReplicaOperationType
 from .presigned_url import GetPresignedUrlRequest, GetPresignedUrlResponse
 from .replica import (

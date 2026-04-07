@@ -93,10 +93,22 @@ class S3Store(ObjectStoreBase):
 
     soa: StorageObjectAddress
 
-    def __init__(self, soa: StorageObjectAddress):
+    # client to use when using pixeltable store running on top of S3 compatible object store
+    _client: BaseClient
+
+    # resource to use when using pixeltable store running on top of S3 compatible object store
+    _resource: ServiceResource
+
+    def __init__(self, soa: StorageObjectAddress,
+                 *,
+                 client: BaseClient | None = None,
+                 resource: ServiceResource | None = None):
         self.soa = soa
         self.__bucket_name = self.soa.container
         self.__prefix_name = self.soa.prefix
+        self._client = client
+        self._resource = resource
+
         assert self.soa.storage_target in {
             StorageTarget.R2_STORE,
             StorageTarget.S3_STORE,
@@ -178,6 +190,12 @@ class S3Store(ObjectStoreBase):
             return self._get_s3_compat_client('tigris')
         if self.soa.storage_target == StorageTarget.S3_STORE:
             return self._get_s3_client_with_region()
+        if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            assert self._client, (
+                f'pxt_store client not found for {self.soa}; '
+                'PxtStore.__init__ must pre-populate the client before constructing S3Store'
+            )
+            return self._client
         raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
 
     def _get_s3_compat_resource(self, client_name: str) -> Any:
@@ -234,6 +252,12 @@ class S3Store(ObjectStoreBase):
             return self._get_s3_compat_resource('tigris_resource')
         if self.soa.storage_target == StorageTarget.S3_STORE:
             return self._get_s3_resource_with_region()
+        if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            assert self._resource, (
+                f'pxt_store resource not found for {self.soa}; '
+                'PxtStore.__init__ must pre-populate the resource before constructing S3Store'
+            )
+            return self._resource
         raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
 
     @property

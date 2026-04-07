@@ -15,7 +15,7 @@ import requests
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.share.protocol.home_bucket import GetHomeBucketCredentialsRequest, GetHomeBucketCredentialsResponse
+from pixeltable.share.protocol.bucket import GetBucketCredentialsRequest, GetBucketCredentialsResponse
 from pixeltable.share.protocol.presigned_url import GetPresignedUrlRequest, GetPresignedUrlResponse
 
 PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
@@ -35,37 +35,39 @@ def _api_headers() -> dict[str, str]:
     return headers
 
 
-def get_home_bucket_credentials(org: str, db: str, prefix: str) -> GetHomeBucketCredentialsResponse:
+def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str) -> GetBucketCredentialsResponse:
     """
     Fetch temporary R2 credentials for a home bucket from the cloud control plane.
 
     Args:
         org: Organization slug
         db: Database slug
+        bucket: Bucket name registered
         prefix: Optional key prefix to scope access within the home bucket
 
     Returns:
-        GetHomeBucketCredentialsResponse with temporary credentials
+        GetBucketCredentialsResponse with temporary credentials
     """
-    request = GetHomeBucketCredentialsRequest(org_slug=org, db_slug=db, prefix=prefix)
+    request = GetBucketCredentialsRequest(org_slug=org, db_slug=db, bucket_name=bucket, prefix=prefix)
     try:
         response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=15)
         if response.status_code != 200:
-            raise excs.Error(f'Failed to get home bucket credentials: {response.text}')
+            raise excs.Error(f'Failed to get bucket credentials: {response.text}')
         data = response.json()
-        return GetHomeBucketCredentialsResponse.model_validate(data)
+        return GetBucketCredentialsResponse.model_validate(data)
     except requests.exceptions.RequestException as e:
-        raise excs.Error(f'Failed to connect to Pixeltable Cloud for home bucket credentials: {e}') from e
+        raise excs.Error(f'Failed to connect to Pixeltable Cloud for bucket credentials: {e}') from e
 
 
 def get_presigned_url_from_cloud(
-    org_slug: str, db_slug: str, key: str, method: Literal['get', 'put'] = 'get', expiration: int = 3600
+    org_slug: str, db_slug: str, bucket: str, key: str, method: Literal['get', 'put'] = 'get', expiration: int = 3600
 ) -> str:
     """
-    Request a presigned URL from Pixeltable Cloud for a key in the org/db home bucket.
+    Request a presigned URL from Pixeltable Cloud for a key in given bucket.
     Uses backend credentials on the cloud so URL expiry is independent of temp credential TTL.
     """
-    request = GetPresignedUrlRequest(org_slug=org_slug, db_slug=db_slug, key=key, method=method, expiration=expiration)
+    request = GetPresignedUrlRequest(org_slug=org_slug, db_slug=db_slug, bucket=bucket, key=key,
+                                     method=method, expiration=expiration)
     try:
         response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)
         if response.status_code != 200:
