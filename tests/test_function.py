@@ -1,8 +1,9 @@
+# noqa: RUF029
 import re
 import subprocess
 import typing
 import warnings
-from datetime import datetime
+from datetime import datetime, timezone
 from textwrap import dedent
 
 import numpy as np
@@ -11,10 +12,17 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
-from pixeltable import func
+from pixeltable import env, func
 from pixeltable.func import Batch, Function, FunctionRegistry
 
-from .utils import ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
+from .utils import (
+    ReloadTester,
+    assert_resultset_eq,
+    get_image_files,
+    get_video_files,
+    reload_catalog,
+    validate_update_status,
+)
 
 
 def dummy_fn(i: int) -> int:
@@ -1321,20 +1329,17 @@ class TestFunction:
 
     def test_resource_estimator_polymorphic(self, uses_db: None) -> None:
         """resource_estimator with _param_types works for valid overloads and fails for mismatched ones."""
-        from .utils import get_image_files, get_video_files
 
         # Text overload: estimator param 'content' matches the resolved signature
         t_text = pxt.create_table('test_est_text', {'content': pxt.String})
         t_text.add_computed_column(emb=mock_embed(t_text.content))
-        status = t_text.insert([{'content': 'hello world'}, {'content': 'foo bar'}])
-        assert status.num_excs == 0
+        validate_update_status(t_text.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
         # Image overload: estimator param 'content' matches the resolved signature
         images = get_image_files()[:2]
         t_img = pxt.create_table('test_est_img', {'content': pxt.Image})
         t_img.add_computed_column(emb=mock_embed(t_img.content))
-        status = t_img.insert([{'content': img} for img in images])
-        assert status.num_excs == 0
+        validate_update_status(t_img.insert([{'content': img} for img in images]))
 
         # Video overload: estimator param 'content' does NOT exist in the resolved signature
         # (the video overload uses 'video', not 'content')
@@ -1348,15 +1353,13 @@ class TestFunction:
         """resource_estimator works for a plain (non-polymorphic) UDF."""
         t = pxt.create_table('test_est_plain', {'content': pxt.String})
         t.add_computed_column(emb=mock_embed_plain(t.content))
-        status = t.insert([{'content': 'hello world'}, {'content': 'foo bar'}])
-        assert status.num_excs == 0
+        validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
     def test_resource_estimator_batch(self, uses_db: None) -> None:
         """resource_estimator works for a batched UDF."""
         t = pxt.create_table('test_est_batch', {'content': pxt.String})
         t.add_computed_column(emb=mock_embed_batch(t.content))
-        status = t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz qux'}])
-        assert status.num_excs == 0
+        validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz qux'}]))
 
     def test_sync_udf_with_resource_pool(self, uses_db: None) -> None:
         """A sync UDF with a resource_pool must raise an error (scalar, batched, and polymorphic)."""
@@ -1380,32 +1383,29 @@ class TestFunction:
 
 
 def init_test_pool(pool_name: str) -> None:
-    import datetime
-
-    from pixeltable import env
-
     pool_info = env.Env.get().get_resource_pool_info(pool_name, env.RateLimitsInfo)
-    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    now = datetime.now(tz=timezone.utc)
     pool_info.record(now, requests=(100, 99, now))
 
 
-# Ruff ignore: async is required for the rate-limits scheduler path we could put some trival
-# await, but regardless it would be a hack to trigger the rate limited path.
+# Ruff ignore: async is required for the rate-limits scheduler path since we disallow non-async functions
+# from being rate limited in the FnCallEvaluator. An alternative would be to put some trivial
+# await (wait 0 seconds), but regardless it would be a hack to trigger the rate limited path.
 @pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed')
-async def mock_embed(content: str, model: str = 'default') -> list[float]:  # noqa: RUF029
+async def mock_embed(content: str, model: str = 'default') -> list[float]:
     init_test_pool('rate-limits:test-embed')
     return [0.1, 0.2, 0.3]
 
 
 @mock_embed.overload
-async def _(content: pxt.Image, model: str = 'default') -> list[float]:  # noqa: RUF029
+async def _(content: pxt.Image, model: str = 'default') -> list[float]:
     init_test_pool('rate-limits:test-embed')
     return [0.4, 0.5, 0.6]
 
 
 # Third overload: param is named 'video', not 'content' thus will fail the estimator at runtime
 @mock_embed.overload
-async def _(video: pxt.Video, model: str = 'default') -> list[float]:  # noqa: RUF029
+async def _(video: pxt.Video, model: str = 'default') -> list[float]:
     init_test_pool('rate-limits:test-embed')
     return [0.7, 0.8, 0.9]
 
@@ -1420,7 +1420,7 @@ def _(content: str, _param_types: dict) -> dict[str, int]:
 
 # Non-polymorphic UDF with resource estimator
 @pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed-plain')
-async def mock_embed_plain(content: str, model: str = 'default') -> list[float]:  # noqa: RUF029
+async def mock_embed_plain(content: str, model: str = 'default') -> list[float]:
     init_test_pool('rate-limits:test-embed-plain')
     return [0.1, 0.2, 0.3]
 
@@ -1433,7 +1433,7 @@ def _(content: str) -> dict[str, int]:
 
 # Batch UDF with resource estimator
 @pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed-batch', batch_size=2)
-async def mock_embed_batch(content: Batch[str], model: str = 'default') -> Batch[list[float]]:  # noqa: RUF029
+async def mock_embed_batch(content: Batch[str], model: str = 'default') -> Batch[list[float]]:
     init_test_pool('rate-limits:test-embed-batch')
     return [[0.1, 0.2, 0.3] for _ in content]
 
@@ -1461,7 +1461,7 @@ def sync_batched_udf_with_rp(texts: Batch[str]) -> Batch[str]:
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:test-sync-poly')
-async def sync_poly_udf_with_rp(x: str) -> str:  # noqa: RUF029
+async def sync_poly_udf_with_rp(x: str) -> str:
     return x.upper()
 
 
