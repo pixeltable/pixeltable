@@ -42,14 +42,19 @@ class Function(ABC):
     __resolved_fns: list[Self]
 
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
-    # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
+    # Overridden for specific Function instances via the to_sql() decorator. The override must accept the same
     # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
     _to_sql: Callable[..., sql.ColumnElement | None]
 
     # Returns the resource pool to use for calling this function with the given arguments.
-    # Overriden for specific Function instances via the resource_pool() decorator. The override must accept a subset
+    # Overridden for specific Function instances via the resource_pool() decorator. The override must accept a subset
     # of the parameters of the original function, with the same type.
     _resource_pool: Callable[..., str | None]
+
+    # Returns estimated resources needed for a specific request as a dict (key: resource name, value: estimated cost).
+    # Overridden for specific Function instances via the resource_estimator() decorator. The override must accept a
+    # subset of the parameters of the original function.
+    _resource_estimator: Callable[..., dict[str, int]]
 
     def __init__(
         self,
@@ -71,6 +76,7 @@ class Function(ABC):
         self.__resolved_fns = []
         self._to_sql = self.__default_to_sql
         self._resource_pool = self.__default_resource_pool
+        self._resource_estimator = self.__default_resource_estimator
 
     @property
     def is_valid(self) -> bool:
@@ -432,6 +438,25 @@ class Function(ABC):
 
     def __default_resource_pool(self) -> str | None:
         return None
+
+    def resource_estimator(self, fn: Callable[..., dict[str, int]]) -> Callable[..., dict[str, int]]:
+        """Decorator for specifying the resource estimator of this function.
+
+        The decorated function accepts a subset of this function's parameters and returns a dict mapping
+        resource names to estimated costs for a single or set of requests.
+
+        Parameters are validated at runtime, requiring the resource estimator contain a subset of the
+        parameters of the resolved function type.
+
+        If the estimator declares a parameter named '_param_types', it will receive a dict mapping
+        parameter names to their Pixeltable ColumnTypes for the resolved overload. This allows a shared
+        estimator on a polymorphic function to distinguish overloads that share the same Python types.
+        """
+        self._resource_estimator = fn
+        return fn
+
+    def __default_resource_estimator(self) -> dict[str, int]:
+        return {}
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):

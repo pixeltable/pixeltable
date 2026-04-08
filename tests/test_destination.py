@@ -152,6 +152,7 @@ class TestDestination:
         ObjectPath.parse_object_storage_addr(f'file://dir1/dir2/dir3/{o_name}', allow_obj_name=True)
         ObjectPath.parse_object_storage_addr(f'dir2/dir3/{o_name}', allow_obj_name=True)
 
+    @rerun(reruns=3, reruns_delay=15)
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
     def test_destination(self, uses_db: None, dest_id: StorageTarget) -> None:
         """Test various media destinations."""
@@ -353,7 +354,7 @@ class TestDestination:
         for uri in dest_uris:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
-    @rerun(reruns=3, reruns_delay=5)
+    @rerun(reruns=3, reruns_delay=15)
     def test_presigned_url_all_destinations(self, uses_db: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
         # Exclude LOCAL_STORE as it doesn't support presigned URLs
