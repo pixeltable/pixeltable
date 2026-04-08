@@ -1,5 +1,4 @@
 import math
-import os
 import subprocess
 from pathlib import Path
 from typing import Any, Literal
@@ -15,6 +14,7 @@ from pixeltable.utils import av as av_utils
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
+    IN_CI,
     generate_test_video,
     get_audio_files,
     get_image_files,
@@ -22,7 +22,6 @@ from .utils import (
     reload_catalog,
     skip_test_if_not_installed,
     validate_update_status,
-IN_CI
 )
 
 
@@ -846,7 +845,7 @@ class TestVideo:
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
 
     @pytest.mark.skipif(IN_CI, reason='requires bug fix')
-    #@pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
+    # @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
     def test_overlay_text(self, uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.add_computed_column(clip_5s=t.video.clip(start_time=0, duration=5))
