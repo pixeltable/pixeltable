@@ -379,7 +379,7 @@ async def generate_videos(
 @generate_videos.overload
 async def _(
     prompt: str | None = None,
-    image: list[PIL.Image.Image] | None = None,
+    images: list[PIL.Image.Image] | None = None,
     *,
     model: str,
     config: dict | None = None,
@@ -389,7 +389,7 @@ async def _(
 
     Args:
         prompt: A text description of the videos to generate.
-        image: A list of up to 3 reference images to guide style or asset appearance.
+        images: A list of up to 3 reference images to guide style or asset appearance.
         model: The model to use.
         config: Configuration for generation.
         reference_types: A list of reference types corresponding to each image. Each must be one of
@@ -402,23 +402,22 @@ async def _(
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
-    if image is None:
-        image = []
+    if images is None:
+        images = []
 
-    if not image and prompt is None:
-        raise excs.Error('At least one of `prompt` or `image` must be provided.')
-
-    if len(image) > 3:
-        raise excs.Error(f'At most 3 reference images are allowed, but {len(image)} were provided.')
+    if not images and prompt is None:
+        raise excs.Error('At least one of `prompt` or `images` must be provided.')
+    if len(images) > 3:
+        raise excs.Error(f'At most 3 reference images are allowed, but {len(images)} were provided.')
 
     if reference_types is None:
-        reference_types = ['asset'] * len(image)
-    elif len(reference_types) != len(image):
-        raise excs.Error(f'`reference_types` length ({len(reference_types)}) must match `image` length ({len(image)}).')
+        reference_types = ['asset'] * len(images)
+    elif len(reference_types) != len(images):
+        raise excs.Error(f'`reference_types` length ({len(reference_types)}) must match `images` length ({len(images)}).')
 
     reference_images = [
         types.VideoGenerationReferenceImage(image=_pil_to_gemini_image(img), reference_type=ref_type)
-        for img, ref_type in zip(image, reference_types)
+        for img, ref_type in zip(images, reference_types)
     ]
 
     config_ = types.GenerateVideosConfig(**config) if config else types.GenerateVideosConfig()
