@@ -5,6 +5,7 @@ import datetime
 import glob
 import http.server
 import importlib
+import importlib.metadata
 import importlib.util
 import inspect
 import logging
@@ -820,7 +821,10 @@ class Env:
         # check whether we have a version >= the required one
         if package_info.version is None:
             module = importlib.import_module(package_name)
-            package_info.version = [int(x) for x in module.__version__.split('.')]
+            version_str: str | None = getattr(module, '__version__', None)
+            if version_str is None:
+                version_str = importlib.metadata.version(package_name)
+            package_info.version = [int(x) for x in version_str.split('.')]
 
         if min_version > package_info.version:
             raise excs.Error(
