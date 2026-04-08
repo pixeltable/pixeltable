@@ -343,6 +343,10 @@ class Table(SchemaObject):
         """Return the number of rows in this table."""
         return self.select().count()
 
+    def explain(self) -> str:
+        """Return the execution plan for a full scan of this table."""
+        return self.select().explain()
+
     def columns(self) -> list[str]:
         """Return the names of the columns in this table."""
         cols = self._tbl_version_path.columns()

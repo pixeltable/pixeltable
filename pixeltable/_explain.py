@@ -5,15 +5,17 @@ Provides human-readable representations of ExecNode trees, similar to SQL EXPLAI
 
 from __future__ import annotations
 
-import logging
-
 from pixeltable import exec, exprs
-
-_logger = logging.getLogger('pixeltable')
 
 
 def _collect_nodes(node: exec.ExecNode) -> list[exec.ExecNode]:
-    """Walk the ExecNode input chain and return nodes in data-flow order (source first)."""
+    """Walk the ExecNode input chain and return nodes in data-flow order (source first).
+
+    Note: SqlJoinNode, SqlAggregationNode, and SqlSampleNode consume their input SqlNodes
+    via CTEs (Common Table Expressions) rather than the ExecNode.input chain. Those upstream
+    scan nodes are not traversable here; the CTE-consuming node appears as the chain's leaf
+    and its formatter shows the relevant join/aggregation/sample metadata.
+    """
     nodes: list[exec.ExecNode] = []
     current = node
     while current is not None:
@@ -70,6 +72,10 @@ def _format_sql_join_node(node: exec.SqlJoinNode) -> list[str]:
             join_types.append(str(jt))
     lines.append(f'SqlJoinNode [{", ".join(join_types)} join, {len(node.input_ctes)} tables]')
     lines.append(f'  output: {len(node.select_list)} expression(s)')
+    # Show join predicates
+    for jc in node.join_clauses:
+        if jc.join_predicate is not None:
+            lines.append(f'  on: {_expr_display(jc.join_predicate)}')
     if node.where_clause is not None:
         lines.append(f'  where: {_expr_display(node.where_clause)} [SQL]')
     return lines

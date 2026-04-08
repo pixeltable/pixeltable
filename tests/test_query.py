@@ -502,18 +502,29 @@ class TestQuery:
         assert 'SqlScanNode' in plan_str
         assert 'AggregationNode' in plan_str or 'group_by' in plan_str
 
-        # Query with computed expression: should show ExprEvalNode
+        # Query with computed expression via UDF: should show ExprEvalNode
         plan_str = t.select(t.c1.upper()).explain()
         assert 'SqlScanNode' in plan_str
+        assert 'ExprEvalNode' in plan_str
 
-        # explain() returns a non-empty string
+        # Table.explain() convenience method returns a valid plan
         plan_str = t.explain()
         assert isinstance(plan_str, str)
         assert len(plan_str) > 0
+        assert 'SqlScanNode' in plan_str
 
-        # explain() does not execute the query (no side effects)
-        plan_str = t.select(t.c1).where(t.c2 < 5).explain()
+        # explain() does not execute the query: use a counter to verify
+        call_count = 0
+
+        @pxt.udf
+        def counting_udf(s: str) -> str:
+            nonlocal call_count
+            call_count += 1
+            return s
+
+        plan_str = t.select(counting_udf(t.c1)).explain()
         assert isinstance(plan_str, str)
+        assert call_count == 0, 'explain() should not execute UDFs'
 
     def test_count(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
