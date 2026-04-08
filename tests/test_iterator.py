@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import func, type_system as ts
+from pixeltable import exprs, func, type_system as ts
 from pixeltable.iterators.base import ComponentIterator
 from tests.utils import reload_catalog
 
@@ -271,7 +271,7 @@ class TestIterator:
                 def __next__(self) -> MyRow:
                     raise StopIteration
 
-                def conditional_output_schema(self, bound_args: dict[str, Any]) -> dict[str, type] | None:  # type: ignore[override]
+                def conditional_output_schema(self, bound_args: dict[str, exprs.Expr]) -> dict[str, type] | None:  # type: ignore[override]
                     return None
 
         # Error: __next__() has wrong return type (not dict)
@@ -380,7 +380,7 @@ class TestIterator:
                 raise StopIteration
 
             @classmethod
-            def conditional_output_schema(cls, bound_args: dict[str, Any]) -> dict[str, type] | None:
+            def conditional_output_schema(cls, bound_args: dict[str, exprs.Expr]) -> dict[str, type] | None:
                 return {'icol': int, 'scol': str}
 
         with pytest.raises(

@@ -146,7 +146,7 @@ dev = [
     "together>=1.5.26",
     "fal-client>=0.5.6",
     "fireworks-ai>=0.17.6",
-    "mistralai>=1.8.2",
+    "mistralai>=2.0",
     "replicate>=1.0.7 ; python_version < '3.14'",
     "google-genai>=1.67.0",
     "groq>=0.26.0",
@@ -260,7 +260,6 @@ addopts = '-v -m "not remote_api and not expensive and not benchmark" --strict-m
 markers = [
     "expensive: marks tests as expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
-    "corrupts_db: marks tests as corrupting the database and disables the database validation after the test",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "cockroachdb: tests to run against CockroachDB",
 ]
