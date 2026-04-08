@@ -626,15 +626,6 @@ class Catalog:
         if has_pending_ops:
             raise PendingTableOpsError(row.id)
 
-        # TODO do we need this?
-        key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
-        try:
-            self._get_tbl_version(key, validate_initialized=True)
-        except excs.Error as e:
-            if 'Table was dropped' in str(e):
-                return
-            raise
-
     def _acquire_write_lock(
         self, *, tbl_id: UUID, lock_mutable_tree: bool = False, check_pending_ops: bool = True
     ) -> set[UUID]:
