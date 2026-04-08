@@ -110,18 +110,6 @@
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
           </outline>
 
-          <outline text="class|pixeltable.Aggregator">
-            <outline text="method|pixeltable.Aggregator.update" />
-            <outline text="method|pixeltable.Aggregator.value" />
-          </outline>
-          <outline text="class|pixeltable.PxtIterator">
-            <outline text="method|pixeltable.PxtIterator.__next__" />
-            <outline text="method|pixeltable.PxtIterator.close" />
-          </outline>
-          <outline text="class|pixeltable.Tools">
-            <outline text="method|pixeltable.Tools.choice" />
-          </outline>
-
           <!-- Expression methods users call on column references (t.col) -->
           <outline text="class|pixeltable.exprs.Expr">
             <outline text="method|pixeltable.exprs.Expr.astype" />
