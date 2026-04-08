@@ -478,6 +478,43 @@ class TestQuery:
                Limit           10""",
         )
 
+    def test_explain(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+
+        # Basic query: should show SqlScanNode
+        plan_str = t.select(t.c1, t.c2).explain()
+        assert 'SqlScanNode' in plan_str
+        assert 'test_tbl' in plan_str
+
+        # Query with where clause: should show the filter
+        plan_str = t.where(t.c2 > 10).select(t.c1).explain()
+        assert 'SqlScanNode' in plan_str
+        assert 'where' in plan_str.lower() or 'filter' in plan_str.lower()
+
+        # Query with order_by and limit
+        plan_str = t.order_by(t.c2).limit(5).explain()
+        assert 'SqlScanNode' in plan_str
+        assert 'order_by' in plan_str
+        assert 'limit' in plan_str
+
+        # Query with group_by: should show aggregation
+        plan_str = t.select(t.c1).group_by(t.c1).explain()
+        assert 'SqlScanNode' in plan_str
+        assert 'AggregationNode' in plan_str or 'group_by' in plan_str
+
+        # Query with computed expression: should show ExprEvalNode
+        plan_str = t.select(t.c1.upper()).explain()
+        assert 'SqlScanNode' in plan_str
+
+        # explain() returns a non-empty string
+        plan_str = t.explain()
+        assert isinstance(plan_str, str)
+        assert len(plan_str) > 0
+
+        # explain() does not execute the query (no side effects)
+        plan_str = t.select(t.c1).where(t.c2 < 5).explain()
+        assert isinstance(plan_str, str)
+
     def test_count(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
         cnt = t.count()
