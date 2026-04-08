@@ -238,6 +238,7 @@ class TestGemini:
         file_path = results['output'][0]
         assert Path(file_path).exists()
 
+    @pytest.mark.expensive
     def test_generate_speech(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -251,6 +252,7 @@ class TestGemini:
         assert Path(audio_path).exists()
         assert audio_path.endswith('.wav')
 
+    @pytest.mark.expensive
     def test_generate_speech_multispeaker(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -268,6 +270,7 @@ class TestGemini:
         assert Path(audio_path).exists()
         assert audio_path.endswith('.wav')
 
+    @pytest.mark.expensive
     def test_transcribe(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')

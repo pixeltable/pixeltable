@@ -413,7 +413,9 @@ async def _(
     if reference_types is None:
         reference_types = ['asset'] * len(images)
     elif len(reference_types) != len(images):
-        raise excs.Error(f'`reference_types` length ({len(reference_types)}) must match `images` length ({len(images)}).')
+        raise excs.Error(
+            f'`reference_types` length ({len(reference_types)}) must match `images` length ({len(images)}).'
+        )
 
     reference_images = [
         types.VideoGenerationReferenceImage(image=_pil_to_gemini_image(img), reference_type=ref_type)
@@ -471,8 +473,9 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
         ... )
     """
     env.Env.get().require_package('google.genai')
-    from google.genai import types
     import wave
+
+    from google.genai import types
 
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
@@ -575,9 +578,7 @@ def _(model: str) -> str:
 
 
 @pxt.udf(is_deterministic=False)
-async def transcribe(
-    audio: pxt.Audio, *, model: str, prompt: str, config: dict | None = None
-) -> str:
+async def transcribe(audio: pxt.Audio, *, model: str, prompt: str, config: dict | None = None) -> str:
     """
     Transcribes audio to text using Gemini's audio understanding capability. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/audio>
