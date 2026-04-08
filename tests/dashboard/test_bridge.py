@@ -269,16 +269,24 @@ class TestBridge:
         t.add_computed_column(upper=t.c1.upper())
         t.add_computed_column(add=t.c2 + t.c1.len())
         t.add_computed_column(add2=2 + t.c1.len())
-        t.add_computed_column(add3=my_udf(t.c2) + t.c1.len())
+        t.add_computed_column(add3=t.c1.len() + my_udf(t.c2))
         t.add_computed_column(plus_one=my_udf(t.c1.len()))
         node = bridge.get_pipeline()['nodes'][0]
-        assert node['computed_count'] == 2
-        assert node['insertable_count'] == 1
+        assert node['computed_count'] == 5
+        assert node['insertable_count'] == 2
         cols_by_name = {c['name']: c for c in node['columns']}
         assert cols_by_name['c1']['func_name'] is None
         assert cols_by_name['c1']['func_type'] is None
+        assert cols_by_name['c2']['func_name'] is None
+        assert cols_by_name['c2']['func_type'] is None
         assert cols_by_name['upper']['func_name'] == 'upper'
         assert cols_by_name['upper']['func_type'] == 'builtin'
+        assert cols_by_name['add']['func_name'] == 'len'
+        assert cols_by_name['add']['func_type'] == 'builtin'
+        assert cols_by_name['add2']['func_name'] == 'len'
+        assert cols_by_name['add2']['func_type'] == 'builtin'
+        assert cols_by_name['add3']['func_name'] == 'len'
+        assert cols_by_name['add3']['func_type'] == 'custom_udf'
         assert cols_by_name['plus_one']['func_name'] == 'my_udf'
         assert cols_by_name['plus_one']['func_type'] == 'custom_udf'
 
