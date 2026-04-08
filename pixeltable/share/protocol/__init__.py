@@ -5,7 +5,7 @@ This module contains the core protocol structures for pixeltable table operation
 that can be shared between pixeltable core and cloud implementations.
 """
 
-from .bucket import GetHomeBucketCredentialsRequest, GetHomeBucketCredentialsResponse
+from .bucket import GetBucketCredentialsRequest, GetBucketCredentialsResponse
 from .common import PxtUri, RequestBaseModel
 from .operation_types import PixeltableStoreOperationType, ReplicaOperationType
 from .presigned_url import GetPresignedUrlRequest, GetPresignedUrlResponse
@@ -25,8 +25,8 @@ __all__ = [
     'DeleteResponse',
     'FinalizeRequest',
     'FinalizeResponse',
-    'GetHomeBucketCredentialsRequest',
-    'GetHomeBucketCredentialsResponse',
+    'GetBucketCredentialsRequest',
+    'GetBucketCredentialsResponse',
     'GetPresignedUrlRequest',
     'GetPresignedUrlResponse',
     'PixeltableStoreOperationType',
