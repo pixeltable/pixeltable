@@ -1389,7 +1389,7 @@ def init_test_pool(pool_name: str) -> None:
 
 
 # Ruff ignore: async is required for the rate-limits scheduler path since we disallow non-async functions
-# from being rate limited in the FnCallEvaluator. An alternative would be to put some trivial
+# from declaring a resource estimator in the FnCallEvaluator. An alternative would be to put some trivial
 # await (wait 0 seconds), but regardless it would be a hack to trigger the rate limited path.
 @pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed')
 async def mock_embed(content: str, model: str = 'default') -> list[float]:
