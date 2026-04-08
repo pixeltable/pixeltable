@@ -786,7 +786,7 @@ class TestTable:
                 'is_snapshot': False,
                 'is_replica': False,
                 'base': 'test',
-                'iterator_call': 'DummyIterator(limit=n)',
+                'iterator_call': 'DummyIterator(n)',
                 'version': 1,
                 'schema_version': 1,
                 'comment': None,
