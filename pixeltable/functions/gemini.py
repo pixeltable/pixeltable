@@ -450,7 +450,7 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
         model: The model to use (e.g. `'gemini-2.5-flash-preview-tts'`).
         voice: The voice profile to use. Supported voices include `'Kore'`, `'Puck'`, `'Charon'`,
             `'Fenrir'`, `'Aoede'`, `'Leda'`, `'Orus'`, `'Zephyr'`, and others. See the
-            `speech generation docs <https://ai.google.dev/gemini-api/docs/speech-generation>`_ for the full list.
+            [speech generation docs](https://ai.google.dev/gemini-api/docs/speech-generation) for the full list.
         config: Additional configuration, corresponding to keyword arguments of
             `genai.types.GenerateContentConfig`. Keys such as `response_modalities` and `speech_config`
             are set automatically and should not be included.
@@ -467,10 +467,9 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
         ...     )
         ... )
     """
-    import wave
-
     env.Env.get().require_package('google.genai')
     from google.genai import types
+    import wave
 
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
