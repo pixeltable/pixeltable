@@ -5,6 +5,8 @@ Provides human-readable representations of ExecNode trees, similar to SQL EXPLAI
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from pixeltable import exec, exprs
 
 
@@ -212,7 +214,7 @@ def format_exec_plan(root_node: exec.ExecNode) -> str:
     all_lines: list[str] = []
 
     for i, node in enumerate(nodes):
-        formatter = _NODE_FORMATTERS.get(type(node), _format_generic_node)
+        formatter: Callable[..., list[str]] = _NODE_FORMATTERS.get(type(node), _format_generic_node)
         node_lines = formatter(node)
 
         if i > 0:
