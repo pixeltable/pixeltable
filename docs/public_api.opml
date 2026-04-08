@@ -187,6 +187,7 @@
           <outline text="udf|pixeltable.functions.image.width" />
           <outline text="udf|pixeltable.functions.image.height" />
           <outline text="udf|pixeltable.functions.image.mode" />
+          <outline text="udf|pixeltable.functions.image.to_video" />
         </outline>
         <outline text="module|pixeltable.functions.json">
           <outline text="iter|pixeltable.functions.json.list_iterator" />
