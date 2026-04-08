@@ -35,7 +35,6 @@
           <outline text="func|pixeltable.udf" />
           <outline text="func|pixeltable.uda" />
           <outline text="func|pixeltable.query" />
-          <outline text="func|pixeltable.expr_udf" />
           <outline text="func|pixeltable.iterator" />
           <outline text="func|pixeltable.tools" />
           <outline text="func|pixeltable.tool" />
@@ -103,9 +102,6 @@
 
           <outline text="class|pixeltable.ResultSet">
             <outline text="property|pixeltable.ResultSet.schema" />
-            <outline text="method|pixeltable.ResultSet.__len__" />
-            <outline text="method|pixeltable.ResultSet.__iter__" />
-            <outline text="method|pixeltable.ResultSet.__getitem__" />
             <outline text="method|pixeltable.ResultSet.to_pandas" />
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
           </outline>
