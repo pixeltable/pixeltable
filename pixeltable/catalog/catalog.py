@@ -326,7 +326,7 @@ class Catalog:
 
         Locking protocol (via _acquire_locks()):
         - write targets (tvp_write_targets, tbl_id_write_targets): x-locks each Table record (see
-          _acquire_tbl_lock() / _acquire_path_locks())
+          _acquire_write_lock() / _acquire_path_locks())
         - read targets (tvp_read_targets, tbl_id_read_targets): refreshes the metadata cache, no x-lock
         - if lock_mutable_tree == True, also x-locks all mutable views of each write target
         - if finalize_pending_ops == True and a PendingTableOpsError is raised, finalizes pending ops and retries
@@ -476,12 +476,8 @@ class Catalog:
             if tbl_id in x_locked_ids:
                 continue
             x_locked_ids.update(
-                self._acquire_tbl_lock(
-                    tbl_id=tbl_id,
-                    for_write=True,
-                    lock_mutable_tree=lock_mutable_tree,
-                    raise_if_not_exists=True,
-                    check_pending_ops=finalize_pending_ops,
+                self._acquire_write_lock(
+                    tbl_id=tbl_id, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
                 )
             )
         for tvp in tvp_write_targets:
@@ -493,18 +489,13 @@ class Catalog:
                 )
             )
         for tbl_id in tbl_id_read_targets:
-            if tbl_id in x_locked_ids:
-                continue
-            self._acquire_tbl_lock(
-                tbl_id=tbl_id,
-                for_write=False,
-                lock_mutable_tree=lock_mutable_tree,
-                raise_if_not_exists=True,
-                check_pending_ops=finalize_pending_ops,
-            )
+            # this is probably incorrect
+            # if tbl_id in x_locked_ids:
+            #     continue
+            self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
         for tvp in tvp_read_targets:
-            if tvp.tbl_id in x_locked_ids:
-                continue
+            # if tvp.tbl_id in x_locked_ids:
+            #     continue
             self._acquire_path_locks(
                 tbl=tvp, for_write=False, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
             )
@@ -600,38 +591,22 @@ class Catalog:
             _ = self._get_tbl_version(handle.key, validate_initialized=True)
         if not for_write:
             return set()  # nothing to lock
-        # TODO try to cleanup lock_mutable_tree behavior
-        locked_ids = self._acquire_tbl_lock(
-            tbl_id=tbl.tbl_id,
-            for_write=True,
-            lock_mutable_tree=lock_mutable_tree,
-            raise_if_not_exists=True,
-            check_pending_ops=check_pending_ops,
+        return self._acquire_write_lock(
+            tbl_id=tbl.tbl_id, lock_mutable_tree=lock_mutable_tree, check_pending_ops=check_pending_ops
         )
-        # update cache
-        _ = self._get_tbl_version(path_handles[0].key, validate_initialized=True)
-        return locked_ids
 
-    def _acquire_tbl_lock(
-        self,
-        *,
-        for_write: bool,
-        tbl_id: UUID | None = None,
-        dir_id: UUID | None = None,
-        tbl_name: str | None = None,
-        lock_mutable_tree: bool = False,
-        raise_if_not_exists: bool = True,
-        check_pending_ops: bool = True,
-    ) -> set[UUID]:
+    def _lock_tbl_if_exists(
+        self, *, tbl_id: UUID | None = None, dir_id: UUID | None = None, tbl_name: str | None = None
+    ) -> None:
         """
-        For writes: force acquisition of an X-lock on a Table record via a blind update.
+        Attempts to acquire an X-lock on a Table record, silently doing nothing if the table does not exist.
 
-        Either tbl_id or dir_id/tbl_name need to be specified.
-        If lock_mutable_tree, recursively locks all mutable views of the table.
+        Either tbl_id or dir_id/tbl_name need to be specified. Used when locking a slot that may not yet
+        contain a table (e.g., guard against concurrent creation, or locking ancestors during replica import).
 
-        Returns the set of table IDs that were X-locked (empty if the lock couldn't be acquired,
-        e.g., tbl is a non-mutable table).
+        Returns the set of table IDs that were X-locked (empty if the table does not exist or is non-mutable).
         """
+        # TODO should this update self._x_locked_tbl_ids?
         assert (tbl_id is not None) != (dir_id is not None and tbl_name is not None)
         assert (dir_id is None) == (tbl_name is None)
         where_clause: sql.ColumnElement
@@ -644,17 +619,46 @@ class Catalog:
                 where_clause = sql.and_(where_clause, schema.Table.md['user'].astext == Env.get().user)
 
         conn = get_runtime().conn
-        q = sql.select(schema.Table).where(where_clause)
-        if for_write:
-            q = q.with_for_update(nowait=True)
-        row = conn.execute(q).one_or_none()
+        row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
         if row is None:
-            if raise_if_not_exists:
-                raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
-            return set()  # nothing to lock
+            return
+        tbl_md = schema.md_from_dict(schema.TableMd, row.md)
+        if tbl_md.is_mutable:
+            conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(where_clause))
+
+        pending_ops_q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == row.id)
+        has_pending_ops = conn.execute(pending_ops_q).scalar() > 0
+        if has_pending_ops:
+            raise PendingTableOpsError(row.id)
+
+        # TODO do we need this?
+        key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
+        try:
+            self._get_tbl_version(key, validate_initialized=True)
+        except excs.Error as e:
+            if 'Table was dropped' in str(e):
+                return
+            raise
+
+    def _acquire_write_lock(
+        self, *, tbl_id: UUID, lock_mutable_tree: bool = False, check_pending_ops: bool = True
+    ) -> set[UUID]:
+        """
+        Force acquisition of an X-lock on a Table record via a blind update.
+
+        If lock_mutable_tree, recursively locks all mutable views of the table.
+
+        Returns the set of table IDs that were X-locked (empty if the lock couldn't be acquired,
+        e.g., tbl is a non-mutable table).
+        """
+        where_clause = schema.Table.id == tbl_id
+        conn = get_runtime().conn
+        row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
+        if row is None:
+            raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
         tbl_md = schema.md_from_dict(schema.TableMd, row.md)
         locked: set[UUID] = set()
-        if for_write and tbl_md.is_mutable:
+        if tbl_md.is_mutable:
             locked.add(row.id)
             conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(where_clause))
 
@@ -665,36 +669,40 @@ class Catalog:
             if has_pending_ops:
                 raise PendingTableOpsError(row.id)
 
-            key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
-            try:
-                tv = self._get_tbl_version(key, validate_initialized=True)
-            except PendingTableOpsError:
-                if not check_pending_ops:
-                    return set()
-                raise
-            except excs.Error as e:
-                assert not raise_if_not_exists
-                if 'Table was dropped' in str(e):
-                    return set()
-                raise
-
         # TODO: properly handle concurrency for replicas with live views (once they are supported)
-        if for_write and not tbl_md.is_mutable:
+        if not tbl_md.is_mutable:
             return set()  # nothing to lock
 
-        if tbl_md.is_mutable and lock_mutable_tree:
+        if lock_mutable_tree:
             # also lock mutable views
+            key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
+            tv = self._get_tbl_version(key, validate_initialized=True)
             for view in tv.mutable_views:
                 locked.update(
-                    self._acquire_tbl_lock(
-                        for_write=for_write,
-                        tbl_id=view.id,
-                        lock_mutable_tree=lock_mutable_tree,
-                        raise_if_not_exists=raise_if_not_exists,
-                        check_pending_ops=check_pending_ops,
+                    self._acquire_write_lock(
+                        tbl_id=view.id, lock_mutable_tree=lock_mutable_tree, check_pending_ops=check_pending_ops
                     )
                 )
         return locked
+
+    def _refresh_tbl_cache(self, *, tbl_id: UUID, check_pending_ops: bool = True) -> None:
+        """
+        Refreshes the cached metadata for a table without acquiring any lock.
+        """
+        conn = get_runtime().conn
+        row = conn.execute(sql.select(schema.Table).where(schema.Table.id == tbl_id)).one_or_none()
+        if row is None:
+            raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
+        tbl_md = schema.md_from_dict(schema.TableMd, row.md)
+
+        if check_pending_ops:
+            pending_ops_q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == row.id)
+            has_pending_ops = conn.execute(pending_ops_q).scalar() > 0
+            if has_pending_ops:
+                raise PendingTableOpsError(row.id)
+
+        key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
+        self._get_tbl_version(key, validate_initialized=True)
 
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
@@ -1168,7 +1176,7 @@ class Catalog:
 
         # check for table
         if lock_entry:
-            self._acquire_tbl_lock(for_write=True, dir_id=dir_id, raise_if_not_exists=False, tbl_name=name)
+            self._lock_tbl_if_exists(dir_id=dir_id, tbl_name=name)
         q = sql.select(schema.Table.id).where(
             self._active_tbl_clause(dir_id=dir_id, tbl_name=name), schema.Table.md['user'].astext == user
         )
@@ -1314,7 +1322,8 @@ class Catalog:
             if not is_snapshot and base.is_mutable():
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
-                self._acquire_tbl_lock(tbl_id=base.tbl_id, for_write=True)
+                # assert that lock acquired?
+                self._acquire_write_lock(tbl_id=base.tbl_id)
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
                 base_tv.tbl_md.view_sn += 1
                 result = get_runtime().conn.execute(
@@ -1403,7 +1412,7 @@ class Catalog:
 
         # Acquire locks for any tables in the ancestor hierarchy that might already exist (base table first).
         for ancestor_md in md[::-1]:  # base table first
-            self._acquire_tbl_lock(for_write=True, tbl_id=UUID(ancestor_md.tbl_md.tbl_id), raise_if_not_exists=False)
+            self._lock_tbl_if_exists(tbl_id=UUID(ancestor_md.tbl_md.tbl_id))
 
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
@@ -1643,7 +1652,8 @@ class Catalog:
                 # this is a mutable view of a mutable base;
                 # lock the base before the view, in order to avoid deadlocks with concurrent inserts/updates
                 base_id = tbl._tbl_version_path.base.tbl_id
-                self._acquire_tbl_lock(tbl_id=base_id, for_write=True, lock_mutable_tree=False)
+                # assert that lock was acquired?
+                self._acquire_write_lock(tbl_id=base_id)
 
             self._drop_tbl(tbl, force=force, is_replace=False)
 
@@ -1679,7 +1689,7 @@ class Catalog:
 
         if tbl is not None:
             self._acquire_dir_xlock(dir_id=tbl._dir_id)
-        self._acquire_tbl_lock(tbl_id=tbl_id, for_write=True, lock_mutable_tree=False)
+        self._acquire_write_lock(tbl_id=tbl_id)
 
         view_ids = self.get_view_ids(tbl_id, for_update=True)
         is_replica = tvp.is_replica()

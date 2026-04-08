@@ -1596,7 +1596,8 @@ class Table(SchemaObject):
             >>> tbl.recompute_columns('c1', errors_only=True)
         """
 
-        @catalog.retry_loop(tvp_read_targets=[self._tbl_version_path], lock_mutable_tree=True)
+        # strictly speaking, this doesn't have to be write transaction. reconsider later.
+        @catalog.retry_loop(for_write=True, tvp_read_targets=[self._tbl_version_path], lock_mutable_tree=True)
         def validate_where() -> None:
             if where is not None and not where.is_bound_by([self._tbl_version_path]):
                 raise excs.Error(f'`where` predicate ({where}) is not bound by {self._display_str()}')
