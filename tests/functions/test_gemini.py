@@ -278,7 +278,9 @@ class TestGemini:
 
         audio_files = get_audio_files()
         t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
-        t.add_computed_column(transcript=transcribe(t.audio, model='gemini-2.5-flash', prompt='Transcribe this audio recording.'))
+        t.add_computed_column(
+            transcript=transcribe(t.audio, model='gemini-2.5-flash', prompt='Transcribe this audio recording.')
+        )
         validate_update_status(t.insert(audio=audio_files[0]), expected_rows=1)
         results = t.collect()
         transcript = results['transcript'][0]
