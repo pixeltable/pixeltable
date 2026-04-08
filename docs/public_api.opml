@@ -159,6 +159,7 @@
           <outline text="udf|pixeltable.functions.image.to_video" />
         </outline>
         <outline text="module|pixeltable.functions.json">
+          <outline text="iter|pixeltable.functions.json.list_iterator" />
           <outline text="udf|pixeltable.functions.json.dumps" />
           <outline text="udf|pixeltable.functions.json.make_list" />
         </outline>
