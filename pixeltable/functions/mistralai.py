@@ -20,15 +20,29 @@ if TYPE_CHECKING:
     import mistralai
 
 
+def _import_mistral_class() -> type:
+    """Import the Mistral client class, supporting both SDK v1.x and v2.x."""
+    try:
+        from mistralai.client import Mistral  # type: ignore[attr-defined]
+    except ImportError:
+        from mistralai import Mistral
+    return Mistral
+
+
 @register_client('mistral')
 def _(api_key: str) -> 'mistralai.Mistral':
-    import mistralai
-
-    return mistralai.Mistral(api_key=api_key)
+    return _import_mistral_class()(api_key=api_key)
 
 
 def _mistralai_client() -> 'mistralai.Mistral':
     return get_runtime().get_client('mistral')
+
+
+def _to_dict(obj: Any) -> dict:
+    """Serialize a Mistral API response, supporting both SDK v1.x and v2.x."""
+    if hasattr(obj, 'model_dump'):
+        return obj.model_dump()
+    return obj.dict()
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:mistral')
@@ -76,7 +90,7 @@ async def chat_completions(
         model=model,
         **model_kwargs,
     )
-    return result.dict()
+    return _to_dict(result)
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:mistral')
@@ -119,7 +133,7 @@ async def fim_completions(prompt: str, *, model: str, model_kwargs: dict[str, An
 
     Env.get().require_package('mistralai')
     result = await _mistralai_client().fim.complete_async(prompt=prompt, model=model, **model_kwargs)
-    return result.dict()
+    return _to_dict(result)
 
 
 _embedding_dimensions_cache: dict[str, int] = {'mistral-embed': 1024}
