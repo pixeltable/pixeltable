@@ -1,5 +1,10 @@
 /* Pixeltable Documentation - Minimal overrides */
 
+/* Sidebar icon ordering (keeps notebook icons in correct position) */
+#sidebar svg.h-4 {
+  order: 1;
+}
+
 /* Widen main content area */
 article,
 [data-selector="content"],
