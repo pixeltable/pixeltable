@@ -15,10 +15,13 @@ from typing import Any, Literal, Sequence, TypedDict
 import PIL.Image
 
 import pixeltable as pxt
+import pixeltable.utils.av as av_utils
 from pixeltable import exceptions as excs, type_system as ts
+from pixeltable.env import Env
 from pixeltable.exprs import Expr
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
+from pixeltable.utils.local_store import TempStore
 
 
 @pxt.udf(is_method=True)
@@ -588,10 +591,6 @@ def to_video(
         ...     tbl.image.rotate(180).to_video(duration=10.0, fps=30)
         ... ).collect()
     """
-    import pixeltable.utils.av as av_utils
-    from pixeltable.env import Env
-    from pixeltable.utils.local_store import TempStore
-
     Env.get().require_binary('ffmpeg')
     if duration <= 0:
         raise excs.Error(f'duration must be positive, got {duration}')
