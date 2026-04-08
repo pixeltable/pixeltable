@@ -432,7 +432,7 @@ def _(model: str) -> str:
 
 
 @pxt.udf(is_deterministic=False)
-async def generate_speech(text: str, *, model: str, voice: str = 'Kore', config: dict | None = None) -> pxt.Audio:
+async def generate_speech(text: str, *, model: str, voice: str, config: dict | None = None) -> pxt.Audio:
     """
     Generates speech audio from text using Gemini's text-to-speech capability. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/speech-generation>
