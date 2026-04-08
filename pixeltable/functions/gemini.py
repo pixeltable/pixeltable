@@ -451,6 +451,9 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
         voice: The voice profile to use. Supported voices include `'Kore'`, `'Puck'`, `'Charon'`,
             `'Fenrir'`, `'Aoede'`, `'Leda'`, `'Orus'`, `'Zephyr'`, and others. See the
             [speech generation docs](https://ai.google.dev/gemini-api/docs/speech-generation) for the full list.
+            Mutually exclusive with `voices`.
+        voices: A mapping from speaker alias (as used in the text) to voice name. For example,
+            `{'Alice': 'Kore', 'Bob': 'Puck'}`. Mutually exclusive with `voice`.
         config: Additional configuration, corresponding to keyword arguments of
             `genai.types.GenerateContentConfig`. Keys such as `response_modalities` and `speech_config`
             are set automatically and should not be included.
