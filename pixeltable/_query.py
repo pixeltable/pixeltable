@@ -633,6 +633,34 @@ class Query:
         else:
             print(repr(self))
 
+    def explain(self) -> str:
+        """Return the execution plan for this Query as a human-readable string.
+
+        Shows the pipeline of execution nodes that Pixeltable will use to evaluate the query,
+        in data-flow order (source at top, output at bottom). Each node displays its key
+        properties: table scans, SQL/Python filters, ordering, aggregation, expression
+        evaluation, media prefetching, and more.
+
+        This method builds the plan without executing the query.
+
+        Returns:
+            A multi-line string describing the execution plan.
+
+        Example:
+            >>> plan_str = t.select(t.text, t.embedding).where(t.score > 0.5).explain()
+            >>> print(plan_str)
+            SqlScanNode [table: 'my_table']
+              output: 3 expression(s)
+              where: score > 0.5 [SQL]
+            -> ExprEvalNode [1 expression(s), Python]
+        """
+        from pixeltable._explain import format_exec_plan
+
+        single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
+        with get_runtime().catalog.begin_xact(tbl=single_tbl, for_write=False):
+            plan_node = self._create_query_plan()
+            return format_exec_plan(plan_node)
+
     def __repr__(self) -> str:
         return self._descriptors().to_string()
 
