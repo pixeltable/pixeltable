@@ -496,7 +496,20 @@ class Query:
 
     def _output_row_iterator(self) -> Iterator[list]:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
-        with get_runtime().catalog.begin_xact(tvp_read_targets=self._from_clause.tbls):
+
+        # find all tables and lock them
+        # TODO refactor/cleanup
+        all_exprs: list[exprs.Expr] = [
+            *self._select_list_exprs,
+            *([self.where_clause] if self.where_clause is not None else []),
+            *(self.group_by_clause or []),
+            *([e for e, _ in self.order_by_clause] if self.order_by_clause is not None else []),
+        ]
+        tbl_ids = exprs.Expr.all_tbl_ids(all_exprs) | {
+            tvh.id for tvp in self._from_clause.tbls for tvh in tvp.get_tbl_versions()
+        }
+
+        with get_runtime().catalog.begin_xact(tbl_id_read_targets=list(tbl_ids)):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
