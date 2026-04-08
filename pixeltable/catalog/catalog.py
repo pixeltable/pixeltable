@@ -2561,7 +2561,7 @@ class Catalog:
 
         return md
 
-    def _load_tbl_version(self, key: TableVersionKey, *, check_pending_ops: bool = True) -> TableVersion | None:
+    def _load_tbl_version(self, key: TableVersionKey, *, check_pending_ops: bool = True) -> TableVersion:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
         tv_md = self.load_tbl_md(key)
         tbl_md = tv_md.tbl_md
