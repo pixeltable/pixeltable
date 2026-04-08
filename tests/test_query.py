@@ -504,18 +504,7 @@ class TestQuery:
         assert 'SqlAggregationNode' in plan_str
         assert 'group_by' in plan_str
 
-        # Query with computed expression via UDF: should show ExprEvalNode
-        plan_str = t.select(t.c1.upper()).explain()
-        assert 'SqlScanNode' in plan_str
-        assert 'ExprEvalNode' in plan_str
-
-        # Table.explain() convenience method returns a valid plan
-        plan_str = t.explain()
-        assert isinstance(plan_str, str)
-        assert len(plan_str) > 0
-        assert 'SqlScanNode' in plan_str
-
-        # explain() does not execute the query: use a counter to verify
+        # Query with a Python UDF: should show ExprEvalNode
         call_count = 0
 
         @pxt.udf
@@ -525,7 +514,16 @@ class TestQuery:
             return s
 
         plan_str = t.select(counting_udf(t.c1)).explain()
+        assert 'SqlScanNode' in plan_str
+        assert 'ExprEvalNode' in plan_str
+
+        # Table.explain() convenience method returns a valid plan
+        plan_str = t.explain()
         assert isinstance(plan_str, str)
+        assert len(plan_str) > 0
+        assert 'SqlScanNode' in plan_str
+
+        # explain() does not execute the query: verify UDF was never called
         assert call_count == 0, 'explain() should not execute UDFs'
 
     def test_count(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
