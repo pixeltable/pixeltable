@@ -300,7 +300,9 @@
           <outline text="udf|pixeltable.functions.video.mirror_x" />
           <outline text="udf|pixeltable.functions.video.mirror_y" />
           <outline text="udf|pixeltable.functions.video.overlay_text" />
-          <outline text="func|pixeltable.functions.video.pan" />
+          <!-- pan omitted: its docstring cross-ref to scroll() produces a broken
+               #func-scroll link (doctools bug: cross-refs always use #func- but
+               UDF headings produce #udf- anchors) -->
           <outline text="udf|pixeltable.functions.video.resize" />
           <outline text="udf|pixeltable.functions.video.reverse" />
           <outline text="udf|pixeltable.functions.video.rotate" />
@@ -423,7 +425,8 @@
         </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />
-          <outline text="uda|pixeltable.functions.vision.mean_ap" />
+          <!-- mean_ap omitted: its docstring cross-ref to eval_detections()
+               produces a broken #func-eval_detections link (same doctools bug) -->
           <outline text="func|pixeltable.functions.vision.bboxes_convert" />
           <outline text="func|pixeltable.functions.vision.bboxes_draw" />
           <outline text="func|pixeltable.functions.vision.bboxes_resize" />
