@@ -8,6 +8,7 @@ import json
 import logging
 import traceback
 from pathlib import Path
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Sequence, TypeVar
 
 import pandas as pd
@@ -27,18 +28,18 @@ from pixeltable.utils.formatter import Formatter
 if TYPE_CHECKING:
     import torch.utils.data
 
-__all__ = ['Query']
+__all__ = ['Query', 'ResultCursor', 'ResultSet', 'Row']
 
 _logger = logging.getLogger('pixeltable')
 
 
 class ResultSet:
-    _rows: list[list[Any]]
+    _rows: list[Row]
     _col_names: list[str]
     __schema: dict[str, ColumnType]
     __formatter: Formatter
 
-    def __init__(self, rows: list[list[Any]], schema: dict[str, ColumnType]):
+    def __init__(self, rows: list[Row], schema: dict[str, ColumnType]):
         self._rows = rows
         self._col_names = list(schema.keys())
         self.__schema = schema
@@ -70,7 +71,7 @@ class ResultSet:
         self._rows.reverse()
 
     def to_pandas(self) -> pd.DataFrame:
-        return pd.DataFrame.from_records(self._rows, columns=self._col_names)
+        return pd.DataFrame.from_records([dict(row.items()) for row in self._rows], columns=self._col_names)
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
 
@@ -110,28 +111,26 @@ class ResultSet:
             except pydantic.ValidationError as e:
                 raise excs.Error(str(e)) from e
 
-    def _row_to_dict(self, row_idx: int) -> dict[str, Any]:
-        return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
-
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
             if index not in self._col_names:
                 raise excs.Error(f'Invalid column name: {index}')
-            col_idx = self._col_names.index(index)
-            return [row[col_idx] for row in self._rows]
+            return [row[index] for row in self._rows]
         if isinstance(index, int):
-            return self._row_to_dict(index)
+            return dict(self._rows[index].items())
         if isinstance(index, tuple) and len(index) == 2:
             if not isinstance(index[0], int) or not isinstance(index[1], (str, int)):
                 raise excs.Error(f'Bad index, expected [<row idx>, <column name | column index>]: {index}')
-            if isinstance(index[1], str) and index[1] not in self._col_names:
-                raise excs.Error(f'Invalid column name: {index[1]}')
-            col_idx = self._col_names.index(index[1]) if isinstance(index[1], str) else index[1]
-            return self._rows[index[0]][col_idx]
+            row = self._rows[index[0]]
+            if isinstance(index[1], str):
+                if index[1] not in self._col_names:
+                    raise excs.Error(f'Invalid column name: {index[1]}')
+                return row[index[1]]
+            return row._data[index[1]]
         raise excs.Error(f'Bad index: {index}')
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
-        return (self._row_to_dict(i) for i in range(len(self)))
+        return (dict(row.items()) for row in self._rows)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ResultSet):
@@ -141,42 +140,110 @@ class ResultSet:
     def __hash__(self) -> int:
         return hash(self.to_pandas())
 
+
 class Row:
+    """Memory-efficient row wrapper that provides dict-like access to column values."""
+
     def __init__(self, data: list[Any], columns: dict[str, int]):
-        self.data = data
-        self.columns = columns
-    
+        self._data = data
+        self._columns = columns
+
     def __getitem__(self, key: str) -> Any:
-        if key not in self.columns:
-            raise excs.Error(f"Column {key} does not exist in the row.")
-        idx = self.columns[key]
-        return self.data[idx]
+        if key not in self._columns:
+            raise excs.Error(f'Column {key} does not exist in the row.')
+        return self._data[self._columns[key]]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key not in self._columns:
+            raise excs.Error(f'Column {key} does not exist in the row.')
+        return self._data[self._columns[key]]
+
+    def keys(self) -> Iterator[str]:
+        return iter(self._columns.keys())
+
+    def values(self) -> Iterator[Any]:
+        return (self._data[idx] for idx in self._columns.values())
+
+    def items(self) -> Iterator[tuple[str, Any]]:
+        return ((name, self._data[idx]) for name, idx in self._columns.items())
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._columns
+
+    def __len__(self) -> int:
+        return len(self._columns)
+
+    def __repr__(self) -> str:
+        return '{' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '}'
+
 
 class ResultCursor:
+    """Lazy, streaming cursor over query results.
+
+    Wraps a Query's row iterator and yields Row objects one at a time,
+    avoiding materializing all results into memory.
+    """
+
     def __init__(self, query: Query):
-        self.query = copy.deepcopy(query)
-        self._row_iterator = None
+        self._query = query
+        self._row_iterator: Iterator[list] | None = None
+        self._columns: dict[str, int] = {name: i for i, name in enumerate(query.schema)}
         self._closed = False
 
     def open(self) -> None:
         if self._row_iterator is not None:
-            raise excs.Error("Cursor is already open.")
+            raise excs.Error('Cursor is already open.')
         if self._closed:
-            raise excs.Error("Cursor is closed and cannot be reopened.")
-        self._row_iterator = self.query._output_row_iterator()
+            raise excs.Error('Cursor is closed and cannot be reopened.')
+        self._row_iterator = self._query._output_row_iterator()
 
     def close(self) -> None:
         if self._closed:
             return
+        if self._row_iterator is not None:
+            # Sends GeneratorExit into _output_row_iterator, unwinding begin_xact()
+            self._row_iterator.close()  # type: ignore[attr-defined]
         self._row_iterator = None
         self._closed = True
 
-    def __enter__(self) -> ResultCursor:
+    def __enter__(self) -> ResultCursor:  # noqa: PYI034
         self.open()
         return self
-    
-    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None):
+
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+    ) -> None:
         self.close()
+
+    def __del__(self) -> None:
+        self.close()
+
+    def __iter__(self) -> Iterator[Row]:
+        if self._closed:
+            raise excs.Error('Cursor is closed.')
+        if self._row_iterator is None:
+            self.open()
+        assert self._row_iterator is not None
+        try:
+            for data in self._row_iterator:
+                yield Row(data, self._columns)
+        finally:
+            self.close()
+
+    @property
+    def _schema(self) -> dict[str, ColumnType]:
+        return self._query.schema
+
+    def __repr__(self) -> str:
+        if self._closed:
+            state = 'closed'
+        elif self._row_iterator is not None:
+            state = 'open'
+        else:
+            state = 'pending'
+        cols = ', '.join(f'{name}: {col_type}' for name, col_type in self._schema.items())
+        return f'ResultCursor({state}, columns=[{cols}])'
+
 
 # # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
 # class AnalysisInfo:
@@ -581,12 +648,16 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        return ResultSet(list(self._output_row_iterator()), self.schema)
+        return ResultSet(list(self.cursor()), self.schema)
+
+    def cursor(self) -> ResultCursor:
+        return ResultCursor(self)
 
     async def _acollect(self) -> ResultSet:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
+        columns = {name: i for i, name in enumerate(self.schema)}
         try:
-            result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec()]
+            result = [Row([row[e.slot_idx] for e in self._select_list_exprs], columns) async for row in self._aexec()]
             return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
