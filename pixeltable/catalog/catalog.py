@@ -665,17 +665,18 @@ class Catalog:
             if has_pending_ops:
                 raise PendingTableOpsError(row.id)
 
-        key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
-        try:
-            tv = self._get_tbl_version(key, validate_initialized=True)
-        except PendingTableOpsError:
-            if not check_pending_ops:
-                return set()
-            raise
-        except excs.Error as e:
-            if 'Table was dropped' in str(e):
-                return set()
-            raise
+            key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
+            try:
+                tv = self._get_tbl_version(key, validate_initialized=True)
+            except PendingTableOpsError:
+                if not check_pending_ops:
+                    return set()
+                raise
+            except excs.Error as e:
+                assert not raise_if_not_exists
+                if 'Table was dropped' in str(e):
+                    return set()
+                raise
 
         # TODO: properly handle concurrency for replicas with live views (once they are supported)
         if for_write and not tbl_md.is_mutable:
