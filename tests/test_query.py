@@ -498,9 +498,11 @@ class TestQuery:
         assert 'limit' in plan_str
 
         # Query with group_by: should show aggregation
+        # Note: SqlAggregationNode consumes its input SqlScanNode via CTE,
+        # so only the aggregation node appears in the linear chain
         plan_str = t.select(t.c1).group_by(t.c1).explain()
-        assert 'SqlScanNode' in plan_str
-        assert 'AggregationNode' in plan_str or 'group_by' in plan_str
+        assert 'SqlAggregationNode' in plan_str
+        assert 'group_by' in plan_str
 
         # Query with computed expression via UDF: should show ExprEvalNode
         plan_str = t.select(t.c1.upper()).explain()
