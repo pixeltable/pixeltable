@@ -76,7 +76,7 @@ async def chat_completions(
         model=model,
         **model_kwargs,
     )
-    return result.model_dump()
+    return result.model_dump(mode='json')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:mistral')
@@ -119,7 +119,7 @@ async def fim_completions(prompt: str, *, model: str, model_kwargs: dict[str, An
 
     Env.get().require_package('mistralai', [2, 0])
     result = await _mistralai_client().fim.complete_async(prompt=prompt, model=model, **model_kwargs)
-    return result.model_dump()
+    return result.model_dump(mode='json')
 
 
 _embedding_dimensions_cache: dict[str, int] = {'mistral-embed': 1024}

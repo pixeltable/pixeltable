@@ -823,7 +823,7 @@ class Env:
             module = importlib.import_module(package_name)
             version_str: str | None = getattr(module, '__version__', None)
             if version_str is None:
-                version_str = importlib.metadata.version(package_name)
+                version_str = importlib.metadata.version(package_info.library_name)
             package_info.version = [int(x) for x in version_str.split('.')]
 
         if min_version > package_info.version:
