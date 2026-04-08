@@ -99,18 +99,6 @@ def _get_header_info(
 
 
 class AnthropicRateLimitsInfo(env.RateLimitsInfo):
-    def __init__(self) -> None:
-        super().__init__(self._get_request_resources)
-
-    def _get_request_resources(self, messages: dict, max_tokens: int) -> dict[str, int]:
-        input_len = 0
-        for message in messages:
-            if 'role' in message:
-                input_len += len(message['role'])
-            if 'content' in message:
-                input_len += len(message['content'])
-        return {'requests': 1, 'input_tokens': int(input_len / 4), 'output_tokens': max_tokens}
-
     def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
         import anthropic
 
@@ -263,6 +251,17 @@ async def messages(
 @messages.resource_pool
 def _(model: str) -> str:
     return f'rate-limits:anthropic:{model}'
+
+
+@messages.resource_estimator
+def _(messages: list[dict[str, str]], max_tokens: int) -> dict[str, int]:
+    input_len = 0
+    for message in messages:
+        if 'role' in message:
+            input_len += len(message['role'])
+        if 'content' in message:
+            input_len += len(message['content'])
+    return {'requests': 1, 'input_tokens': int(input_len / 4), 'output_tokens': max_tokens}
 
 
 def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
