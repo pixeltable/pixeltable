@@ -325,12 +325,8 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
     return results
 
 
-# Matches the topmost function name in a display expression, e.g.
-#   'my_udf(c1.len())'  -> 'my_udf'
-#   'c1.upper()'         -> 'upper'
-#   'frame_iterator(t.video, fps=1)' -> 'frame_iterator'
-# For expressions without FunctionCalls like 'c1 + 1' there is no match.
-_TOPMOST_FUNC_RE = re.compile(r'(?:^|.*\.)(\w+)\(')
+# matches the name of the function of the first function call in a display expression
+_FIRST_FUNC_RE = re.compile(r'(\w+)\(')
 
 
 def get_pipeline() -> dict[str, Any]:
@@ -352,7 +348,7 @@ def get_pipeline() -> dict[str, Any]:
 
             iterator_name: str | None = None
             if md['is_view'] and md['iterator_call'] is not None:
-                m = _TOPMOST_FUNC_RE.match(md['iterator_call'])
+                m = _FIRST_FUNC_RE.search(md['iterator_call'])
                 iterator_name = m.group(1) if m else md['iterator_call']
 
             columns: list[dict[str, Any]] = []
@@ -379,16 +375,16 @@ def get_pipeline() -> dict[str, Any]:
                     func_type = None
                 elif is_iter_col:
                     func_type = 'iterator'
-                elif info['is_builtin'] is not None and not info['is_builtin']:
-                    func_type = 'custom_udf'
-                else:
+                elif info['is_builtin']:
                     func_type = 'builtin'
+                else:
+                    func_type = 'custom_udf'
 
                 func_name: str | None = None  # the function name of the topmost call
                 if is_iter_col:
                     func_name = iterator_name
                 elif value_expr is not None:
-                    match = _TOPMOST_FUNC_RE.match(value_expr)
+                    match = _FIRST_FUNC_RE.search(value_expr)
                     if match is not None:
                         func_name = match.group(1)
 

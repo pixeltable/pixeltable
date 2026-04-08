@@ -265,8 +265,11 @@ class TestBridge:
 
     def test_pipeline_computed_columns(self, uses_db: None) -> None:
         pxt.create_dir('pp')
-        t = pxt.create_table('pp/t', {'c1': pxt.String})
+        t = pxt.create_table('pp/t', {'c1': pxt.String, 'c2': pxt.Int})
         t.add_computed_column(upper=t.c1.upper())
+        t.add_computed_column(add=t.c2 + t.c1.len())
+        t.add_computed_column(add2=2 + t.c1.len())
+        t.add_computed_column(add3=my_udf(t.c2) + t.c1.len())
         t.add_computed_column(plus_one=my_udf(t.c1.len()))
         node = bridge.get_pipeline()['nodes'][0]
         assert node['computed_count'] == 2
