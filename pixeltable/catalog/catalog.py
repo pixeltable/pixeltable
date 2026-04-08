@@ -489,13 +489,8 @@ class Catalog:
                 )
             )
         for tbl_id in tbl_id_read_targets:
-            # this is probably incorrect
-            # if tbl_id in x_locked_ids:
-            #     continue
             self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
         for tvp in tvp_read_targets:
-            # if tvp.tbl_id in x_locked_ids:
-            #     continue
             self._acquire_path_locks(
                 tbl=tvp, for_write=False, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
             )
