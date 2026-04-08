@@ -1905,7 +1905,8 @@ class Catalog:
         assert conn is not None
         tv = self._tbl_versions.get(key)
         if (
-            (tv is None or not tv.is_validated)
+            # (tv is None or not tv.is_validated)
+            tv is None
             # and check_pending_ops
             # and (key.tbl_id not in self._x_locked_tbl_ids)
             # and not from_begin_xact
