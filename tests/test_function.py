@@ -1,4 +1,4 @@
-# noqa: RUF029
+# ruff: noqa: RUF029
 import re
 import subprocess
 import typing
