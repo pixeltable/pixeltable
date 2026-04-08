@@ -576,7 +576,7 @@ def _(model: str) -> str:
 
 @pxt.udf(is_deterministic=False)
 async def transcribe(
-    audio: pxt.Audio, *, model: str, prompt: str = 'Generate a transcript of the speech.', config: dict | None = None
+    audio: pxt.Audio, *, model: str, prompt: str, config: dict | None = None
 ) -> str:
     """
     Transcribes audio to text using Gemini's audio understanding capability. For additional details, see:
@@ -593,7 +593,7 @@ async def transcribe(
     Args:
         audio: The audio file to transcribe.
         model: The model to use (e.g. `'gemini-2.5-flash'`).
-        prompt: The instruction prompt sent alongside the audio. Defaults to
+        prompt: The instruction prompt sent alongside the audio. For example,
             `'Generate a transcript of the speech.'`.
         config: Additional configuration, corresponding to keyword arguments of
             `genai.types.GenerateContentConfig`.
