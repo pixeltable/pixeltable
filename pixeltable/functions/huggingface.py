@@ -7,7 +7,7 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
-from typing import TYPE_CHECKING, Any, Callable, Literal, TypedDict, TypeVar
+from typing import Any, Callable, Literal, TypedDict, TypeVar
 
 import av
 import numpy as np
