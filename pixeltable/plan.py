@@ -1015,7 +1015,7 @@ class Planner:
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
         # with_pk: for now, we always retrieve the PK, because we need it for the file cache
-        # extra_exprs: additional insert target col exprs to evaluate alongside the select list
+        # include additional_output_exprs alongside the select list for evaluation
         eval_targets = (
             analyzer.select_list if not additional_output_exprs else analyzer.select_list + additional_output_exprs
         )
