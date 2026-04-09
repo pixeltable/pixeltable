@@ -294,6 +294,9 @@ class Catalog:
     def allow_tbl_md_read(self) -> Iterator[None]:
         """Context manager that allows reading new table metadata.
 
+        With a few rare exceptions, this should not be used outside of Catalog. Instead, the table locks and caches
+        should be initialized in begin_xact(), or inside a retry_loop().
+
         Reentrant: if already True, yields immediately without modifying state.
         """
         if self._tbl_md_read_allowed:
@@ -423,7 +426,7 @@ class Catalog:
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
-                # TODO clean this up, pass along table info, etc.
+                # TODO pass along table info if possible
                 self.convert_sql_exc(e, tbl_id=None, tbl=None, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
@@ -452,6 +455,7 @@ class Catalog:
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.key)
                     # Clear potentially corrupted cached metadata
+                    # TODO also do this for the tbl_id_* targets
                     for tvp in [*tvp_write_targets, *tvp_read_targets]:
                         tvp.clear_cached_md()
 
@@ -468,7 +472,9 @@ class Catalog:
         finalize_pending_ops: bool = True,
     ) -> None:
         """
-        Acquires locks on the specified write targets, and updates self._x_locked_tbl_ids accordingly.
+        Acquires locks on the specified write targets (including their mutable tree, if lock_mutable_tree is True), and
+        updates self._x_locked_tbl_ids accordingly.
+
         Refreshes the metadata cache for read targets.
         """
         x_locked_ids: set[UUID] = set()
@@ -491,9 +497,7 @@ class Catalog:
         for tbl_id in tbl_id_read_targets:
             self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
         for tvp in tvp_read_targets:
-            self._acquire_path_locks(
-                tbl=tvp, for_write=False, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
-            )
+            self._acquire_path_locks(tbl=tvp, for_write=False, check_pending_ops=finalize_pending_ops)
 
         self._x_locked_tbl_ids = x_locked_ids
 
@@ -630,12 +634,12 @@ class Catalog:
         self, *, tbl_id: UUID, lock_mutable_tree: bool = False, check_pending_ops: bool = True
     ) -> set[UUID]:
         """
-        Force acquisition of an X-lock on a Table record via a blind update.
+        Acquires an exclusive lock on a Table.
 
-        If lock_mutable_tree, recursively locks all mutable views of the table.
+        If lock_mutable_tree, also recursively locks all mutable views of the table.
 
-        Returns the set of table IDs that were X-locked (empty if the lock couldn't be acquired,
-        e.g., tbl is a non-mutable table).
+        Returns the set of locked table IDs, which could be empty if the lock couldn't be acquired,
+        e.g., tbl is a non-mutable table.
         """
         where_clause = schema.Table.id == tbl_id
         conn = get_runtime().conn
