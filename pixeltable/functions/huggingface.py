@@ -455,7 +455,7 @@ def vit_for_image_classification(
         {
             'scores': [top_k_probs[n, k].item() for k in range(top_k_probs.shape[1])],
             'labels': [top_k_indices[n, k].item() for k in range(top_k_probs.shape[1])],
-            'label_text': [model.config.id2label[int(top_k_indices[n, k].item())] for k in range(top_k_probs.shape[1])],
+            'label_text': [model.config.id2label[int(top_k_indices[n, k].item())] for k in range(top_k_probs.shape[1])],  # type: ignore[index]
         }
         for n in range(top_k_probs.shape[0])
     ]
@@ -541,7 +541,9 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
 
     with torch.no_grad():
         inputs = processor(waveform, sampling_rate=model_sampling_rate, return_tensors='pt')
-        generated_ids = model.generate(**inputs.to(device), forced_bos_token_id=forced_bos_token_id).to('cpu')
+        generated_ids = model.generate(**inputs.to(device), forced_bos_token_id=forced_bos_token_id)  # type: ignore[misc]
+        assert isinstance(generated_ids, torch.Tensor)
+        generated_ids = generated_ids.to('cpu')
 
     transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)
     assert len(transcription) == 1
@@ -625,10 +627,11 @@ def text_generation(text: str, *, model_id: str, model_kwargs: dict[str, Any] | 
 
     with torch.no_grad():
         inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
-        outputs = model.generate(**inputs.to(device), pad_token_id=tokenizer.eos_token_id, **model_kwargs)
+        outputs = model.generate(**inputs.to(device), pad_token_id=tokenizer.eos_token_id, **model_kwargs)  # type: ignore[misc]
 
     input_length = len(inputs['input_ids'][0])
     generated_text = tokenizer.decode(outputs[0][input_length:], skip_special_tokens=True)
+    assert isinstance(generated_text, str)
     return generated_text
 
 
@@ -730,18 +733,18 @@ def image_captioning(
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import AutoModelForVision2Seq, AutoProcessor
+    from transformers import AutoModelForImageTextToText, AutoProcessor
 
     if model_kwargs is None:
         model_kwargs = {}
 
-    model = _lookup_model(model_id, AutoModelForVision2Seq.from_pretrained, device=device)
+    model = _lookup_model(model_id, AutoModelForImageTextToText.from_pretrained, device=device)
     processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
     normalized_images = [normalize_image_mode(img) for img in image]
 
     with torch.no_grad():
         inputs = processor(images=normalized_images, return_tensors='pt')
-        outputs = model.generate(**inputs.to(device), **model_kwargs)
+        outputs = model.generate(**inputs.to(device), **model_kwargs)  # type: ignore[misc]
 
     captions = processor.batch_decode(outputs, skip_special_tokens=True)
     return captions
@@ -1006,6 +1009,7 @@ def question_answering(context: str, question: str, *, model_id: str) -> dict[st
         end_probs = torch.softmax(end_scores, dim=1)
         confidence = float(start_probs[0][start_idx] * end_probs[0][end_idx])
 
+        assert isinstance(answer, str)
         return {'answer': answer.strip(), 'score': confidence, 'start': int(start_idx), 'end': int(end_idx)}
 
 
@@ -1205,10 +1209,13 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
         AutoModelForTextToWaveform,
         AutoProcessor,
         BarkModel,
+        PreTrainedModel,
         SpeechT5ForTextToSpeech,
         SpeechT5HifiGan,
         SpeechT5Processor,
     )
+
+    model: PreTrainedModel
 
     # Model loading with error handling - following best practices pattern
     if 'speecht5' in model_id.lower():
@@ -1245,13 +1252,13 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
         # Generate speech based on model type
         if 'speecht5' in model_id.lower():
             inputs = processor(text=text, return_tensors='pt').to(device)
-            speech = model.generate_speech(inputs['input_ids'], speaker_embeddings, vocoder=vocoder_model)
+            speech = model.generate_speech(inputs['input_ids'], speaker_embeddings, vocoder=vocoder_model)  # type: ignore[operator]
             audio_np = speech.cpu().numpy()
             sample_rate = 16000
 
         elif 'bark' in model_id.lower():
             inputs = processor(text, return_tensors='pt').to(device)
-            audio_array = model.generate(**inputs)
+            audio_array = model.generate(**inputs)  # type: ignore[operator]
             audio_np = audio_array.cpu().numpy().squeeze()
             sample_rate = getattr(model.generation_config, 'sample_rate', 24000)
 
