@@ -226,6 +226,9 @@ def detr_for_object_detection(
     Args:
         image: The image to embed.
         model_id: The pretrained model to use for object detection.
+        threshold: Confidence threshold for filtering detections.
+        revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not specified,
+            uses the default revision for the model (typically `'main'`).
 
     Returns:
         A dictionary containing the output of the object detection model, in the following format:
