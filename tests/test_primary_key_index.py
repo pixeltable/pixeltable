@@ -86,6 +86,16 @@ class TestPrimaryKeyIndex:
         assert t.collect()['id'] == [1]
         assert t.collect()['v'] == ['a']
 
+    def test_pk_index_row_too_large(self, uses_db: None) -> None:
+        """Many PK columns can exceed the btree max row size; error message should be user-friendly."""
+        schema = {f'k{i}': pxt.Required[pxt.String] for i in range(11)}
+        pk_cols = [f'k{i}' for i in range(11)]
+        t = pxt.create_table('test_pk', schema, primary_key=pk_cols)
+
+        row = {f'k{i}': 'a' * BtreeIndex.MAX_STRING_LEN for i in range(11)}
+        with pytest.raises(pxt.Error, match='Primary key value too large for index'):
+            t.insert([row])
+
     def test_batch_update_with_pk_index(self, uses_db: None) -> None:
         """batch_update works correctly with the PK index: updates expire the old version."""
         t = pxt.create_table('test_pk', {'id': pxt.Required[pxt.Int], 'val': pxt.Int}, primary_key='id')
