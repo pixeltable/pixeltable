@@ -590,7 +590,7 @@ async def transcribe(audio: pxt.Audio, *, model: str, prompt: str, config: dict 
         audio: The audio file to transcribe.
         model: The model to use (e.g. `'gemini-2.5-flash'`).
         prompt: The instruction prompt sent alongside the audio. For example,
-            `'Generate a transcript of the speech.'`.
+            `'Generate a transcript of the speech.'` or `'Summarize the audio content.'`.
         config: Additional configuration, corresponding to keyword arguments of
             `genai.types.GenerateContentConfig`.
 
