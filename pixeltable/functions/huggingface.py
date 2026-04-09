@@ -24,9 +24,6 @@ from pixeltable.utils.local_store import TempStore
 
 T = TypeVar('T')
 
-if TYPE_CHECKING:
-    from transformers import DetrConfig
-
 
 @pxt.udf(batch_size=32)
 def sentence_transformer(
@@ -214,24 +211,9 @@ class DetrForObjectDetectionResponse(TypedDict):
     boxes: list[list[float]]
 
 
-def _detr_config(model_id: str, revision: str) -> 'DetrConfig':
-    """Load DetrConfig with workaround for dilation=None validation error.
-
-    The no_timm revision of facebook/detr-resnet-50 stores dilation: null
-    in its config, but newer huggingface_hub versions reject None for the
-    bool-typed field.
-    """
-    from transformers import DetrConfig
-
-    config = DetrConfig.from_pretrained(model_id, revision=revision)
-    if config.dilation is None:
-        config.dilation = False
-    return config
-
-
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(
-    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'no_timm'
+    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str | None = None
 ) -> Batch[DetrForObjectDetectionResponse]:
     """
     Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
@@ -281,7 +263,7 @@ def detr_for_object_detection(
 
     model = _lookup_model(
         model_id,
-        lambda x: DetrForObjectDetection.from_pretrained(x, revision=revision, config=_detr_config(x, revision)),
+        lambda x: DetrForObjectDetection.from_pretrained(x, revision=revision),
         device=device,
         cache_key=(model_id, DetrForObjectDetection.from_pretrained, device, ('revision', revision)),
     )
