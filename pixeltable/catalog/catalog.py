@@ -618,7 +618,8 @@ class Catalog:
                 where_clause = sql.and_(where_clause, schema.Table.md['user'].astext == Env.get().user)
 
         conn = get_runtime().conn
-        row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
+        q = sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)
+        row = conn.execute(q).one_or_none()
         if row is None:
             return
         tbl_md = schema.md_from_dict(schema.TableMd, row.md)
@@ -1312,7 +1313,7 @@ class Catalog:
             if not is_snapshot and base.is_mutable():
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
-                # assert that lock acquired?
+                # assert that the lock was acquired?
                 self._acquire_write_lock(tbl_id=base.tbl_id)
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
                 base_tv.tbl_md.view_sn += 1
