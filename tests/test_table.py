@@ -3335,8 +3335,8 @@ class TestTable:
 
         dst = pxt.create_table('dst', {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.String})
         dst.add_computed_column(c4=dst.c2 * 2)
-        dst.add_computed_column(c5=dst.c4 + 1)  # depends on another computed col
-        dst.add_embedding_index('c1', string_embed=e5_embed)  # val col = e5_embed(dst.c1)
+        dst.add_computed_column(c5=dst.c4 + 1)
+        dst.add_embedding_index('c1', string_embed=e5_embed)
 
         # c3 not in query -> NULL; c4, c5 computed from query values; embedding val col computed from src.c1
         dst.insert(src.select(src.c1, src.c2))
@@ -3349,11 +3349,11 @@ class TestTable:
         assert result[1]['c5'] == 41  # 20 * 2 + 1
         assert result[0]['c3'] is None
         assert result[1]['c3'] is None
-        # check embedding index works — proves val col was computed from src.c1, not NULL
+        # check embedding index works — val column was computed from src.c1 which is not NULL
         sim_result = dst.order_by(dst.c1.similarity(string='cat'), asc=False).limit(1).collect()
         assert sim_result[0]['c1'] == 'a cat on a mat'
 
-        # verify substitution works with arbitrary src expressions mapped to dst col names
+        # verify substitution works with arbitrary source expressions mapped to destination column names
         dst2 = pxt.create_table('dst2', {'x': pxt.String, 'y': pxt.Int})
         dst2.add_computed_column(z=dst2.y * 2)
         dst2.insert(src.select(x=src.c1, y=src.c2 + 5))
