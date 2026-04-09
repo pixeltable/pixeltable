@@ -280,20 +280,21 @@ def _pil_to_gemini_image(image: PIL.Image.Image) -> 'genai.types.Image':
         return types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
 
 
+async def _poll_gemini_operation(operation: 'genai.types.Operation') -> 'genai.types.Operation':
+    while not operation.done:
+        await asyncio.sleep(3)
+        operation = await _genai_client().aio.operations.get(operation)
+    return operation
+
+
 async def _generate_videos_impl(
     model: str, prompt: str | None, image: 'genai.types.Image | None', config: 'genai.types.GenerateVideosConfig | None'
 ) -> str:
     """Shared implementation for video generation: submit request, poll for completion, download result."""
     operation = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, image=image, config=config)
 
-    async def _poll(operation: 'genai.types.Operation') -> 'genai.types.Operation':
-        while not operation.done:
-            await asyncio.sleep(3)
-            operation = await _genai_client().aio.operations.get(operation)
-        return operation
-
     try:
-        operation = await asyncio.wait_for(_poll(operation), timeout=300)
+        operation = await asyncio.wait_for(_poll_gemini_operation(operation), timeout=300)  # type: ignore[arg-type]
     except asyncio.TimeoutError as exc:
         raise excs.Error(f'Video generation timed out after 300 seconds for Gemini model {model!r}.') from exc
 
