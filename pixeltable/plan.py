@@ -432,7 +432,7 @@ class Planner:
         # apply full substitution to all missing column exprs
         missing_col_exprs = [expr.substitute(substitution) for expr in missing_col_exprs]
 
-        plan = query._create_query_plan(target_col_exprs=missing_col_exprs)
+        plan = query._create_query_plan(additional_output_exprs=missing_col_exprs)
 
         needs_cell_materialization = False
 
@@ -973,7 +973,7 @@ class Planner:
         sample_clause: SampleClause | None = None,
         ignore_errors: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
-        extra_exprs: list[exprs.Expr] | None = None,
+        additional_output_exprs: list[exprs.Expr] | None = None,
     ) -> exec.ExecNode:
         """
         Return plan for executing a query.
@@ -1006,19 +1006,19 @@ class Planner:
         # Otherwise there is no context table, but that's ok, because the context table is only needed for
         # table mutations, which can't happen during a join.
         context_tbl = from_clause.tbls[0].tbl_version.get() if len(from_clause.tbls) == 1 else None
-        all_output_exprs = analyzer.all_exprs if not extra_exprs else analyzer.all_exprs + extra_exprs
+        all_output_exprs = (
+            analyzer.all_exprs if not additional_output_exprs else analyzer.all_exprs + additional_output_exprs
+        )
         row_builder = exprs.RowBuilder(all_output_exprs, [], [], context_tbl)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
         # with_pk: for now, we always retrieve the PK, because we need it for the file cache
         # extra_exprs: additional insert target col exprs to evaluate alongside the select list
-        eval_targets = analyzer.select_list if not extra_exprs else analyzer.select_list + extra_exprs
+        eval_targets = (
+            analyzer.select_list if not additional_output_exprs else analyzer.select_list + additional_output_exprs
+        )
         eval_ctx = row_builder.create_eval_ctx(eval_targets)
-
-        # if extra_exprs present, create a broader eval ctx that includes them
-        if extra_exprs:
-            eval_ctx = row_builder.create_eval_ctx(analyzer.select_list + extra_exprs, limit_scope=False)
 
         plan = cls._create_query_plan(
             row_builder=row_builder,
