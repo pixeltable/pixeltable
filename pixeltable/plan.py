@@ -428,7 +428,6 @@ class Planner:
         tbl: catalog.TableVersionPath,
         update_targets: dict[catalog.Column, exprs.Expr],
         recompute_targets: list[catalog.Column],
-        where_clause: exprs.Expr | None,
         cascade: bool,
     ) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]:
         """Creates a plan to materialize updated rows.
@@ -502,8 +501,8 @@ class Planner:
         select_list.extend(undo_col_refs)
 
         # Read from rows that were just deleted (expired) at the current version.
-        # The where_clause is not passed here: it was already applied during deletion, and delete_rows nullifies
-        # index value columns, which would cause the where clause to fail on the expired rows.
+        # The where clause was already applied during deletion; delete_rows nullifies index value columns,
+        # which would cause the where clause to fail on the expired rows.
         plan = cls.create_query_plan(
             FromClause(tbls=[tbl]),
             select_list=select_list,

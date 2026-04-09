@@ -1101,7 +1101,7 @@ class TableVersion:
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter not expressible in SQL: {analysis_info.filter}')
 
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
+        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
 
         result = self.propagate_update(
             plan,
@@ -1223,7 +1223,7 @@ class TableVersion:
             )
             where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(
-            self.path, update_targets={}, recompute_targets=target_columns, where_clause=where_clause, cascade=cascade
+            self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
         )
 
         result = self.propagate_update(
