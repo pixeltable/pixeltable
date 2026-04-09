@@ -692,8 +692,9 @@ class Catalog:
             if has_pending_ops:
                 raise PendingTableOpsError(row.id)
 
-        key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
-        self._get_tbl_version(key, validate_initialized=True)
+        if not tbl_md.is_pure_snapshot:
+            key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
+            self._get_tbl_version(key, validate_initialized=True)
 
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
