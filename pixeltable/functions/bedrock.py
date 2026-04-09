@@ -23,6 +23,7 @@ import puremagic
 
 import pixeltable as pxt
 from pixeltable import env, exprs, type_system as ts
+from pixeltable.config import Config
 from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
@@ -38,6 +39,12 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 _ASYNC_INVOCATION_TIMEOUT_SECS = 600.0
+
+# Models that always require StartAsyncInvoke and produce video output.
+_ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES = frozenset({'amazon.nova-reel', 'luma.'})
+
+# Models that require StartAsyncInvoke for audio/video inputs (detected via body['inputType']).
+_ASYNC_EMBEDDING_MODEL_PREFIXES = frozenset({'twelvelabs.marengo'})
 
 
 @env.register_client('bedrock')
@@ -70,6 +77,28 @@ def _(api_key: str | None = None, region_name: str | None = None) -> 'BaseClient
 # boto3 typing is weird; type information is dynamically defined, so the best we can do for the static checker is `Any`
 def _bedrock_client() -> Any:
     return get_runtime().get_client('bedrock')
+
+
+def _get_temp_location() -> str:
+    """Get the bedrock.temp_location config value, raising a clear error if not set."""
+    location = Config.get().get_value('temp_location', str, section='bedrock')
+    if not location:
+        raise pxt.Error(
+            'bedrock.temp_location must be configured for async model invocation. '
+            'Set the environment variable BEDROCK_TEMP_LOCATION or add temp_location to the '
+            '[bedrock] section of config.toml.'
+        )
+    return location
+
+
+def _requires_async(body: dict, model_id: str) -> bool:
+    """Return True if this model and input combination requires StartAsyncInvoke."""
+    if model_id.startswith(tuple(_ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES)):
+        return True
+    if model_id.startswith(tuple(_ASYNC_EMBEDDING_MODEL_PREFIXES)):
+        input_type = body.get('inputType', '')
+        return input_type in ('audio', 'video')
+    return False
 
 
 def _is_media(v: Any) -> bool:
@@ -170,9 +199,6 @@ _IMAGE_GENERATION_MODEL_PREFIXES = frozenset(
     {'stability.', 'us.stability.', 'amazon.nova-canvas', 'amazon.titan-image-generator'}
 )
 
-# Models whose invoke_model_async output is a video file.
-_ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES = frozenset({'amazon.nova-reel', 'luma.'})
-
 
 def _decode_base64_images(value: str) -> str | PIL.Image.Image:
     """Attempt to decode a string as base64 image.
@@ -189,7 +215,8 @@ def _decode_base64_images(value: str) -> str | PIL.Image.Image:
 
 def _decode_invoke_model_response_images(obj: Any) -> Any:
     """Recursively walk a response dict and decode any base64 media strings.
-    Video and audio are not decoded here — use invoke_model_async for models that produce video or audio output.
+    Video and audio are not decoded here — use invoke_model for models that produce video or audio output,
+    which routes to StartAsyncInvoke automatically.
     """
     if isinstance(obj, dict):
         return {k: _decode_invoke_model_response_images(v) for k, v in obj.items()}
@@ -219,25 +246,108 @@ _embedding_dimensions: dict[str, int] = {
 }
 
 
+@asynccontextmanager
+async def _bedrock_async_invocation(
+    model_id: str, body: dict, output_location: str, poll_interval_secs: float
+) -> AsyncIterator[tuple['S3Store', StorageObjectAddress, str]]:
+    """Submit a Bedrock async job, poll until completion, yield (store, soa, result_key), and
+    delete staging S3 objects on exit."""
+    from pixeltable.utils.s3_store import S3Store
+
+    response = await asyncio.to_thread(
+        _bedrock_client().start_async_invoke,
+        modelId=model_id,
+        modelInput=body,
+        outputDataConfig={'s3OutputDataConfig': {'s3Uri': output_location}},
+    )
+    invocation_arn: str = response['invocationArn']
+    invocation_id: str = invocation_arn.rsplit('/', maxsplit=1)[-1]
+
+    elapsed = 0.0
+    while True:
+        await asyncio.sleep(poll_interval_secs)
+        elapsed += poll_interval_secs
+        if elapsed > _ASYNC_INVOCATION_TIMEOUT_SECS:
+            raise pxt.Error(f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s')
+        job: dict[str, Any] = await asyncio.to_thread(_bedrock_client().get_async_invoke, invocationArn=invocation_arn)
+        status: str = job['status']
+        if status == 'Completed':
+            break
+        if status == 'Failed':
+            raise pxt.Error(f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}')
+
+    soa = ObjectPath.parse_object_storage_addr(output_location, allow_obj_name=False)
+    store = ObjectOps.get_store(soa, allow_obj_name=False)
+    if not isinstance(store, S3Store):
+        raise pxt.Error('bedrock.temp_location must be an s3:// URI')
+
+    result_prefix = f'{soa.prefix}{invocation_id}/'
+    listed = await asyncio.to_thread(store.client().list_objects_v2, Bucket=store.bucket_name, Prefix=result_prefix)
+    keys = [obj['Key'] for obj in listed.get('Contents', [])]
+    if not keys:
+        raise pxt.Error(f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed')
+
+    result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
+    if result_key is None:
+        raise pxt.Error(f'No output file (only manifest) found for job {invocation_id}')
+
+    try:
+        yield store, soa, result_key
+    finally:
+        for key in keys:
+            await asyncio.to_thread(store.client().delete_object, Bucket=store.bucket_name, Key=key)
+
+
+async def _invoke_model_async(body: dict, model_id: str, poll_interval_secs: float) -> Any:
+    """Execute a Bedrock async invocation and return the result."""
+    output_location = _get_temp_location()
+
+    async with _bedrock_async_invocation(model_id, body, output_location, poll_interval_secs) as (
+        store,
+        soa,
+        result_key,
+    ):
+        result_uri = f'{soa.prefix_free_uri}{result_key}'
+        content_type = mimetypes.guess_type(result_key)[0] or 'application/json'
+
+        if content_type.startswith('video/') or content_type.startswith('audio/'):
+            default_ext = '.mp4' if content_type.startswith('video/') else '.mp3'
+            ext = mimetypes.guess_extension(content_type) or default_ext
+            tmp_path = TempStore.create_path(extension=ext)
+            await asyncio.to_thread(ObjectOps.copy_object_to_local_file, result_uri, tmp_path)
+            return str(tmp_path)
+        elif content_type.startswith('image/'):
+            obj = await asyncio.to_thread(store.client().get_object, Bucket=store.bucket_name, Key=result_key)
+            return PIL.Image.open(io.BytesIO(obj['Body'].read()))
+        else:
+            obj = await asyncio.to_thread(store.client().get_object, Bucket=store.bucket_name, Key=result_key)
+            return json.loads(obj['Body'].read().decode('utf-8'))
+
+
 @pxt.udf(is_deterministic=False)
 async def invoke_model(
     body: dict,
     *,
     model_id: str,
+    poll_interval_secs: float = 5.0,
     performance_config_latency: Literal['standard', 'optimized'] | None = None,
     service_tier: Literal['priority', 'default', 'flex', 'reserved'] | None = None,
 ) -> dict:
     """
-    Invoke a Bedrock model with a raw request body.
+    Invoke a Bedrock model.
 
-    Equivalent to the AWS Bedrock `invoke_model` API endpoint.
+    Equivalent to the AWS Bedrock `invoke_model` API endpoint, with automatic routing to
+    `StartAsyncInvoke` for models that require it (e.g. video generation, audio/video embeddings).
+
     For additional details, see:
     <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/bedrock-runtime/client/invoke_model.html>
 
-    PIL images and media file paths anywhere in the request body are
-    converted automatically to the base64 encoding expected by the target model.
-    For image-generation models, base64-encoded images in the response are
-    automatically decoded into `PIL.Image` objects.
+    PIL images and media file paths anywhere in the request body are converted automatically
+    to the encoding expected by the target model. For image-generation models, base64-encoded
+    images in the response are automatically decoded into `PIL.Image` objects.
+
+    For models that require async invocation, `bedrock.temp_location` must be configured
+    (set environment variable `BEDROCK_TEMP_LOCATION` or add `temp_location` to the `[bedrock]` section of config.toml).
 
     __Requirements:__
 
@@ -246,6 +356,7 @@ async def invoke_model(
     Args:
         body: The prompt and inference parameters as a dictionary.
         model_id: The model identifier to invoke.
+        poll_interval_secs: For async models, seconds between status checks. Defaults to 5.0.
         performance_config_latency: Performance setting (`standard` or `optimized`).
         service_tier: Processing tier (`priority`, `default`, `flex`, or `reserved`).
 
@@ -254,7 +365,8 @@ async def invoke_model(
 
     Returns:
         A dictionary containing the model response. For image-generation models,
-        image fields are decoded to `PIL.Image` objects.
+        image fields are decoded to `PIL.Image` objects. For video-generation models,
+        returns a `pxt.Video` path.
 
     Examples:
         Invoke Amazon Titan text embeddings:
@@ -269,6 +381,18 @@ async def invoke_model(
         >>> body = {
         ...     'inputType': 'image',
         ...     'image': {'mediaSource': {'base64String': tbl.image}},
+        ... }
+        >>> tbl.add_computed_column(
+        ...     response=invoke_model(
+        ...         body, model_id='twelvelabs.marengo-embed-3-0-v1:0'
+        ...     )
+        ... )
+
+        Invoke TwelveLabs Marengo with audio:
+
+        >>> body = {
+        ...     'inputType': 'audio',
+        ...     'audio': {'mediaSource': {'base64String': tbl.audio}},
         ... }
         >>> tbl.add_computed_column(
         ...     response=invoke_model(
@@ -338,8 +462,22 @@ async def invoke_model(
         ...     response=invoke_model(body, model_id='stability.sd3-5-large-v1:0')
         ... )
         >>> tbl.add_computed_column(image=tbl.response['images'][0])
+
+        Invoke Amazon Nova Reel for video generation (auto-routes to async):
+
+        >>> body = {
+        ...     'taskType': 'TEXT_VIDEO',
+        ...     'textToVideoParams': {'text': tbl.prompt},
+        ...     'videoGenerationConfig': {'durationSeconds': 6, 'fps': 24},
+        ... }
+        >>> tbl.add_computed_column(
+        ...     video=invoke_model(body, model_id='amazon.nova-reel-v1:1')
+        ... )
     """
     body = _apply_invoke_model_request_conversions(body, model_id)
+
+    if _requires_async(body, model_id):
+        return await _invoke_model_async(body, model_id, poll_interval_secs)
 
     kwargs: dict[str, Any] = {
         'body': json.dumps(body),
@@ -357,144 +495,7 @@ async def invoke_model(
     return _decode_invoke_model_response(result, model_id)
 
 
-@asynccontextmanager
-async def _bedrock_async_invocation(
-    model_id: str, body: dict, output_location: str, poll_interval_secs: float, timeout_secs: float
-) -> AsyncIterator[tuple['S3Store', StorageObjectAddress, str]]:
-    """Submit a Bedrock async job, poll until completion, yield (store, soa, result_key), and
-    delete staging S3 objects on exit."""
-    from pixeltable.utils.s3_store import S3Store
-
-    response = await asyncio.to_thread(
-        _bedrock_client().start_async_invoke,
-        modelId=model_id,
-        modelInput=body,
-        outputDataConfig={'s3OutputDataConfig': {'s3Uri': output_location}},
-    )
-    invocation_arn: str = response['invocationArn']
-    invocation_id: str = invocation_arn.rsplit('/', maxsplit=1)[-1]
-
-    elapsed = 0.0
-    while True:
-        await asyncio.sleep(poll_interval_secs)
-        job: dict[str, Any] = await asyncio.to_thread(_bedrock_client().get_async_invoke, invocationArn=invocation_arn)
-        status: str = job['status']
-        if status == 'Completed':
-            break
-        if status == 'Failed':
-            raise pxt.Error(f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}')
-        elapsed += poll_interval_secs
-        if elapsed > timeout_secs:
-            raise pxt.Error(f'Async invocation {invocation_id} timed out after {timeout_secs}s')
-
-    soa = ObjectPath.parse_object_storage_addr(output_location, allow_obj_name=False)
-    store = ObjectOps.get_store(soa, allow_obj_name=False)
-    if not isinstance(store, S3Store):
-        raise pxt.Error('output_location must be an s3:// URI for Bedrock async invocation output')
-
-    result_prefix = f'{soa.prefix}{invocation_id}/'
-    listed = await asyncio.to_thread(store.client().list_objects_v2, Bucket=store.bucket_name, Prefix=result_prefix)
-    keys = [obj['Key'] for obj in listed.get('Contents', [])]
-    if not keys:
-        raise pxt.Error(f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed')
-
-    result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
-    if result_key is None:
-        raise pxt.Error(f'No output file (only manifest) found for job {invocation_id}')
-
-    try:
-        yield store, soa, result_key
-    finally:
-        for key in keys:
-            await asyncio.to_thread(store.client().delete_object, Bucket=store.bucket_name, Key=key)
-
-
-@pxt.udf(is_deterministic=False)
-async def invoke_model_async(
-    body: dict, *, model_id: str, output_location: str, poll_interval_secs: float = 5.0
-) -> dict:
-    """
-    Invoke a Bedrock model asynchronously via the StartAsyncInvoke API.
-
-    Use this for models whose inputs or outputs require asynchronous processing:
-    - `amazon.nova-reel-v1:0` and `amazon.nova-reel-v1:1` — video generation (returns `pxt.Video`)
-    - `luma.ray-v2:0` — video generation (returns `pxt.Video`)
-    - `twelvelabs.marengo-embed-3-0-v1:0` — audio and video embeddings (returns `dict`)
-
-    Also useful when input files exceed the 25 MB `invoke_model` payload limit.
-
-    __Requirements:__
-
-    - `pip install boto3`
-    - The AWS credentials used must have `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject`
-      permissions on the `output_location` bucket.
-
-    Args:
-        body: The prompt and inference parameters as a dictionary.
-        model_id: The model identifier to invoke.
-        output_location: S3 URI where Bedrock writes the result, e.g. `s3://my-bucket/prefix`.
-            The bucket must grant Bedrock permission to read and write objects. Each invocation
-            writes to a unique sub-path under this prefix; the staging objects written by Bedrock
-            are deleted after the result is stored in the computed column.
-        poll_interval_secs: Seconds between `GetAsyncInvoke` status checks. Defaults to 5.0.
-
-    Returns:
-        For video-generation models (`amazon.nova-reel`, `luma.`): a `pxt.Video`.
-        For all other models: a `dict` containing the model response.
-
-    Examples:
-        TwelveLabs Marengo — audio embedding (audio/video inputs require the async API):
-
-        >>> body = {
-        ...     'inputType': 'audio',
-        ...     'audio': {'mediaSource': {'base64String': t.audio}},
-        ... }
-        >>> t.add_computed_column(
-        ...     response=invoke_model_async(
-        ...         body,
-        ...         model_id='twelvelabs.marengo-embed-3-0-v1:0',
-        ...         output_location='s3://my-bucket/bedrock-output',
-        ...     )
-        ... )
-
-        Amazon Nova Reel — text-to-video generation:
-
-        >>> body = {
-        ...     'taskType': 'TEXT_VIDEO',
-        ...     'textToVideoParams': {'text': t.prompt},
-        ...     'videoGenerationConfig': {'durationSeconds': 6, 'fps': 24},
-        ... }
-        >>> t.add_computed_column(
-        ...     video=invoke_model_async(
-        ...         body,
-        ...         model_id='amazon.nova-reel-v1:1',
-        ...         output_location='s3://my-bucket/bedrock-output',
-        ...     )
-        ... )
-    """
-    body = _apply_invoke_model_request_conversions(body, model_id)
-
-    async with _bedrock_async_invocation(
-        model_id, body, output_location, poll_interval_secs, _ASYNC_INVOCATION_TIMEOUT_SECS
-    ) as (store, soa, result_key):
-        result_uri = f'{soa.prefix_free_uri}{result_key}'
-        content_type = mimetypes.guess_type(result_key)[0] or 'application/json'
-
-        if content_type.startswith('video/') or content_type.startswith('audio/'):
-            default_ext = '.mp4' if content_type.startswith('video/') else '.mp3'
-            ext = mimetypes.guess_extension(content_type) or default_ext
-            tmp_path = TempStore.create_path(extension=ext)
-            await asyncio.to_thread(ObjectOps.copy_object_to_local_file, result_uri, tmp_path)
-            return str(tmp_path)  # type: ignore[return-value]
-        elif content_type.startswith('image/'):
-            obj = await asyncio.to_thread(store.client().get_object, Bucket=store.bucket_name, Key=result_key)
-            return PIL.Image.open(io.BytesIO(obj['Body'].read()))  # type: ignore[return-value]
-        else:
-            obj = await asyncio.to_thread(store.client().get_object, Bucket=store.bucket_name, Key=result_key)
-            return json.loads(obj['Body'].read().decode('utf-8'))
-
-
-@invoke_model_async.conditional_return_type
+@invoke_model.conditional_return_type
 def _(*, model_id: str) -> ts.ColumnType:
     if any(model_id.startswith(p) for p in _ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES):
         return ts.VideoType()
@@ -638,21 +639,6 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         ...         model_id='amazon.nova-2-multimodal-embeddings-v1:0',
         ...         dimensions=1024,
         ...     ),
-        ... )
-
-        Add an embedding index using Amazon Titan:
-
-        >>> tbl.add_embedding_index(
-        ...     tbl.text,
-        ...     string_embed=embed.using(
-        ...         model_id='amazon.titan-embed-text-v2:0', dimensions=512
-        ...     ),
-        ... )
-
-        Add an embedding index using Cohere:
-
-        >>> tbl.add_embedding_index(
-        ...     tbl.text, string_embed=embed.using(model_id='cohere.embed-english-v3')
         ... )
     """
     from botocore.exceptions import ClientError

@@ -284,7 +284,6 @@
           <outline text="udf|pixeltable.functions.bedrock.converse" />
           <outline text="func|pixeltable.functions.bedrock.invoke_tools" />
           <outline text="udf|pixeltable.functions.bedrock.invoke_model" />
-          <outline text="udf|pixeltable.functions.bedrock.invoke_model_async" />
         </outline>
         <outline text="module|pixeltable.functions.bfl">
           <outline text="udf|pixeltable.functions.bfl.generate" />

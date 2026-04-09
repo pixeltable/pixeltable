@@ -21,23 +21,29 @@ from .tool_utils import run_tool_invocations_test
 
 
 @pytest.fixture()
-def bedrock_us_east_1(uses_db: None) -> Iterator[None]:
-    """Configure the Bedrock client to use us-east-1 for region-restricted models (no async output needed)."""
-    Config.init(config_overrides={'bedrock.region_name': 'us-east-1'}, reinit=True)
-    yield
-
-
-@pytest.fixture()
-def bedrock_us_west_2(uses_db: None) -> Iterator[None]:
-    """Configure the Bedrock client to use us-west-2 for models only available in that region."""
-    Config.init(config_overrides={'bedrock.region_name': 'us-west-2'}, reinit=True)
-    yield
-
-
-@pytest.fixture()
-def s3_us_east1(bedrock_us_east_1: None) -> Iterator[str]:
-    """Configure the Bedrock client to use us-east-1. Yields the matching S3 async output location."""
+def bedrock_us_east_1(uses_db: None) -> Iterator[str]:
+    """Configure the Bedrock client for us-east-1. Yields the temp_location S3 URI."""
+    Config.init(
+        config_overrides={
+            'bedrock.region_name': 'us-east-1',
+            'bedrock.temp_location': 's3://pxt-test-us-east-1/bedrock_outputs/',
+        },
+        reinit=True,
+    )
     yield 's3://pxt-test-us-east-1/bedrock_outputs/'
+
+
+@pytest.fixture()
+def bedrock_us_west_2(uses_db: None) -> Iterator[str]:
+    """Configure the Bedrock client for us-west-2. Yields the temp_location S3 URI."""
+    Config.init(
+        config_overrides={
+            'bedrock.region_name': 'us-west-2',
+            'bedrock.temp_location': 's3://pxt-test-us-west-2/bedrock_outputs/',
+        },
+        reinit=True,
+    )
+    yield 's3://pxt-test-us-west-2/bedrock_outputs/'
 
 
 def _skip_no_aws() -> None:
@@ -141,9 +147,10 @@ def _converse_image_messages(t: pxt.Table) -> list:
 @rerun(reruns=3, reruns_delay=8)
 class TestBedrock:
     # ------------------------------------------------------------------
-    # TwelveLabs Marengo — invoke_model: image, text_image
-    #                      invoke_model_async: audio, video
-    # TwelveLabs Pegasus — invoke_model: video
+    # TwelveLabs Marengo — invoke_model: image, text_image, audio, video
+    #   image/text_image use sync InvokeModel
+    #   audio/video auto-route to StartAsyncInvoke
+    # TwelveLabs Pegasus — invoke_model: video (sync)
     # ------------------------------------------------------------------
 
     def test_invoke_model_twelvelabs_marengo_image(self, uses_db: None) -> None:
@@ -179,34 +186,32 @@ class TestBedrock:
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         _assert_twelvelabs_embedding(t.select(t.response).collect())
 
-    def test_invoke_model_async_twelvelabs_marengo_audio(self, uses_db: None, s3_us_east1: str) -> None:
-        # Audio requires StartAsyncInvoke — InvokeModel only accepts image and text_image.
+    def test_invoke_model_twelvelabs_marengo_audio(self, uses_db: None, bedrock_us_east_1: str) -> None:
+        # Audio auto-routes to StartAsyncInvoke.
         _skip_no_aws()
-        from pixeltable.functions.bedrock import invoke_model_async
+        from pixeltable.functions.bedrock import invoke_model
 
         t = pxt.create_table('tbl', {'audio': pxt.Audio})
         t.add_computed_column(
-            response=invoke_model_async(
+            response=invoke_model(
                 {'inputType': 'audio', 'audio': {'mediaSource': {'base64String': t.audio}}},
                 model_id='twelvelabs.marengo-embed-3-0-v1:0',
-                output_location=s3_us_east1,
             )
         )
         audio_filepaths = get_audio_files()[:1]
         validate_update_status(t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         _assert_twelvelabs_embedding(t.select(t.response).collect())
 
-    def test_invoke_model_async_twelvelabs_marengo_video(self, uses_db: None, s3_us_east1: str) -> None:
-        # Video requires StartAsyncInvoke — InvokeModel only accepts image and text_image.
+    def test_invoke_model_twelvelabs_marengo_video(self, uses_db: None, bedrock_us_east_1: str) -> None:
+        # Video auto-routes to StartAsyncInvoke.
         _skip_no_aws()
-        from pixeltable.functions.bedrock import invoke_model_async
+        from pixeltable.functions.bedrock import invoke_model
 
         t = pxt.create_table('tbl', {'video': pxt.Video})
         t.add_computed_column(
-            response=invoke_model_async(
+            response=invoke_model(
                 {'inputType': 'video', 'video': {'mediaSource': {'base64String': t.video}}},
                 model_id='twelvelabs.marengo-embed-3-0-v1:0',
-                output_location=s3_us_east1,
             )
         )
         video_filepaths = get_video_files()[:1]
@@ -354,7 +359,6 @@ class TestBedrock:
                 model_id='amazon.nova-lite-v1:0',
             )
         )
-        # Use an mp4 file — Nova requires format to match actual file MIME type
         video_filepaths = [p for p in get_video_files() if str(p).endswith('.mp4')][:1]
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         _assert_nova_text_response(t.select(t.response).collect())
@@ -389,24 +393,23 @@ class TestBedrock:
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
 
     # ------------------------------------------------------------------
-    # Amazon Nova Reel — invoke_model_async: text-to-video (us-east-1 only)
+    # Amazon Nova Reel — invoke_model: text-to-video (auto-routes to async, us-east-1 only)
     # Returns pxt.Video via conditional_return_type.
     # ------------------------------------------------------------------
 
-    def test_invoke_model_async_nova_reel(self, uses_db: None, s3_us_east1: str) -> None:
+    def test_invoke_model_nova_reel(self, uses_db: None, bedrock_us_east_1: str) -> None:
         _skip_no_aws()
-        from pixeltable.functions.bedrock import invoke_model_async
+        from pixeltable.functions.bedrock import invoke_model
 
         t = pxt.create_table('tbl', {'prompt': pxt.String})
         t.add_computed_column(
-            video=invoke_model_async(
+            video=invoke_model(
                 {
                     'taskType': 'TEXT_VIDEO',
                     'textToVideoParams': {'text': t.prompt},
                     'videoGenerationConfig': {'durationSeconds': 6, 'fps': 24, 'dimension': '1280x720'},
                 },
                 model_id='amazon.nova-reel-v1:1',
-                output_location=s3_us_east1,
             )
         )
         validate_update_status(t.insert(prompt='a dog running on a beach'), expected_rows=1)
@@ -465,7 +468,7 @@ class TestBedrock:
     # Amazon Nova Multimodal Embeddings (us-east-1 only)
     # ------------------------------------------------------------------
 
-    def test_embed_nova_multimodal_text(self, uses_db: None, bedrock_us_east_1: None) -> None:
+    def test_embed_nova_multimodal_text(self, uses_db: None, bedrock_us_east_1: str) -> None:
         _skip_no_aws()
         from pixeltable.functions.bedrock import embed
 
@@ -476,7 +479,7 @@ class TestBedrock:
         t.insert(_TEXT_ROWS)
         _assert_text_similarity(t)
 
-    def test_embed_nova_multimodal_image(self, uses_db: None, bedrock_us_east_1: None) -> None:
+    def test_embed_nova_multimodal_image(self, uses_db: None, bedrock_us_east_1: str) -> None:
         _skip_no_aws()
         from pixeltable.functions.bedrock import embed
 
@@ -488,7 +491,7 @@ class TestBedrock:
         t.insert([{'image': p} for p in img_paths])
         _assert_image_similarity(t, img_paths)
 
-    def test_invoke_model_nova_multimodal_audio(self, uses_db: None, bedrock_us_east_1: None) -> None:
+    def test_invoke_model_nova_multimodal_audio(self, uses_db: None, bedrock_us_east_1: str) -> None:
         _skip_no_aws()
         from pixeltable.functions.bedrock import invoke_model
 
@@ -510,7 +513,7 @@ class TestBedrock:
         validate_update_status(t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         assert t.select(t.response).collect()[0]['response']['embeddings']
 
-    def test_invoke_model_nova_multimodal_video(self, uses_db: None, bedrock_us_east_1: None) -> None:
+    def test_invoke_model_nova_multimodal_video(self, uses_db: None, bedrock_us_east_1: str) -> None:
         _skip_no_aws()
         from pixeltable.functions.bedrock import invoke_model
 
@@ -540,7 +543,7 @@ class TestBedrock:
     # AI21 Labs — converse: text only (us-east-1)
     # ------------------------------------------------------------------
 
-    def test_converse_ai21(self, uses_db: None, bedrock_us_east_1: None) -> None:
+    def test_converse_ai21(self, uses_db: None, bedrock_us_east_1: str) -> None:
         _skip_no_aws()
         _run_converse_text(['ai21.jamba-1-5-mini-v1:0', 'ai21.jamba-1-5-large-v1:0'])
 
@@ -610,7 +613,7 @@ class TestBedrock:
     # DeepSeek — converse: text only (us-west-2)
     # ------------------------------------------------------------------
 
-    def test_converse_deepseek(self, uses_db: None, bedrock_us_west_2: None) -> None:
+    def test_converse_deepseek(self, uses_db: None, bedrock_us_west_2: str) -> None:
         _skip_no_aws()
         _run_converse_text(
             [
@@ -637,7 +640,7 @@ class TestBedrock:
         )
 
     # ------------------------------------------------------------------
-    # Mistral Pixtral — invoke_model and converse
+    # Mistral Pixtral — invoke_model and converse (us. prefix required)
     # ------------------------------------------------------------------
 
     def test_invoke_model_mistral_vision_image(self, uses_db: None) -> None:
@@ -790,7 +793,7 @@ class TestBedrock:
     # response['images'][0] is decoded to PIL.Image by _decode_response_media.
     # ------------------------------------------------------------------
 
-    def test_invoke_model_stability_image(self, uses_db: None, bedrock_us_west_2: None) -> None:
+    def test_invoke_model_stability_image(self, uses_db: None, bedrock_us_west_2: str) -> None:
         _skip_no_aws()
         from pixeltable.functions.bedrock import invoke_model
 
@@ -808,6 +811,6 @@ class TestBedrock:
     # Writer — converse: text only (us-west-2, cross-region inference profiles)
     # ------------------------------------------------------------------
 
-    def test_converse_writer(self, uses_db: None, bedrock_us_west_2: None) -> None:
+    def test_converse_writer(self, uses_db: None, bedrock_us_west_2: str) -> None:
         _skip_no_aws()
         _run_converse_text(['us.writer.palmyra-x4-v1:0', 'us.writer.palmyra-x5-v1:0'])
