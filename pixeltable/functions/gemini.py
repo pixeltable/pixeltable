@@ -350,7 +350,7 @@ async def generate_videos(
         >>> tbl.add_computed_column(
         ...     response=generate_videos(
         ...         tbl.prompt,
-        ...         image=[tbl.ref_img1, tbl.ref_img2],
+        ...         images=[tbl.ref_img1, tbl.ref_img2],
         ...         reference_types=['asset', 'asset'],
         ...         model='veo-3.1-generate-preview',
         ...     )
