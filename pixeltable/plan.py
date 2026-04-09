@@ -784,6 +784,7 @@ class Planner:
         assert view.is_view
         target = view.tbl_version.get()
 
+        # Columns to recompute are recompute targets plus their index value columns
         # Recompute index val cols only for modified columns; restore the rest from undo
         recomputed_cols = target.get_idx_val_columns(recompute_targets)
         recomputed_cols.update(recompute_targets)
