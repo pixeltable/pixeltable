@@ -424,7 +424,8 @@ class ColumnType:
         # Technically this logic will also work for semi-variadic tuples (`tuple[T1, T2, ...]`) but Python
         # doesn't allow that syntax.
         if len(type_args) == 0:
-            return JsonType(nullable=nullable_default)  # treat unparameterized tuple as untyped JSON
+            # treat unparameterized tuple as Json[(Json, ...)]
+            return JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=nullable_default)
         variadic_type = None
         if len(type_args) > 0 and type_args[-1] is Ellipsis:
             if len(type_args) == 1:
@@ -445,14 +446,13 @@ class ColumnType:
 
     @classmethod
     def __from_list_type(cls, nullable_default: bool, type_args: tuple) -> JsonType:
-        if len(type_args) == 0:
-            return JsonType(nullable=nullable_default)  # treat unparameterized list as untyped JSON
         if len(type_args) > 1:
             raise excs.Error('Invalid type schema: `list` or `Sequence` must have at most one type argument')
-        if type_args[0] is Any:
-            return JsonType(nullable=nullable_default)  # treat list[Any] as untyped JSON
+        if len(type_args) == 0 or type_args[0] is Any:
+            # treat unparameterized list or list[Any] as Json[(Json, ...)]
+            return JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=nullable_default)
         return JsonType(
-            JsonType.TypeSchema(type_spec=[], variadic_type=cls.__from_python_type_or_exc(type_args[0])),
+            JsonType.TypeSchema([], variadic_type=cls.__from_python_type_or_exc(type_args[0])),
             nullable=nullable_default,
         )
 
@@ -1167,20 +1167,25 @@ class JsonType(ColumnType):
                         raise TypeError(f'Unexpected key: {key}')
 
         def to_json_schema(self) -> dict[str, Any]:
+            json_schema: dict[str, Any]
+
             if isinstance(self.type_spec, list):
-                prefix_items_schema = [t.to_json_schema() for t in self.type_spec]
-                if self.variadic_type is None:
-                    return {'type': 'array', 'prefixItems': prefix_items_schema, 'items': False}
-                else:
-                    items_schema = self.variadic_type.to_json_schema()
-                    return {'type': 'array', 'prefixItems': prefix_items_schema, 'items': items_schema}
+                json_schema = {'type': 'array'}
+                if len(self.type_spec) > 0:
+                    json_schema['prefixItems'] = [t.to_json_schema() for t in self.type_spec]
+                json_schema['items'] = False if self.variadic_type is None else self.variadic_type.to_json_schema()
+
             else:
-                properties = {k: t.to_json_schema() for k, t in self.type_spec.items()}
+                json_schema = {
+                    'type': 'object',
+                    'properties': {k: t.to_json_schema() for k, t in self.type_spec.items()},
+                    'additionalProperties': False,
+                }
                 required = [k for k in self.type_spec if k not in self.optional_keys]
-                schema: dict[str, Any] = {'type': 'object', 'properties': properties, 'additionalProperties': False}
                 if len(required) > 0:
-                    schema['required'] = required
-                return schema
+                    json_schema['required'] = required
+
+            return json_schema
 
         def __eq__(self, other: object) -> bool:
             return (

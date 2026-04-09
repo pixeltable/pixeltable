@@ -196,7 +196,7 @@ format: install
 	@./scripts/format-notebooks.sh
 
 .PHONY: release
-release: install
+release: clean install
 	@if [ ! -f 'admin/scripts/release.sh' ]; then \
 		echo 'Release script not found. You must be a Pixeltable admin and check out the admin repo to run this target.'; exit 1; \
 	fi

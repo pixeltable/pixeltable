@@ -9,7 +9,7 @@ import sys
 import time
 from typing import Collection
 
-from pixeltable import env, func
+from pixeltable import env, exceptions as excs, func
 from pixeltable.config import Config
 from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
@@ -27,7 +27,7 @@ class RateLimitsScheduler(Scheduler):
     Scheduling strategy:
     - try to stay below resource limits by utilizing reported RateLimitInfo.remaining
     - also take into account the estimated resource usage for in-flight requests
-      (obtained via RateLimitsInfo.get_request_resources())
+      (obtained via the per-UDF resource_estimator)
     - issue a synchronous request when we don't have a RateLimitsInfo yet (first request bootstraps rate limit info)
     - does not wake early on in-flight request completion: API quota is refilled linearly by the provider, not
       freed by returning responses, so waking on every return just wastes CPU to go back to sleep immediately
@@ -41,8 +41,6 @@ class RateLimitsScheduler(Scheduler):
     - single-threaded asyncio caps throughput at ~2k RPM even when providers allow 10k RPM (scheduling overhead
       saturates one core). Address when we have free-threading (3.14t) or Rust kernels.
     """
-
-    get_request_resources_param_names: list[str]  # names of parameters of RateLimitsInfo.get_request_resources()
 
     # scheduling-related state
     pool_info: env.RateLimitsInfo | None
@@ -66,7 +64,6 @@ class RateLimitsScheduler(Scheduler):
         self._inflight_costs = {}
         self.total_requests = 0
         self.total_retried = 0
-        self.get_request_resources_param_names = []
 
     @classmethod
     def matches(cls, resource_pool: str) -> bool:
@@ -80,9 +77,6 @@ class RateLimitsScheduler(Scheduler):
         if self.pool_info is None:
             return
         assert isinstance(self.pool_info, env.RateLimitsInfo)
-        assert hasattr(self.pool_info, 'get_request_resources')
-        sig = inspect.signature(self.pool_info.get_request_resources)
-        self.get_request_resources_param_names = [p.name for p in sig.parameters.values()]
         self._est_in_flight_usage = dict.fromkeys(self._resources, 0)
 
     async def _main_loop(self) -> None:
@@ -132,16 +126,39 @@ class RateLimitsScheduler(Scheduler):
             return list(self.pool_info.resource_limits.keys())
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
-        # Fall back to default estimate if the request's function signature doesn't match the pool's estimator
-        if not all(name in request.fn_call.fn.signature.parameters for name in self.get_request_resources_param_names):
-            return dict.fromkeys(self._resources, 1)
-        kwargs_batch = request.fn_call.get_param_values(self.get_request_resources_param_names, request.rows)
-        if not request.is_batched:
-            return self.pool_info.get_request_resources(**kwargs_batch[0])
+        estimator = request.fn_call.fn._resource_estimator
+        param_names = [p.name for p in inspect.signature(estimator).parameters.values() if p.name != '_param_types']
+        if len(param_names) == 0:
+            result = estimator()
         else:
-            batch_kwargs = {k: [d[k] for d in kwargs_batch] for k in kwargs_batch[0]}
-            constant_kwargs, batch_kwargs = request.pxt_fn.create_batch_kwargs(batch_kwargs)
-            return self.pool_info.get_request_resources(**constant_kwargs, **batch_kwargs)
+            extra = set(param_names) - set(request.fn_call.fn.signature.parameters.keys())
+            if extra:
+                fn = request.fn_call.fn
+                raise excs.Error(
+                    f'resource_estimator for {fn.self_path or fn} has parameters '
+                    f'{extra} that are not in the resolved function signature'
+                )
+            per_row_kwargs = request.fn_call.get_param_values(param_names, request.rows)
+            # If the estimator declares '_param_types', inject a dict mapping param names to Pixeltable
+            # ColumnTypes for the resolved overload. This lets a shared estimator on a polymorphic function
+            # distinguish overloads that share the same Python types (e.g., str for Document vs Video).
+            has_param_types = '_param_types' in inspect.signature(estimator).parameters
+            if not request.is_batched:
+                if has_param_types:
+                    param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
+                    per_row_kwargs[0]['_param_types'] = param_types
+                result = estimator(**per_row_kwargs[0])
+            else:
+                columnar_kwargs = {k: [d[k] for d in per_row_kwargs] for k in per_row_kwargs[0]}
+                constant_kwargs, batched_kwargs = request.pxt_fn.create_batch_kwargs(columnar_kwargs)
+                if has_param_types:
+                    param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
+                    constant_kwargs['_param_types'] = param_types
+                result = estimator(**constant_kwargs, **batched_kwargs)
+        # Filter to resources known to the pool to avoid KeyError in _resource_delay(), this is done
+        # because some providers do not report resources so rate limiting can only be done off of config
+        known = self._resources
+        return {k: v for k, v in result.items() if k in known}
 
     def _resource_delay(self, request_resources: dict[str, int]) -> float:
         """For the provided resources and usage, attempts to estimate the time to wait until sufficient resources are
