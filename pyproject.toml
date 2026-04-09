@@ -96,6 +96,8 @@ override-dependencies = [
     "numpy>=2.4 ; python_version >= '3.14'",
     "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
     "ruff>=0.14",  # Required because 'fireworks-ai' hard-codes 'ruff<10'
+    "sentence-transformers>=5 ; python_version < '3.14'",  # Required due to 'whisperx'
+    "huggingface-hub>=1",  # Required due to 'whisperx'
 ]
 
 [tool.uv-dynamic-versioning]
