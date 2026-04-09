@@ -127,17 +127,6 @@ class Expr(abc.ABC):
         """
         return None
 
-    def get_first_udf(self) -> func.Function | None:
-        """
-        Returns the topmost UDF in the expression tree, or None if there is no UDF call.
-        """
-        for expr in self.components:
-            fn = expr.get_first_udf()
-            if fn is not None:
-                return fn
-
-        return None
-
     @property
     def validation_error(self) -> str | None:
         """
@@ -390,11 +379,13 @@ class Expr(abc.ABC):
         expr_class: type[Expr] | None = None,
         filter: Callable[[Expr], bool] | None = None,
     ) -> bool:
-        return any(e._contains(expr_class, filter) for e in expr_list)
+        return any(e.contains_(expr_class, filter) for e in expr_list)
 
-    def _contains(self, cls: type[Expr] | None = None, filter: Callable[[Expr], bool] | None = None) -> bool:
+    def contains_(self, cls: type[Expr] | None = None, filter: Callable[[Expr], bool] | None = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls and/or matches filter.
+
+        This is named 'contains_' to avoid a name conflict with the contains(s: str, ...) udf.
         """
         assert cls is not None or filter is not None
         try:

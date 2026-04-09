@@ -129,6 +129,7 @@ class Column:
         self.id = col_id
         self.is_pk = is_pk
         self.is_iterator_col = is_iterator_col
+        assert media_validation is None or self.col_type.is_media_type()
         self._media_validation = media_validation
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
@@ -484,6 +485,13 @@ class Column:
         return self._value_expr is not None or self.value_expr_dict is not None
 
     @property
+    def calls_custom_udf(self) -> bool:
+        value_expr = self.value_expr
+        if value_expr is None:
+            return False
+        return value_expr.contains_(cls=exprs.FunctionCall, filter=lambda e: not e.fn.is_builtin)
+
+    @property
     def is_stored(self) -> bool:
         """Returns True if column is materialized in the stored table."""
         assert self.stored is not None
@@ -495,7 +503,9 @@ class Column:
         return f'{self.get_tbl().name}.{self.name}'
 
     @property
-    def media_validation(self) -> MediaValidation:
+    def media_validation(self) -> MediaValidation | None:
+        if not self.col_type.is_media_type():
+            return None
         if self._media_validation is not None:
             return self._media_validation
         assert self.get_tbl() is not None

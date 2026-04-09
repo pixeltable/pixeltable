@@ -281,7 +281,7 @@ class Analyzer:
         for e in self.group_by_clause:
             if not self.sql_elements.contains(e):
                 raise excs.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}')
-            if e._contains(filter=_is_agg_fn_call):
+            if e.contains_(filter=_is_agg_fn_call):
                 raise excs.Error(f'Grouping expression contains aggregate function: {e}')
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
@@ -1090,7 +1090,7 @@ class Planner:
                 analyzer.select_list,
                 filter=lambda e: (
                     sql_elements.contains(e)
-                    and not e._contains(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call))
+                    and not e.contains_(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call))
                 ),
                 traverse_matches=False,
             )

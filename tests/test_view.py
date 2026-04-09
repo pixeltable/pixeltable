@@ -944,7 +944,9 @@ class TestView:
                             'is_primary_key': False,
                             'is_stored': True,
                             'destination': None,
-                            'media_validation': 'on_write',
+                            'media_validation': None,
+                            'is_builtin': None,
+                            'depends_on': None,
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
@@ -1018,37 +1020,41 @@ class TestView:
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
-            expected_schema: dict[str, tuple[str, int, str | None]]
+            expected_schema: dict[str, tuple[str, int, str | None, list[tuple[str, str]] | None]]
             if i == 0:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None)}
+                expected_schema = {'c1': ('Int', 0, None, None), 'c2': ('String', 3, None, None)}
                 expected_schema_version = 0
                 expected_base_version = 4
             elif i == 1:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
+                expected_schema = {
+                    'c1': ('Int', 0, None, None),
+                    'c2': ('String', 3, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                }
                 expected_schema_version = 1
                 expected_base_version = 4
             elif i == 2:
                 expected_schema = {
-                    'c1': ('Int', 0, None),
-                    'c2': ('String', 3, None),
-                    'c3': ('Int', 1, 'c1 // 2'),
-                    'c4': ('Int', 2, None),
+                    'c1': ('Int', 0, None, None),
+                    'c2': ('String', 3, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                    'c4': ('Int', 2, None, None),
                 }
                 expected_schema_version = 2
                 expected_base_version = 4
             elif i == 3:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
-                    'c4': ('Int', 2, None),
+                    'balloon': ('Int', 0, None, None),
+                    'c3': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
+                    'c4': ('Int', 2, None, None),
                 }
                 expected_schema_version = 2
                 expected_base_version = 7
             else:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c4': ('Int', 2, None),
-                    'hamburger': ('Int', 1, 'balloon // 2'),
+                    'balloon': ('Int', 0, None, None),
+                    'c4': ('Int', 2, None, None),
+                    'hamburger': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
                 }
                 expected_schema_version = 4
                 expected_base_version = 7
@@ -1065,14 +1071,16 @@ class TestView:
                             'is_primary_key': False,
                             'is_stored': True,
                             'destination': None,
-                            'media_validation': 'on_write',
+                            'media_validation': None,
+                            'is_builtin': True if computed_with is not None else None,
+                            'depends_on': depends_on,
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
                             'custom_metadata': None,
                             'comment': None,
                         }
-                        for name, (type_, version_added, computed_with) in expected_schema.items()
+                        for name, (type_, version_added, computed_with, depends_on) in expected_schema.items()
                     },
                     'comment': None,
                     'indices': {},
@@ -1107,33 +1115,37 @@ class TestView:
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
             if i == 0:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
+                expected_schema = {
+                    'c1': ('Int', 0, None, None),
+                    'c2': ('String', 3, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                }
                 expected_schema_version = 0
                 expected_base_version = 1
             elif i == 1:
                 expected_schema = {
-                    'c1': ('Int', 0, None),
-                    'c3': ('Int', 1, 'c1 // 2'),
-                    'c4': ('Int', 2, None),
-                    'c5': ('Float', 1, None),
+                    'c1': ('Int', 0, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                    'c4': ('Int', 2, None, None),
+                    'c5': ('Float', 1, None, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 2
             elif i == 2:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
-                    'c4': ('Int', 2, None),
-                    'c5': ('Float', 1, None),
+                    'balloon': ('Int', 0, None, None),
+                    'c3': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
+                    'c4': ('Int', 2, None, None),
+                    'c5': ('Float', 1, None, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 3
             elif i == 3:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c4': ('Int', 2, None),
-                    'hamburger': ('Int', 1, 'balloon // 2'),
-                    'c5': ('Float', 1, None),
+                    'balloon': ('Int', 0, None, None),
+                    'c4': ('Int', 2, None, None),
+                    'hamburger': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
+                    'c5': ('Float', 1, None, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 5
@@ -1153,14 +1165,16 @@ class TestView:
                             'is_primary_key': False,
                             'is_stored': True,
                             'destination': None,
-                            'media_validation': 'on_write',
+                            'media_validation': None,
+                            'is_builtin': True if computed_with is not None else None,
+                            'depends_on': depends_on,
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
                             'custom_metadata': None,
                             'comment': None,
                         }
-                        for name, (type_, version_added, computed_with) in expected_schema.items()
+                        for name, (type_, version_added, computed_with, depends_on) in expected_schema.items()
                     },
                     'comment': None,
                     'indices': {},

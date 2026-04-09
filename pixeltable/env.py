@@ -5,6 +5,7 @@ import datetime
 import glob
 import http.server
 import importlib
+import importlib.metadata
 import importlib.util
 import inspect
 import logging
@@ -820,7 +821,10 @@ class Env:
         # check whether we have a version >= the required one
         if package_info.version is None:
             module = importlib.import_module(package_name)
-            package_info.version = [int(x) for x in module.__version__.split('.')]
+            version_str: str | None = getattr(module, '__version__', None)
+            if version_str is None:
+                version_str = importlib.metadata.version(package_info.library_name)
+            package_info.version = [int(x) for x in version_str.split('.')]
 
         if min_version > package_info.version:
             raise excs.Error(
@@ -999,17 +1003,10 @@ class RateLimitsInfo:
 
     Subclasses provide operational customization via:
     - get_retry_delay()
-    - get_request_resources(self, ...) -> dict[str, int]
-    with parameters that are a subset of those of the udf that creates the subclass's instance
+    - record_exc()
 
     All mutable state is protected by _lock (a reentrant lock, since subclass record_exc() may call self.record()).
     """
-
-    # get_request_resources:
-    # - Returns estimated resources needed for a specific request (ie, a single udf call) as a dict (key: resource name)
-    # - parameters are a subset of those of the udf
-    # - this is not a class method because the signature depends on the instantiating udf
-    get_request_resources: Callable[..., dict[str, int]]
 
     resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
     has_exc: bool = False
@@ -1115,8 +1112,8 @@ class RateLimitInfo:
             return 0
         if self.request_start_ts >= self.reset_at:
             return 0
-        if self.limit < target_remaining:
-            return None
+        if self.remaining >= self.limit:
+            return None  # nothing consumed yet; can't estimate refill rate
 
         # Estimate resource refill rate based on the recorded state and timestamps. Assumes linear refill.
         refill_rate = (self.limit - self.remaining) / (self.reset_at - self.request_start_ts).total_seconds()
