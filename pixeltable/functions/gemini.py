@@ -327,7 +327,7 @@ async def generate_videos(
 
     Args:
         prompt: A text description of the videos to generate.
-        image: A single image to use as the first frame of the video, or a list of up to 3 reference images
+        image: A single image to use as the first frame of the video, or as `images` a list of up to 3 reference images
             for Veo 3.1 (see overloaded signature).
         model: The model to use.
         config: Configuration for generation, corresponding to keyword arguments of
