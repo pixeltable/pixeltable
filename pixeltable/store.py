@@ -511,6 +511,14 @@ class StoreBase:
                     detail = detail.replace(col.store_name(), col.name)
                 raise excs.Error(f'Duplicate primary key value: {detail}') from e
             raise
+        except sql.exc.OperationalError as e:
+            if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded) and 'pk_idx_' in str(e.orig):
+                pk_col_names = [col.name for col in self.tbl_version.get().primary_key_columns()]
+                raise excs.Error(
+                    f'Primary key value too large for index: the combined size of the insert for columns '
+                    f'({", ".join(pk_col_names)}) exceeds the maximum btree index row size'
+                ) from e
+            raise
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
         #     differences in the data representation that SQLAlchemy/psycopg expect. The below code will do the
