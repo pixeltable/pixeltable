@@ -623,6 +623,7 @@ class TestTable:
                 'name': 'test',
                 'media_validation': 'on_write',
                 'path': 'test',
+                'primary_key': None,
                 'schema_version': 3,
                 'version': 3,
             },
@@ -769,6 +770,7 @@ class TestTable:
                 'name': 'test_view',
                 'media_validation': 'on_write',
                 'path': 'test_view',
+                'primary_key': None,
                 'schema_version': 1,
                 'version': 1,
             },
@@ -795,6 +797,7 @@ class TestTable:
                 'schema_version': 1,
                 'comment': None,
                 'custom_metadata': None,
+                'primary_key': None,
                 'media_validation': 'on_write',
                 'indices': {},
                 'columns': {
