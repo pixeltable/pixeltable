@@ -354,7 +354,7 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('timm')
-    device = resolve_torch_device('auto')
+    device = resolve_torch_device('auto', allow_mps=False)  # segfaults on Mac OS when allow_mps=True
     import torch
     from transformers import DetrForSegmentation, DetrImageProcessor
 
