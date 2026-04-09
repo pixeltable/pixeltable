@@ -1185,7 +1185,7 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     env.Env.get().require_package('soundfile')
     device = resolve_torch_device('auto')
     import datasets  # type: ignore[import-untyped]
-    import soundfile as sf  # type: ignore[import-untyped]
+    import soundfile  # type: ignore[import-untyped]
     import torch
     from transformers import (
         AutoModelForTextToWaveform,
@@ -1257,7 +1257,7 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
 
         # Create output file
         output_filename = str(TempStore.create_path(extension='.wav'))
-        sf.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
+        soundfile.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
         return output_filename
 
 
