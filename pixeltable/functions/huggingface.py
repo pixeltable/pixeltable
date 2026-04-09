@@ -266,8 +266,9 @@ def detr_for_object_detection(
 
     model = _lookup_model(
         model_id,
-        lambda x: DetrForObjectDetection.from_pretrained(x, revision=revision),
+        DetrForObjectDetection.from_pretrained,
         device=device,
+        revision=revision,
         cache_key=(model_id, DetrForObjectDetection.from_pretrained, device, ('revision', revision)),
     )
     processor = _lookup_processor(model_id, DetrImageProcessor.from_pretrained, revision=revision)
