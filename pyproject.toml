@@ -214,22 +214,22 @@ template = "__version__: str = '{version}'\n"
 exclude = [
     ".pytest_cache",
     ".pytype",
-    "dashboard",
-    "docs",
-    "local",
-    "tests",
-    "tool",
+    "/dashboard",
+    "/docs",
+    "/local",
+    "/tests",
+    "/tool",
 ]
 
 [tool.hatch.build.targets.wheel]
 exclude = [
     ".pytest_cache",
     ".pytype",
-    "dashboard",
-    "docs",
-    "local",
-    "tests",
-    "tool",
+    "/dashboard",
+    "/docs",
+    "/local",
+    "/tests",
+    "/tool",
 ]
 artifacts = [
     "pixeltable/dashboard/static/**",
