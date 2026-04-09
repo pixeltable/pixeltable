@@ -241,7 +241,8 @@ class Table(SchemaObject):
         from pixeltable.catalog import retry_loop
         from pixeltable.plan import FromClause
 
-        @retry_loop(tvp_read_targets=[self._tbl_version_path])
+        # this breaks label studio sync
+        # @retry_loop(tvp_read_targets=[self._tbl_version_path])
         def do_select() -> 'pxt.Query':
             query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
             if len(items) == 0 and len(named_items) == 0:
