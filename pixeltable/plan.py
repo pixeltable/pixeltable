@@ -448,14 +448,10 @@ class Planner:
         assert isinstance(tbl, catalog.TableVersionPath)
         target = tbl.tbl_version.get()  # the one we need to update
         updated_cols = list(update_targets.keys())
-        recomputed_cols: set[Column]
-        if len(recompute_targets) > 0:
-            assert len(update_targets) == 0
-            recomputed_cols = {*recompute_targets}
-            if cascade:
-                recomputed_cols |= target.get_dependent_columns(recomputed_cols)
-        else:
-            recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
+        assert len(update_targets) == 0 or len(recompute_targets) == 0
+        recomputed_cols = set(recompute_targets)
+        if cascade:
+            recomputed_cols |= target.get_dependent_columns(set(updated_cols) | recomputed_cols)
         # regardless of cascade, we need to update all indices on any updated/recomputed column
         modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
         idx_val_cols = target.get_idx_val_columns(modified_base_cols)
@@ -472,33 +468,30 @@ class Planner:
 
         cls.__check_valid_columns(tbl.tbl_version.get(), recomputed_cols, 'updated in')
 
-        # our query plan
-        # - evaluates the update targets and recomputed columns
-        # - copies all other stored columns
-        # - restores unmodified index val columns from undo columns
         recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == tbl.tbl_version.id}
-        undo_restored_val_cols = {val_col for _, val_col in undo_to_val}
-        copied_cols = [
-            col
-            for col in target.cols_by_id.values()
-            if col.is_stored
-            and col not in updated_cols
-            and col not in recomputed_base_cols
-            and col not in idx_undo_cols
-            and col not in undo_restored_val_cols
-        ]
-        select_list: list[exprs.Expr] = list(update_targets.values())
 
+        # Column copies: (target, source) pairs.
+        # Identity (target == source): copy unchanged columns from their own old value.
+        # Remap (target != source): copy unchanged columns from an alternative source column
+        excluded = set(updated_cols) | recomputed_base_cols | idx_undo_cols | {v for _, v in undo_to_val}
+        column_copies: list[tuple[Column, Column]] = [
+            (col, col) for col in target.cols_by_id.values() if col.is_stored and col not in excluded
+        ]
+        # Restoring index val columns from undo columns
+        column_copies += [(val_col, undo_col) for undo_col, val_col in undo_to_val]
+        identity_cols = [t for t, s in column_copies if t == s]
+        remap_copies = [(t, s) for t, s in column_copies if t != s]
+
+        # Build select list: update target exprs, recomputed exprs, remap source refs
+        select_list: list[exprs.Expr] = list(update_targets.values())
         recomputed_exprs = [
             c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
         ]
-        # recomputed cols reference the new values of the updated cols
         spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
         exprs.Expr.list_substitute(recomputed_exprs, spec)
         select_list.extend(recomputed_exprs)
-        # read undo columns so we can restore unmodified index val columns
-        undo_col_refs = [exprs.ColumnRef(undo_col) for undo_col, _ in undo_to_val]
-        select_list.extend(undo_col_refs)
+        remap_refs = [exprs.ColumnRef(source) for _, source in remap_copies]
+        select_list.extend(remap_refs)
 
         # Read from rows that were just deleted (expired) at the current version.
         # The where clause was already applied during deletion; delete_rows nullifies index value columns,
@@ -506,18 +499,21 @@ class Planner:
         plan = cls.create_query_plan(
             FromClause(tbls=[tbl]),
             select_list=select_list,
-            columns=copied_cols,
+            columns=identity_cols,
             ignore_errors=True,
             deleted_at_current_version=[tbl.tbl_version],
         )
-        evaluated_cols = updated_cols + list(recomputed_base_cols)  # same order as select_list
-        # update row builder with column information
-        plan.row_builder.add_table_columns(copied_cols)
+
+        # Register output columns with the row builder
+        # Identity copies: read via cell_vals (preserves cellmd)
+        plan.row_builder.add_table_columns(identity_cols)
+        # Remaps: read from source slot, write to target column
+        for (target, _), ref in zip(remap_copies, remap_refs):
+            plan.row_builder.add_table_column(target, ref.slot_idx)
+        # Evaluated: update targets + recomputed columns
+        evaluated_cols = updated_cols + list(recomputed_base_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        # map undo column slots to val columns (restore index values from undo)
-        for i, (_, val_col) in enumerate(undo_to_val):
-            plan.row_builder.add_table_column(val_col, undo_col_refs[i].slot_idx)
 
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
@@ -696,26 +692,24 @@ class Planner:
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
-        undo_restored_val_cols = {val_col for _, val_col in undo_to_val}
-        copied_cols = [
-            col
-            for col in target.cols_by_id.values()
-            if col.is_stored
-            and col not in updated_cols
-            and col not in recomputed_base_cols
-            and col not in idx_undo_cols
-            and col not in undo_restored_val_cols
-        ]
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols]
 
+        # Column copies: (target, source) pairs.
+        excluded = set(updated_cols) | recomputed_base_cols | idx_undo_cols | {v for _, v in undo_to_val}
+        column_copies: list[tuple[Column, Column]] = [
+            (col, col) for col in target.cols_by_id.values() if col.is_stored and col not in excluded
+        ]
+        column_copies += [(val_col, undo_col) for undo_col, val_col in undo_to_val]
+        identity_cols = [t for t, s in column_copies if t == s]
+        remap_copies = [(t, s) for t, s in column_copies if t != s]
+
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols]
         recomputed_exprs = [
             c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
         ]
         # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further substitution is needed
         select_list.extend(recomputed_exprs)
-        # read undo columns so we can restore unmodified index val columns
-        undo_col_refs = [exprs.ColumnRef(undo_col) for undo_col, _ in undo_to_val]
-        select_list.extend(undo_col_refs)
+        remap_refs = [exprs.ColumnRef(source) for _, source in remap_copies]
+        select_list.extend(remap_refs)
 
         # ExecNode tree (from bottom to top):
         # - SqlLookupNode to retrieve the existing rows
@@ -733,7 +727,7 @@ class Planner:
             tbl,
             row_builder,
             sql_exprs,
-            columns=copied_cols,
+            columns=identity_cols,
             sa_key_cols=sa_key_cols,
             key_vals=key_vals,
             cell_md_col_refs=cell_md_col_refs,
@@ -746,15 +740,14 @@ class Planner:
             # we need an ExprEvalNode to evaluate the remaining output exprs
             plan = exec.ExprEvalNode(row_builder, analyzer.select_list, sql_exprs, input=plan)
 
-        # update row builder with column information
-        evaluated_cols = list(updated_cols) + list(recomputed_base_cols)  # same order as select_list
+        # Register output columns with the row builder
         row_builder.set_slot_idxs(select_list, remove_duplicates=False)
-        plan.row_builder.add_table_columns(copied_cols)
+        plan.row_builder.add_table_columns(identity_cols)
+        for (target_col, _), ref in zip(remap_copies, remap_refs):
+            plan.row_builder.add_table_column(target_col, ref.slot_idx)
+        evaluated_cols = list(updated_cols) + list(recomputed_base_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        # map undo column slots to val columns (restore index values from undo)
-        for i, (_, val_col) in enumerate(undo_to_val):
-            plan.row_builder.add_table_column(val_col, undo_col_refs[i].slot_idx)
         ctx = exec.ExecContext(row_builder)
         # TODO: correct batch size?
         ctx.batch_size = 0
@@ -794,19 +787,23 @@ class Planner:
         # Recompute index val cols only for modified columns; restore the rest from undo
         recomputed_cols = target.get_idx_val_columns(recompute_targets)
         recomputed_cols.update(recompute_targets)
+        idx_undo_cols = {i.undo_col for i in target.idxs.values()}
         undo_to_val = [(i.undo_col, i.val_col) for i in target.idxs.values() if i.val_col not in recomputed_cols]
-        skip_cols = {i.undo_col for i in target.idxs.values()} | {v for _, v in undo_to_val}
 
-        copied_cols = [
-            c for c in target.cols_by_id.values() if c.is_stored and c not in recomputed_cols and c not in skip_cols
+        # Column copies: (target, source) pairs.
+        excluded = recomputed_cols | idx_undo_cols | {v for _, v in undo_to_val}
+        column_copies: list[tuple[Column, Column]] = [
+            (col, col) for col in target.cols_by_id.values() if col.is_stored and col not in excluded
         ]
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
+        column_copies += [(val_col, undo_col) for undo_col, val_col in undo_to_val]
+        copy_refs = [exprs.ColumnRef(source) for _, source in column_copies]
+
+        # Build select list: copy refs, then recomputed exprs
+        select_list: list[exprs.Expr] = list(copy_refs)
         recomputed_exprs = [
             c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_cols) for c in recomputed_cols
         ]
         select_list.extend(recomputed_exprs)
-        undo_col_refs = [exprs.ColumnRef(u) for u, _ in undo_to_val]
-        select_list.extend(undo_col_refs)
 
         # Read the just-expired rows (v_max == current_version) to copy stored column values
         plan = cls.create_query_plan(
@@ -817,10 +814,11 @@ class Planner:
             created_at_current_version=view.get_bases(),
             deleted_at_current_version=[view.tbl_version],
         )
-        for i, col in enumerate(copied_cols + list(recomputed_cols)):
-            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        for i, (_, val_col) in enumerate(undo_to_val):
-            plan.row_builder.add_table_column(val_col, undo_col_refs[i].slot_idx)
+        # Register output columns with the row builder
+        for (target_col, _), ref in zip(column_copies, copy_refs):
+            plan.row_builder.add_table_column(target_col, ref.slot_idx)
+        for i, col in enumerate(recomputed_cols):
+            plan.row_builder.add_table_column(col, recomputed_exprs[i].slot_idx)
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
 
