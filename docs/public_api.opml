@@ -101,12 +101,10 @@
           </outline>
 
           <outline text="class|pixeltable.ResultSet">
-            <outline text="property|pixeltable.ResultSet.schema" />
             <outline text="method|pixeltable.ResultSet.to_pandas" />
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
           </outline>
 
-          <!-- Expression methods users call on column references (t.col) -->
           <outline text="class|pixeltable.exprs.Expr">
             <outline text="method|pixeltable.exprs.Expr.astype" />
             <outline text="method|pixeltable.exprs.Expr.isin" />
