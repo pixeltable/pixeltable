@@ -495,8 +495,7 @@ class StoreBase:
 
             return cols_with_excs, row_counts
 
-    @classmethod
-    def sql_insert(cls, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
+    def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
@@ -507,7 +506,10 @@ class StoreBase:
                 and e.orig.diag.constraint_name is not None
                 and e.orig.diag.constraint_name.startswith('pk_idx_')
             ):
-                raise excs.Error('Duplicate primary key value') from None
+                detail = e.orig.diag.message_detail or ''
+                for col in self.tbl_version.get().primary_key_columns():
+                    detail = detail.replace(col.store_name(), col.name)
+                raise excs.Error(f'Duplicate primary key value: {detail}') from e
             raise
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
