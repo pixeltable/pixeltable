@@ -405,21 +405,51 @@ class Planner:
         cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool
     ) -> exec.ExecNode:
         assert not tbl.is_view
-        plan = query._create_query_plan()  # ExecNode constructed by the Query
 
-        # Modify the plan RowBuilder to register the output columns
+        query_col_names = set(query.schema.keys())
+
+        # map each dst column covered by the query to its corresponding src expression
+        substitution: dict[exprs.Expr, exprs.Expr] = {
+            exprs.ColumnRef(tbl.cols_by_name[col_name]): expr
+            for col_name, expr in zip(query.schema.keys(), query._select_list_exprs)
+            if col_name in tbl.cols_by_name
+        }
+
+        # stored computed cols in dst not covered by the query
+        missing_computed_cols: list[catalog.Column] = []
+        missing_col_exprs: list[exprs.Expr] = []
+        for col in tbl.cols_by_id.values():
+            if not col.is_stored or col.name in query_col_names or not col.is_computed:
+                continue
+            missing_computed_cols.append(col)
+            missing_col_exprs.append(col.value_expr.copy())
+
+        # extend substitution with missing computed columns, e.g. so that c5 = c4 + 1
+        # can resolve c4 -> c4.value_expr where c4 is also a missing computed column
+        for col, expr in zip(missing_computed_cols, missing_col_exprs):
+            substitution[exprs.ColumnRef(col)] = expr
+
+        # apply full substitution to all missing column exprs
+        missing_col_exprs = [expr.substitute(substitution) for expr in missing_col_exprs]
+
+        plan = query._create_query_plan(target_col_exprs=missing_col_exprs)
+
         needs_cell_materialization = False
+
         for col_name, expr in zip(query.schema.keys(), query._select_list_exprs):
-            assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
+            needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
+
+        for col, expr in zip(missing_computed_cols, missing_col_exprs):
+            registered_expr = plan.row_builder.unique_exprs[expr]
+            plan.row_builder.add_table_column(col, registered_expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
         plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
-
         return plan
 
     @classmethod
@@ -943,6 +973,7 @@ class Planner:
         sample_clause: SampleClause | None = None,
         ignore_errors: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
+        extra_exprs: list[exprs.Expr] | None = None,
     ) -> exec.ExecNode:
         """
         Return plan for executing a query.
@@ -975,12 +1006,20 @@ class Planner:
         # Otherwise there is no context table, but that's ok, because the context table is only needed for
         # table mutations, which can't happen during a join.
         context_tbl = from_clause.tbls[0].tbl_version.get() if len(from_clause.tbls) == 1 else None
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl)
+        all_output_exprs = analyzer.all_exprs if not extra_exprs else analyzer.all_exprs + extra_exprs
+        row_builder = exprs.RowBuilder(all_output_exprs, [], [], context_tbl)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
         # with_pk: for now, we always retrieve the PK, because we need it for the file cache
-        eval_ctx = row_builder.create_eval_ctx(analyzer.select_list)
+        # extra_exprs: additional insert target col exprs to evaluate alongside the select list
+        eval_targets = analyzer.select_list if not extra_exprs else analyzer.select_list + extra_exprs
+        eval_ctx = row_builder.create_eval_ctx(eval_targets)
+
+        # if extra_exprs present, create a broader eval ctx that includes them
+        if extra_exprs:
+            eval_ctx = row_builder.create_eval_ctx(analyzer.select_list + extra_exprs, limit_scope=False)
+
         plan = cls._create_query_plan(
             row_builder=row_builder,
             analyzer=analyzer,

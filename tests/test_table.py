@@ -3325,3 +3325,41 @@ class TestTable:
         # check that raw object JSON comments are rejected for columns
         with pytest.raises(pxt.Error, match="'comment' must be a string"):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[dict-item]
+
+    def test_insert_query_computed_cols(self, uses_db: None, e5_embed: pxt.Function) -> None:
+        """Query insert correctly evaluates computed cols and embedding index val cols."""
+        skip_test_if_not_installed('sentence_transformers')
+
+        src = pxt.create_table('src', {'c1': pxt.String, 'c2': pxt.Int})
+        src.insert([{'c1': 'a dog in the park', 'c2': 10}, {'c1': 'a cat on a mat', 'c2': 20}])
+
+        dst = pxt.create_table('dst', {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.String})
+        dst.add_computed_column(c4=dst.c2 * 2)
+        dst.add_computed_column(c5=dst.c4 + 1)  # depends on another computed col
+        dst.add_embedding_index('c1', string_embed=e5_embed)  # val col = e5_embed(dst.c1)
+
+        # c3 not in query -> NULL; c4, c5 computed from query values; embedding val col computed from src.c1
+        dst.insert(src.select(src.c1, src.c2))
+
+        result = dst.order_by(dst.c2).collect()
+        assert len(result) == 2
+        assert result[0]['c4'] == 20  # 10 * 2
+        assert result[1]['c4'] == 40  # 20 * 2
+        assert result[0]['c5'] == 21  # 10 * 2 + 1
+        assert result[1]['c5'] == 41  # 20 * 2 + 1
+        assert result[0]['c3'] is None
+        assert result[1]['c3'] is None
+        # check embedding index works — proves val col was computed from src.c1, not NULL
+        sim_result = dst.order_by(dst.c1.similarity(string='cat'), asc=False).limit(1).collect()
+        assert sim_result[0]['c1'] == 'a cat on a mat'
+
+        # verify substitution works with arbitrary src expressions mapped to dst col names
+        dst2 = pxt.create_table('dst2', {'x': pxt.String, 'y': pxt.Int})
+        dst2.add_computed_column(z=dst2.y * 2)
+        dst2.insert(src.select(x=src.c1, y=src.c2 + 5))
+
+        result2 = dst2.order_by(dst2.y).collect()
+        assert result2[0]['y'] == 15  # 10 + 5
+        assert result2[0]['z'] == 30  # 15 * 2
+        assert result2[1]['y'] == 25  # 20 + 5
+        assert result2[1]['z'] == 50  # 25 * 2

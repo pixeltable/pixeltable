@@ -352,7 +352,13 @@ class Query:
                 for row in row_batch:
                     yield row
 
-    def _create_query_plan(self) -> exec.ExecNode:
+    def _create_query_plan(self, target_col_exprs: list[exprs.Expr] | None = None) -> exec.ExecNode:
+        """Create an execution plan for this query.
+
+        Args:
+            target_col_exprs: additional expressions to evaluate for insert target table columns
+            not covered by this query's select list.
+        """
         # construct a group-by clause if we're grouping by a table
         group_by_clause: list[exprs.Expr] | None = None
         if self.grouping_tbl is not None:
@@ -376,6 +382,7 @@ class Query:
             limit=self.limit_val,
             offset=self.offset_val,
             sample_clause=self.sample_clause,
+            extra_exprs=target_col_exprs,
         )
 
     def __rowid_columns(self, num_rowid_cols: int | None = None) -> list[exprs.Expr]:
