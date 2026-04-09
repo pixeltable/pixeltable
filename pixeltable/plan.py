@@ -422,7 +422,7 @@ class Planner:
             if not col.is_stored or col.name in query_col_names or not col.is_computed:
                 continue
             missing_computed_cols.append(col)
-            missing_col_exprs.append(col.value_expr.resolve_computed_cols())
+            missing_col_exprs.append(col.value_expr.copy().resolve_computed_cols())
 
         # extend substitution with missing computed columns, e.g. so that c5 = c4 + 1
         # can resolve c4 -> c4.value_expr where c4 is also a missing computed column
