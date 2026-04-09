@@ -19,6 +19,7 @@ import io
 import logging
 import mimetypes
 import os
+import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence
@@ -468,8 +469,6 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
         ... )
     """
     env.Env.get().require_package('google.genai')
-    import wave
-
     from google.genai import types
 
     resource_pool_id = f'rate-limits:gemini:{model}'
@@ -526,8 +525,6 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
         ...     )
         ... )
     """
-    import wave
-
     env.Env.get().require_package('google.genai')
     from google.genai import types
 
