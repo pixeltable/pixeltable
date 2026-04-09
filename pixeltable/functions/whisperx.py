@@ -162,6 +162,12 @@ def _lookup_diarization_model(device: str, model_name: str | None) -> 'Diarizati
     key = (device, model_name)
     if key not in _diarization_model_cache:
         auth_token = Config.get().get_string_value('auth_token', section='hf')
+        if auth_token is None:
+            raise pxt.Error(
+                'A Hugging Face auth token is required to use WhisperX diarization features. To fix this,\n'
+                "set the `HF_AUTH_TOKEN` environment variable, or the 'auth_token' config value in the [hf] "
+                'section of your Pixeltable config file.'
+            )
         kwargs: dict[str, Any] = {'device': device, 'token': auth_token}
         if model_name is not None:
             kwargs['model_name'] = model_name
