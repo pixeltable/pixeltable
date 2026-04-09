@@ -454,8 +454,8 @@ class Planner:
             recomputed_cols |= target.get_dependent_columns(set(updated_cols) | recomputed_cols)
         # regardless of cascade, we need to update all indices on any updated/recomputed column
         modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
-        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
-        recomputed_cols.update(idx_val_cols)
+        modified_val_cols = target.get_idx_val_columns(modified_base_cols)
+        recomputed_cols.update(modified_val_cols)
         # delete_rows() nullifies index val columns and copies the original values to undo columns.
         # For unmodified columns' indexes, we restore val from undo rather than recomputing.
         undo_to_val: list[tuple[Column, Column]] = []  # (undo_col, val_col)
@@ -680,8 +680,8 @@ class Planner:
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
         # regardless of cascade, we need to update all indices on any updated/recomputed column
         modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
-        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
-        recomputed_cols.update(idx_val_cols)
+        modified_val_cols = target.get_idx_val_columns(modified_base_cols)
+        recomputed_cols.update(modified_val_cols)
         # delete_rows nullifies index val columns and copies the original values to undo columns.
         # For unmodified columns' indexes, we restore val from undo rather than recomputing.
         undo_to_val: list[tuple[Column, Column]] = []  # (undo_col, val_col)
