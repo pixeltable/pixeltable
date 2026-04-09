@@ -141,6 +141,7 @@ dev = [
     "torchaudio>=2.8",
     "torchvision>=0.22",
     "torchcodec>=0.10.0",
+    "soundfile>=0.13",
     "openai>=2",
     "anthropic>=0.53.0",
     "together>=1.5.26",
@@ -162,7 +163,7 @@ dev = [
     "datasets>=3.5.0",
     "openpyxl>=3.1",
     "openai-whisper>=20250625 ; python_version < '3.14'",
-    "whisperx==3.7.4 ; python_version < '3.14'",
+    "whisperx>=3.8 ; python_version < '3.14'",
     "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
     "ollama>=0.5.1",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
@@ -214,22 +215,22 @@ template = "__version__: str = '{version}'\n"
 exclude = [
     ".pytest_cache",
     ".pytype",
-    "dashboard",
-    "docs",
-    "local",
-    "tests",
-    "tool",
+    "/dashboard",
+    "/docs",
+    "/local",
+    "/tests",
+    "/tool",
 ]
 
 [tool.hatch.build.targets.wheel]
 exclude = [
     ".pytest_cache",
     ".pytype",
-    "dashboard",
-    "docs",
-    "local",
-    "tests",
-    "tool",
+    "/dashboard",
+    "/docs",
+    "/local",
+    "/tests",
+    "/tool",
 ]
 artifacts = [
     "pixeltable/dashboard/static/**",
