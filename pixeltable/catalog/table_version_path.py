@@ -85,6 +85,8 @@ class TableVersionPath:
         def do_refresh() -> None:
             self._cached_tbl_version = self.tbl_version.get()
 
+        with get_runtime().catalog.begin_xact(for_write=False, tbl_id_read_targets=[self.tbl_id]):
+            do_refresh()
         do_refresh()
 
     def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
