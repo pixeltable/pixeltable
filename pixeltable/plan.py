@@ -437,6 +437,7 @@ class Planner:
         needs_cell_materialization = False
 
         for col_name, expr in zip(query.schema.keys(), query._select_list_exprs):
+            assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
