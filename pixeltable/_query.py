@@ -8,6 +8,7 @@ import json
 import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Sequence, TypeVar
+from uuid import UUID
 
 import pandas as pd
 import pydantic
@@ -494,11 +495,9 @@ class Query:
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         raise excs.Error(msg) from e
 
-    def _output_row_iterator(self) -> Iterator[list]:
-        single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
-
-        # find all tables and lock them
-        # TODO refactor/cleanup
+    def _read_tbl_ids(self) -> list[UUID]:
+        """Returns the IDs of all tables referenced by this query, for use as read targets in begin_xact."""
+        # clean this up
         all_exprs: list[exprs.Expr] = [
             *self._select_list_exprs,
             *([self.where_clause] if self.where_clause is not None else []),
@@ -508,8 +507,13 @@ class Query:
         tbl_ids = exprs.Expr.all_tbl_ids(all_exprs) | {
             tvh.id for tvp in self._from_clause.tbls for tvh in tvp.get_tbl_versions()
         }
+        return list(tbl_ids)
 
-        with get_runtime().catalog.begin_xact(tbl_id_read_targets=list(tbl_ids)):
+    def _output_row_iterator(self) -> Iterator[list]:
+        # TODO reuse list of read tables to determine single_tbl
+        single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
+
+        with get_runtime().catalog.begin_xact(tbl_id_read_targets=self._read_tbl_ids()):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]

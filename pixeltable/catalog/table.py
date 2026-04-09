@@ -238,7 +238,6 @@ class Table(SchemaObject):
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
-        from pixeltable.catalog import retry_loop
         from pixeltable.plan import FromClause
 
         # this breaks label studio sync
