@@ -158,7 +158,7 @@ class Row:
     """Memory-efficient row wrapper that provides dict-like access to column values."""
 
     def __init__(self, data: list[Any], columns: dict[str, int]):
-        self._data = data
+        self._data = tuple(data)
         self._columns = columns
 
     def __getitem__(self, key: str) -> Any:
