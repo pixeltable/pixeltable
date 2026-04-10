@@ -44,7 +44,7 @@
             "pages": [
               "platform/configuration",
               {
-                "group": "Migrating from...",
+                "group": "Migrating from ...",
                 "pages": [
                   "migrate/from-diy-data-pipeline",
                   "migrate/from-rdbms-vectordbs",

@@ -46,12 +46,17 @@ _GLOBAL_SCOPE = ExprScope(None)
 
 class Expr(abc.ABC):
     """
-    Rules for using state in subclasses:
-    - all state except for components and slot_idx is shared between copies of an Expr
-    - slot_idx is set during analysis (Query.show())
-    - during eval(), components can only be accessed via self.components; any Exprs outside of that won't
-      have slot_idx set
+    A Pixeltable expression.
+
+    All Pixeltable expressions, including [column references][pixeltable.exprs.ColumnRef] (such as `t.col`),
+    UDF calls (`t.my_string.lower()`), and compound expressions (`t.col + 5`) are instances of this class.
     """
+
+    # Rules for using state in subclasses:
+    # - all state except for components and slot_idx is shared between copies of an Expr
+    # - slot_idx is set during analysis (Query.show())
+    # - during eval(), components can only be accessed via self.components; any Exprs outside of that won't
+    #   have slot_idx set
 
     col_type: ts.ColumnType
 
@@ -572,6 +577,26 @@ class Expr(abc.ABC):
         raise AssertionError(f'not implemented: {cls.__name__}')
 
     def isin(self, value_set: Any) -> 'exprs.InPredicate':
+        """
+        Return a new, boolean-valued expression that is `True` whenever this expression is in `value_set`.
+
+        Args:
+            value_set: Either another expression that evaluates to a set of values, or a constant collection of
+                values. If the latter, must be a `list` or `tuple`.
+
+        Examples:
+            These examples assume that `t` is a table with a column `int_col` of type `pxt.Int`, and another column
+            `list_col` of type `pxt.Json`, containing lists of integers.
+
+            Select all rows where `int_col` is in the constant list `[1, 3, 22]`:
+
+            >>> t.where(t.int_col.isin([1, 3, 22])).select()
+
+            Select all rows where `int_col` is in the set of values in that row's `list_col`:
+
+            >>> t.where(t.int_col.isin(t.list_col)).select()
+        """
+
         from .in_predicate import InPredicate
 
         if isinstance(value_set, Expr):
@@ -580,6 +605,25 @@ class Expr(abc.ABC):
             return InPredicate(self, value_set_literal=value_set)
 
     def astype(self, new_type: ts.ColumnType | type | _AnnotatedAlias) -> 'exprs.TypeCast':
+        """
+        Return a new expression that casts this expression to a different type.
+
+        This represents a type _cast_, not a type _coercion_, so it will not mutate the underlying data; it simply
+        changes the static type given by the expression.
+
+        Args:
+            new_type: The type to cast to.
+
+        Examples:
+            Given an existing column `t.json_col` of type `pxt.Json`, cast that column to type `pxt.String`:
+
+            >>> t.json_col.astype(pxt.String)
+
+            This will assume that all values in `t.json_col` are _actually_ strings, and it will result in an error
+            at runtime if there are values in `t.json_col` that are not strings. It will _not_ convert those values to
+            a string representation. (For that, use the [`dumps()`][pixeltable.functions.json.dumps] UDF instead.)
+        """
+
         from pixeltable.exprs import TypeCast
 
         # Interpret the type argument the same way we would if given in a schema
