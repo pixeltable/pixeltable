@@ -985,10 +985,8 @@ class TestQuery:
 
         # context manager: partial consumption cleans up
         with query.cursor() as cur:
-            count = 0
-            for row in cur:
-                count += 1
-                if count == 10:
+            for i, _row in enumerate(cur):
+                if i == 10:
                     break
         assert cur._closed
 

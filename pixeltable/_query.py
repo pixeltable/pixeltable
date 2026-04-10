@@ -9,11 +9,23 @@ import logging
 import traceback
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, Generator, NoReturn, Sequence, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Callable,
+    Generator,
+    Hashable,
+    Iterator,
+    NoReturn,
+    Sequence,
+    TypeVar,
+)
 
 import pandas as pd
 import pydantic
 import sqlalchemy.exc as sql_exc
+from typing_extensions import Self
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
 from pixeltable.catalog import is_valid_identifier
@@ -207,7 +219,7 @@ class ResultCursor:
         self._row_iterator = None
         self._closed = True
 
-    def __enter__(self) -> ResultCursor:  # noqa: PYI034
+    def __enter__(self) -> Self:
         self.open()
         return self
 
