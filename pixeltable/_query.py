@@ -52,12 +52,11 @@ class ResultSet:
 
     Supports len(), iteration, and indexing:
 
-    - ``len(result)`` — number of rows
-    - ``for row in result`` — iterate rows as dicts
-    - ``result[i]`` — *i*-th row as a dict
-    - ``result['col']`` — all values of a column as a list
-    - ``result[i, 'col']`` — single cell value
-
+    - `len(result)` — number of rows
+    - `for row in result` — iterate rows as dicts
+    - `result[i]` — *i*-th row as a dict
+    - `result['col']` — all values of a column as a list
+    - `result[i, 'col']` — single cell value
     Convert to other formats with :meth:`to_pandas` and :meth:`to_pydantic`.
     """
 
