@@ -9,7 +9,7 @@ import logging
 import traceback
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, Generator, NoReturn, Sequence, TypeVar
 
 import pandas as pd
 import pydantic
@@ -111,26 +111,27 @@ class ResultSet:
             except pydantic.ValidationError as e:
                 raise excs.Error(str(e)) from e
 
+    def _row_to_dict(self, row_idx: int) -> dict[str, Any]:
+        return dict(self._rows[row_idx].items())
+
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
             if index not in self._col_names:
                 raise excs.Error(f'Invalid column name: {index}')
             return [row[index] for row in self._rows]
         if isinstance(index, int):
-            return dict(self._rows[index].items())
+            return self._row_to_dict(index)
         if isinstance(index, tuple) and len(index) == 2:
             if not isinstance(index[0], int) or not isinstance(index[1], (str, int)):
                 raise excs.Error(f'Bad index, expected [<row idx>, <column name | column index>]: {index}')
-            row = self._rows[index[0]]
-            if isinstance(index[1], str):
-                if index[1] not in self._col_names:
-                    raise excs.Error(f'Invalid column name: {index[1]}')
-                return row[index[1]]
-            return row._data[index[1]]
+            if isinstance(index[1], str) and index[1] not in self._col_names:
+                raise excs.Error(f'Invalid column name: {index[1]}')
+            col_idx = self._col_names[index[1]] if isinstance(index[1], int) else index[1]
+            return self._rows[index[0]][col_idx]
         raise excs.Error(f'Bad index: {index}')
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
-        return (dict(row.items()) for row in self._rows)
+        return (self._row_to_dict(i) for i in range(len(self)))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ResultSet):
@@ -155,7 +156,7 @@ class Row:
 
     def get(self, key: str, default: Any = None) -> Any:
         if key not in self._columns:
-            raise excs.Error(f'Column {key} does not exist in the row.')
+            return default
         return self._data[self._columns[key]]
 
     def keys(self) -> Iterator[str]:
@@ -186,7 +187,7 @@ class ResultCursor:
 
     def __init__(self, query: Query):
         self._query = query
-        self._row_iterator: Iterator[list] | None = None
+        self._row_iterator: Generator[list] | None = None
         self._columns: dict[str, int] = {name: i for i, name in enumerate(query.schema)}
         self._closed = False
 
@@ -202,7 +203,7 @@ class ResultCursor:
             return
         if self._row_iterator is not None:
             # Sends GeneratorExit into _output_row_iterator, unwinding begin_xact()
-            self._row_iterator.close()  # type: ignore[attr-defined]
+            self._row_iterator.close()
         self._row_iterator = None
         self._closed = True
 
@@ -632,7 +633,7 @@ class Query:
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         raise excs.Error(msg) from e
 
-    def _output_row_iterator(self) -> Iterator[list]:
+    def _output_row_iterator(self) -> Generator[list]:
         # TODO: extend begin_xact() to accept multiple TVPs for joins
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         with get_runtime().catalog.begin_xact(tbl=single_tbl, for_write=False):
