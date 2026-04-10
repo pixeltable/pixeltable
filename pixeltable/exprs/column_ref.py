@@ -227,7 +227,10 @@ class ColumnRef(Expr):
             embedding (this only needs to be done once):
 
             >>> from pixeltable.functions.huggingface import clip
-            ... t.add_embedding_index(t.image, clip.using(model_id='openai/clip-vit-base-patch32'))
+            ...
+            ... t.add_embedding_index(
+            ...     t.image, clip.using(model_id='openai/clip-vit-base-patch32')
+            ... )
 
             Do a nearest neighbor search against a string (with `k=5`):
 
