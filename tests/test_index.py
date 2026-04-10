@@ -1,5 +1,4 @@
 import datetime
-import platform
 import random
 import string
 import sys
