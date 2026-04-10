@@ -1372,8 +1372,8 @@ class Table(SchemaObject):
                 - An error occurs while importing data from a source, and `on_error='abort'`.
 
         Examples:
-            Insert two rows into the table `my_table` with three int columns ``a``, ``b``, and ``c``.
-            Column ``c`` is nullable:
+            Insert two rows into the table `my_table` with three int columns `a`, `b`, and `c`.
+            Column `c` is nullable:
 
             >>> tbl = pxt.get_table('my_table')
             ... tbl.insert([{'a': 1, 'b': 1, 'c': 1}, {'a': 2, 'b': 2}])
