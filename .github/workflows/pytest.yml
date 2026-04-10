@@ -61,6 +61,8 @@ env:
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF -DGGML_METAL_EMBED_LIBRARY=OFF'
   # This is required to build onnxsim on Ubuntu / Python 3.12+ configurations.
   CMAKE_POLICY_VERSION_MINIMUM: 3.5
+  # This is needed to prevent OOM errors on Windows instances with transformers 5.2.0+.
+  HF_DEACTIVATE_ASYNC_LOAD: 1
 
   # API keys for various services. In a PR, these secrets will be empty.
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
