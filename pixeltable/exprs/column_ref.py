@@ -383,6 +383,46 @@ class ColumnRef(Expr):
         return SimilarityExpr(expr, col_ref=self, idx_name=idx)
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
+        """
+        Return a reference to the values of an embedding index on this column.
+
+        If an embedding index is defined on a column, the usual way to use that index is via a
+        [`similarity()`][pixeltable.exprs.ColumnRef.similarity] lookup. Sometimes it is also useful to directly access
+        the index values (i.e., the embedding vectors themselves). Calling `embedding()` returns a new `ColumnRef`
+        expression of type `pxt.Array[(dim,), prec]`, where `dim` and `prec` are the dimensionality and precision
+        of the column's embedding index.
+
+        If there is more than one embedding index defined on this column, then the `idx` parameter must be provided to
+        specify which index to reference. If there is only one index, then `idx` is optional.
+
+        Args:
+            idx: An optional embedding index name. _Required_ if there is more than one embedding index defined on
+                this column.
+
+        Returns:
+            A new `ColumnRef` referencing the values of the specified embedding index on this column.
+
+        Raises:
+            `pxt.Error` if there is no embedding index defined on this column, if `idx` is not provided when there are
+            multiple embedding indices, or if `idx` does not match any embedding index defined on this column.
+
+         Examples:
+            All of these examples assume that `t` is a table with an image column `t.image`.
+
+            Add an embedding index to `t.image` using the `clip()`
+            embedding (this only needs to be done once):
+
+            >>> from pixeltable.functions.huggingface import clip
+            ...
+            ... t.add_embedding_index(
+            ...     t.image, clip.using(model_id='openai/clip-vit-base-patch32')
+            ... )
+
+            Reference the embedding index values directly:
+
+            >>> t.select(t.image, t.image.embedding())
+        """
+
         from pixeltable.index import EmbeddingIndex
 
         idx_info = self.tbl.get().get_idx(self.col, idx, EmbeddingIndex)
