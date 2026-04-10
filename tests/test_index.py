@@ -670,7 +670,6 @@ class TestIndex:
 
         _ = reload_tester.run_query(img_t.select())
 
-    @pytest.mark.skipif(platform.system() == 'Windows', reason='Segfaulting on Windows runners for unknown reasons')
     def test_view_indices(
         self, uses_db: None, e5_embed: pxt.Function, all_mpnet_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
