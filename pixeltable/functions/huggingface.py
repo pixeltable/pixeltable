@@ -1369,7 +1369,7 @@ def automatic_speech_recognition(
 
     __Requirements:__
 
-    - `pip install torch transformers torchaudio`
+    - `pip install torch transformers torchaudio torchcodec`
 
     __Recommended Models:__
 

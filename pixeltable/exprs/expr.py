@@ -582,15 +582,15 @@ class Expr(abc.ABC):
 
         Args:
             value_set: Either another expression that evaluates to a set of values, or a constant collection of
-                values. If the latter, must be a `list` or `tuple`.
+                values. If the latter, can be any `Iterable`.
 
         Examples:
             These examples assume that `t` is a table with a column `int_col` of type `pxt.Int`, and another column
             `list_col` of type `pxt.Json`, containing lists of integers.
 
-            Select all rows where `int_col` is in the constant list `[1, 3, 22]`:
+            Select all rows where `int_col` is in the constant set `{1, 3, 22}`:
 
-            >>> t.where(t.int_col.isin([1, 3, 22])).select()
+            >>> t.where(t.int_col.isin({1, 3, 22})).select()
 
             Select all rows where `int_col` is in the set of values in that row's `list_col`:
 
