@@ -767,6 +767,7 @@ class Env:
         self.__register_package('together')
         self.__register_package('torch')
         self.__register_package('torchaudio')
+        self.__register_package('torchcodec')
         self.__register_package('torchvision')
         self.__register_package('transformers')
         self.__register_package('twelvelabs')
