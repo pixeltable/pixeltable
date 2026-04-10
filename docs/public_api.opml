@@ -107,8 +107,7 @@
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
           </outline>
 
-          <outline text="class|pixeltable.Row">
-          </outline>
+          <outline text="class|pixeltable.Row" />
 
           <outline text="class|pixeltable.ResultCursor">
             <outline text="method|pixeltable.ResultCursor.open" />
