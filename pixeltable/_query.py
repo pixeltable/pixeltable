@@ -60,7 +60,7 @@ class ResultSet:
     Convert to other formats with :meth:`to_pandas` and :meth:`to_pydantic`.
     """
 
-    _rows: list[list[Any]]
+    _rows: list[Row]
     _col_names: list[str]
     __schema: dict[str, ColumnType]
     __formatter: Formatter
@@ -204,6 +204,9 @@ class Row:
     def __repr__(self) -> str:
         return '{' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '}'
 
+    def __iter__(self) -> Iterator[str]:
+        return self.keys()
+
 
 class ResultCursor:
     """Lazy, streaming cursor over query results.
@@ -214,7 +217,7 @@ class ResultCursor:
 
     def __init__(self, query: Query):
         self._query = query
-        self._row_iterator: Generator[list] | None = None
+        self._row_iterator: Generator[list[Any], None, None] | None = None
         self._columns: dict[str, int] = {name: i for i, name in enumerate(query.schema)}
         self._closed = False
 
@@ -660,7 +663,7 @@ class Query:
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         raise excs.Error(msg) from e
 
-    def _output_row_iterator(self) -> Generator[list]:
+    def _output_row_iterator(self) -> Generator[list[Any], None, None]:
         # TODO: extend begin_xact() to accept multiple TVPs for joins
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         with get_runtime().catalog.begin_xact(tbl=single_tbl, for_write=False):
