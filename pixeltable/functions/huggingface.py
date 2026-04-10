@@ -7,7 +7,7 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
-from typing import TYPE_CHECKING, Any, Callable, Literal, TypedDict, TypeVar
+from typing import Any, Callable, Literal, TypedDict, TypeVar
 
 import av
 import numpy as np
@@ -23,9 +23,6 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 T = TypeVar('T')
-
-if TYPE_CHECKING:
-    from transformers import DetrConfig
 
 
 @pxt.udf(batch_size=32)
@@ -214,24 +211,9 @@ class DetrForObjectDetectionResponse(TypedDict):
     boxes: list[list[float]]
 
 
-def _detr_config(model_id: str, revision: str) -> 'DetrConfig':
-    """Load DetrConfig with workaround for dilation=None validation error.
-
-    The no_timm revision of facebook/detr-resnet-50 stores dilation: null
-    in its config, but newer huggingface_hub versions reject None for the
-    bool-typed field.
-    """
-    from transformers import DetrConfig
-
-    config = DetrConfig.from_pretrained(model_id, revision=revision)
-    if config.dilation is None:
-        config.dilation = False
-    return config
-
-
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(
-    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'no_timm'
+    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str | None = None
 ) -> Batch[DetrForObjectDetectionResponse]:
     """
     Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
@@ -244,6 +226,9 @@ def detr_for_object_detection(
     Args:
         image: The image to embed.
         model_id: The pretrained model to use for object detection.
+        threshold: Confidence threshold for filtering detections.
+        revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not specified,
+            uses the default revision for the model (typically `'main'`).
 
     Returns:
         A dictionary containing the output of the object detection model, in the following format:
@@ -281,8 +266,9 @@ def detr_for_object_detection(
 
     model = _lookup_model(
         model_id,
-        lambda x: DetrForObjectDetection.from_pretrained(x, revision=revision, config=_detr_config(x, revision)),
+        DetrForObjectDetection.from_pretrained,
         device=device,
+        revision=revision,
         cache_key=(model_id, DetrForObjectDetection.from_pretrained, device, ('revision', revision)),
     )
     processor = _lookup_processor(model_id, DetrImageProcessor.from_pretrained, revision=revision)
@@ -1199,7 +1185,7 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     env.Env.get().require_package('soundfile')
     device = resolve_torch_device('auto')
     import datasets  # type: ignore[import-untyped]
-    import soundfile as sf  # type: ignore[import-untyped]
+    import soundfile  # type: ignore[import-untyped]
     import torch
     from transformers import (
         AutoModelForTextToWaveform,
@@ -1271,7 +1257,7 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
 
         # Create output file
         output_filename = str(TempStore.create_path(extension='.wav'))
-        sf.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
+        soundfile.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
         return output_filename
 
 
