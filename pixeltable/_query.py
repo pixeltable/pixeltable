@@ -48,7 +48,7 @@ class ResultSet:
     - `result[i, 'col']` returns the specific value in the `i`th row and column `'col'`
 
     `ResultSet` implements the Sequence protocol, so it can be iterated over and converted to other sequence
-    types in the usual fasion; for example:
+    types in the usual fashion; for example:
 
     - `for row in result` (iterates over rows)
     - `list(result)` (converts to a list of rows)
