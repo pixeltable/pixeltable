@@ -26,6 +26,21 @@
           <outline text="func|pixeltable.init" />
           <outline text="func|pixeltable.publish" />
           <outline text="func|pixeltable.replicate" />
+          <outline text="func|pixeltable.list_dirs" />
+          <outline text="func|pixeltable.list_functions" />
+          <outline text="func|pixeltable.list_tables" />
+          <outline text="func|pixeltable.configure_logging" />
+
+          <!-- Decorators and helpers -->
+          <outline text="func|pixeltable.udf" />
+          <outline text="func|pixeltable.uda" />
+          <outline text="func|pixeltable.query" />
+          <outline text="func|pixeltable.iterator" />
+          <outline text="func|pixeltable.tools" />
+          <outline text="func|pixeltable.tool" />
+          <outline text="func|pixeltable.mcp_udfs" />
+          <outline text="func|pixeltable.retrieval_udf" />
+          <outline text="func|pixeltable.array" />
 
           <!-- Core classes with ALL their methods -->
           <outline text="class|pixeltable.Table">
@@ -83,6 +98,20 @@
             <outline text="method|pixeltable.Query.tail" />
             <outline text="method|pixeltable.Query.to_pytorch_dataset" />
             <outline text="method|pixeltable.Query.to_coco_dataset" />
+          </outline>
+
+          <outline text="class|pixeltable.ResultSet">
+            <outline text="method|pixeltable.ResultSet.to_pandas" />
+            <outline text="method|pixeltable.ResultSet.to_pydantic" />
+          </outline>
+
+          <outline text="class|pixeltable.exprs.Expr">
+            <outline text="method|pixeltable.exprs.Expr.astype" />
+            <outline text="method|pixeltable.exprs.Expr.isin" />
+          </outline>
+          <outline text="class|pixeltable.exprs.ColumnRef">
+            <outline text="method|pixeltable.exprs.ColumnRef.similarity" />
+            <outline text="method|pixeltable.exprs.ColumnRef.embedding" />
           </outline>
 
           <outline text="class|pixeltable.ColumnMetadata" />
@@ -161,7 +190,7 @@
         <outline text="module|pixeltable.functions.json">
           <outline text="iter|pixeltable.functions.json.list_iterator" />
           <outline text="udf|pixeltable.functions.json.dumps" />
-          <outline text="udf|pixeltable.functions.json.make_list" />
+          <outline text="uda|pixeltable.functions.json.make_list" />
         </outline>
         <outline text="module|pixeltable.functions.math">
           <outline text="udf|pixeltable.functions.math.abs" />
@@ -262,44 +291,30 @@
           <outline text="udf|pixeltable.functions.video.concat_videos" />
           <outline text="udf|pixeltable.functions.video.extract_audio" />
           <outline text="udf|pixeltable.functions.video.extract_frame" />
+          <outline text="udf|pixeltable.functions.video.fade_in" />
+          <outline text="udf|pixeltable.functions.video.fade_out" />
           <outline text="udf|pixeltable.functions.video.get_duration" />
           <outline text="udf|pixeltable.functions.video.get_metadata" />
+          <outline text="udf|pixeltable.functions.video.grayscale" />
+          <outline text="udf|pixeltable.functions.video.mirror_x" />
+          <outline text="udf|pixeltable.functions.video.mirror_y" />
           <outline text="udf|pixeltable.functions.video.overlay_text" />
+          <!-- pan omitted: its docstring cross-ref to scroll() produces a broken
+               #func-scroll link (doctools bug: cross-refs always use #func- but
+               UDF headings produce #udf- anchors) -->
+          <outline text="udf|pixeltable.functions.video.resize" />
+          <outline text="udf|pixeltable.functions.video.reverse" />
+          <outline text="udf|pixeltable.functions.video.rotate" />
+          <outline text="udf|pixeltable.functions.video.scroll" />
           <outline text="udf|pixeltable.functions.video.segment_video" />
+          <outline text="udf|pixeltable.functions.video.speed" />
           <outline text="udf|pixeltable.functions.video.scene_detect_adaptive" />
           <outline text="udf|pixeltable.functions.video.scene_detect_content" />
           <outline text="udf|pixeltable.functions.video.scene_detect_hash" />
           <outline text="udf|pixeltable.functions.video.scene_detect_histogram" />
           <outline text="udf|pixeltable.functions.video.scene_detect_threshold" />
           <outline text="udf|pixeltable.functions.video.with_audio" />
-          <outline text="udf|pixeltable.functions.video.mix_audio" />
-          <outline text="udf|pixeltable.functions.video.overlay_image" />
-          <outline text="udf|pixeltable.functions.video.transition" />
-          <outline text="udf|pixeltable.functions.video.adjust_brightness" />
-          <outline text="udf|pixeltable.functions.video.ffmpeg_filter" />
-          <outline text="udf|pixeltable.functions.video.resize" />
-          <outline text="udf|pixeltable.functions.video.reverse" />
-          <outline text="udf|pixeltable.functions.video.fade_in" />
-          <outline text="udf|pixeltable.functions.video.fade_out" />
-          <outline text="udf|pixeltable.functions.video.speed" />
-          <outline text="udf|pixeltable.functions.video.mirror_x" />
-          <outline text="udf|pixeltable.functions.video.mirror_y" />
-          <outline text="udf|pixeltable.functions.video.rotate" />
-          <outline text="udf|pixeltable.functions.video.grayscale" />
-          <outline text="udf|pixeltable.functions.video.scroll" />
           <outline text="udf|pixeltable.functions.video.zoom" />
-        </outline>
-        <outline text="module|pixeltable.functions.vision">
-          <outline text="func|pixeltable.functions.vision.eval_detections" />
-          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
-          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
-          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
-          <outline text="udf|pixeltable.functions.vision.bboxes_scale" />
-          <outline text="udf|pixeltable.functions.vision.bboxes_pad" />
-          <outline text="udf|pixeltable.functions.vision.bboxes_clip_to_canvas" />
-          <outline text="udf|pixeltable.functions.vision.bboxes_crop_canvas" />
-          <outline text="udf|pixeltable.functions.vision.bboxes_resize_canvas" />
-          <outline text="udf|pixeltable.functions.vision.overlay_segmentation" />
         </outline>
       </outline>
 
@@ -311,6 +326,8 @@
         </outline>
         <outline text="module|pixeltable.functions.bedrock">
           <outline text="udf|pixeltable.functions.bedrock.converse" />
+          <outline text="udf|pixeltable.functions.bedrock.invoke_model" />
+          <outline text="udf|pixeltable.functions.bedrock.embed" />
           <outline text="func|pixeltable.functions.bedrock.invoke_tools" />
         </outline>
         <outline text="module|pixeltable.functions.bfl">
@@ -367,7 +384,6 @@
           <outline text="udf|pixeltable.functions.openai.transcriptions" />
           <outline text="udf|pixeltable.functions.openai.translations" />
           <outline text="udf|pixeltable.functions.openai.chat_completions" />
-          <outline text="udf|pixeltable.functions.openai.vision" />
           <outline text="udf|pixeltable.functions.openai.embeddings" />
           <outline text="udf|pixeltable.functions.openai.image_generations" />
           <outline text="udf|pixeltable.functions.openai.image_edits" />
@@ -405,6 +421,20 @@
           <outline text="udf|pixeltable.functions.uuid.uuid4" />
           <outline text="udf|pixeltable.functions.uuid.uuid7" />
           <outline text="udf|pixeltable.functions.uuid.to_string" />
+        </outline>
+        <outline text="module|pixeltable.functions.vision">
+          <outline text="func|pixeltable.functions.vision.eval_detections" />
+          <!-- mean_ap omitted: its docstring cross-ref to eval_detections()
+               produces a broken #func-eval_detections link (same doctools bug) -->
+          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
+          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
+          <outline text="func|pixeltable.functions.vision.bboxes_scale" />
+          <outline text="func|pixeltable.functions.vision.bboxes_pad" />
+          <outline text="func|pixeltable.functions.vision.bboxes_clip_to_canvas" />
+          <outline text="func|pixeltable.functions.vision.bboxes_crop_canvas" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize_canvas" />
+          <outline text="func|pixeltable.functions.vision.overlay_segmentation" />
         </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />

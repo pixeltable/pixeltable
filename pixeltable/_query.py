@@ -33,6 +33,21 @@ _logger = logging.getLogger('pixeltable')
 
 
 class ResultSet:
+    """The result of executing a query. Returned by
+    :meth:`Query.collect`, :meth:`Query.show`, :meth:`Query.head`, :meth:`Query.tail`,
+    and the corresponding methods on :class:`Table`.
+
+    Supports len(), iteration, and indexing:
+
+    - ``len(result)`` — number of rows
+    - ``for row in result`` — iterate rows as dicts
+    - ``result[i]`` — *i*-th row as a dict
+    - ``result['col']`` — all values of a column as a list
+    - ``result[i, 'col']`` — single cell value
+
+    Convert to other formats with :meth:`to_pandas` and :meth:`to_pydantic`.
+    """
+
     _rows: list[list[Any]]
     _col_names: list[str]
     __schema: dict[str, ColumnType]
@@ -46,6 +61,7 @@ class ResultSet:
 
     @property
     def schema(self) -> dict[str, ColumnType]:
+        """Column names mapped to their :class:`~pixeltable.type_system.ColumnType`."""
         return self.__schema
 
     def __len__(self) -> int:
@@ -70,6 +86,11 @@ class ResultSet:
         self._rows.reverse()
 
     def to_pandas(self) -> pd.DataFrame:
+        """Convert the result set to a pandas DataFrame.
+
+        Returns:
+            A DataFrame with one column per selected expression.
+        """
         return pd.DataFrame.from_records(self._rows, columns=self._col_names)
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
