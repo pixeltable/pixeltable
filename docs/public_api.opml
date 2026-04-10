@@ -107,6 +107,14 @@
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
           </outline>
 
+          <outline text="class|pixeltable.Row">
+          </outline>
+
+          <outline text="class|pixeltable.ResultCursor">
+            <outline text="method|pixeltable.ResultCursor.open" />
+            <outline text="method|pixeltable.ResultCursor.close" />
+          </outline>
+
           <outline text="class|pixeltable.exprs.Expr">
             <outline text="method|pixeltable.exprs.Expr.astype" />
             <outline text="method|pixeltable.exprs.Expr.isin" />

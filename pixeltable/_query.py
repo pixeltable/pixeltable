@@ -170,7 +170,12 @@ class ResultSet:
 
 
 class Row:
-    """Memory-efficient row wrapper that provides dict-like access to column values."""
+    """A dict-like wrapper over a single result row.
+
+    Supports key access (`row['col']`), membership (`'col' in row`),
+    iteration over keys, and the standard `get`, `keys`, `values`,
+    and `items` methods.
+    """
 
     def __init__(self, data: list[Any], columns: dict[str, int]):
         self._data = tuple(data)
@@ -222,6 +227,11 @@ class ResultCursor:
         self._closed = False
 
     def open(self) -> None:
+        """Start the underlying query and prepare the cursor for iteration.
+
+        Raises an error if the cursor is already open or has been closed.
+        Called automatically when iterating if not already open.
+        """
         if self._row_iterator is not None:
             raise excs.Error('Cursor is already open.')
         if self._closed:
@@ -229,6 +239,11 @@ class ResultCursor:
         self._row_iterator = self._query._output_row_iterator()
 
     def close(self) -> None:
+        """Release the underlying database transaction and query resources.
+
+        Safe to call multiple times. Once closed, the cursor cannot be reopened.
+        Also called automatically via the context manager protocol and on garbage collection.
+        """
         if self._closed:
             return
         if self._row_iterator is not None:
