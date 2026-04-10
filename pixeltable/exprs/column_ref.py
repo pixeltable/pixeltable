@@ -29,29 +29,31 @@ if TYPE_CHECKING:
 
 
 class ColumnRef(Expr):
-    """A reference to a table column
-
-    When this reference is created in the context of a view, it can also refer to a column of the view base.
-    For that reason, a ColumnRef needs to be serialized with the qualifying table id (column ids are only
-    unique in the context of a particular table).
-
-    Media validation:
-    - media validation is potentially cpu-intensive, and it's desirable to schedule and parallelize it during
-      general expr evaluation
-    - media validation on read is done in ColumnRef.eval()
-    - a validating ColumnRef cannot be translated to SQL (because the validation is done in Python)
-    - in that case, the ColumnRef also instantiates a second non-validating ColumnRef as a component (= dependency)
-    - the non-validating ColumnRef is used for SQL translation
-
-    A ColumnRef may have an optional reference table, which carries the context of the ColumnRef resolution. Thus
-    if `v` is a view of `t` (for example), then `v.my_col` and `t.my_col` refer to the same underlying column, but
-    their reference tables will be `v` and `t`, respectively. This is to ensure correct behavior of expressions such
-    as `v.my_col.head()`.
-
-    TODO:
-    separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
-    insert them into the EvalCtxs as needed
     """
+    A Pixeltable expression that references a column of a table. A `ColumnRef` is created by column access
+    on a [`Table`][pixeltable.Table], such as `t.col`.
+    """
+
+    # When this reference is created in the context of a view, it can also refer to a column of the view base.
+    # For that reason, a ColumnRef needs to be serialized with the qualifying table id (column ids are only
+    # unique in the context of a particular table).
+
+    # Media validation:
+    # - media validation is potentially cpu-intensive, and it's desirable to schedule and parallelize it during
+    #   general expr evaluation
+    # - media validation on read is done in ColumnRef.eval()
+    # - a validating ColumnRef cannot be translated to SQL (because the validation is done in Python)
+    # - in that case, the ColumnRef also instantiates a second non-validating ColumnRef as a component (= dependency)
+    # - the non-validating ColumnRef is used for SQL translation
+
+    # A ColumnRef may have an optional reference table, which carries the context of the ColumnRef resolution. Thus
+    # if `v` is a view of `t` (for example), then `v.my_col` and `t.my_col` refer to the same underlying column, but
+    # their reference tables will be `v` and `t`, respectively. This is to ensure correct behavior of expressions such
+    # as `v.my_col.head()`.
+
+    # TODO:
+    # separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
+    # insert them into the EvalCtxs as needed
 
     col: catalog.Column  # TODO: merge with col_handle
     col_handle: catalog.ColumnHandle
@@ -186,6 +188,61 @@ class ColumnRef(Expr):
         vector: np.ndarray | None = None,
         idx: str | None = None,
     ) -> Expr:
+        """
+        Return a new expression representing the similarity score between the values of this column and the given
+        (constant) item. In order for this to work, there must be an embedding index defined on this column that
+        supports the modality of the given item (string, image, audio, video, document). Similarity will be scored
+        according to the metric defined by the embedding index.
+
+        Exactly one of `string`, `image`, `audio`, `video`, `document`, or `vector` must be provided. The `item`
+        parameter is deprecated and exists for backward compatibility only.
+
+        If `string`, `image`, `audio`, `video`, or `document` is provided, then an embedding vector will be computed
+        for the given input as defined by the embedding index and used to determine similarity. If `vector` is
+        provided, then it must be a 1-dimensional array of the same dimensionality as the index, and similarity will
+        be determined directly against the vector.
+
+        The optional `idx` parameter specifies the name of the embedding index to use. If there is more than one
+        embedding index defined on this column, then `idx` _must_ be provided.
+
+        Args:
+            string: A string to compare against the values of this column.
+            image: An image to compare against the values of this column (either a local file path, a URL, or an
+                in-memory `PIL.Image.Image`).
+            audio: An audio file to compare against the values of this column (a local file path or a URL).
+            video: A video file to compare against the values of this column (a local file path or a URL).
+            document: A document file to compare against the values of this column (a local file path or a URL).
+            vector: A 1-dimensional NumPy array to compare against the values of this column.
+            idx: An optional embedding index name. _Required_ if there is more than one embedding index defined on
+                this column.
+            item: **Deprecated** as of version 0.5.7.
+
+        Returns:
+            A new expression representing the similarity score between the values of this column and the given item.
+
+        Examples:
+            All of these examples assume that `t` is a table with an image column `t.image`.
+
+            Add an embedding index to `t.image` using the `clip()`
+            embedding (this only needs to be done once):
+
+            >>> from pixeltable.functions.huggingface import clip
+            ...
+            ... t.add_embedding_index(
+            ...     t.image, clip.using(model_id='openai/clip-vit-base-patch32')
+            ... )
+
+            Do a nearest neighbor search against a string (with `k=5`):
+
+            >>> sim = t.image.similarity(string='a photograph of a cat')
+            ... t.select(t.image, sim).order_by(sim, asc=False).head(5)
+
+            Do a nearest neighbor search against an image:
+
+            >>> sim = t.image.similarity(image='https://example.com/reference-cat.jpg')
+            ... t.select(t.image, sim).order_by(sim, asc=False).head(5)
+        """
+
         from .similarity_expr import SimilarityExpr
 
         if item is not None:
@@ -326,6 +383,46 @@ class ColumnRef(Expr):
         return SimilarityExpr(expr, col_ref=self, idx_name=idx)
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
+        """
+        Return a reference to the values of an embedding index on this column.
+
+        If an embedding index is defined on a column, the usual way to use that index is via a
+        [`similarity()`][pixeltable.exprs.ColumnRef.similarity] lookup. Sometimes it is also useful to directly access
+        the index values (i.e., the embedding vectors themselves). Calling `embedding()` returns a new `ColumnRef`
+        expression of type `pxt.Array[(dim,), prec]`, where `dim` and `prec` are the dimensionality and precision
+        of the column's embedding index.
+
+        If there is more than one embedding index defined on this column, then the `idx` parameter must be provided to
+        specify which index to reference. If there is only one index, then `idx` is optional.
+
+        Args:
+            idx: An optional embedding index name. _Required_ if there is more than one embedding index defined on
+                this column.
+
+        Returns:
+            A new `ColumnRef` referencing the values of the specified embedding index on this column.
+
+        Raises:
+            `pxt.Error` if there is no embedding index defined on this column, if `idx` is not provided when there are
+            multiple embedding indices, or if `idx` does not match any embedding index defined on this column.
+
+         Examples:
+            All of these examples assume that `t` is a table with an image column `t.image`.
+
+            Add an embedding index to `t.image` using the `clip()`
+            embedding (this only needs to be done once):
+
+            >>> from pixeltable.functions.huggingface import clip
+            ...
+            ... t.add_embedding_index(
+            ...     t.image, clip.using(model_id='openai/clip-vit-base-patch32')
+            ... )
+
+            Reference the embedding index values directly:
+
+            >>> t.select(t.image, t.image.embedding())
+        """
+
         from pixeltable.index import EmbeddingIndex
 
         idx_info = self.tbl.get().get_idx(self.col, idx, EmbeddingIndex)
