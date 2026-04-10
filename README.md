@@ -67,15 +67,20 @@ t.add_computed_column(
 # Extract specific fields from detection results
 t.add_computed_column(detections_text=t.detections.label_text)
 
-# OpenAI Vision API integration with built-in rate limiting and async management
+# OpenAI multimodal analysis with built-in rate limiting and async management
 from pixeltable.functions import openai
 
+messages = [
+    {
+        'role': 'user',
+        'content': [
+            {'type': 'text', 'text': "Describe what's in this image."},
+            {'type': 'image_url', 'image_url': t.input_image},
+        ],
+    }
+]
 t.add_computed_column(
-    vision=openai.vision(
-        prompt="Describe what's in this image.",
-        image=t.input_image,
-        model='gpt-4o-mini'
-    )
+    response=openai.chat_completions(messages, model='gpt-4o-mini')
 )
 
 # Insert data directly from an external URL
@@ -87,7 +92,7 @@ t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/
 results = t.select(
     t.input_image,
     t.detections_text,
-    t.vision
+    t.response.choices[0].message.content
 ).collect()
 ```
 
@@ -175,9 +180,15 @@ t.add_computed_column(
    classification=huggingface.vit_for_image_classification(t.image)
 )
 
-# Vision analysis
+# Vision analysis (multimodal)
 t.add_computed_column(
-   description=openai.vision(prompt="Describe this image", image=t.image)
+   description=openai.chat_completions(
+       messages=[{'role': 'user', 'content': [
+           {'type': 'text', 'text': 'Describe this image'},
+           {'type': 'image_url', 'image_url': t.image},
+       ]}],
+       model='gpt-4o-mini'
+   )
 )
 ```
 
