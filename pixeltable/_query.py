@@ -83,7 +83,7 @@ class ResultSet:
         self._rows.reverse()
 
     def to_pandas(self) -> pd.DataFrame:
-        return pd.DataFrame.from_records([dict(row.items()) for row in self._rows], columns=self._col_names)
+        return pd.DataFrame.from_records([row._data for row in self._rows], columns=self._col_names)
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
 
