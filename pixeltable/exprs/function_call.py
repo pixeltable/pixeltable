@@ -152,9 +152,6 @@ class FunctionCall(Expr):
     def default_column_name(self) -> str | None:
         return self.fn.name
 
-    def get_first_udf(self) -> func.Function | None:
-        return self.fn
-
     def _equals(self, other: FunctionCall) -> bool:
         return (
             self.fn == other.fn

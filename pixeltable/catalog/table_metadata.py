@@ -16,11 +16,15 @@ class ColumnMetadata(TypedDict):
     is_primary_key: bool
     """`True` if this column is part of the table's primary key."""
     media_validation: Literal['on_read', 'on_write'] | None
-    """The media validation policy for this column."""
+    """The media validation policy for this column. `None` if the type of this column is not a media type."""
     is_computed: bool
     """`True` if this column is a computed column."""
     computed_with: str | None
     """Expression used to compute this column; `None` if this is not a computed column."""
+    is_builtin: bool | None
+    """If False, this computed column makes calls to custom UDFs; `None` if this is not a computed column."""
+    depends_on: list[tuple[str, str]] | None
+    """List of dependencies (table name, column name) if this is a computed column, else `None`."""
     defined_in: str | None
     """Name of the table where this column was originally defined.
 

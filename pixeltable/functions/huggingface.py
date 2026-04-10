@@ -213,7 +213,7 @@ class DetrForObjectDetectionResponse(TypedDict):
 
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(
-    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'no_timm'
+    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str | None = None
 ) -> Batch[DetrForObjectDetectionResponse]:
     """
     Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
@@ -226,6 +226,9 @@ def detr_for_object_detection(
     Args:
         image: The image to embed.
         model_id: The pretrained model to use for object detection.
+        threshold: Confidence threshold for filtering detections.
+        revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not specified,
+            uses the default revision for the model (typically `'main'`).
 
     Returns:
         A dictionary containing the output of the object detection model, in the following format:
@@ -262,9 +265,13 @@ def detr_for_object_detection(
     from transformers import DetrForObjectDetection, DetrImageProcessor
 
     model = _lookup_model(
-        model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision=revision), device=device
+        model_id,
+        DetrForObjectDetection.from_pretrained,
+        device=device,
+        revision=revision,
+        cache_key=(model_id, DetrForObjectDetection.from_pretrained, device, ('revision', revision)),
     )
-    processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision=revision))
+    processor = _lookup_processor(model_id, DetrImageProcessor.from_pretrained, revision=revision)
     normalized_images = [normalize_image_mode(img) for img in image]
 
     with torch.no_grad():
@@ -1122,14 +1129,12 @@ def text_to_image(
 
     pipeline = _lookup_model(
         model_id,
-        lambda x: AutoPipelineForText2Image.from_pretrained(
-            x,
-            dtype=torch.float16 if device == 'cuda' else torch.float32,
-            device_map='auto' if device == 'cuda' else None,
-            safety_checker=None,  # Disable safety checker for performance
-            requires_safety_checker=False,
-        ),
+        AutoPipelineForText2Image.from_pretrained,
         device=device,
+        dtype=torch.float16 if device == 'cuda' else torch.float32,
+        device_map='auto' if device == 'cuda' else None,
+        safety_checker=None,
+        requires_safety_checker=False,
     )
 
     try:
@@ -1180,7 +1185,7 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     env.Env.get().require_package('soundfile')
     device = resolve_torch_device('auto')
     import datasets  # type: ignore[import-untyped]
-    import soundfile as sf  # type: ignore[import-untyped]
+    import soundfile  # type: ignore[import-untyped]
     import torch
     from transformers import (
         AutoModelForTextToWaveform,
@@ -1252,7 +1257,7 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
 
         # Create output file
         output_filename = str(TempStore.create_path(extension='.wav'))
-        sf.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
+        soundfile.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
         return output_filename
 
 
@@ -1320,14 +1325,12 @@ def image_to_image(
 
     pipeline = _lookup_model(
         model_id,
-        lambda x: AutoPipelineForImage2Image.from_pretrained(
-            x,
-            dtype=torch.float16 if device == 'cuda' else torch.float32,
-            device_map='auto' if device == 'cuda' else None,
-            safety_checker=None,  # Disable safety checker for performance
-            requires_safety_checker=False,
-        ),
+        AutoPipelineForImage2Image.from_pretrained,
         device=device,
+        dtype=torch.float16 if device == 'cuda' else torch.float32,
+        device_map='auto' if device == 'cuda' else None,
+        safety_checker=None,
+        requires_safety_checker=False,
     )
 
     try:
@@ -1568,12 +1571,10 @@ def image_to_video(
 
     pipe = _lookup_model(
         model_id,
-        lambda x: StableVideoDiffusionPipeline.from_pretrained(
-            x,
-            torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-            variant='fp16' if device == 'cuda' else None,
-        ),
+        StableVideoDiffusionPipeline.from_pretrained,
         device=device,
+        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+        variant='fp16' if device == 'cuda' else None,
     )
 
     try:
@@ -1625,16 +1626,23 @@ def image_to_video(
 
 
 def _lookup_model(
-    model_id: str, create: Callable[..., T], device: str | None = None, pass_device_to_create: bool = False
+    model_id: str,
+    create: Callable[..., T],
+    device: str | None = None,
+    pass_device_to_create: bool = False,
+    cache_key: tuple | None = None,
+    **kwargs: Any,
 ) -> T:
     from torch import nn
 
-    key = (model_id, create, device)  # For safety, include the `create` callable in the cache key
+    # Include `create` and kwargs in key so different model classes/configs get separate entries.
+    # Callers that must pass a lambda can supply an explicit `cache_key` to avoid per-call misses.
+    key = cache_key if cache_key is not None else (model_id, create, device, tuple(sorted(kwargs.items())))
     if key not in _model_cache:
         if pass_device_to_create:
-            model = create(model_id, device=device)
+            model = create(model_id, device=device, **kwargs)
         else:
-            model = create(model_id)
+            model = create(model_id, **kwargs)
         if isinstance(model, nn.Module):
             if not pass_device_to_create and device is not None:
                 model.to(device)
@@ -1643,16 +1651,16 @@ def _lookup_model(
     return _model_cache[key]
 
 
-def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
-    key = (model_id, create)  # For safety, include the `create` callable in the cache key
+def _lookup_processor(model_id: str, create: Callable[[str], T], **kwargs: Any) -> T:
+    key = (model_id, create, tuple(sorted(kwargs.items())))
     if key not in _processor_cache:
-        _processor_cache[key] = create(model_id)
+        _processor_cache[key] = create(model_id, **kwargs)
     return _processor_cache[key]
 
 
-_model_cache: dict[tuple[str, Callable, str | None], Any] = {}
+_model_cache: dict[tuple, Any] = {}
 _speecht5_embeddings_dataset: list[Any] = []  # contains only the speecht5 embeddings loaded by text_to_speech()
-_processor_cache: dict[tuple[str, Callable], Any] = {}
+_processor_cache: dict[tuple, Any] = {}
 
 
 __all__ = local_public_names(__name__)

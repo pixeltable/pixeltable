@@ -20,8 +20,4 @@ nbqa "ruff format --check --line-length=74" --nbqa-dont-skip-bad-cells docs/rele
 
 # Run custom notebook checks
 echo "Running custom notebook checks ..."
-python tool/check_notebooks.py docs/release
-if [ $? != 0 ]; then
-    # TODO: Change this to `exit 1` once notebook issues are fixed.
-    echo "There were errors, but currently they will be ignored."
-fi
+python tool/check_notebooks.py docs/release || exit 1
