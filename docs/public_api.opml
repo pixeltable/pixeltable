@@ -55,6 +55,7 @@
             <outline text="method|pixeltable.Table.distinct" />
             <outline text="method|pixeltable.Table.sample" />
             <outline text="method|pixeltable.Table.collect" />
+            <outline text="method|pixeltable.Table.cursor" />
             <outline text="method|pixeltable.Table.show" />
             <outline text="method|pixeltable.Table.head" />
             <outline text="method|pixeltable.Table.tail" />
@@ -78,6 +79,7 @@
             <outline text="method|pixeltable.Query.distinct" />
             <outline text="method|pixeltable.Query.sample" />
             <outline text="method|pixeltable.Query.collect" />
+            <outline text="method|pixeltable.Query.cursor" />
             <outline text="method|pixeltable.Query.show" />
             <outline text="method|pixeltable.Query.head" />
             <outline text="method|pixeltable.Query.tail" />
