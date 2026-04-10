@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 class ColumnRef(Expr):
     """
-    An Pixeltable expression that references a column of a table. A `ColumnRef` is created by column access
+    A Pixeltable expression that references a column of a table. A `ColumnRef` is created by column access
     on a [`Table`][pixeltable.Table], such as `t.col`.
     """
 
