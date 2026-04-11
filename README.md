@@ -16,7 +16,6 @@ The only open source Python library providing declarative, transactional data in
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
 [![nightly status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
 [![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
-[![Documentation](https://img.shields.io/badge/Docs-docs.pixeltable.com-0530AD)](https://docs.pixeltable.com/)
 [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?logo=discord&logoColor=white)](https://discord.gg/QPyqFYx2UN)
 
 [**Quick Start**](https://docs.pixeltable.com/overview/quick-start) |
