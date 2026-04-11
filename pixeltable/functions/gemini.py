@@ -461,9 +461,11 @@ async def _embed_content(
 
     if not use_batch_api:
         result = await client.aio.models.embed_content(model=model, contents=list(contents), config=config_)
-        assert len(result.embeddings) == len(contents), (
-            f'{len(result.embeddings)} != {len(contents)}\n{contents}\n{result}'
-        )
+        if len(result.embeddings) != len(contents):
+            raise excs.Error(
+                f'Unexpected response from Gemini server: number of embeddings returned ({len(result.embeddings)}) '
+                f'does not match request batch size ({len(contents)}).'
+            )
         return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
     # Batch API
