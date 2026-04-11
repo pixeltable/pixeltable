@@ -335,8 +335,8 @@ import pixeltable as pxt
 pxt.init()
 
 # Disable if needed
-pxt.init(dashboard=False)
-# Or set environment variable: PIXELTABLE_DASHBOARD=0
+pxt.init(config_overrides={'start_dashboard': False})
+# Or set environment variable: PIXELTABLE_START_DASHBOARD=false
 ```
 
 **Highlights:** Table browser with sorting & filtering · Media preview (images, video, audio) · Column lineage visualization · Pipeline graph · Per-column error tracking · CSV export · Auto-refresh
