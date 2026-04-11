@@ -224,7 +224,8 @@ endif
 # TODO: incorporate this into a new/expanded docscheck
 .PHONY: linkscheck
 linkscheck: docs
-	lychee target/docs/ --exclude-path target/docs/changelog/ --max-concurrency 3 --exclude 'file://*' --exclude-loopback -q
+	lychee target/docs/ --root-dir target/docs/ --exclude-path target/docs/changelog/ \
+		--max-concurrency 3 --exclude 'file://*' --exclude-loopback -q
 
 .PHONY: clean
 clean:
