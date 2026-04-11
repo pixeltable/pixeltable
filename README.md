@@ -42,6 +42,11 @@ Define your data processing and AI workflow declaratively using
 **[tables](https://docs.pixeltable.com/tutorials/tables-and-data-operations)**.
 Focus on your logic, not the data plumbing.
 
+```bash
+pip install google-genai torch transformers scenedetect
+export GOOGLE_API_KEY='...'
+```
+
 ```python
 import pixeltable as pxt
 from pixeltable.functions import gemini, huggingface
