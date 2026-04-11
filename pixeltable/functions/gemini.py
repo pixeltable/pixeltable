@@ -461,7 +461,9 @@ async def _embed_content(
 
     if not use_batch_api:
         result = await client.aio.models.embed_content(model=model, contents=list(contents), config=config_)
-        assert len(result.embeddings) == len(contents)
+        assert len(result.embeddings) == len(contents), (
+            f'{len(result.embeddings)} != {len(contents)}\n{contents}\n{result}'
+        )
         return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
     # Batch API

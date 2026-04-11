@@ -46,7 +46,7 @@ jobs:
         package-configs:
           - ""
           - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.9' 'torchaudio<2.9' 'torchvision<0.24' transformers timm"
-          - "anthropic fireworks-ai google-genai groq mistralai openai replicate together"
+          - "anthropic fireworks-ai 'google-genai!=1.72.0' groq mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "label_studio_sdk"
