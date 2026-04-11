@@ -31,6 +31,27 @@ __all__ = ['Query']
 
 
 class ResultSet:
+    """
+    A dataset obtained by executing a [`Query`][pixeltable.Query]. Returned by
+    [`Query.collect()`][pixeltable.Query.collect], [`Query.head()`][pixeltable.Query.head],
+    [`Query.tail()`][pixeltable.Query.tail], and the equivalent methods on class [`Table`][pixeltable.Table].
+
+    A `ResultSet` is structured as a table with rows (indexed by integers) and columns (indexed by strings).
+    The column names correspond to the expressions in the query's select list. The values in a `ResultSet` can
+    be accessed in various ways:
+
+    - `len(result)` returns the number of rows
+    - `result[i]` returns the `i`th row as a `dict` mapping column names to values
+    - `result['col']` returns a `list` of all values in the column named `'col'`
+    - `result[i, 'col']` returns the specific value in the `i`th row and column `'col'`
+
+    `ResultSet` implements the Sequence protocol, so it can be iterated over and converted to other sequence
+    types in the usual fashion; for example:
+
+    - `for row in result` (iterates over rows)
+    - `list(result)` (converts to a list of rows)
+    """
+
     _rows: list[list[Any]]
     _col_names: list[str]
     __schema: dict[str, ColumnType]
@@ -68,13 +89,18 @@ class ResultSet:
         self._rows.reverse()
 
     def to_pandas(self) -> pd.DataFrame:
+        """Convert the `ResultSet` to a Pandas `DataFrame`.
+
+        Returns:
+            A `DataFrame` with one column per column in the `ResultSet`.
+        """
         return pd.DataFrame.from_records(self._rows, columns=self._col_names)
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
 
     def to_pydantic(self, model: type[BaseModelT]) -> Iterator[BaseModelT]:
         """
-        Convert the ResultSet to a list of Pydantic model instances.
+        Convert the `ResultSet` to Pydantic model instances.
 
         Args:
             model: A Pydantic model class.
