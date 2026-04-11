@@ -406,7 +406,7 @@ class ColumnRef(Expr):
             `pxt.Error` if there is no embedding index defined on this column, if `idx` is not provided when there are
             multiple embedding indices, or if `idx` does not match any embedding index defined on this column.
 
-         Examples:
+        Examples:
             All of these examples assume that `t` is a table with an image column `t.image`.
 
             Add an embedding index to `t.image` using the `clip()`
