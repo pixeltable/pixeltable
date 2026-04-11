@@ -46,7 +46,7 @@ jobs:
         package-configs:
           - ""
           - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.9' 'torchaudio<2.9' 'torchvision<0.24' transformers timm"
-          - "anthropic fireworks-ai google-genai groq mistralai openai replicate together"
+          - "anthropic fireworks-ai 'google-genai!=1.72.0' groq mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "label_studio_sdk"
@@ -115,7 +115,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pixeltable ${{ matrix.package-configs }}
           python -m pip install beautifulsoup4==4.14.2  # Workaround for Actions installing broken 4.14.0
-          python -m pip install filelock pytest pytest-xdist pytest-rerunfailures
+          python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
         run: python -m spacy download en_core_web_sm
