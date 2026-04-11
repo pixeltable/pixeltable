@@ -301,7 +301,7 @@ async def _generate_videos_impl(
 
     video = operation.response.generated_videos[0]
 
-    video_bytes = await _genai_client().aio.files.download(file=video.video)  # type: ignore[arg-type]
+    video_bytes = await _genai_client().aio.files.download(file=video.video)  # type: ignore[arg-type]  # async overload missing Video type (sync version accepts it)
     assert video_bytes is not None
 
     output_path = TempStore.create_path(extension='.mp4')
