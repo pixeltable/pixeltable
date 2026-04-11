@@ -22,7 +22,7 @@ import os
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence, TypeVar
 
 import numpy as np
 import PIL.Image
@@ -46,6 +46,9 @@ GEMINI_INLINE_LIMIT_BYTES = 4 * 2**20
 
 # Placeholder key used in first pass for large file uploads.
 _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
+
+# Used to generalize polling logic for long-running Gemini operations (e.g. video generation).
+T = TypeVar('T', bound='genai.types.Operation')
 
 
 @env.register_client('gemini')
@@ -275,7 +278,7 @@ def _pil_to_gemini_image(image: PIL.Image.Image) -> 'genai.types.Image':
         return types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
 
 
-async def _poll_gemini_operation(operation: 'genai.types.Operation') -> 'genai.types.Operation':
+async def _poll_gemini_operation(operation: T) -> T:
     while not operation.done:
         await asyncio.sleep(3)
         operation = await _genai_client().aio.operations.get(operation)
@@ -289,7 +292,7 @@ async def _generate_videos_impl(
     operation = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, image=image, config=config)
 
     try:
-        operation = await asyncio.wait_for(_poll_gemini_operation(operation), timeout=300)  # type: ignore[arg-type]
+        operation = await asyncio.wait_for(_poll_gemini_operation(operation), timeout=300)
     except asyncio.TimeoutError as exc:
         raise excs.Error(f'Video generation timed out after 300 seconds for Gemini model {model!r}.') from exc
 
