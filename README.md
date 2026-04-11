@@ -108,12 +108,12 @@ That single workflow replaces most of the typical AI stack:
 | Instead of ... | Pixeltable gives you ... |
 |---|---|
 | PostgreSQL / MySQL | `pxt.create_table()` — schema is Python, versioned automatically |
-| pgAdmin / Retool / custom dashboards | Built-in local dashboard — auto-launches, zero config |
+| pgAdmin / Retool.. | Built-in local dashboard — auto-launches, zero config |
 | Pinecone / Weaviate / Qdrant | `add_embedding_index()` — one line, stays in sync |
-| S3 / boto3 / blob storage | `pxt.Image` / `Video` / `Audio` / `Document` types with caching; `destination='s3://...'` for cloud routing |
+| S3 / boto3 / blob storage | `pxt.Image` / `Video` / `Audio` / `Document` types with caching; `destination='s3://...'` |
 | Airflow / Prefect / Celery | Computed columns trigger on insert — no orchestrator needed |
 | LangChain / LlamaIndex (RAG) | `@pxt.query` + `.similarity()` + computed column chaining |
-| pandas / polars (multimodal) | `.sample()`, ephemeral UDFs, then `add_computed_column()` to commit — prototype to production |
+| pandas / polars (multimodal) | `.sample()`, ephemeral UDFs, then `add_computed_column()` |
 | DVC / MLflow / W&B | Built-in `history()`, `revert()`, time travel (`table:N`), snapshots |
 | Custom retry / rate-limit / caching | Built into every AI integration; results cached, only new rows recomputed |
 | Custom ETL / glue code | Declarative schema — Pixeltable handles execution, caching, incremental updates |
@@ -376,8 +376,6 @@ pxt.export_images_as_fo_dataset(table, table.image)   # FiftyOne
 
 ## External Storage and Pixeltable Cloud
 
-**Supported storage providers:**
-
 [![S3](https://img.shields.io/badge/Amazon_S3-232F3E?logo=amazons3&logoColor=white)](https://docs.pixeltable.com/integrations/cloud-storage) [![GCS](https://img.shields.io/badge/Google_Cloud-4285F4?logo=googlecloud&logoColor=white)](https://docs.pixeltable.com/integrations/cloud-storage) [![Azure](https://img.shields.io/badge/Azure_Blob-0078D4?logo=microsoftazure&logoColor=white)](https://docs.pixeltable.com/integrations/cloud-storage) [![R2](https://img.shields.io/badge/Cloudflare_R2-F38020?logo=cloudflare&logoColor=white)](https://docs.pixeltable.com/integrations/cloud-storage) [![B2](https://img.shields.io/badge/Backblaze_B2-E21E29?logo=backblaze&logoColor=white)](https://github.com/backblaze-b2-samples/b2-pixeltable-multimodal-data) [![Tigris](https://img.shields.io/badge/Tigris-00C853?logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-tigris.ipynb)
 
 Store computed media using the `destination` parameter on columns, or set defaults globally via `PIXELTABLE_OUTPUT_MEDIA_DEST` and `PIXELTABLE_INPUT_MEDIA_DEST`. See [Configuration](https://docs.pixeltable.com/howto/configuration).
@@ -413,7 +411,7 @@ t.add_computed_column(
 | [**Pixelbot**](https://github.com/pixeltable/pixelbot) | Multimodal AI agent, an interactive data studio with on-demand ML inference, media generation, and a database explore |
 | [**Pixelagent**](https://github.com/pixeltable/pixelagent) | Lightweight agent framework with built-in memory and tool orchestration |
 | [**Pixelmemory**](https://github.com/pixeltable/pixelmemory) | Persistent memory layer for AI applications |
-| [**Pixeltable Skill**](https://github.com/pixeltable/pixeltable-skill) | AI coding skill for Cursor, Claude Code, Copilot, Windsurf, and other AI IDEs — reduces hallucination and generates accurate Pixeltable code |
+| [**Skill**](https://github.com/pixeltable/pixeltable-skill) | AI coding skill for Cursor, Claude Code, Copilot, Windsurf, and other AI IDEs — reduces hallucination and generates accurate Pixeltable code |
 | [**MCP Server**](https://github.com/pixeltable/mcp-server-pixeltable-developer) | Model Context Protocol server for Claude, Cursor, and other AI IDEs |
 
 ## Contributing
