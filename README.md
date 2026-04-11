@@ -43,9 +43,10 @@ Define your data processing and AI workflow declaratively using
 Focus on your logic, not the data plumbing.
 
 ```bash
-pip install google-genai torch transformers scenedetect
-export GOOGLE_API_KEY='...'
+pip install pixeltable google-genai torch transformers scenedetect
 ```
+
+Set your Gemini API key via environment variable or `~/.pixeltable/config.toml`. See [Configuration](https://docs.pixeltable.com/platform/configuration) for all provider keys and options.
 
 ```python
 import pixeltable as pxt
