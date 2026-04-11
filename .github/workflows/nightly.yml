@@ -45,7 +45,7 @@ jobs:
         python-version: ["3.10", "3.13"]
         package-configs:
           - ""
-          - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision transformers timm"
+          - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision torchcodec transformers timm"
           - "anthropic fireworks-ai 'google-genai!=1.72.0' groq mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
