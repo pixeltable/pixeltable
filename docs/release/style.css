@@ -1,7 +1,8 @@
 /* Pixeltable Documentation - Minimal overrides */
 
 /* Sidebar icon ordering (keeps notebook icons in correct position) */
-#sidebar svg.h-4 {
+/* Target the icon wrapper div, which is a direct flex child of the <a> */
+#sidebar a > div:has(> svg.size-4) {
   order: 1;
 }
 
