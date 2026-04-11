@@ -90,7 +90,7 @@ endif
 	@if ! which mamba >/dev/null 2>&1; then conda install -q -y -c conda-forge mamba; fi
 	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto nodejs lychee
 	@echo 'Installing mintlify ...'
-	@if ! which mint >/dev/null 2>&1 || ! `mint --version | grep -q '$(MINTLIFY_VERSION)'`; then \
+	@if ! which mint >/dev/null 2>&1 || ! mint --version | grep -Fq '$(MINTLIFY_VERSION)'; then \
 		npm install --silent -g mint@$(MINTLIFY_VERSION); \
 	fi
 	@echo 'Fixing quarto conda packaging bugs ...'
