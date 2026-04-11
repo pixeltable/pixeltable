@@ -975,30 +975,6 @@ async def image_variations(image: PIL.Image.Image, *, model: str, model_kwargs: 
 # Responses Endpoints
 
 
-def _responses_get_request_resources(input: list, model: str, model_kwargs: dict[str, Any] | None) -> dict[str, int]:
-    if model_kwargs is None:
-        model_kwargs = {}
-
-    max_output_tokens = model_kwargs.get('max_output_tokens', _default_max_tokens(model))
-
-    num_tokens = 0.0
-    for item in input:
-        if isinstance(item, dict):
-            content = item.get('content')
-            if isinstance(content, str):
-                num_tokens += len(content) / 4
-            elif isinstance(content, list):
-                for part in content:
-                    if isinstance(part, dict):
-                        if part.get('type') == 'input_text' and isinstance(part.get('text'), str):
-                            num_tokens += len(part['text']) / 4
-                        elif part.get('type') == 'input_image' and isinstance(part.get('image_url'), PIL.Image.Image):
-                            num_tokens += _token_count_for_image(part['image_url'])
-
-    num_tokens += 2
-    return {'requests': 1, 'tokens': int(num_tokens) + max_output_tokens}
-
-
 @pxt.udf(is_deterministic=False)
 async def responses(
     input: list,
@@ -1107,9 +1083,7 @@ async def responses(
                     part['image_url'] = f'data:image/png;base64,{b64_encoded_image}'
 
     resource_pool = _rate_limits_pool(model)
-    rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_responses_get_request_resources)
-    )
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
 
     request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().responses.with_raw_response.create(input=input, model=model, **model_kwargs)
@@ -1123,6 +1097,31 @@ async def responses(
     # delegate to the SDK rather than reimplementing the aggregation logic
     response_dict['output_text'] = result.parse().output_text
     return response_dict
+
+
+@responses.resource_estimator
+def _(input: list, model: str, model_kwargs: dict[str, Any] | None = None) -> dict[str, int]:
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    max_output_tokens = model_kwargs.get('max_output_tokens', _default_max_tokens(model))
+
+    num_tokens = 0.0
+    for item in input:
+        if isinstance(item, dict):
+            content = item.get('content')
+            if isinstance(content, str):
+                num_tokens += len(content) / 4
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        if part.get('type') == 'input_text' and isinstance(part.get('text'), str):
+                            num_tokens += len(part['text']) / 4
+                        elif part.get('type') == 'input_image' and isinstance(part.get('image_url'), PIL.Image.Image):
+                            num_tokens += _token_count_for_image(part['image_url'])
+
+    num_tokens += 2
+    return {'requests': 1, 'tokens': int(num_tokens) + max_output_tokens}
 
 
 #####################################
