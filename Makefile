@@ -15,7 +15,7 @@ NB_CELL_TIMEOUT := 3600
 TQDM_MININTERVAL := $(NB_CELL_TIMEOUT)
 ULIMIT_CMD := ulimit -n 4000;
 
-# Dependency versions not handled by pyproject.toml
+# Dev dependency versions not handled by pyproject.toml
 UV_VERSION := 0.9.3
 FFMPEG_VERSION := 6.1.1=gpl*
 MINTLIFY_VERSION := 4.2.506
