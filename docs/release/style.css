@@ -1,487 +1,74 @@
-/* Pixeltable Documentation - Kandinsky Design System */
+/* Pixeltable Documentation - Minimal overrides */
 
-/* Sidebar icon ordering (existing) */
+/* Sidebar icon ordering (keeps notebook icons in correct position) */
 #sidebar svg.h-4 {
   order: 1;
 }
 
-/* ============================================
-   KANDINSKY COLOR VARIABLES
-   ============================================ */
-
-:root {
-  --kandinsky-yellow: #F1AE03;
-  --kandinsky-red: #DC2404;
-  --kandinsky-beige: #fafaf9;
-  --kandinsky-beige-card: #f5f5f4;
-  --kandinsky-beige-hover: #e7e5e4;
-  --kandinsky-beige-border: #d4d4d4;
-  --kandinsky-text: #525252;
-  --kandinsky-cta: #070000;
-  --kandinsky-black: #020704;
-  --kandinsky-blue: #022A59;
-  --kandinsky-blue-hover: #08407B;
-  --kandinsky-blue-light: #7DA8EF;
+/* Widen main content area */
+article,
+[data-selector="content"],
+main > div > div {
+  max-width: 1050px !important;
 }
 
-/* ============================================
-   CARDS - Kandinsky style with subtle warmth
-   ============================================ */
-
-[data-selector="card"] {
-  background: linear-gradient(135deg, rgba(2, 42, 89, 0.03) 0%, transparent 100%);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+/* Remove default sidebar active background tint */
+#sidebar [data-active="true"],
+aside [data-active="true"] {
+  background: transparent !important;
 }
 
-[data-selector="card"]:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(2, 42, 89, 0.08);
-  border-color: rgba(2, 42, 89, 0.15);
+/* Callouts: neutral grey instead of green */
+.callout[class*="border-green"],
+.callout[class*="bg-green"],
+[class*="bg-emerald"],
+[class*="border-emerald"] {
+  background: #f5f5f5 !important;
+  border-color: #d4d4d4 !important;
 }
 
-.dark [data-selector="card"] {
-  background: linear-gradient(135deg, rgba(241, 174, 3, 0.04) 0%, transparent 100%);
+.callout [class*="text-green"],
+.callout svg[class*="text-green"],
+[class*="bg-emerald"] svg,
+svg[class*="text-emerald"] {
+  color: #525252 !important;
 }
 
-.dark [data-selector="card"]:hover {
-  box-shadow: 0 8px 24px rgba(241, 174, 3, 0.08);
-  border-color: rgba(241, 174, 3, 0.2);
+.dark .callout[class*="border-green"],
+.dark .callout[class*="bg-green"],
+.dark [class*="bg-emerald"],
+.dark [class*="border-emerald"] {
+  background: #262626 !important;
+  border-color: #404040 !important;
 }
 
-/* ============================================
-   CODE BLOCKS - Warm styling
-   ============================================ */
-
-[data-selector="code-block"] {
-  border-radius: 12px;
-  overflow: hidden;
+.dark .callout [class*="text-green"],
+.dark .callout svg[class*="text-green"],
+.dark [class*="bg-emerald"] svg,
+.dark svg[class*="text-emerald"] {
+  color: #a3a3a3 !important;
 }
 
-/* ============================================
-   SIDEBAR - Active state with Kandinsky colors
-   ============================================ */
-
-#sidebar [data-active="true"] {
-  background: linear-gradient(90deg, rgba(2, 42, 89, 0.08) 0%, transparent 100%);
-  border-left: 2px solid var(--kandinsky-blue);
-}
-
-.dark #sidebar [data-active="true"] {
-  background: linear-gradient(90deg, rgba(241, 174, 3, 0.08) 0%, transparent 100%);
-  border-left-color: var(--kandinsky-yellow);
-}
-
-/* ============================================
-   HERO SECTION - Kandinsky gradient
-   ============================================ */
-
-.hero-gradient {
-  background: linear-gradient(135deg, 
-    rgba(2, 42, 89, 0.06) 0%, 
-    transparent 50%, 
-    rgba(241, 174, 3, 0.04) 100%
-  );
-  border: 1px solid rgba(2, 42, 89, 0.1);
-}
-
-.dark .hero-gradient {
-  background: linear-gradient(135deg, 
-    rgba(241, 174, 3, 0.08) 0%, 
-    transparent 50%, 
-    rgba(2, 42, 89, 0.05) 100%
-  );
-  border-color: rgba(241, 174, 3, 0.12);
-}
-
-/* ============================================
-   TYPOGRAPHY - Matching website
-   ============================================ */
-
-h1, h2, h3 {
-  letter-spacing: -0.02em;
-}
-
-/* Ensure strong/bold text and links stay bold */
-strong, b {
-  font-weight: 600 !important;
-}
-
-/* Links should be semi-bold */
-a {
-  font-weight: 500;
-}
-
-/* Content links (in prose) should be bolder */
-article a, 
-.prose a,
-[data-selector="content"] a {
-  font-weight: 600 !important;
-}
-
-/* ============================================
-   NAVBAR - Backdrop blur
-   ============================================ */
-
-#navbar {
-  backdrop-filter: blur(12px);
-}
-
-/* ============================================
-   TABLE OF CONTENTS - Hover states
-   ============================================ */
-
-#table-of-contents a:hover {
-  color: var(--kandinsky-blue);
-}
-
-.dark #table-of-contents a:hover {
-  color: var(--kandinsky-yellow);
-}
-
-/* ============================================
-   ACCORDION - Smooth transitions
-   ============================================ */
-
-[data-selector="accordion"] {
-  transition: all 0.2s ease;
-}
-
-[data-selector="accordion"]:hover {
-  background: rgba(2, 42, 89, 0.03);
-}
-
-.dark [data-selector="accordion"]:hover {
-  background: rgba(241, 174, 3, 0.03);
-}
-
-/* ============================================
-   TABS - Active state with Kandinsky colors
-   ============================================ */
-
-[data-selector="tab"][data-state="active"] {
-  border-bottom-color: var(--kandinsky-blue);
-}
-
-.dark [data-selector="tab"][data-state="active"] {
-  border-bottom-color: var(--kandinsky-yellow);
-}
-
-/* Tab titles should be bold */
-[data-selector="tab"],
-[role="tab"],
-button[role="tab"] {
-  font-weight: 600 !important;
-}
-
-/* ============================================
-   LINKS - Kandinsky blue/yellow hover
-   ============================================ */
-
-[data-selector="link"]:hover {
-  color: var(--kandinsky-blue);
-}
-
-.dark [data-selector="link"]:hover {
-  color: var(--kandinsky-yellow);
-}
-
-/* ============================================
-   PAGINATION - Navigation buttons
-   ============================================ */
-
-[data-selector="pagination-next"]:hover,
-[data-selector="pagination-prev"]:hover {
-  border-color: rgba(2, 42, 89, 0.2);
-  background: rgba(2, 42, 89, 0.03);
-}
-
-.dark [data-selector="pagination-next"]:hover,
-.dark [data-selector="pagination-prev"]:hover {
-  border-color: rgba(241, 174, 3, 0.2);
-  background: rgba(241, 174, 3, 0.03);
-}
-
-/* ============================================
-   HIDE POWERED BY MINTLIFY (if allowed by plan)
-   ============================================ */
-
-a[href*="mintlify.com"][href*="poweredBy"],
-footer a[href*="mintlify"] {
+/* Hide "Powered by Mintlify" footer badge */
+a[href*="poweredBy"] {
   display: none !important;
 }
 
 /* ============================================
-   BREADCRUMBS / EYEBROW - Kandinsky colors
-   ============================================ */
-
-/* Light mode - blue breadcrumb links */
-.breadcrumb-item a,
-.breadcrumb-list a,
-[class*="breadcrumb"] a {
-  color: var(--kandinsky-blue) !important;
-}
-
-.breadcrumb-item a:hover,
-.breadcrumb-list a:hover,
-[class*="breadcrumb"] a:hover {
-  color: var(--kandinsky-blue-hover) !important;
-}
-
-/* Dark mode - yellow breadcrumb links */
-.dark .breadcrumb-item a,
-.dark .breadcrumb-list a,
-.dark [class*="breadcrumb"] a {
-  color: var(--kandinsky-yellow) !important;
-}
-
-.dark .breadcrumb-item a:hover,
-.dark .breadcrumb-list a:hover,
-.dark [class*="breadcrumb"] a:hover {
-  color: #f5c842 !important;
-}
-
-/* ============================================
-   CALLOUTS - Override Mintlify's default colors
-   ============================================ */
-
-/* General callout styling */
-.callout,
-[class*="callout"],
-[data-callout] {
-  border-radius: 12px !important;
-}
-
-/* Light mode - Tip callouts use subtle blue instead of green */
-.callout[class*="emerald"],
-.callout[class*="green"],
-[class*="bg-emerald"],
-[class*="border-emerald"],
-[data-callout="tip"],
-div[class*="emerald-50"],
-div[class*="emerald-100"],
-div[class*="emerald-200"] {
-  background: #f8fafc !important;
-  border-color: rgba(2, 42, 89, 0.15) !important;
-}
-
-/* Ensure callout text is normal color, not muted */
-[class*="bg-emerald"] p,
-[class*="bg-emerald"] span:not([class*="font-"]),
-div[class*="emerald-50"] p,
-div[class*="emerald-100"] p {
-  color: #374151 !important;
-}
-
-.callout[class*="emerald"] svg,
-.callout[class*="green"] svg,
-[class*="bg-emerald"] svg,
-[data-callout="tip"] svg,
-div[class*="emerald-50"] svg {
-  color: #022A59 !important;
-}
-
-/* Override emerald text color for icons only */
-svg[class*="text-emerald"],
-[class*="text-emerald"] > svg {
-  color: #022A59 !important;
-}
-
-/* Reset text color inside emerald callouts - override the green text */
-[class*="bg-emerald"] [class*="text-emerald"],
-[class*="bg-emerald"] span[class*="text-emerald"],
-[class*="bg-emerald"] p[class*="text-emerald"],
-div[class*="emerald-50"] [class*="text-emerald"],
-div[class*="emerald-100"] [class*="text-emerald"] {
-  color: inherit !important;
-}
-
-/* Dark mode - use solid dark blue-tinted background */
-.dark .callout[class*="emerald"],
-.dark .callout[class*="green"],
-.dark [class*="bg-emerald"],
-.dark [class*="border-emerald"],
-.dark [data-callout="tip"],
-.dark div[class*="emerald-50"],
-.dark div[class*="emerald-100"],
-.dark div[class*="emerald-200"] {
-  background: #0f1729 !important;
-  border-color: rgba(125, 168, 239, 0.25) !important;
-}
-
-/* Ensure callout text is normal color in dark mode */
-.dark [class*="bg-emerald"] p,
-.dark [class*="bg-emerald"] span:not([class*="font-"]),
-.dark div[class*="emerald-50"] p,
-.dark div[class*="emerald-100"] p {
-  color: #e5e7eb !important;
-}
-
-.dark .callout[class*="emerald"] svg,
-.dark .callout[class*="green"] svg,
-.dark [class*="bg-emerald"] svg,
-.dark [data-callout="tip"] svg,
-.dark div[class*="emerald-50"] svg {
-  color: #7DA8EF !important;
-}
-
-/* Override emerald text color for icons only in dark mode */
-.dark svg[class*="text-emerald"],
-.dark [class*="text-emerald"] > svg {
-  color: #7DA8EF !important;
-}
-
-/* Reset text color inside emerald callouts in dark mode */
-.dark [class*="bg-emerald"] [class*="text-emerald"],
-.dark [class*="bg-emerald"] span[class*="text-emerald"],
-.dark [class*="bg-emerald"] p[class*="text-emerald"],
-.dark div[class*="emerald-50"] [class*="text-emerald"],
-.dark div[class*="emerald-100"] [class*="text-emerald"] {
-  color: inherit !important;
-}
-
-/* Blue callouts (Note, Info) */
-.callout[class*="blue"],
-[data-callout="note"],
-[data-callout="info"] {
-  background: rgba(2, 42, 89, 0.04) !important;
-  border-color: rgba(2, 42, 89, 0.15) !important;
-}
-
-.callout[class*="blue"] svg,
-[data-callout="note"] svg,
-[data-callout="info"] svg {
-  color: #022A59 !important;
-}
-
-.dark .callout[class*="blue"],
-.dark [data-callout="note"],
-.dark [data-callout="info"] {
-  background: rgba(125, 168, 239, 0.08) !important;
-  border-color: rgba(125, 168, 239, 0.2) !important;
-}
-
-.dark .callout[class*="blue"] svg,
-.dark [data-callout="note"] svg,
-.dark [data-callout="info"] svg {
-  color: #7DA8EF !important;
-}
-
-/* Red/amber callouts (Warning, Danger) */
-.callout[class*="red"],
-.callout[class*="amber"],
-[data-callout="warning"],
-[data-callout="danger"] {
-  background: rgba(220, 36, 4, 0.05) !important;
-  border-color: rgba(220, 36, 4, 0.2) !important;
-}
-
-.callout[class*="red"] svg,
-.callout[class*="amber"] svg,
-[data-callout="warning"] svg,
-[data-callout="danger"] svg {
-  color: #DC2404 !important;
-}
-
-.dark .callout[class*="red"],
-.dark .callout[class*="amber"],
-.dark [data-callout="warning"],
-.dark [data-callout="danger"] {
-  background: rgba(220, 36, 4, 0.1) !important;
-  border-color: rgba(220, 36, 4, 0.25) !important;
-}
-
-/* ============================================
-   BUTTONS - CTA styling like website
-   ============================================ */
-
-.cta-primary {
-  background: var(--kandinsky-cta);
-  color: var(--kandinsky-beige);
-  transition: all 0.2s ease;
-}
-
-.cta-primary:hover {
-  opacity: 0.9;
-}
-
-.dark .cta-primary {
-  background: var(--kandinsky-yellow);
-  color: var(--kandinsky-black);
-}
-
-/* ============================================
-   STEPS - Kandinsky accent
-   ============================================ */
-
-[data-selector="step"]::before {
-  background: var(--kandinsky-blue);
-}
-
-.dark [data-selector="step"]::before {
-  background: var(--kandinsky-yellow);
-}
-
-/* Step titles should be bold */
-[data-selector="step"] h3,
-[data-selector="step"] [class*="font-medium"],
-[data-selector="step"] > div:first-child,
-.steps h3,
-.steps [class*="title"],
-[class*="step"] h3,
-[class*="Step"] h3 {
-  font-weight: 700 !important;
-}
-
-/* ============================================
-   SIDEBAR GROUP TITLES - Kandinsky accent
-   ============================================ */
-
-/* Light mode - Blue titles for sidebar group headers */
-#sidebar [class*="uppercase"],
-#sidebar [class*="tracking-wide"],
-nav[id="sidebar"] > div > div > div > span,
-#sidebar span.text-xs,
-#sidebar .text-sm.font-semibold:not(a),
-aside span[class*="font-"]:not(a):first-child {
-  color: var(--kandinsky-blue) !important;
-  font-weight: 600 !important;
-}
-
-/* Dark mode - Yellow titles */
-.dark #sidebar [class*="uppercase"],
-.dark #sidebar [class*="tracking-wide"],
-.dark nav[id="sidebar"] > div > div > div > span,
-.dark #sidebar span.text-xs,
-.dark #sidebar .text-sm.font-semibold:not(a),
-.dark aside span[class*="font-"]:not(a):first-child {
-  color: var(--kandinsky-yellow) !important;
-}
-
-/* ============================================
    NOTEBOOK OUTPUTS - Fix dark mode visibility
+   Only target pre tags with inline color:black
+   from notebook output cells. Do NOT touch
+   syntax-highlighted code blocks.
    ============================================ */
 
-/* Override inline color: black on notebook output pre tags in dark mode */
 .dark pre[style*="color: black"],
 .dark pre[style*="color:black"] {
   color: #e5e5e5 !important;
 }
 
-/* Also handle spans inside pre tags with inline black color */
 .dark pre[style*="color: black"] *,
 .dark pre[style*="color:black"] *,
 .dark pre span[style*="color: black"],
 .dark pre span[style*="color:black"] {
   color: #e5e5e5 !important;
-}
-
-/* Generic fix for any element with inline black color in notebook outputs */
-.dark #content pre,
-.dark #content-area pre {
-  color: #e5e5e5 !important;
-}
-
-.dark #content pre *,
-.dark #content-area pre * {
-  color: inherit !important;
 }
