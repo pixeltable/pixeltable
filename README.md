@@ -33,7 +33,7 @@ The only open source Python library providing declarative, transactional data in
 pip install pixeltable
 ```
 
-Pixeltable bundles its own transactional database, orchestration engine, and local dashboard. No Docker, no external services — `pip install` is all you need. All data is managed in `~/.pixeltable` and accessed through the [Python SDK](https://docs.pixeltable.com/). See [Working with External Files](https://docs.pixeltable.com/platform/external-files) and [Storage Architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) for details.
+Pixeltable bundles its own transactional database, orchestration engine, and local dashboard. No Docker, no external services — `pip install` is all you need. All data is managed in `~/.pixeltable` and accessed through the [Python SDK](https://docs.pixeltable.com/sdk/latest/pixeltable). See [Working with External Files](https://docs.pixeltable.com/platform/external-files) and [Storage Architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) for details.
 
 ## Quick Start
 
