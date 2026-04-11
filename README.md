@@ -8,7 +8,7 @@
 <br>
 </div>
 
-The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.
+The only open source Python library providing declarative, transactional data infrastructure for building multimodal AI applications — with incremental storage, transformation, indexing, retrieval, and orchestration of data, all with full operational integrity.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
@@ -22,7 +22,9 @@ The only open source Python library providing declarative data infrastructure fo
 [**Quick Start**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
 [**API Reference**](https://docs.pixeltable.com/sdk/latest/pixeltable) |
-[**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit)
+[**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) |
+[**AI Coding Skill**](https://github.com/pixeltable/pixeltable-skill) |
+[**Pixeltable Cloud**](https://www.pixeltable.com/)
 
 ---
 
@@ -32,73 +34,64 @@ The only open source Python library providing declarative data infrastructure fo
 pip install pixeltable
 ```
 
-## Demo
-
-https://github.com/user-attachments/assets/b50fd6df-5169-4881-9dbe-1b6e5d06cede
+Pixeltable bundles its own transactional database, orchestration engine, and local dashboard. No Docker, no external services — `pip install` is all you need. All data is managed in `~/.pixeltable` and accessed through the [Python SDK](https://docs.pixeltable.com/). See [Working with External Files](https://docs.pixeltable.com/platform/external-files) and [Storage Architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) for details.
 
 ## Quick Start
 
-With Pixeltable, you define your *entire* data processing and AI workflow declaratively using
+Define your data processing and AI workflow declaratively using
 **[computed columns](https://docs.pixeltable.com/tutorials/computed-columns)** on
 **[tables](https://docs.pixeltable.com/tutorials/tables-and-data-operations)**.
-Focus on your application logic, not the data plumbing.
+Focus on your logic, not the data plumbing.
 
 ```python
-# Installation
-pip install -qU torch transformers openai pixeltable
-
-# Basic setup
 import pixeltable as pxt
+from pixeltable.functions import gemini, huggingface
 
-# Table with multimodal column types (Image, Video, Audio, Document)
-t = pxt.create_table('images', {'input_image': pxt.Image})
+# 1. Store — structured data + media references, versioned and materialized automatically
+videos = pxt.create_table('video_search', {'video': pxt.Video, 'title': pxt.String})
 
-# Computed columns: define transformation logic once, runs on all data
-from pixeltable.functions import huggingface
+# 2. Orchestrate — computed columns are nodes in the table's DAG; the table is the pipeline
+videos.add_computed_column(scenes=videos.video.scene_detect_adaptive())
 
-# Object detection with automatic model management
-t.add_computed_column(
-    detections=huggingface.detr_for_object_detection(
-        t.input_image,
-        model_id='facebook/detr-resnet-50'
+# 3. AI integration — external API calls with rate limiting, retry, and async parallelism
+videos.add_computed_column(
+    response=gemini.generate_content(
+        [videos.video, 'Describe this video in detail.'], model='gemini-3-flash-preview'
     )
 )
 
-# Extract specific fields from detection results
-t.add_computed_column(detections_text=t.detections.label_text)
-
-# OpenAI multimodal analysis with built-in rate limiting and async management
-from pixeltable.functions import openai
-
-messages = [
-    {
-        'role': 'user',
-        'content': [
-            {'type': 'text', 'text': "Describe what's in this image."},
-            {'type': 'image_url', 'image_url': t.input_image},
-        ],
-    }
-]
-t.add_computed_column(
-    response=openai.chat_completions(messages, model='gpt-4o-mini')
+# 4. JSON path expressions — extract nested fields with just-in-time typing
+videos.add_computed_column(
+    description=videos.response.candidates[0].content.parts[0].text
 )
 
-# Insert data directly from an external URL
-# Automatically triggers computation of all computed columns
-t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')
+# 5. Incremental index maintenance — embedding indexes stay in sync, no ETL pipeline needed
+videos.add_embedding_index('video', embedding=gemini.embed_content.using(model='gemini-embedding-2-preview'))
 
-# Query - All data, metadata, and computed results are persistently stored
-# Structured and unstructured data are returned side-by-side
-results = t.select(
-    t.input_image,
-    t.detections_text,
-    t.response.choices[0].message.content
+# Insert data — triggers the full pipeline automatically
+base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources'
+videos.insert([
+    {'video': f'{base_url}/bangkok.mp4', 'title': 'Bangkok Street Tour'},
+    {'video': f'{base_url}/The-Pursuit-of-Happiness-Video-Extract.mp4', 'title': 'The Pursuit of Happiness'},
+])
+
+# 6. Retrieve — structured + unstructured data side by side, with on-the-fly transforms
+videos.select(
+    videos.video,
+    videos.title,
+    videos.description,
+    detections=huggingface.detr_for_object_detection(
+        videos.video.extract_frame(timestamp=2.0),
+        model_id='facebook/detr-resnet-50',
+    ),
 ).collect()
+
+# 7. Cross-modal search — find similar videos using a reference image, with filters
+sim = videos.video.similarity(image=f'{base_url}/The-Pursuit-of-Happiness-Screenshot.png')
+videos.where(videos.description != None).order_by(sim, asc=False).limit(5).collect()
 ```
 
 ## What Pixeltable Does
-
-When you run the code above, Pixeltable handles storage, orchestration, indexing, versioning, and inference — automatically. Here's the lifecycle:
 
 | You Write | Pixeltable Does |
 |-----------|-----------------|
@@ -113,11 +106,12 @@ When you run the code above, Pixeltable handles storage, orchestration, indexing
 
 That single workflow replaces most of the typical AI stack:
 
-| Instead of … | Pixeltable gives you … |
+| Instead of ... | Pixeltable gives you ... |
 |---|---|
 | PostgreSQL / MySQL | `pxt.create_table()` — schema is Python, versioned automatically |
+| pgAdmin / Retool / custom dashboards | Built-in local dashboard — auto-launches, zero config |
 | Pinecone / Weaviate / Qdrant | `add_embedding_index()` — one line, stays in sync |
-| S3 / boto3 / blob storage | `pxt.Image` / `Video` / `Audio` / `Document` types with caching; `destination='s3://…'` for cloud routing |
+| S3 / boto3 / blob storage | `pxt.Image` / `Video` / `Audio` / `Document` types with caching; `destination='s3://...'` for cloud routing |
 | Airflow / Prefect / Celery | Computed columns trigger on insert — no orchestrator needed |
 | LangChain / LlamaIndex (RAG) | `@pxt.query` + `.similarity()` + computed column chaining |
 | pandas / polars (multimodal) | `.sample()`, ephemeral UDFs, then `add_computed_column()` to commit — prototype to production |
@@ -129,15 +123,13 @@ On top of these, Pixeltable ships with [built-in functions](https://docs.pixelta
 
 **Deployment options:** Pixeltable can serve as your [full backend](https://docs.pixeltable.com/howto/deployment/overview) (managing media locally or syncing with S3/GCS/Azure, plus built-in vector search and orchestration) or as an [orchestration layer](https://docs.pixeltable.com/howto/deployment/overview) alongside your existing infrastructure.
 
-## Where Did My Data Go?
+## Demo
 
-Pixeltable workloads generate various outputs, including both structured outputs (such as bounding boxes for detected objects) and unstructured outputs (such as generated images or video). By default, everything resides in your Pixeltable user directory at `~/.pixeltable`. Structured data is stored in a Postgres instance in `~/.pixeltable`. Generated media (images, video, audio, documents) are stored outside the Postgres database, in separate flat files in `~/.pixeltable/media`. Those media files are referenced by URL in the database, and Pixeltable provides the "glue" for a unified table interface over both structured and unstructured data.
+See Pixeltable in action — table creation, computed columns, multimodal processing, and querying in a single workflow:
 
-In general, the user is not expected to interact directly with the data in `~/.pixeltable`; the data store is fully managed by Pixeltable and is intended to be accessed through the [Pixeltable Python SDK](https://docs.pixeltable.com/).
+https://github.com/user-attachments/assets/b50fd6df-5169-4881-9dbe-1b6e5d06cede
 
-See [Working with External Files](https://docs.pixeltable.com/platform/external-files) for details on loading data from URLs, S3, and local paths.
-
-## Key Principles
+## Core Capabilities
 
 <details>
 <summary><b>Store:</b> Unified Multimodal Interface</summary>
@@ -147,14 +139,14 @@ See [Working with External Files](https://docs.pixeltable.com/platform/external-
 
 ```python
 t = pxt.create_table(
-   'media',
-   {
-       'img': pxt.Image,
-       'video': pxt.Video,
-       'audio': pxt.Audio,
-       'document': pxt.Document,
-       'metadata': pxt.Json
-   }
+    'media',
+    {
+        'img': pxt.Image,
+        'video': pxt.Video,
+        'audio': pxt.Audio,
+        'document': pxt.Document,
+        'metadata': pxt.Json,
+    },
 )
 ```
 
@@ -170,25 +162,25 @@ t = pxt.create_table(
 ```python
 # LLM API call
 t.add_computed_column(
-   summary=openai.chat_completions(
-       messages=[{"role": "user", "content": t.text}], model='gpt-4o-mini'
-   )
+    summary=openai.chat_completions(
+        messages=[{'role': 'user', 'content': t.text}], model='gpt-4o-mini'
+    )
 )
 
 # Local model inference
 t.add_computed_column(
-   classification=huggingface.vit_for_image_classification(t.image)
+    classification=huggingface.vit_for_image_classification(t.image)
 )
 
 # Vision analysis (multimodal)
 t.add_computed_column(
-   description=openai.chat_completions(
-       messages=[{'role': 'user', 'content': [
-           {'type': 'text', 'text': 'Describe this image'},
-           {'type': 'image_url', 'image_url': t.image},
-       ]}],
-       model='gpt-4o-mini'
-   )
+    description=openai.chat_completions(
+        messages=[{'role': 'user', 'content': [
+            {'type': 'text', 'text': 'Describe this image'},
+            {'type': 'image_url', 'image_url': t.image},
+        ]}],
+        model='gpt-4o-mini'
+    )
 )
 ```
 
@@ -206,16 +198,20 @@ from pixeltable.functions.video import frame_iterator
 from pixeltable.functions.document import document_splitter
 
 # Document chunking with overlap & metadata
-chunks = pxt.create_view('chunks', docs,
-   iterator=document_splitter(
-       document=docs.doc,
-       separators='sentence,token_limit',
-       overlap=50, limit=500
-   ))
+chunks = pxt.create_view(
+    'chunks', docs,
+    iterator=document_splitter(
+        document=docs.doc,
+        separators='sentence,token_limit',
+        overlap=50, limit=500
+    )
+)
 
 # Video frame extraction
-frames = pxt.create_view('frames', videos,
-   iterator=frame_iterator(video=videos.video, fps=0.5))
+frames = pxt.create_view(
+    'frames', videos,
+    iterator=frame_iterator(video=videos.video, fps=0.5)
+)
 ```
 
 → [Views](https://docs.pixeltable.com/platform/views) · [Iterators](https://docs.pixeltable.com/platform/iterators) · [RAG Pipeline](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline)
@@ -229,11 +225,11 @@ frames = pxt.create_view('frames', videos,
 
 ```python
 t.add_embedding_index(
-   'img',
-   embedding=clip.using(model_id='openai/clip-vit-base-patch32')
+    'img',
+    embedding=clip.using(model_id='openai/clip-vit-base-patch32')
 )
 
-sim = t.img.similarity(string="cat playing with yarn")
+sim = t.img.similarity(string='cat playing with yarn')
 results = t.order_by(sim, asc=False).limit(10).collect()
 ```
 
@@ -249,11 +245,11 @@ results = t.order_by(sim, asc=False).limit(10).collect()
 ```python
 @pxt.udf
 def format_prompt(context: list, question: str) -> str:
-   return f"Context: {context}\nQuestion: {question}"
+    return f'Context: {context}\nQuestion: {question}'
 
 @pxt.query
 def search_by_topic(topic: str):
-   return t.where(t.category == topic).select(t.title, t.summary)
+    return t.where(t.category == topic).select(t.title, t.summary)
 ```
 
 → [UDFs Guide](https://docs.pixeltable.com/platform/udfs-in-pixeltable) · [Custom Aggregates](https://docs.pixeltable.com/howto/cookbooks/core/custom-aggregates-uda)
@@ -272,7 +268,7 @@ tools = pxt.tools(get_weather_udf, search_context_query, *mcp_tools)
 
 # LLM decides which tool to call; Pixeltable executes it
 t.add_computed_column(
-   tool_output=invoke_tools(tools, t.llm_tool_choice)
+    tool_output=invoke_tools(tools, t.llm_tool_choice)
 )
 ```
 
@@ -288,11 +284,11 @@ Unlike pandas/polars, Pixeltable [persists everything](https://docs.pixeltable.c
 ```python
 # Explore with a familiar DSL — filter, sample, apply UDFs ephemerally
 results = (
-   t.where(t.score > 0.8)
-   .order_by(t.timestamp)
-   .select(t.image, score=t.score)
-   .limit(10)
-   .collect()
+    t.where(t.score > 0.8)
+    .order_by(t.timestamp)
+    .select(t.image, score=t.score)
+    .limit(10)
+    .collect()
 )
 
 # Sample 5 rows and test a UDF — nothing stored, API calls parallelized and cached
@@ -320,6 +316,28 @@ old_version = pxt.get_table('my_table:472')  # Query a specific version
 ```
 
 → [Version Control](https://docs.pixeltable.com/platform/version-control) · [Data Sharing](https://docs.pixeltable.com/platform/data-sharing)
+</details>
+
+<details>
+<summary><b>Inspect:</b> Local Dashboard</summary>
+<br>
+
+Pixeltable ships with a built-in local dashboard that launches automatically when you start a session. Browse tables, inspect schemas, view media with lightbox navigation, visualize your full data pipeline as a DAG, and track computation errors — all from your browser.
+
+```python
+import pixeltable as pxt
+
+# Dashboard launches automatically at http://localhost:22089
+pxt.init()
+
+# Disable if needed
+pxt.init(dashboard=False)
+# Or set environment variable: PIXELTABLE_DASHBOARD=0
+```
+
+**Highlights:** Table browser with sorting & filtering · Media preview (images, video, audio) · Column lineage visualization · Pipeline graph · Per-column error tracking · CSV export · Auto-refresh
+
+No extra dependencies. No setup. It's just there.
 </details>
 
 <details>
@@ -355,7 +373,7 @@ pxt.export_images_as_fo_dataset(table, table.image)   # FiftyOne
 | [![Colab](https://img.shields.io/badge/Tables_&_Operations-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/tutorials/tables-and-data-operations.ipynb) | [![Colab](https://img.shields.io/badge/Tool--Calling_Agents-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/llm-tool-calling.ipynb) | [![Gemini](https://img.shields.io/badge/Gemini-8E75B2?logo=googlegemini&logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-gemini.ipynb) | [![GitHub](https://img.shields.io/badge/Image%2FText_Search-181717?logo=github&logoColor=white)](https://github.com/pixeltable/pixeltable/tree/release/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi) |
 | [![Colab](https://img.shields.io/badge/UDFs-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/platform/udfs-in-pixeltable.ipynb) | [![Colab](https://img.shields.io/badge/Audio_Transcription-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/use-cases/audio-transcriptions.ipynb) | [![Ollama](https://img.shields.io/badge/Ollama-000000?logo=ollama&logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-ollama.ipynb) | [![GitHub](https://img.shields.io/badge/Multimodal_Chat-181717?logo=github&logoColor=white)](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/multimodal-chat) |
 | [![Colab](https://img.shields.io/badge/Embedding_Indexes-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/platform/embedding-indexes.ipynb) | [![Colab](https://img.shields.io/badge/Object_Detection-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/use-cases/object-detection-in-videos.ipynb) | [![DeepSeek](https://img.shields.io/badge/DeepSeek-0A6DC2?logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-deepseek.ipynb) | [![Discord](https://img.shields.io/badge/Discord_Bot-5865F2?logo=discord&logoColor=white)](https://github.com/pixeltable/pixeltable/blob/release/docs/sample-apps/context-aware-discord-bot) |
-| [**All →**](https://docs.pixeltable.com/overview/ten-minute-tour) | [**All →**](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline) | [**22 providers →**](https://docs.pixeltable.com/integrations/frameworks) | [**All →**](https://github.com/pixeltable/pixeltable/tree/release/docs/sample-apps) |
+| [**All →**](https://docs.pixeltable.com/overview/ten-minute-tour) | [**All →**](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline) | [**All providers →**](https://docs.pixeltable.com/integrations/frameworks) | [**All →**](https://github.com/pixeltable/pixeltable/tree/release/docs/sample-apps) |
 
 ## External Storage and Pixeltable Cloud
 
@@ -396,6 +414,7 @@ t.add_computed_column(
 | [**Pixelbot**](https://github.com/pixeltable/pixelbot) | Multimodal AI agent, an interactive data studio with on-demand ML inference, media generation, and a database explore |
 | [**Pixelagent**](https://github.com/pixeltable/pixelagent) | Lightweight agent framework with built-in memory and tool orchestration |
 | [**Pixelmemory**](https://github.com/pixeltable/pixelmemory) | Persistent memory layer for AI applications |
+| [**Pixeltable Skill**](https://github.com/pixeltable/pixeltable-skill) | AI coding skill for Cursor, Claude Code, Copilot, Windsurf, and other AI IDEs — reduces hallucination and generates accurate Pixeltable code |
 | [**MCP Server**](https://github.com/pixeltable/mcp-server-pixeltable-developer) | Model Context Protocol server for Claude, Cursor, and other AI IDEs |
 
 ## Contributing
