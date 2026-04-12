@@ -1490,14 +1490,14 @@ class Query:
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)
 
     def add_columns(self, additional_columns: list[tuple[exprs.Expr, str | None]]) -> 'Query':
-        """Return a new Query with additional expressions augmented to the select list.
+        """Add expressions to the existing select list.
 
         Args:
             additional_columns: list of (expression, name) pairs to append to the select list.
                 If name is None, the expression is appended without adding it to the schema.
 
         Returns:
-            A new Query with the additional expressions appended.
+            a new Query with additional expressions appended to the select list.
         """
         q = copy.copy(self)
         q._select_list_exprs = self._select_list_exprs + [expr for expr, _ in additional_columns]
