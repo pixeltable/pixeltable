@@ -352,12 +352,7 @@ class Query:
                 for row in row_batch:
                     yield row
 
-    def _create_query_plan(self, additional_output_exprs: list[exprs.Expr] | None = None) -> exec.ExecNode:
-        """Create an execution plan for this query.
-
-        Args:
-            additional_output_exprs: additional stored column expressions not covered by the query during insert
-        """
+    def _create_query_plan(self) -> exec.ExecNode:
         # construct a group-by clause if we're grouping by a table
         group_by_clause: list[exprs.Expr] | None = None
         if self.grouping_tbl is not None:
@@ -381,7 +376,6 @@ class Query:
             limit=self.limit_val,
             offset=self.offset_val,
             sample_clause=self.sample_clause,
-            additional_output_exprs=additional_output_exprs,
         )
 
     def __rowid_columns(self, num_rowid_cols: int | None = None) -> list[exprs.Expr]:
@@ -1494,3 +1488,20 @@ class Query:
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)
+
+    def add_columns(self, additional_columns: list[tuple[exprs.Expr, str | None]]) -> 'Query':
+        """Return a new Query with additional expressions augmented to the select list.
+
+        Args:
+            additional_columns: list of (expression, name) pairs to append to the select list.
+                If name is None, the expression is appended without adding it to the schema.
+
+        Returns:
+            A new Query with the additional expressions appended.
+        """
+        q = copy.copy(self)
+        q._select_list_exprs = self._select_list_exprs + [expr for expr, _ in additional_columns]
+        q.select_list = (self.select_list or []) + additional_columns
+        # only add named columns to schema
+        q._schema = {**self._schema, **{name: expr.col_type for expr, name in additional_columns if name is not None}}
+        return q

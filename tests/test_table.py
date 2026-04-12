@@ -3337,24 +3337,21 @@ class TestTable:
         dst.add_computed_column(c4=dst.c2 * 2)
         dst.add_computed_column(c5=dst.c4 + 1)
         dst.add_embedding_index('c1', string_embed=e5_embed)
-        dst.add_computed_column(unstored_col=dst.c2 + 100, stored=False)  # unstored
-        dst.add_computed_column(c6=dst.unstored_col * 2)  # stored, depends on unstored
+        dst.add_computed_column(unstored_col=dst.c2 + 100, stored=False)
+        dst.add_computed_column(c6=dst.unstored_col * 2)
 
-        # c3 not in query -> NULL; c4, c5 computed from query values; embedding val col computed from src.c1
         dst.insert(src.select(src.c1, src.c2))
 
         result = dst.order_by(dst.c2).collect()
         assert len(result) == 2
-        assert result[0]['c4'] == 20  # 10 * 2
-        assert result[1]['c4'] == 40  # 20 * 2
-        assert result[0]['c5'] == 21  # 10 * 2 + 1
-        assert result[1]['c5'] == 41  # 20 * 2 + 1
+        assert result[0]['c4'] == 20
+        assert result[1]['c4'] == 40
+        assert result[0]['c5'] == 21
+        assert result[1]['c5'] == 41
         assert result[0]['c3'] is None
         assert result[1]['c3'] is None
-        assert result[0]['c6'] == 220  # (10 + 100) * 2
-        assert result[1]['c6'] == 240  # (20 + 100) * 2
-
-        # check embedding index works — val column was computed from src.c1 which is not NULL
+        assert result[0]['c6'] == 220
+        assert result[1]['c6'] == 240
         sim_result = dst.order_by(dst.c1.similarity(string='cat'), asc=False).limit(1).collect()
         assert sim_result[0]['c1'] == 'a cat on a mat'
 
@@ -3364,7 +3361,7 @@ class TestTable:
         dst2.insert(src.select(x=src.c1, y=src.c2 + 5))
 
         result2 = dst2.order_by(dst2.y).collect()
-        assert result2[0]['y'] == 15  # 10 + 5
-        assert result2[0]['z'] == 30  # 15 * 2
-        assert result2[1]['y'] == 25  # 20 + 5
-        assert result2[1]['z'] == 50  # 25 * 2
+        assert result2[0]['y'] == 15
+        assert result2[0]['z'] == 30
+        assert result2[1]['y'] == 25
+        assert result2[1]['z'] == 50

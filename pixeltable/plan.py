@@ -414,42 +414,49 @@ class Planner:
             for col_name, expr in zip(query.schema.keys(), query._select_list_exprs)
             if col_name in tbl.cols_by_name
         }
+        # also add unstored computed cols to substitution so they get inlined
+        for col in tbl.cols_by_id.values():
+            if col.is_stored or not col.is_computed or col.value_expr is None:
+                continue
+            substitution[exprs.ColumnRef(col)] = col.value_expr.copy().substitute(substitution)
 
         # stored computed cols in dst not covered by the query
         missing_computed_cols: list[catalog.Column] = []
-        missing_col_exprs: list[exprs.Expr] = []
+        missing_col_exprs_raw: list[exprs.Expr] = []
         for col in tbl.cols_by_id.values():
             if not col.is_stored or col.name in query_col_names or not col.is_computed:
                 continue
             missing_computed_cols.append(col)
-            missing_col_exprs.append(col.value_expr.copy().resolve_computed_cols())
+            missing_col_exprs_raw.append(col.value_expr.copy())
 
         # extend substitution with missing computed columns, e.g. so that c5 = c4 + 1
         # can resolve c4 -> c4.value_expr where c4 is also a missing computed column
-        for col, expr in zip(missing_computed_cols, missing_col_exprs):
+        for col, expr in zip(missing_computed_cols, missing_col_exprs_raw):
             substitution[exprs.ColumnRef(col)] = expr
 
         # apply full substitution to all missing column exprs
-        missing_col_exprs = [expr.substitute(substitution) for expr in missing_col_exprs]
+        missing_col_exprs = [expr.substitute(substitution) for expr in missing_col_exprs_raw]
 
-        plan = query._create_query_plan(additional_output_exprs=missing_col_exprs)
-
+        # augment query with missing computed col exprs so they get evaluated during planning
+        augmented_query = query.add_columns(
+            [(expr, col.name) for col, expr in zip(missing_computed_cols, missing_col_exprs)]
+        )
+        plan = augmented_query._create_query_plan()
         needs_cell_materialization = False
 
-        for col_name, expr in zip(query.schema.keys(), query._select_list_exprs):
-            assert col_name in tbl.cols_by_name
-            col = tbl.cols_by_name[col_name]
-            plan.row_builder.add_table_column(col, expr.slot_idx)
-            needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
+        for col_name, expr in zip(augmented_query.schema.keys(), augmented_query._select_list_exprs):
+            if col_name not in tbl.cols_by_name:
+                continue
+            dst_col = tbl.cols_by_name[col_name]
+            plan.row_builder.add_table_column(dst_col, expr.slot_idx)
+            needs_cell_materialization = needs_cell_materialization or dst_col.col_type.supports_file_offloading()
 
-        for col, expr in zip(missing_computed_cols, missing_col_exprs):
-            registered_expr = plan.row_builder.unique_exprs[expr]
-            plan.row_builder.add_table_column(col, registered_expr.slot_idx)
+        for col, expr in zip(missing_computed_cols, augmented_query._select_list_exprs[len(query.schema) :]):
+            plan.row_builder.add_table_column(col, expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
-
         plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
         return plan
 
@@ -974,7 +981,6 @@ class Planner:
         sample_clause: SampleClause | None = None,
         ignore_errors: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
-        additional_output_exprs: list[exprs.Expr] | None = None,
     ) -> exec.ExecNode:
         """
         Return plan for executing a query.
@@ -1007,20 +1013,12 @@ class Planner:
         # Otherwise there is no context table, but that's ok, because the context table is only needed for
         # table mutations, which can't happen during a join.
         context_tbl = from_clause.tbls[0].tbl_version.get() if len(from_clause.tbls) == 1 else None
-        all_output_exprs = (
-            analyzer.all_exprs if not additional_output_exprs else analyzer.all_exprs + additional_output_exprs
-        )
-        row_builder = exprs.RowBuilder(all_output_exprs, [], [], context_tbl)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
         # with_pk: for now, we always retrieve the PK, because we need it for the file cache
-        # include additional_output_exprs alongside the select list for evaluation
-        eval_targets = (
-            analyzer.select_list if not additional_output_exprs else analyzer.select_list + additional_output_exprs
-        )
-        eval_ctx = row_builder.create_eval_ctx(eval_targets)
-
+        eval_ctx = row_builder.create_eval_ctx(analyzer.select_list)
         plan = cls._create_query_plan(
             row_builder=row_builder,
             analyzer=analyzer,
@@ -1202,9 +1200,11 @@ class Planner:
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
                 plan = cls._add_save_node(plan)
         else:
-            if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
+            # If all target exprs are covered by tbl_scan_exprs(used by SqlScanNode in the select clause),
+            # then no further Python evaluation is needed.
+            if not exprs.ExprSet(tbl_scan_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
-                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
+                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, tbl_scan_exprs, input=plan)
             # we're returning everything to the user, so we might as well do it in a single batch
             # TODO: return smaller batches in order to increase inter-ExecNode parallelism
             ctx.batch_size = 0
