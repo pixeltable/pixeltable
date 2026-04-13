@@ -4,6 +4,7 @@ import builtins
 import copy
 import dataclasses
 import hashlib
+import itertools
 import json
 import traceback
 from pathlib import Path
@@ -523,16 +524,15 @@ class Query:
 
     def _read_tbl_ids(self) -> list[UUID]:
         """Returns the IDs of all tables referenced by this query"""
-        # clean this up
-        all_exprs: list[exprs.Expr] = [
-            *self._select_list_exprs,
-            *([self.where_clause] if self.where_clause is not None else []),
-            *(self.group_by_clause or []),
-            *([e for e, _ in self.order_by_clause] if self.order_by_clause is not None else []),
-        ]
-        tbl_ids = exprs.Expr.all_tbl_ids(all_exprs) | {
-            tvh.id for tvp in self._from_clause.tbls for tvh in tvp.get_tbl_versions()
-        }
+        all_exprs = itertools.chain(
+            self._select_list_exprs,
+            [] if self.where_clause is None else [self.where_clause],
+            self.group_by_clause or [],
+            [] if self.order_by_clause is None else (e for e, _ in self.order_by_clause),
+        )
+        tbl_ids = exprs.Expr.all_tbl_ids(all_exprs)
+        for tvp in self._from_clause.tbls:
+            tbl_ids.update(tvh.id for tvh in tvp.get_tbl_versions())
         return list(tbl_ids)
 
     def _output_row_iterator(self) -> Iterator[list]:
