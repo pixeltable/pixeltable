@@ -459,7 +459,6 @@ class Catalog:
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.key)
                     # Clear potentially corrupted cached metadata
-                    # TODO also do this for the tbl_id_* targets
                     for tvp in [*tvp_write_targets, *tvp_read_targets]:
                         tvp.clear_cached_md()
 
