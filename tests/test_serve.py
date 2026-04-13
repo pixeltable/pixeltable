@@ -727,10 +727,16 @@ class TestServe:
         def lookup(min_len: int) -> pxt.Query:
             return t.where(t.length >= min_len).select(t.id, t.text).order_by(t.id)
 
+        @pxt.query
+        def lookup2(min_len: int, max_len: int) -> pxt.Query:
+            return t.where((t.length >= min_len) & (t.length <= max_len)).select(t.id, t.text).order_by(t.id)
+
         app = fastapi.FastAPI()
         router = PxtFastAPIRouter()
         router.add_query_route(path='/lookup', query=lookup)
         router.add_query_route(path='/lookup-id-only', query=lookup)
+        # inputs=[...] restricts which parameters the endpoint accepts
+        router.add_query_route(path='/lookup-restricted', query=lookup2, inputs=['min_len'])
         # retrieval_udf variant: all columns from the table are returned, one parameter
         id_lookup = pxt.retrieval_udf(t, parameters=['id'])
         router.add_query_route(path='/by-id', query=id_lookup)
@@ -758,6 +764,17 @@ class TestServe:
         resp = client.post('/lookup', json={'min_len': 100})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'rows': []}
+
+        # /lookup-restricted: inputs=['min_len'] restricts the endpoint to only accept min_len;
+        # max_len should not appear in the OpenAPI schema
+        openapi = client.get('/openapi.json').json()
+        ref = openapi['paths']['/lookup-restricted']['post']['requestBody']['content']['application/json']['schema'][
+            '$ref'
+        ]
+        schema_name = ref.split('/')[-1]
+        restricted_schema = openapi['components']['schemas'][schema_name]
+        assert 'min_len' in restricted_schema['properties']
+        assert 'max_len' not in restricted_schema['properties']
 
     def test_add_query_route_single_column(self, uses_db: None) -> None:
         """Single-column queries: return_scalar=False produces dict-per-row in a wrapper,

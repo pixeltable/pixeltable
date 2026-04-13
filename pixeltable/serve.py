@@ -406,7 +406,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         query_schema = {p.name: p.col_type for p in query_params.values()}
         result_schema = dict(query.template_query.schema)
 
-        _, _ = self._validate_args(
+        input_param_names, _ = self._validate_args(
             input_schema=query_schema,
             output_schema=result_schema,
             inputs=inputs,
@@ -417,6 +417,8 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             input_item_str='parameter',
             output_item_str='column',
         )
+        # restrict the schema to validated inputs so the endpoint only accepts the declared parameters
+        input_schema = {name: query_schema[name] for name in input_param_names}
 
         return_scalar = query.return_scalar
         scalar_col_name = next(iter(result_schema)) if return_scalar else None
@@ -556,7 +558,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                     raise HTTPException(status_code=400, detail=str(e)) from e
 
         sig = self._create_endpoint_signature(
-            input_schema=query_schema, upload_col_names=uploadfile_inputs, is_post=(method == 'post')
+            input_schema=input_schema, upload_col_names=uploadfile_inputs, is_post=(method == 'post')
         )
         endpoint.__signature__ = sig  # type: ignore[attr-defined]
         endpoint.__name__ = f'query_{path.strip("/").replace("/", "_") or "root"}'
