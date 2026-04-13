@@ -1565,17 +1565,6 @@ class Table(SchemaObject):
             >>> tbl.recompute_columns('c1', errors_only=True)
         """
 
-        # strictly speaking, this doesn't have to be write transaction. reconsider later.
-        # @catalog.retry_loop(for_write=True, tvp_read_targets=[self._tbl_version_path], lock_mutable_tree=True)
-        def validate_where() -> None:
-            if where is not None and not where.is_bound_by([self._tbl_version_path]):
-                raise excs.Error(f'`where` predicate ({where}) is not bound by {self._display_str()}')
-
-        with get_runtime().catalog.begin_xact(
-            for_write=False, tvp_read_targets=[self._tbl_version_path], lock_mutable_tree=True
-        ):
-            validate_where()
-
         cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True):
@@ -1605,6 +1594,9 @@ class Table(SchemaObject):
                 if col.get_tbl().id != self._tbl_version_path.tbl_id:
                     raise excs.Error(f'Cannot recompute column of a base: {col_name}')
                 col_names.append(col_name)
+
+            if where is not None and not where.is_bound_by([self._tbl_version_path]):
+                raise excs.Error(f'`where` predicate ({where}) is not bound by {self._display_str()}')
 
             result = self._tbl_version.get().recompute_columns(
                 col_names, where=where, errors_only=errors_only, cascade=cascade
