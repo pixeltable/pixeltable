@@ -1904,11 +1904,7 @@ class Catalog:
         conn = get_runtime().conn
         assert conn is not None
         tv = self._tbl_versions.get(key)
-        if (
-            tv is None
-            and not self._tbl_md_read_allowed
-            and not self._in_retry_loop
-        ):
+        if tv is None and not self._tbl_md_read_allowed and not self._in_retry_loop:
             raise AssertionError('Loading table metadata not allowed in the middle of a transaction')
         if tv is None:
             tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
