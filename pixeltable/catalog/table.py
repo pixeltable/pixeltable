@@ -240,15 +240,10 @@ class Table(SchemaObject):
         """
         from pixeltable.plan import FromClause
 
-        # this breaks label studio sync
-        # @retry_loop(tvp_read_targets=[self._tbl_version_path])
-        def do_select() -> 'pxt.Query':
-            query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
-            if len(items) == 0 and len(named_items) == 0:
-                return query  # Select(*); no further processing is necessary
-            return query.select(*items, **named_items)
-
-        return do_select()
+        query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
+        if len(items) == 0 and len(named_items) == 0:
+            return query  # Select(*); no further processing is necessary
+        return query.select(*items, **named_items)
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
         """Filter rows from this table based on the expression.
