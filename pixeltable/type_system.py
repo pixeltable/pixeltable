@@ -702,7 +702,7 @@ class ColumnType:
             case self.Type.BINARY:
                 py_type = bytes
             case self.Type.JSON:
-                py_type = dict
+                py_type = Any
             case self.Type.ARRAY:
                 py_type = list
             case self.Type.IMAGE | self.Type.VIDEO | self.Type.AUDIO | self.Type.DOCUMENT:

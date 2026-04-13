@@ -485,7 +485,7 @@ class TestServe:
         # Delay every insert so the polling loop actually observes a 'pending' response
         # before 'done' — otherwise fast inserts would transition straight to 'done'
         # between the POST and the first GET and we wouldn't exercise the polling path.
-        t.add_computed_column(delay=sleep(2.0))
+        t.add_computed_column(delay=sleep(1.0))
 
         app = fastapi.FastAPI()
         router = PxtFastAPIRouter()
@@ -812,7 +812,7 @@ class TestServe:
         # rewrite to /media/ URLs. The raw `image` column stays at its pinned external path.
         t.add_computed_column(resized=t.image.resize(size=(32, 32)))
         # Delay every computed-column eval so the background polling loop can observe 'pending'.
-        t.add_computed_column(delay=sleep(2.0))
+        t.add_computed_column(delay=sleep(1.0))
         t.insert([{'id': 1, 'image': image_path}, {'id': 2, 'image': image_path}])
 
         @pxt.query

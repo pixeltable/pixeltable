@@ -64,10 +64,15 @@ _MEDIA_CONTENT_TYPES: dict[ts.ColumnType.Type, str] = {
 
 
 class PxtFastAPIRouter(fastapi.APIRouter):
-    """A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints."""
+    """
+    A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
+
+    TODO:
+    - periodically purge _jobs
+    """
 
     _executor: ThreadPoolExecutor
-    _jobs: dict[str, Future]
+    _jobs: dict[str, Future]  # holds background requests; key: job id (uuid4().hex)
     _jobs_lock: threading.Lock
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -96,29 +101,75 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         background: bool = False,
     ) -> None:
         """
-        Create endpoint for a `Table.insert()` operation.
+        Add a POST endpoint that inserts a single row into `t` and returns the resulting row.
 
-        Adds an endpoint to the router that inserts a row into `t`. The endpoint expects a POST request with a
-        JSON payload that contains the values for the columns specified in `inputs`. It returns a JSON object
-        that contains the values of the columns specified in `outputs`.
+        The request body contains the input column values as JSON fields (or as
+        [multipart form data](https://fastapi.tiangolo.com/tutorial/request-files/) when
+        `uploadfile_inputs` is used). The response is a JSON object with the output column values,
+        or a [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse)
+        when `return_fileresponse=True`.
 
         Args:
             t: The table to insert into.
-            path: The path to the endpoint.
-            inputs: The columns to use as request fields. If not specified, all non-computed columns are used.
-            outputs: The columns to return in the response. If not specified, all columns are returned (including those
-                provided in the request).
-            uploadfile_inputs: The input columns to use as request fields of type `UploadFile`.
-                These can only reference media columns (`Image`, `Video`, `Audio`, `Document`).
-            return_fileresponse: If True, the endpoint returns a `FileResponse` for the single (required) media-typed
-                output column. If False (default), it returns a JSON object with one field per output column; local
-                media values (`file://` URIs) are translated into servable URLs.
-            background: if True, runs the endpoint logic in a background thread and immediately returns a JSON
-                object with fields `id` and `job_url`.
+            path: The URL path for the endpoint.
+            inputs: Columns to accept as request fields. Defaults to all non-computed columns.
+            uploadfile_inputs: Columns to accept as
+                [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
+                (must be media-typed). These are sent as multipart form data; all other inputs
+                become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
+            outputs: Columns to include in the response. Defaults to all columns (including inputs).
+            return_fileresponse: If True, return the single media-typed output column as a
+                [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
+                Requires exactly one media-typed output column.
+            background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
+                the insert in a background thread. Poll `job_url` for the result. Mutually
+                exclusive with `return_fileresponse`.
 
-        Examples
-        - call for table with image and text input and video output
-        - include how to send request via curl
+        Examples:
+            JSON request/response:
+
+            ```python
+            router.add_insert_route(t, path='/generate', inputs=['prompt'], outputs=['result'])
+            ```
+
+            ```bash
+            curl -X POST http://localhost:8000/generate \
+              -H 'Content-Type: application/json' \
+              -d '{"prompt": "a sunset over the ocean"}'
+            # {"prompt": "a sunset over the ocean", "result": "..."}
+            ```
+
+            File upload with `FileResponse`:
+
+            ```python
+            router.add_insert_route(
+                t, path='/resize', inputs=['width', 'height'],
+                uploadfile_inputs=['image'], outputs=['resized'], return_fileresponse=True,
+            )
+            ```
+
+            ```bash
+            curl -X POST http://localhost:8000/resize \
+              -F image=@photo.jpg -F width=640 -F height=480 \
+              --output resized.jpg
+            # saves the resized image to resized.jpg
+            ```
+
+            Background processing:
+
+            ```python
+            router.add_insert_route(t, path='/slow', background=True)
+            ```
+
+            ```bash
+            # submit
+            curl -X POST http://localhost:8000/slow -d '{"prompt": "hello"}'
+            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
+
+            # poll
+            curl http://localhost:8000/jobs/abc123
+            # {"status": "done", "result": {...}}
+            ```
         """
         if not isinstance(t, pxt.InsertableTable):
             raise pxt.Error(f'add_insert_route(): cannot insert into {t._display_name()} {t._name}')
@@ -257,30 +308,79 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         method: Literal['get', 'post'] = 'post',
     ) -> None:
         """
-        Create endpoint for a parameterized query.
+        Add an endpoint that executes a `@pxt.query` or `pxt.retrieval_udf` and returns the results.
 
-        Adds an endpoint to the router that invokes a query udf. The endpoint expects a POST request with a
-        JSON body that contains the values for the parameters of the query udf. It returns a JSON array
-        whose elements are objects, one per result row, containing the select-list items of the query.
+        By default the endpoint accepts POST requests with a JSON
+        [`Body`](https://fastapi.tiangolo.com/tutorial/body/) and returns `{"rows": [{...}, ...]}`.
+        Use `method='get'` for
+        [`Query`](https://fastapi.tiangolo.com/tutorial/query-params/) parameters instead.
 
         Args:
-            path: The path to the endpoint.
-            query: The query to execute, created with the `@pxt.query` decorator or `pxt.retrieval_udf()`.
-            inputs: The parameters to use as request fields. If not specified, all parameters are used.
-                In v1, query parameters with default values are not supported and must be excluded.
-            uploadfile_inputs: The parameters to use as request fields of type `UploadFile`.
-                These parameters must be media-typed (`Image`, `Video`, `Audio`, `Document`).
-            one_row: If True, the query is expected to return exactly one row and the endpoint sends that single row as
-                the JSON object response. Otherwise the endpoint sends a JSON object with a field `rows` which contains
-                the query result as a list of dicts.
-                If True and the query returns no rows, the endpoint responds with a 404 error.
-            return_fileresponse: If True, the endpoint returns a `FileResponse` for the single (required) media-typed
-                result column. The query must return exactly one row at request time: 0 rows produces a 404,
-                more than 1 row produces a 500. If False (default), it returns a JSON array with one element per
-                result row; local media values (`file://` URIs) are translated into servable URLs.
-            background: If True, runs the endpoint logic in a background thread and immediately returns a JSON
-                object with fields `id` and `job_url`.
-            method: The HTTP method to use for the endpoint.
+            path: The URL path for the endpoint.
+            query: The query to execute, created with `@pxt.query` or `pxt.retrieval_udf()`.
+            inputs: Parameters to accept as request fields. Defaults to all query parameters.
+            uploadfile_inputs: Parameters to accept as
+                [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
+                (must be media-typed).
+            one_row: If True, expect exactly one result row and return it as a plain JSON object
+                (not wrapped in `{"rows": [...]}`). 0 rows produces a 404, >1 rows a 409.
+            return_fileresponse: If True, return the single media-typed result column as a
+                [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
+                Requires `one_row` semantics (0 rows → 404, >1 rows → 409).
+                Mutually exclusive with `background`.
+            background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
+                the query in a background thread. Poll `job_url` for the result. Mutually
+                exclusive with `return_fileresponse`.
+            method: HTTP method for the endpoint (`'get'` or `'post'`).
+
+        Examples:
+            Multi-row JSON response:
+
+            ```python
+            router.add_query_route(path='/search', query=search_docs)
+            ```
+
+            ```bash
+            curl -X POST http://localhost:8000/search \
+              -H 'Content-Type: application/json' \
+              -d '{"query_text": "hello"}'
+            # {"rows": [{"id": 1, "text": "hello world", "score": 0.95}, ...]}
+            ```
+
+            Single-row lookup:
+
+            ```python
+            router.add_query_route(path='/lookup', query=lookup_by_id, one_row=True)
+            ```
+
+            ```bash
+            curl -X POST http://localhost:8000/lookup -d '{"id": 42}'
+            # {"id": 42, "name": "Alice", "email": "alice@example.com"}
+            ```
+
+            GET with query-string parameters:
+
+            ```python
+            router.add_query_route(path='/lookup', query=lookup_by_id, method='get')
+            ```
+
+            ```bash
+            curl 'http://localhost:8000/lookup?id=42'
+            # {"id": 42, "name": "Alice", "email": "alice@example.com"}
+            ```
+
+            `FileResponse`:
+
+            ```python
+            router.add_query_route(
+                path='/thumbnail', query=get_thumbnail, return_fileresponse=True,
+            )
+            ```
+
+            ```bash
+            curl -X POST http://localhost:8000/thumbnail -d '{"id": 1}' --output thumb.jpg
+            # saves the thumbnail image to thumb.jpg
+            ```
         """
         if not isinstance(query, func.QueryTemplateFunction):
             raise pxt.Error(
@@ -387,7 +487,13 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                 if len(rows) == 0:
                     raise HTTPException(status_code=404, detail='query returned no rows')
                 if len(rows) > 1:
-                    raise HTTPException(status_code=409, detail=f'query returned {len(rows)} rows; expected exactly 1')
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f'Query returned {len(rows)} rows; expected exactly 1 for one_row=True. '
+                            'Change the query to return exactly one row.'
+                        ),
+                    )
 
             output = self._create_output(
                 rows,
@@ -625,10 +731,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                     row[col_name] = dest.as_uri()
 
         if return_fileresponse:
-            if len(output_names) != 1 or len(rows) != 1:
-                raise HTTPException(
-                    status_code=500, detail=f'Bad internal state (output_names={output_names}, #rows={len(rows)})'
-                )
+            assert len(output_names) == 1 and len(rows) == 1
             output_name = output_names[0]
             val = rows[0][output_name]
             if val is None:
@@ -651,18 +754,17 @@ class PxtFastAPIRouter(fastapi.APIRouter):
 
     def _register_media_route(self) -> None:
         """Register a `GET /media/{path:path}` route that serves Pixeltable media and tmp files"""
-        home_dir = os.path.realpath(str(Config.get().home))
-        allowed_dirs = [os.path.realpath(str(Env.get().media_dir)), os.path.realpath(str(Env.get().tmp_dir))]
+        home_dir = Config.get().home.resolve()
+        allowed_dirs = [Env.get().media_dir.resolve(), Env.get().tmp_dir.resolve()]
 
         def serve_media(path: str) -> FileResponse:
-            abs_path = os.path.realpath(os.path.join(home_dir, path))
-            is_allowed_path = any(abs_path.startswith(d + os.sep) or abs_path == d for d in allowed_dirs)
-            if not is_allowed_path:
+            resolved = (home_dir / path).resolve()
+            if not any(resolved == d or d in resolved.parents for d in allowed_dirs):
                 raise HTTPException(status_code=404, detail='not found')
-            if not os.path.isfile(abs_path):
+            if not resolved.is_file():
                 raise HTTPException(status_code=404, detail='not found')
-            media_type, _ = mimetypes.guess_type(abs_path)
-            return FileResponse(abs_path, media_type=media_type or 'application/octet-stream')
+            media_type, _ = mimetypes.guess_type(str(resolved))
+            return FileResponse(resolved, media_type=media_type or 'application/octet-stream')
 
         # name=...: we need to be able to refer to this route in Request.url_for()
         self.add_api_route(
@@ -716,13 +818,13 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         """
         if not isinstance(val, str) or not val.startswith('file://'):
             return val
-        local_path = os.path.realpath(urllib.parse.unquote(val[len('file://') :]))
-        allowed_dirs = [os.path.realpath(str(Env.get().media_dir)), os.path.realpath(str(Env.get().tmp_dir))]
-        if not any(local_path.startswith(d + os.sep) or local_path == d for d in allowed_dirs):
+        resolved = Path(urllib.parse.unquote(val[len('file://') :])).resolve()
+        allowed_dirs = [Env.get().media_dir.resolve(), Env.get().tmp_dir.resolve()]
+        if not any(resolved == d or d in resolved.parents for d in allowed_dirs):
             return val
-        root_dir = Config.get().home
-        # make sure to normalize to '/'
-        rel_path = os.path.relpath(local_path, root_dir).replace(os.sep, '/')
+        home_dir = Config.get().home.resolve()
+        # use PurePosixPath to ensure forward slashes in the URL regardless of OS
+        rel_path = resolved.relative_to(home_dir).as_posix()
         return url_for_media(rel_path)
 
     def _write_to_temp(self, upload: UploadFile) -> Path:
