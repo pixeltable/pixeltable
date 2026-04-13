@@ -9,10 +9,13 @@ import urllib.parse
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Optional
+from typing import Annotated, Any, Callable, Literal, Optional
 
+import fastapi
 import PIL.Image
 import pydantic
+from fastapi import Body, File, Form, HTTPException, Query as QueryParam, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic.fields import FieldInfo
 
 import pixeltable as pxt
@@ -22,12 +25,8 @@ import pixeltable.func as func
 import pixeltable.type_system as ts
 import pixeltable.utils.image as image_utils
 from pixeltable.config import Config
+from pixeltable.env import Env
 from pixeltable.utils.local_store import TempStore
-
-if TYPE_CHECKING:
-    import fastapi
-    from fastapi import Body, File, Form, HTTPException, Query as QueryParam, Request, UploadFile
-    from fastapi.responses import FileResponse
 
 
 class BackgroundJobResponse(pydantic.BaseModel):
@@ -576,16 +575,19 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             if name in upload_col_names:
                 annotation = Annotated[UploadFile, File(..., description=desc)]
             elif not is_post:
-                # GET: parameters come from the query string
                 py_type = col_type.to_python_type()
-                annotation = Annotated[py_type, QueryParam(..., description=desc)]
+                annotation = Annotated[py_type, QueryParam(description=desc)]
             else:
                 py_type = col_type.to_python_type()
                 if has_uploads:
-                    annotation = Annotated[py_type, Form(..., description=desc)]
+                    annotation = Annotated[py_type, Form(description=desc)]
                 else:
-                    annotation = Annotated[py_type, Body(..., embed=True, description=desc)]
-            params.append(inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, annotation=annotation))
+                    annotation = Annotated[py_type, Body(embed=True, description=desc)]
+            # nullable fields default to None (optional); required fields have no default
+            param_default = None if col_type.nullable else inspect.Parameter.empty
+            params.append(
+                inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, annotation=annotation, default=param_default)
+            )
 
         return inspect.Signature(parameters=params)
 
@@ -639,12 +641,14 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             return converted
 
     def _register_media_route(self) -> None:
-        """Register a `GET /media/{path:path}` route that serves Pixeltable-owned files"""
-        root_dir = os.path.realpath(str(Config.get().home))
+        """Register a `GET /media/{path:path}` route that serves Pixeltable media and tmp files"""
+        home_dir = os.path.realpath(str(Config.get().home))
+        allowed_dirs = [os.path.realpath(str(Env.get().media_dir)), os.path.realpath(str(Env.get().tmp_dir))]
 
         def serve_media(path: str) -> FileResponse:
-            abs_path = os.path.realpath(os.path.join(root_dir, path))
-            if not abs_path.startswith(root_dir + os.sep) and abs_path != root_dir:
+            abs_path = os.path.realpath(os.path.join(home_dir, path))
+            is_allowed_path = any(abs_path.startswith(d + os.sep) or abs_path == d for d in allowed_dirs)
+            if not is_allowed_path:
                 raise HTTPException(status_code=404, detail='not found')
             if not os.path.isfile(abs_path):
                 raise HTTPException(status_code=404, detail='not found')
@@ -692,22 +696,23 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                 json_extra['contentMediaType'] = content_type
             field_kwargs['json_schema_extra'] = json_extra
         if col_type.nullable:
-            return Optional[py_type], pydantic.Field(default=None, **field_kwargs)
+            return py_type, pydantic.Field(default=None, **field_kwargs)
         else:
             return py_type, pydantic.Field(**field_kwargs)
 
     def _convert_media_val(self, val: Any, url_for_media: Callable[[str], str]) -> Any:
         """
-        If val is a file:// uri under the Pixeltable root directory, converts that to a fetchable url of
+        If val is a file:// uri under the Pixeltable media or tmp directory, converts that to a fetchable url of
         the /media endpoint. Otherwise returns val unchanged.
         """
         if not isinstance(val, str) or not val.startswith('file://'):
             return val
-        local_path = urllib.parse.unquote(val[len('file://') :])
+        local_path = os.path.realpath(urllib.parse.unquote(val[len('file://') :]))
+        allowed_dirs = [os.path.realpath(str(Env.get().media_dir)), os.path.realpath(str(Env.get().tmp_dir))]
+        if not any(local_path.startswith(d + os.sep) or local_path == d for d in allowed_dirs):
+            return val
         root_dir = Config.get().home
         rel_path = os.path.relpath(local_path, root_dir)
-        if rel_path.startswith('..'):
-            return val
         return url_for_media(rel_path)
 
     def _write_to_temp(self, upload: UploadFile) -> Path:

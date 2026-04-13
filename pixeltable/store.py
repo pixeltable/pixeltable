@@ -423,7 +423,7 @@ class StoreBase:
     ) -> tuple[set[int], RowCountStats, list[dict[str, Any]] | None]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
-            set of column ids that have exceptions, row count stats, newly inserted rows (if returns_rows)
+            set of column ids that have exceptions, row count stats, newly inserted rows (if return_rows)
         """
         assert v_min is not None
         # TODO: total?
@@ -485,7 +485,7 @@ class StoreBase:
 
             return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
 
-    def create_output_rows(self, table_rows: list[tuple[Any]], output_map: list[Any]) -> list[dict[str, Any]]:
+    def create_output_rows(self, table_rows: list[tuple[Any]], output_map: list[str | None]) -> list[dict[str, Any]]:
         """Convert table rows to output rows (ie, UpdateStatus.rows)"""
         return [
             {

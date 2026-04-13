@@ -166,6 +166,8 @@ def query(*args: Any, **kwargs: Any) -> Any:
     else:
         param_types = kwargs.pop('param_types', None)
         return_scalar = kwargs.pop('return_scalar', False)
+        if len(kwargs) > 0:
+            raise excs.Error(f'@pxt.query(): unknown argument(s): {", ".join(kwargs)}')
         return lambda py_fn: make_query_template(py_fn, param_types, return_scalar)
 
 
