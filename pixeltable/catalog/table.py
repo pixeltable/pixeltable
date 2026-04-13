@@ -1158,19 +1158,15 @@ class Table(SchemaObject):
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        # @catalog.retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
-        def do_drop_embedding_index() -> None:
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
+        ):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)
                 assert col is not None
 
             self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
-
-        with get_runtime().catalog.begin_xact(
-            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
-        ):
-            return do_drop_embedding_index()
 
     def _resolve_column_parameter(self, column: str | ColumnRef) -> Column:
         """Resolve a column parameter to a Column object"""
