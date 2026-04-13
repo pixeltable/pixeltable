@@ -522,7 +522,7 @@ class Query:
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         raise excs.Error(msg) from e
 
-    def _read_tbl_ids(self) -> list[UUID]:
+    def _read_tbl_ids(self) -> set[UUID]:
         """Returns the IDs of all tables referenced by this query"""
         all_exprs = itertools.chain(
             self._select_list_exprs,
@@ -533,7 +533,7 @@ class Query:
         tbl_ids = exprs.Expr.all_tbl_ids(all_exprs)
         for tvp in self._from_clause.tbls:
             tbl_ids.update(tvh.id for tvh in tvp.get_tbl_versions())
-        return list(tbl_ids)
+        return tbl_ids
 
     def _output_row_iterator(self) -> Iterator[list]:
         tbl_ids = self._read_tbl_ids()
@@ -544,7 +544,7 @@ class Query:
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-                get_runtime().catalog.convert_sql_exc(e, tbl_id=tbl_ids[0] if len(tbl_ids) == 1 else None)
+                get_runtime().catalog.convert_sql_exc(e, tbl_id=next(iter(tbl_ids)) if len(tbl_ids) == 1 else None)
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:

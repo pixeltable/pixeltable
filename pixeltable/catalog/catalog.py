@@ -6,6 +6,7 @@ import logging
 import random
 import time
 from collections import defaultdict
+from collections.abc import Collection
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
 from uuid import UUID
@@ -312,10 +313,10 @@ class Catalog:
         self,
         *,
         for_write: bool = False,
-        tvp_read_targets: list[TableVersionPath] | None = None,
-        tbl_id_read_targets: list[UUID] | None = None,
-        tvp_write_targets: list[TableVersionPath] | None = None,
-        tbl_id_write_targets: list[UUID] | None = None,
+        tvp_read_targets: Collection[TableVersionPath] | None = None,
+        tbl_id_read_targets: Collection[UUID] | None = None,
+        tvp_write_targets: Collection[TableVersionPath] | None = None,
+        tbl_id_write_targets: Collection[UUID] | None = None,
         lock_mutable_tree: bool = False,
         convert_db_excs: bool = True,
         finalize_pending_ops: bool = True,
@@ -428,9 +429,9 @@ class Catalog:
                 single_tbl = None
                 single_tbl_id = None
                 if len(tvp_write_targets) + len(tvp_read_targets) == 1:
-                    single_tbl = (tvp_write_targets + tvp_read_targets)[0].tbl_version
+                    single_tbl = next(iter(tvp_write_targets or tvp_read_targets)).tbl_version
                 if single_tbl is None and len(tbl_id_read_targets) + len(tbl_id_write_targets) == 1:
-                    single_tbl_id = (tbl_id_read_targets or tbl_id_write_targets)[0]
+                    single_tbl_id = next(iter(tbl_id_read_targets or tbl_id_write_targets))
                 self.convert_sql_exc(e, tbl_id=single_tbl_id, tbl=single_tbl, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
@@ -467,10 +468,10 @@ class Catalog:
 
     def _acquire_locks(
         self,
-        tvp_read_targets: list[TableVersionPath],
-        tbl_id_read_targets: list[UUID],
-        tvp_write_targets: list[TableVersionPath],
-        tbl_id_write_targets: list[UUID],
+        tvp_read_targets: Collection[TableVersionPath],
+        tbl_id_read_targets: Collection[UUID],
+        tvp_write_targets: Collection[TableVersionPath],
+        tbl_id_write_targets: Collection[UUID],
         lock_mutable_tree: bool = False,
         finalize_pending_ops: bool = True,
     ) -> None:
