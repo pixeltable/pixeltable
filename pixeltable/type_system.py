@@ -681,10 +681,7 @@ class ColumnType:
         raise excs.Error(f'Pixeltable type {self} is not a valid JSON type')
 
     def to_python_type(self) -> Any:
-        """Return the nominal Python type used to represent values of this column type.
-
-        If the column type is nullable, the result is wrapped in ``Optional[...]``.
-        """
+        """Return the nominal Python type used to represent values of this column type."""
         assert self._type is not self.Type.INVALID
         py_type: Any
         match self._type:

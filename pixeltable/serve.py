@@ -167,26 +167,34 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         ) -> Any:
             try:
                 status = tbl.insert([row_kwargs], return_rows=True)
-            except BaseException:
+                if status.rows is None:
+                    raise HTTPException(status_code=500, detail='insert returned no rows')
+                if len(status.rows) != 1:
+                    raise HTTPException(
+                        status_code=500, detail=f'insert returned unexpected row count ({len(status.rows)})'
+                    )
+                output = self._create_output(
+                    status.rows, output_col_names, insert_response_model, return_fileresponse, url_for_media
+                )
+                if isinstance(output, list):
+                    return output[0]
+                else:
+                    return output
+            except Exception:
                 # insert() did not consume the staged files; remove any leftovers from TempStore
                 for p in tmp_paths:
                     if p.exists():
                         TempStore.delete_media_file(p)
                 raise
-            assert status.rows is not None and len(status.rows) == 1, 'expected exactly one inserted row'
-            output = self._create_output(
-                status.rows, output_col_names, insert_response_model, return_fileresponse, url_for_media
-            )
-            if isinstance(output, list):
-                return output[0]
-            else:
-                return output
 
         def endpoint(request: Request, **kwargs: Any) -> Any:
             # get a fresh table handle and validate it against the one we saw when the route was registered
             tbl = pxt.get_table(tbl_path)
-            assert tbl._id == tbl_id, f'{tbl._id} != {tbl_id}'
-            assert tbl._tbl_version.get().schema_version == schema_version
+            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
+                raise HTTPException(
+                    status_code=409,
+                    detail='table schema changed since route was registered; please restart the service',
+                )
 
             # Resolve the media URL prefix now, in the request thread. We can't safely call
             # request.url_for() from the background worker: the ASGI scope's lifetime is the
@@ -280,7 +288,6 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             )
         if return_fileresponse and background:
             raise pxt.Error('add_query_route(): return_fileresponse and background are mutually exclusive')
-        assert query.template_query is not None
         uploadfile_inputs = uploadfile_inputs or []
 
         query_params = dict(query.signature.parameters)
@@ -380,7 +387,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                 if len(rows) == 0:
                     raise HTTPException(status_code=404, detail='query returned no rows')
                 if len(rows) > 1:
-                    raise HTTPException(status_code=500, detail=f'query returned {len(rows)} rows; expected exactly 1')
+                    raise HTTPException(status_code=409, detail=f'query returned {len(rows)} rows; expected exactly 1')
 
             output = self._create_output(
                 rows,
@@ -618,19 +625,21 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                     row[col_name] = dest.as_uri()
 
         if return_fileresponse:
-            assert len(output_names) == 1
-            assert len(rows) == 1
+            if len(output_names) != 1 or len(rows) != 1:
+                raise HTTPException(
+                    status_code=500, detail=f'Bad internal state (output_names={output_names}, #rows={len(rows)})'
+                )
             output_name = output_names[0]
             val = rows[0][output_name]
             if val is None:
                 raise HTTPException(status_code=500, detail=f'output column {output_name!r} is null')
-            assert isinstance(val, str)
             local_path: Path
             if val.startswith('file://'):
                 local_path = Path(urllib.parse.unquote(val[len('file://') :]))
             else:
                 local_path = Path(val)
-            assert local_path.exists() and local_path.is_file()
+            if not local_path.exists() or not local_path.is_file():
+                raise HTTPException(status_code=500, detail=f'output file not found: {output_name!r}')
             media_type, _ = mimetypes.guess_type(local_path)
             return FileResponse(local_path, media_type=media_type or 'application/octet-stream')
 
@@ -712,7 +721,8 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         if not any(local_path.startswith(d + os.sep) or local_path == d for d in allowed_dirs):
             return val
         root_dir = Config.get().home
-        rel_path = os.path.relpath(local_path, root_dir)
+        # make sure to normalize to '/'
+        rel_path = os.path.relpath(local_path, root_dir).replace(os.sep, '/')
         return url_for_media(rel_path)
 
     def _write_to_temp(self, upload: UploadFile) -> Path:
