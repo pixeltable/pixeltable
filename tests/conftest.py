@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import pathlib
+import platform
 import shutil
 import uuid
 from typing import Callable, Iterator
@@ -384,6 +385,8 @@ def clip_embed() -> pxt.Function:
 @pytest.fixture(scope='session')
 @_retry_hf
 def e5_embed() -> pxt.Function:
+    if IN_CI and platform.system() == 'Windows':
+        pytest.skip('`sentence-transformers` crashes on Windows CI (memory pressure?)')
     try:
         return sentence_transformer.using(model_id='intfloat/e5-large-v2')
     except ImportError:

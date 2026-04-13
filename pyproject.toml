@@ -96,6 +96,8 @@ override-dependencies = [
     "numpy>=2.4 ; python_version >= '3.14'",
     "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
     "ruff>=0.14",  # Required because 'fireworks-ai' hard-codes 'ruff<10'
+    "sentence-transformers>=5 ; python_version < '3.14'",  # Required due to 'whisperx'
+    "huggingface-hub>=1",  # Required due to 'whisperx'
 ]
 
 [tool.uv-dynamic-versioning]
@@ -140,7 +142,8 @@ dev = [
     "torch>=2.8",
     "torchaudio>=2.8",
     "torchvision>=0.22",
-    "torchcodec>=0.10.0",
+    "torchcodec<0.8 ; python_version < '3.14'",  # Pinned for compatibility with torch 2.8
+    "soundfile>=0.13",
     "openai>=2",
     "anthropic>=0.53.0",
     "together>=1.5.26",
@@ -156,13 +159,13 @@ dev = [
     "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "sentencepiece>=0.2.0",
     "tiktoken>=0.10",
-    "sentence-transformers~=4.0 ; python_version < '3.14'",
-    "transformers~=4.52",
+    "sentence-transformers>=5 ; python_version < '3.14'",
+    "transformers>=5",
     "timm>=1.0.11,<2",
     "datasets>=3.5.0",
     "openpyxl>=3.1",
     "openai-whisper>=20250625 ; python_version < '3.14'",
-    "whisperx==3.7.4 ; python_version < '3.14'",
+    "whisperx>=3.8.5 ; python_version < '3.14'",
     "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
     "ollama>=0.5.1",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
@@ -173,7 +176,7 @@ dev = [
     "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.11",
-    "diffusers>=0.34",
+    "diffusers>=0.37",
     "accelerate>=1.10",
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.16.0",
