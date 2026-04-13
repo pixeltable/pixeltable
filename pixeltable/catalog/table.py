@@ -597,40 +597,35 @@ class Table(SchemaObject):
             ... tbl.add_columns(schema)
         """
 
-        # make a copy of schema so del operations below don't modify the caller's dict
-        schema_copy = dict(schema)
-
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        # @catalog.retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
-        def do_add_columns() -> list[Column]:
-            """Returns True if schema changed"""
+        new_cols: list[Column]
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
+        ):
             self.__check_mutable('add columns to')
+
+            # make a copy of schema so del operations below don't modify the caller's dict
+            schema = dict(schema)
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
-                list(schema_copy.keys()), IfExistsParam.validated(if_exists, 'if_exists')
+                list(schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
             )
             # if all columns to be added already exist and user asked to ignore
             # existing columns, there's nothing to do.
             for cname in cols_to_ignore:
-                assert cname in schema_copy
-                del schema_copy[cname]
-            if len(schema_copy) == 0:
-                return []
-            new_cols = [Column.create(name, spec) for name, spec in schema_copy.items()]
+                assert cname in schema
+                del schema[cname]
+            result = UpdateStatus()
+            if len(schema) == 0:
+                return result
+            new_cols = [Column.create(name, spec) for name, spec in schema.items()]
             for new_col in new_cols:
                 self._verify_column(new_col)
-            return new_cols
 
-        with get_runtime().catalog.begin_xact(
-            tvp_write_targets=[self._tbl_version_path], for_write=True, lock_mutable_tree=True
-        ):
-            new_cols = do_add_columns()
-
-        if new_cols:
-            assert self._tbl_version is not None
-            get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
-            FileCache.get().emit_eviction_warnings()
+        assert self._tbl_version is not None
+        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
+        FileCache.get().emit_eviction_warnings()
         # TODO: return the row count here?
         return UpdateStatus()
 
