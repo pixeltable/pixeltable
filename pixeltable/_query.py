@@ -522,7 +522,7 @@ class Query:
         raise excs.Error(msg) from e
 
     def _read_tbl_ids(self) -> list[UUID]:
-        """Returns the IDs of all tables referenced by this query, for use as read targets in begin_xact."""
+        """Returns the IDs of all tables referenced by this query"""
         # clean this up
         all_exprs: list[exprs.Expr] = [
             *self._select_list_exprs,
