@@ -26,7 +26,7 @@ import pixeltable.type_system as ts
 import pixeltable.utils.image as image_utils
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.local_store import LocalStore, TempStore
 
 
 class BackgroundJobResponse(pydantic.BaseModel):
@@ -724,7 +724,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                 raise HTTPException(status_code=500, detail=f'output column {output_name!r} is null')
             local_path: Path
             if val.startswith('file://'):
-                local_path = Path(urllib.parse.unquote(val[len('file://') :]))
+                local_path = LocalStore.file_url_to_path(val) or Path(val)
             else:
                 local_path = Path(val)
             if not local_path.exists() or not local_path.is_file():
@@ -805,7 +805,10 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         """
         if not isinstance(val, str) or not val.startswith('file://'):
             return val
-        resolved = Path(urllib.parse.unquote(val[len('file://') :])).resolve()
+        file_path = LocalStore.file_url_to_path(val)
+        if file_path is None:
+            return val
+        resolved = file_path.resolve()
         if not self._is_allowed_media_path(resolved):
             return val
         # ensure forward slashes in the URL regardless of OS
