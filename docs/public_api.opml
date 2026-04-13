@@ -316,6 +316,25 @@
           <outline text="udf|pixeltable.functions.video.with_audio" />
           <outline text="udf|pixeltable.functions.video.zoom" />
         </outline>
+        <outline text="module|pixeltable.functions.uuid">
+          <outline text="udf|pixeltable.functions.uuid.uuid4" />
+          <outline text="udf|pixeltable.functions.uuid.uuid7" />
+          <outline text="udf|pixeltable.functions.uuid.to_string" />
+        </outline>
+        <outline text="module|pixeltable.functions.vision">
+          <outline text="func|pixeltable.functions.vision.eval_detections" />
+          <!-- mean_ap omitted: its docstring cross-ref to eval_detections()
+               produces a broken #func-eval_detections link (same doctools bug) -->
+          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
+          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
+          <outline text="func|pixeltable.functions.vision.bboxes_scale" />
+          <outline text="func|pixeltable.functions.vision.bboxes_pad" />
+          <outline text="func|pixeltable.functions.vision.bboxes_clip_to_canvas" />
+          <outline text="func|pixeltable.functions.vision.bboxes_crop_canvas" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize_canvas" />
+          <outline text="func|pixeltable.functions.vision.overlay_segmentation" />
+        </outline>
       </outline>
 
       <!-- AI Integrations group -->
@@ -418,25 +437,6 @@
         </outline>
         <outline text="module|pixeltable.functions.twelvelabs">
           <outline text="udf|pixeltable.functions.twelvelabs.embed" />
-        </outline>
-        <outline text="module|pixeltable.functions.uuid">
-          <outline text="udf|pixeltable.functions.uuid.uuid4" />
-          <outline text="udf|pixeltable.functions.uuid.uuid7" />
-          <outline text="udf|pixeltable.functions.uuid.to_string" />
-        </outline>
-        <outline text="module|pixeltable.functions.vision">
-          <outline text="func|pixeltable.functions.vision.eval_detections" />
-          <!-- mean_ap omitted: its docstring cross-ref to eval_detections()
-               produces a broken #func-eval_detections link (same doctools bug) -->
-          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
-          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
-          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
-          <outline text="func|pixeltable.functions.vision.bboxes_scale" />
-          <outline text="func|pixeltable.functions.vision.bboxes_pad" />
-          <outline text="func|pixeltable.functions.vision.bboxes_clip_to_canvas" />
-          <outline text="func|pixeltable.functions.vision.bboxes_crop_canvas" />
-          <outline text="func|pixeltable.functions.vision.bboxes_resize_canvas" />
-          <outline text="func|pixeltable.functions.vision.overlay_segmentation" />
         </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />
