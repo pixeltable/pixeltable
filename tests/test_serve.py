@@ -3,15 +3,12 @@ import os
 import time
 from typing import Any
 
-import fastapi
 import pytest
-from fastapi.testclient import TestClient
 
 import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
-from pixeltable.serve import PxtFastAPIRouter
-from tests.utils import get_audio_files, get_image_files, get_video_files, sleep
+from tests.utils import get_audio_files, get_image_files, get_video_files, skip_test_if_not_installed, sleep
 
 
 @pxt.udf
@@ -22,6 +19,12 @@ def add_one(x: int) -> int:
 class TestServe:
     def test_add_insert_route_scalars(self, uses_db: None) -> None:
         """Test insert routes with all scalar types and various input/output combinations."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
         pxt.create_dir('test_serve')
         t = pxt.create_table(
             'test_serve.scalars',
@@ -114,6 +117,12 @@ class TestServe:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video(self, uses_db: None, use_uploadfile: bool) -> None:
         """Test insert routes with video data, including FileResponse."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
         video_path = get_video_files()[0]
         pxt.create_dir('test_serve')
         t = pxt.create_table(
@@ -219,6 +228,12 @@ class TestServe:
     def test_add_insert_route_image(self, uses_db: None, use_uploadfile: bool) -> None:
         """Image counterpart of test_add_insert_route_video. Structurally parallel so the two
         tests can later be generalized over a media-kind fixture."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
         image_path = get_image_files()[0]
         pxt.create_dir('test_serve')
         # Unlike video.resize (which tolerates None width/height and preserves aspect ratio),
@@ -334,6 +349,12 @@ class TestServe:
         """Audio counterpart of test_add_insert_route_video/_image. Structurally parallel so the
         three tests can later be generalized over a media-kind fixture. Uses the audio UDFs
         `multiply_volume` (two scalar inputs) and `normalize` (no scalar inputs)."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
         # Use sample-16-bit.wav specifically so the mime type in upload mode is deterministic.
         audio_path = next(f for f in get_audio_files() if f.endswith('sample-16-bit.wav'))
         pxt.create_dir('test_serve')
@@ -448,6 +469,12 @@ class TestServe:
     def test_add_insert_route_video_bg(self, uses_db: None, use_uploadfile: bool) -> None:
         """Background variant of test_add_insert_route_video: POST returns a job id/url, the
         work runs in PxtFastAPIRouter._executor, and the result is fetched via /jobs/{id}."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
         video_path = get_video_files()[0]
         pxt.create_dir('test_serve')
         t = pxt.create_table(
@@ -565,6 +592,12 @@ class TestServe:
 
     def test_openapi(self, uses_db: None) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
         pxt.create_dir('test_serve')
         # non-computed columns carry comments via the dict-form ColumnSpec
         t = pxt.create_table(
@@ -678,6 +711,12 @@ class TestServe:
 
     def test_add_query_route_scalars(self, uses_db: None) -> None:
         """Multi-column scalar query route, plus retrieval_udf flavor and registration errors."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
         pxt.create_dir('test_serve')
         t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String})
         t.add_computed_column(length=t.text.len())
@@ -723,6 +762,12 @@ class TestServe:
     def test_add_query_route_single_column(self, uses_db: None) -> None:
         """Single-column queries: return_scalar=False produces dict-per-row in a wrapper,
         return_scalar=True produces a plain list of scalar values."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
         pxt.create_dir('test_serve')
         t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String})
         t.insert([{'id': i, 'text': f't{i}'} for i in range(3)])
@@ -754,6 +799,12 @@ class TestServe:
 
     def test_add_query_route_image(self, uses_db: None) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
         image_path = get_image_files()[0]
         pxt.create_dir('test_serve')
         t = pxt.create_table('test_serve.images', {'id': pxt.Int, 'image': pxt.Image})
@@ -839,6 +890,9 @@ class TestServe:
         assert '/media/' in result['rows'][0]['resized']
 
     def test_add_query_route_errors(self, uses_db: None) -> None:
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serve import PxtFastAPIRouter
+
         pxt.create_dir('test_serve')
         t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String, 'image': pxt.Image})
         t.insert([{'id': 1, 'text': 'a'}])
@@ -872,6 +926,9 @@ class TestServe:
             router.add_query_route(path='/e', query=lookup, return_fileresponse=True)
 
     def test_add_insert_route_errors(self, uses_db: None) -> None:
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serve import PxtFastAPIRouter
+
         pxt.create_dir('test_serve')
         t = pxt.create_table(
             'test_serve.errors', {'id': pxt.Int, 'text': pxt.String, 'image': pxt.Image, 'video': pxt.Video}

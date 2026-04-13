@@ -462,22 +462,16 @@ class TestAudio:
         t = pxt.create_table('test_audio', {'audio': pxt.Audio})
         validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
 
-        # start_time only, negative
         with pytest.raises(pxt.Error, match=r'`start_time` must be non-negative'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=-1.0)).collect()
-        # end_time only, negative
         with pytest.raises(pxt.Error, match=r'`end_time` must be non-negative'):
             t.select(t.audio.multiply_volume(factor=1.0, end_time=-1.0)).collect()
-        # both provided, start_time negative
         with pytest.raises(pxt.Error, match=r'`start_time` must be non-negative'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=-1.0, end_time=3.0)).collect()
-        # both provided, end_time negative
         with pytest.raises(pxt.Error, match=r'`end_time` must be non-negative'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=0.0, end_time=-1.0)).collect()
-        # end_time < start_time
         with pytest.raises(pxt.Error, match=r'`end_time` .* must be greater than `start_time`'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=5.0, end_time=3.0)).collect()
-        # end_time == start_time
         with pytest.raises(pxt.Error, match=r'`end_time` .* must be greater than `start_time`'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=5.0, end_time=5.0)).collect()
 

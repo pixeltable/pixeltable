@@ -9,13 +9,10 @@ import urllib.parse
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Annotated, Any, Callable, Literal, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Optional
 
-import fastapi
 import PIL.Image
 import pydantic
-from fastapi import Body, File, Form, HTTPException, Query as QueryParam, Request, UploadFile
-from fastapi.responses import FileResponse
 from pydantic.fields import FieldInfo
 
 import pixeltable as pxt
@@ -26,6 +23,11 @@ import pixeltable.type_system as ts
 import pixeltable.utils.image as image_utils
 from pixeltable.config import Config
 from pixeltable.utils.local_store import TempStore
+
+if TYPE_CHECKING:
+    import fastapi
+    from fastapi import Body, File, Form, HTTPException, Query as QueryParam, Request, UploadFile
+    from fastapi.responses import FileResponse
 
 
 class BackgroundJobResponse(pydantic.BaseModel):
@@ -223,7 +225,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                     raise HTTPException(status_code=400, detail=str(e)) from e
 
         sig = self._create_endpoint_signature(
-            input_cols=input_cols, upload_col_names=[cols_by_id[id].name for id in upload_col_ids]
+            input_cols=input_cols, upload_col_names=[cols_by_id[col_id].name for col_id in upload_col_ids]
         )
         endpoint.__signature__ = sig  # type: ignore[attr-defined]
         endpoint.__name__ = f'insert_{path.strip("/").replace("/", "_") or "root"}'

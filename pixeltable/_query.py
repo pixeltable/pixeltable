@@ -260,7 +260,8 @@ class Query:
         return self._from_clause._first_tbl
 
     @property
-    def _effective_select_list(self) -> list[tuple[exprs.Expr, str | None]]:
+    def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
+        """Return the select list that would get materialized by collect()."""
         return list(zip(self._select_list_exprs, self._schema.keys()))
 
     def _vars(self) -> dict[str, exprs.Variable]:

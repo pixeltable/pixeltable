@@ -310,7 +310,7 @@ class TestQuery:
         res = t.select(t.c4).limit(nrows).collect()
         assert len(res) == nrows
 
-        @pxt.query
+        @pxt.query(return_scalar=True)
         def get_lim(n: int) -> pxt.Query:
             return t.select(t.c4).limit(n)
 
@@ -347,7 +347,7 @@ class TestQuery:
     def test_limit4(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
-        @pxt.query
+        @pxt.query(return_scalar=True)
         def get_lim(n: float) -> pxt.Query:
             return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
 
@@ -360,7 +360,7 @@ class TestQuery:
         print(res)
         assert res[0]['foo'] == [2, 3, 4]
 
-        @pxt.query
+        @pxt.query(return_scalar=True)
         def get_val(n: int) -> pxt.Query:
             return t.select(foo=[2, 3, n]).limit(2)
 
