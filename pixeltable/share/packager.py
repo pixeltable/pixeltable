@@ -438,9 +438,6 @@ class TableRestorer:
 
         cat = get_runtime().catalog
 
-        # Allow table metadata reads anywhere in this transaction. We cannot lock the tables for write at the start of
-        # the transaction because those tables don't yet exist. And there shouldn't be any pending table ops on them
-        # for the same reason.
         with cat.begin_xact(for_write=True):
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
             # versions that have not been seen before.
