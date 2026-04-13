@@ -425,8 +425,13 @@ class Catalog:
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
-                # TODO pass along table info if possible
-                self.convert_sql_exc(e, tbl_id=None, tbl=None, convert_db_excs=convert_db_excs)
+                single_tbl = None
+                single_tbl_id = None
+                if len(tvp_write_targets) + len(tvp_read_targets) == 1:
+                    single_tbl = (tvp_write_targets + tvp_read_targets)[0].tbl_version
+                if single_tbl is None and len(tbl_id_read_targets) + len(tbl_id_write_targets) == 1:
+                    single_tbl_id = (tbl_id_read_targets or tbl_id_write_targets)[0]
+                self.convert_sql_exc(e, tbl_id=single_tbl_id, tbl=single_tbl, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
             except (Exception, KeyboardInterrupt) as e:
