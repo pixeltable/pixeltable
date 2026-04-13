@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    50: 'QueryTemplateFunction: adds return_scalar field and structured return type',
     49: 'SimilarityExpr: migrate from indexed_col to table_version_key',
     48: 'Adds stores_cellmd property to ColumnMd',
     47: 'New iterator structure',

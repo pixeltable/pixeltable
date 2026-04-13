@@ -455,6 +455,16 @@
         </outline>
       </outline>
 
+      <!-- Serving group -->
+      <outline text="group|Serving">
+        <outline text="module|pixeltable.serve">
+          <outline text="class|pixeltable.serve.PxtFastAPIRouter">
+            <outline text="method|pixeltable.serve.PxtFastAPIRouter.add_insert_route" />
+            <outline text="method|pixeltable.serve.PxtFastAPIRouter.add_query_route" />
+          </outline>
+        </outline>
+      </outline>
+
       <!-- Import/Export group -->
       <outline text="group|Import/Export">
         <outline text="module|pixeltable.io">

@@ -74,12 +74,16 @@ class PxtFastAPIRouter(fastapi.APIRouter):
     _executor: ThreadPoolExecutor
     _jobs: dict[str, Future]  # holds background requests; key: job id (uuid4().hex)
     _jobs_lock: threading.Lock
+    _home_dir: Path
+    _allowed_media_dirs: list[Path]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix='pxt-serve-background')
         self._jobs = {}
         self._jobs_lock = threading.Lock()
+        self._home_dir = Config.get().home.resolve()
+        self._allowed_media_dirs = [Env.get().media_dir.resolve(), Env.get().tmp_dir.resolve()]
         self._register_media_route()
         self._register_jobs_route()
         # Shut down the worker pool when the parent app's lifespan ends. include_router()
@@ -206,12 +210,20 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         upload_col_ids = [cols_by_name[name].id for name in uploadfile_inputs] if uploadfile_inputs is not None else []
         output_col_ids = [cols_by_name[name].id for name in output_col_names]
 
-        insert_response_model, endpoint_model = self._create_route_models(
-            path=path,
-            output_cols=[cols_by_id[col_id] for col_id in output_col_ids],
-            return_fileresponse=return_fileresponse,
-            background=background,
+        # create response model, named after the path
+        path_elements = path.split('/')
+        path_str = ''.join([el.capitalize() for el in path_elements if len(el) > 0])
+        model_name = f'{path_str}Response'
+        insert_response_model = self._create_model(
+            model_name, output_cols=[cols_by_id[col_id] for col_id in output_col_ids]
         )
+        endpoint_model: type[pydantic.BaseModel] | None
+        if background:
+            endpoint_model = BackgroundJobResponse
+        elif return_fileresponse:
+            endpoint_model = None
+        else:
+            endpoint_model = insert_response_model
 
         def run_insert(
             tbl: pxt.Table, row_kwargs: dict[str, Any], tmp_paths: list[Path], url_for_media: Callable[[str], str]
@@ -415,17 +427,15 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         if return_scalar:
             output_model = None
         else:
-            query_result_model, _ = self._create_route_models(
-                path=path, output_schema=result_schema, return_fileresponse=return_fileresponse, background=background
-            )
+            path_elements = path.split('/')
+            path_str = ''.join([el.capitalize() for el in path_elements if len(el) > 0])
+            query_result_model = self._create_model(name=f'{path_str}RowResponse', output_schema=result_schema)
             if one_row:
                 output_model = query_result_model
             else:
                 # Multi-row: wrap per-row models in a response with a `rows` field.
-                path_elements = path.split('/')
-                path_str = ''.join([el.capitalize() for el in path_elements if len(el) > 0])
                 output_model = pydantic.create_model(
-                    f'{path_str}RowResponse',
+                    f'{path_str}Response',
                     rows=(list[query_result_model], pydantic.Field(description='Query result rows')),  # type: ignore[valid-type]
                 )
 
@@ -475,7 +485,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             try:
                 bound_df = template_query.bind(call_kwargs)
                 result_set = bound_df.collect()
-            except BaseException:
+            except Exception:
                 for p in tmp_paths:
                     if p.exists():
                         TempStore.delete_media_file(p)
@@ -620,43 +630,19 @@ class PxtFastAPIRouter(fastapi.APIRouter):
 
         return input_cols, output_cols
 
-    def _create_route_models(
+    def _create_model(
         self,
-        path: str,
+        name: str,
         output_schema: dict[str, ts.ColumnType] | None = None,
         output_cols: list[catalog.Column] | None = None,
-        return_fileresponse: bool = False,
-        background: bool = False,
-    ) -> tuple[type[pydantic.BaseModel] | None, type[pydantic.BaseModel] | None]:
-        """Returns: (output model, endpoint model)"""
+    ) -> type[pydantic.BaseModel]:
         assert (output_schema is None) != (output_cols is None)
-
-        output_model: type[pydantic.BaseModel] | None
-        if return_fileresponse:
-            output_model = None
+        fields: dict[str, tuple[Any, FieldInfo]]
+        if output_cols is not None:
+            fields = {col.name: self._build_response_field(col.col_type, comment=col.comment) for col in output_cols}
         else:
-            fields: dict[str, tuple[Any, FieldInfo]]
-            if output_cols is not None:
-                fields = {
-                    col.name: self._build_response_field(col.col_type, comment=col.comment) for col in output_cols
-                }
-            else:
-                fields = {name: self._build_response_field(col_type) for name, col_type in output_schema.items()}
-            # we name the response model after the path
-            path_elements = path.split('/')
-            path_str = ''.join([el.capitalize() for el in path_elements if len(el) > 0])
-            model_name = f'{path_str}Response'
-            output_model = pydantic.create_model(model_name, **fields)  # type: ignore[call-overload]
-
-        endpoint_model: type[pydantic.BaseModel] | None
-        if background:
-            endpoint_model = BackgroundJobResponse
-        elif return_fileresponse:
-            endpoint_model = None
-        else:
-            endpoint_model = output_model
-
-        return output_model, endpoint_model
+            fields = {col_name: self._build_response_field(col_type) for col_name, col_type in output_schema.items()}
+        return pydantic.create_model(name, **fields)  # type: ignore[call-overload]
 
     def _create_endpoint_signature(
         self,
@@ -752,14 +738,15 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         else:
             return converted
 
+    def _is_allowed_media_path(self, resolved: Path) -> bool:
+        return any(resolved == d or d in resolved.parents for d in self._allowed_media_dirs)
+
     def _register_media_route(self) -> None:
         """Register a `GET /media/{path:path}` route that serves Pixeltable media and tmp files"""
-        home_dir = Config.get().home.resolve()
-        allowed_dirs = [Env.get().media_dir.resolve(), Env.get().tmp_dir.resolve()]
 
         def serve_media(path: str) -> FileResponse:
-            resolved = (home_dir / path).resolve()
-            if not any(resolved == d or d in resolved.parents for d in allowed_dirs):
+            resolved = (self._home_dir / path).resolve()
+            if not self._is_allowed_media_path(resolved):
                 raise HTTPException(status_code=404, detail='not found')
             if not resolved.is_file():
                 raise HTTPException(status_code=404, detail='not found')
@@ -819,12 +806,10 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         if not isinstance(val, str) or not val.startswith('file://'):
             return val
         resolved = Path(urllib.parse.unquote(val[len('file://') :])).resolve()
-        allowed_dirs = [Env.get().media_dir.resolve(), Env.get().tmp_dir.resolve()]
-        if not any(resolved == d or d in resolved.parents for d in allowed_dirs):
+        if not self._is_allowed_media_path(resolved):
             return val
-        home_dir = Config.get().home.resolve()
-        # use PurePosixPath to ensure forward slashes in the URL regardless of OS
-        rel_path = resolved.relative_to(home_dir).as_posix()
+        # ensure forward slashes in the URL regardless of OS
+        rel_path = resolved.relative_to(self._home_dir).as_posix()
         return url_for_media(rel_path)
 
     def _write_to_temp(self, upload: UploadFile) -> Path:
