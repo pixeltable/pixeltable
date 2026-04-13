@@ -45,7 +45,7 @@ jobs:
         python-version: ["3.10", "3.13"]
         package-configs:
           - ""
-          - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' torchaudio torchvision 'torchcodec<0.11' transformers timm"
+          - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm"
           - "anthropic fireworks-ai 'google-genai!=1.72.0' groq mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
@@ -171,6 +171,7 @@ jobs:
       - name: Install ollama
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &  # Start the ollama server if it didn't start via install.sh
           sleep 10  # Wait for the ollama server to start
           # Pull the model used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
