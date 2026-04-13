@@ -43,6 +43,9 @@ class TestSnapshot:
         snap_query = snap.select(*snap_select_list).order_by(snap.c2)
         assert_resultset_eq(snap_query.collect(), orig_resultset)
 
+        # verify head()
+        assert_resultset_eq(snap.select(tbl_select_list).head(), tbl.select(tbl_select_list).head())
+
         # adding data to a base table doesn't change the snapshot
         rows = list(tbl.select(tbl.c1, tbl.c1n, tbl.c2, tbl.c3, tbl.c4, tbl.c5, tbl.c6, tbl.c7).collect())
         status = tbl.insert(rows)

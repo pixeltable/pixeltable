@@ -401,8 +401,6 @@ class TestPackager:
         snapshot = pxt.create_snapshot('snapshot', v)
         snapshot_row_count = snapshot.count()
 
-        # TODO consider adding a test with snapshot.head() if none exist yet
-        snapshot.head()
         self.__do_round_trip(snapshot)
 
         # Double-check that the snapshot and its base table have the correct number of rows
