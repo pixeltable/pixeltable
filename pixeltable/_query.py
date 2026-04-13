@@ -1374,9 +1374,7 @@ class Query:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
         # we need to wrap the construction with a transaction, because it might need to load metadata
-        from pixeltable.catalog import retry_loop
-
-        def do_from_dict() -> 'Query':
+        with get_runtime().catalog.begin_xact(for_write=False):
             tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
             join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
             from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
@@ -1410,19 +1408,6 @@ class Query:
                 offset=offset_val,
                 sample_clause=sample_clause,
             )
-
-        @retry_loop()
-        def do_from_dict_retry() -> 'Query':
-            return do_from_dict()
-
-        # revert to what this used to be
-        with get_runtime().catalog.begin_xact(for_write=False):
-            return do_from_dict()
-
-        # if get_runtime().in_xact:
-        #     return do_from_dict()
-        # else:
-        #     return do_from_dict_retry()
 
     def _hash_result_set(self) -> str:
         """Return a hash that changes when the result set changes."""

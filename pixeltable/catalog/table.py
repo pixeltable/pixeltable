@@ -255,51 +255,27 @@ class Table(SchemaObject):
 
         See [`Query.where`][pixeltable.Query.where] for more details.
         """
-        from pixeltable.catalog import retry_loop
-
-        # @retry_loop(tvp_read_targets=[self._tbl_version_path])
-        def do_where() -> 'pxt.Query':
-            return self.select().where(pred)
-
-        return do_where()
+        return self.select().where(pred)
 
     def join(
         self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
     ) -> 'pxt.Query':
         """Join this table with another table."""
-        from pixeltable.catalog import retry_loop
-
-        # @retry_loop(tvp_read_targets=[self._tbl_version_path])
-        def do_join() -> 'pxt.Query':
-            return self.select().join(other, on=on, how=how)
-
-        return do_join()
+        return self.select().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
         """Order the rows of this table based on the expression.
 
         See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
-        from pixeltable.catalog import retry_loop
-
-        # @retry_loop(tvp_read_targets=[self._tbl_version_path])
-        def do_order_by() -> 'pxt.Query':
-            return self.select().order_by(*items, asc=asc)
-
-        return do_order_by()
+        return self.select().order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
         """Group the rows of this table based on the expression.
 
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
-        from pixeltable.catalog import retry_loop
-
-        # @retry_loop(tvp_read_targets=[self._tbl_version_path])
-        def do_group_by() -> 'pxt.Query':
-            return self.select().group_by(*items)
-
-        return do_group_by()
+        return self.select().group_by(*items)
 
     def distinct(self) -> 'pxt.Query':
         """Remove duplicate rows from table."""
@@ -874,12 +850,9 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_col(tbl.col, if_not_exists='ignore')
         """
-        from pixeltable.catalog import retry_loop
-
         cat = get_runtime().catalog
 
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        # @retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
         def do_drop_column() -> None:
             self.__check_mutable('drop columns from')
             col: Column = None
