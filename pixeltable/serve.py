@@ -419,6 +419,10 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         )
         # restrict the schema to validated inputs so the endpoint only accepts the declared parameters
         input_schema = {name: query_schema[name] for name in input_param_names}
+        # extract Python-level defaults so they appear in the endpoint signature and OpenAPI spec
+        input_defaults = {
+            name: query_params[name].default.val for name in input_param_names if query_params[name].has_default()
+        }
 
         return_scalar = query.return_scalar
         scalar_col_name = next(iter(result_schema)) if return_scalar else None
@@ -558,7 +562,10 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                     raise HTTPException(status_code=400, detail=str(e)) from e
 
         sig = self._create_endpoint_signature(
-            input_schema=input_schema, upload_col_names=uploadfile_inputs, is_post=(method == 'post')
+            input_schema=input_schema,
+            upload_col_names=uploadfile_inputs,
+            is_post=(method == 'post'),
+            defaults=input_defaults,
         )
         endpoint.__signature__ = sig  # type: ignore[attr-defined]
         endpoint.__name__ = f'query_{path.strip("/").replace("/", "_") or "root"}'
@@ -650,6 +657,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         self,
         input_cols: list[catalog.Column] | None = None,
         input_schema: dict[str, ts.ColumnType] | None = None,
+        defaults: dict[str, Any] | None = None,  # input name -> default value
         upload_col_names: list[str] | None = None,
         is_post: bool = True,
     ) -> inspect.Signature:
@@ -665,6 +673,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         upload_col_names = upload_col_names or []
         has_uploads = len(upload_col_names) > 0
         assert is_post or not has_uploads
+        defaults = defaults or {}
 
         input_cols_by_name = {c.name: c for c in input_cols} if input_cols is not None else {}
         input_col_names = list(input_schema.keys()) if input_cols is None else list(input_cols_by_name.keys())
@@ -684,8 +693,13 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                     annotation = Annotated[py_type, Form(description=desc)]
                 else:
                     annotation = Annotated[py_type, Body(embed=True, description=desc)]
-            # nullable fields default to None (optional); required fields have no default
-            param_default = None if col_type.nullable else inspect.Parameter.empty
+
+            if name in defaults:
+                param_default = defaults[name]
+            elif col_type.nullable:
+                param_default = None
+            else:
+                param_default = inspect.Parameter.empty
             params.append(
                 inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, annotation=annotation, default=param_default)
             )

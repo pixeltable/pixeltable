@@ -731,12 +731,18 @@ class TestServe:
         def lookup2(min_len: int, max_len: int) -> pxt.Query:
             return t.where((t.length >= min_len) & (t.length <= max_len)).select(t.id, t.text).order_by(t.id)
 
+        @pxt.query
+        def lookup_with_default(min_len: int = 3) -> pxt.Query:
+            return t.where(t.length >= min_len).select(t.id, t.text).order_by(t.id)
+
         app = fastapi.FastAPI()
         router = PxtFastAPIRouter()
         router.add_query_route(path='/lookup', query=lookup)
         router.add_query_route(path='/lookup-id-only', query=lookup)
         # inputs=[...] restricts which parameters the endpoint accepts
         router.add_query_route(path='/lookup-restricted', query=lookup2, inputs=['min_len'])
+        # query with a parameter default
+        router.add_query_route(path='/lookup-default', query=lookup_with_default)
         # retrieval_udf variant: all columns from the table are returned, one parameter
         id_lookup = pxt.retrieval_udf(t, parameters=['id'])
         router.add_query_route(path='/by-id', query=id_lookup)
@@ -775,6 +781,25 @@ class TestServe:
         restricted_schema = openapi['components']['schemas'][schema_name]
         assert 'min_len' in restricted_schema['properties']
         assert 'max_len' not in restricted_schema['properties']
+
+        # /lookup-default: parameter default propagates to the endpoint
+        # calling without min_len should use the default (3) → rows 3,4,5
+        resp = client.post('/lookup-default', json={})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {
+            'rows': [{'id': 3, 'text': 'xxx'}, {'id': 4, 'text': 'xxxx'}, {'id': 5, 'text': 'xxxxx'}]
+        }
+        # calling with an explicit value overrides the default
+        resp = client.post('/lookup-default', json={'min_len': 4})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'rows': [{'id': 4, 'text': 'xxxx'}, {'id': 5, 'text': 'xxxxx'}]}
+        # OpenAPI should show the default value and min_len should not be required
+        ref = openapi['paths']['/lookup-default']['post']['requestBody']['content']['application/json']['schema'][
+            '$ref'
+        ]
+        default_schema = openapi['components']['schemas'][ref.split('/')[-1]]
+        assert default_schema['properties']['min_len']['default'] == 3
+        assert 'min_len' not in default_schema.get('required', [])
 
     def test_add_query_route_single_column(self, uses_db: None) -> None:
         """Single-column queries: return_scalar=False produces dict-per-row in a wrapper,
