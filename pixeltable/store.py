@@ -271,7 +271,7 @@ class StoreBase:
 
     def validate(self) -> None:
         """Validate store table against self.table_version"""
-        with get_runtime().catalog._allow_tbl_md_read(), get_runtime().begin_xact() as conn:
+        with get_runtime().begin_xact() as conn:
             # check that all columns are present
             q = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
             store_col_info = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
