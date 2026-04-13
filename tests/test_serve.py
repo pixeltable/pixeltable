@@ -744,7 +744,7 @@ class TestServe:
             'rows': [{'id': 3, 'text': 'xxx'}, {'id': 4, 'text': 'xxxx'}, {'id': 5, 'text': 'xxxxx'}]
         }
 
-        # outputs=['id'] filters the response row shape
+        # /lookup-id-only: same query, all columns in the response
         resp = client.post('/lookup-id-only', json={'min_len': 4})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'rows': [{'id': 4, 'text': 'xxxx'}, {'id': 5, 'text': 'xxxxx'}]}
@@ -829,7 +829,7 @@ class TestServe:
         router.add_query_route(path='/all-json', query=all_images)
         # FileResponse variant: exactly one row
         router.add_query_route(path='/one-file', query=one_image, return_fileresponse=True)
-        # FileResponse variant with >1 row: should surface 500
+        # FileResponse variant with >1 row → 409
         router.add_query_route(path='/all-file', query=all_images, return_fileresponse=True)
         # Background variant
         router.add_query_route(path='/one-bg', query=one_image, background=True)
