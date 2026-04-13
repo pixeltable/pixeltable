@@ -536,19 +536,15 @@ class Query:
         return list(tbl_ids)
 
     def _output_row_iterator(self) -> Iterator[list]:
-        # TODO reuse list of read tables to determine single_tbl
-        single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
-
-        with get_runtime().catalog.begin_xact(tbl_id_read_targets=self._read_tbl_ids()):
+        tbl_ids = self._read_tbl_ids()
+        with get_runtime().catalog.begin_xact(tbl_id_read_targets=tbl_ids):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-                get_runtime().catalog.convert_sql_exc(
-                    e, tbl=(single_tbl.tbl_version if single_tbl is not None else None)
-                )
+                get_runtime().catalog.convert_sql_exc(e, tbl_id=tbl_ids[0] if len(tbl_ids) == 1 else None)
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
