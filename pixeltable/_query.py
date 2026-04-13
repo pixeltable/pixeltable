@@ -1494,14 +1494,21 @@ class Query:
 
         Args:
             additional_columns: list of (expression, name) pairs to append to the select list.
-                If name is None, the expression's default column name is used.
+            If name is None, the expression's default column name is used.
 
         Returns:
             A new Query with the additional expressions appended to the select list.
         """
+        # if no explicit select list, expand to all columns
+        if self.select_list is None:
+            out_exprs, out_names = Query._normalize_select_list(self._from_clause.tbls, None)
+            existing_select_list = list(zip(out_exprs, out_names))
+        else:
+            existing_select_list = self.select_list
+
         return Query(
             from_clause=self._from_clause,
-            select_list=(self.select_list or []) + additional_columns,
+            select_list=existing_select_list + additional_columns,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
             grouping_tbl=self.grouping_tbl,

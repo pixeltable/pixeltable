@@ -470,12 +470,11 @@ class Planner:
         needs_cell_materialization = False
 
         # register dst cols by looking up their name in the augmented query schema
+        select_exprs_by_name = dict(zip(augmented_query.schema.keys(), augmented_query._select_list_exprs))
         for col_name, dst_col in tbl.cols_by_name.items():
-            if col_name not in augmented_query.schema:
+            expr = select_exprs_by_name.get(col_name)
+            if expr is None:
                 continue
-            # find the expr for this col name in the augmented select list
-            col_names = list(augmented_query.schema.keys())
-            expr = augmented_query._select_list_exprs[col_names.index(col_name)]
             plan.row_builder.add_table_column(dst_col, expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or dst_col.col_type.supports_file_offloading()
 
