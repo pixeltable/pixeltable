@@ -1494,14 +1494,19 @@ class Query:
 
         Args:
             additional_columns: list of (expression, name) pairs to append to the select list.
-                If name is None, the expression is appended without adding it to the schema.
+                If name is None, the expression's default column name is used.
 
         Returns:
-            a new Query with additional expressions appended to the select list.
+            A new Query with the additional expressions appended to the select list.
         """
-        q = copy.copy(self)
-        q._select_list_exprs = self._select_list_exprs + [expr for expr, _ in additional_columns]
-        q.select_list = (self.select_list or []) + additional_columns
-        # only add named columns to schema
-        q._schema = {**self._schema, **{name: expr.col_type for expr, name in additional_columns if name is not None}}
-        return q
+        return Query(
+            from_clause=self._from_clause,
+            select_list=(self.select_list or []) + additional_columns,
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=self.order_by_clause,
+            limit=self.limit_val,
+            offset=self.offset_val,
+            sample_clause=self.sample_clause,
+        )

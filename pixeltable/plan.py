@@ -420,6 +420,16 @@ class Planner:
                 continue
             substitution[exprs.ColumnRef(col)] = col.value_expr.copy().substitute(substitution)
 
+        # stored non-computed columns not provided by the source query have no value — map them to None
+        # so their dependents (e.g. index val cols) evaluate to None rather than leaking into source table SQL scans
+        for col in tbl.cols_by_id.values():
+            if not col.is_stored or col.name is None or col.name in query_col_names or col.is_computed:
+                continue
+            # non-nullable or primary key cols must be provided by the query
+            if not col.col_type.nullable or col.is_pk:
+                raise excs.Error(f'Column {col.name!r} is required but not present in the source query')
+            substitution[exprs.ColumnRef(col)] = exprs.Literal(None, col_type=col.col_type)
+
         # stored computed cols in dst not covered by the query
         missing_computed_cols: list[catalog.Column] = []
         missing_col_exprs_raw: list[exprs.Expr] = []
@@ -437,6 +447,21 @@ class Planner:
         # apply full substitution to all missing column exprs
         missing_col_exprs = [expr.substitute(substitution) for expr in missing_col_exprs_raw]
 
+        # skip exprs that still reference dst cols — those cols are None (not provided by source
+        # and no default), so the computed result would be None anyway
+        filtered_cols: list[catalog.Column] = []
+        filtered_exprs: list[exprs.Expr] = []
+        for col, expr in zip(missing_computed_cols, missing_col_exprs):
+            col_refs = exprs.Expr.list_subexprs([expr], expr_class=exprs.ColumnRef)
+            unresolved = [ref for ref in col_refs if ref.col.get_tbl().id == tbl.id]
+            if len(unresolved) > 0:
+                continue
+            filtered_cols.append(col)
+            filtered_exprs.append(expr)
+
+        missing_computed_cols = filtered_cols
+        missing_col_exprs = filtered_exprs
+
         # augment query with missing computed col exprs so they get evaluated during planning
         augmented_query = query.add_columns(
             [(expr, col.name) for col, expr in zip(missing_computed_cols, missing_col_exprs)]
@@ -444,20 +469,28 @@ class Planner:
         plan = augmented_query._create_query_plan()
         needs_cell_materialization = False
 
-        for col_name, expr in zip(augmented_query.schema.keys(), augmented_query._select_list_exprs):
-            if col_name not in tbl.cols_by_name:
+        # register dst cols by looking up their name in the augmented query schema
+        for col_name, dst_col in tbl.cols_by_name.items():
+            if col_name not in augmented_query.schema:
                 continue
-            dst_col = tbl.cols_by_name[col_name]
+            # find the expr for this col name in the augmented select list
+            col_names = list(augmented_query.schema.keys())
+            expr = augmented_query._select_list_exprs[col_names.index(col_name)]
             plan.row_builder.add_table_column(dst_col, expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or dst_col.col_type.supports_file_offloading()
 
-        for col, expr in zip(missing_computed_cols, augmented_query._select_list_exprs[len(query.schema) :]):
-            plan.row_builder.add_table_column(col, expr.slot_idx)
+        # register missing computed cols (including index val cols) via unique_exprs lookup by expr.id
+        for col, expr in zip(missing_computed_cols, missing_col_exprs):
+            matched = plan.row_builder.unique_exprs[expr]
+            assert matched is not None, f'missing expr not found in row builder {expr} for column {col.name}'
+            plan.row_builder.add_table_column(col, matched.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
+
         plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
+
         return plan
 
     @classmethod
@@ -1200,11 +1233,9 @@ class Planner:
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
                 plan = cls._add_save_node(plan)
         else:
-            # If all target exprs are covered by tbl_scan_exprs(used by SqlScanNode in the select clause),
-            # then no further Python evaluation is needed.
-            if not exprs.ExprSet(tbl_scan_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
+            if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
-                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, tbl_scan_exprs, input=plan)
+                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
             # we're returning everything to the user, so we might as well do it in a single batch
             # TODO: return smaller batches in order to increase inter-ExecNode parallelism
             ctx.batch_size = 0

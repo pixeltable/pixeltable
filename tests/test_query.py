@@ -974,3 +974,17 @@ class TestQuery:
             assert len(res) == row_count
 
         benchmark(select_inexpensive)
+
+    def test_add_columns(self, uses_db: None, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl
+        # add_columns appends named expressions to an existing select list
+        q = t.select(t.c1, t.c2).add_columns([(t.c2 + 1, 'c2_plus_1'), ((t.c2 + 1) * 2, 'c2_times_2')])
+        result = reload_tester.run_query(q)
+        assert 'c1' in result.schema
+        assert 'c2' in result.schema
+        assert 'c2_plus_1' in result.schema
+        assert 'c2_times_2' in result.schema
+        for row in result:
+            assert row['c2_plus_1'] == row['c2'] + 1
+            assert row['c2_times_2'] == (row['c2'] + 1) * 2
+        reload_tester.run_reload_test()

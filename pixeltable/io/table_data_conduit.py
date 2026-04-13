@@ -175,7 +175,8 @@ class QueryTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         if isinstance(tds.source, pxt.Table):
-            t.pxt_query = tds.source.select()
+            tbl = tds.source
+            t.pxt_query = tbl.select(**{col_name: tbl[col_name] for col_name in tbl.columns()})
         else:
             assert isinstance(tds.source, pxt.Query)
             t.pxt_query = tds.source
