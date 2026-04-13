@@ -348,7 +348,6 @@ class TestFunction:
         pxt.drop_dir('test', force=True)
 
     def test_query_json_mapper(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        # TODO this needs a fix in insert
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         t_rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(t_rows), 100)
