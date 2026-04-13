@@ -291,7 +291,7 @@ class Catalog:
         self._modified_tvs.update(handle)
 
     @contextmanager
-    def allow_tbl_md_read(self) -> Iterator[None]:
+    def _allow_tbl_md_read(self) -> Iterator[None]:
         """Context manager that allows reading new table metadata.
 
         With a few rare exceptions, this should not be used outside of Catalog. Instead, the table locks and caches
@@ -362,7 +362,7 @@ class Catalog:
         while True:
             if pending_ops_tbl_id is not None:
                 Env.get().console_logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
-                with self.allow_tbl_md_read():
+                with self._allow_tbl_md_read():
                     self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
 
@@ -374,7 +374,7 @@ class Catalog:
                 has_exc = False
 
                 assert not self._undo_actions
-                with self.allow_tbl_md_read(), get_runtime().begin_xact(for_write=for_write) as conn:
+                with self._allow_tbl_md_read(), get_runtime().begin_xact(for_write=for_write) as conn:
                     try:
                         self._acquire_locks(
                             tvp_read_targets=tvp_read_targets,
@@ -698,7 +698,7 @@ class Catalog:
 
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
-        with self.allow_tbl_md_read():
+        with self._allow_tbl_md_read():
             for tbl_id in self._roll_forward_ids:
                 # TODO: handle replicas
                 exc = self._finalize_pending_ops(tbl_id)
@@ -2739,7 +2739,7 @@ class Catalog:
         This function can and should be extended to perform more checks.
         """
         all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
-        with self.allow_tbl_md_read(), self.begin_xact(for_write=False):
+        with self._allow_tbl_md_read(), self.begin_xact(for_write=False):
             for entry in all_contents.values():
                 if entry.table is None:
                     continue

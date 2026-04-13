@@ -758,7 +758,7 @@ class ReloadTester:
         assert len(self.query_info) > 0, 'No queries in ReloadTester!'
         # enumerate(): the list index is useful for debugging
         for _idx, (query_dict, result_set) in enumerate(self.query_info):
-            with get_runtime().catalog.allow_tbl_md_read():
+            with get_runtime().catalog._allow_tbl_md_read():
                 query = pxt.Query.from_dict(query_dict)
             new_result_set = query.collect()
             try:
