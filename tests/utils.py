@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sysconfig
+import time
 import uuid
 from contextlib import contextmanager
 from io import StringIO
@@ -43,6 +44,13 @@ def runs_linux_with_gpu() -> bool:
         return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
     except ImportError:
         return False
+
+
+@pxt.udf
+def sleep(n: float) -> float:
+    """Sleep for `n` seconds, return `n`. Used in tests to deliberately delay inserts."""
+    time.sleep(n)
+    return n
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
@@ -450,6 +458,10 @@ def get_sentences(n: int = 100) -> list[str]:
         questions_list = json.load(f)
     # this dataset contains \' around the questions
     return [q['question'].replace("'", '') for q in questions_list[:n]]
+
+
+def assert_type_eq(col_type: ts.ColumnType, pxt_type: ts._PxtType) -> None:
+    assert col_type == ts.ColumnType.normalize_type(pxt_type)
 
 
 def assert_resultset_eq(r1: ResultSet, r2: ResultSet, compare_col_names: bool = False) -> None:

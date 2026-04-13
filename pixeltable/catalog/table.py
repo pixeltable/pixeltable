@@ -1294,12 +1294,19 @@ class Table(SchemaObject):
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
+        return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus: ...
 
     @overload
     def insert(
-        self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
+        self,
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        return_rows: bool = False,
+        **kwargs: Any,
     ) -> UpdateStatus: ...
 
     @abc.abstractmethod
@@ -1312,6 +1319,7 @@ class Table(SchemaObject):
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
+        return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
         """Inserts rows into this table. There are two mutually exclusive call patterns:
@@ -1395,7 +1403,11 @@ class Table(SchemaObject):
         raise NotImplementedError
 
     def update(
-        self, value_spec: dict[str, Any], where: 'exprs.Expr' | None = None, cascade: bool = True
+        self,
+        value_spec: dict[str, Any],
+        where: 'exprs.Expr' | None = None,
+        cascade: bool = True,
+        return_rows: bool = False,
     ) -> UpdateStatus:
         """Update rows in this table.
 
@@ -1403,6 +1415,8 @@ class Table(SchemaObject):
             value_spec: a dictionary mapping column names to literal values or Pixeltable expressions.
             where: a predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
+            return_rows: If `True`, populate `UpdateStatus.rows` with one dict per updated row, mapping column
+                names to their new stored values.  If `False` (default), `UpdateStatus.rows` is `None`.
 
         Returns:
             An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
@@ -1427,7 +1441,7 @@ class Table(SchemaObject):
 
         with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('update')
-            result = self._tbl_version.get().update(value_spec, where, cascade)
+            result = self._tbl_version.get().update(value_spec, where, cascade, return_rows=return_rows)
             FileCache.get().emit_eviction_warnings()
             return result
 
@@ -1436,6 +1450,7 @@ class Table(SchemaObject):
         rows: Iterable[dict[str, Any]],
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
+        return_rows: bool = False,
     ) -> UpdateStatus:
         """Update rows in this table.
 
@@ -1448,6 +1463,10 @@ class Table(SchemaObject):
                 - `'error'`: Raise an error.
                 - `'ignore'`: Skip the row silently.
                 - `'insert'`: Insert the row.
+
+            return_rows: If `True`, populate `UpdateStatus.rows` with one dict per affected row, mapping column
+                names to their new stored values. Rows newly inserted via `if_not_exists='insert'` are included.
+                If `False` (default), `UpdateStatus.rows` is `None`.
 
         Examples:
             Update the `name` and `age` columns for the rows with ids 1 and 2 (assuming `id` is the primary key).
@@ -1508,6 +1527,7 @@ class Table(SchemaObject):
                 error_if_not_exists=if_not_exists == 'error',
                 insert_if_not_exists=if_not_exists == 'insert',
                 cascade=cascade,
+                return_rows=return_rows,
             )
             FileCache.get().emit_eviction_warnings()
             return result

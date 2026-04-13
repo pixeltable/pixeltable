@@ -2026,7 +2026,7 @@ class TestTable:
         tbl_name = 'test1'
         t = pxt.create_table(tbl_name, schema)
         rows = create_table_data(t)
-        status = t.insert(rows)
+        status = t.insert(rows, return_rows=True)
         assert t.count() == len(rows)
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
@@ -2344,6 +2344,124 @@ class TestTable:
         with pytest.raises(pxt.Error) as excinfo:
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
+
+    def test_batch_update_return_rows(self, uses_db: None) -> None:
+        """Coverage for the `return_rows` parameter on Table.batch_update().
+
+        Note: at the time of writing, `Table.batch_update()` does not actually cascade to
+        computed columns of the same table even when `cascade=True` (a pre-existing limitation
+        unrelated to `return_rows`). To keep this test focused on `return_rows` itself, the test
+        table has no computed columns. If batch_update's cascade behavior is fixed later, add a
+        cascade-with-computed-columns case here mirroring `test_update_return_rows`.
+        """
+        t = pxt.create_table(
+            'test_batch_update_return_rows',
+            {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'name': pxt.String},
+            primary_key='id',
+        )
+        t.insert(
+            [{'id': 1, 'val': 10, 'name': 'a'}, {'id': 2, 'val': 20, 'name': 'b'}, {'id': 3, 'val': 30, 'name': 'c'}]
+        )
+
+        # default: return_rows=False → status.rows is None
+        status = t.batch_update([{'id': 1, 'name': 'x'}])
+        assert status.rows is None
+        t.revert()
+
+        # return_rows=True with two updated rows: each affected row appears in status.rows with
+        # its new value, and unchanged columns are present too.
+        status = t.batch_update([{'id': 1, 'val': 100}, {'id': 3, 'val': 300}], return_rows=True)
+        assert status.rows is not None
+        assert len(status.rows) == 2 == status.num_rows
+        rows_by_id = {r['id']: r for r in status.rows}
+        assert rows_by_id[1]['val'] == 100
+        assert rows_by_id[1]['name'] == 'a'  # unchanged
+        assert rows_by_id[3]['val'] == 300
+        assert rows_by_id[3]['name'] == 'c'  # unchanged
+        t.revert()
+
+        # return_rows=True with if_not_exists='insert': mix of updates and inserts. The inserted
+        # rows must also surface in status.rows — this is what the `to_cascade` rows-preservation
+        # fix unblocks (without it, the insert fallback's rows would be dropped on the way back).
+        status = t.batch_update(
+            [
+                {'id': 1, 'val': 1000, 'name': 'updated'},  # existing → update
+                {'id': 4, 'val': 40, 'name': 'd'},  # new → insert
+            ],
+            if_not_exists='insert',
+            return_rows=True,
+        )
+        assert status.rows is not None
+        assert len(status.rows) == 2
+        rows_by_id = {r['id']: r for r in status.rows}
+        # the updated row
+        assert rows_by_id[1]['val'] == 1000
+        assert rows_by_id[1]['name'] == 'updated'
+        # the inserted row
+        assert rows_by_id[4]['val'] == 40
+        assert rows_by_id[4]['name'] == 'd'
+        t.revert()
+
+        # backward compatibility: positional cascade/if_not_exists still work
+        status = t.batch_update([{'id': 1, 'name': 'pos'}], False, 'error')
+        assert status.rows is None  # default return_rows=False
+        assert status.num_rows == 1
+
+    def test_update_return_rows(self, uses_db: None) -> None:
+        """Coverage for the `return_rows` parameter on Table.update()."""
+        t = pxt.create_table(
+            'test_update_return_rows', {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'name': pxt.String}
+        )
+        t.insert(
+            [{'id': 1, 'val': 10, 'name': 'a'}, {'id': 2, 'val': 20, 'name': 'b'}, {'id': 3, 'val': 30, 'name': 'c'}]
+        )
+        t.add_computed_column(val_plus_one=t.val + 1)
+
+        # default: return_rows=False → status.rows is None
+        status = t.update({'name': 'x'})
+        assert status.rows is None
+        t.revert()
+
+        # return_rows=True with a literal value, no where: every row in status.rows has the new value
+        status = t.update({'name': 'updated'}, return_rows=True)
+        assert status.rows is not None
+        assert len(status.rows) == 3 == status.num_rows
+        assert all(r['name'] == 'updated' for r in status.rows)
+        # the dicts also include the unchanged columns
+        assert {r['id'] for r in status.rows} == {1, 2, 3}
+        assert {r['val'] for r in status.rows} == {10, 20, 30}
+        t.revert()
+
+        # return_rows=True with a where filter: only the filtered rows are returned
+        status = t.update({'name': 'filtered'}, where=t.val >= 20, return_rows=True)
+        assert status.rows is not None
+        assert len(status.rows) == 2 == status.num_rows
+        assert all(r['name'] == 'filtered' for r in status.rows)
+        assert {r['val'] for r in status.rows} == {20, 30}
+        t.revert()
+
+        # return_rows=True with cascade=True: the recomputed computed column is reflected in the dict
+        status = t.update({'val': 100}, where=t.id == 1, return_rows=True, cascade=True)
+        assert status.rows is not None
+        assert len(status.rows) == 1
+        assert status.rows[0]['val'] == 100
+        assert status.rows[0]['val_plus_one'] == 101  # recomputed
+        t.revert()
+
+        # return_rows=True with cascade=False: the new base-column value is present, but the
+        # computed column reflects the *stale* (pre-update) value because it wasn't recomputed.
+        status = t.update({'val': 200}, where=t.id == 2, return_rows=True, cascade=False)
+        assert status.rows is not None
+        assert len(status.rows) == 1
+        assert status.rows[0]['val'] == 200
+        # val was 20 before this update, so val_plus_one is still 21
+        assert status.rows[0]['val_plus_one'] == 21
+        t.revert()
+
+        # backward compatibility: positional where/cascade still work
+        status = t.update({'name': 'pos'}, t.id == 3, False)
+        assert status.rows is None  # default return_rows=False
+        assert status.num_rows == 1
 
     @pytest.mark.cockroachdb
     def test_cascading_update(self, test_tbl: pxt.InsertableTable) -> None:

@@ -317,7 +317,7 @@ class TestQuery:
         res = t.select(t.c4, get_lim(2)).collect()
         print(res)
         print(res[0]['get_lim'])
-        assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
+        assert res[0]['get_lim'] == [False, True]
 
         with pytest.raises(pxt.Error, match='must be of type `Int`'):
             _ = t.limit(5.3).collect()  # type: ignore[arg-type]
@@ -352,7 +352,7 @@ class TestQuery:
             return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
 
         res = t.select(t.c4, get_lim(2.2)).collect()
-        assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
+        assert res[0]['get_lim'] == [False, True]
 
     def test_limit5(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -366,7 +366,7 @@ class TestQuery:
 
         res = t.select(t.c4, get_val(4)).limit(2).collect()
         print(res)
-        assert res[0]['get_val'][0]['foo'] == [2, 3, 4]
+        assert res[0]['get_val'][0] == [2, 3, 4]
 
     def test_pagination(self, uses_db: None) -> None:
         """Test limit with offset for pagination"""

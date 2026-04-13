@@ -265,6 +265,10 @@ class Query:
     def _first_tbl(self) -> catalog.TableVersionPath:
         return self._from_clause._first_tbl
 
+    @property
+    def _effective_select_list(self) -> list[tuple[exprs.Expr, str | None]]:
+        return list(zip(self._select_list_exprs, self._schema.keys()))
+
     def _vars(self) -> dict[str, exprs.Variable]:
         """
         Return a dict mapping variable name to Variable for all Variables contained in any component of the Query

@@ -186,6 +186,7 @@ dev = [
     "mdformat>=1.0.0",
     "nbqa>=1.9.1",
     "snowflake-sqlalchemy>=1.7.0",
+    "fastapi[standard]>=0.120.0",
 ]
 test = [
     "pytest>=8.4",
