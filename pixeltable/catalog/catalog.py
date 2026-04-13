@@ -300,8 +300,7 @@ class Catalog:
         Reentrant: if already True, yields immediately without modifying state.
         """
         if self._tbl_md_read_allowed:
-            yield
-            return
+            raise AssertionError(' not reentrant')
         self._tbl_md_read_allowed = True
         try:
             yield
@@ -698,12 +697,11 @@ class Catalog:
 
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
-        with self._allow_tbl_md_read():
-            for tbl_id in self._roll_forward_ids:
-                # TODO: handle replicas
-                exc = self._finalize_pending_ops(tbl_id)
-                if exc is not None:
-                    raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
+        for tbl_id in self._roll_forward_ids:
+            # TODO: handle replicas
+            exc = self._finalize_pending_ops(tbl_id)
+            if exc is not None:
+                raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """
@@ -2739,7 +2737,7 @@ class Catalog:
         This function can and should be extended to perform more checks.
         """
         all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
-        with self._allow_tbl_md_read(), self.begin_xact(for_write=False):
+        with self.begin_xact(for_write=False):
             for entry in all_contents.values():
                 if entry.table is None:
                     continue
