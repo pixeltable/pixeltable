@@ -749,8 +749,9 @@ class Table(SchemaObject):
             >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90), stored=False)
         """
 
-        # @catalog.retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
-        def do_add_computed_column() -> UpdateStatus:
+        with get_runtime().catalog.begin_xact(
+            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
+        ):
             self.__check_mutable('add columns to')
             if len(kwargs) != 1:
                 raise excs.Error(
@@ -783,21 +784,17 @@ class Table(SchemaObject):
             )
             # if the column to add already exists and user asked to ignore
             # existing column, there's nothing to do.
+            result = UpdateStatus()
             if len(cols_to_ignore) != 0:
                 assert cols_to_ignore[0] == col_name
-                return UpdateStatus()
+                return result
 
             new_col = Column.create(col_name, col_schema)
             self._verify_column(new_col)
             assert self._tbl_version is not None
-            return self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
-
-        with get_runtime().catalog.begin_xact(
-            tvp_write_targets=[self._tbl_version_path], for_write=True, lock_mutable_tree=True
-        ):
-            result = do_add_computed_column()
-        FileCache.get().emit_eviction_warnings()
-        return result
+            result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
+            FileCache.get().emit_eviction_warnings()
+            return result
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
