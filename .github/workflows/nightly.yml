@@ -45,8 +45,10 @@ jobs:
         python-version: ["3.10", "3.13"]
         package-configs:
           - ""
+          - "lancedb mcp scenedetect"
           - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm"
-          - "anthropic fireworks-ai 'google-genai!=1.72.0' groq mistralai openai replicate together"
+          - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
+          - "fal-client reve runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "label_studio_sdk"
