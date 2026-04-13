@@ -453,7 +453,9 @@ class TestAudio:
             and r['to_end'] is not None
             for r in result
         )
-        self._validate_audio(result['louder'] + result['quieter'] + result['partial'] + result['from_start'] + result['to_end'])
+        self._validate_audio(
+            result['louder'] + result['quieter'] + result['partial'] + result['from_start'] + result['to_end']
+        )
 
     def test_multiply_volume_errors(self, uses_db: None) -> None:
         audio_paths = get_audio_files()
