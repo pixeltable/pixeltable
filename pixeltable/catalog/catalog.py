@@ -608,7 +608,6 @@ class Catalog:
 
         Returns the set of table IDs that were X-locked (empty if the table does not exist or is non-mutable).
         """
-        # TODO should this update self._x_locked_tbl_ids?
         assert (tbl_id is not None) != (dir_id is not None and tbl_name is not None)
         assert (dir_id is None) == (tbl_name is None)
         where_clause: sql.ColumnElement
