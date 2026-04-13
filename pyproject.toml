@@ -92,7 +92,6 @@ source = "uv-dynamic-versioning"
 required-version = ">=0.8"
 default-groups = ["dev", "test"]
 override-dependencies = [
-    "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
     "ruff>=0.14",  # Required because 'fireworks-ai' hard-codes 'ruff<10'
     "protobuf>=5.29.6",  # Required because 'fireworks-ai' hard-codes 'protobuf==5.29.4'
     "huggingface-hub>=1",  # Required due to 'whisperx'
@@ -169,7 +168,9 @@ dev = [
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
     "mcp>=1.23.0",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
-    "fiftyone>=1.13 ; python_version < '3.14'",
+    # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
+    # of at least one library. We can re-enable it once they update their dependencies.
+    # "fiftyone>=1.13 ; python_version < '3.14'",
     "lancedb>=0.20 ; python_version < '3.14'",
     "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
