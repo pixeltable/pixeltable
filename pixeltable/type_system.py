@@ -680,8 +680,8 @@ class ColumnType:
     def _to_json_schema(self) -> dict[str, Any]:
         raise excs.Error(f'Pixeltable type {self} is not a valid JSON type')
 
-    def to_python_type(self) -> Any:
-        """Return the nominal Python type used to represent values of this column type."""
+    def to_pydantic_type(self) -> Any:
+        """Return the nominal Python type used to represent values of this column type in a Pydantic field type."""
         assert self._type is not self.Type.INVALID
         py_type: Any
         match self._type:
@@ -704,7 +704,7 @@ class ColumnType:
             case self.Type.JSON:
                 py_type = dict
             case self.Type.ARRAY:
-                py_type = np.ndarray
+                py_type = list
             case self.Type.IMAGE | self.Type.VIDEO | self.Type.AUDIO | self.Type.DOCUMENT:
                 py_type = str
             case _:

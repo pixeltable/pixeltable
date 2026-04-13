@@ -860,9 +860,9 @@ class TestServe:
         resp = client.post('/one-file', json={'img_id': 999})
         assert resp.status_code == 404, resp.text
 
-        # FileResponse: >1 row → 500
+        # FileResponse: >1 row → 409
         resp = client.post('/all-file', json={})
-        assert resp.status_code == 500, resp.text
+        assert resp.status_code == 409, resp.text
         assert 'expected exactly 1' in resp.json()['detail']
 
         # Background variant: poll /jobs/{id} until done

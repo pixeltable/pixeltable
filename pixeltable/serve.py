@@ -336,7 +336,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         elif return_fileresponse:
             endpoint_model = None
         elif return_scalar:
-            scalar_py_type = next(iter(result_schema.values())).to_python_type()
+            scalar_py_type = next(iter(result_schema.values())).to_pydantic_type()
             endpoint_model = list[scalar_py_type] if not one_row else scalar_py_type  # type: ignore[valid-type]
         else:
             endpoint_model = output_model
@@ -582,10 +582,10 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             if name in upload_col_names:
                 annotation = Annotated[UploadFile, File(..., description=desc)]
             elif not is_post:
-                py_type = col_type.to_python_type()
+                py_type = col_type.to_pydantic_type()
                 annotation = Annotated[py_type, QueryParam(description=desc)]
             else:
-                py_type = col_type.to_python_type()
+                py_type = col_type.to_pydantic_type()
                 if has_uploads:
                     annotation = Annotated[py_type, Form(description=desc)]
                 else:
@@ -694,7 +694,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
 
     def _build_response_field(self, col_type: ts.ColumnType, *, comment: str | None = None) -> tuple[Any, FieldInfo]:
         """Build a (annotation, FieldInfo) pair for pydantic.create_model() from a ColumnType."""
-        py_type = col_type.to_python_type()
+        py_type = col_type.to_pydantic_type()
         field_kwargs: dict[str, Any] = {}
         if comment is not None:
             field_kwargs['description'] = comment
