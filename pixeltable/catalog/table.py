@@ -328,7 +328,7 @@ class Table(SchemaObject):
         return self.select().collect()
 
     def cursor(self) -> 'pxt._query.ResultCursor':
-        """Return a ResultCursor for lazy, streaming iteration over this table's rows."""
+        """Return a ResultCursor that iterates over this table's rows."""
         return self.select().cursor()
 
     def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':

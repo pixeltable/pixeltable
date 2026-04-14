@@ -16,7 +16,9 @@ from typing import (
     Callable,
     Generator,
     Hashable,
+    Iterable,
     Iterator,
+    Mapping,
     NoReturn,
     Sequence,
     TypeVar,
@@ -174,7 +176,7 @@ class ResultSet:
         return hash(self.to_pandas())
 
 
-class Row:
+class Row(Mapping[str, Any]):
     """A dict-like wrapper over a single result row.
 
     Supports key access (`row['col']`), membership (`'col' in row`),
@@ -188,7 +190,7 @@ class Row:
 
     def __getitem__(self, key: str) -> Any:
         if key not in self._columns:
-            raise excs.Error(f'Column {key} does not exist in the row.')
+            raise excs.Error(f'Column {key!r} does not exist in the row.')
         return self._data[self._columns[key]]
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -203,7 +205,7 @@ class Row:
         return (self._data[idx] for idx in self._columns.values())
 
     def items(self) -> Iterator[tuple[str, Any]]:
-        return ((name, self._data[idx]) for name, idx in self._columns.items())
+        return zip(self._columns.keys(), self._data)
 
     def __contains__(self, key: object) -> bool:
         return key in self._columns
@@ -212,16 +214,16 @@ class Row:
         return len(self._columns)
 
     def __repr__(self) -> str:
-        return '{' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '}'
+        return 'Row({' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '})'
 
     def __iter__(self) -> Iterator[str]:
         return self.keys()
 
 
-class ResultCursor:
-    """Lazy, streaming cursor over query results.
+class ResultCursor(Iterable[Row]):
+    """Cursor that iterates over query results.
 
-    Wraps a Query's row iterator and yields Row objects one at a time,
+    Wraps a Query and yields Row objects one at a time,
     avoiding materializing all results into memory.
     """
 
@@ -683,7 +685,7 @@ class Query:
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         raise excs.Error(msg) from e
 
-    def _output_row_iterator(self) -> Generator[list[Any], None, None]:
+    def _output_row_iterator(self) -> Generator[list, None, None]:
         # TODO: extend begin_xact() to accept multiple TVPs for joins
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         with get_runtime().catalog.begin_xact(tbl=single_tbl, for_write=False):
@@ -708,7 +710,7 @@ class Query:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         columns = {name: i for i, name in enumerate(self.schema)}
         try:
-            result = [Row([row[e.slot_idx] for e in self._select_list_exprs], columns) async for row in self._aexec()]
+            result = [Row(tuple(row[e.slot_idx] for e in self._select_list_exprs), columns) async for row in self._aexec()]
             return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
