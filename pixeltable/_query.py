@@ -190,7 +190,7 @@ class Row(Mapping[str, Any]):
     and `items` methods.
     """
 
-    def __init__(self, data: list[Any], columns: dict[str, int]):
+    def __init__(self, data: Iterable[Any], columns: dict[str, int]):
         self._data = tuple(data)
         self._columns = columns
 
