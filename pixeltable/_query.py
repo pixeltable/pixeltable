@@ -1378,9 +1378,13 @@ class Query:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
         # we need to wrap the construction with a retry_loop, because it might need to load metadata
-        from pixeltable.catalog import retry_loop
+        # from pixeltable.catalog import retry_loop
 
-        @retry_loop(for_write=False)
+        # TODO actually, Query.from_dict cannot use a retry loop because there's a call path between
+        # _finalize_pending_ops and here, and _finalize_pending_ops of course starts its own transaction
+        # @retry_loop(for_write=False)
+        # for now let's simply require that this is only called within an existing transaction, and update ReloadTester
+        # to start a transaction before calling this.
         def op() -> 'Query':
             tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
             join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
@@ -1416,6 +1420,7 @@ class Query:
                 sample_clause=sample_clause,
             )
 
+        assert get_runtime().in_xact
         return op()
 
     def _hash_result_set(self) -> str:
