@@ -703,7 +703,6 @@ class Planner:
 
         # Prepend updated cols as ColumnRefs (RowUpdateNode modifies them in-place; no further substitution needed)
         evaluated_cols: list[Column] = list(updated_cols) + eval_cols
-        # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further substitution is needed
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols] + eval_exprs
 
         # ExecNode tree (from bottom to top):
