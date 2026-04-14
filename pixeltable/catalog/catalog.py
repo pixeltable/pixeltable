@@ -79,10 +79,10 @@ T = TypeVar('T')
 def retry_loop(
     *,
     for_write: bool = False,
-    tvp_read_targets: list[TableVersionPath] | None = None,
-    tbl_id_read_targets: list[UUID] | None = None,
-    tvp_write_targets: list[TableVersionPath] | None = None,
-    tbl_id_write_targets: list[UUID] | None = None,
+    tvp_read_targets: Collection[TableVersionPath] | None = None,
+    tbl_id_read_targets: Collection[UUID] | None = None,
+    tvp_write_targets: Collection[TableVersionPath] | None = None,
+    tbl_id_write_targets: Collection[UUID] | None = None,
     lock_mutable_tree: bool = False,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
