@@ -243,34 +243,44 @@ class Table(SchemaObject):
         query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
         if len(items) == 0 and len(named_items) == 0:
             return query  # Select(*); no further processing is necessary
-        return query.select(*items, **named_items)
+
+        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self._tbl_version_path]):
+            return query.select(*items, **named_items)
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
         """Filter rows from this table based on the expression.
 
         See [`Query.where`][pixeltable.Query.where] for more details.
         """
-        return self.select().where(pred)
+
+        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self._tbl_version_path]):
+            return self.select().where(pred)
 
     def join(
         self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
     ) -> 'pxt.Query':
         """Join this table with another table."""
-        return self.select().join(other, on=on, how=how)
+
+        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self._tbl_version_path]):
+            return self.select().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
         """Order the rows of this table based on the expression.
 
         See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
-        return self.select().order_by(*items, asc=asc)
+
+        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self._tbl_version_path]):
+            return self.select().order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
         """Group the rows of this table based on the expression.
 
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
-        return self.select().group_by(*items)
+
+        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self._tbl_version_path]):
+            return self.select().group_by(*items)
 
     def distinct(self) -> 'pxt.Query':
         """Remove duplicate rows from table."""
