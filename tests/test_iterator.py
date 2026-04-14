@@ -19,7 +19,7 @@ class MyRow(TypedDict):
     acol: pxt.Array[np.float32, (None, 512)] | None
 
 
-@pxt.iterator
+@pxt.iterator()
 def simple_iterator(x: int, str_text: str = 'string') -> Iterator[MyRow]:
     for i in range(x):
         yield MyRow(icol=i, scol=f'{str_text} {i}', acol=None)

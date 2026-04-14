@@ -488,7 +488,7 @@ def iterator(*args, **kwargs):  # type: ignore[no-untyped-def]
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
         return GeneratingFunction(decorated_callable=args[0], unstored_cols=[])
     else:
-        unstored_cols = kwargs.pop('unstored_cols', None)
+        unstored_cols = kwargs.pop('unstored_cols', [])
         if len(kwargs) > 0:
             raise excs.Error(f'Invalid @iterator decorator kwargs: {", ".join(kwargs.keys())}')
         if len(args) > 0:
