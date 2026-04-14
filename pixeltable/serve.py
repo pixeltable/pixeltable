@@ -402,6 +402,9 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             raise pxt.Error('add_query_route(): return_fileresponse and background are mutually exclusive')
         uploadfile_inputs = uploadfile_inputs or []
 
+        if method == 'get' and len(uploadfile_inputs) > 0:
+            raise pxt.Error(f'add_query_route(): GET endpoints cannot have uploadfile_inputs (got {uploadfile_inputs})')
+
         query_params = dict(query.signature.parameters)
         query_schema = {p.name: p.col_type for p in query_params.values()}
         result_schema = dict(query.template_query.schema)

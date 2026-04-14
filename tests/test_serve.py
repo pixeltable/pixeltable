@@ -951,6 +951,10 @@ class TestServe:
         def by_text(needle: str) -> pxt.Query:
             return t.where(t.text == needle).select(t.image)
 
+        @pxt.query
+        def by_image(img: pxt.Image) -> pxt.Query:
+            return t.where(t.image == img).select(t.id)
+
         router = PxtFastAPIRouter()
 
         with pytest.raises(pxt.Error, match=r'must be a @pxt\.query or retrieval_udf'):
@@ -966,6 +970,8 @@ class TestServe:
         with pytest.raises(pxt.Error, match='exactly one media-typed output column'):
             # by_text returns a single media column; lookup returns (id, text) which is not media-typed
             router.add_query_route(path='/e', query=lookup, return_fileresponse=True)
+        with pytest.raises(pxt.Error, match='GET endpoints cannot have uploadfile_inputs'):
+            router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 
     def test_add_insert_route_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fastapi')
