@@ -45,14 +45,15 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /opt/hostedtoolcache
           df -h
-      - name: Install conda
+      - name: Install miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: latest
+          miniforge-version: latest
           activate-environment: pxt
+          conda-remove-defaults: true
       - name: Install python
         run: |
-          conda install -y python=3.10 pip=25.0
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10
           conda info
       - name: Install uv
         run: |
@@ -89,15 +90,16 @@ jobs:
         with:
           detached: true
 
-      - name: Install conda
+      - name: Install miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: latest
+          miniforge-version: latest
           activate-environment: pxt
+          conda-remove-defaults: true
 
       - name: Install python
         run: |
-          conda install -y python=3.10 pip=25.0
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10
           conda info
 
       - name: Install uv
@@ -136,15 +138,16 @@ jobs:
         with:
           detached: true
 
-      - name: Install conda
+      - name: Install miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: latest
+          miniforge-version: latest
           activate-environment: pxt
+          conda-remove-defaults: true
 
       - name: Install python
         run: |
-          conda install -y python=3.10 pip=25.0
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10
           conda info
 
       - name: Install uv

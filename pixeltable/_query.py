@@ -33,6 +33,27 @@ _logger = logging.getLogger('pixeltable')
 
 
 class ResultSet:
+    """
+    A dataset obtained by executing a [`Query`][pixeltable.Query]. Returned by
+    [`Query.collect()`][pixeltable.Query.collect], [`Query.head()`][pixeltable.Query.head],
+    [`Query.tail()`][pixeltable.Query.tail], and the equivalent methods on class [`Table`][pixeltable.Table].
+
+    A `ResultSet` is structured as a table with rows (indexed by integers) and columns (indexed by strings).
+    The column names correspond to the expressions in the query's select list. The values in a `ResultSet` can
+    be accessed in various ways:
+
+    - `len(result)` returns the number of rows
+    - `result[i]` returns the `i`th row as a `dict` mapping column names to values
+    - `result['col']` returns a `list` of all values in the column named `'col'`
+    - `result[i, 'col']` returns the specific value in the `i`th row and column `'col'`
+
+    `ResultSet` implements the Sequence protocol, so it can be iterated over and converted to other sequence
+    types in the usual fashion; for example:
+
+    - `for row in result` (iterates over rows)
+    - `list(result)` (converts to a list of rows)
+    """
+
     _rows: list[list[Any]]
     _col_names: list[str]
     __schema: dict[str, ColumnType]
@@ -70,13 +91,18 @@ class ResultSet:
         self._rows.reverse()
 
     def to_pandas(self) -> pd.DataFrame:
+        """Convert the `ResultSet` to a Pandas `DataFrame`.
+
+        Returns:
+            A `DataFrame` with one column per column in the `ResultSet`.
+        """
         return pd.DataFrame.from_records(self._rows, columns=self._col_names)
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
 
     def to_pydantic(self, model: type[BaseModelT]) -> Iterator[BaseModelT]:
         """
-        Convert the ResultSet to a list of Pydantic model instances.
+        Convert the `ResultSet` to Pydantic model instances.
 
         Args:
             model: A Pydantic model class.
@@ -140,38 +166,6 @@ class ResultSet:
 
     def __hash__(self) -> int:
         return hash(self.to_pandas())
-
-
-# # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
-# class AnalysisInfo:
-#     def __init__(self, tbl: catalog.TableVersion):
-#         self.tbl = tbl
-#         # output of the SQL scan stage
-#         self.sql_scan_output_exprs: list[exprs.Expr] = []
-#         # output of the agg stage
-#         self.agg_output_exprs: list[exprs.Expr] = []
-#         # Where clause of the Select stmt of the SQL scan stage
-#         self.sql_where_clause: sql.ClauseElement | None = None
-#         # filter predicate applied to input rows of the SQL scan stage
-#         self.filter: exprs.Predicate | None = None
-#         self.similarity_clause: exprs.ImageSimilarityPredicate | None = None
-#         self.agg_fn_calls: list[exprs.FunctionCall] = []  # derived from unique_exprs
-#         self.has_frame_col: bool = False  # True if we're referencing the frame col
-#
-#         self.evaluator: exprs.Evaluator | None = None
-#         self.sql_scan_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of SQL scan stage
-#         self.agg_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of agg stage
-#         self.filter_eval_ctx: list[exprs.Expr] = []
-#         self.group_by_eval_ctx: list[exprs.Expr] = []
-#
-#     def finalize_exec(self) -> None:
-#         """
-#         Call release() on all collected Exprs.
-#         """
-#         exprs.Expr.release_list(self.sql_scan_output_exprs)
-#         exprs.Expr.release_list(self.agg_output_exprs)
-#         if self.filter is not None:
-#             self.filter.release()
 
 
 class Query:

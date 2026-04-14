@@ -18,6 +18,8 @@ env:
   PIXELTABLE_VERBOSITY: 0
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF'
   CMAKE_POLICY_VERSION_MINIMUM: 3.5
+  HF_DEACTIVATE_ASYNC_LOAD: 1
+
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_DEFAULT_REGION: us-west-2
@@ -43,13 +45,13 @@ jobs:
         python-version: ["3.10", "3.12"]
         package-configs:
           - ""
-          - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.9' 'torchaudio<2.9' 'torchvision<0.24' 'transformers<5' timm"
-          - "anthropic fireworks-ai google-genai groq mistralai openai replicate together"
+          - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.9' 'torchaudio<2.9' 'torchvision<0.24' transformers timm"
+          - "anthropic fireworks-ai 'google-genai!=1.72.0' groq mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "label_studio_sdk"
           - "pixeltable-yolox"
-          - "'whisperx>=3.7.4' 'transformers<5' timm"
+          - "whisperx transformers timm"
         os: [ubuntu-24.04]
         include:
           # Test the basic pixeltable installation on other platforms.
@@ -93,19 +95,19 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /opt/hostedtoolcache
           df -h
-      - name: Install conda
+      - name: Install miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: latest
+          miniforge-version: latest
           activate-environment: pxt
+          conda-remove-defaults: true
       - name: Install python
         run: |
-          conda install -y python=${{ matrix.python-version }} pip=25.0
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }}
           conda info
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
-        # libiconv and ffmpeg are needed by WhisperX.
-        run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
+        run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Delete source tree
         run: rm -rf pixeltable  # Ensure we use pypi pixeltable package for testing, not local source tree
       - name: Install dependencies
@@ -113,7 +115,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pixeltable ${{ matrix.package-configs }}
           python -m pip install beautifulsoup4==4.14.2  # Workaround for Actions installing broken 4.14.0
-          python -m pip install filelock pytest pytest-xdist pytest-rerunfailures
+          python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
         run: python -m spacy download en_core_web_sm
@@ -168,9 +170,10 @@ jobs:
           sleep 10  # Wait for the ollama server to start
           # Pull the model used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
-      - name: Install conda
+      - name: Install miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: latest
+          miniforge-version: latest
+          conda-remove-defaults: true
       - name: Run isolated notebook tests
         run: ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }}

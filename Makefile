@@ -15,6 +15,11 @@ NB_CELL_TIMEOUT := 3600
 TQDM_MININTERVAL := $(NB_CELL_TIMEOUT)
 ULIMIT_CMD := ulimit -n 4000;
 
+# Dev dependency versions not handled by pyproject.toml
+UV_VERSION := 0.9.3
+FFMPEG_VERSION := 6.1.1=gpl*
+MINTLIFY_VERSION := 4.2.506
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -80,12 +85,14 @@ endif
 .make-install/env:
 	@echo 'Installing uv ...'
 	@python -m pip install -qU pip
-	@python -m pip install -q uv==0.9.3
+	@python -m pip install -q uv==$(UV_VERSION)
 	@echo 'Installing conda packages ...'
 	@if ! which mamba >/dev/null 2>&1; then conda install -q -y -c conda-forge mamba; fi
-	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto nodejs lychee
+	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto nodejs lychee
 	@echo 'Installing mintlify ...'
-	@if ! which mint >/dev/null 2>&1; then npm install --silent -g mint@4.2.357; fi
+	@if ! which mint >/dev/null 2>&1 || ! mint --version | grep -Fq '$(MINTLIFY_VERSION)'; then \
+		npm install --silent -g mint@$(MINTLIFY_VERSION); \
+	fi
 	@echo 'Fixing quarto conda packaging bugs ...'
 	@mkdir -p $(CONDA_PREFIX)/bin/tools/aarch64 2>/dev/null || true
 	@ln -sf $(CONDA_PREFIX)/bin/deno $(CONDA_PREFIX)/bin/tools/aarch64/deno 2>/dev/null || true
@@ -196,7 +203,7 @@ format: install
 	@./scripts/format-notebooks.sh
 
 .PHONY: release
-release: install
+release: clean install
 	@if [ ! -f 'admin/scripts/release.sh' ]; then \
 		echo 'Release script not found. You must be a Pixeltable admin and check out the admin repo to run this target.'; exit 1; \
 	fi
@@ -224,7 +231,8 @@ endif
 # TODO: incorporate this into a new/expanded docscheck
 .PHONY: linkscheck
 linkscheck: docs
-	lychee target/docs/ --exclude-path target/docs/changelog/ --max-concurrency 3 --exclude 'file://*' --exclude-loopback -q
+	lychee target/docs/ --root-dir target/docs/ --exclude-path target/docs/changelog/ \
+		--max-concurrency 3 --exclude 'file://*' --exclude-loopback -q
 
 .PHONY: clean
 clean:
