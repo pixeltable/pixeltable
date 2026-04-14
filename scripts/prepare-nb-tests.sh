@@ -11,6 +11,7 @@ SKIP_NOTEBOOKS=(
     working-with-fiftyone        # Voxel51 is currently omitted from our dev env for security reasons
     working-with-tigris          # Requires Tigris environment
     img-detection-vs-segmentation  # Segmentation models are crashing in CI (memory issue?)
+    working-with-reve            # Out of credits
 )
 
 # Notebooks that are skipped unless --include-expensive is passed
