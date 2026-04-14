@@ -363,8 +363,7 @@ class Catalog:
         while True:
             if pending_ops_tbl_id is not None:
                 Env.get().console_logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
-                with self._allow_tbl_md_read():
-                    self._finalize_pending_ops(pending_ops_tbl_id)
+                self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
 
             try:
