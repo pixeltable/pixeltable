@@ -225,6 +225,27 @@ class ResultCursor(Iterable[Row]):
 
     Wraps a Query and yields Row objects one at a time,
     avoiding materializing all results into memory.
+
+    A cursor transitions through three states: pending (created but not yet started), open (actively
+    iterating), and closed (resources released). Iteration auto-opens and auto-closes the cursor, or you can
+    use it as a context manager for explicit lifecycle control.
+
+    Examples:
+        Iterate over all rows in a table:
+
+        ```python
+        for row in t.cursor():
+            print(row['col_name'])
+        ```
+
+        Use as a context manager for early termination:
+
+        ```python
+        with t.select(t.col1, t.col2).cursor() as cur:
+            for row in cur:
+                if row['col1'] > threshold:
+                    break  # resources are released on exit
+        ```
     """
 
     def __init__(self, query: Query):
@@ -704,13 +725,19 @@ class Query:
         return ResultSet(list(self.cursor()), self.schema)
 
     def cursor(self) -> ResultCursor:
+        """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.
+
+        See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
+        """
         return ResultCursor(self)
 
     async def _acollect(self) -> ResultSet:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         columns = {name: i for i, name in enumerate(self.schema)}
         try:
-            result = [Row(tuple(row[e.slot_idx] for e in self._select_list_exprs), columns) async for row in self._aexec()]
+            result = [
+                Row(tuple(row[e.slot_idx] for e in self._select_list_exprs), columns) async for row in self._aexec()
+            ]
             return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)

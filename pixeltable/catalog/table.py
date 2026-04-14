@@ -328,7 +328,10 @@ class Table(SchemaObject):
         return self.select().collect()
 
     def cursor(self) -> 'pxt._query.ResultCursor':
-        """Return a ResultCursor that iterates over this table's rows."""
+        """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over this table's rows.
+
+        See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
+        """
         return self.select().cursor()
 
     def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
