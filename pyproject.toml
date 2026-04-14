@@ -92,10 +92,9 @@ source = "uv-dynamic-versioning"
 required-version = ">=0.8"
 default-groups = ["dev", "test"]
 override-dependencies = [
-    "numpy>=2.2 ; python_version < '3.14'",
-    "numpy>=2.4 ; python_version >= '3.14'",
-    "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
     "ruff>=0.14",  # Required because 'fireworks-ai' hard-codes 'ruff<10'
+    "protobuf>=5.29.6",  # Required because 'fireworks-ai' hard-codes 'protobuf==5.29.4'
+    "huggingface-hub>=1",  # Required due to 'whisperx'
 ]
 
 [tool.uv-dynamic-versioning]
@@ -124,11 +123,11 @@ dev = [
     "types-toml>=0.10",
     "types-tqdm~=4.64",
     "ruff>=0.14",
-    "notebook>=7.1.0,<8",
+    "notebook>=7.2.2",
     "mkdocs>=1.6.0,<2",
     "mkdocs-material>=9.5.23,<10",
     "mkdocstrings-python>=1.10.2,<2",
-    "black>=24.4",
+    "black>=26.3.1",
     "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
@@ -140,7 +139,7 @@ dev = [
     "torch>=2.8",
     "torchaudio>=2.8",
     "torchvision>=0.22",
-    "torchcodec>=0.10.0",
+    "torchcodec<0.8 ; python_version < '3.14'",  # Pinned for compatibility with torch 2.8
     "soundfile>=0.13",
     "openai>=2",
     "anthropic>=0.53.0",
@@ -157,24 +156,26 @@ dev = [
     "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "sentencepiece>=0.2.0",
     "tiktoken>=0.10",
-    "sentence-transformers~=4.0 ; python_version < '3.14'",
-    "transformers~=4.52",
+    "sentence-transformers>=5 ; python_version < '3.14'",
+    "transformers>=5",
     "timm>=1.0.11,<2",
     "datasets>=3.5.0",
     "openpyxl>=3.1",
     "openai-whisper>=20250625 ; python_version < '3.14'",
-    "whisperx>=3.8 ; python_version < '3.14'",
+    "whisperx>=3.8.5 ; python_version < '3.14'",
     "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
     "ollama>=0.5.1",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
-    "mcp>=1.9.4",
+    "mcp>=1.23.0",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
-    "fiftyone>=1.7 ; python_version < '3.14'",
+    # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
+    # of at least one library. We can re-enable it once they update their dependencies.
+    # "fiftyone>=1.13 ; python_version < '3.14'",
     "lancedb>=0.20 ; python_version < '3.14'",
     "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.11",
-    "diffusers>=0.34",
+    "diffusers>=0.37",
     "accelerate>=1.10",
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.16.0",
@@ -194,7 +195,7 @@ test = [
     "pytest-rerunfailures>=15.1",
     "pytest-benchmark>=5.1",
     "coverage>=7.9",
-    "filelock>=3.13",
+    "filelock>=3.20.3",
 ]
 extra-dev = [
     # This is for dependencies that will be installed locally for devs (via `make install`), but not in CI.

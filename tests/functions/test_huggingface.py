@@ -398,7 +398,7 @@ class TestHuggingface:
             assert 'word' in entity
 
     def test_automatic_speech_recognition(self, uses_db: None) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('torchcodec', 'transformers')
         from pixeltable.functions.huggingface import automatic_speech_recognition
 
         t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
