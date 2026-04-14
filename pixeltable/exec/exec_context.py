@@ -6,6 +6,7 @@ import sqlalchemy as sql
 from rich.progress import Column, Progress, TextColumn
 
 from pixeltable import exprs
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
@@ -42,7 +43,9 @@ class ExecContext:
         if show_progress is not None:
             self.show_progress = show_progress
         else:
-            self.show_progress = Env.get().verbosity >= 1 and Env.get().is_interactive()
+            self.show_progress = (
+                Config.get().get_bool_value('show_progress') and Env.get().verbosity >= 1 and Env.get().is_interactive()
+            )
 
         # disable progress reporting in Jupyter if ipywidgets is not installed
         if Env.get().is_notebook() and importlib.util.find_spec('ipywidgets') is None:
