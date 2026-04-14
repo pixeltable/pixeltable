@@ -1061,18 +1061,11 @@ class Table(SchemaObject):
             ... )
         """
 
-        # Resolve column parameter in a separate retry loop because we don't know if the column belogs to this table
-        # or not
-        @catalog.retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
-        def resolve_column() -> Column:
-            return self._resolve_column_parameter(column)
-
-        col = resolve_column()
-
         with get_runtime().catalog.begin_xact(
             for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
         ):
             self.__check_mutable('add an index to')
+            col = self._resolve_column_parameter(column)
 
             if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
                 if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
