@@ -2735,7 +2735,7 @@ class Catalog:
         This function can and should be extended to perform more checks.
         """
         all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
-        with self.begin_xact(for_write=False):
+        with self.begin_xact(for_write=False), self._allow_tbl_md_read():
             for entry in all_contents.values():
                 if entry.table is None:
                     continue
