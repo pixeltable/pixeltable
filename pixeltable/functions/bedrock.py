@@ -168,8 +168,22 @@ def _apply_invoke_model_request_conversions(body: dict, model_id: str) -> dict:
 
 
 def _apply_converse_request_conversions(messages: list[dict]) -> list[dict]:
-    # The Converse API always expects raw bytes regardless of model.
-    return _process_media_input(messages, to_bytes)
+    """Schema-aware walk for the Bedrock Converse API."""
+
+    def walk(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            # Convert media values in {'format': ..., 'source': {'bytes': ...}}
+            if 'format' in obj and isinstance(obj.get('source'), dict) and 'bytes' in obj['source']:
+                val = obj['source']['bytes']
+                if _is_media(val):
+                    fmt = obj['format'] if isinstance(val, PIL.Image.Image) else None
+                    return {**obj, 'source': {**obj['source'], 'bytes': to_bytes(val, format=fmt)}}
+            return {k: walk(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [walk(v) for v in obj]
+        return obj
+
+    return walk(messages)
 
 
 def _decode_base64_image(value: str) -> str | PIL.Image.Image:
@@ -290,7 +304,8 @@ async def _invoke_model_async(body: dict, model_id: str) -> Any:
             return str(tmp_path)
         else:
             obj = await asyncio.to_thread(store.client().get_object, Bucket=store.bucket_name, Key=result_key)
-            return json.loads(obj['Body'].read().decode('utf-8'))
+            obj_bytes = await asyncio.to_thread(obj['Body'].read)
+            return json.loads(obj_bytes.decode('utf-8'))
 
 
 @pxt.udf(is_deterministic=False)
@@ -454,7 +469,8 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
         kwargs['serviceTier'] = service_tier
 
     response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
-    result = json.loads(response['body'].read())
+    response_bytes = await asyncio.to_thread(response['body'].read)
+    result = json.loads(response_bytes)
     return _decode_invoke_model_response(result, model_id)
 
 
@@ -638,7 +654,8 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
 
     try:
         response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
-        response_body = json.loads(response['body'].read())
+        response_bytes = await asyncio.to_thread(response['body'].read)
+        response_body = json.loads(response_bytes)
         if 'nova' in model_id:
             return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
         elif model_id.startswith('cohere.embed'):
@@ -683,7 +700,8 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
 
     try:
         response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
-        response_body = json.loads(response['body'].read())
+        response_bytes = await asyncio.to_thread(response['body'].read)
+        response_body = json.loads(response_bytes)
         if 'nova' in model_id:
             return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
         elif model_id.startswith('cohere.embed-v4'):
