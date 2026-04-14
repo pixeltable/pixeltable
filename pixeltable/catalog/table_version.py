@@ -416,6 +416,11 @@ class TableVersion:
         # assert tbl_version.effective_version is not None
         # assert (tbl_version.id, tbl_version.effective_version, None) not in cat._tbl_versions
         cat._tbl_versions[key] = tbl_version
+        # TODO
+        key2 = TableVersionKey(tbl_id, None, None)
+        if view_md is None or not view_md.is_snapshot:
+            # Force refresh the live version in cache. This is necessary because tbl_version.init() will be needing it
+            cat._load_tbl_version(key2)
         tbl_version.init()
         if create_store_tbl:
             tbl_version.store_tbl.create()

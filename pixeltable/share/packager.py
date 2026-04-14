@@ -438,9 +438,7 @@ class TableRestorer:
 
         cat = get_runtime().catalog
 
-        # TODO: _allow_tbl_md_read seems to be necessary because a table that doesn't yet exist, cannot be locked for
-        # an update.
-        with cat.begin_xact(for_write=True, convert_db_excs=False), cat._allow_tbl_md_read():
+        with cat.begin_xact(for_write=True, convert_db_excs=False):
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
             # versions that have not been seen before.
             cat.create_replica(catalog.Path.parse(self.tbl_path), tbl_md)
