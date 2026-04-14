@@ -522,6 +522,7 @@ class Query:
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         raise excs.Error(msg) from e
 
+    # TODO this is used externally, maybe it should become a public function
     def _read_tbl_ids(self) -> set[UUID]:
         """Returns the IDs of all tables referenced by this query"""
         all_exprs = itertools.chain(
