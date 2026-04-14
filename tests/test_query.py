@@ -1,4 +1,5 @@
 import datetime
+import itertools
 import re
 import urllib.request
 from pathlib import Path
@@ -985,9 +986,7 @@ class TestQuery:
 
         # context manager: partial consumption cleans up
         with query.cursor() as cur:
-            for i, _row in enumerate(cur):
-                if i == 10:
-                    break
+            list(itertools.islice(cur, 10))
         assert cur._closed
 
         # auto-open and auto-close on exhaustion without context manager
