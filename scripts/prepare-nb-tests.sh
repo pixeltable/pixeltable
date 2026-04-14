@@ -14,7 +14,7 @@ SKIP_NOTEBOOKS=(
 )
 
 # Notebooks that are skipped unless --include-expensive is passed
-EXPENSIVE_NOTEBOOKS=(
+VERY_EXPENSIVE_NOTEBOOKS=(
     video-generate-ai
     working-with-bfl
     working-with-runwayml
@@ -90,7 +90,7 @@ done
 
 # Remove expensive notebooks unless --include-expensive was passed
 if [[ $INCLUDE_EXPENSIVE == false ]]; then
-    for nb in "${EXPENSIVE_NOTEBOOKS[@]}"; do
+    for nb in "${VERY_EXPENSIVE_NOTEBOOKS[@]}"; do
         rm "$TARGET_DIR/${nb}.ipynb"
     done
 fi
