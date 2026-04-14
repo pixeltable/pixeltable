@@ -374,42 +374,43 @@ class Catalog:
                 has_exc = False
 
                 assert not self._undo_actions
-                with self._allow_tbl_md_read(), get_runtime().begin_xact(for_write=for_write) as conn:
-                    try:
-                        self._acquire_locks(
-                            tvp_read_targets=tvp_read_targets,
-                            tbl_id_read_targets=tbl_id_read_targets,
-                            tvp_write_targets=tvp_write_targets,
-                            tbl_id_write_targets=tbl_id_write_targets,
-                            lock_mutable_tree=lock_mutable_tree,
-                            finalize_pending_ops=finalize_pending_ops,
-                        )
-                        if for_write and lock_mutable_tree:
-                            self._compute_column_dependents(self._x_locked_tbl_ids)
-                        if _logger.isEnabledFor(logging.DEBUG):
-                            # validate only when we don't see errors
-                            self.validate()
-                    except PendingTableOpsError as e:
-                        has_exc = True
-                        if finalize_pending_ops:
-                            # we remember which table id to finalize
-                            pending_ops_tbl_id = e.tbl_id
-                        # raise to abort the transaction
-                        raise
-                    except sql_exc.DBAPIError as e:
-                        # Handle retriable errors
-                        has_exc = True
-                        if isinstance(
-                            e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
-                        ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
-                            _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
-                            num_retries += 1
-                            time.sleep(random.uniform(0.1, 0.5))
-                            # attempt failed -- don't try to commit the transaction before retrying
-                            conn.rollback()
-                            assert not self._undo_actions  # We should not have any undo actions at this point
-                            continue
-                        raise
+                with get_runtime().begin_xact(for_write=for_write) as conn:
+                    with self._allow_tbl_md_read():
+                        try:
+                            self._acquire_locks(
+                                tvp_read_targets=tvp_read_targets,
+                                tbl_id_read_targets=tbl_id_read_targets,
+                                tvp_write_targets=tvp_write_targets,
+                                tbl_id_write_targets=tbl_id_write_targets,
+                                lock_mutable_tree=lock_mutable_tree,
+                                finalize_pending_ops=finalize_pending_ops,
+                            )
+                            if for_write and lock_mutable_tree:
+                                self._compute_column_dependents(self._x_locked_tbl_ids)
+                            if _logger.isEnabledFor(logging.DEBUG):
+                                # validate only when we don't see errors
+                                self.validate()
+                        except PendingTableOpsError as e:
+                            has_exc = True
+                            if finalize_pending_ops:
+                                # we remember which table id to finalize
+                                pending_ops_tbl_id = e.tbl_id
+                            # raise to abort the transaction
+                            raise
+                        except sql_exc.DBAPIError as e:
+                            # Handle retriable errors
+                            has_exc = True
+                            if isinstance(
+                                e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
+                            ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
+                                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
+                                num_retries += 1
+                                time.sleep(random.uniform(0.1, 0.5))
+                                # attempt failed -- don't try to commit the transaction before retrying
+                                conn.rollback()
+                                assert not self._undo_actions  # We should not have any undo actions at this point
+                                continue
+                            raise
 
                     assert not self._undo_actions
                     yield conn
