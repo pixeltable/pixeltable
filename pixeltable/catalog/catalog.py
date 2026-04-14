@@ -740,9 +740,12 @@ class Catalog:
 
         while True:
             try:
-                with self.begin_xact(
-                    for_write=True, tbl_id_write_targets=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
-                ) as conn, self._allow_tbl_md_read():
+                with (
+                    self.begin_xact(
+                        for_write=True, tbl_id_write_targets=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
+                    ) as conn,
+                    self._allow_tbl_md_read(),
+                ):
                     # determine table status
                     q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
                     row = conn.execute(q).one_or_none()
