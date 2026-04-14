@@ -537,7 +537,7 @@ class Query:
 
     def _output_row_iterator(self) -> Iterator[list]:
         tbl_ids = self._read_tbl_ids()
-        with get_runtime().catalog.begin_xact(tbl_id_read_targets=tbl_ids):
+        with get_runtime().catalog.begin_xact(for_write=False, tbl_id_read_targets=tbl_ids):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
@@ -567,6 +567,8 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
+        # TODO is count with more than one table untested?
+        # TODO tvp_read_targets should be all tbl ids
         with get_runtime().catalog.begin_xact(tvp_read_targets=[self._first_tbl]) as conn:
             count_stmt = Planner.create_count_stmt(self)
             result: int = conn.execute(count_stmt).scalar_one()
@@ -1255,6 +1257,8 @@ class Query:
             >>> person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
+        # TODO is update with more than one table untested?
+        # TODO tvp_write_targets should be all tbl ids?
         with get_runtime().catalog.begin_xact(
             for_write=True, tvp_write_targets=[self._first_tbl], lock_mutable_tree=True
         ):
@@ -1281,6 +1285,8 @@ class Query:
             >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
         self._validate_mutable('recompute_columns', False)
+        # TODO is recompute_columns with more than one table untested? is it even possible?
+        # TODO should tvp_write_targets be all tbl ids ?
         with get_runtime().catalog.begin_xact(
             for_write=True, tvp_write_targets=[self._first_tbl], lock_mutable_tree=True
         ):
@@ -1304,6 +1310,8 @@ class Query:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error('Cannot use `delete` on a view.')
+        # TODO is delete with more than one table untested? should it even be allowed? if so, tvp_write_targets should
+        # be all tbl ids?
         with get_runtime().catalog.begin_xact(
             for_write=True, tvp_write_targets=[self._first_tbl], lock_mutable_tree=True
         ):
@@ -1447,8 +1455,7 @@ class Query:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            # TODO: extend begin_xact() to accept multiple TVPs for joins
-            with get_runtime().catalog.begin_xact(tvp_read_targets=[self._first_tbl]):
+            with get_runtime().catalog.begin_xact(tbl_id_read_targets=self._read_tbl_ids()):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1493,7 +1500,7 @@ class Query:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with get_runtime().catalog.begin_xact(tvp_read_targets=[self._first_tbl]):
+            with get_runtime().catalog.begin_xact(tbl_id_read_targets=self._read_tbl_ids()):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)
 
