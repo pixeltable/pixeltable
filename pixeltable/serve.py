@@ -250,55 +250,63 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                         TempStore.delete_media_file(p)
                 raise
 
-        def endpoint(request: Request, **kwargs: Any) -> Any:
-            # get a fresh table handle and validate it against the one we saw when the route was registered
-            tbl = pxt.get_table(tbl_path)
-            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
-                raise HTTPException(
-                    status_code=409,
-                    detail='table schema changed since route was registered; please restart the service',
-                )
-
-            # Resolve the media URL prefix now, in the request thread. We can't safely call
-            # request.url_for() from the background worker: the ASGI scope's lifetime is the
-            # request/response cycle, and touching it after the response has been sent relies on
-            # undocumented behavior. Instead, ask Starlette to build a URL with '_' as the path
-            # param ('_' is URL-unreserved so it passes through percent-encoding unchanged),
-            # strip it, and close `url_for_media` over the resulting plain string.
-            sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
-            media_url_base = sample_url[:-1]
-
-            def url_for_media(rel_path: str) -> str:
-                return f'{media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
-
-            # write out uploads while the request is still alive
-            tmp_paths: list[Path] = []
-            if len(upload_col_ids) > 0:
-                for col in input_cols:
-                    if col.id in upload_col_ids:
-                        path = self._write_to_temp(kwargs[col.name])
-                        tmp_paths.append(path)
-                        kwargs[col.name] = str(path)
-
-            if background:
-                job_id = uuid.uuid4().hex
-                fut = self._executor.submit(run_insert, tbl, kwargs, tmp_paths, url_for_media)
-                with self._jobs_lock:
-                    self._jobs[job_id] = fut
-                return BackgroundJobResponse(
-                    id=job_id, job_url=str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id))
-                )
-            else:
-                try:
-                    return run_insert(tbl, kwargs, tmp_paths, url_for_media)
-                except pxt.Error as e:
-                    raise HTTPException(status_code=400, detail=str(e)) from e
-
+        # def endpoint(request: Request, **kwargs: Any) -> Any:
+        #     # get a fresh table handle and validate it against the one we saw when the route was registered
+        #     tbl = pxt.get_table(tbl_path)
+        #     if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
+        #         raise HTTPException(
+        #             status_code=409,
+        #             detail='table schema changed since route was registered; please restart the service',
+        #         )
+        #
+        #     # Resolve the media URL prefix now, in the request thread. We can't safely call
+        #     # request.url_for() from the background worker: the ASGI scope's lifetime is the
+        #     # request/response cycle, and touching it after the response has been sent relies on
+        #     # undocumented behavior. Instead, ask Starlette to build a URL with '_' as the path
+        #     # param ('_' is URL-unreserved so it passes through percent-encoding unchanged),
+        #     # strip it, and close `url_for_media` over the resulting plain string.
+        #     sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
+        #     media_url_base = sample_url[:-1]
+        #
+        #     def url_for_media(rel_path: str) -> str:
+        #         return f'{media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
+        #
+        #     # write out uploads while the request is still alive
+        #     tmp_paths: list[Path] = []
+        #     if len(upload_col_ids) > 0:
+        #         for col in input_cols:
+        #             if col.id in upload_col_ids:
+        #                 path = self._write_to_temp(kwargs[col.name])
+        #                 tmp_paths.append(path)
+        #                 kwargs[col.name] = str(path)
+        #
+        #     if background:
+        #         job_id = uuid.uuid4().hex
+        #         fut = self._executor.submit(run_insert, tbl, kwargs, tmp_paths, url_for_media)
+        #         with self._jobs_lock:
+        #             self._jobs[job_id] = fut
+        #         return BackgroundJobResponse(
+        #             id=job_id, job_url=str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id))
+        #         )
+        #     else:
+        #         try:
+        #             return run_insert(tbl, kwargs, tmp_paths, url_for_media)
+        #         except pxt.Error as e:
+        #             raise HTTPException(status_code=400, detail=str(e)) from e
+        #
         sig = self._create_endpoint_signature(
             input_cols=input_cols, upload_col_names=[cols_by_id[col_id].name for col_id in upload_col_ids]
         )
-        endpoint.__signature__ = sig  # type: ignore[attr-defined]
-        endpoint.__name__ = f'insert_{path.strip("/").replace("/", "_") or "root"}'
+        endpoint = self._create_endpoint(
+            f'insert_{path.strip("/").replace("/", "_") or "root"}',
+            sig,
+            uploadfile_inputs=uploadfile_inputs,
+            background=background,
+            endpoint_op=run_insert,
+            tbl_path=tbl_path,
+            tbl_id=tbl_id,
+            schema_version=schema_version,
+        )
 
         api_kwargs: dict[str, Any] = {'methods': ['POST']}
         if endpoint_model is not None:
@@ -534,7 +542,47 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             else:
                 return output_model(rows=output)
 
+        sig = self._create_endpoint_signature(
+            input_schema=input_schema,
+            upload_col_names=uploadfile_inputs,
+            is_post=(method == 'post'),
+            defaults=input_defaults,
+        )
+        endpoint = self._create_endpoint(
+            f'query_{path.strip("/").replace("/", "_") or "root"}',
+            sig,
+            uploadfile_inputs=uploadfile_inputs,
+            background=background,
+            endpoint_op=run_query,
+        )
+
+        api_kwargs: dict[str, Any] = {'methods': [method.upper()]}
+        if endpoint_model is not None:
+            api_kwargs['response_model'] = endpoint_model
+        if return_fileresponse:
+            api_kwargs['response_class'] = FileResponse
+        self.add_api_route(path, endpoint, **api_kwargs)
+
+    def _create_endpoint(
+        self,
+        name: str,
+        signature: inspect.Signature,
+        uploadfile_inputs: list[str],
+        background: bool,
+        endpoint_op: Callable,
+        tbl_path: str | None = None,
+        tbl_id: int | None = None,
+        schema_version: int | None = None,
+    ) -> Callable[..., Any]:
         def endpoint(request: Request, **kwargs: Any) -> Any:
+            if tbl_path is not None:
+                tbl = pxt.get_table(tbl_path)
+                if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
+                    raise HTTPException(
+                        status_code=409,
+                        detail='table schema changed since route was registered; please restart the service',
+                    )
+
             sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
             media_url_base = sample_url[:-1]
 
@@ -544,15 +592,15 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             # write out uploads while the request is still alive
             tmp_paths: list[Path] = []
             if len(uploadfile_inputs) > 0:
-                for name in kwargs:  # noqa: PLC0206
-                    if name in uploadfile_inputs:
-                        path = self._write_to_temp(kwargs[name])
+                for input_name in kwargs:  # noqa: PLC0206
+                    if input_name in uploadfile_inputs:
+                        path = self._write_to_temp(kwargs[input_name])
                         tmp_paths.append(path)
-                        kwargs[name] = str(path)
+                        kwargs[input_name] = str(path)
 
             if background:
                 job_id = uuid.uuid4().hex
-                fut = self._executor.submit(run_query, kwargs, tmp_paths, url_for_media)
+                fut = self._executor.submit(endpoint_op, kwargs, tmp_paths, url_for_media)
                 with self._jobs_lock:
                     self._jobs[job_id] = fut
                 return BackgroundJobResponse(
@@ -560,25 +608,13 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                 )
             else:
                 try:
-                    return run_query(kwargs, tmp_paths, url_for_media)
+                    return endpoint_op(kwargs, tmp_paths, url_for_media)
                 except pxt.Error as e:
                     raise HTTPException(status_code=400, detail=str(e)) from e
 
-        sig = self._create_endpoint_signature(
-            input_schema=input_schema,
-            upload_col_names=uploadfile_inputs,
-            is_post=(method == 'post'),
-            defaults=input_defaults,
-        )
-        endpoint.__signature__ = sig  # type: ignore[attr-defined]
-        endpoint.__name__ = f'query_{path.strip("/").replace("/", "_") or "root"}'
-
-        api_kwargs: dict[str, Any] = {'methods': [method.upper()]}
-        if endpoint_model is not None:
-            api_kwargs['response_model'] = endpoint_model
-        if return_fileresponse:
-            api_kwargs['response_class'] = FileResponse
-        self.add_api_route(path, endpoint, **api_kwargs)
+        endpoint.__signature__ = signature  # type: ignore[attr-defined]
+        endpoint.__name__ = name
+        return endpoint
 
     def _validate_args(
         self,
