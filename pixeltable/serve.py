@@ -63,6 +63,24 @@ _MEDIA_CONTENT_TYPES: dict[ts.ColumnType.Type, str] = {
 }
 
 
+def _run_endpoint_op(
+    endpoint_op: Callable,
+    kwargs: dict[str, Any],
+    tmp_paths: list[Path],
+    url_for_media: Callable[[str], str],
+    extra_kwargs: dict[str, Any],
+) -> Any:
+    try:
+        return endpoint_op(kwargs, url_for_media, **extra_kwargs)
+    except Exception as e:
+        for p in tmp_paths:
+            if p.exists():
+                TempStore.delete_media_file(p)
+        if isinstance(e, pxt.Error):
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        raise
+
+
 class PxtFastAPIRouter(fastapi.APIRouter):
     """
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
@@ -228,43 +246,34 @@ class PxtFastAPIRouter(fastapi.APIRouter):
 
         def run_insert(
             row_kwargs: dict[str, Any],
-            tmp_paths: list[Path],
             url_for_media: Callable[[str], str],
-            *,
             tbl_path: str,
             tbl_id: uuid.UUID,
             schema_version: int,
         ) -> Any:
-            try:
-                # we need to fetch the table handle now (handles are not thread-portable) and validate against the
-                # schema we saw when the route was registered
-                tbl = pxt.get_table(tbl_path)
-                if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
-                    raise HTTPException(
-                        status_code=409,
-                        detail='table schema changed since route was registered; please restart the service',
-                    )
-
-                status = tbl.insert([row_kwargs], return_rows=True)
-                if status.rows is None:
-                    raise HTTPException(status_code=500, detail='insert returned no rows')
-                if len(status.rows) != 1:
-                    raise HTTPException(
-                        status_code=500, detail=f'insert returned unexpected row count ({len(status.rows)})'
-                    )
-                output = self._create_output(
-                    status.rows, output_col_names, insert_response_model, return_fileresponse, url_for_media
+            # we need to fetch the table handle now (handles are not thread-portable) and validate against the
+            # schema we saw when the route was registered
+            tbl = pxt.get_table(tbl_path)
+            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
+                raise HTTPException(
+                    status_code=409,
+                    detail='table schema changed since route was registered; please restart the service',
                 )
-                if isinstance(output, list):
-                    return output[0]
-                else:
-                    return output
-            except Exception:
-                # insert() did not consume the staged files; remove any leftovers from TempStore
-                for p in tmp_paths:
-                    if p.exists():
-                        TempStore.delete_media_file(p)
-                raise
+
+            status = tbl.insert([row_kwargs], return_rows=True)
+            if status.rows is None:
+                raise HTTPException(status_code=500, detail='insert returned no rows')
+            if len(status.rows) != 1:
+                raise HTTPException(
+                    status_code=500, detail=f'insert returned unexpected row count ({len(status.rows)})'
+                )
+            output = self._create_output(
+                status.rows, output_col_names, insert_response_model, return_fileresponse, url_for_media
+            )
+            if isinstance(output, list):
+                return output[0]
+            else:
+                return output
 
         sig = self._create_endpoint_signature(
             input_cols=input_cols, upload_col_names=[cols_by_id[col_id].name for col_id in upload_col_ids]
@@ -468,15 +477,9 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                 sample_clause=query.template_query.sample_clause,
             )
 
-        def run_query(call_kwargs: dict[str, Any], tmp_paths: list[Path], url_for_media: Callable[[str], str]) -> Any:
-            try:
-                bound_df = template_query.bind(call_kwargs)
-                result_set = bound_df.collect()
-            except Exception:
-                for p in tmp_paths:
-                    if p.exists():
-                        TempStore.delete_media_file(p)
-                raise
+        def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+            bound_df = template_query.bind(call_kwargs)
+            result_set = bound_df.collect()
             rows = list(result_set)
 
             # do error checking now, before converting data
@@ -561,17 +564,16 @@ class PxtFastAPIRouter(fastapi.APIRouter):
 
             if background:
                 job_id = uuid.uuid4().hex
-                fut = self._executor.submit(endpoint_op, kwargs, tmp_paths, url_for_media, **extra_kwargs)
+                fut = self._executor.submit(
+                    _run_endpoint_op, endpoint_op, kwargs, tmp_paths, url_for_media, extra_kwargs
+                )
                 with self._jobs_lock:
                     self._jobs[job_id] = fut
                 return BackgroundJobResponse(
                     id=job_id, job_url=str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id))
                 )
             else:
-                try:
-                    return endpoint_op(kwargs, tmp_paths, url_for_media, **extra_kwargs)
-                except pxt.Error as e:
-                    raise HTTPException(status_code=400, detail=str(e)) from e
+                return _run_endpoint_op(endpoint_op, kwargs, tmp_paths, url_for_media, extra_kwargs)
 
         endpoint.__signature__ = signature  # type: ignore[attr-defined]
         endpoint.__name__ = name
