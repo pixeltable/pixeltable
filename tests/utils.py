@@ -590,6 +590,8 @@ def skip_test_if_no_pxt_credentials() -> None:
 
 
 def skip_test_if_no_aws_credentials() -> None:
+    skip_test_if_not_installed('boto3')
+
     import boto3
     from botocore.exceptions import NoCredentialsError
 

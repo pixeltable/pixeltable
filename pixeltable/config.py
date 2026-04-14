@@ -183,6 +183,8 @@ KNOWN_CONFIG_OPTIONS = {
         'api_key': 'AWS Bedrock API key',
         'region_name': 'AWS region for Bedrock (default: us-east-1)',
         'temp_location': 'S3 URI for temporary storage used by Bedrock async model invocations',
+        'performance_config_latency': 'Performance setting for supported models (standard or optimized)',
+        'service_tier': 'Processing tier for requests (priority, default, flex, or reserved)',
     },
     'bfl': {'api_key': 'Black Forest Labs (BFL) API key', 'rate_limit': 'Rate limit for BFL API requests'},
     'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},

@@ -7,15 +7,13 @@ the [Working with Bedrock](https://docs.pixeltable.com/howto/providers/working-w
 
 import asyncio
 import base64
-import copy
 import io
 import json
 import logging
 import mimetypes
-from base64 import b64encode
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Literal
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
 import numpy as np
 import PIL.Image
@@ -27,7 +25,7 @@ from pixeltable.config import Config
 from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.image import to_base64
+from pixeltable.utils.image import default_format, to_base64, to_bytes
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageObjectAddress
 
@@ -38,13 +36,38 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
+_ASYNC_INVOCATION_POLL_INTERVAL_SECS = 5.0
+
 _ASYNC_INVOCATION_TIMEOUT_SECS = 600.0
 
 # Models that always require StartAsyncInvoke and produce video output.
-_ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES = frozenset({'amazon.nova-reel', 'luma.'})
+_ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES = ('amazon.nova-reel', 'luma.')
 
 # Models that require StartAsyncInvoke for audio/video inputs (detected via body['inputType']).
-_ASYNC_EMBEDDING_MODEL_PREFIXES = frozenset({'twelvelabs.marengo'})
+_ASYNC_EMBEDDING_MODEL_PREFIXES = ('twelvelabs.marengo',)
+
+# Models that expect data URIs (e.g. `data:image/jpeg;base64,<base64-encoded-image>`) for media values.
+_DATA_URI_INPUT_MODEL_PREFIXES = (
+    'mistral.pixtral',
+    'us.mistral.pixtral',
+    'mistral.mistral-large-3',
+    'us.mistral.mistral-large-3',
+    'mistral.magistral',
+    'us.mistral.magistral',
+    'mistral.ministral',
+    'us.mistral.ministral',
+    'google.gemma-3',
+    'nvidia.nemotron-nano-12b',
+    'moonshot.',
+    'moonshotai.',
+    'qwen.qwen3-vl',
+    'cohere.embed-v4',
+)
+
+
+# Models whose invoke_model response contains base64-encoded media values.
+# All other models return text, embeddings, or metadata with no media fields.
+_IMAGE_GENERATION_MODEL_PREFIXES = ('stability.', 'us.stability.', 'amazon.nova-canvas', 'amazon.titan-image-generator')
 
 
 @env.register_client('bedrock')
@@ -81,22 +104,22 @@ def _bedrock_client() -> Any:
 
 def _get_temp_location() -> str:
     """Get the bedrock.temp_location config value, raising a clear error if not set."""
-    location = Config.get().get_value('temp_location', str, section='bedrock')
-    if not location:
+    output_location = Config.get().get_string_value('temp_location', section='bedrock')
+    if not output_location:
         raise pxt.Error(
             'bedrock.temp_location must be configured for async model invocation. '
-            'Set the environment variable BEDROCK_TEMP_LOCATION or add temp_location to the '
-            '[bedrock] section of config.toml.'
+            'Set the environment variable `BEDROCK_TEMP_LOCATION` or add temp_location to the '
+            '`[bedrock]` section of your Pixeltable configuration file.'
         )
-    return location
+    return output_location
 
 
 def _requires_async(body: dict, model_id: str) -> bool:
     """Return True if this model and input combination requires StartAsyncInvoke."""
-    if model_id.startswith(tuple(_ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES)):
+    if model_id.startswith(_ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES):
         return True
-    if model_id.startswith(tuple(_ASYNC_EMBEDDING_MODEL_PREFIXES)):
-        input_type = body.get('inputType', '')
+    if model_id.startswith(_ASYNC_EMBEDDING_MODEL_PREFIXES):
+        input_type = body.get('inputType')
         return input_type in ('audio', 'video')
     return False
 
@@ -116,57 +139,17 @@ def _is_media(v: Any) -> bool:
         return False
 
 
-def _to_base64_str(media: PIL.Image.Image | str) -> str:
-    if isinstance(media, PIL.Image.Image):
-        return to_base64(media)
-    with open(media, 'rb') as f:
-        return b64encode(f.read()).decode('utf-8')
-
-
-def _to_binary(media: PIL.Image.Image | str) -> bytes:
-    """Convert PIL image or file path to raw bytes for the Converse API (expects bytes, not base64)."""
-    if isinstance(media, PIL.Image.Image):
-        buf = io.BytesIO()
-        media.save(buf, format=media.format or 'JPEG')
-        return buf.getvalue()
-    with open(media, 'rb') as f:
-        return f.read()
-
-
 def _to_data_uri(media: PIL.Image.Image | str) -> str:
     if isinstance(media, PIL.Image.Image):
-        mime = PIL.Image.MIME.get(media.format, 'image/jpeg')
-        return f'data:{mime};base64,{_to_base64_str(media)}'
-    mime = mimetypes.guess_type(media)[0] or 'application/octet-stream'
-    return f'data:{mime};base64,{_to_base64_str(media)}'
+        fmt = default_format(media)
+        mime = f'image/{fmt}'
+        return f'data:{mime};base64,{to_base64(media)}'
+    mime = mimetypes.guess_type(media)[0] or 'image/jpeg'
+    # All models using data URIs are vision models; default to image/jpeg for unknown extensions.
+    return f'data:{mime};base64,{to_base64(media)}'
 
 
-#####################################
-# Input conversion
-
-
-# Models that expect data URIs (e.g. `data:image/jpeg;base64,<base64-encoded-image>`) for media values.
-_DATA_URI_INPUT_MODEL_PREFIXES = frozenset(
-    {
-        'mistral.pixtral',
-        'us.mistral.pixtral',
-        'mistral.mistral-large-3',
-        'us.mistral.mistral-large-3',
-        'mistral.magistral',
-        'us.mistral.magistral',
-        'mistral.ministral',
-        'us.mistral.ministral',
-        'google.gemma-3',
-        'nvidia.nemotron-nano-12b',
-        'moonshot.',
-        'moonshotai.',
-        'qwen.qwen3-vl',
-        'cohere.embed-v4',
-    }
-)
-
-
-def _process_media_input(obj: Any, converter: Callable) -> Any:
+def _process_media_input(obj: Any, converter: Callable[[Any], Any]) -> Any:
     """Recursively walk a request body and apply model specific converter to media inputs."""
     if isinstance(obj, dict):
         return {k: _process_media_input(v, converter) for k, v in obj.items()}
@@ -179,28 +162,17 @@ def _process_media_input(obj: Any, converter: Callable) -> Any:
 
 def _apply_invoke_model_request_conversions(body: dict, model_id: str) -> dict:
     """Convert all PIL images and media file paths in a request body to the encoding expected by the target model."""
-    if any(model_id.startswith(p) for p in _DATA_URI_INPUT_MODEL_PREFIXES):
+    if model_id.startswith(_DATA_URI_INPUT_MODEL_PREFIXES):
         return _process_media_input(body, _to_data_uri)
-    return _process_media_input(body, _to_base64_str)
+    return _process_media_input(body, to_base64)
 
 
 def _apply_converse_request_conversions(messages: list[dict]) -> list[dict]:
     # The Converse API always expects raw bytes regardless of model.
-    return _process_media_input(copy.deepcopy(messages), _to_binary)
+    return _process_media_input(messages, to_bytes)
 
 
-#####################################
-# Output conversion
-
-
-# Models whose invoke_model response contains base64-encoded media values.
-# All other models return text, embeddings, or metadata with no media fields.
-_IMAGE_GENERATION_MODEL_PREFIXES = frozenset(
-    {'stability.', 'us.stability.', 'amazon.nova-canvas', 'amazon.titan-image-generator'}
-)
-
-
-def _decode_base64_images(value: str) -> str | PIL.Image.Image:
+def _decode_base64_image(value: str) -> str | PIL.Image.Image:
     """Attempt to decode a string as base64 image.
     Returns a PIL image, or the original string if it is not valid base64 media."""
     try:
@@ -223,13 +195,13 @@ def _decode_invoke_model_response_images(obj: Any) -> Any:
     if isinstance(obj, list):
         return [_decode_invoke_model_response_images(v) for v in obj]
     if isinstance(obj, str):
-        return _decode_base64_images(obj)
+        return _decode_base64_image(obj)
     return obj
 
 
 def _decode_invoke_model_response(response: dict, model_id: str) -> dict:
     """Decode base64 media fields in a response dict. Only applied to models known to return media."""
-    if not any(model_id.startswith(p) for p in _IMAGE_GENERATION_MODEL_PREFIXES):
+    if not model_id.startswith(_IMAGE_GENERATION_MODEL_PREFIXES):
         return response
     return _decode_invoke_model_response_images(response)
 
@@ -248,12 +220,10 @@ _embedding_dimensions: dict[str, int] = {
 
 @asynccontextmanager
 async def _bedrock_async_invocation(
-    model_id: str, body: dict, output_location: str, poll_interval_secs: float
-) -> AsyncIterator[tuple['S3Store', StorageObjectAddress, str]]:
-    """Submit a Bedrock async job, poll until completion, yield (store, soa, result_key), and
-    delete staging S3 objects on exit."""
-    from pixeltable.utils.s3_store import S3Store
-
+    model_id: str, body: dict, soa: StorageObjectAddress, store: 'S3Store'
+) -> AsyncIterator[str]:
+    """Submit a Bedrock async job, poll until completion, yield result location and cleanup temp S3 objects on exit."""
+    output_location = f'{soa.prefix_free_uri}{soa.prefix}'
     response = await asyncio.to_thread(
         _bedrock_client().start_async_invoke,
         modelId=model_id,
@@ -265,8 +235,8 @@ async def _bedrock_async_invocation(
 
     elapsed = 0.0
     while True:
-        await asyncio.sleep(poll_interval_secs)
-        elapsed += poll_interval_secs
+        await asyncio.sleep(_ASYNC_INVOCATION_POLL_INTERVAL_SECS)
+        elapsed += _ASYNC_INVOCATION_POLL_INTERVAL_SECS
         if elapsed > _ASYNC_INVOCATION_TIMEOUT_SECS:
             raise pxt.Error(f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s')
         job: dict[str, Any] = await asyncio.to_thread(_bedrock_client().get_async_invoke, invocationArn=invocation_arn)
@@ -275,11 +245,6 @@ async def _bedrock_async_invocation(
             break
         if status == 'Failed':
             raise pxt.Error(f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}')
-
-    soa = ObjectPath.parse_object_storage_addr(output_location, allow_obj_name=False)
-    store = ObjectOps.get_store(soa, allow_obj_name=False)
-    if not isinstance(store, S3Store):
-        raise pxt.Error('bedrock.temp_location must be an s3:// URI')
 
     result_prefix = f'{soa.prefix}{invocation_id}/'
     listed = await asyncio.to_thread(store.client().list_objects_v2, Bucket=store.bucket_name, Prefix=result_prefix)
@@ -292,47 +257,36 @@ async def _bedrock_async_invocation(
         raise pxt.Error(f'No output file (only manifest) found for job {invocation_id}')
 
     try:
-        yield store, soa, result_key
+        yield result_key
     finally:
         for key in keys:
             await asyncio.to_thread(store.client().delete_object, Bucket=store.bucket_name, Key=key)
 
 
-async def _invoke_model_async(body: dict, model_id: str, poll_interval_secs: float) -> Any:
+async def _invoke_model_async(body: dict, model_id: str) -> Any:
     """Execute a Bedrock async invocation and return the result."""
     output_location = _get_temp_location()
+    soa = ObjectPath.parse_object_storage_addr(output_location, allow_obj_name=False)
+    store = ObjectOps.get_store(soa, allow_obj_name=False)
+    from pixeltable.utils.s3_store import S3Store
 
-    async with _bedrock_async_invocation(model_id, body, output_location, poll_interval_secs) as (
-        store,
-        soa,
-        result_key,
-    ):
+    if not isinstance(store, S3Store):
+        raise pxt.Error('bedrock.temp_location must be an s3:// URI')
+
+    async with _bedrock_async_invocation(model_id, body, soa, store) as result_key:
         result_uri = f'{soa.prefix_free_uri}{result_key}'
-        content_type = mimetypes.guess_type(result_key)[0] or 'application/json'
-
-        if content_type.startswith('video/') or content_type.startswith('audio/'):
-            default_ext = '.mp4' if content_type.startswith('video/') else '.mp3'
-            ext = mimetypes.guess_extension(content_type) or default_ext
+        if model_id.startswith(_ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES):
+            ext = Path(result_key).suffix.lower() or '.mp4'
             tmp_path = TempStore.create_path(extension=ext)
             await asyncio.to_thread(ObjectOps.copy_object_to_local_file, result_uri, tmp_path)
             return str(tmp_path)
-        elif content_type.startswith('image/'):
-            obj = await asyncio.to_thread(store.client().get_object, Bucket=store.bucket_name, Key=result_key)
-            return PIL.Image.open(io.BytesIO(obj['Body'].read()))
         else:
             obj = await asyncio.to_thread(store.client().get_object, Bucket=store.bucket_name, Key=result_key)
             return json.loads(obj['Body'].read().decode('utf-8'))
 
 
 @pxt.udf(is_deterministic=False)
-async def invoke_model(
-    body: dict,
-    *,
-    model_id: str,
-    poll_interval_secs: float = 5.0,
-    performance_config_latency: Literal['standard', 'optimized'] | None = None,
-    service_tier: Literal['priority', 'default', 'flex', 'reserved'] | None = None,
-) -> dict:
+async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
     """
     Invoke a Bedrock model.
 
@@ -347,7 +301,8 @@ async def invoke_model(
     images in the response are automatically decoded into `PIL.Image` objects.
 
     For models that require async invocation, `bedrock.temp_location` must be configured
-    (set environment variable `BEDROCK_TEMP_LOCATION` or add `temp_location` to the `[bedrock]` section of config.toml).
+    (set environment variable `BEDROCK_TEMP_LOCATION` or add `temp_location` to the `[bedrock]` section of
+    your Pixeltable configuration file).
 
     __Requirements:__
 
@@ -356,12 +311,6 @@ async def invoke_model(
     Args:
         body: The prompt and inference parameters as a dictionary.
         model_id: The model identifier to invoke.
-        poll_interval_secs: For async models, seconds between status checks. Defaults to 5.0.
-        performance_config_latency: Performance setting (`standard` or `optimized`).
-        service_tier: Processing tier (`priority`, `default`, `flex`, or `reserved`).
-
-    For details on the optional parameters, see:
-    <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/bedrock-runtime/client/invoke_model.html>
 
     Returns:
         A dictionary containing the model response. For image-generation models,
@@ -376,7 +325,8 @@ async def invoke_model(
         ...     response=invoke_model(body, model_id='amazon.titan-embed-text-v2:0')
         ... )
 
-        Invoke TwelveLabs Marengo with an image column:
+        Invoke TwelveLabs Marengo with an image column (note that the image can be included directly
+        in the invoke body, and will be automatically base64-encoded by Pixeltable):
 
         >>> body = {
         ...     'inputType': 'image',
@@ -388,7 +338,8 @@ async def invoke_model(
         ...     )
         ... )
 
-        Invoke TwelveLabs Marengo with audio:
+        Invoke TwelveLabs Marengo with audio (auto-routes to async via StartAsyncInvoke;
+        requires `bedrock.temp_location` to be configured):
 
         >>> body = {
         ...     'inputType': 'audio',
@@ -463,7 +414,7 @@ async def invoke_model(
         ... )
         >>> tbl.add_computed_column(image=tbl.response['images'][0])
 
-        Invoke Amazon Nova Reel for video generation (auto-routes to async):
+        Invoke Amazon Nova Reel for video generation (auto-routes to async; requires `bedrock.temp_location`):
 
         >>> body = {
         ...     'taskType': 'TEXT_VIDEO',
@@ -477,7 +428,7 @@ async def invoke_model(
     body = _apply_invoke_model_request_conversions(body, model_id)
 
     if _requires_async(body, model_id):
-        return await _invoke_model_async(body, model_id, poll_interval_secs)
+        return await _invoke_model_async(body, model_id)
 
     kwargs: dict[str, Any] = {
         'body': json.dumps(body),
@@ -485,6 +436,10 @@ async def invoke_model(
         'contentType': 'application/json',
         'accept': 'application/json',
     }
+
+    performance_config_latency = Config.get().get_string_value('performance_config_latency', section='bedrock')
+    service_tier = Config.get().get_string_value('service_tier', section='bedrock')
+
     if performance_config_latency is not None:
         kwargs['performanceConfigLatency'] = performance_config_latency
     if service_tier is not None:
@@ -497,7 +452,7 @@ async def invoke_model(
 
 @invoke_model.conditional_return_type
 def _(*, model_id: str) -> ts.ColumnType:
-    if any(model_id.startswith(p) for p in _ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES):
+    if model_id.startswith(_ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES):
         return ts.VideoType()
     return ts.JsonType()
 
@@ -519,7 +474,7 @@ async def converse(
     For additional details, see:
     <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/bedrock-runtime/client/converse.html>
 
-    PIL images and media file paths in `messages[*].content[*].image|video|audio.source.bytes`
+    PIL images and media file paths in `messages[*].content[*].(image|video|audio).source.bytes`
     are converted to raw bytes automatically.
 
     __Requirements:__
@@ -619,6 +574,7 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
     Args:
         text: Input text to embed.
         model_id: The embedding model identifier. Supported models:
+
             - `amazon.titan-embed-text-v1`
             - `amazon.titan-embed-text-v2:0` (supports `dimensions`: 256, 512, 1024)
             - `amazon.nova-2-multimodal-embeddings-v1:0` (supports `dimensions`: 256, 512, 1024, 3072)
@@ -687,38 +643,6 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
 
 @embed.overload
 async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = None) -> pxt.Array[(None,), np.float32]:
-    """
-    Generate image embeddings using Amazon Titan, Amazon Nova, or Cohere Embed v4.
-
-    Args:
-        image: Input image to embed.
-        model_id: The embedding model identifier. Supported models:
-            - `amazon.titan-embed-image-v1` (supports `dimensions`: 256, 384, 1024)
-            - `amazon.nova-2-multimodal-embeddings-v1:0` (supports `dimensions`: 256, 512, 1024, 3072)
-            - `cohere.embed-v4:0` (supports `dimensions`: 256, 512, 1024, 1536)
-        dimensions: Output embedding dimensions (model-dependent, optional).
-
-    Returns:
-        Embedding vector as a float32 array.
-
-    Examples:
-        Add an embedding index on an image column using Amazon Titan:
-
-        >>> tbl.add_embedding_index(
-        ...     tbl.image,
-        ...     image_embed=embed.using(model_id='amazon.titan-embed-image-v1'),
-        ... )
-
-        Add an embedding index on an image column using Amazon Nova:
-
-        >>> tbl.add_embedding_index(
-        ...     tbl.image,
-        ...     image_embed=embed.using(
-        ...         model_id='amazon.nova-2-multimodal-embeddings-v1:0',
-        ...         dimensions=1024,
-        ...     ),
-        ... )
-    """
     from botocore.exceptions import ClientError
 
     body: dict[str, Any]
