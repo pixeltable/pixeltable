@@ -499,10 +499,11 @@ class SqlScanNode(SqlNode):
     Args:
         select_list: output of the query
         set_pk: if True, sets the primary for each DataRow
-        created_at_current_version: tables for which we only want to see rows created at the current version
     """
 
+    # tables for which we only want to see rows created at the current version
     created_at_current_version: list[catalog.TableVersionHandle]
+    # tables for which we only want to see rows deleted at the current version
     deleted_at_current_version: list[catalog.TableVersionHandle]
 
     def __init__(
@@ -559,6 +560,7 @@ class SqlLookupNode(SqlNode):
         key_vals: list of key values to look up
     """
 
+    # tables for which we only want to see rows deleted at the current version
     deleted_at_current_version: list[catalog.TableVersionHandle]
 
     def __init__(

@@ -516,7 +516,7 @@ class Planner:
         select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
 
         # Read from rows that were just deleted (expired) at the current version.
-        # The where clause was already applied during deletion; delete_rows nullifies index value columns,
+        # The where clause was already applied during deletion; delete_rows() nullifies index value columns,
         # which would cause the where clause to fail on the expired rows.
         plan = cls.create_query_plan(
             FromClause(tbls=[tbl]),
@@ -699,7 +699,7 @@ class Planner:
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
 
-        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, set(updated_cols), recomputed_cols)
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, updated_cols, recomputed_cols)
 
         # Prepend updated cols as ColumnRefs (RowUpdateNode modifies them in-place; no further substitution needed)
         evaluated_cols: list[Column] = list(updated_cols) + eval_cols
