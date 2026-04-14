@@ -970,7 +970,7 @@ class TestQuery:
         cur.open()
         assert 'open' in repr(cur)
         # double open raises
-        with pytest.raises(pxt.Error, match='already open'):
+        with pytest.raises(pxt.Error, match='Cursor is already open'):
             cur.open()
         cur.close()
         assert 'closed' in repr(cur)
