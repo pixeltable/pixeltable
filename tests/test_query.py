@@ -656,6 +656,14 @@ class TestQuery:
             snap.where(t.c2 < 10).delete()
         assert 'Cannot use `delete` on a snapshot.' in str(exc_info.value)
 
+        # join+update
+        with pytest.raises(pxt.Error, match='Cannot use `update` after `join`'):
+            t.join(t2, how='cross').update({'c3': 0.0})
+
+        # join+delete
+        with pytest.raises(pxt.Error, match='Cannot use `delete` after `join`'):
+            t.join(t2, how='cross').delete()
+
     def __check_constant_query(self, query: pxt.Query, v: Any) -> None:
         r = query.limit(5).collect()
         assert all(r[i, 0] == v for i in range(len(r)))

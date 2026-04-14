@@ -1256,8 +1256,6 @@ class Query:
             >>> person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        # TODO is update with more than one table untested?
-        # TODO tvp_write_targets should be all tbl ids?
         with get_runtime().catalog.begin_xact(
             for_write=True, tvp_write_targets=[self._first_tbl], lock_mutable_tree=True
         ):
@@ -1309,8 +1307,6 @@ class Query:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error('Cannot use `delete` on a view.')
-        # TODO is delete with more than one table untested? should it even be allowed? if so, tvp_write_targets should
-        # be all tbl ids?
         with get_runtime().catalog.begin_xact(
             for_write=True, tvp_write_targets=[self._first_tbl], lock_mutable_tree=True
         ):
