@@ -568,9 +568,7 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        # TODO is count with more than one table untested?
-        # TODO tvp_read_targets should be all tbl ids
-        with get_runtime().catalog.begin_xact(tvp_read_targets=[self._first_tbl]) as conn:
+        with get_runtime().catalog.begin_xact(tbl_id_read_targets=self._read_tbl_ids()) as conn:
             count_stmt = Planner.create_count_stmt(self)
             result: int = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)

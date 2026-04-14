@@ -506,6 +506,24 @@ class TestQuery:
         distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
         assert cnt == distinct_c1_filtered
 
+    def test_count_join(self, uses_db: None) -> None:
+        """Tests for join...count queries"""
+        # TODO(PXT-1108): when the join+where bug is fixed, add some queries with where().
+        num_rows = 100
+        t1, t2, t3 = self.create_join_tbls(num_rows)
+
+        # Inner join + count. Note: t1 and t2 have matching ids.
+        cnt = t1.join(t2, on=(t1.id == t2.id), how='inner').count()
+        assert cnt == num_rows
+
+        # Inner join + count with a different table. Note: only 10% of t3's ids are present in t1.
+        cnt = t1.join(t3, on=(t1.id == t3.id), how='inner').count()
+        assert cnt == num_rows / 10
+
+        # Left join + count. Since it's left join, all t1 rows should be present.
+        cnt = t1.join(t3, on=(t1.id == t3.id), how='left').count()
+        assert cnt == num_rows
+
     def test_select_literal(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.select(1.0).where(t.c2 < 10).collect()
