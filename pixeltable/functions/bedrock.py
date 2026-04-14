@@ -583,7 +583,7 @@ async def converse(
 @pxt.udf
 async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> pxt.Array[(None,), np.float32]:
     """
-    Generate text embeddings using Amazon Titan, Amazon Nova, or Cohere embedding models.
+    Generate text or image embeddings using Amazon Titan, Amazon Nova, or Cohere embedding models.
 
     Calls the AWS Bedrock `invoke_model` API for embedding models.
     For additional details, see:

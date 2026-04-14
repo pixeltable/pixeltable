@@ -175,7 +175,7 @@ class TestBedrock:
                 model_id='twelvelabs.marengo-embed-3-0-v1:0',
             )
         )
-        audio_filepaths = get_audio_files()[:1]
+        audio_filepaths = get_audio_files(extension='.mp3')[:1]
         validate_update_status(t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         _assert_twelvelabs_embedding(t.select(t.response).collect())
 
@@ -191,7 +191,7 @@ class TestBedrock:
                 model_id='twelvelabs.marengo-embed-3-0-v1:0',
             )
         )
-        video_filepaths = get_video_files()[:1]
+        video_filepaths = get_video_files(extension='.mp4')[:1]
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         _assert_twelvelabs_embedding(t.select(t.response).collect())
 
@@ -208,7 +208,8 @@ class TestBedrock:
                 model_id='twelvelabs.pegasus-1-2-v1:0',
             )
         )
-        video_filepaths = get_video_files()[:1]
+
+        video_filepaths = get_video_files(extension='.mp4')[:1]
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         results = t.select(t.response).collect()
         assert results[0]['response']['message']
@@ -328,7 +329,7 @@ class TestBedrock:
                 model_id='amazon.nova-lite-v1:0',
             )
         )
-        video_filepaths = [p for p in get_video_files() if str(p).endswith('.mp4')][:1]
+        video_filepaths = get_video_files(extension='.mp4')[:1]
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         _assert_nova_text_response(t.select(t.response).collect())
 
@@ -357,7 +358,7 @@ class TestBedrock:
             }
         ]
         t.add_computed_column(output=converse(messages, model_id='amazon.nova-lite-v1:0'))
-        video_filepaths = [p for p in get_video_files() if str(p).endswith('.mp4')][:1]
+        video_filepaths = get_video_files(extension='.mp4')[:1]
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
 
@@ -465,7 +466,7 @@ class TestBedrock:
                 model_id='amazon.nova-2-multimodal-embeddings-v1:0',
             )
         )
-        audio_filepaths = [p for p in get_audio_files() if str(p).endswith('.mp3')][:1]
+        audio_filepaths = get_audio_files(extension='.mp3')[:1]
         validate_update_status(t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         assert t.select(t.response).collect()[0]['response']['embeddings']
 
@@ -491,7 +492,7 @@ class TestBedrock:
                 model_id='amazon.nova-2-multimodal-embeddings-v1:0',
             )
         )
-        video_filepaths = [p for p in get_video_files() if str(p).endswith('.mp4')][:1]
+        video_filepaths = get_video_files(extension='.mp4')[:1]
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         assert t.select(t.response).collect()[0]['response']['embeddings']
 
