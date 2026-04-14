@@ -44,7 +44,9 @@ class ExecContext:
             self.show_progress = show_progress
         else:
             self.show_progress = (
-                Config.get().get_bool_value('show_progress') and Env.get().verbosity >= 1 and Env.get().is_interactive()
+                bool(Config.get().get_bool_value('show_progress'))
+                and Env.get().verbosity >= 1
+                and Env.get().is_interactive()
             )
 
         # disable progress reporting in Jupyter if ipywidgets is not installed
