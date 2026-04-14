@@ -1282,8 +1282,6 @@ class Query:
             >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
         self._validate_mutable('recompute_columns', False)
-        # TODO is recompute_columns with more than one table untested? is it even possible?
-        # TODO should tvp_write_targets be all tbl ids ?
         with get_runtime().catalog.begin_xact(
             for_write=True, tvp_write_targets=[self._first_tbl], lock_mutable_tree=True
         ):

@@ -565,7 +565,6 @@ class TestQuery:
         PIL.Image.open(opurl_img)
 
     def test_update_delete_where(self, test_tbl: pxt.Table) -> None:
-        # TODO: also capture recompute_columns()
         t = test_tbl
         old: list[int] = t.select(t.c3).collect()['c3']
 
@@ -663,6 +662,25 @@ class TestQuery:
         # join+delete
         with pytest.raises(pxt.Error, match='Cannot use `delete` after `join`'):
             t.join(t2, how='cross').delete()
+
+        # recompute_columns: op-sequence restrictions
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `select`'):
+            t.select(t.c2).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `group_by`'):
+            t.group_by(t.c2).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `order_by`'):
+            t.order_by(t.c2).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `limit`'):
+            t.limit(10).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `join`'):
+            t.join(t2, how='cross').recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` on a snapshot'):
+            snap.where(t.c2 < 10).recompute_columns(t.c8)
 
     def __check_constant_query(self, query: pxt.Query, v: Any) -> None:
         r = query.limit(5).collect()
