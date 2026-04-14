@@ -3361,6 +3361,15 @@ class TestTable:
         sim_result = dst.order_by(dst.c1.similarity(string='cat'), asc=False).limit(1).collect()
         assert sim_result[0]['c1'] == 'a cat on a mat'
 
+        # verify btree index val cols on c1 and c2 are correctly populated
+        btree_result = dst.where(dst.c2 == 10).collect()
+        assert len(btree_result) == 1
+        assert btree_result[0]['c1'] == 'a dog in the park'
+
+        btree_result2 = dst.where(dst.c1 == 'a cat on a mat').collect()
+        assert len(btree_result2) == 1
+        assert btree_result2[0]['c2'] == 20
+
         # verify substitution works with arbitrary source expressions mapped to destination column names
         dst2 = pxt.create_table('dst2', {'x': pxt.String, 'y': pxt.Int})
         dst2.add_computed_column(z=dst2.y * 2)
