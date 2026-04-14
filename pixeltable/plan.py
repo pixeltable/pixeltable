@@ -408,19 +408,24 @@ class Planner:
 
         query_col_names = set(query.schema.keys())
 
-        # map each dst column covered by the query to its corresponding src expression
+        # Build a substitution dict that maps destination column references to source expressions.
+        # This lets us rewrite computed column expressions in terms of what the source query provides.
+        # Order matters:
+        #   1. columns provided by the source query are mapped to their source expressions
+        #   2. stored columns missing from the source query are mapped to None
+        #      (must come before step 3, so unstored computed columns that depend on them get None)
+        #   3. unstored computed columns are inlined using their value expressions
+        #   4. stored computed columns not in the source query are added so chained dependencies
+        #      (e.g. c5 = c4 + 1 where c4 is also missing) can be resolved in the next step
+
+        # map each destination column covered by the query to its corresponding src expression
         substitution: dict[exprs.Expr, exprs.Expr] = {
             exprs.ColumnRef(tbl.cols_by_name[col_name]): expr
             for col_name, expr in zip(query.schema.keys(), query._select_list_exprs)
             if col_name in tbl.cols_by_name
         }
-        # also add unstored computed cols to substitution so they get inlined
-        for col in tbl.cols_by_id.values():
-            if col.is_stored or not col.is_computed or col.value_expr is None:
-                continue
-            substitution[exprs.ColumnRef(col)] = col.value_expr.copy().substitute(substitution)
 
-        # stored non-computed columns not provided by the source query have no value — map them to None
+        # stored non-computed columns which are not provided by the source query have no value — map them to None
         # so their dependents (e.g. index val cols) evaluate to None rather than leaking into source table SQL scans
         for col in tbl.cols_by_id.values():
             if not col.is_stored or col.name is None or col.name in query_col_names or col.is_computed:
@@ -430,7 +435,13 @@ class Planner:
                 raise excs.Error(f'Column {col.name!r} is required but not present in the source query')
             substitution[exprs.ColumnRef(col)] = exprs.Literal(None, col_type=col.col_type)
 
-        # stored computed cols in dst not covered by the query
+        # add unstored computed columns to substitution
+        for col in tbl.cols_by_id.values():
+            if col.is_stored or not col.is_computed or col.value_expr is None:
+                continue
+            substitution[exprs.ColumnRef(col)] = col.value_expr.copy().substitute(substitution)
+
+        # stored computed columns in destination and not covered by the query
         missing_computed_cols: list[catalog.Column] = []
         missing_col_exprs_raw: list[exprs.Expr] = []
         for col in tbl.cols_by_id.values():
@@ -463,14 +474,14 @@ class Planner:
         missing_computed_cols = filtered_cols
         missing_col_exprs = filtered_exprs
 
-        # augment query with missing computed col exprs so they get evaluated during planning
+        # augment query with missing computed exprs so they get evaluated during planning
         augmented_query = query.add_columns(
             [(expr, col.name) for col, expr in zip(missing_computed_cols, missing_col_exprs)]
         )
         plan = augmented_query._create_query_plan()
         needs_cell_materialization = False
 
-        # register dst cols by looking up their name in the augmented query schema
+        # register destination cols by looking up their name in the augmented query schema
         select_exprs_by_name = dict(zip(augmented_query.schema.keys(), augmented_query._select_list_exprs))
         for col_name, dst_col in tbl.cols_by_name.items():
             expr = select_exprs_by_name.get(col_name)

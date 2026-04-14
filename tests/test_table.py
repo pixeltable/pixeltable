@@ -3339,6 +3339,9 @@ class TestTable:
         dst.add_embedding_index('c1', string_embed=e5_embed)
         dst.add_computed_column(unstored_col=dst.c2 + 100, stored=False)
         dst.add_computed_column(c6=dst.unstored_col * 2)
+        # c3 is missing from source so will always be none
+        dst.add_computed_column(unstored_from_missing=dst.c3 + '_suffix', stored=False)
+        dst.add_computed_column(c7=dst.unstored_from_missing + '_more')
 
         dst.insert(src.select(src.c1, src.c2))
 
@@ -3352,6 +3355,9 @@ class TestTable:
         assert result[1]['c3'] is None
         assert result[0]['c6'] == 220
         assert result[1]['c6'] == 240
+        assert result[0]['c7'] is None  # unstored_from_missing depends on missing c3, so c7 is None
+        assert result[1]['c7'] is None
+
         sim_result = dst.order_by(dst.c1.similarity(string='cat'), asc=False).limit(1).collect()
         assert sim_result[0]['c1'] == 'a cat on a mat'
 
