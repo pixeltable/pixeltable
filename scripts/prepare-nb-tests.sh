@@ -55,6 +55,7 @@ rm "$TARGET_DIR/working-with-tigris.ipynb"  # Requires Tigris environment
 rm "$TARGET_DIR/working-with-bfl.ipynb"  # Expensive (paid API, insufficient credits in CI)
 rm "$TARGET_DIR/img-detection-vs-segmentation.ipynb"  # Segmentation models are crashing in CI (memory issue?)
 rm "$TARGET_DIR/working-with-runwayml.ipynb"  # Expensive (paid API)
+rm "$TARGET_DIR/working-with-reve.ipynb"  # Out of credits
 
 # Get a list of all API keys referenced in the notebooks
 REF_API_KEYS=$(grep -hoE '[A-Z0-9_]*_(API|ACCESS)_(KEY|TOKEN)(_[A-Z0-9_]*)?' "$TARGET_DIR"/*.ipynb | sort | uniq)
