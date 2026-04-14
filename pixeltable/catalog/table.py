@@ -607,31 +607,36 @@ class Table(SchemaObject):
             ... tbl.add_columns(schema)
         """
 
+        from pixeltable.catalog import retry_loop
+
+        # a retry loop is necessary because drop column needs it
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        new_cols: list[Column]
-        with get_runtime().catalog.begin_xact(
-            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        @retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
+        def op() -> list[Column] | None:
             self.__check_mutable('add columns to')
 
             # make a copy of schema so del operations below don't modify the caller's dict
-            schema = dict(schema)
+            schema_copy = dict(schema)
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
-                list(schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
+                list(schema_copy.keys()), IfExistsParam.validated(if_exists, 'if_exists')
             )
             # if all columns to be added already exist and user asked to ignore
             # existing columns, there's nothing to do.
             for cname in cols_to_ignore:
-                assert cname in schema
-                del schema[cname]
-            result = UpdateStatus()
-            if len(schema) == 0:
-                return result
-            new_cols = [Column.create(name, spec) for name, spec in schema.items()]
+                assert cname in schema_copy
+                del schema_copy[cname]
+            if len(schema_copy) == 0:
+                return None
+            new_cols = [Column.create(name, spec) for name, spec in schema_copy.items()]
             for new_col in new_cols:
                 self._verify_column(new_col)
+            return new_cols
+
+        new_cols = op()
+        if new_cols is None:
+            return UpdateStatus()
 
         assert self._tbl_version is not None
         get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
@@ -758,10 +763,11 @@ class Table(SchemaObject):
 
             >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90), stored=False)
         """
+        from pixeltable.catalog import retry_loop
 
-        with get_runtime().catalog.begin_xact(
-            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        # a retry loop is necessary because drop column needs it.
+        @retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
+        def op() -> UpdateStatus:
             self.__check_mutable('add columns to')
             if len(kwargs) != 1:
                 raise excs.Error(
@@ -805,6 +811,8 @@ class Table(SchemaObject):
             result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
             FileCache.get().emit_eviction_warnings()
             return result
+
+        return op()
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
