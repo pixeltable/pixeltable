@@ -316,7 +316,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                 (not wrapped in `{"rows": [...]}`). 0 rows produces a 404, >1 rows a 409.
             return_fileresponse: If True, return the single media-typed result column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
-                Requires `one_row` semantics (0 rows → 404, >1 rows → 409).
+                Requires `one_row` semantics (0 rows -> 404, >1 rows -> 409).
                 Mutually exclusive with `background`.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the query in a background thread. Poll `job_url` for the result. Mutually

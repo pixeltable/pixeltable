@@ -392,7 +392,9 @@ class TestMigration:
     def _verify_v50(cls) -> None:
         t = pxt.get_table('base_table')
         col_names = t.columns()
-        assert 'base_table_query_scalar_output' in col_names, f'base_table_query_scalar_output column not found; columns: {col_names}'
+        assert 'base_table_query_scalar_output' in col_names, (
+            f'base_table_query_scalar_output column not found; columns: {col_names}'
+        )
         # return_scalar=True: values should be lists of scalars, not lists of dicts
         rows = t.select(t.base_table_query_scalar_output).limit(3).collect()
         for row in rows:

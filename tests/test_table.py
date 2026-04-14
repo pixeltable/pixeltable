@@ -2026,7 +2026,7 @@ class TestTable:
         tbl_name = 'test1'
         t = pxt.create_table(tbl_name, schema)
         rows = create_table_data(t)
-        status = t.insert(rows, return_rows=True)
+        status = t.insert(rows)
         assert t.count() == len(rows)
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
@@ -2363,7 +2363,7 @@ class TestTable:
             [{'id': 1, 'val': 10, 'name': 'a'}, {'id': 2, 'val': 20, 'name': 'b'}, {'id': 3, 'val': 30, 'name': 'c'}]
         )
 
-        # default: return_rows=False → status.rows is None
+        # default: return_rows=False -> status.rows is None
         status = t.batch_update([{'id': 1, 'name': 'x'}])
         assert status.rows is None
         t.revert()
@@ -2381,12 +2381,12 @@ class TestTable:
         t.revert()
 
         # return_rows=True with if_not_exists='insert': mix of updates and inserts. The inserted
-        # rows must also surface in status.rows — this is what the `to_cascade` rows-preservation
+        # rows must also surface in status.rows - this is what the `to_cascade` rows-preservation
         # fix unblocks (without it, the insert fallback's rows would be dropped on the way back).
         status = t.batch_update(
             [
-                {'id': 1, 'val': 1000, 'name': 'updated'},  # existing → update
-                {'id': 4, 'val': 40, 'name': 'd'},  # new → insert
+                {'id': 1, 'val': 1000, 'name': 'updated'},  # existing -> update
+                {'id': 4, 'val': 40, 'name': 'd'},  # new -> insert
             ],
             if_not_exists='insert',
             return_rows=True,
@@ -2417,7 +2417,7 @@ class TestTable:
         )
         t.add_computed_column(val_plus_one=t.val + 1)
 
-        # default: return_rows=False → status.rows is None
+        # default: return_rows=False -> status.rows is None
         status = t.update({'name': 'x'})
         assert status.rows is None
         t.revert()

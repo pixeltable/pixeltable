@@ -237,7 +237,7 @@ class TestServe:
         image_path = get_image_files()[0]
         pxt.create_dir('test_serve')
         # Unlike video.resize (which tolerates None width/height and preserves aspect ratio),
-        # image.resize requires concrete ints — so width and height must be Required, and every
+        # image.resize requires concrete ints - so width and height must be Required, and every
         # insert (even the /rotate one, which doesn't care about them) has to supply them.
         t = pxt.create_table(
             'test_serve.images',
@@ -483,7 +483,7 @@ class TestServe:
         t.add_computed_column(resized=t.video.resize(width=t.width, height=t.height))
         t.add_computed_column(thumbnail=t.video.extract_frame(timestamp=0.0))
         # Delay every insert so the polling loop actually observes a 'pending' response
-        # before 'done' — otherwise fast inserts would transition straight to 'done'
+        # before 'done' - otherwise fast inserts would transition straight to 'done'
         # between the POST and the first GET and we wouldn't exercise the polling path.
         t.add_computed_column(delay=sleep(1.0))
 
@@ -492,7 +492,7 @@ class TestServe:
         uploadfile_inputs = ['video'] if use_uploadfile else None
         # /all: defaults for inputs/outputs, all columns in the response
         router.add_insert_route(t, path='/all', uploadfile_inputs=uploadfile_inputs, background=True)
-        # /resize: single-output JSON response (no FileResponse — mutually exclusive with background)
+        # /resize: single-output JSON response (no FileResponse - mutually exclusive with background)
         router.add_insert_route(
             t,
             path='/resize',
@@ -542,11 +542,11 @@ class TestServe:
                 assert body.get('result') is not None
                 # The sleep(0.3) computed column should guarantee we see 'pending' at least once.
                 assert saw_pending, (
-                    'polling never observed a pending response — sleep column is not delaying the insert'
+                    'polling never observed a pending response - sleep column is not delaying the insert'
                 )
                 return body
 
-        # unknown job id → 404 (exercised once; independent of the actual jobs)
+        # unknown job id -> 404 (exercised once; independent of the actual jobs)
         assert client.get('/jobs/__nonexistent__').status_code == 404
 
         # /all route (row id 1): multi-column response
@@ -609,7 +609,7 @@ class TestServe:
             },
         )
         # add_computed_column() currently offers no way to set a column comment, so the
-        # computed column goes in uncommented — the openapi test only checks that its
+        # computed column goes in uncommented - the openapi test only checks that its
         # description is absent (i.e. not fabricated).
         t.add_computed_column(rotated=t.image.rotate(90))
 
@@ -681,7 +681,7 @@ class TestServe:
         assert upload_body['properties']['id']['description'] == 'unique row identifier'
         assert upload_body['properties']['prompt']['description'] == 'input text prompt'
 
-        # /file: FileResponse route — response_class=FileResponse, no JSON model
+        # /file: FileResponse route - response_class=FileResponse, no JSON model
         file_resp = paths['/file']['post']['responses']['200']
         # FastAPI renders a FileResponse route with no application/json schema on 200
         assert 'application/json' not in file_resp.get('content', {}), file_resp
@@ -749,7 +749,7 @@ class TestServe:
         app.include_router(router)
         client = TestClient(app)
 
-        # /lookup: all rows with length >= 3 → rows 3,4,5
+        # /lookup: all rows with length >= 3 -> rows 3,4,5
         resp = client.post('/lookup', json={'min_len': 3})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {
@@ -761,12 +761,12 @@ class TestServe:
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'rows': [{'id': 4, 'text': 'xxxx'}, {'id': 5, 'text': 'xxxxx'}]}
 
-        # retrieval_udf: fetch row by id → single-row list with all columns
+        # retrieval_udf: fetch row by id -> single-row list with all columns
         resp = client.post('/by-id', json={'id': 2})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'rows': [{'id': 2, 'text': 'xx', 'length': 2}]}
 
-        # empty result → empty list (not an error)
+        # empty result -> empty list (not an error)
         resp = client.post('/lookup', json={'min_len': 100})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'rows': []}
@@ -783,7 +783,7 @@ class TestServe:
         assert 'max_len' not in restricted_schema['properties']
 
         # /lookup-default: parameter default propagates to the endpoint
-        # calling without min_len should use the default (3) → rows 3,4,5
+        # calling without min_len should use the default (3) -> rows 3,4,5
         resp = client.post('/lookup-default', json={})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {
@@ -871,7 +871,7 @@ class TestServe:
         router.add_query_route(path='/all-json', query=all_images)
         # FileResponse variant: exactly one row
         router.add_query_route(path='/one-file', query=one_image, return_fileresponse=True)
-        # FileResponse variant with >1 row → 409
+        # FileResponse variant with >1 row -> 409
         router.add_query_route(path='/all-file', query=all_images, return_fileresponse=True)
         # Background variant
         router.add_query_route(path='/one-bg', query=one_image, background=True)
@@ -891,18 +891,18 @@ class TestServe:
             media_resp = client.get(item['resized'])
             assert media_resp.status_code == 200
 
-        # FileResponse: exactly one matching row → image bytes
+        # FileResponse: exactly one matching row -> image bytes
         resp = client.post('/one-file', json={'img_id': 1})
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/')
         with open(resized_locals[1], 'rb') as f:
             assert resp.content == f.read()
 
-        # FileResponse: 0 matching rows → 404
+        # FileResponse: 0 matching rows -> 404
         resp = client.post('/one-file', json={'img_id': 999})
         assert resp.status_code == 404, resp.text
 
-        # FileResponse: >1 row → 409
+        # FileResponse: >1 row -> 409
         resp = client.post('/all-file', json={})
         assert resp.status_code == 409, resp.text
         assert 'expected exactly 1' in resp.json()['detail']
@@ -925,7 +925,7 @@ class TestServe:
                 continue
             assert st['status'] == 'done', st
             break
-        assert saw_pending, 'polling never observed pending — sleep column not delaying'
+        assert saw_pending, 'polling never observed pending - sleep column not delaying'
         result = st['result']
         assert isinstance(result, dict) and 'rows' in result
         assert len(result['rows']) == 1
