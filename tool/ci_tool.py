@@ -13,6 +13,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal, NamedTuple, NoReturn
 
+DEFAULT_PYTEST_OPTIONS = "-m 'not expensive and not very_expensive and not benchmark'"
+EXPENSIVE_PYTEST_OPTIONS = "-m 'not very_expensive and not benchmark'"
+VERY_EXPENSIVE_PYTEST_OPTIONS = "-m 'not benchmark'"
+
 
 class MatrixConfig(NamedTuple):
     display_name_prefix: str
@@ -20,7 +24,7 @@ class MatrixConfig(NamedTuple):
     os: str
     python_version: str
     uv_options: str = ''
-    pytest_options: str = "-m 'not expensive and not benchmark'"
+    pytest_options: str = DEFAULT_PYTEST_OPTIONS
     pre_test_cmd: str = ''  # Extra bash command to be run just before tests
 
     @property
@@ -70,36 +74,38 @@ def generate_matrix(args: argparse.Namespace) -> None:
         MatrixConfig('random-ops', 'random-ops', 'ubuntu-24.04', '3.10', uv_options='--no-dev'),  # Random operations
     ]
 
-    # Full test suite on basic platforms on Python 3.10
+    # Standard test suite on basic platforms on Python 3.10
     # Exclude expensive tests on everything except Ubuntu
-    configs.extend(
-        MatrixConfig(
-            'full',
-            'py',
-            os,
-            '3.10',
-            pytest_options="-m 'not benchmark'" if os.startswith('ubuntu') else "-m 'not expensive and not benchmark'",
-        )
-        for os in (
-            # Same as BASIC_PLATFORMS, but upgrade the Ubuntu VM for non-PR triggers.
-            # This is part of a gradual transition to using larger runners for merge queue.
-            'ubuntu-24.04' if trigger == 'pull_request' else 'ubuntu-medium',
-            'macos-15',
-            'windows-2022',
-        )
-    )
+    # Exclude very_expensive tests on all platforms (including Ubuntu)
+    for os in BASIC_PLATFORMS:
+        options = {'display_name_prefix': 'std', 'test_category': 'py', 'os': os, 'python_version': '3.10'}
+
+        if os.startswith('ubuntu') and (force_all or trigger != 'pull_request'):
+            # On Ubuntu, and not a PR: run the 'expensive' tests.
+            # If this is a scheduled run, also include the 'very_expensive' tests.
+            if force_all or trigger == 'schedule':
+                options['pytest_options'] = VERY_EXPENSIVE_PYTEST_OPTIONS
+                options['display_name_prefix'] += '++'
+            else:
+                options['pytest_options'] = EXPENSIVE_PYTEST_OPTIONS
+                options['display_name_prefix'] += '+'
+
+            # Also upgrade the runner type to 'ubuntu-medium'.
+            options['os'] = 'ubuntu-medium'
+
+        configs.append(MatrixConfig(**options))
 
     if force_all or trigger != 'pull_request':
-        # Full test suite on basic platforms on Python 3.14
-        configs.extend(MatrixConfig('full', 'py', os, '3.14') for os in BASIC_PLATFORMS)
+        # Standard test suite on basic platforms on Python 3.14
+        configs.extend(MatrixConfig('std', 'py', os, '3.14') for os in BASIC_PLATFORMS)
 
-        # Full test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('full', 'py', 'ubuntu-24.04', py) for py in ('3.11', '3.12', '3.13'))
+        # Standard test suite on Ubuntu on intermediate Python versions
+        configs.extend(MatrixConfig('std', 'py', 'ubuntu-24.04', py) for py in ('3.11', '3.12', '3.13'))
 
-        # Minimal test on Python 3.14
+        # Minimal tests on Python 3.14
         configs.append(MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.14', uv_options='--no-dev'))
 
-        # Minimal tests on alternative platforms (we don't run the full suite on these, since dev dependencies
+        # Minimal tests on alternative platforms (we don't run the standard suite on these, since dev dependencies
         # can be hit-or-miss)
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
@@ -132,8 +138,8 @@ def generate_matrix(args: argparse.Namespace) -> None:
             )
 
     if force_all or trigger == 'schedule':
-        # Expensive tests on special hardware on Python 3.10
-        configs.extend(MatrixConfig('full', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
+        # Standard tests on special hardware on Python 3.10
+        configs.extend(MatrixConfig('std', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
 
     configs.sort(key=lambda cfg: cfg.display_name)
 
