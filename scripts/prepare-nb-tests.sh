@@ -15,10 +15,9 @@ SKIP_NOTEBOOKS=(
 
 # Notebooks that are skipped unless --include-expensive is passed
 EXPENSIVE_NOTEBOOKS=(
-    video-generate-ai            # Expensive
-    img-image-to-image           # Expensive (downloads ~5GB model)
-    working-with-bfl             # Expensive (paid API, insufficient credits in CI)
-    working-with-runwayml        # Expensive (paid API)
+    video-generate-ai
+    working-with-bfl
+    working-with-runwayml
 )
 
 IFS=$'\n'
