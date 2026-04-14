@@ -86,12 +86,14 @@ done
 
 # Remove skipped notebooks
 for nb in "${SKIP_NOTEBOOKS[@]}"; do
+    echo "Skipping $nb because it is in SKIP_NOTEBOOKS."
     rm "$TARGET_DIR/${nb}.ipynb"
 done
 
 # Remove expensive notebooks unless --include-expensive was passed
 if [[ $INCLUDE_EXPENSIVE == false ]]; then
     for nb in "${VERY_EXPENSIVE_NOTEBOOKS[@]}"; do
+        echo "Skipping $nb because it is in VERY_EXPENSIVE_NOTEBOOKS."
         rm "$TARGET_DIR/${nb}.ipynb"
     done
 fi
@@ -103,9 +105,9 @@ echo "Checking for API keys: $(echo "$REF_API_KEYS" | tr '\n' ' ')"
 for env in $REF_API_KEYS; do
     if [ -z "${!env}" ]; then
         # The given API key is not available. Delete all notebooks that require it.
-        for notebook in $(grep -l "$env" $TARGET_DIR/*.ipynb); do
-            echo "Skipping $notebook because $env is not defined."
-            rm "$notebook"
+        for nb in $(grep -l "$env" $TARGET_DIR/*.ipynb); do
+            echo "Skipping $nb because $env is not defined."
+            rm "$nb"
         done
     fi
 done
