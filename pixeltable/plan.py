@@ -436,7 +436,7 @@ class Planner:
             - identity_cols: unchanged stored columns
         """
 
-        # Appending changed index value columns to recomputed_cols
+        # We always need to update all indices on any updated/recomputed column
         modified_base_cols = {c for c in updated_cols | recomputed_cols if c.get_tbl().id == target.id}
         modified_val_cols = target.get_idx_val_columns(modified_base_cols)
         recomputed_cols |= modified_val_cols
@@ -445,6 +445,7 @@ class Planner:
         unmodified_val_cols = {idx.val_col for idx in target.idxs.values()} - modified_val_cols
         idx_undo_cols = {info.undo_col for info in target.idxs.values()}
 
+        # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols -= {c for c in recomputed_cols if not c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
 
@@ -457,6 +458,7 @@ class Planner:
         recomputed_exprs = [
             c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
         ]
+        # recomputed cols reference the new values of the updated cols
         evaluated_cols.extend(recomputed_base_cols)
         select_list.extend(recomputed_exprs)
 
@@ -701,6 +703,7 @@ class Planner:
 
         # Prepend updated cols as ColumnRefs (RowUpdateNode modifies them in-place; no further substitution needed)
         evaluated_cols: list[Column] = list(updated_cols) + eval_cols
+        # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further substitution is needed
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols] + eval_exprs
 
         # ExecNode tree (from bottom to top):
@@ -775,8 +778,8 @@ class Planner:
         recomputed_cols = set(recompute_targets)
 
         eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, set(), recomputed_cols)
-
-        # View: identity cols go through select_list as ColumnRefs (no separate columns= path)
+        # Identity columns are all other stored columns that aren't being recomputed
+        # and go through select_list as ColumnRefs (no separate columns= path) unlike other update plans
         evaluated_cols: list[Column] = identity_cols + eval_cols
         select_list: list[exprs.Expr] = [exprs.ColumnRef(c) for c in identity_cols] + eval_exprs
 
