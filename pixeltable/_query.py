@@ -1499,6 +1499,15 @@ class Query:
         Returns:
             A new Query with the additional expressions appended to the select list.
         """
+        for _expr, name in additional_columns:
+            if name is not None and not is_valid_identifier(name):
+                raise excs.Error(f'add_columns(): {name!r} is not a valid column name.')
+            if name is not None and name in self._schema:
+                raise excs.Error(
+                    f'add_columns(): column {name!r} already exists in the query. '
+                    f'Existing columns are: {list(self._schema.keys())}.'
+                )
+
         # if no explicit select list, expand to all columns
         if self.select_list is None:
             out_exprs, out_names = Query._normalize_select_list(self._from_clause.tbls, None)
