@@ -977,10 +977,10 @@ class TestQuery:
         # double close is a no-op
         cur.close()
         # reopen after close raises
-        with pytest.raises(pxt.Error, match='closed'):
+        with pytest.raises(pxt.Error, match='Cursor is closed and cannot be reopened'):
             cur.open()
         # iterating a closed cursor raises
-        with pytest.raises(pxt.Error, match='closed'):
+        with pytest.raises(pxt.Error, match='Cursor is closed and cannot be iterated upon'):
             list(cur)
 
         # context manager: partial consumption cleans up

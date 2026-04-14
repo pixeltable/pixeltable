@@ -300,7 +300,7 @@ class ResultCursor(Iterable[Row]):
 
     def __iter__(self) -> Iterator[Row]:
         if self._closed:
-            raise excs.Error('Cursor is closed.')
+            raise excs.Error('Cursor is closed and cannot be iterated upon.')
         if self._row_iterator is None:
             self.open()
         assert self._row_iterator is not None
