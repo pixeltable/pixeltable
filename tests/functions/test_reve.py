@@ -10,6 +10,7 @@ from ..utils import rerun, skip_test_if_no_client, validate_update_status
 _logger = logging.getLogger('pixeltable')
 
 
+@pytest.mark.skip(reason='Out of credits')
 @pytest.mark.remote_api
 @pytest.mark.expensive
 @rerun(reruns=3, reruns_delay=8)
