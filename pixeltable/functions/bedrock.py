@@ -181,7 +181,10 @@ def _decode_base64_image(value: str) -> str | PIL.Image.Image:
     except Exception:
         return value
     if mime and mime.startswith('image/'):
-        return PIL.Image.open(io.BytesIO(raw))
+        with io.BytesIO(raw) as buf:
+            img = PIL.Image.open(buf)
+            img.load()
+            return img
     return value
 
 
@@ -234,29 +237,34 @@ async def _bedrock_async_invocation(
     invocation_id: str = invocation_arn.rsplit('/', maxsplit=1)[-1]
 
     elapsed = 0.0
-    while True:
-        await asyncio.sleep(_ASYNC_INVOCATION_POLL_INTERVAL_SECS)
-        elapsed += _ASYNC_INVOCATION_POLL_INTERVAL_SECS
-        if elapsed > _ASYNC_INVOCATION_TIMEOUT_SECS:
-            raise pxt.Error(f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s')
-        job: dict[str, Any] = await asyncio.to_thread(_bedrock_client().get_async_invoke, invocationArn=invocation_arn)
-        status: str = job['status']
-        if status == 'Completed':
-            break
-        if status == 'Failed':
-            raise pxt.Error(f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}')
-
     result_prefix = f'{soa.prefix}{invocation_id}/'
-    listed = await asyncio.to_thread(store.client().list_objects_v2, Bucket=store.bucket_name, Prefix=result_prefix)
-    keys = [obj['Key'] for obj in listed.get('Contents', [])]
-    if not keys:
-        raise pxt.Error(f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed')
-
-    result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
-    if result_key is None:
-        raise pxt.Error(f'No output file (only manifest) found for job {invocation_id}')
-
+    keys: list[str] = []
     try:
+        while True:
+            await asyncio.sleep(_ASYNC_INVOCATION_POLL_INTERVAL_SECS)
+            elapsed += _ASYNC_INVOCATION_POLL_INTERVAL_SECS
+            if elapsed > _ASYNC_INVOCATION_TIMEOUT_SECS:
+                raise pxt.Error(f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s')
+            job: dict[str, Any] = await asyncio.to_thread(
+                _bedrock_client().get_async_invoke, invocationArn=invocation_arn
+            )
+            status: str = job['status']
+            if status == 'Completed':
+                break
+            if status == 'Failed':
+                raise pxt.Error(
+                    f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}'
+                )
+
+        listed = await asyncio.to_thread(store.client().list_objects_v2, Bucket=store.bucket_name, Prefix=result_prefix)
+        keys = [obj['Key'] for obj in listed.get('Contents', [])]
+        if not keys:
+            raise pxt.Error(f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed')
+
+        result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
+        if result_key is None:
+            raise pxt.Error(f'No output file (only manifest) found for job {invocation_id}')
+
         yield result_key
     finally:
         for key in keys:
