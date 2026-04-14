@@ -701,9 +701,11 @@ class Planner:
 
         eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, updated_cols, recomputed_cols)
 
+        # Materialize as a list once for stable iteration order across parallel lists
+        updated_cols_list = list(updated_cols)
         # Prepend updated cols as ColumnRefs (RowUpdateNode modifies them in-place; no further substitution needed)
-        evaluated_cols: list[Column] = list(updated_cols) + eval_cols
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols] + eval_exprs
+        evaluated_cols: list[Column] = updated_cols_list + eval_cols
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols_list] + eval_exprs
 
         # ExecNode tree (from bottom to top):
         # - SqlLookupNode to retrieve the existing rows
@@ -751,7 +753,7 @@ class Planner:
             plan,
             row_update_node,
             sql_lookup_node.where_clause_element,
-            list(updated_cols) + recomputed_user_cols,
+            updated_cols_list + recomputed_user_cols,
             recomputed_user_cols,
         )
 
