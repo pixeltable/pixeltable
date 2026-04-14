@@ -50,6 +50,7 @@ rm "$TARGET_DIR/video-generate-ai.ipynb"  # Expensive
 rm "$TARGET_DIR/img-image-to-image.ipynb"  # Expensive (downloads ~5GB model)
 rm "$TARGET_DIR/llm-tool-calling.ipynb"  # Flaky
 rm "$TARGET_DIR/working-with-fabric.ipynb"  # Requires Microsoft Fabric environment
+rm "$TARGET_DIR/working-with-fiftyone.ipynb"  # Voxel51 is currently omitted from our dev env for security reasons
 rm "$TARGET_DIR/working-with-tigris.ipynb"  # Requires Tigris environment
 rm "$TARGET_DIR/working-with-bfl.ipynb"  # Expensive (paid API, insufficient credits in CI)
 rm "$TARGET_DIR/img-detection-vs-segmentation.ipynb"  # Segmentation models are crashing in CI (memory issue?)
