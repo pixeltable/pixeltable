@@ -423,6 +423,52 @@ class Planner:
         return plan
 
     @classmethod
+    def _build_update_columns(
+        cls, target: catalog.TableVersion, updated_cols: set[Column], recomputed_cols: set[Column]
+    ) -> tuple[list[Column], list[exprs.Expr], list[Column]]:
+        """Classifies columns for an update plan and builds recomputed/remap expressions.
+
+        Mutates `recomputed_cols` in-place (adds changed index val cols, removes non-stored).
+
+        Returns:
+            - evaluated_cols: recomputed + remap columns (parallel with select_list)
+            - select_list: resolved exprs for evaluated_cols
+            - identity_cols: unchanged stored columns
+        """
+
+        # Appending changed index value columns to recomputed_cols
+        modified_base_cols = {c for c in updated_cols | recomputed_cols if c.get_tbl().id == target.id}
+        modified_val_cols = target.get_idx_val_columns(modified_base_cols)
+        recomputed_cols |= modified_val_cols
+
+        # Building exclude lists for non-identity cols
+        unmodified_val_cols = {idx.val_col for idx in target.idxs.values()} - modified_val_cols
+        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
+
+        recomputed_cols -= {c for c in recomputed_cols if not c.is_stored}
+        recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
+
+        excluded = updated_cols | recomputed_cols | idx_undo_cols | unmodified_val_cols
+        identity_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in excluded]
+
+        evaluated_cols: list[Column] = []
+        select_list: list[exprs.Expr] = []
+
+        recomputed_exprs = [
+            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
+        ]
+        evaluated_cols.extend(recomputed_base_cols)
+        select_list.extend(recomputed_exprs)
+
+        # Mapping undo columns into corresponding value columns
+        for info in target.idxs.values():
+            if info.val_col in unmodified_val_cols:
+                evaluated_cols.append(info.val_col)
+                select_list.append(exprs.ColumnRef(info.undo_col))
+
+        return evaluated_cols, select_list, identity_cols
+
+    @classmethod
     def create_update_plan(
         cls,
         tbl: catalog.TableVersionPath,
@@ -455,45 +501,17 @@ class Planner:
         updated_cols = set(update_targets.keys())
         recomputed_cols = set(recompute_targets)
         if cascade:
-            recomputed_cols |= target.get_dependent_columns(set(updated_cols) | recomputed_cols)
+            recomputed_cols |= target.get_dependent_columns(updated_cols | recomputed_cols)
 
-        # regardless of cascade, we need to update all indices on any updated/recomputed column
-        modified_base_cols = {c for c in updated_cols | recomputed_cols if c.get_tbl().id == target.id}
-        modified_val_cols = target.get_idx_val_columns(modified_base_cols)
-        recomputed_cols |= modified_val_cols
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, updated_cols, recomputed_cols)
 
-        # We do special handling for copied val cols, and all live undo cols are supposed to be null by default
-        unmodified_val_cols = {idx.val_col for idx in target.idxs.values()} - modified_val_cols
-        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
+        cls.__check_valid_columns(target, recomputed_cols, 'updated in')
 
-        # we only need to recompute stored columns (unstored ones are substituted away)
-        recomputed_cols = {c for c in recomputed_cols if c.is_stored}
-
-        cls.__check_valid_columns(tbl.tbl_version.get(), recomputed_cols, 'updated in')
-
-        recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == tbl.tbl_version.id}
-
-        # Identity cols: unchanged stored columns copied directly (preserves cellmd)
-        excluded = updated_cols | recomputed_cols | idx_undo_cols | unmodified_val_cols
-        identity_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in excluded]
-
-        # Build evaluated columns and their expressions in parallel
-        evaluated_cols: list[Column] = list(update_targets.keys())
-        select_list: list[exprs.Expr] = list(update_targets.values())
-
-        recomputed_exprs = [
-            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
-        ]
+        # Substitute update target exprs into recomputed exprs before building select_list
         spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
-        exprs.Expr.list_substitute(recomputed_exprs, spec)
-        evaluated_cols.extend(recomputed_base_cols)
-        select_list.extend(recomputed_exprs)
-
-        # Restore unmodified index val columns from undo columns
-        for info in target.idxs.values():
-            if info.val_col in unmodified_val_cols:
-                evaluated_cols.append(info.val_col)
-                select_list.append(exprs.ColumnRef(info.undo_col))
+        exprs.Expr.list_substitute(eval_exprs, spec)
+        evaluated_cols: list[Column] = list(update_targets.keys()) + eval_cols
+        select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
 
         # Read from rows that were just deleted (expired) at the current version.
         # The where clause was already applied during deletion; delete_rows nullifies index value columns,
@@ -679,39 +697,11 @@ class Planner:
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
 
-        # regardless of cascade, we need to update all indices on any updated/recomputed column
-        modified_base_cols = {c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id}
-        modified_val_cols = target.get_idx_val_columns(modified_base_cols)
-        recomputed_cols |= modified_val_cols
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, set(updated_cols), recomputed_cols)
 
-        # We do special handling for copied val cols, and all live undo cols are supposed to be null by default
-        unmodified_val_cols = {idx.val_col for idx in target.idxs.values()} - modified_val_cols
-        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
-
-        # we only need to recompute stored columns (unstored ones are substituted away)
-        recomputed_cols = {c for c in recomputed_cols if c.is_stored}
-        recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
-
-        # Identity cols: unchanged stored columns copied directly (preserves cellmd)
-        excluded = set(updated_cols) | recomputed_cols | idx_undo_cols | unmodified_val_cols
-        identity_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in excluded]
-
-        # Build evaluated columns and their expressions in parallel
-        evaluated_cols: list[Column] = list(updated_cols)
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols]
-
-        recomputed_exprs = [
-            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
-        ]
-        # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further substitution is needed
-        evaluated_cols.extend(recomputed_base_cols)
-        select_list.extend(recomputed_exprs)
-
-        # Restore unmodified index val columns from undo columns
-        for info in target.idxs.values():
-            if info.val_col in unmodified_val_cols:
-                evaluated_cols.append(info.val_col)
-                select_list.append(exprs.ColumnRef(info.undo_col))
+        # Prepend updated cols as ColumnRefs (RowUpdateNode modifies them in-place; no further substitution needed)
+        evaluated_cols: list[Column] = list(updated_cols) + eval_cols
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols] + eval_exprs
 
         # ExecNode tree (from bottom to top):
         # - SqlLookupNode to retrieve the existing rows
@@ -782,38 +772,13 @@ class Planner:
         assert isinstance(view, catalog.TableVersionPath)
         assert view.is_view
         target = view.tbl_version.get()
+        recomputed_cols = set(recompute_targets)
 
-        # regardless of cascade, we need to update all indices on any recomputed column
-        modified_val_cols = target.get_idx_val_columns(recompute_targets)
-        recomputed_cols = modified_val_cols | set(recompute_targets)
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, set(), recomputed_cols)
 
-        # We do special handling for copied val cols, and all live undo cols are supposed to be null by default
-        unmodified_val_cols = {idx.val_col for idx in target.idxs.values()} - modified_val_cols
-        idx_undo_cols = {i.undo_col for i in target.idxs.values()}
-
-        # Build evaluated columns and their expressions in parallel
-        evaluated_cols: list[Column] = []
-        select_list: list[exprs.Expr] = []
-
-        # Unchanged stored columns copied via ColumnRef
-        excluded = recomputed_cols | idx_undo_cols | unmodified_val_cols
-        for col in target.cols_by_id.values():
-            if col.is_stored and col not in excluded:
-                evaluated_cols.append(col)
-                select_list.append(exprs.ColumnRef(col))
-
-        # Recomputed columns
-        recomputed_exprs = [
-            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_cols) for c in recomputed_cols
-        ]
-        evaluated_cols.extend(recomputed_cols)
-        select_list.extend(recomputed_exprs)
-
-        # Restore unmodified index val columns from undo columns
-        for info in target.idxs.values():
-            if info.val_col in unmodified_val_cols:
-                evaluated_cols.append(info.val_col)
-                select_list.append(exprs.ColumnRef(info.undo_col))
+        # View: identity cols go through select_list as ColumnRefs (no separate columns= path)
+        evaluated_cols: list[Column] = identity_cols + eval_cols
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(c) for c in identity_cols] + eval_exprs
 
         # Read the just-expired rows (v_max == current_version) to copy stored column values
         plan = cls.create_query_plan(
