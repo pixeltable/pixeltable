@@ -447,13 +447,14 @@ class Planner:
         # apply full substitution to all missing column exprs
         missing_col_exprs = [expr.substitute(substitution) for expr in missing_col_exprs_raw]
 
-        # skip exprs that still reference dst cols — those cols are None (not provided by source
-        # and no default), so the computed result would be None anyway
+        # only evaluate computed columns whose dependencies are fully resolved by the source query.
         filtered_cols: list[catalog.Column] = []
         filtered_exprs: list[exprs.Expr] = []
         for col, expr in zip(missing_computed_cols, missing_col_exprs):
             col_refs = exprs.Expr.list_subexprs([expr], expr_class=exprs.ColumnRef)
-            unresolved = [ref for ref in col_refs if ref.col.get_tbl().id == tbl.id]
+            unresolved = [
+                ref for ref in col_refs if ref.col.get_tbl().id == tbl.id and ref.col.name not in query_col_names
+            ]
             if len(unresolved) > 0:
                 continue
             filtered_cols.append(col)
