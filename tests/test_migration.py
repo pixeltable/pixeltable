@@ -390,13 +390,13 @@ class TestMigration:
 
     @classmethod
     def _verify_v50(cls) -> None:
-        t = pxt.get_table('sample_table')
+        t = pxt.get_table('base_table')
         col_names = t.columns()
-        assert 'query_scalar_output' in col_names, f'query_scalar_output column not found; columns: {col_names}'
+        assert 'base_table_query_scalar_output' in col_names, f'base_table_query_scalar_output column not found; columns: {col_names}'
         # return_scalar=True: values should be lists of scalars, not lists of dicts
-        rows = t.select(t.query_scalar_output).limit(3).collect()
+        rows = t.select(t.base_table_query_scalar_output).limit(3).collect()
         for row in rows:
-            val = row['query_scalar_output']
+            val = row['base_table_query_scalar_output']
             if val is not None and len(val) > 0:
                 assert not isinstance(val[0], dict), (
                     f'return_scalar query should produce scalar values, got dict: {val[0]}'
