@@ -847,10 +847,15 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_col(tbl.col, if_not_exists='ignore')
         """
+        from pixeltable.catalog import retry_loop
+
         cat = get_runtime().catalog
 
+        # Retry loop is necessary because we will load table md inside.
+        # Note: the provided ColumnRef may belong to a different table.
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True):
+        @retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
+        def op() -> None:
             self.__check_mutable('drop columns from')
             col: Column = None
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
@@ -929,6 +934,8 @@ class Table(SchemaObject):
                 )
 
             self._tbl_version.get().drop_column(col)
+
+        op()
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.
