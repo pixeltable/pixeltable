@@ -582,13 +582,14 @@ class TestQuery:
         # Delete with where
         validate_update_status(t.where((t.c2 >= 50) & (t.c2 < 75)).delete())
         assert t.count() == 75
-
         # Delete without where
         validate_update_status(t.select().delete())
         assert t.count() == 0
 
-        # select_list
+    def test_mutation_op_restrictions(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
 
+        # select_list
         with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c2).update({'c3': 0.0})
         assert 'Cannot use `update` after `select`' in str(exc_info.value)
