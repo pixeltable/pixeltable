@@ -850,7 +850,7 @@ class Table(SchemaObject):
         cat = get_runtime().catalog
 
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        def do_drop_column() -> None:
+        with cat.begin_xact(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True):
             self.__check_mutable('drop columns from')
             col: Column = None
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
@@ -929,11 +929,6 @@ class Table(SchemaObject):
                 )
 
             self._tbl_version.get().drop_column(col)
-
-        with get_runtime().catalog.begin_xact(
-            for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True
-        ):
-            do_drop_column()
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.
