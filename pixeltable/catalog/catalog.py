@@ -334,8 +334,11 @@ class Catalog:
         - for that reason, we do all lock acquisition prior to doing any real work (eg, compute column values),
           to minimize the probability of losing that work due to a forced abort
 
-        If convert_db_excs == True, converts DBAPIErrors into excs.Errors.
+        If convert_db_excs == True, converts DBAPIErrors into excs.Errors if possible.
         """
+        assert for_write or not (tvp_write_targets or tbl_id_write_targets), (
+            'for_write must be True when write targets are specified'
+        )
         tvp_read_targets = tvp_read_targets or []
         tvp_write_targets = tvp_write_targets or []
         tbl_id_read_targets = tbl_id_read_targets or []
@@ -343,15 +346,12 @@ class Catalog:
         if get_runtime().in_xact:
             # make sure all required locks are already being held
             for tvp in tvp_write_targets:
-                assert tvp.tbl_id in self._x_locked_tbl_ids, f'{tvp.tbl_id} not in {self._x_locked_tbl_ids}'
+                assert tvp.tbl_id in self._x_locked_tbl_ids, f'{tvp.tbl_id} not locked: {self._x_locked_tbl_ids}'
             for tbl_id in tbl_id_write_targets:
-                assert tbl_id in self._x_locked_tbl_ids, f'{tbl_id} not in {self._x_locked_tbl_ids}'
+                assert tbl_id in self._x_locked_tbl_ids, f'{tbl_id} not locked: {self._x_locked_tbl_ids}'
             yield get_runtime().conn
             return
 
-        assert for_write or not (tvp_write_targets or tbl_id_write_targets), (
-            'for_write must be True when write targets are specified'
-        )
         num_retries = 0
         pending_ops_tbl_id: UUID | None = None
         has_exc = False  # True if we exited the 'with ...begin_xact()' block with an exception
