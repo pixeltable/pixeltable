@@ -96,7 +96,6 @@ def create_table(
                 corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
             table.
-        num_retained_versions: Deprecated. This parameter is ignored.
         comment: An optional comment; its meaning is user-defined.
         custom_metadata: Optional user-defined metadata to associate with the table. Must be a valid JSON-serializable
             object [str, int, float, bool, dict, list].
@@ -285,7 +284,6 @@ def create_view(
             Cannot be `True` for snapshots.
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
-        num_retained_versions: Deprecated. This parameter is ignored.
         comment: Optional comment for the view.
         custom_metadata: Optional user-defined JSON metadata to associate with the view.
         media_validation: Media validation policy for the view.
@@ -434,7 +432,6 @@ def create_snapshot(
             [`create_table`][pixeltable.create_table].
         iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
             the base table.
-        num_retained_versions: Deprecated. This parameter is ignored.
         comment: Optional comment for the snapshot.
         custom_metadata: Optional user-defined JSON metadata to associate with the snapshot.
         media_validation: Media validation policy for the snapshot.

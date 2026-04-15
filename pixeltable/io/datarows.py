@@ -87,8 +87,6 @@ def import_rows(
         schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
             as described above.
         primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
-        num_retained_versions: The number of retained versions of the table
-            (see [`create_table()`][pixeltable.create_table]).
         comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
 
     Returns:
@@ -125,8 +123,6 @@ def import_json(
         schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
             (see [`import_rows()`][pixeltable.io.import_rows]).
         primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
-        num_retained_versions: The number of retained versions of the table
-            (see [`create_table()`][pixeltable.create_table]).
         comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
         kwargs: Additional keyword arguments to pass to `json.loads`.
 
