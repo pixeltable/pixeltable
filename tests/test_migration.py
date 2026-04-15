@@ -424,6 +424,13 @@ class TestMigration:
                     'TableSchemaVersion metadata still contains num_retained_versions after v50 migration'
                 )
 
+        for path in ['base_table', 'views.view', 'views.snapshot_non_pure']:
+            t = pxt.get_table(path)
+            md = t.get_metadata()
+            assert 'num_retained_versions' not in md, (
+                f'{path} metadata still contains num_retained_versions after v50 migration'
+            )
+
 
 @pxt.udf(batch_size=4)
 def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:
