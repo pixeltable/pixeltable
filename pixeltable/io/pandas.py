@@ -19,7 +19,7 @@ def import_pandas(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
+    num_retained_versions: int | None = None,
     comment: str = '',
 ) -> pxt.Table:
     """Creates a new base table from a Pandas
@@ -59,7 +59,7 @@ def import_csv(
     filepath_or_buffer: str | os.PathLike,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
+    num_retained_versions: int | None = None,
     comment: str = '',
     **kwargs: Any,
 ) -> pxt.Table:
@@ -89,7 +89,7 @@ def import_excel(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
+    num_retained_versions: int | None = None,
     comment: str = '',
     **kwargs: Any,
 ) -> pxt.Table:

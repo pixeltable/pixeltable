@@ -135,6 +135,8 @@ class TestMigration:
                 # primary keys fails post version 49. Therefore the dump cannot have invalid primary keys.
                 if old_version == 49:
                     self._verify_v49()
+                if old_version >= 50:
+                    self._verify_v50()
                 # self._verify_v24(old_version)
 
                 pxt.drop_table('sample_table', force=True)
@@ -411,6 +413,16 @@ class TestMigration:
             assert result.fetchone() is not None, f'Expected pk index {good_idx_name} to exist for pk_test_good'
             result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name})
             assert result.fetchone() is None, f'Expected pk index {bad_idx_name} to NOT exist for pk_test_bad'
+
+    @classmethod
+    def _verify_v50(cls) -> None:
+        """Verify num_retained_versions has been removed from all SchemaVersionMd records."""
+        with Env.get().engine.begin() as conn:
+            for row in conn.execute(sql.select(TableSchemaVersion.md)):
+                md = row[0]
+                assert 'num_retained_versions' not in md, (
+                    'TableSchemaVersion metadata still contains num_retained_versions after v50 migration'
+                )
 
 
 @pxt.udf(batch_size=4)

@@ -384,9 +384,6 @@ class Table(SchemaObject):
     def _get_custom_metadata(self) -> Any:
         return self._tbl_version_path.custom_metadata()
 
-    def _get_num_retained_versions(self) -> int:
-        return self._tbl_version_path.num_retained_versions()
-
     def _get_media_validation(self) -> MediaValidation:
         return self._tbl_version_path.media_validation()
 

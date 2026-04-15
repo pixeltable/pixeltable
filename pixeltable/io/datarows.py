@@ -66,7 +66,7 @@ def import_rows(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
+    num_retained_versions: int | None = None,
     comment: str = '',
 ) -> pxt.Table:
     """
@@ -110,7 +110,7 @@ def import_json(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
+    num_retained_versions: int | None = None,
     comment: str = '',
     **kwargs: Any,
 ) -> pxt.Table:
