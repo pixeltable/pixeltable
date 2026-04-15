@@ -224,7 +224,9 @@
                       "sdk/latest/math",
                       "sdk/latest/string",
                       "sdk/latest/timestamp",
-                      "sdk/latest/video"
+                      "sdk/latest/uuid",
+                      "sdk/latest/video",
+                      "sdk/latest/vision"
                     ]
                   },
                   {
@@ -251,7 +253,6 @@
                       "sdk/latest/runwayml",
                       "sdk/latest/together",
                       "sdk/latest/twelvelabs",
-                      "sdk/latest/vision",
                       "sdk/latest/voyageai",
                       "sdk/latest/whisper",
                       "sdk/latest/whisperx",
