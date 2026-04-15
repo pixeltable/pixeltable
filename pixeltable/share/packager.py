@@ -441,7 +441,7 @@ class TableRestorer:
         cat = get_runtime().catalog
 
         @retry_loop(for_write=True)
-        def op() -> pxt.Table:
+        def do_restore() -> pxt.Table:
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
             # versions that have not been seen before.
             cat.create_replica(catalog.Path.parse(self.tbl_path), tbl_md)
@@ -465,7 +465,7 @@ class TableRestorer:
             tbl._tbl_version_path.clear_cached_md()  # TODO: Clear cached md for ancestors too?
             return tbl
 
-        return op()
+        return do_restore()
 
     def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionMd) -> None:
         """
