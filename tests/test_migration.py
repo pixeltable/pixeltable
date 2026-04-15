@@ -131,8 +131,8 @@ class TestMigration:
                     self._verify_v45()
                 if old_version >= 48:
                     self._verify_v48()
-                if old_version >= 50:
-                    self._verify_v50()
+                if old_version >= 49:
+                    self._verify_v49_query_scalar()
                 # self._verify_v24(old_version)
 
                 pxt.drop_table('sample_table', force=True)
@@ -389,7 +389,7 @@ class TestMigration:
                 )
 
     @classmethod
-    def _verify_v50(cls) -> None:
+    def _verify_v49_query_scalar(cls) -> None:
         t = pxt.get_table('base_table')
         col_names = t.columns()
         assert 'base_table_query_scalar_output' in col_names, (
