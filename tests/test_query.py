@@ -518,7 +518,7 @@ class TestQuery:
 
         # Inner join + count with a different table. Note: only 10% of t3's ids are present in t1.
         cnt = t1.join(t3, on=(t1.id == t3.id), how='inner').count()
-        assert cnt == num_rows / 10
+        assert cnt == num_rows // 10
 
         # Left join + count. Since it's left join, all t1 rows should be present.
         cnt = t1.join(t3, on=(t1.id == t3.id), how='left').count()
