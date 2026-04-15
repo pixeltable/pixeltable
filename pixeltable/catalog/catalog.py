@@ -610,9 +610,9 @@ class Catalog:
         self, *, tbl_id: UUID | None = None, dir_id: UUID | None = None, tbl_name: str | None = None
     ) -> None:
         """
-        Attempts to acquire an X-lock on a Table record, silently doing nothing if the table does not exist.
+        Attempts to acquire an X-lock on a Table record, but does nothing if the table does not exist.
 
-        Either tbl_id or dir_id/tbl_name need to be specified. Used when locking a slot that may not yet
+        Either tbl_id or dir_id+tbl_name need to be specified. Used when locking a slot that may not yet
         contain a table (e.g., guard against concurrent creation, or locking ancestors during replica import).
 
         Returns the set of table IDs that were X-locked (empty if the table does not exist or is non-mutable).
@@ -682,7 +682,7 @@ class Catalog:
             for view in tv.mutable_views:
                 locked.update(
                     self._acquire_write_lock(
-                        tbl_id=view.id, lock_mutable_tree=lock_mutable_tree, check_pending_ops=check_pending_ops
+                        tbl_id=view.id, lock_mutable_tree=True, check_pending_ops=check_pending_ops
                     )
                 )
         return locked
@@ -1327,7 +1327,7 @@ class Catalog:
             if not is_snapshot and base.is_mutable():
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
-                # assert that the lock was acquired?
+                # TODO: assert that the lock was acquired?
                 self._acquire_write_lock(tbl_id=base.tbl_id)
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
                 base_tv.tbl_md.view_sn += 1
@@ -1654,7 +1654,7 @@ class Catalog:
                 # this is a mutable view of a mutable base;
                 # lock the base before the view, in order to avoid deadlocks with concurrent inserts/updates
                 base_id = tbl._tbl_version_path.base.tbl_id
-                # assert that lock was acquired?
+                # TODO: assert that lock was acquired?
                 self._acquire_write_lock(tbl_id=base_id)
 
             self._drop_tbl(tbl, force=force, is_replace=False)
