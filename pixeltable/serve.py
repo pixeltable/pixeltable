@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import inspect
 import mimetypes
 import os
@@ -70,14 +71,10 @@ _MEDIA_CONTENT_TYPES: dict[ts.ColumnType.Type, str] = {
 
 
 def _run_endpoint_op(
-    endpoint_op: Callable,
-    kwargs: dict[str, Any],
-    tmp_paths: list[Path],
-    url_for_media: Callable[[str], str],
-    extra_kwargs: dict[str, Any],
+    endpoint_op: Callable, kwargs: dict[str, Any], tmp_paths: list[Path], url_for_media: Callable[[str], str]
 ) -> Any:
     try:
-        return endpoint_op(kwargs, url_for_media, **extra_kwargs)
+        return endpoint_op(kwargs, url_for_media)
     except Exception as e:
         for p in tmp_paths:
             if p.exists():
@@ -250,15 +247,11 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         else:
             endpoint_model = insert_response_model
 
-        def run_insert(
-            row_kwargs: dict[str, Any],
-            url_for_media: Callable[[str], str],
-            tbl_path: str,
-            tbl_id: uuid.UUID,
-            schema_version: int,
-        ) -> Any:
+        def run_insert(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
             # we need to fetch the table handle now (handles are not thread-portable) and validate against the
             # schema we saw when the route was registered
+            # TODO: add an internal get_table_by_id() to speed up metadata retrieval/verification (without having
+            # to access Catalog internals)?
             tbl = pxt.get_table(tbl_path)
             if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
                 raise HTTPException(
@@ -290,7 +283,6 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             uploadfile_inputs=uploadfile_inputs,
             background=background,
             endpoint_op=run_insert,
-            extra_kwargs={'tbl_path': tbl_path, 'tbl_id': tbl_id, 'schema_version': schema_version},
         )
 
         api_kwargs: dict[str, Any] = {'methods': ['POST']}
@@ -328,37 +320,32 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             # {"num_rows": 1}
             ```
         """
-        if not isinstance(t, pxt.InsertableTable):
-            raise pxt.Error(f'add_delete_route(): cannot delete from {t._display_name()} {t._name}')
+        md = t.get_metadata()
+        if md['kind'] != 'table':
+            raise pxt.Error(f'add_delete_route(): cannot delete from {md["kind"]} {md["name"]!r}')
 
-        tbl_path = t._path()
-        tbl_id = t._id
-        schema_version = t._tbl_version.get().schema_version
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        tbl_path = md['path']
+        tbl_id = md['id']
+        schema_version = md['schema_version']
+        col_md = md['columns']
 
+        match_columns = copy.copy(match_columns)  # insulate ourselves from external changes
         if match_columns is None:
-            pk = t._tbl_version.get().primary_key
+            pk = [name for name, c in col_md.items() if c['is_primary_key']]
             if not pk:
                 raise pxt.Error('add_delete_route(): table has no primary key; specify `match_columns` explicitly')
             match_columns = pk
         if len(match_columns) == 0:
             raise pxt.Error('add_delete_route(): `match_columns` must be non-empty')
-
-        match_col_objs: list[catalog.Column] = []
         for name in match_columns:
-            if name not in cols_by_name:
-                raise pxt.Error(f'add_delete_route(): unknown match column {name!r}')
-            match_col_objs.append(cols_by_name[name])
+            if name not in col_md:
+                raise pxt.Error(f'add_delete_route(): unknown column {name!r}')
 
         endpoint_model: type[pydantic.BaseModel] = BackgroundJobResponse if background else DeleteResponse
 
         def run_delete(
             row_kwargs: dict[str, Any],
             url_for_media: Callable[[str], str],  # unused; part of the endpoint_op contract
-            tbl_path: str,
-            tbl_id: uuid.UUID,
-            schema_version: int,
-            match_col_names: list[str],
         ) -> DeleteResponse:
             tbl = pxt.get_table(tbl_path)
             if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
@@ -366,26 +353,23 @@ class PxtFastAPIRouter(fastapi.APIRouter):
                     status_code=409,
                     detail='table schema changed since route was registered; please restart the service',
                 )
-            where_expr: Any = None
-            for name in match_col_names:
+
+            where_expr: exprs.Expr | None = None
+            for name in match_columns:
                 predicate = tbl[name] == row_kwargs[name]
                 where_expr = predicate if where_expr is None else (where_expr & predicate)
             status = tbl.delete(where=where_expr)
             return DeleteResponse(num_rows=status.num_rows)
 
-        sig = self._create_endpoint_signature(input_cols=match_col_objs)
+        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        match_cols = [cols_by_name[name] for name in match_columns]
+        sig = self._create_endpoint_signature(input_cols=match_cols)
         endpoint = self._create_endpoint(
             f'delete_{path.strip("/").replace("/", "_") or "root"}',
             sig,
             uploadfile_inputs=[],
             background=background,
             endpoint_op=run_delete,
-            extra_kwargs={
-                'tbl_path': tbl_path,
-                'tbl_id': tbl_id,
-                'schema_version': schema_version,
-                'match_col_names': list(match_columns),
-            },
         )
         self.add_api_route(path, endpoint, methods=['POST'], response_model=endpoint_model)
 
@@ -622,7 +606,6 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             uploadfile_inputs=uploadfile_inputs,
             background=background,
             endpoint_op=run_query,
-            extra_kwargs={},
         )
 
         api_kwargs: dict[str, Any] = {'methods': [method.upper()]}
@@ -639,7 +622,6 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs: list[str],
         background: bool,
         endpoint_op: Callable,
-        extra_kwargs: dict[str, Any],
     ) -> Callable[..., Any]:
         def endpoint(request: Request, **kwargs: Any) -> Any:
             sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
@@ -659,16 +641,14 @@ class PxtFastAPIRouter(fastapi.APIRouter):
 
             if background:
                 job_id = uuid.uuid4().hex
-                fut = self._executor.submit(
-                    _run_endpoint_op, endpoint_op, kwargs, tmp_paths, url_for_media, extra_kwargs
-                )
+                fut = self._executor.submit(_run_endpoint_op, endpoint_op, kwargs, tmp_paths, url_for_media)
                 with self._jobs_lock:
                     self._jobs[job_id] = fut
                 return BackgroundJobResponse(
                     id=job_id, job_url=str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id))
                 )
             else:
-                return _run_endpoint_op(endpoint_op, kwargs, tmp_paths, url_for_media, extra_kwargs)
+                return _run_endpoint_op(endpoint_op, kwargs, tmp_paths, url_for_media)
 
         endpoint.__signature__ = signature  # type: ignore[attr-defined]
         endpoint.__name__ = name

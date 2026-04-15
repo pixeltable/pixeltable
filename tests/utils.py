@@ -543,14 +543,15 @@ def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatche
 def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata) -> None:
     """
     Assert that table metadata (user-facing metadata as returned by `tbl.get_metadata()`) matches the expected dict.
-    `version_created` will be checked to be less than 1 minute ago; the other fields will be checked for exact
-    equality.
+    `version_created` will be checked to be less than 1 minute ago; `id` is asserted to be a UUID but its value
+    is not compared; the other fields will be checked for exact equality.
     """
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     actual_created_at: datetime.datetime = actual['version_created']
     assert (now - actual_created_at).total_seconds() <= (120 if Env.get().is_using_cockroachdb else 60)
+    assert isinstance(actual['id'], uuid.UUID)
 
-    trimmed_actual = {k: v for k, v in actual.items() if k != 'version_created'}
+    trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
     tc = TestCase()
     tc.maxDiff = 10_000
     tc.assertDictEqual(expected, trimmed_actual)

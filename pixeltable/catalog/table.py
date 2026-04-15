@@ -163,6 +163,7 @@ class Table(SchemaObject):
                 )
 
         return TableMetadata(
+            id=self._id,
             name=self._name,
             path=self._path(),
             columns=column_info,

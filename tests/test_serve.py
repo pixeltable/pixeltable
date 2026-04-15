@@ -959,10 +959,10 @@ class TestServe:
 
         with pytest.raises(pxt.Error, match=r'must be a @pxt\.query or retrieval_udf'):
             router.add_query_route(path='/e', query=add_one)  # regular UDF, not a query
-        with pytest.raises(pxt.Error, match="unknown input parameter 'nope'"):
-            router.add_query_route(path='/e', query=lookup, inputs=['nope'])
-        with pytest.raises(pxt.Error, match="unknown uploadfile input parameter 'nope'"):
-            router.add_query_route(path='/e', query=lookup, uploadfile_inputs=['nope'])
+        with pytest.raises(pxt.Error, match="unknown input parameter 'doesnotexist'"):
+            router.add_query_route(path='/e', query=lookup, inputs=['doesnotexist'])
+        with pytest.raises(pxt.Error, match="unknown uploadfile input parameter 'doesnotexist'"):
+            router.add_query_route(path='/e', query=lookup, uploadfile_inputs=['doesnotexist'])
         with pytest.raises(pxt.Error, match="uploadfile input parameter 'min_id' is not a media parameter"):
             router.add_query_route(path='/e', query=lookup, uploadfile_inputs=['min_id'])
         with pytest.raises(pxt.Error, match='return_fileresponse and background are mutually exclusive'):
@@ -991,10 +991,10 @@ class TestServe:
         with pytest.raises(pxt.Error, match='cannot insert into'):
             v = pxt.create_view('test_serve.errors_view', t)
             router.add_insert_route(v, path='/v')
-        with pytest.raises(pxt.Error, match="unknown input column 'nope'"):
-            router.add_insert_route(t, path='/e', inputs=['nope'])
-        with pytest.raises(pxt.Error, match="unknown uploadfile input column 'nope'"):
-            router.add_insert_route(t, path='/e', uploadfile_inputs=['nope'])
+        with pytest.raises(pxt.Error, match="unknown input column 'doesnotexist'"):
+            router.add_insert_route(t, path='/e', inputs=['doesnotexist'])
+        with pytest.raises(pxt.Error, match="unknown uploadfile input column 'doesnotexist'"):
+            router.add_insert_route(t, path='/e', uploadfile_inputs=['doesnotexist'])
         with pytest.raises(pxt.Error, match="'text_upper' is a computed column"):
             router.add_insert_route(t, path='/e', inputs=['text_upper'])
         with pytest.raises(pxt.Error, match="uploadfile input column 'text' is not a media column"):
@@ -1003,8 +1003,8 @@ class TestServe:
             router.add_insert_route(t, path='/e', uploadfile_inputs=['frame'])
         with pytest.raises(pxt.Error, match="'image' appears in both `inputs` and `uploadfile_inputs`"):
             router.add_insert_route(t, path='/e', inputs=['image'], uploadfile_inputs=['image'])
-        with pytest.raises(pxt.Error, match="unknown output column 'nope'"):
-            router.add_insert_route(t, path='/e', outputs=['nope'])
+        with pytest.raises(pxt.Error, match="unknown output column 'doesnotexist'"):
+            router.add_insert_route(t, path='/e', outputs=['doesnotexist'])
         with pytest.raises(pxt.Error, match='return_fileresponse and background are mutually exclusive'):
             router.add_insert_route(t, path='/e', outputs=['frame'], return_fileresponse=True, background=True)
         with pytest.raises(pxt.Error, match='exactly one media-typed output column'):
@@ -1101,8 +1101,8 @@ class TestServe:
         with pytest.raises(pxt.Error, match='cannot delete from'):
             v = pxt.create_view('test_serve.items_view', t)
             router.add_delete_route(v, path='/v')
-        with pytest.raises(pxt.Error, match="unknown match column 'nope'"):
-            router.add_delete_route(t, path='/e', match_columns=['nope'])
+        with pytest.raises(pxt.Error, match="unknown column 'doesnotexist'"):
+            router.add_delete_route(t, path='/e', match_columns=['doesnotexist'])
         with pytest.raises(pxt.Error, match='`match_columns` must be non-empty'):
             router.add_delete_route(t, path='/e', match_columns=[])
         with pytest.raises(pxt.Error, match='table has no primary key'):
