@@ -1107,3 +1107,49 @@ class TestServe:
             router.add_delete_route(t, path='/e', match_columns=[])
         with pytest.raises(pxt.Error, match='table has no primary key'):
             router.add_delete_route(t_no_pk, path='/e')
+
+    @pytest.mark.parametrize(
+        ('op_name', 'first_body', 'retry_body'),
+        [('insert', {'id': 2, 'val': 20}, {'id': 3, 'val': 30}), ('delete', {'id': 1}, {'id': 2})],
+    )
+    @pytest.mark.parametrize('schema_op', ['add_column', 'drop'])
+    def test_schema_change(
+        self, uses_db: None, op_name: str, first_body: dict[str, Any], retry_body: dict[str, Any], schema_op: str
+    ) -> None:
+        """Schema-version bump or drop-and-recreate after route registration causes the handler to 409."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
+        pxt.create_dir('test_serve')
+        schema = {'id': pxt.Required[pxt.Int], 'val': pxt.Int}
+        t = pxt.create_table('test_serve.items', schema, primary_key='id')
+        t.insert([{'id': 1, 'val': 10}])
+
+        app = fastapi.FastAPI()
+        router = PxtFastAPIRouter()
+        if op_name == 'insert':
+            router.add_insert_route(t, path='/ep')
+        else:
+            router.add_delete_route(t, path='/ep')
+        app.include_router(router)
+        client = TestClient(app)
+
+        # baseline: endpoint works before schema change
+        resp = client.post('/ep', json=first_body)
+        assert resp.status_code == 200, resp.text
+
+        if schema_op == 'add_column':
+            # mutate the schema in place; bumps schema_version behind the route's back
+            t.add_computed_column(val_plus_1=t.val + 1)
+        else:
+            # drop and recreate at the same path; new table has a fresh UUID
+            pxt.drop_table('test_serve.items', force=True)
+            pxt.create_table('test_serve.items', schema, primary_key='id')
+
+        # handler now detects the mismatch and rejects the request
+        resp = client.post('/ep', json=retry_body)
+        assert resp.status_code == 409, resp.text
+        assert 'table schema changed' in resp.json()['detail']
