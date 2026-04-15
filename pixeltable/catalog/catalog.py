@@ -422,12 +422,9 @@ class Catalog:
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
-                single_tbl = None
-                single_tbl_id = None
-                if len(tvp_write_targets) + len(tvp_read_targets) == 1:
-                    single_tbl = next(iter(tvp_write_targets or tvp_read_targets)).tbl_version
-                if single_tbl is None and len(tbl_id_read_targets) + len(tbl_id_write_targets) == 1:
-                    single_tbl_id = next(iter(tbl_id_read_targets or tbl_id_write_targets))
+                single_tbl, single_tbl_id = self._get_single_tbl(
+                    tvp_write_targets, tvp_read_targets, tbl_id_write_targets, tbl_id_read_targets
+                )
                 self.convert_sql_exc(e, tbl_id=single_tbl_id, tbl=single_tbl, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
@@ -513,6 +510,21 @@ class Catalog:
         assert self.in_write_xact
         self._undo_actions.append(func)
         return func
+
+    def _get_single_tbl(
+        self,
+        tvp_write_targets: Collection[TableVersionPath],
+        tvp_read_targets: Collection[TableVersionPath],
+        tbl_id_write_targets: Collection[UUID],
+        tbl_id_read_targets: Collection[UUID],
+    ) -> tuple[TableVersionHandle | None, UUID | None]:
+        """Return (tbl, None) or (None, tbl_id) iff the transaction touches exactly one table; else (None, None)."""
+        total = len(tvp_write_targets) + len(tvp_read_targets) + len(tbl_id_read_targets) + len(tbl_id_write_targets)
+        if total != 1:
+            return None, None
+        if tvp_write_targets or tvp_read_targets:
+            return next(iter(tvp_write_targets or tvp_read_targets)).tbl_version, None
+        return None, next(iter(tbl_id_read_targets or tbl_id_write_targets))
 
     def convert_sql_exc(
         self,
