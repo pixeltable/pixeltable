@@ -297,7 +297,7 @@ class TableVersion:
         media_validation: MediaValidation,
         create_default_idxs: bool,
         view_md: schema.ViewMd | None,
-        versioned: bool,
+        is_versioned: bool,
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
@@ -375,7 +375,7 @@ class TableVersion:
             external_stores=[],
             view_md=view_md,
             additional_md={},
-            is_versioned=versioned,
+            is_versioned=is_versioned,
         )
 
         table_version_md = schema.VersionMd(

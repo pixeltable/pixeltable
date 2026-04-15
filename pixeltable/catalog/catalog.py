@@ -1181,7 +1181,7 @@ class Catalog:
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
-        versioned: bool,
+        is_versioned: bool,
     ) -> tuple[Table, bool]:
         """
         Creates a new InsertableTable at the given path.
@@ -1212,7 +1212,7 @@ class Catalog:
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
                 create_default_idxs=create_default_idxs,
-                versioned=versioned,
+                is_versioned=is_versioned,
             )
             tbl_id = UUID(md.tbl_md.tbl_id)
             md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
