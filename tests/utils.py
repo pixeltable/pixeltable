@@ -14,7 +14,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, Callable, Iterator, TypedDict
 from unittest import TestCase
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import more_itertools
 import numpy as np
@@ -26,6 +26,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
+from pixeltable.catalog import retry_loop
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.types import ColumnSpec
@@ -739,7 +740,7 @@ SAMPLE_IMAGE_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main
 class ReloadTester:
     """Utility to verify that queries return identical results after a catalog reload"""
 
-    query_info: list[tuple[dict[str, Any], ResultSet, set[UUID]]]  # list of (query.as_dict(), query.collect(), tbl_ids)
+    query_info: list[tuple[dict[str, Any], ResultSet]]  # list of (query.as_dict(), query.collect())
 
     def __init__(self) -> None:
         self.query_info = []
@@ -750,23 +751,21 @@ class ReloadTester:
     def run_query(self, query: pxt.Query) -> ResultSet:
         query_dict = query.as_dict()
         result_set = query.collect()
-        tbl_ids = query.referenced_tbl_ids()
-        self.query_info.append((query_dict, result_set, tbl_ids))
+        self.query_info.append((query_dict, result_set))
         return result_set
 
     def run_reload_test(self, clear: bool = True) -> None:
-        from pixeltable.catalog import retry_loop
-
         reload_catalog()
         assert len(self.query_info) > 0, 'No queries in ReloadTester!'
         # enumerate(): the list index is useful for debugging
-        for _idx, (query_dict, result_set, tbl_ids) in enumerate(self.query_info):
-            # with get_runtime().catalog.begin_xact(tbl_id_read_targets=tbl_ids):
-            @retry_loop(tbl_id_read_targets=tbl_ids)
-            def from_dict() -> pxt.Query:
+        for _idx, (query_dict, result_set) in enumerate(self.query_info):
+
+            @retry_loop()
+            def query_from_dict() -> pxt.Query:
                 return pxt.Query.from_dict(query_dict)
 
-            query = from_dict()
+            query = query_from_dict()
+
             new_result_set = query.collect()
             try:
                 assert_resultset_eq(result_set, new_result_set, compare_col_names=True)
