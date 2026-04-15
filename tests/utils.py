@@ -750,7 +750,7 @@ class ReloadTester:
     def run_query(self, query: pxt.Query) -> ResultSet:
         query_dict = query.as_dict()
         result_set = query.collect()
-        tbl_ids = query._read_tbl_ids()
+        tbl_ids = query.referenced_tbl_ids()
         self.query_info.append((query_dict, result_set, tbl_ids))
         return result_set
 

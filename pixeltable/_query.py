@@ -522,8 +522,7 @@ class Query:
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         raise excs.Error(msg) from e
 
-    # TODO this is used externally, maybe it should become a public function
-    def _read_tbl_ids(self) -> set[UUID]:
+    def referenced_tbl_ids(self) -> set[UUID]:
         """Returns the IDs of all tables referenced by this query"""
         all_exprs = itertools.chain(
             self._select_list_exprs,
@@ -537,7 +536,7 @@ class Query:
         return tbl_ids
 
     def _output_row_iterator(self) -> Iterator[list]:
-        tbl_ids = self._read_tbl_ids()
+        tbl_ids = self.referenced_tbl_ids()
         with get_runtime().catalog.begin_xact(for_write=False, tbl_id_read_targets=tbl_ids):
             try:
                 for data_row in self._exec():
@@ -568,7 +567,7 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        with get_runtime().catalog.begin_xact(tbl_id_read_targets=self._read_tbl_ids()) as conn:
+        with get_runtime().catalog.begin_xact(tbl_id_read_targets=self.referenced_tbl_ids()) as conn:
             count_stmt = Planner.create_count_stmt(self)
             result: int = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)
@@ -1458,7 +1457,7 @@ class Query:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            with get_runtime().catalog.begin_xact(tbl_id_read_targets=self._read_tbl_ids()):
+            with get_runtime().catalog.begin_xact(tbl_id_read_targets=self.referenced_tbl_ids()):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1503,7 +1502,7 @@ class Query:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with get_runtime().catalog.begin_xact(tbl_id_read_targets=self._read_tbl_ids()):
+            with get_runtime().catalog.begin_xact(tbl_id_read_targets=self.referenced_tbl_ids()):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)
 
