@@ -292,7 +292,6 @@ class Catalog:
         self._modified_tvs.update(handle)
 
     @contextmanager
-    # TODO try to reduce the internal usage of this
     def _allow_tbl_md_read(self) -> Iterator[None]:
         """Context manager that allows reading new table metadata.
 
