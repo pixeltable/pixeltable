@@ -472,7 +472,7 @@ class Catalog:
         Acquires locks on the specified write targets (including their mutable tree, if lock_mutable_tree is True), and
         updates self._x_locked_tbl_ids accordingly.
 
-        Refreshes the metadata cache for read targets.
+        Refreshes the metadata cache for the read targets.
         """
         x_locked_ids: set[UUID] = set()
         for tbl_id in tbl_id_write_targets:
