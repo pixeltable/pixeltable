@@ -162,6 +162,10 @@ class Table(SchemaObject):
                     ),
                 )
 
+        primary_key: list[str] | None = None
+        if any(col.is_pk for col in columns):
+            primary_key = [col.name for col in columns if col.is_pk]
+
         return TableMetadata(
             name=self._name,
             path=self._path(),
@@ -176,6 +180,7 @@ class Table(SchemaObject):
             comment=self._get_comment(),
             custom_metadata=self._get_custom_metadata(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
+            primary_key=primary_key,
             kind=self._display_name(),  # type: ignore[typeddict-item]
             base=None,
             iterator_call=None,
