@@ -1917,7 +1917,11 @@ class Catalog:
         assert conn is not None
         tv = self._tbl_versions.get(key)
         if tv is None and not self._tbl_md_read_allowed and not self._in_retry_loop:
-            raise AssertionError('Loading table metadata not allowed in the middle of a transaction')
+            raise AssertionError(
+                'Loading new table metadata is not allowed in the middle of a transaction. '
+                'To fix this, either: (1) declare all tables to be accessed upfront via begin_xact(), '
+                'or (2) run the operation inside a retry_loop().'
+            )
         if tv is None:
             tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
         elif not tv.is_validated:
