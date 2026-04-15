@@ -12,7 +12,6 @@ from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
-    IN_CI,
     ReloadTester,
     get_audio_file,
     get_audio_files,

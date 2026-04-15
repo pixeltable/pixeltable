@@ -86,6 +86,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
     #    of other jobs providing broader test coverage.
     # 3. On a scheduled run, or if "Run on all platforms" is checked during a workflow dispatch, then in addition to
     #    the above, we also run the 'very_expensive' tests on MAIN_PLATFORM and the basic tests on EXPENSIVE_PLATFORMS.
+    # In 2 and 3, we also upgrade the Ubuntu runner to 'ubuntu-medium' (instead of free tier).
 
     if trigger == 'pull_request':
         # Just the standard tests on MAIN_PLATFORM.

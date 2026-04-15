@@ -9,7 +9,6 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 
 from ..utils import (
-    IN_CI,
     SAMPLE_IMAGE_URL,
     ReloadTester,
     get_audio_files,
