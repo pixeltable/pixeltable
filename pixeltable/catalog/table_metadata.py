@@ -92,6 +92,8 @@ class TableMetadata(TypedDict):
     """User-defined JSON metadata for this table, if any."""
     media_validation: Literal['on_read', 'on_write']
     """The media validation policy for this table."""
+    primary_key: list[str] | None
+    """List of primary key column names, or `None` if this table has no primary key."""
     base: str | None
     """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
     iterator_call: str | None
