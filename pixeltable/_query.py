@@ -1370,51 +1370,37 @@ class Query:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
-        # we need to wrap the construction with a retry_loop, because it might need to load metadata
-        # from pixeltable.catalog import retry_loop
+        tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
+        join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
+        from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
+        select_list = (
+            [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] if d['select_list'] is not None else None
+        )
+        where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
+        group_by_clause = (
+            [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
+        )
+        grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+        order_by_clause = (
+            [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
+            if d['order_by_clause'] is not None
+            else None
+        )
+        limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
+        offset_val = exprs.Expr.from_dict(d['offset_val']) if d.get('offset_val') is not None else None
+        sample_clause = SampleClause.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
 
-        # TODO actually, Query.from_dict cannot use a retry loop because there's a call path between
-        # _finalize_pending_ops and here, and _finalize_pending_ops of course starts its own transaction
-        # @retry_loop(for_write=False)
-        # for now let's simply require that this is only called within an existing transaction, and update ReloadTester
-        # to start a transaction before calling this.
-        def op() -> 'Query':
-            tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
-            join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
-            from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
-            select_list = (
-                [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']]
-                if d['select_list'] is not None
-                else None
-            )
-            where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
-            group_by_clause = (
-                [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
-            )
-            grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
-            order_by_clause = (
-                [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
-                if d['order_by_clause'] is not None
-                else None
-            )
-            limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
-            offset_val = exprs.Expr.from_dict(d['offset_val']) if d.get('offset_val') is not None else None
-            sample_clause = SampleClause.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
-
-            return Query(
-                from_clause=from_clause,
-                select_list=select_list,
-                where_clause=where_clause,
-                group_by_clause=group_by_clause,
-                grouping_tbl=grouping_tbl,
-                order_by_clause=order_by_clause,
-                limit=limit_val,
-                offset=offset_val,
-                sample_clause=sample_clause,
-            )
-
-        assert get_runtime().in_xact
-        return op()
+        return Query(
+            from_clause=from_clause,
+            select_list=select_list,
+            where_clause=where_clause,
+            group_by_clause=group_by_clause,
+            grouping_tbl=grouping_tbl,
+            order_by_clause=order_by_clause,
+            limit=limit_val,
+            offset=offset_val,
+            sample_clause=sample_clause,
+        )
 
     def _hash_result_set(self) -> str:
         """Return a hash that changes when the result set changes."""
