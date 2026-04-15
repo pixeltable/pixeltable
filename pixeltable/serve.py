@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import logging
 import mimetypes
 import os
 import shutil
@@ -10,7 +11,7 @@ import urllib.parse
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Annotated, Any, Callable, Literal, Optional
+from typing import Annotated, Any, Callable, Literal, Optional, TypeVar
 
 import fastapi
 import PIL.Image
@@ -28,6 +29,8 @@ import pixeltable.utils.image as image_utils
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore, TempStore
+
+_logger = logging.getLogger('pixeltable')
 
 
 class BackgroundJobResponse(pydantic.BaseModel):
@@ -70,15 +73,20 @@ _MEDIA_CONTENT_TYPES: dict[ts.ColumnType.Type, str] = {
 }
 
 
+T = TypeVar('T')
+
+
 def _run_endpoint_op(
-    endpoint_op: Callable, kwargs: dict[str, Any], tmp_paths: list[Path], url_for_media: Callable[[str], str]
-) -> Any:
+    endpoint_op: Callable[..., T], kwargs: dict[str, Any], tmp_paths: list[Path], url_for_media: Callable[[str], str]
+) -> T:
     try:
         return endpoint_op(kwargs, url_for_media)
     except Exception as e:
         for p in tmp_paths:
-            if p.exists():
-                TempStore.delete_media_file(p)
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                _logger.warning(f'failed to delete tmp file: {p}', exc_info=True)
         if isinstance(e, pxt.Error):
             raise HTTPException(status_code=400, detail=str(e)) from e
         raise
@@ -236,7 +244,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
 
         # create response model, named after the path
         path_elements = path.split('/')
-        path_str = ''.join([el.capitalize() for el in path_elements if len(el) > 0])
+        path_str = ''.join(el.capitalize() for el in path_elements if len(el) > 0)
         model_name = f'{path_str}Response'
         insert_response_model = self._create_model(
             model_name, output_cols=[cols_by_id[col_id] for col_id in output_col_ids]
@@ -505,7 +513,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             output_model = None
         else:
             path_elements = path.split('/')
-            path_str = ''.join([el.capitalize() for el in path_elements if len(el) > 0])
+            path_str = ''.join(el.capitalize() for el in path_elements if len(el) > 0)
             query_result_model = self._create_model(name=f'{path_str}RowResponse', output_schema=result_schema)
             if one_row:
                 output_model = query_result_model
@@ -635,9 +643,10 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             # write out uploads while the request is still alive
             tmp_paths: list[Path] = []
             if len(uploadfile_inputs) > 0:
-                for input_name in kwargs:  # noqa: PLC0206
+                # list(...): make sure that the sequence of name/val pairs can't change underneath us
+                for input_name, val in list(kwargs.items()):
                     if input_name in uploadfile_inputs:
-                        path = self._write_to_temp(kwargs[input_name])
+                        path = self._write_to_temp(val)
                         tmp_paths.append(path)
                         kwargs[input_name] = str(path)
 
@@ -652,6 +661,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             else:
                 return _run_endpoint_op(endpoint_op, kwargs, tmp_paths, url_for_media)
 
+        # FastAPI needs the correct signature and a name
         endpoint.__signature__ = signature  # type: ignore[attr-defined]
         endpoint.__name__ = name
         return endpoint
@@ -755,9 +765,13 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         defaults = defaults or {}
 
         input_cols_by_name = {c.name: c for c in input_cols} if input_cols is not None else {}
-        input_col_names = list(input_schema.keys()) if input_cols is None else list(input_cols_by_name.keys())
-        input_col_types = list(input_schema.values()) if input_cols is None else [c.col_type for c in input_cols]
-        for name, col_type in zip(input_col_names, input_col_types):
+        schema: dict[str, ts.ColumnType]
+        if input_schema is not None:
+            schema = input_schema
+        else:
+            schema = {name: col.col_type for name, col in input_cols_by_name.items()}
+
+        for name, col_type in schema.items():
             annotation: Any
             # propagate the column comment (if any) as the OpenAPI field description
             desc = input_cols_by_name[name].comment if name in input_cols_by_name else None

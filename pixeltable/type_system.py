@@ -707,8 +707,7 @@ class ColumnType:
                 py_type = list
             case self.Type.IMAGE | self.Type.VIDEO | self.Type.AUDIO | self.Type.DOCUMENT:
                 py_type = str
-            case _:
-                py_type = Any
+            # leave out a catch-all to surface bugs more easily
         if self.nullable:
             return typing.Optional[py_type]
         return py_type

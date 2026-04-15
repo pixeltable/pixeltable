@@ -1622,13 +1622,7 @@ class TableVersion:
         assert self.effective_version is None
         # we need to strip out UpdateStatus.rows, if set
         if status.rows is not None:
-            status = UpdateStatus(
-                updated_cols=status.updated_cols,
-                cols_with_excs=status.cols_with_excs,
-                row_count_stats=status.row_count_stats,
-                cascade_row_count_stats=status.cascade_row_count_stats,
-                ext_row_count_stats=status.ext_row_count_stats,
-            )
+            status = dataclasses.replace(status, rows=None)
         self._version_md.update_status = status
 
     @property
