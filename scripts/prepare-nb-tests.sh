@@ -86,14 +86,14 @@ done
 
 # Remove skipped notebooks
 for nb in "${SKIP_NOTEBOOKS[@]}"; do
-    echo "Skipping $nb because it is in SKIP_NOTEBOOKS."
+    echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in SKIP_NOTEBOOKS."
     rm "$TARGET_DIR/${nb}.ipynb"
 done
 
 # Remove expensive notebooks unless --include-expensive was passed
 if [[ $INCLUDE_EXPENSIVE == false ]]; then
     for nb in "${VERY_EXPENSIVE_NOTEBOOKS[@]}"; do
-        echo "Skipping $nb because it is in VERY_EXPENSIVE_NOTEBOOKS."
+        echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in VERY_EXPENSIVE_NOTEBOOKS."
         rm "$TARGET_DIR/${nb}.ipynb"
     done
 fi
