@@ -167,6 +167,7 @@ KNOWN_CONFIG_OPTIONS = {
         'time_zone': 'Default time zone for timestamps',
         'hide_warnings': 'Hide warnings from the console',
         'verbosity': 'Verbosity level for console output',
+        'show_progress': 'Show a progress tracker for long-running operations (default: false)',
         'api_key': 'API key for Pixeltable cloud',
         'input_media_dest': 'Default destination URI for input media data',
         'output_media_dest': 'Default destination URI for output (computed) media data',
