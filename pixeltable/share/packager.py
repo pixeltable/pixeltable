@@ -410,6 +410,8 @@ class TableRestorer:
         self.media_files = {}
 
     def restore(self, bundle_path: Path, pxt_uri: str | None = None, explicit_version: int | None = None) -> pxt.Table:
+        from pixeltable.catalog import retry_loop
+
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
@@ -438,7 +440,8 @@ class TableRestorer:
 
         cat = get_runtime().catalog
 
-        with cat.begin_xact(for_write=True, convert_db_excs=False):
+        @retry_loop(for_write=True)
+        def op() -> pxt.Table:
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
             # versions that have not been seen before.
             cat.create_replica(catalog.Path.parse(self.tbl_path), tbl_md)
@@ -461,6 +464,8 @@ class TableRestorer:
                 cat.update_additional_md(tbl._id, {'pxt_uri': pxt_uri})
             tbl._tbl_version_path.clear_cached_md()  # TODO: Clear cached md for ancestors too?
             return tbl
+
+        return op()
 
     def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionMd) -> None:
         """
