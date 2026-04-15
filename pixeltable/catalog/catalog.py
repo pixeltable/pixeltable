@@ -614,8 +614,6 @@ class Catalog:
 
         Either tbl_id or dir_id+tbl_name need to be specified. Used when locking a slot that may not yet
         contain a table (e.g., guard against concurrent creation, or locking ancestors during replica import).
-
-        Returns the set of table IDs that were X-locked (empty if the table does not exist or is non-mutable).
         """
         assert (tbl_id is not None) != (dir_id is not None and tbl_name is not None)
         assert (dir_id is None) == (tbl_name is None)
