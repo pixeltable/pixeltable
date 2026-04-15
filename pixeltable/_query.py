@@ -544,7 +544,8 @@ class Query:
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-                get_runtime().catalog.convert_sql_exc(e, tbl_id=next(iter(tbl_ids)) if len(tbl_ids) == 1 else None)
+                single_tbl = next(iter(tbl_ids)) if len(tbl_ids) == 1 else None
+                get_runtime().catalog.convert_sql_exc(e, tbl_id=single_tbl)
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
