@@ -204,14 +204,8 @@ class Row(Mapping[str, Any]):
             return default
         return self._data[self._columns[key]]
 
-    def keys(self) -> Iterator[str]:
-        return iter(self._columns.keys())
-
-    def values(self) -> Iterator[Any]:
-        return (self._data[idx] for idx in self._columns.values())
-
-    def items(self) -> Iterator[tuple[str, Any]]:
-        return zip(self._columns.keys(), self._data)
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._columns)
 
     def __contains__(self, key: object) -> bool:
         return key in self._columns
@@ -221,9 +215,6 @@ class Row(Mapping[str, Any]):
 
     def __repr__(self) -> str:
         return 'Row({' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '})'
-
-    def __iter__(self) -> Iterator[str]:
-        return self.keys()
 
 
 class ResultCursor(Iterable[Row]):
