@@ -3,10 +3,6 @@
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
     working-with-gemini          # Temporary
-    working-with-together        # Flaky
-    working-with-twelvelabs      # [PXT-1040] Temporary (rate limiting issues)
-    rag-operations               # Failing in CI for unknown reasons
-    llm-tool-calling             # Flaky
     working-with-fabric          # Requires Microsoft Fabric environment
     working-with-fiftyone        # Voxel51 is currently omitted from our dev env for security reasons
     working-with-tigris          # Requires Tigris environment

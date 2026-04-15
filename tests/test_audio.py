@@ -398,7 +398,7 @@ class TestAudio:
         assert len(audio_data) > 0
         return audio_data, duration_seconds, sample_rate
 
-    @pytest.mark.skipif(IN_CI, reason='Runs out of disk space on CI')
+    @pytest.mark.expensive  # Large dataset; requires substantial disk space
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
     def test_encode_dataset_audio(self, uses_db: None) -> None:
         """
