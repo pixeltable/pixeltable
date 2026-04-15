@@ -77,7 +77,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
     ]
 
     # Standard configs that are always run
-    configs.extend(MatrixConfig('std', 'py', os, '3.10') for os in BASIC_PLATFORMS)
+    configs.extend(MatrixConfig('standard', 'py', os, '3.10') for os in BASIC_PLATFORMS)
 
     # All other configs are dependent on the CI scenario. There are three basic scenarios:
     # 1. During a PR, we run a limited set of tests: MAIN_PLATFORM (Ubuntu) identically to the standard configs, and
@@ -89,27 +89,27 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     if trigger == 'pull_request':
         # Just the standard tests on MAIN_PLATFORM.
-        configs.append(MatrixConfig('std', 'py', MAIN_PLATFORM, '3.10'))
+        configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.10'))
 
     else:
         if force_all or trigger == 'schedule':
             # Standard + expensive + very_expensive tests on MAIN_PLATFORM.
-            configs.append(MatrixConfig('std++', 'py', MAIN_PLATFORM, '3.10', pytest_options=VERY_EXPENSIVE_PYTEST))
+            configs.append(MatrixConfig('standard++', 'py', MAIN_PLATFORM, '3.10', pytest_options=VERY_EXPENSIVE_PYTEST))
 
             # Expensive platforms (e.g., GPU runners).
-            configs.extend(MatrixConfig('std', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
+            configs.extend(MatrixConfig('standard', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
 
         else:
             # Standard + expensive (but not very_expensive) tests on MAIN_PLATFORM.
-            configs.append(MatrixConfig('std+', 'py', MAIN_PLATFORM, '3.10', pytest_options=EXPENSIVE_PYTEST))
+            configs.append(MatrixConfig('standard+', 'py', MAIN_PLATFORM, '3.10', pytest_options=EXPENSIVE_PYTEST))
 
         # The remaining configs run on all non-PR triggers.
 
         # Standard test suite on main & basic platforms on Python 3.14
-        configs.extend(MatrixConfig('std', 'py', os, '3.14') for os in (MAIN_PLATFORM, *BASIC_PLATFORMS))
+        configs.extend(MatrixConfig('standard', 'py', os, '3.14') for os in (MAIN_PLATFORM, *BASIC_PLATFORMS))
 
         # Standard test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('std', 'py', MAIN_PLATFORM, py) for py in ('3.11', '3.12', '3.13'))
+        configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.11', '3.12', '3.13'))
 
         # Minimal tests on Python 3.14
         configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.14', uv_options='--no-dev'))
