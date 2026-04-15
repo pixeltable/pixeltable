@@ -34,6 +34,12 @@ class BackgroundJobResponse(pydantic.BaseModel):
     job_url: str
 
 
+class DeleteResponse(pydantic.BaseModel):
+    """Response from a delete endpoint."""
+
+    num_rows: int
+
+
 class JobStatusResponse(pydantic.BaseModel):
     """Status of a background job."""
 
@@ -293,6 +299,95 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         if return_fileresponse:
             api_kwargs['response_class'] = FileResponse
         self.add_api_route(path, endpoint, **api_kwargs)
+
+    def add_delete_route(
+        self, t: pxt.Table, *, path: str, match_columns: list[str] | None = None, background: bool = False
+    ) -> None:
+        """
+        Add a POST endpoint that deletes rows from `t` matching the given match column values.
+
+        The request body contains the match column values as JSON fields. The endpoint deletes every row
+        where each match column equals the provided value, and returns the number of rows affected.
+
+        Args:
+            t: The table to delete from.
+            path: The URL path for the endpoint.
+            match_columns: Columns to match on (AND-ed equality). Defaults to the table's primary key.
+                Must be non-empty.
+            background: If True, return immediately with `{"id": ..., "job_url": ...}` and run the
+                operation in a background thread. Poll `job_url` for the result.
+
+        Examples:
+            ```python
+            router.add_delete_route(t, path='/delete')
+            ```
+
+            ```bash
+            curl -X POST http://localhost:8000/delete -H 'Content-Type: application/json' \\
+              -d '{"id": 42}'
+            # {"num_rows": 1}
+            ```
+        """
+        if not isinstance(t, pxt.InsertableTable):
+            raise pxt.Error(f'add_delete_route(): cannot delete from {t._display_name()} {t._name}')
+
+        tbl_path = t._path()
+        tbl_id = t._id
+        schema_version = t._tbl_version.get().schema_version
+        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+
+        if match_columns is None:
+            pk = t._tbl_version.get().primary_key
+            if not pk:
+                raise pxt.Error('add_delete_route(): table has no primary key; specify `match_columns` explicitly')
+            match_columns = pk
+        if len(match_columns) == 0:
+            raise pxt.Error('add_delete_route(): `match_columns` must be non-empty')
+
+        match_col_objs: list[catalog.Column] = []
+        for name in match_columns:
+            if name not in cols_by_name:
+                raise pxt.Error(f'add_delete_route(): unknown match column {name!r}')
+            match_col_objs.append(cols_by_name[name])
+
+        endpoint_model: type[pydantic.BaseModel] = BackgroundJobResponse if background else DeleteResponse
+
+        def run_delete(
+            row_kwargs: dict[str, Any],
+            url_for_media: Callable[[str], str],  # unused; part of the endpoint_op contract
+            tbl_path: str,
+            tbl_id: uuid.UUID,
+            schema_version: int,
+            match_col_names: list[str],
+        ) -> DeleteResponse:
+            tbl = pxt.get_table(tbl_path)
+            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
+                raise HTTPException(
+                    status_code=409,
+                    detail='table schema changed since route was registered; please restart the service',
+                )
+            where_expr: Any = None
+            for name in match_col_names:
+                predicate = tbl[name] == row_kwargs[name]
+                where_expr = predicate if where_expr is None else (where_expr & predicate)
+            status = tbl.delete(where=where_expr)
+            return DeleteResponse(num_rows=status.num_rows)
+
+        sig = self._create_endpoint_signature(input_cols=match_col_objs)
+        endpoint = self._create_endpoint(
+            f'delete_{path.strip("/").replace("/", "_") or "root"}',
+            sig,
+            uploadfile_inputs=[],
+            background=background,
+            endpoint_op=run_delete,
+            extra_kwargs={
+                'tbl_path': tbl_path,
+                'tbl_id': tbl_id,
+                'schema_version': schema_version,
+                'match_col_names': list(match_columns),
+            },
+        )
+        self.add_api_route(path, endpoint, methods=['POST'], response_model=endpoint_model)
 
     def add_query_route(
         self,

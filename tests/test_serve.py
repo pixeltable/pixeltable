@@ -1011,3 +1011,99 @@ class TestServe:
             router.add_insert_route(t, path='/e', outputs=['id', 'frame'], return_fileresponse=True)
         with pytest.raises(pxt.Error, match='exactly one media-typed output column'):
             router.add_insert_route(t, path='/e', outputs=['text_upper'], return_fileresponse=True)
+
+    def test_add_delete_route(self, uses_db: None) -> None:
+        """Delete routes: primary-key default, explicit match_columns, multi-col AND, 0-match, background."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serve import PxtFastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table(
+            'test_serve.items', {'id': pxt.Required[pxt.Int], 'group': pxt.String, 'value': pxt.Int}, primary_key='id'
+        )
+        t.insert(
+            [
+                {'id': 1, 'group': 'a', 'value': 10},
+                {'id': 2, 'group': 'a', 'value': 20},
+                {'id': 3, 'group': 'b', 'value': 10},
+                {'id': 4, 'group': 'b', 'value': 20},
+                {'id': 5, 'group': 'c', 'value': 30},
+            ]
+        )
+
+        app = fastapi.FastAPI()
+        router = PxtFastAPIRouter()
+        router.add_delete_route(t, path='/by-pk')  # defaults to primary key
+        router.add_delete_route(t, path='/by-group', match_columns=['group'])
+        router.add_delete_route(t, path='/by-group-value', match_columns=['group', 'value'])
+        router.add_delete_route(t, path='/by-pk-bg', background=True)
+        app.include_router(router)
+        client = TestClient(app)
+
+        # /by-pk: default pk match deletes exactly one row
+        resp = client.post('/by-pk', json={'id': 1})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'num_rows': 1}
+        assert t.where(t.id == 1).count() == 0
+
+        # /by-pk: 0 matches is not an error
+        resp = client.post('/by-pk', json={'id': 9999})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'num_rows': 0}
+
+        # /by-group: explicit single-col match, deletes all rows in the group
+        # group 'a' started with 2 rows (ids 1, 2); id 1 already deleted -> 1 row remains
+        resp = client.post('/by-group', json={'group': 'a'})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'num_rows': 1}
+        assert t.where(t.group == 'a').count() == 0
+
+        # /by-group-value: multi-col AND; only rows where BOTH match are deleted
+        # group 'b' has ids 3,4 with values 10,20; match (group='b', value=10) -> 1 row
+        resp = client.post('/by-group-value', json={'group': 'b', 'value': 10})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'num_rows': 1}
+        # the other 'b' row (id=4, value=20) should remain
+        assert t.where(t.group == 'b').count() == 1
+
+        # /by-pk-bg: background variant
+        resp = client.post('/by-pk-bg', json={'id': 5})
+        assert resp.status_code == 200, resp.text
+        job = resp.json()
+        assert isinstance(job.get('id'), str) and '/jobs/' in job['job_url']
+        deadline = time.time() + 10.0
+        while True:
+            status_resp = client.get(job['job_url'])
+            assert status_resp.status_code == 200
+            st = status_resp.json()
+            if st['status'] == 'pending':
+                assert time.time() < deadline, 'job still pending'
+                time.sleep(0.02)
+                continue
+            assert st['status'] == 'done', st
+            break
+        assert st['result'] == {'num_rows': 1}
+        assert t.where(t.id == 5).count() == 0
+
+    def test_add_delete_route_errors(self, uses_db: None) -> None:
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serve import PxtFastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.items', {'id': pxt.Required[pxt.Int], 'group': pxt.String}, primary_key='id')
+        t_no_pk = pxt.create_table('test_serve.nopk', {'id': pxt.Int, 'group': pxt.String})
+
+        router = PxtFastAPIRouter()
+
+        with pytest.raises(pxt.Error, match='cannot delete from'):
+            v = pxt.create_view('test_serve.items_view', t)
+            router.add_delete_route(v, path='/v')
+        with pytest.raises(pxt.Error, match="unknown match column 'nope'"):
+            router.add_delete_route(t, path='/e', match_columns=['nope'])
+        with pytest.raises(pxt.Error, match='`match_columns` must be non-empty'):
+            router.add_delete_route(t, path='/e', match_columns=[])
+        with pytest.raises(pxt.Error, match='table has no primary key'):
+            router.add_delete_route(t_no_pk, path='/e')
