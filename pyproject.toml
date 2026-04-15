@@ -258,9 +258,10 @@ warn_return_any = true
 warn_unused_ignores = true
 
 [tool.pytest.ini_options]
-addopts = '-v -m "not remote_api and not expensive and not benchmark" --strict-markers'
+addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
+    "very_expensive: marks tests as very expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "cockroachdb: tests to run against CockroachDB",

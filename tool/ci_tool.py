@@ -13,6 +13,17 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal, NamedTuple, NoReturn
 
+DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark'"
+EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
+VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
+
+MAIN_PLATFORM = 'ubuntu-24.04'
+BASIC_PLATFORMS = ('macos-15', 'windows-2022')
+EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
+ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
+
+COCKROACH_TEST_MODULES = ('table', 'index')
+
 
 class MatrixConfig(NamedTuple):
     display_name_prefix: str
@@ -20,7 +31,7 @@ class MatrixConfig(NamedTuple):
     os: str
     python_version: str
     uv_options: str = ''
-    pytest_options: str = "-m 'not expensive and not benchmark'"
+    pytest_options: str = DEFAULT_PYTEST
     pre_test_cmd: str = ''  # Extra bash command to be run just before tests
 
     @property
@@ -38,11 +49,6 @@ class MatrixConfig(NamedTuple):
             'pytest-options': self.pytest_options,
             'pre-test-cmd': self.pre_test_cmd,
         }
-
-
-BASIC_PLATFORMS = ('ubuntu-24.04', 'macos-15', 'windows-2022')
-EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
-ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
 
 def new_bucket_addr() -> str:
@@ -64,57 +70,67 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     # Special configs that are always run
     configs = [
-        MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.10', uv_options='--no-dev'),  # Minimal test (no dev deps)
-        MatrixConfig('notebooks', 'ipynb', 'ubuntu-24.04', '3.10'),  # Notebook tests
-        MatrixConfig('static-checks', 'lint', 'ubuntu-24.04', '3.10'),  # Linting, type checking, etc.
-        MatrixConfig('random-ops', 'random-ops', 'ubuntu-24.04', '3.10', uv_options='--no-dev'),  # Random operations
+        MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.10', uv_options='--no-dev'),  # Minimal test (no dev deps)
+        MatrixConfig('notebooks', 'ipynb', MAIN_PLATFORM, '3.10'),  # Notebook tests
+        MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.10'),  # Linting, type checking, etc.
+        MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.10', uv_options='--no-dev'),  # Random operations
     ]
 
-    # Full test suite on basic platforms on Python 3.10
-    # Exclude expensive tests on everything except Ubuntu
-    configs.extend(
-        MatrixConfig(
-            'full',
-            'py',
-            os,
-            '3.10',
-            pytest_options="-m 'not benchmark'" if os.startswith('ubuntu') else "-m 'not expensive and not benchmark'",
-        )
-        for os in (
-            # Same as BASIC_PLATFORMS, but upgrade the Ubuntu VM for non-PR triggers.
-            # This is part of a gradual transition to using larger runners for merge queue.
-            'ubuntu-24.04' if trigger == 'pull_request' else 'ubuntu-medium',
-            'macos-15',
-            'windows-2022',
-        )
-    )
+    # Standard configs that are always run
+    configs.extend(MatrixConfig('standard', 'py', os, '3.10') for os in BASIC_PLATFORMS)
 
-    if force_all or trigger != 'pull_request':
-        # Full test suite on basic platforms on Python 3.14
-        configs.extend(MatrixConfig('full', 'py', os, '3.14') for os in BASIC_PLATFORMS)
+    # All other configs are dependent on the CI scenario. There are three basic scenarios:
+    # 1. During a PR, we run a limited set of tests: MAIN_PLATFORM (Ubuntu) identically to the standard configs, and
+    #    nothing additional.
+    # 2. In merge queue or on a workflow dispatch, we include 'expensive' tests on MAIN_PLATFORM, and also run a suite
+    #    of other jobs providing broader test coverage.
+    # 3. On a scheduled run, or if "Run on all platforms" is checked during a workflow dispatch, then in addition to
+    #    the above, we also run the 'very_expensive' tests on MAIN_PLATFORM and the basic tests on EXPENSIVE_PLATFORMS.
 
-        # Full test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('full', 'py', 'ubuntu-24.04', py) for py in ('3.11', '3.12', '3.13'))
+    if trigger == 'pull_request':
+        # Just the standard tests on MAIN_PLATFORM.
+        configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.10'))
 
-        # Minimal test on Python 3.14
-        configs.append(MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.14', uv_options='--no-dev'))
+    else:
+        if force_all or trigger == 'schedule':
+            # Standard + expensive + very_expensive tests on MAIN_PLATFORM; upgrade to 'ubuntu-medium'.
+            configs.append(
+                MatrixConfig('standard++', 'py', 'ubuntu-medium', '3.10', pytest_options=VERY_EXPENSIVE_PYTEST)
+            )
 
-        # Minimal tests on alternative platforms (we don't run the full suite on these, since dev dependencies
+            # Expensive platforms (e.g., GPU runners).
+            configs.extend(MatrixConfig('standard', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
+
+        else:
+            # Standard + expensive (but not very_expensive) tests on MAIN_PLATFORM; upgrade to 'ubuntu-medium'.
+            configs.append(MatrixConfig('standard+', 'py', 'ubuntu-medium', '3.10', pytest_options=EXPENSIVE_PYTEST))
+
+        # The remaining configs run on all non-PR triggers.
+
+        # Standard test suite on main & basic platforms on Python 3.14
+        configs.extend(MatrixConfig('standard', 'py', os, '3.14') for os in (MAIN_PLATFORM, *BASIC_PLATFORMS))
+
+        # Standard test suite on Ubuntu on intermediate Python versions
+        configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.11', '3.12', '3.13'))
+
+        # Minimal tests on Python 3.14
+        configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.14', uv_options='--no-dev'))
+
+        # Minimal tests on alternative platforms (we don't run the standard suite on these, since dev dependencies
         # can be hit-or-miss)
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
         if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
-            cockroach_test_modules = ('table', 'index')
             configs.extend(
                 MatrixConfig(
                     f'cockroach-{module}',
                     'py',
-                    'ubuntu-24.04',
+                    MAIN_PLATFORM,
                     '3.10',
                     pytest_options=f'--reruns 2 -m cockroachdb tests/test_{module}.py',
                     pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
                 )
-                for module in cockroach_test_modules
+                for module in COCKROACH_TEST_MODULES
             )
 
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
@@ -124,16 +140,12 @@ def generate_matrix(args: argparse.Namespace) -> None:
                 MatrixConfig(
                     's3-output-dest',
                     'py',
-                    'ubuntu-24.04',
+                    MAIN_PLATFORM,
                     '3.10',
                     uv_options='--no-dev --group storage-sdks',
                     pre_test_cmd=f'export PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}',
                 )
             )
-
-    if force_all or trigger == 'schedule':
-        # Expensive tests on special hardware on Python 3.10
-        configs.extend(MatrixConfig('full', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
 
     configs.sort(key=lambda cfg: cfg.display_name)
 
