@@ -244,7 +244,7 @@ class Table(SchemaObject):
         if len(items) == 0 and len(named_items) == 0:
             return query  # Select(*); no further processing is necessary
 
-        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self._tbl_version_path]):
+        with get_runtime().catalog.begin_xact(tvp_read_targets=[self._tbl_version_path]):
             return query.select(*items, **named_items)
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
@@ -253,7 +253,7 @@ class Table(SchemaObject):
         See [`Query.where`][pixeltable.Query.where] for more details.
         """
 
-        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self._tbl_version_path]):
+        with get_runtime().catalog.begin_xact(tvp_read_targets=[self._tbl_version_path]):
             return self.select().where(pred)
 
     def join(
@@ -261,7 +261,7 @@ class Table(SchemaObject):
     ) -> 'pxt.Query':
         """Join this table with another table."""
 
-        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self._tbl_version_path]):
+        with get_runtime().catalog.begin_xact(tvp_read_targets=[self._tbl_version_path]):
             return self.select().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
@@ -270,7 +270,7 @@ class Table(SchemaObject):
         See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
 
-        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self._tbl_version_path]):
+        with get_runtime().catalog.begin_xact(tvp_read_targets=[self._tbl_version_path]):
             return self.select().order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
@@ -279,7 +279,7 @@ class Table(SchemaObject):
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
 
-        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self._tbl_version_path]):
+        with get_runtime().catalog.begin_xact(tvp_read_targets=[self._tbl_version_path]):
             return self.select().group_by(*items)
 
     def distinct(self) -> 'pxt.Query':
@@ -612,7 +612,7 @@ class Table(SchemaObject):
         # a retry loop is necessary because drop column needs it
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
         @retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
-        def op() -> list[Column] | None:
+        def do_add_columns() -> list[Column] | None:
             self.__check_mutable('add columns to')
 
             # make a copy of schema so del operations below don't modify the caller's dict
@@ -634,7 +634,7 @@ class Table(SchemaObject):
                 self._verify_column(new_col)
             return new_cols
 
-        new_cols = op()
+        new_cols = do_add_columns()
         if new_cols is None:
             return UpdateStatus()
 
@@ -767,7 +767,7 @@ class Table(SchemaObject):
 
         # a retry loop is necessary because drop column needs it.
         @retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
-        def op() -> UpdateStatus:
+        def do_add_computed_column() -> UpdateStatus:
             self.__check_mutable('add columns to')
             if len(kwargs) != 1:
                 raise excs.Error(
@@ -812,7 +812,7 @@ class Table(SchemaObject):
             FileCache.get().emit_eviction_warnings()
             return result
 
-        return op()
+        return do_add_computed_column()
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
@@ -859,11 +859,11 @@ class Table(SchemaObject):
 
         cat = get_runtime().catalog
 
-        # Retry loop is necessary because we will load table md inside.
+        # Retry loop is necessary because table metadata is loaded inside.
         # Note: the provided ColumnRef may belong to a different table.
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         @retry_loop(for_write=True, tvp_write_targets=[self._tbl_version_path], lock_mutable_tree=True)
-        def op() -> None:
+        def do_drop_column() -> None:
             self.__check_mutable('drop columns from')
             col: Column = None
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
@@ -943,7 +943,7 @@ class Table(SchemaObject):
 
             self._tbl_version.get().drop_column(col)
 
-        op()
+        do_drop_column()
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.
