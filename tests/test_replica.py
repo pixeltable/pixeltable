@@ -1,4 +1,5 @@
 import pixeltable as pxt
+from pixeltable.catalog import retry_loop
 from pixeltable.catalog.path import Path
 from pixeltable.runtime import get_runtime
 from tests.utils import reload_catalog
@@ -29,10 +30,12 @@ class TestReplica:
         reload_catalog()
         cat = get_runtime().catalog
 
-        # TODO if we do something that allows create_replica without _allow_tbl_md_read, revert this
-        with cat.begin_xact(for_write=True), cat._allow_tbl_md_read():
+        @retry_loop(for_write=True)
+        def create_replicas() -> None:
             cat.create_replica(Path.parse('replica_1'), md1)
             cat.create_replica(Path.parse('replica_2'), md2)
+
+        create_replicas()
         reload_catalog()
 
         t1 = pxt.get_table('replica_1')
@@ -101,18 +104,29 @@ class TestReplica:
 
         for i, md in enumerate(s11_md):
             print(f'\n{i}: {md}')
-        with cat.begin_xact(for_write=True), cat._allow_tbl_md_read():
+
+        @retry_loop(for_write=True)
+        def create_initial_replicas() -> None:
             cat.create_replica(Path.parse('replica_s11'), s11_md)
             cat.create_replica(Path.parse('replica_s12'), s12_md)
             cat.create_replica(Path.parse('replica_s31'), s31_md)
 
+        create_initial_replicas()
+
         # Intentionally create r61 first, before r51; this way we address both cases for snapshot-over-snapshot:
         # Base snapshot inserted first (r61 after r31); base snapshot inserted last (r51 after r61).
-        with cat.begin_xact(for_write=True), cat._allow_tbl_md_read():
+        @retry_loop(for_write=True)
+        def create_replica_s61() -> None:
             cat.create_replica(Path.parse('replica_s61'), s61_md)
+
+        create_replica_s61()
         r61 = pxt.get_table('replica_s61')
-        with cat.begin_xact(for_write=True), cat._allow_tbl_md_read():
+
+        @retry_loop(for_write=True)
+        def create_replica_s51() -> None:
             cat.create_replica(Path.parse('replica_s51'), s51_md)
+
+        create_replica_s51()
         r51 = pxt.get_table('replica_s51')
 
         with cat.begin_xact(for_write=False):
