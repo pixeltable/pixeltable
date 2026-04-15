@@ -6,7 +6,7 @@ from pixeltable.metadata import register_converter
 from pixeltable.metadata.converters.util import convert_table_md
 
 
-@register_converter(version=49)
+@register_converter(version=50)
 def _(engine: sql.engine.Engine) -> None:
     """Backfill the 'is_versioned' field in the pre-existing Table metadata"""
     convert_table_md(engine, table_md_updater=_update_table_md)

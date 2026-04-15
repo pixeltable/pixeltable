@@ -45,6 +45,8 @@ class TestSnapshot:
 
         # adding data to a base table doesn't change the snapshot
         rows = list(tbl.select(tbl.c1, tbl.c1n, tbl.c2, tbl.c3, tbl.c4, tbl.c5, tbl.c6, tbl.c7).collect())
+        for row in rows:
+            row['c2'] += 100
         status = tbl.insert(rows)
         assert status.num_rows == len(rows)
         assert_resultset_eq(snap_query.collect(), orig_resultset)

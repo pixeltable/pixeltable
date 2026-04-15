@@ -137,7 +137,7 @@ class ColumnMd:
 @dataclasses.dataclass
 class IndexMd:
     """
-    Metadata needed to instantiate an EmbeddingIndex
+    Metadata needed to instantiate an index
     """
 
     id: int

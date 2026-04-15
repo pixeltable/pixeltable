@@ -286,9 +286,13 @@ class View(Table):
             for col in columns:
                 if col.name in md['columns'] and tv.is_iterator_column(col):
                     md['columns'][col.name]['is_iterator_col'] = True
-            # Build the iterator expression string: "IteratorName(arg1=expr1, arg2=expr2)"
-            args_str = ', '.join(f'{k}={v.display_str(inline=False)}' for k, v in tv.iterator_call.bound_args.items())
-            md['iterator_call'] = f'{tv.iterator_call.it.name}({args_str})'
+            # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)"
+            arg_strs: list[str] = []
+            for arg_expr in tv.iterator_call.args:
+                arg_strs.append(arg_expr.display_str(inline=True))
+            for arg_name, arg_expr in tv.iterator_call.kwargs.items():
+                arg_strs.append(f'{arg_name}={arg_expr.display_str(inline=True)}')
+            md['iterator_call'] = f'{tv.iterator_call.it.name}({", ".join(arg_strs)})'
 
         return md
 

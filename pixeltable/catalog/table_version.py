@@ -1123,7 +1123,7 @@ class TableVersion:
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter not expressible in SQL: {analysis_info.filter}')
 
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
+        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
 
         result = self.propagate_update(
             plan,
@@ -1247,7 +1247,7 @@ class TableVersion:
             )
             where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(
-            self.path, update_targets={}, recompute_targets=target_columns, where_clause=where_clause, cascade=cascade
+            self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
         )
 
         result = self.propagate_update(
@@ -1278,13 +1278,15 @@ class TableVersion:
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.bump_version(timestamp, bump_schema_version=False)
+            # soft delete must be done before insert, otherwise we would have duplicate primary key values
+            # upon insert since the rows would be duplicated until the soft delete occurs
+            self.store_tbl.delete_rows(
+                self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
+            )
             cols_with_excs, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
-            )
-            self.store_tbl.delete_rows(
-                self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
             )
 
         if cascade:

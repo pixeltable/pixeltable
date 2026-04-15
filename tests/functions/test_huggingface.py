@@ -216,7 +216,7 @@ class TestHuggingface:
 
     @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
     def test_speech2text_for_conditional_generation(self, uses_db: None) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('sentencepiece', 'transformers')
         from pixeltable.functions.huggingface import speech2text_for_conditional_generation
 
         t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
@@ -357,7 +357,7 @@ class TestHuggingface:
         assert 'paris' in result['answer']['answer'].lower()
 
     def test_translation(self, uses_db: None) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('sentencepiece', 'transformers')
         from pixeltable.functions.huggingface import translation
 
         t = pxt.create_table('test_tbl', {'text': pxt.String})
@@ -398,7 +398,7 @@ class TestHuggingface:
             assert 'word' in entity
 
     def test_automatic_speech_recognition(self, uses_db: None) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('torchcodec', 'transformers')
         from pixeltable.functions.huggingface import automatic_speech_recognition
 
         t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
