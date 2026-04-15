@@ -204,6 +204,8 @@ class Catalog:
     _roll_forward_ids: set[UUID]  # ids of Tables that have pending TableOps
     _undo_actions: list[Callable[[], None]]
     _in_retry_loop: bool
+    # True within _allow_tbl_md_read(); permits loading table metadata inside begin_xact but not in the middle of
+    # a transaction
     _tbl_md_read_allowed: bool
 
     # cached column dependencies
