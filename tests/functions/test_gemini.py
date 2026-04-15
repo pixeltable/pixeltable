@@ -94,6 +94,7 @@ class TestGemini:
         assert 'French horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text']
 
+    @pytest.mark.expensive
     def test_generate_content_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -142,6 +143,7 @@ class TestGemini:
 
         run_tool_invocations_test(make_table)
 
+    @pytest.mark.expensive
     def test_generate_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -339,7 +341,7 @@ class TestGemini:
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
 
-    @pytest.mark.expensive
+    @pytest.mark.very_expensive
     def test_embed_content_batch_api(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')

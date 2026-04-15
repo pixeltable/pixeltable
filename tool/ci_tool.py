@@ -93,17 +93,17 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     else:
         if force_all or trigger == 'schedule':
-            # Standard + expensive + very_expensive tests on MAIN_PLATFORM.
+            # Standard + expensive + very_expensive tests on MAIN_PLATFORM; upgrade to 'ubuntu-medium'.
             configs.append(
-                MatrixConfig('standard++', 'py', MAIN_PLATFORM, '3.10', pytest_options=VERY_EXPENSIVE_PYTEST)
+                MatrixConfig('standard++', 'py', 'ubuntu-medium', '3.10', pytest_options=VERY_EXPENSIVE_PYTEST)
             )
 
             # Expensive platforms (e.g., GPU runners).
             configs.extend(MatrixConfig('standard', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
 
         else:
-            # Standard + expensive (but not very_expensive) tests on MAIN_PLATFORM.
-            configs.append(MatrixConfig('standard+', 'py', MAIN_PLATFORM, '3.10', pytest_options=EXPENSIVE_PYTEST))
+            # Standard + expensive (but not very_expensive) tests on MAIN_PLATFORM; upgrade to 'ubuntu-medium'.
+            configs.append(MatrixConfig('standard+', 'py', 'ubuntu-medium', '3.10', pytest_options=EXPENSIVE_PYTEST))
 
         # The remaining configs run on all non-PR triggers.
 
