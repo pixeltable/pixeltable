@@ -1370,6 +1370,7 @@ class Query:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
+        assert get_runtime().in_xact, 'Run Query.from_dict() in a transaction because it may involve metadata loading'
         tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
         join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
         from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
