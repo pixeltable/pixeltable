@@ -293,15 +293,9 @@ class Catalog:
 
     @contextmanager
     def _allow_tbl_md_read(self) -> Iterator[None]:
-        """Context manager that allows reading new table metadata.
-
-        With a few rare exceptions, this should not be used outside of Catalog. Instead, the table locks and caches
-        should be initialized in begin_xact(), or inside a retry_loop().
-
-        Reentrant: if already True, yields immediately without modifying state.
-        """
+        """Context manager that sets self._tbl_md_read_allowed and thus allows reading new table metadata."""
         if self._tbl_md_read_allowed:
-            raise AssertionError(' not reentrant')
+            raise AssertionError('_allow_tbl_md_read is not reentrant')
         self._tbl_md_read_allowed = True
         try:
             yield
