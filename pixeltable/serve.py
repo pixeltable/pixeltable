@@ -196,14 +196,16 @@ class PxtFastAPIRouter(fastapi.APIRouter):
             # {"status": "done", "result": {...}}
             ```
         """
-        if not isinstance(t, pxt.InsertableTable):
-            raise pxt.Error(f'add_insert_route(): cannot insert into {t._display_name()} {t._name}')
+        md = t.get_metadata()
+        if md['kind'] != 'table':
+            raise pxt.Error(f'add_insert_route(): cannot insert into {md["kind"]} {md["name"]!r}')
         if return_fileresponse and background:
             raise pxt.Error('add_insert_route(): return_fileresponse and background are mutually exclusive')
 
-        tbl_path = t._path()
-        tbl_id = t._id
-        schema_version = t._tbl_version.get().schema_version
+        tbl_path = md['path']
+        tbl_id = md['id']
+        schema_version = md['schema_version']
+        col_md = md['columns']
 
         cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
         cols_by_id = {col.id: col for col in cols_by_name.values()}
@@ -212,7 +214,7 @@ class PxtFastAPIRouter(fastapi.APIRouter):
         # extra validation: computed columns cannot be input
         if inputs is not None or uploadfile_inputs is not None:
             for name in [*(inputs or []), *(uploadfile_inputs or [])]:
-                if name in cols_by_name and cols_by_name[name].is_computed:
+                if name in col_md and col_md[name]['is_computed']:
                     raise pxt.Error(f'add_insert_route(): {name!r} is a computed column and cannot be used as input')
 
         input_col_names, output_col_names = self._validate_args(
