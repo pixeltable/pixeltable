@@ -537,11 +537,14 @@ class Catalog:
         # records); we convert these into pxt.Error exceptions if appropriate
 
         # we always convert UndefinedTable exceptions (they can't be retried)
-        if isinstance(e.orig, psycopg.errors.UndefinedTable) and tbl is not None:
-            # the table got dropped in the middle of the operation
-            tbl_name = tbl.get().name
-            _logger.debug(f'Exception: undefined table {tbl_name!r}: Caught {type(e.orig)}: {e!r}')
-            raise excs.Error(f'Table was dropped: {tbl_name}') from None
+        if isinstance(e.orig, psycopg.errors.UndefinedTable):
+            if tbl is not None:
+                # the table got dropped in the middle of the operation
+                tbl_name = tbl.get().name
+                _logger.debug(f'Exception: undefined table {tbl_name!r}: Caught {type(e.orig)}: {e!r}')
+                raise excs.Error(f'Table was dropped: {tbl_name}') from None
+            else:
+                raise excs.Error('Table was dropped') from None
         elif (
             # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
             #     which is supposed to be deadlock-free.
