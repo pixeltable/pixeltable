@@ -16,14 +16,14 @@ def add_one(x: int) -> int:
     return x + 1
 
 
-class TestServe:
+class TestFastAPI:
     def test_add_insert_route_scalars(self, uses_db: None) -> None:
         """Test insert routes with all scalar types and various input/output combinations."""
         skip_test_if_not_installed('fastapi')
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
         t = pxt.create_table(
@@ -43,7 +43,7 @@ class TestServe:
         t.add_computed_column(json_str=pxt_json.dumps(t.json_col))
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         # default inputs and outputs
         router.add_insert_route(t, path='/all')
         # subset of inputs, all outputs
@@ -121,7 +121,7 @@ class TestServe:
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         video_path = get_video_files()[0]
         pxt.create_dir('test_serve')
@@ -132,7 +132,7 @@ class TestServe:
         t.add_computed_column(thumbnail=t.video.extract_frame(timestamp=0.0))
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         # When uploading, 'video' moves from inputs into uploadfile_inputs. Other inputs
         # (defaulted for /all, explicit for /resize and /thumbnail) become Form fields
         # automatically once any upload is present.
@@ -232,7 +232,7 @@ class TestServe:
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         image_path = get_image_files()[0]
         pxt.create_dir('test_serve')
@@ -249,7 +249,7 @@ class TestServe:
         t.add_computed_column(rotated=t.image.rotate(angle=90))
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         # When uploading, 'image' moves from inputs into uploadfile_inputs. Other inputs
         # (defaulted for /all, explicit for /resize and /rotate) become Form fields
         # automatically once any upload is present.
@@ -353,7 +353,7 @@ class TestServe:
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         # Use sample-16-bit.wav specifically so the mime type in upload mode is deterministic.
         audio_path = next(f for f in get_audio_files() if f.endswith('sample-16-bit.wav'))
@@ -370,7 +370,7 @@ class TestServe:
         t.add_computed_column(normalized=t.audio.normalize())
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         # When uploading, 'audio' moves from inputs into uploadfile_inputs. Other inputs
         # (defaulted for /all, explicit for /scale and /normalize) become Form fields
         # automatically once any upload is present.
@@ -468,12 +468,12 @@ class TestServe:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video_bg(self, uses_db: None, use_uploadfile: bool) -> None:
         """Background variant of test_add_insert_route_video: POST returns a job id/url, the
-        work runs in PxtFastAPIRouter._executor, and the result is fetched via /jobs/{id}."""
+        work runs in FastAPIRouter._executor, and the result is fetched via /jobs/{id}."""
         skip_test_if_not_installed('fastapi')
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         video_path = get_video_files()[0]
         pxt.create_dir('test_serve')
@@ -488,7 +488,7 @@ class TestServe:
         t.add_computed_column(delay=sleep(1.0))
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         uploadfile_inputs = ['video'] if use_uploadfile else None
         # /all: defaults for inputs/outputs, all columns in the response
         router.add_insert_route(t, path='/all', uploadfile_inputs=uploadfile_inputs, background=True)
@@ -596,7 +596,7 @@ class TestServe:
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
         # non-computed columns carry comments via the dict-form ColumnSpec
@@ -614,7 +614,7 @@ class TestServe:
         t.add_computed_column(rotated=t.image.rotate(90))
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         router.add_insert_route(t, path='/json')
         router.add_insert_route(t, path='/upload', uploadfile_inputs=['image'])
         router.add_insert_route(t, path='/file', outputs=['rotated'], return_fileresponse=True)
@@ -715,7 +715,7 @@ class TestServe:
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
         t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String})
@@ -736,7 +736,7 @@ class TestServe:
             return t.where(t.length >= min_len).select(t.id, t.text).order_by(t.id)
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         router.add_query_route(path='/lookup', query=lookup)
         router.add_query_route(path='/lookup-id-only', query=lookup)
         # inputs=[...] restricts which parameters the endpoint accepts
@@ -808,7 +808,7 @@ class TestServe:
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
         t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String})
@@ -823,7 +823,7 @@ class TestServe:
             return t.select(t.text).order_by(t.id)
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         router.add_query_route(path='/texts', query=all_texts)
         router.add_query_route(path='/texts-scalar', query=all_texts_scalar)
         app.include_router(router)
@@ -845,7 +845,7 @@ class TestServe:
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         image_path = get_image_files()[0]
         pxt.create_dir('test_serve')
@@ -866,7 +866,7 @@ class TestServe:
             return t.select(t.resized).order_by(t.id)
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         # JSON variant: list of {'image': <media url>}
         router.add_query_route(path='/all-json', query=all_images)
         # FileResponse variant: exactly one row
@@ -933,7 +933,7 @@ class TestServe:
 
     def test_add_query_route_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
         t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String, 'image': pxt.Image})
@@ -955,7 +955,7 @@ class TestServe:
         def by_image(img: pxt.Image) -> pxt.Query:
             return t.where(t.image == img).select(t.id)
 
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
 
         with pytest.raises(pxt.Error, match=r'must be a @pxt\.query or retrieval_udf'):
             router.add_query_route(path='/e', query=add_one)  # regular UDF, not a query
@@ -975,7 +975,7 @@ class TestServe:
 
     def test_add_insert_route_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
         t = pxt.create_table(
@@ -986,7 +986,7 @@ class TestServe:
         t.add_computed_column(text_upper=t.text.upper())
         t.add_computed_column(frame=t.video.extract_frame(timestamp=0.0))
 
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
 
         with pytest.raises(pxt.Error, match='cannot insert into'):
             v = pxt.create_view('test_serve.errors_view', t)
@@ -1018,7 +1018,7 @@ class TestServe:
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
         t = pxt.create_table(
@@ -1035,7 +1035,7 @@ class TestServe:
         )
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         router.add_delete_route(t, path='/by-pk')  # defaults to primary key
         router.add_delete_route(t, path='/by-group', match_columns=['group'])
         router.add_delete_route(t, path='/by-group-value', match_columns=['group', 'value'])
@@ -1090,13 +1090,13 @@ class TestServe:
 
     def test_add_delete_route_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
         t = pxt.create_table('test_serve.items', {'id': pxt.Required[pxt.Int], 'group': pxt.String}, primary_key='id')
         t_no_pk = pxt.create_table('test_serve.nopk', {'id': pxt.Int, 'group': pxt.String})
 
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
 
         with pytest.raises(pxt.Error, match='cannot delete from'):
             v = pxt.create_view('test_serve.items_view', t)
@@ -1121,7 +1121,7 @@ class TestServe:
         import fastapi
         from fastapi.testclient import TestClient
 
-        from pixeltable.serve import PxtFastAPIRouter
+        from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
         schema = {'id': pxt.Required[pxt.Int], 'val': pxt.Int}
@@ -1129,7 +1129,7 @@ class TestServe:
         t.insert([{'id': 1, 'val': 10}])
 
         app = fastapi.FastAPI()
-        router = PxtFastAPIRouter()
+        router = FastAPIRouter()
         if op_name == 'insert':
             router.add_insert_route(t, path='/ep')
         else:

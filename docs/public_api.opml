@@ -457,10 +457,11 @@
 
       <!-- Serving group -->
       <outline text="group|Serving">
-        <outline text="module|pixeltable.serve">
-          <outline text="class|pixeltable.serve.PxtFastAPIRouter">
-            <outline text="method|pixeltable.serve.PxtFastAPIRouter.add_insert_route" />
-            <outline text="method|pixeltable.serve.PxtFastAPIRouter.add_query_route" />
+        <outline text="module|pixeltable.serving">
+          <outline text="class|pixeltable.serving.FastAPIRouter">
+            <outline text="method|pixeltable.serving.FastAPIRouter.add_insert_route" />
+            <outline text="method|pixeltable.serving.FastAPIRouter.add_delete_route" />
+            <outline text="method|pixeltable.serving.FastAPIRouter.add_query_route" />
           </outline>
         </outline>
       </outline>

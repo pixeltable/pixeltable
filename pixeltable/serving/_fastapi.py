@@ -92,7 +92,7 @@ def _run_endpoint_op(
         raise
 
 
-class PxtFastAPIRouter(fastapi.APIRouter):
+class FastAPIRouter(fastapi.APIRouter):
     """
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
 
