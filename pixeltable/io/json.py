@@ -7,7 +7,7 @@ from typing import Any
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.io.utils import replace_media_with_fileurl
+from pixeltable.io.utils import convert_rows, replace_media_with_fileurl
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
@@ -54,12 +54,11 @@ def import_json(
     )
 
 
-def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path, *, indent: int | None = None) -> None:
+def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path) -> None:
     """
-    Exports a query result or table to a JSON file.
+    Exports a query result or table to a JSONL file.
 
-    The output is a JSON array of objects, where each object represents a row. Pixeltable column types
-    are mapped to JSON values as follows:
+    Pixeltable column types are mapped to JSON values as follows:
 
     - String: string
     - Int: number
@@ -75,8 +74,7 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path, *,
 
     Args:
         table_or_query: Table or Query to export.
-        file_path: Path to the output JSON file.
-        indent: Number of spaces for pretty-printing indentation. Default `None` (compact output).
+        file_path: Path to the output JSONL file.
     """
 
     query: pxt.Query
@@ -94,25 +92,7 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path, *,
     file_path = Path(file_path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    rows: list[dict[str, Any]] = []
-    for row in cursor:
-        row_dict: dict[str, Any] = {}
-        for col_name, col_type in col_types.items():
-            val = row[col_name]
-
-            if val is None:
-                row_dict[col_name] = None
-            elif col_type.is_timestamp_type() or col_type.is_date_type():
-                row_dict[col_name] = val.isoformat()
-            elif col_type.is_uuid_type():
-                row_dict[col_name] = str(val)
-            elif col_type.is_array_type():
-                row_dict[col_name] = val.tolist()
-            else:
-                row_dict[col_name] = val
-        rows.append(row_dict)
-
     with open(file_path, 'w', encoding='utf-8') as f:
-        # Python's json module allows NaN by default, which is non-compliant with RFC 8259
-        # and would produce output that JavaScript's JSON.parse() rejects.
-        json.dump(rows, f, indent=indent, default=str, ensure_ascii=False, allow_nan=False)
+        for row in convert_rows(cursor, col_types):
+            json.dump(row, f, ensure_ascii=False)
+            f.write('\n')

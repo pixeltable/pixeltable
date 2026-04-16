@@ -82,15 +82,15 @@ def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Tabl
     return pxt.create_table(name, schema)  # type: ignore[arg-type]
 
 
-def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10) -> list[dict[str, Any]]:
+def create_table_data(
+    t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10, non_serializable_json: bool = True
+) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
     data: dict[str, Any] = {}
 
-    # Each sample exercises different valid JSON literal types (see JsonType.__is_valid_json_literal).
-    # Avoid empty dicts: they cannot be serialized as a struct in Parquet.
-    sample_json_values = [
-        # 0: nested dict with strings, ints, floats, bools, None, and lists
+    # JSON-serializable samples: pure dicts/lists of strings, ints, floats, bools, None.
+    serializable_json_values: list[Any] = [
         {
             'detections': [
                 {
@@ -105,13 +105,16 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
                 }
             ]
         },
-        # 1: dict with embedded PIL image
+        {'level1': {'level2': {'level3': [1, 2.0, 'three', False, None]}}},
+        [{'key': 'val1', 'n': 1}, {'key': 'val2', 'n': 2}],
+        {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False, 'n': None},
+    ]
+
+    # Non-serializable samples: contain PIL images, numpy arrays, or bytes.
+    non_serializable_json_values: list[Any] = [
         {'label': 'synthetic', 'thumbnail': PIL.Image.new('RGB', (4, 4), color=(255, 0, 0))},
-        # 2: dict with embedded numpy array
         {'label': 'embedding', 'vector': np.zeros(8, dtype=np.float64)},
-        # 3: dict with embedded bytes
         {'label': 'binary_payload', 'raw': b'\xde\xad\xbe\xef'},
-        # 4: dict with mixed nested list containing image, array, bytes
         {
             'label': 'mixed_list',
             'items': [
@@ -125,22 +128,11 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
                 b'\x00\x01',
             ],
         },
-        # 5: deeply nested structure
-        {'level1': {'level2': {'level3': [1, 2.0, 'three', False, None]}}},
-        # 6: list at top level (valid JSON literal)
-        [{'key': 'val1', 'n': 1}, {'key': 'val2', 'n': 2}],
-        # 7: all scalar types in one dict
-        {
-            's': 'hello',
-            'i': 42,
-            'f': 2.718,
-            'b': False,
-            'n': None,
-            'bin': b'\xca\xfe',
-            'arr': np.array([1.0, 2.0], dtype=np.float64),
-            'img': PIL.Image.new('RGBA', (3, 3)),
-        },
     ]
+
+    sample_json_values = (
+        serializable_json_values + non_serializable_json_values if non_serializable_json else serializable_json_values
+    )
 
     if len(col_names) == 0:
         col_names = [c.name for c in t._tbl_version_path.columns() if not c.is_computed]
@@ -268,7 +260,7 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     return tbl
 
 
-def create_all_datatypes_tbl() -> pxt.Table:
+def create_all_datatypes_tbl(non_serializable_json: bool = False) -> pxt.Table:
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
@@ -288,7 +280,7 @@ def create_all_datatypes_tbl() -> pxt.Table:
         'c_document': pxt.Document,
     }
     tbl = pxt.create_table('all_datatype_tbl', schema)
-    example_rows = create_table_data(tbl, num_rows=11)
+    example_rows = create_table_data(tbl, num_rows=11, non_serializable_json=non_serializable_json)
 
     for i, r in enumerate(example_rows):
         r['row_id'] = i  # row_id

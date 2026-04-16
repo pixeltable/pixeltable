@@ -127,3 +127,9 @@ class TestCsv:
         assert len(exported) == 2
         assert int(exported[0]['c_int']) == 1
         assert exported[1]['c_string'] == 'world'
+
+    def test_export_non_serializable_json_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Exporting a JSON column with non-serializable values should raise an error."""
+        t = create_all_datatypes_tbl(non_serializable_json=True)
+        with pytest.raises(pxt.Error, match='not JSON-serializable'):
+            pxt.io.export_csv(t, tmp_path / 'should_fail.csv')

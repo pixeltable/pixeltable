@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable, Iterator
 from keyword import iskeyword as is_python_keyword
 from typing import Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from pixeltable.catalog.globals import is_system_column_name
 from pixeltable.exprs.column_property_ref import ColumnPropertyRef
 from pixeltable.exprs.column_ref import ColumnRef
@@ -119,3 +122,39 @@ def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> None:
                     f'Set a destination on the column or select specific non-media columns instead.'
                 )
             select_list_exprs[i] = ColumnPropertyRef(expr, ColumnPropertyRef.Property.FILEURL)
+
+
+def convert_rows(cursor: Iterable[Any], col_types: dict[str, ts.ColumnType]) -> Iterator[dict[str, Any]]:
+    """Convert raw cursor rows into export-ready dicts.
+
+    Yields one dict per row with values converted as follows:
+    - None: preserved as None
+    - Timestamp, Date: ISO 8601 string
+    - UUID: string
+    - Array: Python list (via tolist())
+    - Json: validated for serializability, kept as native Python
+    - All others: unchanged
+    """
+    for row in cursor:
+        row_dict: dict[str, Any] = {}
+        for col_name, col_type in col_types.items():
+            val = row[col_name]
+            if val is None:
+                row_dict[col_name] = None
+            elif col_type.is_timestamp_type() or col_type.is_date_type():
+                row_dict[col_name] = val.isoformat()
+            elif col_type.is_uuid_type():
+                row_dict[col_name] = str(val)
+            elif col_type.is_array_type():
+                row_dict[col_name] = val.tolist()
+            elif col_type.is_json_type():
+                try:
+                    json.dumps(val)
+                except (TypeError, ValueError) as err:
+                    raise excs.Error(
+                        f'Column {col_name!r} contains a value that is not JSON-serializable: {err}'
+                    ) from err
+                row_dict[col_name] = val
+            else:
+                row_dict[col_name] = val
+        yield row_dict
