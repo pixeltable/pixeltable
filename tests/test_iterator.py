@@ -97,6 +97,16 @@ class iterator_with_seek(pxt.PxtIterator[MyRow]):
             raise pxt.Error('Parameter `str_text` must be a valid identifier.')
 
 
+class ParamEchoRow(TypedDict):
+    scol: str
+
+
+@pxt.iterator
+def param_echo_iterator(a: int) -> Iterator[ParamEchoRow]:
+    for i in range(a):
+        yield {'scol': f'{i}/{a}'}
+
+
 class CustomLegacyIterator(ComponentIterator):
     input_text: str
     expand_by: int
@@ -719,6 +729,26 @@ class TestIterator:
             reload_catalog()
             v1 = pxt.get_table('v1')
             v2 = pxt.get_table('v2')
+
+    def test_update_iterator_param_inconsistency(self, uses_db: None) -> None:
+        """Updating a base table column used as an iterator parameter produces inconsistent view rows:
+        the base column value is updated but the iterator output still reflects the old value."""
+        t = pxt.create_table('tbl', {'icol': pxt.Int})
+        v = pxt.create_view('view', t, iterator=param_echo_iterator(t.icol))
+        t.insert([{'icol': 5}])
+        t.update({'icol': 6})
+
+        rows = v.order_by(v.pos).collect()
+        # Bug: icol is 6 but iterator output still reflects the old call with a=5.
+        # All rows show icol=6 (updated) but scol='{i}/5' (stale iterator output).
+        for row in rows:
+            assert row['icol'] == 6, 'base column should be updated to 6'
+        scol_values = [row['scol'] for row in rows]
+        assert scol_values == ['0/5', '1/5', '2/5', '3/5', '4/5'], (
+            f'iterator output was not re-evaluated after update: {scol_values}'
+        )
+        # There should be 5 rows (from the original a=5 call), not 6
+        assert len(rows) == 5, f'expected 5 rows from stale iterator, got {len(rows)}'
 
 
 evolving_iterator: func.GeneratingFunction | None = None
