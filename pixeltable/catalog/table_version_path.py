@@ -219,8 +219,6 @@ class TableVersionPath:
         self.refresh_cached_md()
 
         if col.get_tbl().id == self.tbl_version.id and col.id in self._cached_tbl_version.cols_by_id:
-            if not self._cached_tbl_version.is_versioned:
-                return True
             if col.get_tbl().effective_version == self.tbl_version.effective_version:
                 # the column is visible in this table version
                 return True

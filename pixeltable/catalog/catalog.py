@@ -235,15 +235,12 @@ class Catalog:
         for (tbl_id, effective_version, anchor_tbl_id), tbl_version in self._tbl_versions.items():
             assert tbl_id == tbl_version.id, f'{tbl_id} != {tbl_version.id}'
             assert effective_version is None or anchor_tbl_id is None
-            assert (
-                not tbl_version.is_versioned
-                or tbl_version.effective_version == tbl_version.version
-                or tbl_version.effective_version is None
-            ), f'{tbl_version.effective_version} != {tbl_version.version} for id {tbl_id}'
-            if tbl_version.is_versioned:
-                assert effective_version == tbl_version.effective_version, (
-                    f'{effective_version} != {tbl_version.effective_version} for id {tbl_id}'
-                )
+            assert tbl_version.effective_version == tbl_version.version or tbl_version.effective_version is None, (
+                f'{tbl_version.effective_version} != {tbl_version.version} for id {tbl_id}'
+            )
+            assert effective_version == tbl_version.effective_version, (
+                f'{effective_version} != {tbl_version.effective_version} for id {tbl_id}'
+            )
             assert len(tbl_version.mutable_views) == 0 or tbl_version.is_mutable, (
                 f'snapshot_id={tbl_version.id} mutable_views={tbl_version.mutable_views}'
             )

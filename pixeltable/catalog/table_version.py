@@ -255,10 +255,8 @@ class TableVersion:
         self.idxs = {}
         self.idxs_by_name = {}
         self.idxs_by_col = {}
-        self.supports_idxs = (
-            not self.is_versioned
-            or self.effective_version is None
-            or (self.is_replica and self.effective_version == self.tbl_md.current_version)
+        self.supports_idxs = self.effective_version is None or (
+            self.is_replica and self.effective_version == self.tbl_md.current_version
         )
         self.external_stores = {}
 
@@ -275,7 +273,7 @@ class TableVersion:
     def __repr__(self) -> str:
         return (
             f'TableVersion(id={self.id!r}, name={self.name!r}, '
-            f'effective_version={self.effective_version if self.is_versioned else None}, '
+            f'effective_version={self.effective_version}, '
             f'anchor_tbl_id={self.anchor_tbl_id}; '
             f'versioned={self.is_versioned}, version={self.version if self.is_versioned else None})'
         )
@@ -511,7 +509,7 @@ class TableVersion:
 
         # create value exprs, now that we have all lookup structures in place
         tvp: TableVersionPath | None = None
-        if self.is_versioned and self.effective_version is not None:
+        if self.effective_version is not None:
             # for snapshot TableVersion instances, we need to retarget the column value_exprs to the snapshot;
             # otherwise they'll incorrectly refer to the live table. So, construct a full TableVersionPath to
             # use for retargeting.
@@ -1502,7 +1500,8 @@ class TableVersion:
 
     @property
     def effective_version(self) -> int | None:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        if not self.is_versioned:
+            assert self.key.effective_version is None
         return self.key.effective_version
 
     @property
@@ -1560,8 +1559,9 @@ class TableVersion:
         self._schema_version_md.num_retained_versions = n
 
     @property
-    def version(self) -> int:
-        assert self.is_versioned
+    def version(self) -> int | None:
+        if not self.is_versioned:
+            return None
         return self._version_md.version
 
     @property
@@ -1656,7 +1656,7 @@ class TableVersion:
 
     @property
     def is_snapshot(self) -> bool:
-        return self.is_versioned and self.effective_version is not None
+        return self.effective_version is not None
 
     @property
     def is_mutable(self) -> bool:
