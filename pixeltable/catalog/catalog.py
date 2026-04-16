@@ -1857,12 +1857,12 @@ class Catalog:
 
                 if tv.anchor_tbl_id is None:
                     # live non-replica table; compare our cached TableMd.current_version/view_sn to what's stored
-                    versioned, current_version, view_sn = (
+                    is_versioned, current_version, view_sn = (
                         row.md['is_versioned'],
                         row.md['current_version'],
                         row.md['view_sn'],
                     )
-                    if (versioned and current_version != tv.version) or view_sn != tv.tbl_md.view_sn:
+                    if (is_versioned and current_version != tv.version) or view_sn != tv.tbl_md.view_sn:
                         _logger.debug(
                             f'reloading metadata for live table {key.tbl_id} '
                             f'(cached/current version: {tv.version}/{current_version}, '
