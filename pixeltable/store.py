@@ -84,7 +84,7 @@ class StoreBase:
         return self._pk_cols
 
     def rowid_columns(self) -> list[sql.Column]:
-        assert self.tbl_version.get().is_versioned, 'PXT-975 not implemented for unversioned tables'
+        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
         return self._pk_cols[:-1]
 
     @abc.abstractmethod
@@ -560,7 +560,7 @@ class StoreBase:
 
     def _versions_clause(self, versions: list[int | None], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""
-        assert self.tbl_version.get().is_versioned, 'PXT-975 not implemented for unversioned tables'
+        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
         v = versions[0]
         if v is None:
             # we're looking at live rows
@@ -588,12 +588,12 @@ class StoreBase:
             return self._delete_rows_versioned(current_version, base_versions, match_on_vmin, where_clause)
         assert current_version is None
         assert match_on_vmin is None
-        assert len(base_versions) == 0, 'PXT-975 not implemented for unversioned tables'
+        assert len(base_versions) == 0, 'TODO: implement for unversioned tables [PXT-975]'
         return self._delete_rows_unversioned(where_clause)
 
     def _delete_rows_unversioned(self, where_clause: sql.ColumnElement[bool]) -> int:
         rowid_join_clause = self._rowid_join_predicate()
-        assert rowid_join_clause.compare(sql.true()), 'PXT-975 not implemented for unversioned tables'
+        assert rowid_join_clause.compare(sql.true()), 'TODO: implement for unversioned tables [PXT-975]'
         conn = get_runtime().conn
         stmt = sql.delete(self.sa_tbl).where(where_clause)
         log_explain(_logger, stmt, conn)
@@ -645,7 +645,7 @@ class StoreBase:
         return status.rowcount
 
     def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:
-        assert self.tbl_version.get().is_versioned, 'PXT-975 not implemented for unversioned tables'
+        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
         filter_predicate = sql.and_(
             filter_view.v_min_col <= filter_view_version,
             filter_view.v_max_col > filter_view_version,

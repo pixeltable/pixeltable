@@ -352,7 +352,7 @@ def create_view(
 
     if tbl_version_path.is_replica():
         raise excs.Error('Cannot create a view or snapshot on top of a replica')
-    assert tbl_version_path.is_versioned(), 'PXT-975 not implemented for unversioned tables'
+    assert tbl_version_path.is_versioned(), 'TODO: implement for unversioned tables [PXT-975]'
 
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')

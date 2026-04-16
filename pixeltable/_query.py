@@ -350,11 +350,11 @@ class Query:
         has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in self._from_clause.tbls)
         if has_unversioned_tbl:
             # For now, we only support queries of the simplest form on unversioned tables
-            assert len(self._from_clause.tbls) == 1, 'PXT-975: not yet implemented'
-            assert len(self._from_clause.join_clauses) == 0, 'PXT-975: not yet implemented'
-            assert self.grouping_tbl is None, 'PXT-975: not yet implemented'
-            assert self.group_by_clause is None, 'PXT-975: not yet implemented'
-            assert self.sample_clause is None, 'PXT-975: not yet implemented'
+            assert len(self._from_clause.tbls) == 1, 'TODO: implement for unversioned tables [PXT-975]'
+            assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for unversioned tables [PXT-975]'
+            assert self.grouping_tbl is None, 'TODO: implement for unversioned tables [PXT-975]'
+            assert self.group_by_clause is None, 'TODO: implement for unversioned tables [PXT-975]'
+            assert self.sample_clause is None, 'TODO: implement for unversioned tables [PXT-975]'
 
         # construct a group-by clause if we're grouping by a table
         group_by_clause: list[exprs.Expr] | None = None
