@@ -1,6 +1,8 @@
+import pytest
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 from pixeltable.runtime import get_runtime
 
 from .utils import ReloadTester, validate_update_status
@@ -107,3 +109,12 @@ class TestUnversionedTable:
 
         rows = tbl.select(tbl.n).order_by(tbl.n).limit(10, offset=10).collect()
         assert len(rows) == 0
+
+    def test_unsupported_joins(self, uses_db: None) -> None:
+        """Joins between versioned and unversioned tables are not supported."""
+        unversioned_tbl = pxt.create_table('t0', {'n': pxt.Int}, _is_versioned=False)
+        versioned_tbl = pxt.create_table('t1', {'n': pxt.Int}, _is_versioned=True)
+        with pytest.raises(excs.Error, match='join is not supported between versioned and unversioned tables'):
+            versioned_tbl.select().join(unversioned_tbl, on=(versioned_tbl.n == unversioned_tbl.n))
+        with pytest.raises(excs.Error, match='join is not supported between versioned and unversioned tables'):
+            unversioned_tbl.select().join(versioned_tbl, on=(versioned_tbl.n == unversioned_tbl.n))

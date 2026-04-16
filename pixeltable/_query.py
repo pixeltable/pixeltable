@@ -887,6 +887,9 @@ class Query:
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
+        assert len(self._from_clause.tbls) > 0
+        if self._from_clause.tbls[0].is_versioned != other.get_metadata()['is_versioned']:
+            raise excs.Error('join is not supported between versioned and unversioned tables')
         if self.sample_clause is not None:
             raise excs.Error('join() cannot be used with sample()')
         join_pred: exprs.Expr | None
