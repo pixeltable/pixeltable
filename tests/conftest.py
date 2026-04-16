@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import pathlib
+import platform
 import shutil
 import uuid
 from typing import Callable, Iterator
@@ -173,10 +174,6 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
     yield
-
-    if 'corrupts_db' in request.keywords:
-        _logger.info('Skipping DB validation due to corrupts_db marker.')
-        return
 
     Env.get().user = None
     get_runtime().catalog.validate_store()
@@ -388,6 +385,8 @@ def clip_embed() -> pxt.Function:
 @pytest.fixture(scope='session')
 @_retry_hf
 def e5_embed() -> pxt.Function:
+    if IN_CI and platform.system() == 'Windows':
+        pytest.skip('`sentence-transformers` crashes on Windows CI (memory pressure?)')
     try:
         return sentence_transformer.using(model_id='intfloat/e5-large-v2')
     except ImportError:

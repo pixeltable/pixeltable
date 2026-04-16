@@ -117,6 +117,16 @@ class Table(SchemaObject):
         columns = tvp.columns()
         column_info: dict[str, ColumnMetadata] = {}
         for col in columns:
+            dependencies: list[tuple[str, str]] | None = None
+            if col.is_computed:
+                value_expr = col.value_expr
+                assert value_expr is not None
+                dependencies = sorted(
+                    {
+                        (col_ref.col.tbl_handle.get().name, col_ref.col.name)
+                        for col_ref in value_expr.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False)
+                    }
+                )
             column_info[col.name] = ColumnMetadata(
                 name=col.name,
                 type_=col.col_type._to_str(as_schema=True),
@@ -126,6 +136,8 @@ class Table(SchemaObject):
                 media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
                 is_computed=col.is_computed,
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
+                is_builtin=(not col.calls_custom_udf) if col.value_expr is not None else None,
+                depends_on=dependencies,
                 defined_in=col.get_tbl().name,
                 comment=col.comment,
                 custom_metadata=col.custom_metadata,
@@ -150,6 +162,10 @@ class Table(SchemaObject):
                     ),
                 )
 
+        primary_key: list[str] | None = None
+        if any(col.is_pk for col in columns):
+            primary_key = [col.name for col in columns if col.is_pk]
+
         return TableMetadata(
             name=self._name,
             path=self._path(),
@@ -164,6 +180,7 @@ class Table(SchemaObject):
             comment=self._get_comment(),
             custom_metadata=self._get_custom_metadata(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
+            primary_key=primary_key,
             kind=self._display_name(),  # type: ignore[typeddict-item]
             base=None,
             iterator_call=None,
@@ -314,6 +331,13 @@ class Table(SchemaObject):
     def collect(self) -> 'pxt._query.ResultSet':
         """Return rows from this table."""
         return self.select().collect()
+
+    def cursor(self) -> 'pxt._query.ResultCursor':
+        """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over this table's rows.
+
+        See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
+        """
+        return self.select().cursor()
 
     def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
         """Return rows from this table."""
@@ -1356,8 +1380,8 @@ class Table(SchemaObject):
                 - An error occurs while importing data from a source, and `on_error='abort'`.
 
         Examples:
-            Insert two rows into the table `my_table` with three int columns ``a``, ``b``, and ``c``.
-            Column ``c`` is nullable:
+            Insert two rows into the table `my_table` with three int columns `a`, `b`, and `c`.
+            Column `c` is nullable:
 
             >>> tbl = pxt.get_table('my_table')
             ... tbl.insert([{'a': 1, 'b': 1, 'c': 1}, {'a': 2, 'b': 2}])

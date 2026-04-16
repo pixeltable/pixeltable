@@ -1,3 +1,5 @@
+# type: ignore  # fiftyone is currently not included in the dev environment, so turn off mypy for this file
+
 import os
 from typing import Any, Iterator
 

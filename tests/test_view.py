@@ -112,29 +112,31 @@ class TestView:
         _ = v.select(v.v1).order_by(v.c2)
         _ = t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2)
 
-        # insert data: of 20 new rows, only 10 are reflected in the view
+        # insert data: new rows with unique c2 values (none match view filter c2 < 10)
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         status = t.insert(rows)
-        assert status.num_rows == 30
+        assert status.num_rows == 20
         assert t.count() == 120
         check_view(t, v)
 
         # update data: cascade to view
         status = t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
-        assert status.num_rows == 10 * 2  # *2: rows affected in both base table and view
+        assert status.num_rows == 5 * 2  # *2: rows affected in both base table and view
         assert t.count() == 120
         check_view(t, v)
 
         # base table delete is reflected in view
         status = t.delete(where=t.c2 < 5)
-        assert status.num_rows == 10 * 2  # *2: rows affected in both base table and view
-        assert t.count() == 110
+        assert status.num_rows == 5 * 2  # *2: rows affected in both base table and view
+        assert t.count() == 115
         check_view(t, v)
 
         # check alternate view creation syntax (via a Query)
         v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), additional_columns=schema)
-        validate_update_status(v2.add_computed_column(v3=v2.v1 * 2.0), expected_rows=10)
-        validate_update_status(v2.add_computed_column(v4=v2.v2[0]), expected_rows=10)
+        validate_update_status(v2.add_computed_column(v3=v2.v1 * 2.0), expected_rows=5)
+        validate_update_status(v2.add_computed_column(v4=v2.v2[0]), expected_rows=5)
         check_view(t, v2)
 
         # test delete view
@@ -146,8 +148,15 @@ class TestView:
 
         # make sure the base table doesn't see the dropped view anymore
         t = pxt.get_table('test_tbl')
-        status = t.insert(rows)
-        assert status.num_rows == 30  # 20 in the base table, 10 in test_view_alt
+        rows2 = list(
+            t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10)
+            .where((t.c2 >= 80) & (t.c2 < 100))
+            .collect()
+        )
+        for row in rows2:
+            row['c2'] += 200
+        status = t.insert(rows2)
+        assert status.num_rows == 20  # 20 in the base table, 0 match test_view_alt (c2 < 10)
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})  # type: ignore[dict-item]
@@ -374,13 +383,15 @@ class TestView:
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
-        # insert data: of 20 new rows, only 10 show up in each view
+        # insert data: new rows with unique c2 values (none match either view filter)
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         status = t.insert(rows)
-        assert status.num_rows == 40
+        assert status.num_rows == 20
         assert t.count() == 120
-        assert v1.count() == 20
-        assert v2.count() == 20
+        assert v1.count() == 10
+        assert v2.count() == 10
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
@@ -388,19 +399,19 @@ class TestView:
         status = t.update(
             {'c4': True, 'c3': t.c3 + 1, 'c10': t.c10 - 1.0}, where=(t.c2 >= 5) & (t.c2 < 15), cascade=True
         )
-        assert status.num_rows == 20 * 2  # *2: rows affected in both base table and view
+        assert status.num_rows == 10 * 2  # 10 base rows + 5 in v1 + 5 in v2
         assert t.count() == 120
-        assert v1.count() == 20
-        assert v2.count() == 20
+        assert v1.count() == 10
+        assert v2.count() == 10
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
         # base table delete is reflected in view
         status = t.delete(where=(t.c2 >= 5) & (t.c2 < 15))
-        assert status.num_rows == 20 * 2  # *2: rows affected in both base table and view
-        assert t.count() == 100
-        assert v1.count() == 10
-        assert v2.count() == 10
+        assert status.num_rows == 10 * 2  # 10 base rows + 5 in v1 + 5 in v2
+        assert t.count() == 110
+        assert v1.count() == 5
+        assert v2.count() == 5
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
@@ -443,14 +454,16 @@ class TestView:
 
         check_views()
 
-        # insert data: of 20 new rows; 10 show up in v1, 5 in v2
+        # insert data: new rows with unique c2 values (none match either view filter)
         base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         status = t.insert(rows)
-        assert status.num_rows == 20 + 10 + 5
+        assert status.num_rows == 20
         assert t.count() == 120
-        assert v1.count() == 20
-        assert v2.count() == 10
+        assert v1.count() == 10
+        assert v2.count() == 5
         # all versions were incremented
         assert t._get_version() == base_version + 1
         assert v1._get_version() == v1_version + 1
@@ -460,7 +473,7 @@ class TestView:
         # update data: cascade to both views
         base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.update({'c4': True, 'c3': t.c3 + 1}, where=t.c2 < 15, cascade=True)
-        assert status.num_rows == 30 + 20 + 10
+        assert status.num_rows == 15 + 10 + 5
         assert t.count() == 120
         # all versions were incremented
         assert t._get_version() == base_version + 1
@@ -471,7 +484,7 @@ class TestView:
         # update data: cascade only to v2
         base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.update({'c10': t.c10 - 1.0}, where=t.c2 < 15, cascade=True)
-        assert status.num_rows == 30 + 10
+        assert status.num_rows == 15 + 5
         assert t.count() == 120
         # v1 did not get updated
         assert t._get_version() == base_version + 1
@@ -482,10 +495,10 @@ class TestView:
         # base table delete is reflected in both views
         base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.delete(where=t.c2 == 0)
-        assert status.num_rows == (1 + 1 + 1) * 2
-        assert t.count() == 118
-        assert v1.count() == 18
-        assert v2.count() == 8
+        assert status.num_rows == 1 + 1 + 1
+        assert t.count() == 119
+        assert v1.count() == 9
+        assert v2.count() == 4
         # all versions were incremented
         assert t._get_version() == base_version + 1
         assert v1._get_version() == v1_version + 1
@@ -495,10 +508,10 @@ class TestView:
         # base table delete is reflected only in v1
         base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.delete(where=t.c2 == 5)
-        assert status.num_rows == (1 + 1) * 2
-        assert t.count() == 116
-        assert v1.count() == 16
-        assert v2.count() == 8
+        assert status.num_rows == 1 + 1
+        assert t.count() == 118
+        assert v1.count() == 8
+        assert v2.count() == 4
         # v2 was not updated
         assert t._get_version() == base_version + 1
         assert v1._get_version() == v1_version + 1
@@ -715,8 +728,10 @@ class TestView:
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
 
-        # insert data
+        # insert data: new rows with unique c2 values
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).collect())
+        for row in rows:
+            row['c2'] += 100
         t.insert(rows)
         assert t.count() == 200
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
@@ -728,7 +743,7 @@ class TestView:
 
         # base table delete is reflected in view
         t.delete(where=t.c2 < 5)
-        assert t.count() == 190
+        assert t.count() == 195
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
@@ -744,8 +759,10 @@ class TestView:
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
 
-        # insert data: of 20 new rows, only 10 are reflected in the view
+        # insert data: new rows with unique c2 values (none match view filter c2 < 10)
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         t.insert(rows)
         assert t.count() == 120
         assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
@@ -757,7 +774,7 @@ class TestView:
 
         # base table delete is reflected in view
         t.delete(where=t.c2 < 5)
-        assert t.count() == 110
+        assert t.count() == 115
         assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # create view with filter containing datetime
@@ -796,6 +813,8 @@ class TestView:
 
         # insert data: no changes to view
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         t.insert(rows)
         assert t.count() == 120
         check_view(snap, v)
@@ -807,7 +826,7 @@ class TestView:
 
         # base table delete: no change to view
         t.delete(where=t.c2 < 5)
-        assert t.count() == 110
+        assert t.count() == 115
         check_view(snap, v)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
@@ -865,6 +884,8 @@ class TestView:
 
         # insert data: no changes to snapshot
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         t.insert(rows)
         assert t.count() == 120
         check(s, v, view_s)
@@ -876,7 +897,7 @@ class TestView:
 
         # base table delete: no changes to snapshot
         t.delete(where=t.c2 < 5)
-        assert t.count() == 110
+        assert t.count() == 115
         check(s, v, view_s)
 
     def test_table_time_travel(self, uses_db: None) -> None:
@@ -923,7 +944,9 @@ class TestView:
                             'is_primary_key': False,
                             'is_stored': True,
                             'destination': None,
-                            'media_validation': 'on_write',
+                            'media_validation': None,
+                            'is_builtin': None,
+                            'depends_on': None,
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
@@ -941,6 +964,7 @@ class TestView:
                     'media_validation': 'on_write',
                     'name': f'test_tbl:{i}',
                     'path': f'dir/test_tbl:{i}',
+                    'primary_key': None,
                     'iterator_call': None,
                     'schema_version': expected_schema_version,
                     'custom_metadata': None,
@@ -996,37 +1020,41 @@ class TestView:
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
-            expected_schema: dict[str, tuple[str, int, str | None]]
+            expected_schema: dict[str, tuple[str, int, str | None, list[tuple[str, str]] | None]]
             if i == 0:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None)}
+                expected_schema = {'c1': ('Int', 0, None, None), 'c2': ('String', 3, None, None)}
                 expected_schema_version = 0
                 expected_base_version = 4
             elif i == 1:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
+                expected_schema = {
+                    'c1': ('Int', 0, None, None),
+                    'c2': ('String', 3, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                }
                 expected_schema_version = 1
                 expected_base_version = 4
             elif i == 2:
                 expected_schema = {
-                    'c1': ('Int', 0, None),
-                    'c2': ('String', 3, None),
-                    'c3': ('Int', 1, 'c1 // 2'),
-                    'c4': ('Int', 2, None),
+                    'c1': ('Int', 0, None, None),
+                    'c2': ('String', 3, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                    'c4': ('Int', 2, None, None),
                 }
                 expected_schema_version = 2
                 expected_base_version = 4
             elif i == 3:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
-                    'c4': ('Int', 2, None),
+                    'balloon': ('Int', 0, None, None),
+                    'c3': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
+                    'c4': ('Int', 2, None, None),
                 }
                 expected_schema_version = 2
                 expected_base_version = 7
             else:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c4': ('Int', 2, None),
-                    'hamburger': ('Int', 1, 'balloon // 2'),
+                    'balloon': ('Int', 0, None, None),
+                    'c4': ('Int', 2, None, None),
+                    'hamburger': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
                 }
                 expected_schema_version = 4
                 expected_base_version = 7
@@ -1043,14 +1071,16 @@ class TestView:
                             'is_primary_key': False,
                             'is_stored': True,
                             'destination': None,
-                            'media_validation': 'on_write',
+                            'media_validation': None,
+                            'is_builtin': True if computed_with is not None else None,
+                            'depends_on': depends_on,
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
                             'custom_metadata': None,
                             'comment': None,
                         }
-                        for name, (type_, version_added, computed_with) in expected_schema.items()
+                        for name, (type_, version_added, computed_with, depends_on) in expected_schema.items()
                     },
                     'comment': None,
                     'indices': {},
@@ -1061,6 +1091,7 @@ class TestView:
                     'media_validation': 'on_write',
                     'name': f'test_view:{i}',
                     'path': f'dir/test_view:{i}',
+                    'primary_key': None,
                     'iterator_call': None,
                     'schema_version': expected_schema_version,
                     'custom_metadata': None,
@@ -1084,33 +1115,37 @@ class TestView:
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
             if i == 0:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
+                expected_schema = {
+                    'c1': ('Int', 0, None, None),
+                    'c2': ('String', 3, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                }
                 expected_schema_version = 0
                 expected_base_version = 1
             elif i == 1:
                 expected_schema = {
-                    'c1': ('Int', 0, None),
-                    'c3': ('Int', 1, 'c1 // 2'),
-                    'c4': ('Int', 2, None),
-                    'c5': ('Float', 1, None),
+                    'c1': ('Int', 0, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                    'c4': ('Int', 2, None, None),
+                    'c5': ('Float', 1, None, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 2
             elif i == 2:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
-                    'c4': ('Int', 2, None),
-                    'c5': ('Float', 1, None),
+                    'balloon': ('Int', 0, None, None),
+                    'c3': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
+                    'c4': ('Int', 2, None, None),
+                    'c5': ('Float', 1, None, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 3
             elif i == 3:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c4': ('Int', 2, None),
-                    'hamburger': ('Int', 1, 'balloon // 2'),
-                    'c5': ('Float', 1, None),
+                    'balloon': ('Int', 0, None, None),
+                    'c4': ('Int', 2, None, None),
+                    'hamburger': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
+                    'c5': ('Float', 1, None, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 5
@@ -1130,14 +1165,16 @@ class TestView:
                             'is_primary_key': False,
                             'is_stored': True,
                             'destination': None,
-                            'media_validation': 'on_write',
+                            'media_validation': None,
+                            'is_builtin': True if computed_with is not None else None,
+                            'depends_on': depends_on,
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
                             'custom_metadata': None,
                             'comment': None,
                         }
-                        for name, (type_, version_added, computed_with) in expected_schema.items()
+                        for name, (type_, version_added, computed_with, depends_on) in expected_schema.items()
                     },
                     'comment': None,
                     'indices': {},
@@ -1148,6 +1185,7 @@ class TestView:
                     'media_validation': 'on_write',
                     'name': f'test_subview:{i}',
                     'path': f'dir/test_subview:{i}',
+                    'primary_key': None,
                     'iterator_call': None,
                     'schema_version': expected_schema_version,
                     'custom_metadata': None,

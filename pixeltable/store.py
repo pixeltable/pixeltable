@@ -14,6 +14,7 @@ from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
+from pixeltable.index.btree import BtreeIndex
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.exception_handler import run_cleanup
@@ -142,6 +143,26 @@ class StoreBase:
         idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms.version_index_type))
         idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
+
+        # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
+        primary_index = [col for col in tbl_version.cols if col.is_pk]
+        if len(primary_index) > 0:
+            pk_idx_exprs: list[sql.ColumnElement] = []
+            for col in primary_index:
+                if col.col_type.is_string_type():
+                    pk_idx_exprs.append(sql.func.left(col.sa_col, BtreeIndex.MAX_STRING_LEN))
+                else:
+                    pk_idx_exprs.append(col.sa_col)
+            idx_name = f'pk_idx_{tbl_version.id.hex}'
+            idxs.append(
+                sql.Index(
+                    idx_name,
+                    *pk_idx_exprs,
+                    unique=True,
+                    postgresql_using='btree',
+                    postgresql_where=(self.v_max_col == schema.Table.MAX_VERSION),
+                )
+            )
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
         # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
@@ -479,11 +500,30 @@ class StoreBase:
 
             return cols_with_excs, row_counts
 
-    @classmethod
-    def sql_insert(cls, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
+    def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
         assert len(table_rows) > 0
         conn = get_runtime().conn
-        conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
+        try:
+            conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
+        except sql.exc.IntegrityError as e:
+            if (
+                isinstance(e.orig, psycopg.errors.UniqueViolation)
+                and e.orig.diag.constraint_name is not None
+                and e.orig.diag.constraint_name.startswith('pk_idx_')
+            ):
+                detail = e.orig.diag.message_detail or ''
+                for col in self.tbl_version.get().primary_key_columns():
+                    detail = detail.replace(col.store_name(), col.name)
+                raise excs.Error(f'Duplicate primary key value: {detail}') from e
+            raise
+        except sql.exc.OperationalError as e:
+            if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded) and 'pk_idx_' in str(e.orig):
+                pk_col_names = [col.name for col in self.tbl_version.get().primary_key_columns()]
+                raise excs.Error(
+                    f'Primary key value too large for index: the combined size of the insert for columns '
+                    f'({", ".join(pk_col_names)}) exceeds the maximum btree index row size'
+                ) from e
+            raise
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
         #     differences in the data representation that SQLAlchemy/psycopg expect. The below code will do the

@@ -16,11 +16,15 @@ class ColumnMetadata(TypedDict):
     is_primary_key: bool
     """`True` if this column is part of the table's primary key."""
     media_validation: Literal['on_read', 'on_write'] | None
-    """The media validation policy for this column."""
+    """The media validation policy for this column. `None` if the type of this column is not a media type."""
     is_computed: bool
     """`True` if this column is a computed column."""
     computed_with: str | None
     """Expression used to compute this column; `None` if this is not a computed column."""
+    is_builtin: bool | None
+    """If False, this computed column makes calls to custom UDFs; `None` if this is not a computed column."""
+    depends_on: list[tuple[str, str]] | None
+    """List of dependencies (table name, column name) if this is a computed column, else `None`."""
     defined_in: str | None
     """Name of the table where this column was originally defined.
 
@@ -88,6 +92,8 @@ class TableMetadata(TypedDict):
     """User-defined JSON metadata for this table, if any."""
     media_validation: Literal['on_read', 'on_write']
     """The media validation policy for this table."""
+    primary_key: list[str] | None
+    """List of primary key column names, or `None` if this table has no primary key."""
     base: str | None
     """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
     iterator_call: str | None

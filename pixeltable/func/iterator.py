@@ -57,11 +57,11 @@ class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
         raise NotImplementedError()
 
     @classmethod
-    def validate(cls, bound_args: dict[str, Any]) -> None:
+    def validate(cls, literal_args: dict[str, Any]) -> None:
         pass
 
     @classmethod
-    def conditional_output_schema(cls, bound_args: dict[str, Any]) -> dict[str, type] | None:
+    def conditional_output_schema(cls, bound_args: dict[str, 'exprs.Expr']) -> dict[str, type] | None:
         return None
 
 
@@ -84,7 +84,7 @@ class GeneratingFunction:
     is_legacy_retrofit: bool
 
     _default_output_schema: dict[str, ts.ColumnType] | None
-    _conditional_output_schema: Callable[[dict[str, Any]], dict[str, type]] | None
+    _conditional_output_schema: Callable[[dict[str, 'exprs.Expr']], dict[str, type]] | None
     _validate: Callable[[dict[str, Any]], bool] | None
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str], fqn: str | None = None) -> None:
@@ -198,7 +198,7 @@ class GeneratingFunction:
                 )
             self._default_output_schema[name] = col_type
 
-    def call_output_schema(self, bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
+    def call_output_schema(self, bound_args: dict[str, 'exprs.Expr']) -> dict[str, ts.ColumnType]:
         if self._conditional_output_schema is None:
             if self._default_output_schema is None:
                 raise excs.Error(
@@ -207,13 +207,19 @@ class GeneratingFunction:
             return self._default_output_schema
 
         else:
-            output_schema = self._conditional_output_schema(bound_kwargs)
+            output_schema = self._conditional_output_schema(bound_args)
             if output_schema is None:
                 raise excs.Error(
                     f'The `conditional_output_schema` for iterator `{self.fqn}` returned None; '
                     'it must return a valid output schema dictionary.'
                 )
-            return {name: ts.ColumnType.from_python_type(type_) for name, type_ in output_schema.items()}
+            result: dict[str, ts.ColumnType] = {}
+            for name, type_ in output_schema.items():
+                if isinstance(type_, ts.ColumnType):
+                    result[name] = type_
+                else:
+                    result[name] = ts.ColumnType.from_python_type(type_)
+            return result
 
     def bind_to_signature(self, args: list['exprs.Expr'], kwargs: dict[str, 'exprs.Expr']) -> dict[str, 'exprs.Expr']:
         try:
@@ -242,7 +248,7 @@ class GeneratingFunction:
         if self._validate is not None:
             self._validate(literal_args)
 
-        output_schema = self.call_output_schema(literal_args)
+        output_schema = self.call_output_schema(bound_args)
 
         # a component view exposes the pos column of its rowid;
         # we create that column here, so it gets assigned a column id;
@@ -266,8 +272,9 @@ class GeneratingFunction:
         it.py_sig = inspect.signature(iterator_cls)
         it.unstored_cols = []
 
-        def call_output_schema(bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
-            schema, _ = iterator_cls.output_schema(**bound_kwargs)
+        def call_output_schema(bound_args: dict[str, exprs.Expr]) -> dict[str, ts.ColumnType]:
+            literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
+            schema, _ = iterator_cls.output_schema(**literal_args)
             return schema
 
         it.call_output_schema = call_output_schema  # type: ignore[method-assign]
@@ -284,8 +291,8 @@ class GeneratingFunction:
 
     # conditional_output_schema decorator
     def conditional_output_schema(
-        self, fn: Callable[[dict[str, Any]], dict[str, type]]
-    ) -> Callable[[dict[str, Any]], dict[str, type]]:
+        self, fn: Callable[[dict[str, 'exprs.Expr']], dict[str, type]]
+    ) -> Callable[[dict[str, 'exprs.Expr']], dict[str, type]]:
         if self._conditional_output_schema is not None:
             raise excs.Error(f'@pxt.iterator `{self.fqn}` already defines a `conditional_output_schema()` method.')
         self._conditional_output_schema = fn
@@ -333,7 +340,7 @@ class InvalidGeneratingFunction(GeneratingFunction):
     def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
         raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
 
-    def call_output_schema(self, bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
+    def call_output_schema(self, bound_args: dict[str, 'exprs.Expr']) -> dict[str, ts.ColumnType]:
         raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
 
     def _validate(self, bound_args: dict[str, Any]) -> None:
@@ -415,17 +422,17 @@ class GeneratingFunctionCall:
             ).strip()
             return cls(it, args, kwargs, {}, outputs, validation_error)
 
-        literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
-        for param_name, param in it.py_sig.parameters.items():
-            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
-                literal_args[param_name] = param.default
-        output_schema = it.call_output_schema(literal_args)
+        output_schema = it.call_output_schema(bound_args)
 
         if outputs is None:
             # For legacy iterators, `outputs` was not persisted, and there is no practical way to reconstruct it as
             # part of the schema migration. In that case we just query the iterator for it, but we lose the ability to
             # sanity check against any schema evolution of the iterator.
             if it.is_legacy_retrofit:
+                literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
+                for param_name, param in it.py_sig.parameters.items():
+                    if param_name not in bound_args and param.default is not inspect.Parameter.empty:
+                        literal_args[param_name] = param.default
                 _, unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
             else:
                 unstored_cols = it.unstored_cols
@@ -434,7 +441,7 @@ class GeneratingFunctionCall:
             }
             outputs.update(
                 {
-                    name: IteratorOutput(orig_name=name, is_stored=(name in unstored_cols), col_type=col_type)
+                    name: IteratorOutput(orig_name=name, is_stored=(name not in unstored_cols), col_type=col_type)
                     for name, col_type in output_schema.items()
                 }
             )
@@ -481,7 +488,7 @@ def iterator(*args, **kwargs):  # type: ignore[no-untyped-def]
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
         return GeneratingFunction(decorated_callable=args[0], unstored_cols=[])
     else:
-        unstored_cols = kwargs.pop('unstored_cols', None)
+        unstored_cols = kwargs.pop('unstored_cols', [])
         if len(kwargs) > 0:
             raise excs.Error(f'Invalid @iterator decorator kwargs: {", ".join(kwargs.keys())}')
         if len(args) > 0:
