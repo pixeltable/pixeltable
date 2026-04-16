@@ -118,12 +118,19 @@ class InsertableTable(Table):
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
+        return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus: ...
 
     @overload
     def insert(
-        self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
+        self,
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        return_rows: bool = False,
+        **kwargs: Any,
     ) -> UpdateStatus: ...
 
     def insert(
@@ -135,6 +142,7 @@ class InsertableTable(Table):
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
+        return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
         from pixeltable.io.table_data_conduit import TableDataConduit
@@ -157,11 +165,18 @@ class InsertableTable(Table):
         data_source.prepare_for_insert_into_table()
 
         return self.insert_table_data_source(
-            data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
+            data_source=data_source,
+            fail_on_exception=fail_on_exception,
+            print_stats=print_stats,
+            return_rows=return_rows,
         )
 
     def insert_table_data_source(
-        self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
+        self,
+        data_source: TableDataConduit,
+        fail_on_exception: bool,
+        print_stats: bool = False,
+        return_rows: bool = False,
     ) -> pxt.UpdateStatus:
         """Insert row batches into this table from a `TableDataConduit`."""
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
@@ -176,7 +191,11 @@ class InsertableTable(Table):
             else:
                 for row_batch in data_source.valid_row_batch():
                     status += self._tbl_version.get().insert(
-                        rows=row_batch, query=None, print_stats=print_stats, fail_on_exception=fail_on_exception
+                        rows=row_batch,
+                        query=None,
+                        print_stats=print_stats,
+                        fail_on_exception=fail_on_exception,
+                        return_rows=return_rows,
                     )
 
         Env.get().console_logger.info(status.insert_msg(start_ts))

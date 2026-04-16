@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sysconfig
+import time
 import uuid
 from contextlib import contextmanager
 from io import StringIO
@@ -43,6 +44,13 @@ def runs_linux_with_gpu() -> bool:
         return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
     except ImportError:
         return False
+
+
+@pxt.udf
+def sleep(n: float) -> float:
+    """Sleep for `n` seconds, return `n`. Used in tests to deliberately delay inserts."""
+    time.sleep(n)
+    return n
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
@@ -452,6 +460,10 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
+def assert_type_eq(col_type: ts.ColumnType, pxt_type: ts._PxtType) -> None:
+    assert col_type == ts.ColumnType.normalize_type(pxt_type)
+
+
 def assert_resultset_eq(r1: ResultSet, r2: ResultSet, compare_col_names: bool = False) -> None:
     assert len(r1) == len(r2)
     assert len(r1.schema) == len(r2.schema)
@@ -531,14 +543,15 @@ def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatche
 def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata) -> None:
     """
     Assert that table metadata (user-facing metadata as returned by `tbl.get_metadata()`) matches the expected dict.
-    `version_created` will be checked to be less than 1 minute ago; the other fields will be checked for exact
-    equality.
+    `version_created` will be checked to be less than 1 minute ago; `id` is asserted to be a UUID but its value
+    is not compared; the other fields will be checked for exact equality.
     """
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     actual_created_at: datetime.datetime = actual['version_created']
     assert (now - actual_created_at).total_seconds() <= (120 if Env.get().is_using_cockroachdb else 60)
+    assert isinstance(actual['id'], uuid.UUID)
 
-    trimmed_actual = {k: v for k, v in actual.items() if k != 'version_created'}
+    trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
     tc = TestCase()
     tc.maxDiff = 10_000
     tc.assertDictEqual(expected, trimmed_actual)
