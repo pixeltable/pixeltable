@@ -95,7 +95,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
         if force_all or trigger == 'schedule':
             # Tier 3 only: Standard + expensive + very_expensive tests on upgraded platform.
             configs.append(
-                MatrixConfig('standard++', 'py', 'ubuntu-medium', '3.10', pytest_options=VERY_EXPENSIVE_PYTEST)
+                MatrixConfig('standard++', 'py', 'ubuntu-large', '3.10', pytest_options=VERY_EXPENSIVE_PYTEST)
             )
             configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.10'))
 
@@ -104,7 +104,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
         else:
             # Tier 2 only: Standard + expensive (but not very_expensive) tests on upgraded platform.
-            configs.append(MatrixConfig('standard+', 'py', 'ubuntu-medium', '3.10', pytest_options=EXPENSIVE_PYTEST))
+            configs.append(MatrixConfig('standard+', 'py', 'ubuntu-large', '3.10', pytest_options=EXPENSIVE_PYTEST))
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.10'))
 
         # Tiers 2 and 3: Various additional configurations.

@@ -328,9 +328,7 @@ class TestGemini:
         t.add_embedding_index(
             t.text,
             idx_name='embed_idx1',
-            embedding=embed_content.using(
-                model='gemini-embedding-001', config={'output_dimensionality': 768}, use_batch_api=False
-            ),
+            embedding=embed_content.using(model='gemini-embedding-001', config={'output_dimensionality': 768}),
         )
 
         sim = t.text.similarity(string='Coordinating AI tasks can be achieved with Pixeltable.', idx='embed_idx0')
@@ -338,34 +336,6 @@ class TestGemini:
         assert res[0]['rowid'] == 1
 
         sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.', idx='embed_idx1')
-        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
-        assert res[0]['rowid'] == 3
-
-    @pytest.mark.very_expensive
-    def test_embed_content_batch_api(self, uses_db: None) -> None:
-        skip_test_if_not_installed('google.genai')
-        skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import embed_content
-
-        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
-        validate_update_status(
-            t.insert(
-                [
-                    {'rowid': 1, 'text': 'Pixeltable is a great tool for AI workload orchestration and storage'},
-                    {'rowid': 2, 'text': 'The quick brown fox jumps over the lazy dog.'},
-                    {'rowid': 3, 'text': 'The five boxing wizards jump quickly.'},
-                ]
-            ),
-            expected_rows=3,
-        )
-
-        t.add_embedding_index(t.text, embedding=embed_content.using(model='gemini-embedding-001', use_batch_api=True))
-
-        sim = t.text.similarity(string='Coordinating AI tasks can be achieved with Pixeltable.')
-        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
-        assert res[0]['rowid'] == 1
-
-        sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
 
