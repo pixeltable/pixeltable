@@ -1,5 +1,6 @@
-"""Framework adapters for serving Pixeltable tables and queries over HTTP."""
-# ruff: noqa: F401
+"""
+Adapters for web serving frameworks.
+"""
 
 try:
     from ._fastapi import FastAPIRouter

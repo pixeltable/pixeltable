@@ -393,7 +393,6 @@ class TestMigration:
                 )
 
     @classmethod
-
     def _verify_v49_query_scalar(cls) -> None:
         t = pxt.get_table('base_table')
         col_names = t.columns()
@@ -409,6 +408,7 @@ class TestMigration:
                     f'return_scalar query should produce scalar values, got dict: {val[0]}'
                 )
 
+    @classmethod
     def _verify_v49(cls) -> None:
         """Verify user-visible primary-key metadata and pk_idx index presence for migrated tables."""
         pk_good = pxt.get_table('pk_test_good')
