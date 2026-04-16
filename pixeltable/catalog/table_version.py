@@ -1043,7 +1043,7 @@ class TableVersion:
         else:
             plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
 
-        rowids_gen = None
+        rowids_gen: Iterator[int] | None = None
         if self.is_versioned:
             # this is a versioned base table; we generate rowids during the insert
             def rowids() -> Iterator[int]:
