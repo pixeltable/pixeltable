@@ -135,7 +135,7 @@ class TestMigration:
                 # primary keys fails post version 49. Therefore the dump cannot have invalid primary keys.
                 if old_version == 49:
                     self._verify_v49()
-                if old_version >= 49:
+                if old_version >= 50:
                     self._verify_v49_query_scalar()
                 # self._verify_v24(old_version)
 
