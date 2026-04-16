@@ -15,7 +15,6 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.env import Env
-from pixeltable.runtime import get_runtime
 
 
 def _sa_type(col_type: ts.ColumnType) -> sql.types.TypeEngine:
@@ -137,10 +136,7 @@ def export_sql(
         batch: list[dict] = []
         with engine.connect() as target_conn:
             for data_row in query.cursor():
-                row_dict: dict[str, Any] = {}
-                for col_name, e in zip(query.schema.keys(), query._select_list_exprs):
-                    row_dict[col_name] = data_row[e.slot_idx]
-                batch.append(row_dict)
+                batch.append(dict(data_row))
 
                 if len(batch) >= batch_size:
                     target_conn.execute(target.insert(), batch)

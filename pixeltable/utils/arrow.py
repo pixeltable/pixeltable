@@ -9,7 +9,6 @@ import pyarrow as pa
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable.runtime import get_runtime
 
 if TYPE_CHECKING:
     import pixeltable as pxt
@@ -152,8 +151,8 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
     try:
         for data_row in query.cursor():
             num_batch_rows += 1
-            for (col_name, col_type), e in zip(query.schema.items(), query._select_list_exprs):
-                val = data_row[e.slot_idx]
+            for col_name, col_type in query.schema.items():
+                val = data_row[col_name]
                 val_size_bytes: int
                 if val is None:
                     batch_columns[col_name].append(val)
@@ -162,12 +161,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                 assert val is not None
                 if col_type.is_image_type():
                     # images get inlined into the parquet file
-                    if data_row.file_paths[e.slot_idx] is not None:
-                        # if there is a file, read directly to preserve information
-                        with open(data_row.file_paths[e.slot_idx], 'rb') as f:
-                            val = f.read()
-                    elif isinstance(val, PIL.Image.Image):
-                        # no file available: save as png
+                    if isinstance(val, PIL.Image.Image):
                         buf = io.BytesIO()
                         val.save(buf, format='png')
                         val = buf.getvalue()
@@ -180,15 +174,14 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                     # pa.uuid() uses fixed_size_binary(16) as storage type
                     val = val.bytes  # Convert UUID to 16-byte binary for arrow
                     val_size_bytes = len(val)
-                elif col_type.is_binary_type():
-                    val_size_bytes = len(val)
-                elif col_type.is_media_type():
-                    assert data_row.file_paths[e.slot_idx] is not None
-                    val = data_row.file_paths[e.slot_idx]
+                elif col_type.is_binary_type() or col_type.is_media_type():
                     val_size_bytes = len(val)
                 elif col_type.is_json_type():
                     if col_name not in json_val_size:
-                        val_size_bytes = pa.array([val]).nbytes
+                        try:
+                            val_size_bytes = pa.array([val]).nbytes
+                        except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError):
+                            val_size_bytes = len(str(val))
                         json_batch_size[col_name] = json_batch_size.get(col_name, 0) + val_size_bytes
                     else:
                         val_size_bytes = json_val_size[col_name]
