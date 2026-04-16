@@ -92,11 +92,7 @@ def import_rows(
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     return pxt.create_table(
-        tbl_path,
-        source=rows,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        comment=comment,
+        tbl_path, source=rows, schema_overrides=schema_overrides, primary_key=primary_key, comment=comment
     )
 
 

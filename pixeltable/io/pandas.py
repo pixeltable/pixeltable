@@ -44,11 +44,7 @@ def import_pandas(
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     return pxt.create_table(
-        tbl_name,
-        source=df,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        comment=comment,
+        tbl_name, source=df, schema_overrides=schema_overrides, primary_key=primary_key, comment=comment
     )
 
 
