@@ -2,19 +2,21 @@
 
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
-    llm-tool-calling               # Relies on the user separately running an MCP server
-    working-with-fabric            # Requires Microsoft Fabric environment
-    working-with-fiftyone          # Voxel51 is currently omitted from our dev env for security reasons
-    working-with-tigris            # Requires Tigris environment
-    working-with-reve              # Out of credits
-    working-with-runwayml          # Broken
+    llm-tool-calling                # Relies on the user separately running an MCP server
+    working-with-fabric             # Requires Microsoft Fabric environment
+    working-with-fiftyone           # Voxel51 is currently omitted from our dev env for security reasons
+    working-with-tigris             # Requires Tigris environment
+    working-with-reve               # Out of credits
+    working-with-runwayml           # Broken
+    working-with-twelvelabs         # Exceeds rate limit
 )
 
 # Notebooks that are skipped unless --include-expensive is passed
 VERY_EXPENSIVE_NOTEBOOKS=(
-    video-generate-ai
-    working-with-bfl
-    working-with-together
+    img-detection-vs-segmentation   # Resource intensive
+    video-generate-ai               # High dollar cost
+    working-with-bfl                # High dollar cost
+    working-with-together           # Unreliable
 )
 
 IFS=$'\n'
