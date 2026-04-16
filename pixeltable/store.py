@@ -84,8 +84,9 @@ class StoreBase:
         return self._pk_cols
 
     def rowid_columns(self) -> list[sql.Column]:
-        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
-        return self._pk_cols[:-1]
+        if self.tbl_version.get().is_versioned:
+            return self._pk_cols[:-1]  # exclude v_min
+        return self._pk_cols
 
     @abc.abstractmethod
     def _create_rowid_columns(self) -> list[sql.Column]:
@@ -121,6 +122,7 @@ class StoreBase:
                 ]
         else:
             rowid_cols = self._create_rowid_columns()
+
         if self.tbl_version.get().is_versioned:
             self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
             self.v_max_col = sql.Column(
