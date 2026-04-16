@@ -435,11 +435,16 @@ class StoreBase:
         return num_excs
 
     def insert_rows(
-        self, exec_plan: ExecNode, v_min: int, rowids: Iterator[int] | None = None, abort_on_exc: bool = False, return_rows: bool = False
-    ) -> tuple[set[int], RowCountStats]:
+        self,
+        exec_plan: ExecNode,
+        v_min: int,
+        rowids: Iterator[int] | None = None,
+        abort_on_exc: bool = False,
+        return_rows: bool = False,
+    ) -> tuple[set[int], RowCountStats, list[dict[str, Any]] | None]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
-            set of column ids that have exceptions, row count stats, newly inserted rows
+            set of column ids that have exceptions, row count stats, newly inserted rows (if return_rows)
         """
         assert v_min is not None
         # TODO: total?
@@ -451,7 +456,8 @@ class StoreBase:
         store_col_names = row_builder.store_column_names()
 
         table_rows: list[tuple[Any]] = []
-        inserted_rows: list[dict[str, Any]] = []
+        inserted_rows: list[dict[str, Any]] = []  # column name -> stored value
+        output_map = row_builder.get_output_map()
 
         with exec_plan:
             progress_reporter = exec_plan.ctx.add_progress_reporter(
@@ -485,7 +491,7 @@ class StoreBase:
                     if progress_reporter is not None:
                         progress_reporter.update(len(table_rows))
                     if return_rows:
-                        inserted_rows.extend(table_rows)
+                        inserted_rows.extend(self.create_output_rows(table_rows, output_map))
                     table_rows.clear()
 
             # insert any remaining rows
@@ -494,11 +500,23 @@ class StoreBase:
                 if progress_reporter is not None:
                     progress_reporter.update(len(table_rows))
                 if return_rows:
-                    inserted_rows.extend(table_rows)
+                    inserted_rows.extend(self.create_output_rows(table_rows, output_map))
 
             row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
 
-            return cols_with_excs, row_counts
+            return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
+
+    def create_output_rows(self, table_rows: list[tuple[Any]], output_map: list[str | None]) -> list[dict[str, Any]]:
+        """Convert table rows to output rows (ie, UpdateStatus.rows)"""
+        return [
+            {
+                # sql.Null check: make sure to convert stored NULLs back to None
+                output_map[i]: (None if isinstance(row[i], sql.sql.elements.Null) else row[i])
+                for i in range(len(output_map))
+                if output_map[i] is not None
+            }
+            for row in table_rows
+        ]
 
     def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
         assert len(table_rows) > 0

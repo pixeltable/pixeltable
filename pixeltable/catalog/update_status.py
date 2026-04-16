@@ -112,6 +112,7 @@ class UpdateStatus:
         return UpdateStatus(
             updated_cols=self.updated_cols,
             cols_with_excs=self.cols_with_excs,
+            rows=self.rows,
             row_count_stats=RowCountStats(),
             cascade_row_count_stats=self.cascade_row_count_stats + self.row_count_stats,
             ext_row_count_stats=self.ext_row_count_stats,
@@ -121,9 +122,13 @@ class UpdateStatus:
         """
         Add the update status from two UpdateStatus objects together.
         """
+        combined_rows: list[dict[str, Any]] | None = None
+        if self.rows is not None or other.rows is not None:
+            combined_rows = (self.rows or []) + (other.rows or [])
         return UpdateStatus(
             updated_cols=list(dict.fromkeys(self.updated_cols + other.updated_cols)),
             cols_with_excs=list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs)),
+            rows=combined_rows,
             row_count_stats=self.row_count_stats + other.row_count_stats,
             cascade_row_count_stats=self.cascade_row_count_stats + other.cascade_row_count_stats,
             ext_row_count_stats=self.ext_row_count_stats + other.ext_row_count_stats,
