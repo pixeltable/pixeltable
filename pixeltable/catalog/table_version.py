@@ -1005,6 +1005,7 @@ class TableVersion:
         query: Query | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
+        return_rows: bool = False,
     ) -> UpdateStatus:
         """
         Insert rows into this table, either from an explicit list of dicts or from a `Query`.
@@ -1028,7 +1029,12 @@ class TableVersion:
 
         with get_runtime().report_progress():
             result = self._insert(
-                plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
+                plan,
+                time.time(),
+                print_stats=print_stats,
+                rowids=rowids(),
+                abort_on_exc=fail_on_exception,
+                return_rows=return_rows,
             )
             return result
 
@@ -1040,16 +1046,18 @@ class TableVersion:
         rowids: Iterator[int] | None = None,
         print_stats: bool = False,
         abort_on_exc: bool = False,
+        return_rows: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.bump_version(timestamp, bump_schema_version=False)
         exec_plan.ctx.title = self.display_str()
-        cols_with_excs, row_counts = self.store_tbl.insert_rows(
-            exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
+        cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
+            exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
         )
         result = UpdateStatus(
             cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
+            rows=rows,
             row_count_stats=row_counts,
         )
 
@@ -1069,13 +1077,20 @@ class TableVersion:
         _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
-    def update(self, value_spec: dict[str, Any], where: exprs.Expr | None = None, cascade: bool = True) -> UpdateStatus:
+    def update(
+        self,
+        value_spec: dict[str, Any],
+        where: exprs.Expr | None = None,
+        cascade: bool = True,
+        return_rows: bool = False,
+    ) -> UpdateStatus:
         """Update rows in this TableVersionPath.
         Args:
             value_spec: a list of (column, value) pairs specifying the columns to update and their new values.
             where: a predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
+            return_rows: if True, capture the post-update row state in UpdateStatus.rows.
         """
         from pixeltable.exprs import SqlElementCache
         from pixeltable.plan import Planner
@@ -1100,6 +1115,7 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
+            return_rows=return_rows,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1111,11 +1127,13 @@ class TableVersion:
         insert_if_not_exists: bool,
         error_if_not_exists: bool,
         cascade: bool = True,
+        return_rows: bool = False,
     ) -> UpdateStatus:
         """Update rows in batch.
         Args:
             batch: one dict per row, each mapping Columns to LiteralExprs representing the new values
             rowids: if not empty, one tuple per row, each containing the rowid values for the corresponding row in batch
+            return_rows: if True, returns all newly-inserted/updated rows in UpdateStatus.rows.
         """
         from pixeltable.plan import Planner
 
@@ -1126,7 +1144,13 @@ class TableVersion:
             self.path, batch, rowids, cascade=cascade
         )
         result = self.propagate_update(
-            plan, delete_where_clause, recomputed_cols, base_versions=[], timestamp=time.time(), cascade=cascade
+            plan,
+            delete_where_clause,
+            recomputed_cols,
+            base_versions=[],
+            timestamp=time.time(),
+            cascade=cascade,
+            return_rows=return_rows,
         )
         result += UpdateStatus(updated_cols=[c.qualified_name for c in updated_cols])
 
@@ -1135,7 +1159,9 @@ class TableVersion:
             if error_if_not_exists:
                 raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
             if insert_if_not_exists:
-                insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
+                insert_status = self.insert(
+                    unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
+                )
                 result += insert_status.to_cascade()
         return result
 
@@ -1235,6 +1261,7 @@ class TableVersion:
         base_versions: list[int | None],
         timestamp: float,
         cascade: bool,
+        return_rows: bool = False,
     ) -> UpdateStatus:
         from pixeltable.plan import Planner
 
@@ -1248,10 +1275,13 @@ class TableVersion:
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
             )
-            cols_with_excs, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
+            cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
+                plan, v_min=self.version, return_rows=return_rows
+            )
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
+                rows=rows,
             )
 
         if cascade:
@@ -1573,6 +1603,9 @@ class TableVersion:
     @update_status.setter
     def update_status(self, status: UpdateStatus) -> None:
         assert self.effective_version is None
+        # we need to strip out UpdateStatus.rows, if set
+        if status.rows is not None:
+            status = dataclasses.replace(status, rows=None)
         self._version_md.update_status = status
 
     @property

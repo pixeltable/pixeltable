@@ -457,6 +457,13 @@ class Dumper:
 
         add_computed_column('sim_output', q2(t.c1))
 
+        # query() with return_scalar=True
+        @pxt.query(return_scalar=True)
+        def q3(i: int) -> pxt.Query:
+            return t.where(t.c2 < i).select(t.c1).limit(3)
+
+        add_computed_column('query_scalar_output', q3(t.c2))
+
         add_computed_column('expr_with_array_literals', test_array_udf(t.c12, np.zeros(10, dtype=np.float64)))
         add_computed_column(
             'expr_with_uuid_literals', test_uuid_udf(t.c13, uuid.UUID('00000000-0000-0000-0000-000000000000'))
