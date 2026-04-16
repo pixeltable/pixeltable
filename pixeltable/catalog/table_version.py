@@ -1278,7 +1278,7 @@ class TableVersion:
             self.bump_version(timestamp, bump_schema_version=False)
             # soft delete must be done before insert, otherwise we would have duplicate primary key values
             # upon insert since the rows would be duplicated until the soft delete occurs
-            self.store_tbl.delete_rows(
+            self.store_tbl.soft_delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
             )
             cols_with_excs, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
@@ -1331,12 +1331,12 @@ class TableVersion:
         get_runtime().catalog.mark_modified_tvs(self.handle)
 
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
-        del_rows = self.store_tbl.delete_rows(
-            self.version + 1 if self.is_versioned else None,
-            base_versions=base_versions,
-            match_on_vmin=False if self.is_versioned else None,
-            where_clause=sql_where_clause,
-        )
+        if self.is_versioned:
+            del_rows = self.store_tbl.soft_delete_rows(
+                self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
+            )
+        else:
+            del_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
         row_counts = RowCountStats(del_rows=del_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
         if del_rows > 0 and self.is_versioned:

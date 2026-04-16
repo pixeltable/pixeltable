@@ -604,38 +604,22 @@ class StoreBase:
             return clause
         return sql.and_(clause, self.base._versions_clause(versions[1:], match_on_vmin))
 
-    def delete_rows(
-        self,
-        current_version: int | None,
-        base_versions: list[int | None],
-        match_on_vmin: bool | None,
-        where_clause: sql.ColumnElement[bool] | None,
-    ) -> int:
+    def delete_rows(self, where_clause: sql.ColumnElement[bool] | None) -> int:
+        assert not self.tbl_version.get().is_versioned
         where_clause = sql.true() if where_clause is None else where_clause
-        if self.tbl_version.get().is_versioned:
-            assert current_version is not None
-            assert match_on_vmin is not None
-            return self._delete_rows_versioned(current_version, base_versions, match_on_vmin, where_clause)
-        assert current_version is None
-        assert match_on_vmin is None
-        assert len(base_versions) == 0, 'TODO: implement for unversioned tables [PXT-975]'
-        return self._delete_rows_unversioned(where_clause)
-
-    def _delete_rows_unversioned(self, where_clause: sql.ColumnElement[bool]) -> int:
         rowid_join_clause = self._rowid_join_predicate()
         assert rowid_join_clause.compare(sql.true()), 'TODO: implement for unversioned tables [PXT-975]'
         conn = get_runtime().conn
         stmt = sql.delete(self.sa_tbl).where(where_clause)
         log_explain(_logger, stmt, conn)
-        status = conn.execute(stmt)
-        return status.rowcount
+        return conn.execute(stmt).rowcount
 
-    def _delete_rows_versioned(
+    def soft_delete_rows(
         self,
-        current_version: int | None,
+        current_version: int,
         base_versions: list[int | None],
         match_on_vmin: bool,
-        where_clause: sql.ColumnElement[bool],
+        where_clause: sql.ColumnElement[bool] | None,
     ) -> int:
         """Mark rows as deleted that are live and were created prior to current_version.
         Also: populate the undo columns
@@ -648,6 +632,7 @@ class StoreBase:
         Returns:
             number of deleted rows
         """
+        assert self.tbl_version.get().is_versioned
         where_clause = sql.true() if where_clause is None else where_clause
         version_clause = sql.and_(self.v_min_col < current_version, self.v_max_col == schema.Table.MAX_VERSION)
         rowid_join_clause = self._rowid_join_predicate()
