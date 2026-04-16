@@ -116,7 +116,8 @@ class StoreBase:
                         num_rowid_cols = i
                         break
                 rowid_cols = [
-                    sql.Column(col_name, sql.BigInteger, nullable=False) for col_name in col_names[:num_rowid_cols]
+                    sql.Column(col_name, sql.BigInteger, nullable=False, autoincrement=False)
+                    for col_name in col_names[:num_rowid_cols]
                 ]
         else:
             rowid_cols = self._create_rowid_columns()
@@ -185,8 +186,11 @@ class StoreBase:
                 )
             )
 
-        self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
-        # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
+        extra_constraints: list[sql.Constraint] = []
+        if not tbl_version.is_versioned:
+            extra_constraints.append(sql.PrimaryKeyConstraint(*[col.name for col in self._pk_cols]))
+
+        self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs, *extra_constraints)
 
     @abc.abstractmethod
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
@@ -680,7 +684,7 @@ class StoreTable(StoreBase):
         super().__init__(tbl_version)
 
     def _create_rowid_columns(self) -> list[sql.Column]:
-        self.rowid_col = sql.Column('rowid', sql.BigInteger, nullable=False)
+        self.rowid_col = sql.Column('rowid', sql.BigInteger, nullable=False, autoincrement=False)
         return [self.rowid_col]
 
     def _storage_name(self) -> str:
@@ -697,7 +701,7 @@ class StoreView(StoreBase):
 
     def _create_rowid_columns(self) -> list[sql.Column]:
         # a view row corresponds directly to a single base row, which means it needs to duplicate its rowid columns
-        self.rowid_cols = [sql.Column(c.name, c.type) for c in self.base.rowid_columns()]
+        self.rowid_cols = [sql.Column(c.name, c.type, autoincrement=False) for c in self.base.rowid_columns()]
         return self.rowid_cols
 
     def _storage_name(self) -> str:
@@ -721,9 +725,9 @@ class StoreComponentView(StoreView):
 
     def _create_rowid_columns(self) -> list[sql.Column]:
         # each base row is expanded into n view rows
-        rowid_cols = [sql.Column(c.name, c.type) for c in self.base.rowid_columns()]
+        rowid_cols = [sql.Column(c.name, c.type, autoincrement=False) for c in self.base.rowid_columns()]
         # name of pos column: avoid collisions with bases' pos columns
-        pos_col = sql.Column(f'pos_{len(rowid_cols) - 1}', sql.BigInteger, nullable=False)
+        pos_col = sql.Column(f'pos_{len(rowid_cols) - 1}', sql.BigInteger, nullable=False, autoincrement=False)
         rowid_cols.append(pos_col)
         return rowid_cols
 

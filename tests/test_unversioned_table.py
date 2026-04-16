@@ -38,6 +38,9 @@ class TestUnversionedTable:
             col_names.remove('rowid')
             assert all(name.startswith('col_') for name in col_names), col_names
 
+            pk_constraint = inspector.get_pk_constraint(store_name)
+            assert pk_constraint['constrained_columns'] == ['rowid'], pk_constraint
+
             row_count = conn.execute(sql.text(f'SELECT COUNT(*) FROM "{store_name}"')).scalar()
             assert row_count == 2
 
