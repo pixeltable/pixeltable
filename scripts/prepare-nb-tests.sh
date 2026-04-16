@@ -2,19 +2,18 @@
 
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
-    working-with-gemini          # Temporary
-    working-with-fabric          # Requires Microsoft Fabric environment
-    working-with-fiftyone        # Voxel51 is currently omitted from our dev env for security reasons
-    working-with-tigris          # Requires Tigris environment
-    img-detection-vs-segmentation  # Segmentation models are crashing in CI (memory issue?)
-    working-with-reve            # Out of credits
+    llm-tool-calling               # Relies on the user separately running an MCP server
+    working-with-fabric            # Requires Microsoft Fabric environment
+    working-with-fiftyone          # Voxel51 is currently omitted from our dev env for security reasons
+    working-with-tigris            # Requires Tigris environment
+    working-with-reve              # Out of credits
+    working-with-runwayml          # Broken
 )
 
 # Notebooks that are skipped unless --include-expensive is passed
 VERY_EXPENSIVE_NOTEBOOKS=(
     video-generate-ai
     working-with-bfl
-    working-with-runwayml
 )
 
 IFS=$'\n'
