@@ -78,15 +78,15 @@ class TableMetadata(TypedDict):
     indices: dict[str, IndexMetadata]
     """Index metadata for all of the indices of the table."""
     is_replica: bool
-    """`True` if this is a versioned table."""
-    is_versioned: bool
     """`True` if this table is a replica of another (shared) table."""
+    is_versioned: bool
+    """`True` if this is a versioned table."""
     is_view: bool
     """`True` if this table is a view."""
     is_snapshot: bool
     """`True` if this table is a snapshot."""
-    version: int
-    """The current version of the table."""
+    version: int | None
+    """The current version of the table or None if it's not versioned."""
     version_created: datetime.datetime
     """The timestamp when this table version was created."""
     schema_version: int

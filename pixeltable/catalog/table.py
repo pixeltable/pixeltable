@@ -176,7 +176,7 @@ class Table(SchemaObject):
             is_replica=tv.is_replica,
             is_view=False,
             is_snapshot=False,
-            version=self._get_version() if tv.is_versioned else 0,
+            version=self._get_version(),
             version_created=datetime.datetime.fromtimestamp(tv.created_at, tz=datetime.timezone.utc),
             schema_version=tvp.schema_version(),
             comment=self._get_comment(),
@@ -188,7 +188,7 @@ class Table(SchemaObject):
             iterator_call=None,
         )
 
-    def _get_version(self) -> int:
+    def _get_version(self) -> int | None:
         """Return the version of this table. Used by tests to ascertain version changes."""
         return self._tbl_version_path.version()
 
