@@ -5,6 +5,7 @@ import pathlib
 import pytest
 
 import pixeltable as pxt
+from pixeltable.config import Config
 
 from ..utils import create_all_datatypes_tbl, get_image_files, skip_test_if_not_installed, validate_update_status
 
@@ -183,3 +184,25 @@ class TestJson:
 
         with pytest.raises(pxt.Error, match='without a destination'):
             pxt.io.export_json(t, tmp_path / 'should_fail.jsonl')
+
+    def test_export_computed_media_with_destination(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Computed media columns with a local file destination export their file URLs."""
+        dest_path = Config.get().home / 'test-json-dest'
+        dest_path.mkdir(parents=True, exist_ok=True)
+        dest_uri = dest_path.as_uri()
+
+        t = pxt.create_table('test_json_computed_dest', {'img': pxt.Image})
+        t.add_computed_column(rotated=t.img.rotate(90), destination=dest_uri)
+        t.insert([{'img': f} for f in get_image_files()[:3]])
+
+        json_path = tmp_path / 'computed_dest.jsonl'
+        pxt.io.export_json(t, json_path)
+
+        with open(json_path, encoding='utf-8') as f:
+            exported = [json.loads(line) for line in f]
+
+        assert len(exported) == 3
+        fileurls = t.select(t.rotated.fileurl).collect()
+        for exp_row, url_row in zip(exported, fileurls):
+            assert exp_row['rotated'] == url_row['rotated_fileurl']
+            assert dest_uri in exp_row['rotated']

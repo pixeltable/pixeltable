@@ -7,8 +7,9 @@ import pandas as pd
 import pytest
 
 import pixeltable as pxt
+from pixeltable.config import Config
 
-from ..utils import create_all_datatypes_tbl, create_test_tbl, get_csv_file, validate_update_status
+from ..utils import create_all_datatypes_tbl, create_test_tbl, get_csv_file, get_image_files, validate_update_status
 
 
 class TestCsv:
@@ -133,3 +134,25 @@ class TestCsv:
         t = create_all_datatypes_tbl(non_serializable_json=True)
         with pytest.raises(pxt.Error, match='not JSON-serializable'):
             pxt.io.export_csv(t, tmp_path / 'should_fail.csv')
+
+    def test_export_computed_media_with_destination(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Computed media columns with a local file destination export their file URLs."""
+        dest_path = Config.get().home / 'test-csv-dest'
+        dest_path.mkdir(parents=True, exist_ok=True)
+        dest_uri = dest_path.as_uri()
+
+        t = pxt.create_table('test_csv_computed_dest', {'img': pxt.Image})
+        t.add_computed_column(rotated=t.img.rotate(90), destination=dest_uri)
+        t.insert([{'img': f} for f in get_image_files()[:3]])
+
+        csv_path = tmp_path / 'computed_dest.csv'
+        pxt.io.export_csv(t, csv_path)
+
+        with open(csv_path, encoding='utf-8') as f:
+            exported = list(csv.DictReader(f))
+
+        assert len(exported) == 3
+        fileurls = t.select(t.rotated.fileurl).collect()
+        for exp_row, url_row in zip(exported, fileurls):
+            assert exp_row['rotated'] == url_row['rotated_fileurl']
+            assert dest_uri in exp_row['rotated']
