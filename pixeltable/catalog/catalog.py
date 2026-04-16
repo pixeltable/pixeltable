@@ -396,7 +396,7 @@ class Catalog:
 
                 # invalidate cached current TableVersion instances
                 for tv in self._tbl_versions.values():
-                    if tv.is_versioned and tv.effective_version is None:
+                    if tv.effective_version is None:
                         _logger.debug(f'invalidating table version {tv} (0x{id(tv):x})')
                         tv.is_validated = False
 
