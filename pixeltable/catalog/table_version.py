@@ -406,7 +406,7 @@ class TableVersion:
 
         assert get_runtime().in_xact
         assert md.tbl_md.is_replica
-        assert md.tbl_md.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert md.tbl_md.is_versioned
         tbl_id = UUID(md.tbl_md.tbl_id)
         _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
         view_md = md.tbl_md.view_md
