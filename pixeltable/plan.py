@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import dataclasses
 import enum
 from textwrap import dedent
@@ -390,7 +391,6 @@ class Planner:
 
         plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
-
         return plan
 
     @classmethod
@@ -405,9 +405,69 @@ class Planner:
         cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool
     ) -> exec.ExecNode:
         assert not tbl.is_view
-        plan = query._create_query_plan()  # ExecNode constructed by the Query
 
-        # Modify the plan RowBuilder to register the output columns
+        query_col_names = set(query.schema.keys())
+
+        # map ColumnRef(dst.col) -> query expr for cols covered by the query
+        # needed so btree val cols can resolve dst.col -> query slot
+        substitution: dict[exprs.Expr, exprs.Expr] = {
+            exprs.ColumnRef(tbl.cols_by_name[col_name]): expr
+            for col_name, expr in zip(query.schema.keys(), query._select_list_exprs)
+            if col_name in tbl.cols_by_name
+        }
+
+        # Create a list of stored columns not covered by the query
+        # for computed cols: substitute value_expr so btree val cols resolve dst.col -> query slot
+        # for non-computed cols: for_insert=True ColumnRef will write default or None
+        extra_cols: list[catalog.Column] = []
+        for col in tbl.cols_by_id.values():
+            if not col.is_stored or col.name in query_col_names:
+                continue
+            if col.is_computed and col.value_expr is not None:
+                extra_col = copy.copy(col)
+                extra_col.set_value_expr(col.value_expr.copy().substitute(substitution))
+                extra_cols.append(extra_col)
+            else:
+                extra_cols.append(col)
+
+        # build analyzer from query components
+        analyzer = Analyzer(
+            query._from_clause,
+            query._select_list_exprs,
+            where_clause=query.where_clause,
+            group_by_clause=query._effective_group_by_clause(),
+            order_by_clause=query.order_by_clause,
+            sample_clause=query.sample_clause,
+        )
+
+        # build row builder with all exprs; analyzer exprs + extra cols
+        row_builder = exprs.RowBuilder(
+            output_exprs=analyzer.all_exprs, columns=extra_cols, input_exprs=[], tbl=tbl, for_insert=True
+        )
+        analyzer.finalize(row_builder)
+
+        query_eval_ctx = row_builder.create_eval_ctx(analyzer.select_list)
+        plan = cls._create_query_plan(
+            row_builder=row_builder,
+            analyzer=analyzer,
+            eval_ctx=query_eval_ctx,
+            with_pk=True,
+            limit=query.limit_val,
+            offset=query.offset_val,
+        )
+
+        # extra cols are not handled by the query plan; evaluate only the expressions needed to materialize them
+        extra_col_exprs = [row_builder.unique_exprs[row_builder.table_columns[col]] for col in extra_cols]
+        if extra_col_exprs:
+            plan = exec.ExprEvalNode(
+                row_builder,
+                output_exprs=extra_col_exprs,
+                input_exprs=row_builder.input_exprs,
+                input=plan,
+                maintain_input_order=False,
+            )
+
+        # register query columns in table_columns so create_store_table_row knows which slot to read for each dst column
         needs_cell_materialization = False
         for col_name, expr in zip(query.schema.keys(), query._select_list_exprs):
             assert col_name in tbl.cols_by_name
@@ -415,11 +475,14 @@ class Planner:
             plan.row_builder.add_table_column(col, expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
 
+        # extra cols were registered by RowBuilder.__init__ via add_table_column
+        for col in extra_cols:
+            needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
+
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
         plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
-
         return plan
 
     @classmethod
@@ -834,7 +897,9 @@ class Planner:
         base_analyzer = Analyzer(
             from_clause, iterator_args, where_clause=target.predicate, sample_clause=target.sample_clause
         )
-        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [], target, for_view_load=True)
+        row_builder = exprs.RowBuilder(
+            base_analyzer.all_exprs, stored_cols, [], target, for_view_load=True, for_insert=propagates_insert
+        )
 
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
@@ -872,6 +937,7 @@ class Planner:
         plan.set_ctx(exec_ctx)
         if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
+
         plan = cls._add_save_node(plan)
 
         return plan, len(row_builder.default_eval_ctx.target_exprs)

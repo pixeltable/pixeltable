@@ -569,7 +569,7 @@ class Table(SchemaObject):
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
         columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
-        The format of the `schema` argument is a dict mapping column names to their types.
+        The format of the `schema` argument is a dict mapping column names to their types or column specifications.
 
         Args:
             schema: A dictionary mapping column names to a `type` or a [`ColumnSpec`][pixeltable.ColumnSpec] dict.
@@ -607,7 +607,10 @@ class Table(SchemaObject):
             ...         'stored': True,
             ...         'media_validation': 'on_write',
             ...     },
-            ...     'new_col_2': pxt.String,
+            ...     'new_col_2': {
+            ...	        'type': pxt.String,
+            ...	        'default': 'empty'
+            ...     }
             ... }
             ... tbl.add_columns(schema)
         """
@@ -645,6 +648,7 @@ class Table(SchemaObject):
     def add_column(
         self,
         *,
+        default: Any = None,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
@@ -673,6 +677,11 @@ class Table(SchemaObject):
 
             >>> tbl.add_column(new_col=pxt.Int)
 
+            Add a column with a default value:
+
+            >>> tbl.add_column(new_col=pxt.Int, default=0)
+
+            Alternatively, this can also be expressed as:
             Add a column with column metadata using a dict:
 
             >>> tbl.add_column(
@@ -705,12 +714,31 @@ class Table(SchemaObject):
                 f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
             )
-        col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
+        col_name, col_spec = next(iter(kwargs.items()))
+        schema: dict[str, type | ColumnSpec]
+
+        if isinstance(col_spec, dict):
+            # Dict format (for options like 'stored', 'media_validation', etc.)
+            if default is not None and 'default' in col_spec:
+                raise excs.Error(
+                    f'Column {col_name!r}: cannot specify `default` both in the column spec dict and '
+                    f'as a keyword argument'
+                )
+            if default is not None:
+                col_spec = {**col_spec, 'default': default}
+            schema = {col_name: col_spec}
+        elif isinstance(col_spec, (ts.ColumnType, type, _GenericAlias)):
+            # Type format - with or without default
+            if default is not None:
+                schema = {col_name: ColumnSpec(type=col_spec, default=default)}
+            else:
+                schema = kwargs
+        else:
             raise excs.Error(
-                'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
+                'The argument to add_column() must be a type or a dict; '
+                'did you intend to use add_computed_column() instead?'
             )
-        return self.add_columns(kwargs, if_exists=if_exists)
+        return self.add_columns(schema, if_exists=if_exists)
 
     def add_computed_column(
         self,

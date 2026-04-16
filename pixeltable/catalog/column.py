@@ -22,7 +22,7 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 
-from .globals import MediaValidation, QColumnId, is_system_column_name, is_valid_identifier
+from .globals import MAX_DEFAULT_VALUE_SIZE, MediaValidation, QColumnId, is_system_column_name, is_valid_identifier
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
@@ -74,6 +74,8 @@ class Column:
     sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
     _value_expr: exprs.Expr | None
     value_expr_dict: dict[str, Any] | None
+    default_value_expr_dict: dict[str, Any] | None
+    _default_value_expr: exprs.Expr | None
     # we store a handle here in order to allow Column construction before there is a corresponding TableVersion
     tbl_handle: 'TableVersionHandle' | None
 
@@ -92,6 +94,7 @@ class Column:
         sa_col_type: sql.types.TypeEngine | None = None,
         stores_cellmd: bool = False,
         value_expr_dict: dict[str, Any] | None = None,
+        default_value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
         destination: str | Path | None = None,
         comment: str | None = None,
@@ -105,7 +108,10 @@ class Column:
             raise excs.Error(f'Column {name!r}: `col_type` is required if `computed_with` is not specified')
 
         self._value_expr = None
+        self._default_value_expr = None
         self.value_expr_dict = value_expr_dict
+        self.default_value_expr_dict = default_value_expr_dict
+
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
             if value_expr is None:
@@ -119,6 +125,14 @@ class Column:
                 self.col_type = self._value_expr.col_type
         if self._value_expr is not None and self.value_expr_dict is None:
             self.value_expr_dict = self._value_expr.as_dict()
+
+        if default_value_expr_dict is not None:
+            default_expr = exprs.Expr.from_dict(default_value_expr_dict)
+            if default_expr is None:
+                raise excs.Error(f'Column {self.name!r}: invalid default value expression: {default_value_expr_dict}')
+            self._default_value_expr = default_expr.as_literal()
+            if self._default_value_expr is None:
+                raise excs.Error(f'Column {self.name!r}: default value must be a constant, got {default_expr}')
 
         if col_type is not None:
             self.col_type = col_type
@@ -208,6 +222,7 @@ class Column:
         destination: str | Path | None = None
         custom_metadata: Any = None
         comment: str | None = None
+        default_value_expr_dict: dict[str, Any] | None = None
 
         # TODO: Should we fully deprecate passing ts.ColumnType here?
         if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
@@ -220,11 +235,38 @@ class Column:
             cls._validate_column_spec(name, spec)
             if 'type' in spec:
                 col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
-            value_expr = spec.get('value')
-            if value_expr is not None and isinstance(value_expr, exprs.Expr):
-                # create copy so we can modify it
-                value_expr = value_expr.copy()
-                value_expr.bind_rel_paths()
+            if 'value' in spec:
+                value_expr = spec.get('value')
+                if value_expr is not None and isinstance(value_expr, exprs.Expr):
+                    # create copy so we can modify it
+                    value_expr = value_expr.copy()
+                    value_expr.bind_rel_paths()
+            elif 'default' in spec:
+                # Column with default value
+                assert col_type is not None
+                if col_type.is_media_type():
+                    raise excs.Error(
+                        f'Column {name!r}: Default values are not supported for media types '
+                        f'(Image, Video, Audio, Document). Only supported for scalar types, '
+                        f'simple JSON, Array, and Binary.'
+                    )
+
+                # Ensure the column type is one that Literal supports
+                if not (
+                    col_type.is_scalar_type()
+                    or col_type.is_json_type()
+                    or col_type.is_array_type()
+                    or col_type.is_binary_type()
+                ):
+                    raise excs.Error(
+                        f'Column {name!r}: Default values are only supported for scalar types '
+                        f'(String, Int, Float, Bool, Timestamp, Date, UUID), simple JSON, '
+                        f'Array, and Binary.'
+                    )
+                default_value_expr = exprs.Literal(spec['default'], col_type=col_type)
+                cls._validate_json_default_value_expr(default_value_expr, name, MAX_DEFAULT_VALUE_SIZE)
+                default_value_expr_dict = default_value_expr.as_dict()
+
             stored = spec.get('stored', True)
             primary_key = spec.get('primary_key', False)
             media_validation_str = spec.get('media_validation')
@@ -251,6 +293,7 @@ class Column:
             custom_metadata=custom_metadata,
             comment=comment,
             stores_cellmd=stores_cellmd,
+            default_value_expr_dict=default_value_expr_dict,
         )
         ObjectOps.validate_destination(column.destination, column.name)
         return column
@@ -268,6 +311,12 @@ class Column:
         if 'type' not in spec and 'value' not in spec:
             raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
 
+        # Check if computed column has default (not allowed)
+        if 'value' in spec and 'default' in spec:
+            raise excs.Error(f"Column {name!r}: 'default' cannot be specified for computed columns")
+        if 'default' in spec and 'type' not in spec:
+            raise excs.Error(f"Column {name!r}: 'type' must be specified when 'default' is provided")
+
         if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
             raise excs.Error(f"Column {name!r}: 'type' must be a type; got {spec['type']}")
 
@@ -277,6 +326,16 @@ class Column:
                 raise excs.Error(f"Column {name!r}: 'value' must be a Pixeltable expression.")
             if 'type' in spec:
                 raise excs.Error(f"Column {name!r}: 'type' is redundant if 'value' is specified")
+
+        if 'default' in spec:
+            default_expr = exprs.Expr.from_object(spec['default'])
+            if default_expr is None:
+                raise excs.Error(f"Column {name!r}: 'default' must be a Pixeltable expression or a constant value.")
+            # Only constant defaults are supported
+            if not isinstance(default_expr, exprs.Literal):
+                raise excs.Error(f'Column {name!r}: Default values must be constants.')
+            if default_expr.val is None:
+                raise excs.Error(f'Column {name!r}: Default value cannot be None.')
 
         if 'media_validation' in spec:
             _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name!r}: media_validation')
@@ -319,6 +378,43 @@ class Column:
         return proxy_col
 
     @classmethod
+    def _validate_json_default_value_expr(cls, value_expr: exprs.Expr, name: str, max_size: int) -> None:
+        """Validate that a default value expression is valid for storage in metadata."""
+        import json
+
+        if value_expr.col_type.is_json_type():
+            json_val = value_expr.val
+
+            def _is_scalar_json_value(element: Any) -> bool:
+                if element is None:
+                    return True
+                if isinstance(element, (str, int, float, bool)):
+                    return True
+                if isinstance(element, list):
+                    return all(_is_scalar_json_value(v) for v in element)
+                if isinstance(element, dict):
+                    return all(isinstance(k, str) and _is_scalar_json_value(v) for k, v in element.items())
+                return False
+
+            if not _is_scalar_json_value(json_val):
+                raise excs.Error(
+                    f'Column {name!r}: JSON default values can only contain scalar JSON types '
+                    f'(strings, numbers, booleans, lists, dicts). Custom Pixeltable types like UUID, '
+                    f'Timestamp, and Date are not allowed in JSON defaults.'
+                )
+
+        try:
+            value_expr_dict = value_expr.as_dict()
+            serialized_size = len(json.dumps(value_expr_dict, separators=(',', ':')).encode('utf-8'))
+            if serialized_size > max_size:
+                raise excs.Error(
+                    f'Column {name!r}: default value exceeds the maximum allowed size '
+                    f'({serialized_size} bytes serialized, limit is {max_size} bytes).'
+                )
+        except (TypeError, ValueError) as e:
+            raise excs.Error(f'Column {name!r}: Default value given is not JSON serializable: {e}') from e
+
+    @classmethod
     def validate_name(cls, name: str) -> None:
         """Check that a name is usable as a pixeltable column name"""
         if is_system_column_name(name) or is_python_keyword(name):
@@ -336,6 +432,7 @@ class Column:
             schema_version_add=self.schema_version_add,
             schema_version_drop=self.schema_version_drop,
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
+            default_value_expr=self.default_value_expr_dict,
             stored=self.stored,
             stores_cellmd=self.stores_cellmd,
             destination=self._explicit_destination,
@@ -379,8 +476,6 @@ class Column:
 
         If `tvp` is not None, retarget the value_expr to the given TableVersionPath.
         """
-        from pixeltable import exprs
-
         if self._value_expr is None and self.value_expr_dict is None:
             return
 
@@ -449,6 +544,10 @@ class Column:
         assert self.value_expr_dict is None or self._value_expr is not None
         return self._value_expr
 
+    @property
+    def default_value_expr(self) -> exprs.Expr | None:
+        return self._default_value_expr
+
     def set_value_expr(self, value_expr: exprs.Expr) -> None:
         self._value_expr = value_expr
         self.value_expr_dict = self._value_expr.as_dict()
@@ -462,8 +561,6 @@ class Column:
             )
 
     def has_window_fn_call(self) -> bool:
-        from pixeltable import exprs
-
         if self.value_expr is None:
             return False
         window_fn_calls = list(
@@ -512,6 +609,11 @@ class Column:
         return self.get_tbl().media_validation
 
     @property
+    def has_default_value(self) -> bool:
+        """Returns True if column has a default value."""
+        return not self.is_computed and self.name is not None and self.default_value_expr_dict is not None
+
+    @property
     def custom_metadata(self) -> Any:
         return self._custom_metadata
 
@@ -522,14 +624,12 @@ class Column:
     @property
     def is_required_for_insert(self) -> bool:
         """Returns True if column is required when inserting rows."""
-        return not self.col_type.nullable and not self.is_computed
+        return not self.col_type.nullable and not self.is_computed and not self.has_default_value
 
     def source(self) -> None:
         """
         If this is a computed col and the top-level expr is a function call, print the source, if possible.
         """
-        from pixeltable import exprs
-
         if self.value_expr is None or not isinstance(self.value_expr, exprs.FunctionCall):
             return
         self.value_expr.fn.source()

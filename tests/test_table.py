@@ -18,6 +18,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
+from pixeltable.catalog.globals import MAX_DEFAULT_VALUE_SIZE
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
@@ -3624,6 +3625,180 @@ class TestTable:
         ):
             t.drop_column('c2')
 
+    def test_column_defaults_initial_schema(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        t0 = pxt.create_table(
+            'test_defaults_create',
+            {
+                'c1': pxt.Int,
+                'c2': {'type': pxt.String, 'default': 'default_str'},
+                'c3': {'type': pxt.Int, 'default': 42},
+            },
+        )
+        t0.insert([{'c1': 1}, {'c1': 2}])
+        result = t0.select().collect()
+        assert len(result) == 2
+        for row in result:
+            assert row['c2'] == 'default_str'
+            assert row['c3'] == 42
+
+        # Explicit None must not be overwritten by default
+        t0.insert([{'c1': 3, 'c2': None, 'c3': None}])
+        result = t0.where(t0.c1 == 3).collect()
+        assert len(result) == 1
+        assert result[0]['c2'] is None, 'User-provided None must not be overwritten by default'
+        assert result[0]['c3'] is None, 'User-provided None must not be overwritten by default'
+
+        reload_tester.run_query(t0.select())
+        reload_tester.run_reload_test()
+
+    def test_column_defaults_add_column_types(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('test_defaults', {'c1': pxt.Int})
+
+        default_timestamp = datetime.datetime(2024, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        default_date = datetime.date(2024, 1, 1)
+        default_uuid = uuid.UUID('12345678-1234-5678-1234-567812345678')
+        default_binary = b'default binary data'
+
+        t.add_column(c2=pxt.String, default='empty')
+        t.add_column(c_int=pxt.Int, default=-1)
+        t.add_column(c_float=pxt.Float, default=3.14)
+        t.add_columns(
+            {'c_bool': {'type': pxt.Bool, 'default': True}, 'c_dict': {'type': pxt.Json, 'default': {'a': 10}}}
+        )
+        t.add_column(c_list={'type': pxt.Json, 'default': ['a']})
+        t.add_column(c_array={'type': pxt.Array[(3,), pxt.Int], 'default': np.array([1, 2, 3])})  # type: ignore[misc]
+        t.add_columns(
+            {
+                'c_timestamp': {'type': pxt.Timestamp, 'default': default_timestamp},
+                'c_date': {'type': pxt.Date, 'default': default_date},
+                'c_uuid': {'type': pxt.UUID, 'default': default_uuid},
+                'c_binary': {'type': pxt.Binary, 'default': default_binary},
+            }
+        )
+
+        t.insert([{'c1': 1}, {'c1': 2}])
+        result = t.select().collect()
+        assert len(result) == 2
+        for row in result:
+            assert row['c2'] == 'empty'
+            assert row['c_int'] == -1
+            assert row['c_float'] == 3.14
+            assert row['c_bool'] is True
+            assert row['c_dict'] == {'a': 10}
+            assert row['c_list'] == ['a']
+            assert np.array_equal(row['c_array'], np.array([1, 2, 3]))
+            assert row['c_date'] == default_date
+            assert row['c_uuid'] == default_uuid
+            assert row['c_binary'] == default_binary
+            assert row['c_timestamp'] == default_timestamp or row['c_timestamp'].replace(
+                tzinfo=None
+            ) == default_timestamp.replace(tzinfo=None)
+
+        # array default as Python list — should be coerced to np.ndarray
+        t.add_column(c_array_from_list={'type': pxt.Array[(3,), pxt.Int], 'default': [1, 2, 3]})  # type: ignore[misc]
+        t.insert([{'c1': 99}])
+        result = t.where(t.c1 == 99).collect()
+        assert np.array_equal(result[0]['c_array_from_list'], np.array([1, 2, 3]))
+
+        reload_tester.run_query(t.select())
+        reload_tester.run_reload_test()
+
+    def test_column_defaults_add_to_nonempty_table(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('test_defaults', {'c1': pxt.Int})
+        t.insert([{'c1': 1}, {'c1': 2}])
+
+        t.add_column(c2={'type': pxt.Int, 'default': 999})
+        result = t.select().collect()
+        assert len(result) == 2
+        for row in result:
+            assert row['c2'] == 999
+
+        # New rows also get the default
+        t.insert([{'c1': 3}])
+        result = t.where(t.c1 == 3).collect()
+        assert result[0]['c2'] == 999
+
+        reload_tester.run_query(t.select())
+        reload_tester.run_reload_test()
+
+    def test_column_defaults_none_not_overwritten(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table(
+            'test_defaults',
+            {
+                'c1': pxt.Int,
+                'c2': {'type': pxt.String, 'default': 'default_str'},
+                'c3': {'type': pxt.Int, 'default': 42},
+            },
+        )
+        t.insert([{'c1': 1, 'c2': None, 'c3': None}])
+        result = t.where(t.c1 == 1).collect()
+        assert len(result) == 1
+        assert result[0]['c2'] is None, 'User-provided None must not be overwritten by default'
+        assert result[0]['c3'] is None, 'User-provided None must not be overwritten by default'
+
+    def test_column_defaults_update(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table(
+            'test_defaults',
+            {
+                'c1': pxt.Int,
+                'c2': {'type': pxt.String, 'default': 'default_str'},
+                'c3': {'type': pxt.Int, 'default': 42},
+            },
+        )
+        t.insert([{'c1': 1}, {'c1': 2}])
+
+        t.update({'c2': 'updated', 'c3': 111}, where=t.c1 == 1)
+        result = t.where(t.c1 == 1).collect()
+        assert len(result) == 1
+        assert result[0]['c2'] == 'updated'
+        assert result[0]['c3'] == 111
+
+        # Unupdated row still has defaults
+        result = t.where(t.c1 == 2).collect()
+        assert result[0]['c2'] == 'default_str'
+        assert result[0]['c3'] == 42
+
+        reload_tester.run_query(t.select())
+        reload_tester.run_reload_test()
+
+    def test_column_defaults_invalid(self, uses_db: None) -> None:
+        t = pxt.create_table('test_defaults', {'c1': pxt.Int})
+        t.insert([{'c1': 1}])
+
+        # Media types not supported
+        with pytest.raises(pxt.Error, match='Default values are not supported for media types'):
+            t.add_column(
+                c_image={'type': pxt.Image, 'default': str(TESTS_DIR / 'data/images/#_strange_file name!@$.jpg')}
+            )
+
+        # Expression defaults not supported
+        with pytest.raises(pxt.Error, match='Default values must be constants'):
+            t.add_column(c2={'type': pxt.Int, 'default': t.c1 + 10})
+
+        # Computed columns cannot have defaults
+        with pytest.raises(pxt.Error, match="'default' cannot be specified for computed columns"):
+            t.add_column(c3={'value': t.c1 * 2, 'default': 0})
+
+        # Invalid JSON defaults (UUID/datetime not serializable as JSON)
+        with pytest.raises((pxt.Error, TypeError), match=r'scalar JSON types|not a valid Pixeltable JSON'):
+            t.add_column(c4={'type': pxt.Json, 'default': {'id': uuid.UUID('12345678-1234-5678-1234-567812345678')}})
+        with pytest.raises((pxt.Error, TypeError), match=r'scalar JSON types|not a valid Pixeltable JSON'):
+            t.add_column(c5={'type': pxt.Json, 'default': {'date': datetime.datetime.now()}})
+
+        # Size limit violations
+        for col, typ, val in [
+            ('c6', pxt.String, 'x' * (MAX_DEFAULT_VALUE_SIZE + 100)),
+            ('c7', pxt.Json, {'data': 'x' * (MAX_DEFAULT_VALUE_SIZE + 100)}),
+            ('c8', pxt.Binary, b'x' * (MAX_DEFAULT_VALUE_SIZE + 100)),
+            (
+                'c9',
+                pxt.Array[(MAX_DEFAULT_VALUE_SIZE // 2,), pxt.Int],  # type: ignore[misc]
+                np.ones((MAX_DEFAULT_VALUE_SIZE // 2,), dtype=np.int64),
+            ),
+        ]:
+            with pytest.raises(pxt.Error, match='default value exceeds the maximum allowed size'):
+                t.add_column(**{col: {'type': typ, 'default': val}})
+
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_add_columns_with_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.String})
@@ -3739,3 +3914,62 @@ class TestTable:
         # check that raw object JSON comments are rejected for columns
         with pytest.raises(pxt.Error, match="'comment' must be a string"):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[dict-item]
+
+    def test_insert_query_btree_existing(self, uses_db: None) -> None:
+        """Verify btree index works after query insert when query covers all columns."""
+        src = pxt.create_table('src', {'c1': pxt.Required[pxt.Int], 'c2': pxt.Required[pxt.String]})
+        src.insert([{'c1': i, 'c2': str(i)} for i in range(10)])
+
+        dst = pxt.create_table('dst', {'c1': pxt.Required[pxt.Int], 'c2': pxt.Required[pxt.String]})
+        dst.insert(src.select(src.c1, src.c2))
+
+        result = dst.where(dst.c1 == 5).collect()
+        assert len(result) == 1
+        assert result[0]['c1'] == 5
+
+        dst.insert(src.select(src.c1, src.c2))
+        assert dst.count() == 20
+        result = dst.where(dst.c1 == 5).collect()
+        assert len(result) == 2
+
+    def test_insert_query_with_defaults(self, uses_db: None) -> None:
+        """Insert via query into a table that has columns with default values not covered by the query."""
+        src = pxt.create_table('src', {'c1': pxt.Required[pxt.Int], 'c2': pxt.Required[pxt.String]})
+        src.insert([{'c1': i, 'c2': str(i)} for i in range(5)])
+
+        dst = pxt.create_table(
+            'dst',
+            {
+                'c1': pxt.Required[pxt.Int],
+                'c2': pxt.Required[pxt.String],
+                'c3': {'type': pxt.Int, 'default': 99},
+                'c4': {'type': pxt.String, 'default': 'hello'},
+            },
+        )
+
+        query = src.select(src.c1, src.c2)
+        dst.insert(query)
+
+        result = dst.order_by(dst.c1).collect()
+        assert len(result) == 5
+        for row in result:
+            assert row['c2'] == str(row['c1'])
+            assert row['c3'] == 99
+            assert row['c4'] == 'hello'
+
+        dst.insert(query)
+        assert dst.count() == 10
+        assert dst.where(dst.c3 != 99).count() == 0
+        assert dst.where(dst.c4 != 'hello').count() == 0
+
+        # insert covering c1, c2, c3 — c3 explicitly None, c4 should still get default
+        src2 = pxt.create_table('src2', {'c1': pxt.Required[pxt.Int], 'c2': pxt.Required[pxt.String], 'c3': pxt.Int})
+        src2.insert([{'c1': 10, 'c2': 'ten', 'c3': None}])
+        status = dst.insert(src2.select(src2.c1, src2.c2, src2.c3))
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+        assert dst.count() == 11
+        result2 = dst.where(dst.c1 == 10).collect()
+        assert len(result2) == 1
+        assert result2[0]['c3'] is None
+        assert result2[0]['c4'] == 'hello'

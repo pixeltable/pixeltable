@@ -118,6 +118,7 @@ class RowBuilder:
         input_exprs: Iterable[Expr],
         tbl: catalog.TableVersion | None = None,
         for_view_load: bool = False,
+        for_insert: bool = False,
     ):
         from .column_property_ref import ColumnPropertyRef
         from .column_ref import ColumnRef
@@ -149,23 +150,19 @@ class RowBuilder:
         self.table_columns = {}
         self.input_exprs = ExprSet()
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
+        expr: Expr
 
+        # First pass: register non-computed columns as ColumnRefs; computed columns (second pass)
+        # resolve their expressions against these slot idxs.
         for col in columns:
-            expr: Expr
-            if col.is_computed:
-                assert col.value_expr is not None
-                # create a copy here so we don't reuse execution state and resolve references to computed columns
-                expr = col.value_expr.copy().resolve_computed_cols(resolve_cols=resolve_cols)
-                expr = expr.substitute(validating_colrefs)
-                expr = self._record_unique_expr(expr, recursive=True)
-            else:
+            if not col.is_computed:
                 # record a ColumnRef so that references to this column resolve to the same slot idx
                 perform_validation = (
                     None
                     if not col.col_type.is_media_type()
                     else col.media_validation == catalog.MediaValidation.ON_WRITE
                 )
-                expr = ColumnRef(col, perform_validation=perform_validation)
+                expr = ColumnRef(col, perform_validation=perform_validation, for_insert=for_insert)
                 # recursive=True: needed for validating ColumnRef
                 expr = self._record_unique_expr(expr, recursive=True)
 
@@ -177,8 +174,21 @@ class RowBuilder:
                 else:
                     self.input_exprs.add(expr)
 
-            self.add_table_column(col, expr.slot_idx)
-            self.output_exprs.add(expr)
+                self.add_table_column(col, expr.slot_idx)
+                self.output_exprs.add(expr)
+
+        # Second pass: register computed columns, resolving their expressions against the ColumnRefs
+        # and validating wrappers established in the first pass.
+        for col in columns:
+            if col.is_computed:
+                assert col.value_expr is not None
+                # create a copy here so we don't reuse execution state and resolve references to computed columns
+                expr = col.value_expr.copy().resolve_computed_cols(resolve_cols=resolve_cols)
+                expr = expr.substitute(validating_colrefs)
+                expr = self._record_unique_expr(expr, recursive=True)
+
+                self.add_table_column(col, expr.slot_idx)
+                self.output_exprs.add(expr)
 
         # default eval ctx: all output exprs
         self.default_eval_ctx = self.create_eval_ctx(list(self.output_exprs), exclude=unique_input_exprs)

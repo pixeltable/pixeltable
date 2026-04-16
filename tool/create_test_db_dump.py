@@ -20,6 +20,7 @@ from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
 from pixeltable.iterators.base import ComponentIterator
+from pixeltable.types import ColumnSpec
 from tool.udfs_for_db_dump import test_array_udf, test_binary_udf, test_date_udf, test_timestamp_udf, test_uuid_udf
 
 _logger = logging.getLogger('pixeltable')
@@ -234,6 +235,20 @@ class Dumper:
         ]
 
         self.__add_expr_columns(t, 'base_table')
+
+        # Add columns with default values to base_table
+        t.add_columns(
+            {
+                'd_str': ColumnSpec(type=pxt.String, default='default string'),
+                'd_int': ColumnSpec(type=pxt.Int, default=42),
+                'd_float': ColumnSpec(type=pxt.Float, default=3.14),
+                'd_bool': ColumnSpec(type=pxt.Bool, default=True),
+                'd_array': ColumnSpec(type=pxt.Array, default=np.array([1, 2, 3], dtype=np.int64)),
+                'd_binary': ColumnSpec(type=pxt.Binary, default=b'default binary'),
+                'd_json': ColumnSpec(type=pxt.Json, default={'key': 'value', 'num': 123}),
+            }
+        )
+
         status = t.insert(rows)
         assert status.num_excs == 0
         assert status.num_rows == num_rows
@@ -242,7 +257,11 @@ class Dumper:
 
         # simple view
         v = pxt.create_view(
-            'views.view', t.where(t.c2 < 50), comment='This is a test view.', custom_metadata={'view_key': 'view_value'}
+            'views.view',
+            t.where(t.c2 < 50),
+            comment='This is a test view.',
+            custom_metadata={'view_key': 'view_value'},
+            additional_columns={'view_default_int': {'type': pxt.Int, 'default': 100}},
         )
         self.__add_expr_columns(v, 'view')
 

@@ -35,6 +35,7 @@ from .tbl_ops import (
     DeleteTableMediaFilesOp,
     DropStoreTableOp,
     OpStatus,
+    SetColumnValueOp,
     TableOp,
 )
 from .update_status import RowCountStats, UpdateStatus
@@ -570,6 +571,7 @@ class TableVersion:
                 schema_version_drop=col_md.schema_version_drop,
                 stores_cellmd=col_md.stores_cellmd,
                 value_expr_dict=col_md.value_expr,
+                default_value_expr_dict=col_md.default_value_expr,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
                 custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
@@ -725,7 +727,7 @@ class TableVersion:
         row_count = self.store_tbl.count()
         for col in cols:
             # TODO: check this elsewhere?
-            if not col.col_type.nullable and not col.is_computed and row_count > 0:
+            if not col.col_type.nullable and not col.is_computed and not col.has_default_value and row_count > 0:
                 raise excs.Error(
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
                 )
@@ -758,7 +760,8 @@ class TableVersion:
                 is_pk=col.is_pk,
                 schema_version_add=self.schema_version,
                 schema_version_drop=None,
-                value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
+                value_expr=col.value_expr.as_dict() if col.value_expr is not None and col.is_computed else None,
+                default_value_expr=col.default_value_expr_dict,
                 stored=col.stored,
                 destination=col._explicit_destination,
                 stores_cellmd=col.stores_cellmd,
@@ -782,16 +785,36 @@ class TableVersion:
             idx_ids.append(self._create_index_md(col, val_col, undo_col, idx_name=None, idx=idx))
 
         id_str = str(self.id)
+        has_default_cols = any(col.has_default_value for col in cols)
+        num_ops = 5 if has_default_cols else 4
         tbl_ops = [
-            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=4, status=OpStatus.PENDING),
+            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=num_ops, status=OpStatus.PENDING),
             CreateColumnMdOp(
-                tbl_id=id_str, op_sn=1, num_ops=4, status=OpStatus.PENDING, column_ids=[col.id for col in all_cols]
+                tbl_id=id_str,
+                op_sn=1,
+                num_ops=num_ops,
+                status=OpStatus.PENDING,
+                column_ids=[col.id for col in all_cols],
             ),
             CreateStoreColumnsOp(
-                tbl_id=id_str, op_sn=2, num_ops=4, status=OpStatus.PENDING, column_ids=[col.id for col in all_cols]
+                tbl_id=id_str,
+                op_sn=2,
+                num_ops=num_ops,
+                status=OpStatus.PENDING,
+                column_ids=[col.id for col in all_cols],
             ),
-            CreateStoreIdxsOp(tbl_id=id_str, op_sn=3, num_ops=4, status=OpStatus.PENDING, idx_ids=idx_ids),
+            CreateStoreIdxsOp(tbl_id=id_str, op_sn=3, num_ops=num_ops, status=OpStatus.PENDING, idx_ids=idx_ids),
         ]
+        if has_default_cols:
+            tbl_ops.append(
+                SetColumnValueOp(
+                    tbl_id=id_str,
+                    op_sn=4,
+                    num_ops=num_ops,
+                    status=OpStatus.PENDING,
+                    column_ids=[col.id for col in cols],
+                )
+            )
         return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops
 
     def add_columns(
@@ -852,7 +875,8 @@ class TableVersion:
         row_count = self.store_tbl.count()
         for col in cols_to_add:
             assert col.tbl_handle.id == self.id
-            if not col.col_type.nullable and not col.is_computed and row_count > 0:
+            # Allow non-nullable columns if they have a default value or are computed
+            if not col.col_type.nullable and not col.is_computed and not col.has_default_value and row_count > 0:
                 raise excs.Error(
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
                 )
@@ -911,6 +935,46 @@ class TableVersion:
             cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
+
+    def _populate_default_values(self, cols: Iterable[Column]) -> None:
+        """Populate default values for columns that were just added to existing rows."""
+        # Collect column IDs from the passed columns
+        col_ids = {col.id for col in cols if col.id is not None}
+
+        # Get user-facing stored columns (not index columns) with default values
+        default_value_cols = [
+            col
+            for col in self.cols
+            if col.id in col_ids and col.name is not None and col.has_default_value and col.is_stored
+        ]
+
+        row_count = self.store_tbl.count()
+        if len(default_value_cols) == 0 or row_count == 0:
+            # No default values to populate
+            return
+
+        # Ensure sa_tbl is up to date (it should be after add_column calls create_sa_tbl)
+        self.store_tbl.create_sa_tbl()
+
+        conn = get_runtime().conn
+
+        # Build UPDATE statement with all default value columns
+        update_stmt = sql.update(self.store_tbl.sa_tbl)
+        # Only update rows that are currently live (v_max == MAX_VERSION)
+        update_stmt = update_stmt.where(self.store_tbl.v_max_col == schema.Table.MAX_VERSION)
+
+        # Set all default value columns
+        update_values: dict[sql.schema.Column, Any] = {}
+        for col in default_value_cols:
+            assert col.has_default_value, f'Column {col.name!r} should have default value'
+            assert col.default_value_expr is not None, f'Column {col.name!r} default_value_expr should be set'
+            # sa_col should be initialized by create_sa_tbl() called above
+            assert col.sa_col is not None, f'Column {col.name!r} sa_col should be initialized'
+            default_val = col.col_type.to_stored_value(col.default_value_expr.val)
+            update_values[col.sa_col] = default_val
+
+        update_stmt = update_stmt.values(update_values)
+        conn.execute(update_stmt)
 
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""
