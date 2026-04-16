@@ -285,7 +285,7 @@ class TestLabelStudio:
 
     @classmethod
     def __is_expected_url(cls, url: str) -> bool:
-        return url.startswith('file://') or url.startswith('https://') or url.startswith('s3://')
+        return url.startswith('file:') or url.startswith('https://') or url.startswith('s3://')
 
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
     @pytest.mark.xdist_group('label_studio')

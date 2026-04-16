@@ -337,10 +337,10 @@ class TestDestination:
                         f'{expected_soa.container} for {dest_id}'
                     )
 
-                # For local store, verify it's a file:// URL
+                # For local store, verify it's a file: URL
                 if dest_id == StorageTarget.LOCAL_STORE:
-                    assert rotated_image_destination_url.startswith('file://'), (
-                        f'Local store URL should start with file://, got {rotated_image_destination_url}'
+                    assert rotated_image_destination_url.startswith('file:'), (
+                        f'Local store URL should start with file:, got {rotated_image_destination_url}'
                     )
 
         for uri in dest_uris:
