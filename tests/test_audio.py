@@ -24,6 +24,13 @@ from .utils import (
 
 
 class TestAudio:
+    def _validate_audio(self, audio_files: list[str]) -> None:
+        """Confirm each file is valid audio by inserting into a table with on_error='abort'."""
+        t = pxt.create_table('validated_audio', schema={'a': pxt.Audio}, if_exists='ignore')
+        validate_update_status(
+            t.insert(({'a': a} for a in audio_files), on_error='abort'), expected_rows=len(audio_files)
+        )
+
     def check_audio_params(self, path: str, format: str | None = None, codec: str | None = None) -> None:
         with av.open(path) as container:
             audio_stream = container.streams.audio[0]
@@ -427,3 +434,103 @@ class TestAudio:
         for row in t.head(10):
             assert set(row.keys()) == {'audio', 'sentence', 'audio_file'}
             print(f'Encoded audio file: {row["audio_file"]}')
+
+    def test_multiply_volume(self, uses_db: None) -> None:
+        audio_paths = get_audio_files()
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
+        t.add_computed_column(louder=t.audio.multiply_volume(factor=2.0))
+        t.add_computed_column(quieter=t.audio.multiply_volume(factor=0.5))
+        t.add_computed_column(partial=t.audio.multiply_volume(factor=3.0, start_time=1.0, end_time=3.0))
+        t.add_computed_column(from_start=t.audio.multiply_volume(factor=2.0, end_time=3.0))
+        t.add_computed_column(to_end=t.audio.multiply_volume(factor=2.0, start_time=1.0))
+        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
+        result = t.select(t.louder, t.quieter, t.partial, t.from_start, t.to_end).collect()
+        assert all(
+            r['louder'] is not None
+            and r['quieter'] is not None
+            and r['partial'] is not None
+            and r['from_start'] is not None
+            and r['to_end'] is not None
+            for r in result
+        )
+        self._validate_audio(
+            result['louder'] + result['quieter'] + result['partial'] + result['from_start'] + result['to_end']
+        )
+
+    def test_multiply_volume_errors(self, uses_db: None) -> None:
+        audio_paths = get_audio_files()
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
+        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
+
+        with pytest.raises(pxt.Error, match=r'`start_time` must be non-negative'):
+            t.select(t.audio.multiply_volume(factor=1.0, start_time=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'`end_time` must be non-negative'):
+            t.select(t.audio.multiply_volume(factor=1.0, end_time=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'`start_time` must be non-negative'):
+            t.select(t.audio.multiply_volume(factor=1.0, start_time=-1.0, end_time=3.0)).collect()
+        with pytest.raises(pxt.Error, match=r'`end_time` must be non-negative'):
+            t.select(t.audio.multiply_volume(factor=1.0, start_time=0.0, end_time=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'`end_time` .* must be greater than `start_time`'):
+            t.select(t.audio.multiply_volume(factor=1.0, start_time=5.0, end_time=3.0)).collect()
+        with pytest.raises(pxt.Error, match=r'`end_time` .* must be greater than `start_time`'):
+            t.select(t.audio.multiply_volume(factor=1.0, start_time=5.0, end_time=5.0)).collect()
+
+    def test_fade_in(self, uses_db: None) -> None:
+        audio_paths = get_audio_files()
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
+        t.add_computed_column(faded=t.audio.fade_in(duration=2.0))
+        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
+        result = t.select(t.faded).collect()
+        assert all(r['faded'] is not None for r in result)
+        self._validate_audio(result['faded'])
+
+    def test_fade_in_errors(self, uses_db: None) -> None:
+        audio_paths = get_audio_files()
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
+        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
+
+        with pytest.raises(pxt.Error, match=r'`duration` must be positive'):
+            t.select(t.audio.fade_in(duration=0)).collect()
+        with pytest.raises(pxt.Error, match=r'`duration` must be positive'):
+            t.select(t.audio.fade_in(duration=-1.0)).collect()
+
+    def test_fade_out(self, uses_db: None) -> None:
+        audio_paths = get_audio_files()
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
+        t.add_computed_column(faded=t.audio.fade_out(duration=2.0))
+        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
+        result = t.select(t.faded).collect()
+        assert all(r['faded'] is not None for r in result)
+        self._validate_audio(result['faded'])
+
+    def test_fade_out_errors(self, uses_db: None) -> None:
+        audio_paths = get_audio_files()
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
+        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
+
+        with pytest.raises(pxt.Error, match=r'`duration` must be positive'):
+            t.select(t.audio.fade_out(duration=0)).collect()
+        with pytest.raises(pxt.Error, match=r'`duration` must be positive'):
+            t.select(t.audio.fade_out(duration=-1.0)).collect()
+
+    def test_normalize(self, uses_db: None) -> None:
+        audio_paths = get_audio_files()
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
+        t.add_computed_column(normed=t.audio.normalize())
+        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
+        result = t.select(t.normed).collect()
+        assert all(r['normed'] is not None for r in result)
+        self._validate_audio(result['normed'])
+
+    def test_encode_audio_errors(self, uses_db: None) -> None:
+        # invalid format
+        t = pxt.create_table('test_encode', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
+        t.insert(audio_array=np.zeros(100, dtype=np.float32))
+        with pytest.raises(pxt.Error, match=r'Only the following formats are supported'):
+            t.select(encode_audio(t.audio_array, input_sample_rate=44100, format='invalid')).collect()
+
+        # invalid array shape: (3, N) is neither mono nor stereo
+        t2 = pxt.create_table('test_encode2', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
+        t2.insert(audio_array=np.zeros((3, 100), dtype=np.float32))
+        with pytest.raises(pxt.Error, match=r'Supported input array shapes are'):
+            t2.select(encode_audio(t2.audio_array, input_sample_rate=44100, format='wav')).collect()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from dataclasses import dataclass
 from fractions import Fraction
@@ -127,6 +128,57 @@ def get_video_duration(path: str) -> float | None:
             return result
 
         return None
+
+
+def get_audio_duration(path: str) -> float | None:
+    """
+    Return audio duration in seconds, or None if there is no audio stream or the duration cannot be determined.
+    """
+    with av.open(path) as container:
+        if len(container.streams.audio) == 0:
+            return None
+        audio_stream = container.streams.audio[0]
+
+        # prefer stream-level duration from the header
+        if audio_stream.duration is not None:
+            return float(audio_stream.duration * audio_stream.time_base)
+
+        # use container duration if we have no video streams that might be longer than the audio
+        if len(container.streams.video) == 0 and container.duration is not None:
+            return container.duration / 1_000_000
+
+        # Fall back to decoding all audio frames and counting samples. This handles formats like
+        # FLAC that don't always expose duration in the stream header.
+        sample_rate = audio_stream.codec_context.sample_rate
+        if sample_rate is None or sample_rate == 0:
+            return None
+        n_samples = 0
+        for frame in container.decode(audio=0):
+            n_samples += frame.samples
+        return n_samples / sample_rate if n_samples > 0 else None
+
+
+_MAX_VOLUME_PATTERN = re.compile(r'max_volume:\s*(-?\d+(?:\.\d+)?)\s*dB')
+
+
+def get_max_volume_db(path: str) -> float | None:
+    """
+    Measure the peak amplitude of an audio clip in dBFS.
+
+    Returns the max volume as a non-positive number (0 dBFS = full scale), or None if the clip
+    is silent or has no audio stream.
+    """
+    Env.get().require_binary('ffmpeg')
+    # -vn/-sn/-dn: ignore non-audio streams; -f null -: discard the output, we only want stderr.
+    # Explicit -loglevel info so volumedetect's report reaches us regardless of the build default.
+    cmd = ['ffmpeg', '-i', path, '-vn', '-sn', '-dn', '-af', 'volumedetect', '-f', 'null', '-loglevel', 'info', '-']
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        handle_ffmpeg_error(e)
+    # Stderr lines look like: "[Parsed_volumedetect_0 @ 0x...] max_volume: -6.0 dB"
+    m = re.search(_MAX_VOLUME_PATTERN, result.stderr)
+    return float(m.group(1)) if m is not None else None
 
 
 def has_audio_stream(path: str) -> bool:
