@@ -510,7 +510,7 @@ class TestBedrock:
             t.insert(_TEXT_ROWS)
             _assert_text_similarity(t)
 
-    def test_embed_cohere_v4_text(self, uses_db: None) -> None:
+    def test_embed_cohere_v4_text(self, uses_db: None, bedrock_us_east_1: str) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
@@ -519,7 +519,7 @@ class TestBedrock:
         validate_update_status(t.insert(text='Hello, world!'), expected_rows=1)
         assert len(t.collect()[0]['embedding']) == 1536
 
-    def test_embed_cohere_v4_text_custom_dimensions(self, uses_db: None) -> None:
+    def test_embed_cohere_v4_text_custom_dimensions(self, uses_db: None, bedrock_us_east_1: str) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
@@ -528,7 +528,7 @@ class TestBedrock:
         validate_update_status(t.insert(text='Hello, world!'), expected_rows=1)
         assert len(t.collect()[0]['embedding']) == 512
 
-    def test_embed_cohere_v4_image(self, uses_db: None) -> None:
+    def test_embed_cohere_v4_image(self, uses_db: None, bedrock_us_east_1: str) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
@@ -538,7 +538,7 @@ class TestBedrock:
         t.insert([{'image': p} for p in img_paths])
         _assert_image_similarity(t, img_paths)
 
-    def test_invoke_model_cohere_v4_image(self, uses_db: None) -> None:
+    def test_invoke_model_cohere_v4_image(self, uses_db: None, bedrock_us_east_1: str) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 

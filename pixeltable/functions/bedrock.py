@@ -224,6 +224,8 @@ def _decode_invoke_model_response(response: dict, model_id: str) -> dict:
 
 
 # Default embedding dimensions for known models, used by conditional_return_type.
+# Keys are substrings matched against model_id to handle regional inference profile prefixes
+# (e.g. 'us.cohere.embed-v4:0' contains 'cohere.embed-v4').
 _embedding_dimensions: dict[str, int] = {
     'amazon.titan-embed-text-v1': 1536,
     'amazon.titan-embed-text-v2:0': 1024,
@@ -231,7 +233,7 @@ _embedding_dimensions: dict[str, int] = {
     'amazon.nova-2-multimodal-embeddings-v1:0': 3072,
     'cohere.embed-english-v3': 1024,
     'cohere.embed-multilingual-v3': 1024,
-    'cohere.embed-v4:0': 1536,
+    'cohere.embed-v4': 1536,
 }
 
 
@@ -634,7 +636,7 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         }
         if dimensions is not None:
             body['singleEmbeddingParams']['embeddingDimension'] = dimensions
-    elif model_id.startswith('cohere.embed'):
+    elif 'cohere.embed' in model_id:
         body = {'texts': [text], 'input_type': 'search_document', 'embedding_types': ['float']}
         if dimensions is not None:
             body['output_dimension'] = dimensions
@@ -658,7 +660,7 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         response_body = json.loads(response_bytes)
         if 'nova' in model_id:
             return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
-        elif model_id.startswith('cohere.embed'):
+        elif 'cohere.embed' in model_id:
             return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
         else:
             return np.array(response_body['embedding'], dtype=np.float32)
@@ -681,7 +683,7 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
         }
         if dimensions is not None:
             body['singleEmbeddingParams']['embeddingDimension'] = dimensions
-    elif model_id.startswith('cohere.embed-v4'):
+    elif 'cohere.embed-v4' in model_id:
         body = {'images': [_to_data_uri(image)], 'input_type': 'search_document', 'embedding_types': ['float']}
         if dimensions is not None:
             body['output_dimension'] = dimensions
@@ -704,7 +706,7 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
         response_body = json.loads(response_bytes)
         if 'nova' in model_id:
             return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
-        elif model_id.startswith('cohere.embed-v4'):
+        elif 'cohere.embed-v4' in model_id:
             return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
         else:
             return np.array(response_body['embedding'], dtype=np.float32)
@@ -716,8 +718,9 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
 def _(*, model_id: str, dimensions: int | None = None) -> ts.ArrayType:
     if dimensions is not None:
         return ts.ArrayType((dimensions,), dtype=np.dtype(np.float32), nullable=False)
-    if model_id in _embedding_dimensions:
-        return ts.ArrayType((_embedding_dimensions[model_id],), dtype=np.dtype(np.float32), nullable=False)
+    for key, dim in _embedding_dimensions.items():
+        if key in model_id:
+            return ts.ArrayType((dim,), dtype=np.dtype(np.float32), nullable=False)
     return ts.ArrayType((None,), dtype=np.dtype(np.float32), nullable=False)
 
 
