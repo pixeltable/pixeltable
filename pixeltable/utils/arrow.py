@@ -172,6 +172,8 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                     # pa.uuid() uses fixed_size_binary(16) as storage type
                     val = val.bytes  # Convert UUID to 16-byte binary for arrow
                     val_size_bytes = len(val)
+                elif col_type.is_binary_type() or col_type.is_media_type() or col_type.is_string_type():
+                    val_size_bytes = len(val)
                 elif col_type.is_json_type():
                     if col_name not in json_val_size:
                         try:
@@ -193,7 +195,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                     val = val.astimezone(datetime.timezone.utc)
                     val_size_bytes = 8
                 else:
-                    val_size_bytes = len(val)
+                    raise excs.Error(f'unknown type {col_type} for {col_name}')
 
                 batch_columns[col_name].append(val)
                 current_byte_estimate += val_size_bytes
