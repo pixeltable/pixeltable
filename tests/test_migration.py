@@ -131,6 +131,10 @@ class TestMigration:
                     self._verify_v45()
                 if old_version >= 48:
                     self._verify_v48()
+                # For version 49, the test can only be run on the exact version since creating tables with invalid
+                # primary keys fails post version 49. Therefore the dump cannot have invalid primary keys.
+                if old_version == 49:
+                    self._verify_v49()
                 if old_version >= 49:
                     self._verify_v49_query_scalar()
                 # self._verify_v24(old_version)
@@ -389,6 +393,7 @@ class TestMigration:
                 )
 
     @classmethod
+
     def _verify_v49_query_scalar(cls) -> None:
         t = pxt.get_table('base_table')
         col_names = t.columns()
@@ -403,6 +408,27 @@ class TestMigration:
                 assert not isinstance(val[0], dict), (
                     f'return_scalar query should produce scalar values, got dict: {val[0]}'
                 )
+
+    def _verify_v49(cls) -> None:
+        """Verify user-visible primary-key metadata and pk_idx index presence for migrated tables."""
+        pk_good = pxt.get_table('pk_test_good')
+        pk_good_md = pk_good.get_metadata()
+        assert pk_good_md['columns']['id']['is_primary_key'] == True
+
+        pk_bad = pxt.get_table('pk_test_bad')
+        pk_bad_md = pk_bad.get_metadata()
+        assert pk_bad_md['columns']['id']['is_primary_key'] == False
+
+        # Verify that the good table has a pk_idx index in postgres and the bad table does not
+        good_tbl_id = pk_good._tbl_version_path.tbl_id
+        bad_tbl_id = pk_bad._tbl_version_path.tbl_id
+        good_idx_name = f'pk_idx_{good_tbl_id.hex}'
+        bad_idx_name = f'pk_idx_{bad_tbl_id.hex}'
+        with Env.get().engine.begin() as conn:
+            result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': good_idx_name})
+            assert result.fetchone() is not None, f'Expected pk index {good_idx_name} to exist for pk_test_good'
+            result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name})
+            assert result.fetchone() is None, f'Expected pk index {bad_idx_name} to NOT exist for pk_test_bad'
 
 
 @pxt.udf(batch_size=4)

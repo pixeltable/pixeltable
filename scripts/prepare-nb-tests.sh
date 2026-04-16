@@ -1,17 +1,56 @@
 #!/bin/bash -e
 
+# Notebooks that are always skipped
+SKIP_NOTEBOOKS=(
+    working-with-gemini          # Temporary
+    working-with-together        # Flaky
+    working-with-twelvelabs      # [PXT-1040] Temporary (rate limiting issues)
+    rag-operations               # Failing in CI for unknown reasons
+    llm-tool-calling             # Flaky
+    working-with-fabric          # Requires Microsoft Fabric environment
+    working-with-fiftyone        # Voxel51 is currently omitted from our dev env for security reasons
+    working-with-tigris          # Requires Tigris environment
+    img-detection-vs-segmentation  # Segmentation models are crashing in CI (memory issue?)
+    working-with-reve            # Out of credits
+)
+
+# Notebooks that are skipped unless --include-expensive is passed
+VERY_EXPENSIVE_NOTEBOOKS=(
+    video-generate-ai
+    working-with-bfl
+    working-with-runwayml
+)
+
 IFS=$'\n'
 SCRIPT_DIR="$(dirname "$0")"
 cd "$SCRIPT_DIR/.."
 
 DO_PIP_INSTALL=true
-if [ "$1" == "--no-pip" ]; then
-    DO_PIP_INSTALL=false
-    shift
-fi
+INCLUDE_EXPENSIVE=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-pip)
+            DO_PIP_INSTALL=false
+            shift
+            ;;
+        --include-expensive)
+            INCLUDE_EXPENSIVE=true
+            shift
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--no-pip] [--include-expensive] target-path <notebook-paths>"
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 if [ -z "$2" ]; then
-    echo "Usage: $0 [--no-pip] target-path <notebook-paths>"
+    echo "Usage: $0 [--no-pip] [--include-expensive] target-path <notebook-paths>"
     exit 1
 fi
 
@@ -22,6 +61,9 @@ echo "Target path: $TARGET_DIR"
 echo "Notebook paths: $@"
 if [[ $DO_PIP_INSTALL == false ]]; then
     echo "Skipping pip install commands in notebooks."
+fi
+if [[ $INCLUDE_EXPENSIVE == true ]]; then
+    echo "Including expensive notebooks."
 fi
 
 mkdir -p "$TARGET_DIR"
@@ -42,20 +84,19 @@ for notebook in $(find "$@" -name '*.ipynb' | grep -v .ipynb_checkpoints); do
     fi
 done
 
-rm "$TARGET_DIR/working-with-gemini.ipynb"  # Temporary
-rm "$TARGET_DIR/working-with-together.ipynb"  # Flaky
-rm "$TARGET_DIR/working-with-twelvelabs.ipynb"  # [PXT-1040] Temporary (rate limiting issues)
-rm "$TARGET_DIR/rag-operations.ipynb"  # Failing in CI for unknown reasons
-rm "$TARGET_DIR/video-generate-ai.ipynb"  # Expensive
-rm "$TARGET_DIR/img-image-to-image.ipynb"  # Expensive (downloads ~5GB model)
-rm "$TARGET_DIR/llm-tool-calling.ipynb"  # Flaky
-rm "$TARGET_DIR/working-with-fabric.ipynb"  # Requires Microsoft Fabric environment
-rm "$TARGET_DIR/working-with-fiftyone.ipynb"  # Voxel51 is currently omitted from our dev env for security reasons
-rm "$TARGET_DIR/working-with-tigris.ipynb"  # Requires Tigris environment
-rm "$TARGET_DIR/working-with-bfl.ipynb"  # Expensive (paid API, insufficient credits in CI)
-rm "$TARGET_DIR/img-detection-vs-segmentation.ipynb"  # Segmentation models are crashing in CI (memory issue?)
-rm "$TARGET_DIR/working-with-runwayml.ipynb"  # Expensive (paid API)
-rm "$TARGET_DIR/working-with-reve.ipynb"  # Out of credits
+# Remove skipped notebooks
+for nb in "${SKIP_NOTEBOOKS[@]}"; do
+    echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in SKIP_NOTEBOOKS."
+    rm "$TARGET_DIR/${nb}.ipynb"
+done
+
+# Remove expensive notebooks unless --include-expensive was passed
+if [[ $INCLUDE_EXPENSIVE == false ]]; then
+    for nb in "${VERY_EXPENSIVE_NOTEBOOKS[@]}"; do
+        echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in VERY_EXPENSIVE_NOTEBOOKS."
+        rm "$TARGET_DIR/${nb}.ipynb"
+    done
+fi
 
 # Get a list of all API keys referenced in the notebooks
 REF_API_KEYS=$(grep -hoE '[A-Z0-9_]*_(API|ACCESS)_(KEY|TOKEN)(_[A-Z0-9_]*)?' "$TARGET_DIR"/*.ipynb | sort | uniq)
@@ -64,9 +105,9 @@ echo "Checking for API keys: $(echo "$REF_API_KEYS" | tr '\n' ' ')"
 for env in $REF_API_KEYS; do
     if [ -z "${!env}" ]; then
         # The given API key is not available. Delete all notebooks that require it.
-        for notebook in $(grep -l "$env" $TARGET_DIR/*.ipynb); do
-            echo "Skipping $notebook because $env is not defined."
-            rm "$notebook"
+        for nb in $(grep -l "$env" $TARGET_DIR/*.ipynb); do
+            echo "Skipping $nb because $env is not defined."
+            rm "$nb"
         done
     fi
 done
