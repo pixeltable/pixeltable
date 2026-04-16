@@ -379,6 +379,9 @@ class Table(SchemaObject):
     def _effective_base_versions(self) -> list[int | None]:
         """The effective versions of the ancestor bases, starting with its immediate base."""
 
+    def _is_versioned(self) -> bool:
+        return self._tbl_version_path.is_versioned()
+
     def _get_comment(self) -> str:
         return self._tbl_version_path.comment()
 
