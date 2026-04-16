@@ -135,8 +135,8 @@ def export_sql(
     batch_size = 16 * 1024
     try:
         batch: list[dict] = []
-        with get_runtime().catalog.begin_xact(for_write=False), engine.connect() as target_conn:
-            for data_row in query._exec():
+        with engine.connect() as target_conn:
+            for data_row in query.cursor():
                 row_dict: dict[str, Any] = {}
                 for col_name, e in zip(query.schema.keys(), query._select_list_exprs):
                     row_dict[col_name] = data_row[e.slot_idx]
