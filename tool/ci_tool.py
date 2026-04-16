@@ -71,7 +71,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
     # Special configs that are always run
     configs = [
         MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.10', uv_options='--no-dev'),  # Minimal test (no dev deps)
-        MatrixConfig('notebooks', 'ipynb', MAIN_PLATFORM, '3.10'),  # Notebook tests
+        MatrixConfig('notebooks', 'ipynb', MAIN_PLATFORM if trigger == 'pull_request' else 'ubuntu-medium', '3.10'),
         MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.10'),  # Linting, type checking, etc.
         MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.10', uv_options='--no-dev'),  # Random operations
     ]

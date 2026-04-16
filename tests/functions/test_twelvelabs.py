@@ -16,6 +16,7 @@ from ..utils import (
 
 
 @pytest.mark.remote_api
+@pytest.mark.expensive
 @rerun(reruns=3, reruns_delay=8)
 class TestTwelveLabs:
     def test_embed_text(self, uses_db: None) -> None:
