@@ -103,9 +103,10 @@ class TableVersionPath:
         """Return the id of the table/view that this path represents"""
         return self.tbl_version.id
 
-    def version(self) -> int:
+    def version(self) -> int | None:
         """Return the version of the table/view that this path represents"""
-        assert self.is_versioned()
+        if not self.is_versioned():
+            return None
         self.refresh_cached_md()
         return self._cached_tbl_version.version
 
