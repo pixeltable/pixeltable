@@ -271,12 +271,13 @@ class TableVersion:
             return f'{self.name}:{self.effective_version}'
 
     def __repr__(self) -> str:
-        return (
-            f'TableVersion(id={self.id!r}, name={self.name!r}, '
-            f'effective_version={self.effective_version}, '
-            f'anchor_tbl_id={self.anchor_tbl_id}; '
-            f'versioned={self.is_versioned}, version={self.version if self.is_versioned else None})'
-        )
+        version_info = ''
+        if self.is_versioned:
+            version_info = (
+                f', effective_version={self.effective_version}, '
+                f'anchor_tbl_id={self.anchor_tbl_id}, version={self.version}'
+            )
+        return f'TableVersion(id={self.id!r}, name={self.name!r}, is_versioned={self.is_versioned}{version_info})'
 
     @property
     def handle(self) -> 'TableVersionHandle':
