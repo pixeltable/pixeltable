@@ -136,8 +136,6 @@ class TestMigration:
                 if old_version == 49:
                     self._verify_v49()
                 if old_version >= 50:
-                    self._verify_v50()
-                if old_version >= 50:
                     self._verify_v49_query_scalar()
                 # self._verify_v24(old_version)
 
@@ -392,6 +390,22 @@ class TestMigration:
                 table_md = row[0]
                 assert not has_column_ref_in_similarity(table_md), (
                     'Table metadata still contains SimilarityExpr with ColumnRef after v49 migration'
+                )
+
+    @classmethod
+    def _verify_v49_query_scalar(cls) -> None:
+        t = pxt.get_table('base_table')
+        col_names = t.columns()
+        assert 'base_table_query_scalar_output' in col_names, (
+            f'base_table_query_scalar_output column not found; columns: {col_names}'
+        )
+        # return_scalar=True: values should be lists of scalars, not lists of dicts
+        rows = t.select(t.base_table_query_scalar_output).limit(3).collect()
+        for row in rows:
+            val = row['base_table_query_scalar_output']
+            if val is not None and len(val) > 0:
+                assert not isinstance(val[0], dict), (
+                    f'return_scalar query should produce scalar values, got dict: {val[0]}'
                 )
 
     @classmethod
