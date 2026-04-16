@@ -346,6 +346,8 @@ class SchemaVersionMd:
     schema_version: int
     preceding_schema_version: int | None
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
+    # num_retained_versions is deprecated but kept here to avoid migration
+    num_retained_versions: int
     # TODO: Before next release, add migration to preexisting empty strings to None
     comment: str | None
 
