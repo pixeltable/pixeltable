@@ -71,7 +71,6 @@ def generate_matrix(args: argparse.Namespace) -> None:
     # Special configs that are always run
     configs = [
         MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.10', uv_options='--no-dev'),  # Minimal test (no dev deps)
-        MatrixConfig('notebooks', 'ipynb', MAIN_PLATFORM if trigger == 'pull_request' else 'ubuntu-medium', '3.10'),
         MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.10'),  # Linting, type checking, etc.
         MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.10', uv_options='--no-dev'),  # Random operations
     ]
@@ -86,27 +85,29 @@ def generate_matrix(args: argparse.Namespace) -> None:
     #    of other jobs providing broader test coverage.
     # 3. On a scheduled run, or if "Run on all platforms" is checked during a workflow dispatch, then in addition to
     #    the above, we also run the 'very_expensive' tests on MAIN_PLATFORM and the basic tests on EXPENSIVE_PLATFORMS.
-    # In 2 and 3, we also upgrade the Ubuntu runner to 'ubuntu-medium' (instead of free tier).
 
     if trigger == 'pull_request':
-        # Just the standard tests on MAIN_PLATFORM.
+        # Tier 1 only: Just the standard tests on MAIN_PLATFORM.
         configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.10'))
+        configs.append(MatrixConfig('notebooks', 'ipynb', MAIN_PLATFORM, '3.10'))
 
     else:
         if force_all or trigger == 'schedule':
-            # Standard + expensive + very_expensive tests on MAIN_PLATFORM; upgrade to 'ubuntu-medium'.
+            # Tier 3 only: Standard + expensive + very_expensive tests on upgraded platform.
             configs.append(
                 MatrixConfig('standard++', 'py', 'ubuntu-medium', '3.10', pytest_options=VERY_EXPENSIVE_PYTEST)
             )
+            configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.10'))
 
-            # Expensive platforms (e.g., GPU runners).
+            # Tier 3 only: Expensive platforms (e.g., GPU runners).
             configs.extend(MatrixConfig('standard', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
 
         else:
-            # Standard + expensive (but not very_expensive) tests on MAIN_PLATFORM; upgrade to 'ubuntu-medium'.
+            # Tier 2 only: Standard + expensive (but not very_expensive) tests on upgraded platform.
             configs.append(MatrixConfig('standard+', 'py', 'ubuntu-medium', '3.10', pytest_options=EXPENSIVE_PYTEST))
+            configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.10'))
 
-        # The remaining configs run on all non-PR triggers.
+        # Tiers 2 and 3: Various additional configurations.
 
         # Standard test suite on main & basic platforms on Python 3.14
         configs.extend(MatrixConfig('standard', 'py', os, '3.14') for os in (MAIN_PLATFORM, *BASIC_PLATFORMS))
