@@ -25,12 +25,36 @@ _logger = logging.getLogger('pixeltable')
 
 
 class StoreBase:
-    """Base class for stored tables
+    """Base class for the physical PostgreSQL tables that back Pixeltable tables and views.
 
-    Each row has the following system columns:
-    - rowid columns: one or more columns that identify a user-visible row across all versions
-    - v_min: version at which the row was created
-    - v_max: version at which the row was deleted (or MAX_VERSION if it's still live)
+    Each Pixeltable table or view is stored as a single PostgreSQL table whose name is derived from the
+    table's UUID: ``tbl_<uuid_hex>`` for tables and ``view_<uuid_hex>`` for views.
+
+    ## Physical column layout
+
+    Columns always appear in this order:
+
+    * rowid: identifies a logical row
+    * pos_0, pos_1, ..., pos_N (component views only): the position of a component within its parent row
+    * v_min (versioned tables only): the table version at which the row was inserted
+    * v_max (versioned tables only): the table version at which the row was deleted. A row is live at version V when
+    v_min <= V < v_max.
+    * col_0, ..., col_N: user columns, i.e. all stored catalog columns, including cellmd columns, index value and undo
+    columns.
+
+    The following column groups are recognized and exposed from this class:
+
+    * rowid columns: rowid, pos_0, ..., pos_N
+    * pk columns:
+
+      * versioned tables: rowid, pos_0, ..., pos_N, v_min
+      * unversioned tables: rowid, pos_0, ..., pos_N
+      * note: at present, the actual primary key constraint is created on unversioned tables only.
+
+    * system columns:
+
+      * versioned tables: rowid, pos_0, ..., pos_N, v_min, v_max
+      * unversioned tables: rowid, pos_0, ..., pos_N
     """
 
     tbl_version: catalog.TableVersionHandle
