@@ -832,7 +832,7 @@ class FastAPIRouter(fastapi.APIRouter):
             if val is None:
                 raise HTTPException(status_code=500, detail=f'output column {output_name!r} is null')
             local_path: Path
-            if val.startswith('file://'):
+            if val.startswith('file:'):
                 local_path = LocalStore.file_url_to_path(val) or Path(val)
             else:
                 local_path = Path(val)
@@ -912,7 +912,7 @@ class FastAPIRouter(fastapi.APIRouter):
         If val is a file:// uri under the Pixeltable media or tmp directory, converts that to a fetchable url of
         the /media endpoint. Otherwise returns val unchanged.
         """
-        if not isinstance(val, str) or not val.startswith('file://'):
+        if not isinstance(val, str) or not val.startswith('file:'):
             return val
         file_path = LocalStore.file_url_to_path(val)
         if file_path is None:

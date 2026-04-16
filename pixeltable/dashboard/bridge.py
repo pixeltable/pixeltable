@@ -91,7 +91,7 @@ def _build_select(
 
 def _resolve_fileurl(fileurl: str, http_address: str) -> str:
     """Convert a file:// URL to an HTTP URL, or return external URLs as-is."""
-    if fileurl.startswith('file://'):
+    if fileurl.startswith('file:'):
         parsed = urllib.parse.urlparse(fileurl)
         local_path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
         return f'{http_address}{local_path}'
