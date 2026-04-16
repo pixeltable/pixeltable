@@ -81,7 +81,7 @@ def export_csv(
 
     col_types: dict[str, ts.ColumnType] = {name: ct for name, ct in query.schema.items() if not ct.is_binary_type()}
 
-    result = query.collect()
+    cursor = query.cursor()
 
     file_path = Path(file_path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,7 +90,7 @@ def export_csv(
         writer = csv.writer(f, delimiter=delimiter, quoting=quoting)  # type: ignore[arg-type]
         writer.writerow(col_types.keys())
 
-        for row in result:
+        for row in cursor:
             csv_row: list[Any] = []
             for col_name, col_type in col_types.items():
                 val = row[col_name]
