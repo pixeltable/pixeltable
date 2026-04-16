@@ -181,7 +181,7 @@ def _walk_converse_input(obj: Any) -> Any:
     return obj
 
 
-def _apply_converse_request_conversions(messages: list[dict]) -> list[dict]:
+def _apply_converse_request_conversions(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Schema-aware walk for the Bedrock Converse API."""
     return [_walk_converse_input(msg) for msg in messages]
 
