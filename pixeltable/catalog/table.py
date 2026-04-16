@@ -1072,7 +1072,7 @@ class Table(SchemaObject):
             ...     image_embed=image_embedding_fn,
             ... )
         """
-        assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
+        assert self._tbl_version.get().is_versioned, (
             'TODO: implement for unversioned tables [PXT-975]'
         )
 
