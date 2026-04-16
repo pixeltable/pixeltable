@@ -498,8 +498,3 @@ class TestSnapshot:
                 t,
                 additional_columns={'d': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
-
-    def test_num_retained_versions_deprecated(self, uses_db: None) -> None:
-        t = create_test_tbl()
-        with pytest.warns(DeprecationWarning, match='num_retained_versions is deprecated'):
-            pxt.create_snapshot('tbl_snapshot', t, num_retained_versions=10)

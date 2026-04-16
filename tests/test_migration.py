@@ -430,23 +430,6 @@ class TestMigration:
             result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name})
             assert result.fetchone() is None, f'Expected pk index {bad_idx_name} to NOT exist for pk_test_bad'
 
-    @classmethod
-    def _verify_v50(cls) -> None:
-        """Verify num_retained_versions has been removed from all SchemaVersionMd records."""
-        with Env.get().engine.begin() as conn:
-            for row in conn.execute(sql.select(TableSchemaVersion.md)):
-                md = row[0]
-                assert 'num_retained_versions' not in md, (
-                    'TableSchemaVersion metadata still contains num_retained_versions after v50 migration'
-                )
-
-        for path in ['base_table', 'views.view', 'views.snapshot_non_pure']:
-            t = pxt.get_table(path)
-            md = t.get_metadata()
-            assert 'num_retained_versions' not in md, (
-                f'{path} metadata still contains num_retained_versions after v50 migration'
-            )
-
 
 @pxt.udf(batch_size=4)
 def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:

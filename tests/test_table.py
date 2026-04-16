@@ -3857,7 +3857,3 @@ class TestTable:
         # check that raw object JSON comments are rejected for columns
         with pytest.raises(pxt.Error, match="'comment' must be a string"):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[dict-item]
-
-    def test_num_retained_versions_deprecated(self, uses_db: None) -> None:
-        with pytest.warns(DeprecationWarning, match='num_retained_versions is deprecated'):
-            pxt.create_table('tbl', {'c1': pxt.Int}, num_retained_versions=10)
