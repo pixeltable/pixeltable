@@ -1517,6 +1517,15 @@ wheels = [
 ]
 
 [[package]]
+name = "detect-agent"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ef/76/5a4f8fb1ce9d4d9af1299b66b487089d6e68c398ceb40dbb733905ce518c/detect_agent-0.2.0.tar.gz", hash = "sha256:da0287ca55c96c6ceb36004dd77cd05b7e6aa4c227f29760efdb163c24803ca6", size = 15004, upload-time = "2026-04-15T14:36:48.249Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/22/91e9fd72f3724b63a39054f793e601ce5e73de4ab6740aea89e4123d1413/detect_agent-0.2.0-py3-none-any.whl", hash = "sha256:769f1885003605d2fca806fddcd7d3c5189c3460c4771f95ff856d464ea56a18", size = 3504, upload-time = "2026-04-15T14:36:49.151Z" },
+]
+
+[[package]]
 name = "diffusers"
 version = "0.37.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5804,7 +5813,7 @@ dev = [
     { name = "tabulate", specifier = ">=0.9" },
     { name = "tiktoken", specifier = ">=0.10" },
     { name = "timm", specifier = ">=1.0.11,<2" },
-    { name = "together", specifier = ">=1.5.26" },
+    { name = "together", specifier = ">=2.8" },
     { name = "torch", specifier = ">=2.8" },
     { name = "torchaudio", specifier = ">=2.8" },
     { name = "torchcodec", marker = "python_full_version < '3.14'", specifier = "<0.8" },
@@ -8809,11 +8818,12 @@ wheels = [
 
 [[package]]
 name = "together"
-version = "2.5.0"
+version = "2.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "click" },
+    { name = "detect-agent" },
     { name = "distro" },
     { name = "filelock" },
     { name = "httpx" },
@@ -8830,9 +8840,9 @@ dependencies = [
     { name = "types-tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/51/48/95b6319e05e2a358d89a44b053fe64729703c05167559c995a09326ab2fe/together-2.5.0.tar.gz", hash = "sha256:8a9246b4ca131a57de3ede2563ed97ab194db478860ded530d4162010bede6c0", size = 554925, upload-time = "2026-03-18T18:27:26.833Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/a7/01c5c15f285e1a368f64ea5eac4bc88f71cf5d93c2d2aacf56d6f2665e92/together-2.8.0.tar.gz", hash = "sha256:f1ae23585a2d734ade69447136bceb77ec9b7ad6778233ee23a098b7a756e149", size = 582518, upload-time = "2026-04-13T17:27:11.639Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/31/b9/d128dea0369974da440a230ae85d1d1e9c7a723246ee0068351f0b1c5895/together-2.5.0-py3-none-any.whl", hash = "sha256:178266a063293eba576dbead8eb4f17aafc2cd3512fedf2da1f31a098cdabd4f", size = 331514, upload-time = "2026-03-18T18:27:24.842Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/4b/6a5dbd63ea22415652d2b66be6498f989bc34eef2a6092f9e9558fb6afbc/together-2.8.0-py3-none-any.whl", hash = "sha256:c5c880b82308cf28cda5b7a0af3da31fa7857e13178436bf1ecd02f869dd6d0a", size = 344657, upload-time = "2026-04-13T17:27:13.143Z" },
 ]
 
 [[package]]

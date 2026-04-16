@@ -20,7 +20,7 @@ from pixeltable.functions.vision import (
     overlay_segmentation,
 )
 
-from ..utils import IN_CI, get_image_files, get_video_files, skip_test_if_not_installed, validate_update_status
+from ..utils import get_image_files, get_video_files, skip_test_if_not_installed, validate_update_status
 
 
 class TestVision:
