@@ -167,23 +167,23 @@ def _apply_invoke_model_request_conversions(body: dict, model_id: str) -> dict:
     return _process_media_input(body, to_base64)
 
 
+def _walk_converse_input(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        # Convert media values in {'format': ..., 'source': {'bytes': ...}}
+        if 'format' in obj and isinstance(obj.get('source'), dict) and 'bytes' in obj['source']:
+            val = obj['source']['bytes']
+            if _is_media(val):
+                fmt = obj['format'] if isinstance(val, PIL.Image.Image) else None
+                return {**obj, 'source': {**obj['source'], 'bytes': to_bytes(val, format=fmt)}}
+        return {k: _walk_converse_input(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_walk_converse_input(v) for v in obj]
+    return obj
+
+
 def _apply_converse_request_conversions(messages: list[dict]) -> list[dict]:
     """Schema-aware walk for the Bedrock Converse API."""
-
-    def walk(obj: Any) -> Any:
-        if isinstance(obj, dict):
-            # Convert media values in {'format': ..., 'source': {'bytes': ...}}
-            if 'format' in obj and isinstance(obj.get('source'), dict) and 'bytes' in obj['source']:
-                val = obj['source']['bytes']
-                if _is_media(val):
-                    fmt = obj['format'] if isinstance(val, PIL.Image.Image) else None
-                    return {**obj, 'source': {**obj['source'], 'bytes': to_bytes(val, format=fmt)}}
-            return {k: walk(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [walk(v) for v in obj]
-        return obj
-
-    return walk(messages)
+    return [_walk_converse_input(msg) for msg in messages]
 
 
 def _decode_base64_image(value: str) -> str | PIL.Image.Image:
