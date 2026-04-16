@@ -75,6 +75,8 @@ class TableMetadata(TypedDict):
     indices: dict[str, IndexMetadata]
     """Index metadata for all of the indices of the table."""
     is_replica: bool
+    """`True` if this is a versioned table."""
+    is_versioned: bool
     """`True` if this table is a replica of another (shared) table."""
     is_view: bool
     """`True` if this table is a view."""

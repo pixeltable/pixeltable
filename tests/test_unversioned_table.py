@@ -10,6 +10,9 @@ class TestUnversionedTable:
     def test_basic_ops(self, uses_db: None, reload_tester: ReloadTester) -> None:
         schema = {'c0': pxt.Int, 'c1': pxt.String}
         tbl = pxt.create_table('test', schema, _is_versioned=False)
+        md = tbl.get_metadata()
+        assert not md['is_versioned']
+
         validate_update_status(tbl.insert([{'c0': 0, 'c1': 'a'}, {'c0': 1, 'c1': 'b'}, {'c0': 2, 'c1': 'c'}]), 3)
         assert tbl.count() == 3
 
