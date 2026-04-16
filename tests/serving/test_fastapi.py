@@ -193,7 +193,7 @@ class TestFastAPI:
                 assert media_resp.content == f.read()
         else:
             # this stores the local file reference we passed in
-            assert result['video'].startswith('file://')
+            assert result['video'].startswith('file:')
             assert not video_local.startswith(media_dir + os.sep), f'external video moved into media_dir: {video_local}'
 
         paths = t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
@@ -312,7 +312,7 @@ class TestFastAPI:
                 assert media_resp.content == f.read()
         else:
             # this stores the local file reference we passed in
-            assert result['image'].startswith('file://')
+            assert result['image'].startswith('file:')
             assert not image_local.startswith(media_dir + os.sep), f'external image moved into media_dir: {image_local}'
 
         paths = t.where(t.id == 1).select(resized=t.resized.localpath, rotated=t.rotated.localpath).collect()[0]
@@ -433,7 +433,7 @@ class TestFastAPI:
                 assert media_resp.content == f.read()
         else:
             # this stores the local file reference we passed in
-            assert result['audio'].startswith('file://')
+            assert result['audio'].startswith('file:')
             assert not audio_local.startswith(media_dir + os.sep), f'external audio moved into media_dir: {audio_local}'
 
         paths = t.where(t.id == 1).select(scaled=t.scaled.localpath, normalized=t.normalized.localpath).collect()[0]
@@ -565,7 +565,7 @@ class TestFastAPI:
             with open(video_local, 'rb') as vf:
                 assert media_resp.content == vf.read()
         else:
-            assert result['video'].startswith('file://')
+            assert result['video'].startswith('file:')
             assert not video_local.startswith(media_dir + os.sep)
 
         paths = t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
