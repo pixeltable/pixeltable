@@ -70,6 +70,7 @@
             <outline text="method|pixeltable.Table.distinct" />
             <outline text="method|pixeltable.Table.sample" />
             <outline text="method|pixeltable.Table.collect" />
+            <outline text="method|pixeltable.Table.cursor" />
             <outline text="method|pixeltable.Table.show" />
             <outline text="method|pixeltable.Table.head" />
             <outline text="method|pixeltable.Table.tail" />
@@ -93,6 +94,7 @@
             <outline text="method|pixeltable.Query.distinct" />
             <outline text="method|pixeltable.Query.sample" />
             <outline text="method|pixeltable.Query.collect" />
+            <outline text="method|pixeltable.Query.cursor" />
             <outline text="method|pixeltable.Query.show" />
             <outline text="method|pixeltable.Query.head" />
             <outline text="method|pixeltable.Query.tail" />
@@ -103,6 +105,13 @@
           <outline text="class|pixeltable.ResultSet">
             <outline text="method|pixeltable.ResultSet.to_pandas" />
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
+          </outline>
+
+          <outline text="class|pixeltable.Row" />
+
+          <outline text="class|pixeltable.ResultCursor">
+            <outline text="method|pixeltable.ResultCursor.open" />
+            <outline text="method|pixeltable.ResultCursor.close" />
           </outline>
 
           <outline text="class|pixeltable.exprs.Expr">
@@ -452,6 +461,17 @@
         <outline text="module|pixeltable.functions.yolox">
           <outline text="udf|pixeltable.functions.yolox.yolox" />
           <outline text="udf|pixeltable.functions.yolox.yolo_to_coco" />
+        </outline>
+      </outline>
+
+      <!-- Serving group -->
+      <outline text="group|Serving">
+        <outline text="module|pixeltable.serving">
+          <outline text="class|pixeltable.serving.FastAPIRouter">
+            <outline text="method|pixeltable.serving.FastAPIRouter.add_insert_route" />
+            <outline text="method|pixeltable.serving.FastAPIRouter.add_delete_route" />
+            <outline text="method|pixeltable.serving.FastAPIRouter.add_query_route" />
+          </outline>
         </outline>
       </outline>
 

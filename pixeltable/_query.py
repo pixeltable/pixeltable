@@ -8,11 +8,26 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Sequence, TypeVar
+from types import TracebackType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Callable,
+    Generator,
+    Hashable,
+    Iterable,
+    Iterator,
+    Mapping,
+    NoReturn,
+    Sequence,
+    TypeVar,
+)
 
 import pandas as pd
 import pydantic
 import sqlalchemy.exc as sql_exc
+from typing_extensions import Self
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
 from pixeltable.catalog import is_valid_identifier
@@ -27,7 +42,7 @@ from pixeltable.utils.formatter import Formatter
 if TYPE_CHECKING:
     import torch.utils.data
 
-__all__ = ['Query']
+__all__ = ['Query', 'ResultCursor', 'ResultSet', 'Row']
 
 _logger = logging.getLogger('pixeltable')
 
@@ -54,12 +69,12 @@ class ResultSet:
     - `list(result)` (converts to a list of rows)
     """
 
-    _rows: list[list[Any]]
+    _rows: list[Row]
     _col_names: list[str]
     __schema: dict[str, ColumnType]
     __formatter: Formatter
 
-    def __init__(self, rows: list[list[Any]], schema: dict[str, ColumnType]):
+    def __init__(self, rows: list[Row], schema: dict[str, ColumnType]):
         self._rows = rows
         self._col_names = list(schema.keys())
         self.__schema = schema
@@ -96,7 +111,7 @@ class ResultSet:
         Returns:
             A `DataFrame` with one column per column in the `ResultSet`.
         """
-        return pd.DataFrame.from_records(self._rows, columns=self._col_names)
+        return pd.DataFrame.from_records([row._data for row in self._rows], columns=self._col_names)
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
 
@@ -137,14 +152,13 @@ class ResultSet:
                 raise excs.Error(str(e)) from e
 
     def _row_to_dict(self, row_idx: int) -> dict[str, Any]:
-        return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
+        return dict(self._rows[row_idx].items())
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
             if index not in self._col_names:
                 raise excs.Error(f'Invalid column name: {index}')
-            col_idx = self._col_names.index(index)
-            return [row[col_idx] for row in self._rows]
+            return [row[index] for row in self._rows]
         if isinstance(index, int):
             return self._row_to_dict(index)
         if isinstance(index, tuple) and len(index) == 2:
@@ -152,7 +166,7 @@ class ResultSet:
                 raise excs.Error(f'Bad index, expected [<row idx>, <column name | column index>]: {index}')
             if isinstance(index[1], str) and index[1] not in self._col_names:
                 raise excs.Error(f'Invalid column name: {index[1]}')
-            col_idx = self._col_names.index(index[1]) if isinstance(index[1], str) else index[1]
+            col_idx = self._col_names[index[1]] if isinstance(index[1], int) else index[1]
             return self._rows[index[0]][col_idx]
         raise excs.Error(f'Bad index: {index}')
 
@@ -166,6 +180,140 @@ class ResultSet:
 
     def __hash__(self) -> int:
         return hash(self.to_pandas())
+
+
+class Row(Mapping[str, Any]):
+    """A dict-like wrapper over a single result row.
+
+    Supports key access (`row['col']`), membership (`'col' in row`),
+    iteration over keys, and the standard `get`, `keys`, `values`,
+    and `items` methods.
+    """
+
+    def __init__(self, data: Iterable[Any], columns: dict[str, int]):
+        self._data = tuple(data)
+        self._columns = columns
+
+    def __getitem__(self, key: str) -> Any:
+        if key not in self._columns:
+            raise excs.Error(f'Column {key!r} does not exist in the row.')
+        return self._data[self._columns[key]]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key not in self._columns:
+            return default
+        return self._data[self._columns[key]]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._columns)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._columns
+
+    def __len__(self) -> int:
+        return len(self._columns)
+
+    def __repr__(self) -> str:
+        return 'Row({' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '})'
+
+
+class ResultCursor(Iterable[Row]):
+    """Cursor that iterates over query results.
+
+    Wraps a Query and yields Row objects one at a time,
+    avoiding materializing all results into memory.
+
+    A cursor transitions through three states: pending (created but not yet started), open (actively
+    iterating), and closed (resources released). Iteration auto-opens and auto-closes the cursor, or you can
+    use it as a context manager for explicit lifecycle control.
+
+    Examples:
+        Iterate over all rows in a table:
+
+        ```python
+        for row in t.cursor():
+            print(row['col_name'])
+        ```
+
+        Use as a context manager for early termination:
+
+        ```python
+        with t.select(t.col1, t.col2).cursor() as cur:
+            for row in cur:
+                if row['col1'] > threshold:
+                    break  # resources are released on exit
+        ```
+    """
+
+    def __init__(self, query: Query):
+        self._query = query
+        self._row_iterator: Generator[list[Any], None, None] | None = None
+        self._columns: dict[str, int] = {name: i for i, name in enumerate(query.schema)}
+        self._closed = False
+
+    def open(self) -> None:
+        """Start the underlying query and prepare the cursor for iteration.
+
+        Raises an error if the cursor is already open or has been closed.
+        Called automatically when iterating if not already open.
+        """
+        if self._row_iterator is not None:
+            raise excs.Error('Cursor is already open.')
+        if self._closed:
+            raise excs.Error('Cursor is closed and cannot be reopened.')
+        self._row_iterator = self._query._output_row_iterator()
+
+    def close(self) -> None:
+        """Release the underlying database transaction and query resources.
+
+        Safe to call multiple times. Once closed, the cursor cannot be reopened.
+        Also called automatically via the context manager protocol and on garbage collection.
+        """
+        if self._closed:
+            return
+        if self._row_iterator is not None:
+            # Sends GeneratorExit into _output_row_iterator, unwinding begin_xact()
+            self._row_iterator.close()
+        self._row_iterator = None
+        self._closed = True
+
+    def __enter__(self) -> Self:
+        self.open()
+        return self
+
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+    ) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        self.close()
+
+    def __iter__(self) -> Iterator[Row]:
+        if self._closed:
+            raise excs.Error('Cursor is closed and cannot be iterated upon.')
+        if self._row_iterator is None:
+            self.open()
+        assert self._row_iterator is not None
+        try:
+            for data in self._row_iterator:
+                yield Row(data, self._columns)
+        finally:
+            self.close()
+
+    @property
+    def _schema(self) -> dict[str, ColumnType]:
+        return self._query.schema
+
+    def __repr__(self) -> str:
+        if self._closed:
+            state = 'closed'
+        elif self._row_iterator is not None:
+            state = 'open'
+        else:
+            state = 'pending'
+        cols = ', '.join(f'{name}: {col_type}' for name, col_type in self._schema.items())
+        return f'ResultCursor({state}, columns=[{cols}])'
 
 
 class Query:
@@ -258,6 +406,11 @@ class Query:
     @property
     def _first_tbl(self) -> catalog.TableVersionPath:
         return self._from_clause._first_tbl
+
+    @property
+    def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
+        """Return the select list that would get materialized by collect()."""
+        return list(zip(self._select_list_exprs, self._schema.keys()))
 
     def _vars(self) -> dict[str, exprs.Variable]:
         """
@@ -523,7 +676,7 @@ class Query:
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         raise excs.Error(msg) from e
 
-    def _output_row_iterator(self) -> Iterator[list]:
+    def _output_row_iterator(self) -> Generator[list, None, None]:
         # TODO: extend begin_xact() to accept multiple TVPs for joins
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         with get_runtime().catalog.begin_xact(tbl=single_tbl, for_write=False):
@@ -539,12 +692,22 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        return ResultSet(list(self._output_row_iterator()), self.schema)
+        return ResultSet(list(self.cursor()), self.schema)
+
+    def cursor(self) -> ResultCursor:
+        """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.
+
+        See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
+        """
+        return ResultCursor(self)
 
     async def _acollect(self) -> ResultSet:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
+        columns = {name: i for i, name in enumerate(self.schema)}
         try:
-            result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec()]
+            result = [
+                Row(tuple(row[e.slot_idx] for e in self._select_list_exprs), columns) async for row in self._aexec()
+            ]
             return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
