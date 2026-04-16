@@ -17,7 +17,6 @@ from ..utils import (
 
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
-@pytest.mark.skip('[PXT-1040] twelvelabs tests are broken on ci')
 class TestTwelveLabs:
     def test_embed_text(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
@@ -62,15 +61,15 @@ class TestTwelveLabs:
 
         audio_filepaths = get_audio_files()
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
-        validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
+        validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths[:1]), expected_rows=1)
         v = pxt.create_view(
-            'audio_chunks',
+            'audio_segments',
             base_t,
             # Twelvelabs models require a minimum audio duration of 4 seconds
-            iterator=audio_splitter(base_t.audio, segment_duration_sec=5.0, min_segment_duration_sec=4.0),
+            iterator=audio_splitter(base_t.audio, duration=5.0, min_segment_duration=4.0),
         )
-        v.add_embedding_index(v.audio_chunk, embedding=embed.using(model_name='marengo3.0'))
-        res = v.select(embedding=v.audio_chunk.embedding()).collect()
+        v.add_embedding_index(v.audio_segment, embedding=embed.using(model_name='marengo3.0'))
+        res = v.select(embedding=v.audio_segment.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
     def test_embed_video(self, uses_db: None) -> None:

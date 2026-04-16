@@ -6,7 +6,6 @@ SKIP_NOTEBOOKS=(
     working-with-fabric            # Requires Microsoft Fabric environment
     working-with-fiftyone          # Voxel51 is currently omitted from our dev env for security reasons
     working-with-tigris            # Requires Tigris environment
-    working-with-reve              # Out of credits
     working-with-runwayml          # Broken
 )
 
