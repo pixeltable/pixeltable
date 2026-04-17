@@ -82,6 +82,7 @@ env:
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   GCS_SERVICE_ACCOUNT_KEY: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
   GOOGLE_APPLICATION_CREDENTIALS: '/tmp/gcs-key.json'
   GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
   HF_AUTH_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
