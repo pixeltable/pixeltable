@@ -151,7 +151,7 @@ class ExternalServiceError(Error):
     """An upstream provider or external store returned an error."""
 
     provider: str | None = None
-    http_status_code: int | None = None
+    provider_http_status_code: int | None = None
 
     def __init__(
         self,
@@ -165,14 +165,14 @@ class ExternalServiceError(Error):
     ) -> None:
         super().__init__(error_code, message, cause=cause, retry_after=retry_after)
         self.provider = provider
-        self.http_status_code = status_code
+        self.provider_http_status_code = status_code
 
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         if self.provider is not None:
             d['provider'] = self.provider
-        if self.http_status_code is not None:
-            d['http_status_code'] = self.http_status_code
+        if self.provider_http_status_code is not None:
+            d['provider_http_status_code'] = self.provider_http_status_code
         return d
 
 
