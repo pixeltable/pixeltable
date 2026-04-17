@@ -1072,7 +1072,9 @@ class Table(SchemaObject):
             ...     image_embed=image_embedding_fn,
             ... )
         """
-        assert self._tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
+            'TODO: implement for unversioned tables [PXT-975]'
+        )
 
         with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('add an index to')
