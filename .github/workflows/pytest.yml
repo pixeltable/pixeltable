@@ -71,8 +71,11 @@ env:
   AWS_DEFAULT_REGION: us-west-2
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+  AZURE_STORAGE_ACCOUNT_KEY: ${{ secrets.AZURE_STORAGE_ACCOUNT_KEY }}
+  AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
   B2_ACCESS_KEY_ID: ${{ secrets.B2_ACCESS_KEY_ID }}
   B2_SECRET_ACCESS_KEY: ${{ secrets.B2_SECRET_ACCESS_KEY }}
+  BFL_API_KEY: ${{ secrets.BFL_API_KEY }}
   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
   FAL_API_KEY: ${{ secrets.FAL_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
@@ -87,12 +90,11 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
   R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
   R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+  REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
   TIGRIS_ACCESS_KEY_ID: ${{ secrets.TIGRIS_ACCESS_KEY_ID }}
   TIGRIS_SECRET_ACCESS_KEY: ${{ secrets.TIGRIS_SECRET_ACCESS_KEY }}
-  # BFL_API_KEY: ${{ secrets.BFL_API_KEY }}  # Disabled: paid API with limited credits
-  REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
-  REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
   TWELVELABS_API_KEY: ${{ secrets.TWELVELABS_API_KEY }}
   VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
@@ -166,7 +168,7 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Install ollama
-        if: ${{ matrix.uv-options == '' && matrix.os == 'ubuntu-24.04' }}
+        if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           sleep 10  # Wait for the ollama server to start
