@@ -11,6 +11,7 @@ TEST_IMAGE_PATH = TESTS_DIR / 'data' / 'images' / 'sewing-threads-smaller.jpg'
 
 @pytest.mark.remote_api
 @pytest.mark.very_expensive
+@pytest.mark.skip(reason='[PXT-1111] Out of credits')
 @rerun(reruns=3, reruns_delay=8)
 class TestBfl:
     def test_generate(self, uses_db: None) -> None:
