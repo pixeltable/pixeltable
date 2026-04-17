@@ -183,7 +183,7 @@ dev = [
     "voyageai>=0.3.7 ; python_version < '3.14'",
     "scenedetect>=0.6.0.1 ; python_version < '3.14' or sys_platform != 'win32'",
     "opentelemetry-exporter-otlp>=1.38.0",
-    "runwayml>=4.2.0",
+    "runwayml>=4.12.0",
     "ipywidgets>=8.0.0",
     "mdformat>=1.0.0",
     "nbqa>=1.9.1",

@@ -137,7 +137,7 @@ class TestRunwayML:
         from pixeltable.functions.runwayml import video_to_video
 
         video_url = (
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/videos/bangkok_half_res.mp4'
+            'https://multimedia-commons.s3.amazonaws.com/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         )
         t = pxt.create_table('test_tbl', {'video_url': pxt.String, 'prompt': pxt.String})
         t.add_computed_column(output=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720'))
