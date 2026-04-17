@@ -4,6 +4,8 @@ import enum
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import Self
+
 if TYPE_CHECKING:
     from pixeltable import exprs
 
@@ -19,7 +21,7 @@ class ErrorCode(enum.Enum):
     http_status: int
     is_retryable: bool
 
-    def __new__(cls, value: int, http_status: int, is_retryable: bool) -> 'ErrorCode':  # noqa: PYI034
+    def __new__(cls, value: int, http_status: int, is_retryable: bool) -> Self:
         obj = object.__new__(cls)
         obj._value_ = value
         obj.http_status = http_status
