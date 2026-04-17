@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 import typing
 from pathlib import Path
@@ -90,10 +91,12 @@ def export_csv(
 
         for row in convert_rows(cursor, col_types):
             csv_row: list[Any] = []
-            for col_name in col_types:
+            for col_name, col_type in col_types.items():
                 val = row[col_name]
                 if val is None:
                     csv_row.append('')
+                elif col_type.is_json_type() or col_type.is_array_type():
+                    csv_row.append(json.dumps(val))
                 else:
                     csv_row.append(val)
             writer.writerow(csv_row)
