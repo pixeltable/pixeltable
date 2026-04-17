@@ -36,9 +36,6 @@ def _together_client() -> 'together.AsyncTogether':
     return get_runtime().get_client('together')
 
 
-T = TypeVar('T')
-
-
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:together:chat')
 async def completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
@@ -232,7 +229,8 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         return img
     elif url is not None:
         try:
-            resp = requests.get(url)
+            resp = requests.get(url, timeout=60.0)
+            resp.raise_for_status()
             with io.BytesIO(resp.content) as fp:
                 image = PIL.Image.open(fp)
                 image.load()
