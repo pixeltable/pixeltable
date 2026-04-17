@@ -109,7 +109,7 @@ class TestJson:
     def test_export_non_ascii(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Verify non-ASCII characters are preserved."""
         t = pxt.create_table('test_json_encoding', {'name': pxt.String})
-        t.insert([{'name': 'Manwe'}, {'name': 'Feanor'}])
+        t.insert([{'name': 'Manwë'}, {'name': 'Fëanor'}])
 
         json_path = tmp_path / 'encoding.jsonl'
         pxt.io.export_json(t, json_path)
@@ -117,7 +117,8 @@ class TestJson:
         with open(json_path, encoding='utf-8') as f:
             exported = [json.loads(line) for line in f]
         names = [row['name'] for row in exported]
-        assert 'Manwe' in names
+        assert 'Manwë' in names
+        assert 'Fëanor' in names
 
     def test_round_trip(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Export JSONL, re-import, and verify data matches."""
