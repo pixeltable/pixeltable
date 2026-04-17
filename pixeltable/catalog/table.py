@@ -189,7 +189,7 @@ class Table(SchemaObject):
         )
 
     def _get_version(self) -> int | None:
-        """Return the version of this table. Used by tests to ascertain version changes."""
+        """Return the version of this table or None if not versioned. Used by tests to ascertain version changes."""
         return self._tbl_version_path.version()
 
     def _get_pxt_uri(self) -> str | None:
