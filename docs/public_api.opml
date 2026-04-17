@@ -354,8 +354,8 @@
         </outline>
         <outline text="module|pixeltable.functions.bedrock">
           <outline text="udf|pixeltable.functions.bedrock.converse" />
-          <outline text="udf|pixeltable.functions.bedrock.invoke_model" />
           <outline text="udf|pixeltable.functions.bedrock.embed" />
+          <outline text="udf|pixeltable.functions.bedrock.invoke_model" />
           <outline text="func|pixeltable.functions.bedrock.invoke_tools" />
         </outline>
         <outline text="module|pixeltable.functions.bfl">
