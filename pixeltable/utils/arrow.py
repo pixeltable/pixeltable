@@ -1,5 +1,6 @@
 import datetime
 import io
+import json
 import uuid
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
@@ -121,6 +122,9 @@ def _to_record_batch(
             # convert ragged arrays to nested lists
             list_col_vals = [val.tolist() for val in column_vals[field.name]]
             pa_arrays.append(pa.array(list_col_vals))
+        elif field.type == pa.json_():
+            serialized = [json.dumps(v) if v is not None else None for v in column_vals[field.name]]
+            pa_arrays.append(pa.array(serialized, type=pa.json_()))
         else:
             pa_array = cast(pa.Array, pa.array(column_vals[field.name]))
             pa_arrays.append(pa_array)
@@ -142,7 +146,12 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
         pa_column_types: dict[str, pa.DataType] = {}
         for col_name, col_type in query.schema.items():
             if col_type.is_json_type():
-                pa_type = pa.infer_type(batch_columns[col_name], mask=None)
+                try:
+                    pa_type = pa.infer_type(batch_columns[col_name], mask=None)
+                except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError):
+                    # for mixed lists e.g. json including both lists and dicts
+                    # we need to fall back to json strings
+                    pa_type = pa.json_()
                 pa_column_types[col_name] = pa_type
             else:
                 pa_column_types[col_name] = to_arrow_type(col_type)
@@ -235,6 +244,8 @@ def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
             if isinstance(col, pa.ChunkedArray):
                 col = col.combine_chunks()
             out[name] = list(cast(pa.FixedShapeTensorArray, col).to_numpy_ndarray())
+        elif col.type == pa.json_():
+            out[name] = [json.loads(v) if v is not None else None for v in col.to_pylist()]
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()
