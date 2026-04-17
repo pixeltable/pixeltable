@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 import tempfile
@@ -120,7 +121,7 @@ def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> list[Expr]:
     bare ColumnRefs (e.g. computed or transformed images) have no stable URL and are rejected.
     """
     result: list[Expr] = []
-    for expr in select_list_exprs:
+    for expr in copy.deepcopy(select_list_exprs):
         if isinstance(expr, ColumnRef) and expr.col_type.is_media_type():
             if expr.col.is_computed and expr.col.destination is None:
                 raise excs.Error(

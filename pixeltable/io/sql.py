@@ -136,6 +136,7 @@ def export_sql(
         batch: list[dict] = []
         with engine.connect() as target_conn:
             for data_row in query.cursor():
+                # this works equivalent to the previous code
                 batch.append(dict(data_row))
 
                 if len(batch) >= batch_size:
