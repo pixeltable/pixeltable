@@ -171,8 +171,9 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                 if col_type.is_image_type():
                     # images get inlined into the parquet file
                     if isinstance(val, PIL.Image.Image):
+                        format = val.format if val.format is not None else 'png'
                         buf = io.BytesIO()
-                        val.save(buf, format='png')
+                        val.save(buf, format=format)
                         val = buf.getvalue()
                     else:
                         raise excs.Error(f'unknown image type {type(val)}')
