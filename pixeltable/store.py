@@ -195,6 +195,7 @@ class StoreBase:
         # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
         primary_index = [col for col in tbl_version.cols if col.is_pk]
         if len(primary_index) > 0:
+            assert tbl_version.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
             pk_idx_exprs: list[sql.ColumnElement] = []
             for col in primary_index:
                 if col.col_type.is_string_type():
