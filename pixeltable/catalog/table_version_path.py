@@ -219,13 +219,17 @@ class TableVersionPath:
         assert col.get_tbl() is not None
         self.refresh_cached_md()
 
-        if col.get_tbl().id == self.tbl_version.id and col.id in self._cached_tbl_version.cols_by_id:
-            if col.get_tbl().effective_version == self.tbl_version.effective_version:
-                # the column is visible in this table version
-                return True
+        if (
+            col.get_tbl().id == self.tbl_version.id
+            and col.get_tbl().effective_version == self.tbl_version.effective_version
+            and col.id in self._cached_tbl_version.cols_by_id
+        ):
+            # the column is visible in this table version
+            return True
         elif self.base is not None:
             return self.base.has_column(col)
-        return False
+        else:
+            return False
 
     def as_dict(self) -> dict:
         return {
