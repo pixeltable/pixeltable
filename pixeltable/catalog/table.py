@@ -1650,7 +1650,10 @@ class Table(SchemaObject):
         """
         with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('revert')
-            self._tbl_version.get().revert()
+            tv = self._tbl_version.get()
+            if not tv.is_versioned:
+                raise excs.Error('Revert is supported on versioned tables only')
+            tv.revert()
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
 

@@ -118,3 +118,10 @@ class TestUnversionedTable:
             versioned_tbl.select().join(unversioned_tbl, on=(versioned_tbl.n == unversioned_tbl.n))
         with pytest.raises(excs.Error, match='join is not supported between versioned and unversioned tables'):
             unversioned_tbl.select().join(versioned_tbl, on=(versioned_tbl.n == unversioned_tbl.n))
+
+    def test_unsupported_ops(self, uses_db: None) -> None:
+        tbl = pxt.create_table('test', {'n': pxt.Int}, _is_versioned=False)
+        validate_update_status(tbl.insert([{'n': i} for i in range(10)]), 10)
+
+        with pytest.raises(excs.Error, match='Revert is supported on versioned tables only'):
+            tbl.revert()
