@@ -189,6 +189,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                         try:
                             val_size_bytes = pa.array([val]).nbytes
                         except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError):
+                            # for mixed lists e.g. json including both lists and dicts, we fall back to json strings
                             val_size_bytes = len(str(val))
                         json_batch_size[col_name] = json_batch_size.get(col_name, 0) + val_size_bytes
                     else:

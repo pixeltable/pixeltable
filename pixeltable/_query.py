@@ -659,6 +659,25 @@ class Query:
             offset=offset_val,
         )
 
+    def _with_new_select_list(self, new_exprs: list[exprs.Expr]) -> Query:
+        """Return a new Query with the given select-list exprs.
+
+        All other clauses are cloned either here or in __init__().
+        """
+        assert len(new_exprs) == len(self._schema)
+        select_list = list(zip(new_exprs, self._schema.keys()))
+        return Query(
+            from_clause=self._from_clause,
+            select_list=select_list,
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=self.order_by_clause,
+            limit=copy.deepcopy(self.limit_val),
+            offset=copy.deepcopy(self.offset_val),
+            sample_clause=copy.deepcopy(self.sample_clause),
+        )
+
     def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
         msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{e.exc}'
         if len(e.input_vals) > 0:

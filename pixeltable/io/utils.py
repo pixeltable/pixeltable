@@ -108,20 +108,31 @@ def normalize_schema_names(
     return schema, pxt_pk, col_mapping
 
 
-def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> None:
-    """Mutate select list in-place, replacing media ColumnRefs with their .fileurl property.
+def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> list[Expr]:
+    """Return a new select list where media ColumnRefs are replaced with their .fileurl property.
 
     This avoids Pixeltable's file caching pipeline and instead returns the authoritative
-    URL stored in the database for each media column.
+    URL stored in the database for each media column. Media-typed expressions that are not
+    bare ColumnRefs (e.g. computed or transformed images) have no stable URL and are rejected.
     """
-    for i, expr in enumerate(select_list_exprs):
+    result: list[Expr] = []
+    for expr in select_list_exprs:
         if isinstance(expr, ColumnRef) and expr.col_type.is_media_type():
             if expr.col.is_computed and expr.col.destination is None:
                 raise excs.Error(
                     f'Cannot export computed media column {expr.col.name!r} without a destination. '
                     f'Set a destination on the column or select specific non-media columns instead.'
                 )
-            select_list_exprs[i] = ColumnPropertyRef(expr, ColumnPropertyRef.Property.FILEURL)
+            result.append(ColumnPropertyRef(expr, ColumnPropertyRef.Property.FILEURL))
+        elif expr.col_type.is_media_type():
+            raise excs.Error(
+                f'Cannot export media expression {expr!r}: only stored media columns can be serialized. '
+                f'Materialize it as a computed column with a destination, or select its underlying '
+                f'column via `.fileurl` instead.'
+            )
+        else:
+            result.append(expr)
+    return result
 
 
 def convert_rows(cursor: Iterable[Any], col_types: dict[str, ts.ColumnType]) -> Iterator[dict[str, Any]]:
