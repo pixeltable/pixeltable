@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from keyword import iskeyword as is_python_keyword
-from typing import Any
+from pathlib import Path
+from typing import IO, Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -133,6 +137,24 @@ def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> list[Expr]:
         else:
             result.append(expr)
     return result
+
+
+@contextmanager
+def atomic_write(file_path: Path, **open_kwargs: Any) -> Iterator[IO[str]]:
+    """Open a tempfile alongside `file_path`; rename it onto `file_path` on clean exit, delete on error.
+
+    `open_kwargs` are forwarded to `os.fdopen` (e.g. `mode`, `encoding`, `newline`).
+    """
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(file_path.parent), prefix=f'.{file_path.name}.', suffix='.tmp')
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, **open_kwargs) as f:
+            yield f
+        os.replace(tmp_path, file_path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def convert_rows(cursor: Iterable[Any], col_types: dict[str, ts.ColumnType]) -> Iterator[dict[str, Any]]:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import os
 import typing
 from pathlib import Path
@@ -9,7 +8,7 @@ from typing import Any
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.io.utils import convert_rows, replace_media_with_fileurl
+from pixeltable.io.utils import atomic_write, convert_rows, replace_media_with_fileurl
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
@@ -84,9 +83,8 @@ def export_csv(
     cursor = query.cursor()
 
     file_path = Path(file_path)
-    file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(file_path, 'w', newline='', encoding='utf-8') as f:
+    with atomic_write(file_path, mode='w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f, delimiter=delimiter, quoting=quoting)  # type: ignore[arg-type]
         writer.writerow(col_types.keys())
 

@@ -7,7 +7,7 @@ from typing import Any
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.io.utils import convert_rows, replace_media_with_fileurl
+from pixeltable.io.utils import atomic_write, convert_rows, replace_media_with_fileurl
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
@@ -90,9 +90,8 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path) ->
     cursor = query.cursor()
 
     file_path = Path(file_path)
-    file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(file_path, 'w', encoding='utf-8') as f:
+    with atomic_write(file_path, mode='w', encoding='utf-8') as f:
         for row in convert_rows(cursor, col_types):
             json.dump(row, f, ensure_ascii=False)
             f.write('\n')
