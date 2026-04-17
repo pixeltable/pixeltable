@@ -265,8 +265,10 @@ class S3Store(ObjectStoreBase):
         except ClientError as e:
             self.handle_s3_error(e, f'validating destination for {error_col_name}')
         except ConnectionError as e:
-            raise excs.Error(
-                f'Connection error while validating destination {self.__base_uri!r} for {error_col_name}: {e}'
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Connection error while validating destination {self.__base_uri!r} for {error_col_name}: {e}',
+                provider='s3',
             ) from e
         return None
 
@@ -453,18 +455,26 @@ class S3Store(ObjectStoreBase):
         if ignore_404 and error_code == '404':
             return
         if error_code == '404':
-            raise excs.Error(f'Client error while {operation}: Bucket {self.bucket_name!r} not found') from e
+            raise excs.NotFoundError(
+                excs.ErrorCode.STORAGE_NOT_FOUND,
+                f'Client error while {operation}: Bucket {self.bucket_name!r} not found',
+            ) from e
         elif error_code == '403':
-            raise excs.Error(
-                f'Client error while {operation}: Access denied to bucket {self.bucket_name!r}: {error_message}'
+            raise excs.AuthorizationError(
+                excs.ErrorCode.INSUFFICIENT_PRIVILEGES,
+                f'Client error while {operation}: Access denied to bucket {self.bucket_name!r}: {error_message}',
             ) from e
         elif error_code == 'PreconditionFailed' or 'PreconditionFailed' in error_message:
-            raise excs.Error(
-                f'Client error while {operation}: Precondition failed for bucket {self.bucket_name!r}: {error_message}'
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Client error while {operation}: Precondition failed for bucket {self.bucket_name!r}: {error_message}',
+                provider='s3',
             ) from e
         else:
-            raise excs.Error(
-                f'Client error while {operation} in bucket {self.bucket_name!r}: {error_code} - {error_message}'
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Client error while {operation} in bucket {self.bucket_name!r}: {error_code} - {error_message}',
+                provider='s3',
             ) from e
 
     @classmethod
@@ -509,7 +519,9 @@ class S3Store(ObjectStoreBase):
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
         """Create a presigned URL for downloading an object from S3-compatible storage."""
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'StorageObjectAddress does not contain an object name: {soa}'
+            )
 
         s3_client = self.client()
 

@@ -890,7 +890,7 @@ class TestPackager:
         pxt.drop_table(v)
 
         with pytest.raises(
-            pxt.Error,
+            pxt.AlreadyExistsError,
             match=(
                 r'(?s)An attempt was made to replicate a view whose base table already exists'
                 r".*pxt.drop_table\('base_tbl'\)"

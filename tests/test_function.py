@@ -626,7 +626,7 @@ class TestFunction:
 
         assert '`wrong_param` that is not in a signature' in str(v_exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.AlreadyExistsError) as exc_info:
             from .module_with_duplicate_udf import duplicate_udf  # noqa: F401
         assert 'A UDF with that name already exists: tests.module_with_duplicate_udf.duplicate_udf' in str(
             exc_info.value

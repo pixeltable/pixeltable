@@ -52,9 +52,13 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             if isinstance(exprs_, dict):
                 for label_name, expr in exprs_.items():
                     if not label_name.isidentifier():
-                        raise excs.Error(f'Invalid label name: {label_name}')
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid label name: {label_name}'
+                        )
                     if label_name in self.__labels:
-                        raise excs.Error(f'Duplicate label name: {label_name}')
+                        raise excs.AlreadyExistsError(
+                            excs.ErrorCode.PATH_ALREADY_EXISTS, f'Duplicate label name: {label_name}'
+                        )
                     self.__labels[label_name] = (expr, label_cls)
 
         # Now add the remaining labels, assigning unused default names.
@@ -133,16 +137,18 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
 
     def __as_fo_classifications(self, data: list) -> list[fo.Classification]:
         if not isinstance(data, list) or any('label' not in entry for entry in data):
-            raise excs.Error(
-                f"Invalid classifications data: {data}\n(Expected a list of dicts, each containing a 'label' key)"
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f"Invalid classifications data: {data}\n(Expected a list of dicts, each containing a 'label' key)",
             )
         return [fo.Classification(label=entry['label'], confidence=entry.get('confidence')) for entry in data]
 
     def __as_fo_detections(self, data: list) -> list[fo.Detections]:
         if not isinstance(data, list) or any('label' not in entry or 'bounding_box' not in entry for entry in data):
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Invalid detections data: {data}\n'
-                "(Expected a list of dicts, each containing a 'label' and 'bounding_box' key)"
+                "(Expected a list of dicts, each containing a 'label' and 'bounding_box' key)",
             )
         return [
             fo.Detection(label=entry['label'], bounding_box=entry['bounding_box'], confidence=entry.get('confidence'))

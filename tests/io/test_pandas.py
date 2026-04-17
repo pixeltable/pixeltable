@@ -274,7 +274,7 @@ class TestPandas:
             )
         assert 'Some column(s) specified in `schema_overrides` are not present' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             _ = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key=['!!int', 'Non-Column'])
         assert 'Primary key column(s) are not found in the source:' in str(exc_info.value)
 

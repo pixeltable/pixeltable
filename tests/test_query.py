@@ -213,7 +213,7 @@ class TestQuery:
             _ = t1.join(t2).collect()
         assert "`how='inner'` requires `on`" in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             _ = t1.join(t2, on=t2.f).collect()
         assert "'f' not found in any of: t1" in str(exc_info.value)
 
@@ -231,7 +231,7 @@ class TestQuery:
             _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()
         assert 'ambiguous column reference: id' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             _ = t1.join(t2, on=t1.i).collect()
         assert "column 'i' not found in joined table" in str(exc_info.value)
 
@@ -1019,7 +1019,7 @@ class TestQuery:
                 assert 'nonexistent' not in row
                 assert len(row) == 3
                 # missing key
-                with pytest.raises(pxt.Error, match='does not exist'):
+                with pytest.raises(pxt.NotFoundError, match='does not exist'):
                     row['nonexistent']
 
     def test_table_cursor(self, uses_db: None) -> None:

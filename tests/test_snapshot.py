@@ -106,7 +106,7 @@ class TestSnapshot:
         # the time of creating a snapshot will raise an error now.
         tbl = create_test_tbl(name=tbl_path)
         assert 'c1' in tbl.columns()
-        with pytest.raises(pxt.Error, match="Column 'c1' already exists in the base table"):
+        with pytest.raises(pxt.AlreadyExistsError, match="Column 'c1' already exists in the base table"):
             pxt.create_snapshot('snap2', tbl, additional_columns={'c1': pxt.Int})
 
     def __test_create_if_exists(self, sname: str, t: pxt.Table, s: pxt.Table) -> None:
@@ -165,7 +165,7 @@ class TestSnapshot:
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_snapshot('not_snapshot', t)
         # if_exists='ignore' should error when existing object is not a snapshot
-        with pytest.raises(pxt.Error, match='already exists'):
+        with pytest.raises(pxt.AlreadyExistsError, match='already exists'):
             pxt.create_snapshot('not_snapshot', t, if_exists='ignore')
         assert 'not_snapshot' in pxt.list_tables()
         # if_exists='replace' and 'replace_force' should replace the table with a snapshot
@@ -176,7 +176,7 @@ class TestSnapshot:
         # scenario 4: snapshot exists but with a different base table
         other_base = pxt.create_table('other_base', {'c1': pxt.String}, if_exists='replace_force')
         _ = pxt.create_snapshot('snap_with_base', t, if_exists='replace')
-        with pytest.raises(pxt.Error, match='different base table'):
+        with pytest.raises(pxt.AlreadyExistsError, match='different base table'):
             _ = pxt.create_snapshot('snap_with_base', other_base, if_exists='ignore')
 
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:

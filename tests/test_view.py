@@ -143,7 +143,7 @@ class TestView:
         pxt.drop_table('test_view')
         reload_catalog(do_reload_catalog)
 
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             _ = pxt.get_table('test_view')
 
         # make sure the base table doesn't see the dropped view anymore
@@ -213,7 +213,7 @@ class TestView:
         with pytest.raises(pxt.Error, match='is an existing table'):
             pxt.create_view('not_view', t)
         # if_exists='ignore' should fail because existing object is not a view
-        with pytest.raises(pxt.Error, match='already exists'):
+        with pytest.raises(pxt.AlreadyExistsError, match='already exists'):
             _ = pxt.create_view('not_view', t, if_exists='ignore')
         assert 'not_view' in pxt.list_tables()
         # if_exists='replace' and 'replace_force' should drop the existing table and create a view
@@ -228,7 +228,7 @@ class TestView:
         pxt.drop_table('not_view')
         other_base = pxt.create_table('other_base', {'c1': pxt.String})
         _ = pxt.create_view('view_with_base', t)
-        with pytest.raises(pxt.Error, match='already exists'):
+        with pytest.raises(pxt.AlreadyExistsError, match='already exists'):
             _ = pxt.create_view('view_with_base', other_base, if_exists='ignore')
 
         # sanity check persistence
@@ -243,7 +243,7 @@ class TestView:
 
         # adding column with same name as a base table column at
         # the time of creating a view will raise an error now.
-        with pytest.raises(pxt.Error, match=r"Column 'c1' already exists in the base table"):
+        with pytest.raises(pxt.AlreadyExistsError, match=r"Column 'c1' already exists in the base table"):
             pxt.create_view('test_view', t, additional_columns={'c1': pxt.Int})
 
         # create a view and add a column with default value
@@ -348,7 +348,7 @@ class TestView:
             v.add_computed_column(**{non_existing_col5: col_ref + 12.3})
             assert v.order_by(v.c1).collect()[0][non_existing_col5] == row0[col_name] + 12.3
             expected_err = f'Column {col_name!r} already exists and has dependents.'
-            with pytest.raises(pxt.Error, match=expected_err):
+            with pytest.raises(pxt.AlreadyExistsError, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
     def test_from_query(self, uses_db: None) -> None:

@@ -118,7 +118,9 @@ def _df_check_primary_key_values(df: pd.DataFrame, primary_key: list[str]) -> No
         # This can be faster for large DataFrames
         has_nulls = df[pd_name].count() < len(df)
         if has_nulls:
-            raise excs.Error(f'Primary key column `{pd_name}` cannot contain null values.')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Primary key column `{pd_name}` cannot contain null values.'
+            )
 
 
 def df_infer_schema(
@@ -191,7 +193,9 @@ def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: 
         else:
             return inferred_type.copy(nullable=nullable)
 
-    raise excs.Error(f'Could not infer Pixeltable type of column: {data_col.name} (dtype: {pd_dtype})')
+    raise excs.RequestError(
+        excs.ErrorCode.INVALID_TYPE, f'Could not infer Pixeltable type of column: {data_col.name} (dtype: {pd_dtype})'
+    )
 
 
 def _df_row_to_pxt_row(

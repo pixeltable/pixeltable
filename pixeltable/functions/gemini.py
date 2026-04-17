@@ -62,12 +62,13 @@ def _(api_key: str | None = None) -> 'genai.client.Client':
         # (GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
         return genai.client.Client()
     except Exception as e:
-        raise excs.Error(
+        raise excs.AuthorizationError(
+            excs.ErrorCode.MISSING_CREDENTIALS,
             'Gemini client not initialized. '
             'For the Gemini Developer API set GOOGLE_API_KEY or GEMINI_API_KEY, '
             'or set api_key in the [gemini] section of $PIXELTABLE_HOME/config.toml. '
             'For Vertex AI set GOOGLE_GENAI_USE_VERTEXAI=true and GOOGLE_CLOUD_PROJECT, '
-            'then authenticate via: gcloud auth application-default login'
+            'then authenticate via: gcloud auth application-default login',
         ) from e
 
 
@@ -171,7 +172,9 @@ async def _gemini_file_uploads(files: list[str]) -> AsyncIterator[list['genai.ty
             for file in files:
                 mime_type, _ = mimetypes.guess_type(file, strict=False)
                 if mime_type is None:
-                    raise excs.Error(f'Could not identify mime type of file: {file}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_DATA_FORMAT, f'Could not identify mime type of file: {file}'
+                    )
                 tasks.append(client.aio.files.upload(file=file, config={'mime_type': mime_type}))
             uploaded = await asyncio.gather(*tasks)
             # poll till server finished uploading files (state is ACTIVE)
@@ -294,10 +297,16 @@ async def _generate_videos_impl(
     try:
         operation = await asyncio.wait_for(_poll_gemini_operation(operation), timeout=300)
     except asyncio.TimeoutError as exc:
-        raise excs.Error(f'Video generation timed out after 300 seconds for Gemini model {model!r}.') from exc
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_TIMEOUT,
+            f'Video generation timed out after 300 seconds for Gemini model {model!r}.',
+            provider='gemini',
+        ) from exc
 
     if operation.error:
-        raise excs.Error(f'Video generation failed: {operation.error}')
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR, f'Video generation failed: {operation.error}', provider='gemini'
+        )
 
     video = operation.response.generated_videos[0]
 
@@ -367,7 +376,9 @@ async def generate_videos(
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
     if prompt is None and image is None:
-        raise excs.Error('At least one of `prompt` or `image` must be provided.')
+        raise excs.RequestError(
+            excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `image` must be provided.'
+        )
 
     image_: types.Image | None = _pil_to_gemini_image(image) if image is not None else None
     config_ = types.GenerateVideosConfig(**config) if config else None
@@ -405,15 +416,21 @@ async def _(
         images = []
 
     if not images and prompt is None:
-        raise excs.Error('At least one of `prompt` or `images` must be provided.')
+        raise excs.RequestError(
+            excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `images` must be provided.'
+        )
     if len(images) > 3:
-        raise excs.Error(f'At most 3 reference images are allowed, but {len(images)} were provided.')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'At most 3 reference images are allowed, but {len(images)} were provided.',
+        )
 
     if reference_types is None:
         reference_types = ['asset'] * len(images)
     elif len(reference_types) != len(images):
-        raise excs.Error(
-            f'`reference_types` length ({len(reference_types)}) must match `images` length ({len(images)}).'
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'`reference_types` length ({len(reference_types)}) must match `images` length ({len(images)}).',
         )
 
     reference_images = [
@@ -487,7 +504,11 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError) as exc:
-        raise excs.Error(f'Gemini TTS returned unexpected response structure for model {model}.') from exc
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Gemini TTS returned unexpected response structure for model {model}.',
+            provider='gemini',
+        ) from exc
     if isinstance(data, str):
         data = base64.b64decode(data)
 
@@ -554,7 +575,11 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError) as exc:
-        raise excs.Error(f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.') from exc
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.',
+            provider='gemini',
+        ) from exc
     if isinstance(data, str):
         data = base64.b64decode(data)
 
@@ -616,7 +641,9 @@ async def transcribe(audio: pxt.Audio, *, model: str, prompt: str, config: dict 
     try:
         size_bytes = os.stat(audio).st_size
     except OSError as exc:
-        raise excs.Error(f"Error accessing audio file '{audio}': {exc.strerror or exc}") from exc
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_DATA_FORMAT, f"Error accessing audio file '{audio}': {exc.strerror or exc}"
+        ) from exc
     if size_bytes > GEMINI_INLINE_LIMIT_BYTES:
         async with _gemini_file_uploads([audio]) as uploaded:
             audio_part = types.Part.from_uri(file_uri=uploaded[0].uri, mime_type=uploaded[0].mime_type)
@@ -628,11 +655,13 @@ async def transcribe(audio: pxt.Audio, *, model: str, prompt: str, config: dict 
     else:
         mime_type, _ = mimetypes.guess_type(audio, strict=False)
         if mime_type is None:
-            raise excs.Error(f'Could not identify mime type of file: {audio}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_DATA_FORMAT, f'Could not identify mime type of file: {audio}'
+            )
         try:
             audio_data = Path(audio).read_bytes()
         except (OSError, ValueError) as exc:
-            raise excs.Error(f'Failed to read audio file: {audio}') from exc
+            raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Failed to read audio file: {audio}') from exc
         audio_part = types.Part.from_bytes(data=audio_data, mime_type=mime_type)
         response = await client.aio.models.generate_content(
             model=model,
@@ -737,13 +766,17 @@ async def _embed_file_content(
             else:
                 mime_type, _ = mimetypes.guess_type(item, strict=False)
                 if mime_type is None:
-                    raise excs.Error(f'Could not identify mime type of file: {item}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_DATA_FORMAT, f'Could not identify mime type of file: {item}'
+                    )
 
                 try:
                     # TODO: Do this on a background thread.
                     data = Path(item).read_bytes()
                 except (OSError, ValueError) as exc:
-                    raise excs.Error(f'Error reading file for embedding: {item}') from exc
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_DATA_FORMAT, f'Error reading file for embedding: {item}'
+                    ) from exc
 
                 contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
 
@@ -765,9 +798,11 @@ async def _embed_content(
     if not use_batch_api:
         result = await client.aio.models.embed_content(model=model, contents=list(contents), config=config_)
         if len(result.embeddings) != len(contents):
-            raise excs.Error(
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
                 f'Unexpected response from Gemini server: number of embeddings returned ({len(result.embeddings)}) '
-                f'does not match request batch size ({len(contents)}).'
+                f'does not match request batch size ({len(contents)}).',
+                provider='gemini',
             )
         return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
@@ -797,7 +832,11 @@ async def _embed_content(
         i += 1
 
     if batch_job.state != types.JobState.JOB_STATE_SUCCEEDED:
-        raise excs.Error(f'Embedding batch job did not succeed: {batch_job.state}. Error: {batch_job.error}')
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Embedding batch job did not succeed: {batch_job.state}. Error: {batch_job.error}',
+            provider='gemini',
+        )
 
     assert batch_job.error is None
     results = []
@@ -854,7 +893,11 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
             stuck_details.append(f'{local_path} (ID: {file.name}, State: {file.state.name})')
 
     detail_str = '\n- '.join(stuck_details)
-    raise excs.Error(f'Timeout: failed to upload {len(stuck_details)}/{len(remote_files)} file(s):\n- {detail_str}')
+    raise excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_TIMEOUT,
+        f'Timeout: failed to upload {len(stuck_details)}/{len(remote_files)} file(s):\n- {detail_str}',
+        provider='gemini',
+    )
 
 
 @retry(
@@ -873,7 +916,11 @@ async def _poll_until_active(
     for i, file in enumerate(remote_files):
         if file.state == types.FileState.FAILED:
             # Fail immediately
-            raise excs.Error(f'Server processing failed for {files[i]} ({file.name})')
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Server processing failed for {files[i]} ({file.name})',
+                provider='gemini',
+            )
     return remote_files
 
 

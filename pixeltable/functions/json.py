@@ -118,9 +118,14 @@ def list_iterator(
 def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
     if bound_args.get('elements') is not None:
         if 'mode' in bound_args:
-            raise excs.Error('list_iterator(): `mode` argument cannot be used with `elements`')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'list_iterator(): `mode` argument cannot be used with `elements`'
+            )
         if len(bound_args) > 1:
-            raise excs.Error('list_iterator(): Cannot specify both `elements` and keyword arguments')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'list_iterator(): Cannot specify both `elements` and keyword arguments',
+            )
         elements = bound_args['elements']
 
         el_col_type = elements.col_type
@@ -130,8 +135,9 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             or not isinstance(el_col_type.type_schema.type_spec, list)
             or len(el_col_type.type_schema.type_spec) != 0
         ):
-            raise excs.Error(
-                f'list_iterator(): Expected a type for `elements` matching `list[dict]`; got `{el_col_type}`'
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'list_iterator(): Expected a type for `elements` matching `list[dict]`; got `{el_col_type}`',
             )
         dict_type = el_col_type.type_schema.variadic_type
         if (
@@ -139,8 +145,9 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             or dict_type.type_schema is None
             or not isinstance(dict_type.type_schema.type_spec, dict)
         ):
-            raise excs.Error(
-                f'list_iterator(): Expected a type for `elements` matching `list[dict]`; got `{el_col_type}`'
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'list_iterator(): Expected a type for `elements` matching `list[dict]`; got `{el_col_type}`',
             )
 
         return dict_type.type_schema.type_spec  # type: ignore[return-value]
@@ -149,7 +156,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         mode = bound_args.get('mode')
         kwargs = bound_args.get('kwargs', {})  # type: ignore[var-annotated]
         if len(kwargs) == 0:
-            raise excs.Error('list_iterator(): No inputs provided')
+            raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'list_iterator(): No inputs provided')
 
         output_schema: dict[str, ts.ColumnType] = {}
         for name, expr in kwargs.items():
@@ -159,8 +166,9 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
                 or expr.col_type.type_schema is None
                 or not isinstance(expr.col_type.type_schema.type_spec, list)
             ):
-                raise excs.Error(
-                    f'list_iterator(): Expected a type for `{name}` matching `list`; got `{expr.col_type}`'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'list_iterator(): Expected a type for `{name}` matching `list`; got `{expr.col_type}`',
                 )
             type_schema = expr.col_type.type_schema
             relevant_types = type_schema.type_spec

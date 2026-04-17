@@ -82,7 +82,7 @@ class TestLanceDb:
         pxt.io.export_lancedb(t, db_path, 'test')
         validate_data('test', list(t.collect()))
 
-        with pytest.raises(pxt.Error, match='already exists in'):
+        with pytest.raises(pxt.AlreadyExistsError, match='already exists in'):
             pxt.io.export_lancedb(t, db_path, 'test', if_exists='error')
 
         with pytest.raises(pxt.Error, match='must be one of'):

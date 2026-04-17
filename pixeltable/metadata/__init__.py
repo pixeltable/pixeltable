@@ -61,10 +61,11 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
         assert isinstance(md_version, int)
         _logger.info(f'Current database version: {md_version}, installed version: {VERSION}')
         if md_version > VERSION:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
                 'This Pixeltable database was created with a newer Pixeltable version '
                 f'than the one currently installed ({pxt.__version__}).\n'
-                'Please update to the latest Pixeltable version by running: pip install --upgrade pixeltable'
+                'Please update to the latest Pixeltable version by running: pip install --upgrade pixeltable',
             )
         if md_version == VERSION:
             return

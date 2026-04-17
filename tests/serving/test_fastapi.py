@@ -1101,7 +1101,7 @@ class TestFastAPI:
         with pytest.raises(pxt.Error, match='cannot delete from'):
             v = pxt.create_view('test_serve.items_view', t)
             router.add_delete_route(v, path='/v')
-        with pytest.raises(pxt.Error, match="unknown column 'doesnotexist'"):
+        with pytest.raises(pxt.NotFoundError, match="unknown column 'doesnotexist'"):
             router.add_delete_route(t, path='/e', match_columns=['doesnotexist'])
         with pytest.raises(pxt.Error, match='`match_columns` must be non-empty'):
             router.add_delete_route(t, path='/e', match_columns=[])

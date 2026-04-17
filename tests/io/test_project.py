@@ -21,12 +21,12 @@ class TestProject:
         import_cols = {'import1': ts.StringType(), 'import2': ts.VideoType()}
 
         # Nonexistent local column
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, None)
         assert "Column 'export1' does not exist" in str(exc_info.value)
 
         # Nonexistent local column, but with a mapping specified
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, {'not_col': 'export1', 'col2': 'export2'})
         assert "Column name 'not_col' appears as a key" in str(exc_info.value)
 

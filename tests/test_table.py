@@ -111,7 +111,7 @@ class TestTable:
             pxt.create_table('test:120', schema)
         with pytest.raises(pxt.Error, match='is an existing table'):
             pxt.create_table('test', schema)
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             pxt.create_table('dir2/test2', schema)
         with pytest.raises(pxt.Error, match='Creating a table directly from a cloud URI is not supported'):
             pxt.create_table('test', source='pxt://some/remote/table')
@@ -121,7 +121,7 @@ class TestTable:
 
         with pytest.raises(pxt.Error, match='Invalid path: 1dir'):
             pxt.list_tables('1dir')
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             pxt.list_tables('dir2')
 
         # test loading with new client
@@ -144,9 +144,9 @@ class TestTable:
         pxt.create_dir('hyphenated-dir')
         _ = pxt.create_table('hyphenated-dir/hyphenated-table', schema)
 
-        with pytest.raises(pxt.Error, match="Path 'test' does not exist"):
+        with pytest.raises(pxt.NotFoundError, match="Path 'test' does not exist"):
             pxt.drop_table('test')
-        with pytest.raises(pxt.Error, match=r"Path 'dir1/test2' does not exist"):
+        with pytest.raises(pxt.NotFoundError, match=r"Path 'dir1/test2' does not exist"):
             pxt.drop_table('dir1/test2')
         with pytest.raises(pxt.Error, match=r'Invalid path: .test2'):
             pxt.drop_table('.test2')
@@ -234,7 +234,7 @@ class TestTable:
             _ = pxt.create_table('dir1', schema)
         assert len(tbl.select().collect()) == 1
         for ie in ('ignore', 'replace', 'replace_force'):
-            with pytest.raises(pxt.Error, match='already exists'):
+            with pytest.raises(pxt.AlreadyExistsError, match='already exists'):
                 pxt.create_table('dir1', schema, if_exists=ie)
             assert len(tbl.select().collect()) == 1, f'with if_exists={ie}'
             assert 'dir1' in pxt.list_dirs(), f'with if_exists={ie}'
@@ -254,14 +254,14 @@ class TestTable:
         pxt.create_table('tbl3', {'c1': pxt.Int})
         assert sorted(pxt.list_tables()) == ['tbl2', 'tbl3']
 
-        with pytest.raises(pxt.Error, match=r"Path 'tbl3' already exists."):
+        with pytest.raises(pxt.AlreadyExistsError, match=r"Path 'tbl3' already exists."):
             pxt.move('tbl2', 'tbl3')
         assert sorted(pxt.list_tables()) == ['tbl2', 'tbl3']
 
         pxt.move('tbl2', 'tbl3', if_exists='ignore')
         assert sorted(pxt.list_tables()) == ['tbl2', 'tbl3']
 
-        with pytest.raises(pxt.Error, match=r"Path 'tbl1' does not exist."):
+        with pytest.raises(pxt.NotFoundError, match=r"Path 'tbl1' does not exist."):
             pxt.move('tbl1', 'tbl4')
         assert sorted(pxt.list_tables()) == ['tbl2', 'tbl3']
 
@@ -1438,7 +1438,7 @@ class TestTable:
     def test_drop_table(self, test_tbl: pxt.Table) -> None:
         t = pxt.create_table('test1', {'c1': pxt.String})
         pxt.drop_table('test1')
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             _ = pxt.get_table('test1')
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
@@ -1446,7 +1446,7 @@ class TestTable:
         t = pxt.create_table('test2', {'c1': pxt.String})
         t = pxt.get_table('test2')
         pxt.drop_table('test2')
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             _ = pxt.get_table('test2')
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
@@ -1454,7 +1454,7 @@ class TestTable:
         t = pxt.create_table('test3', {'c1': pxt.String})
         _ = pxt.create_view('view3', t)
         pxt.drop_table('view3')
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             _ = pxt.get_table('view3')
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = v.show(1)
@@ -1462,7 +1462,7 @@ class TestTable:
         _ = pxt.get_table('test3')
         _ = pxt.create_view('view4', t)
         pxt.drop_table('view4')
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             _ = pxt.get_table('view4')
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = v.show(1)
@@ -1473,7 +1473,7 @@ class TestTable:
     def test_drop_table_via_handle(self, test_tbl: pxt.Table) -> None:
         t = pxt.create_table('test1', {'c1': pxt.String})
         pxt.drop_table(t)
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             _ = pxt.get_table('test1')
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
@@ -1481,7 +1481,7 @@ class TestTable:
         t = pxt.create_table('test2', {'c1': pxt.String})
         t = pxt.get_table('test2')
         pxt.drop_table(t)
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             _ = pxt.get_table('test2')
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
@@ -1489,7 +1489,7 @@ class TestTable:
         t = pxt.create_table('test3', {'c1': pxt.String})
         v = pxt.create_view('view3', t)
         pxt.drop_table(v)
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             _ = pxt.get_table('view3')
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = v.show(1)
@@ -1498,7 +1498,7 @@ class TestTable:
         _ = pxt.create_view('view4', t)
         v = pxt.get_table('view4')
         pxt.drop_table(v)
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             _ = pxt.get_table('view4')
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = v.show(1)
@@ -1547,10 +1547,10 @@ class TestTable:
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
         # if_not_exists='error' should raise an error if the table exists
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             pxt.drop_table(non_existing_t, if_not_exists='error')
         # default behavior is to raise an error if the table does not exist
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             pxt.drop_table(non_existing_t)
         # if_not_exists='ignore' should not raise an error
         pxt.drop_table(non_existing_t, if_not_exists='ignore')
@@ -1639,15 +1639,15 @@ class TestTable:
             pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})  # type: ignore[dict-item]
         assert "'stored' must be a bool" in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key='c2')
         assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=['c1', 'c2'])
         assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=['c2'])
         assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
@@ -2317,7 +2317,7 @@ class TestTable:
         assert 'dict key' in str(excinfo.value)
 
         # unknown column
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.NotFoundError) as excinfo:
             t.update({'unknown': 1})
         assert 'Unknown column: unknown' in str(excinfo.value)
 
@@ -3034,7 +3034,7 @@ class TestTable:
 
         # replace will raise an error if the column has dependents
         t.add_computed_column(non_existing_col3=t.c1 + 10)
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.AlreadyExistsError) as exc_info:
             t.add_column(c1=pxt.Int, if_exists='replace')
         error_msg = str(exc_info.value).lower()
         assert 'already exists' in error_msg and 'has dependents' in error_msg
@@ -3156,7 +3156,7 @@ class TestTable:
         assert status.num_excs == 0
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
 
-        with pytest.raises(pxt.Error, match='Unknown column'):
+        with pytest.raises(pxt.NotFoundError, match='Unknown column'):
             t.recompute_columns('h')
         with pytest.raises(pxt.Error, match='is not a computed column'):
             t.recompute_columns(t.i)
@@ -3183,7 +3183,7 @@ class TestTable:
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
         # if_not_exists='error' raises an error if the column does not exist
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             t.drop_column(non_existing_col, if_not_exists='error')
         err_msg = str(exc_info.value)
         if isinstance(non_existing_col, str):
@@ -3203,7 +3203,7 @@ class TestTable:
         assert 'c1' not in t.columns()
         with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = t.c1
-        with pytest.raises(pxt.Error, match='Unknown column: c1'):
+        with pytest.raises(pxt.NotFoundError, match='Unknown column: c1'):
             t.drop_column('c1')
         # non-existing column by name - column was already dropped
         self.__test_drop_column_if_not_exists(t, 'c1')
@@ -3211,7 +3211,7 @@ class TestTable:
         # but of a different table
         self.__test_drop_column_if_not_exists(t, dummy_t.dummy_col)
         assert 'unknown' not in t.columns()
-        with pytest.raises(pxt.Error, match='Unknown column: unknown'):
+        with pytest.raises(pxt.NotFoundError, match='Unknown column: unknown'):
             t.drop_column('unknown')
         with pytest.raises(AttributeError, match='Unknown column: unknown'):
             t.drop_column(t.unknown)
@@ -3270,7 +3270,7 @@ class TestTable:
         t2 = pxt.create_table('test2', {'c1': pxt.String, 'c2': pxt.String})
 
         # cannot pass another table's column reference
-        with pytest.raises(pxt.Error, match=r'Unknown column: test2.c2'):
+        with pytest.raises(pxt.NotFoundError, match=r'Unknown column: test2.c2'):
             t1.drop_column(t2.c2)
         assert 'c2' in t1.columns()
         assert 'c2' in t2.columns()
@@ -3303,13 +3303,13 @@ class TestTable:
         check_rename(t, 'c1_renamed', 'c1')
 
         # unknown column
-        with pytest.raises(pxt.Error):
+        with pytest.raises(pxt.NotFoundError):
             t.rename_column('unknown', 'unknown_renamed')
         # bad name
         with pytest.raises(pxt.Error):
             t.rename_column('c2', 'bad name')
         # existing name
-        with pytest.raises(pxt.Error):
+        with pytest.raises(pxt.AlreadyExistsError):
             t.rename_column('c2', 'c3')
 
         # make sure this is still true after reloading the metadata
@@ -3734,7 +3734,7 @@ class TestTable:
         # drop the first column
         t.drop_column('c1')
         # drop an unknown column
-        with pytest.raises(pxt.Error, match='Unknown column: c3'):
+        with pytest.raises(pxt.NotFoundError, match='Unknown column: c3'):
             t.drop_column('c3')
         # drop the last column
         with pytest.raises(

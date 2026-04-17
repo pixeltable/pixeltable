@@ -173,7 +173,7 @@ class TestSql:
         # table exists with if_exists='error'
         t, _ = self.create_test_data(10)
         export_sql(t, 'existing_table', db_connect_str=connection_string)
-        with pytest.raises(pxt.Error, match='already exists'):
+        with pytest.raises(pxt.AlreadyExistsError, match='already exists'):
             export_sql(t, 'existing_table', db_connect_str=connection_string, if_exists='error')
 
         # missing column in target table

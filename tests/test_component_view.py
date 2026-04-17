@@ -405,7 +405,7 @@ class TestComponentView:
 
         # the view metadata got cleaned up
         assert 'view' not in pxt.list_tables()
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             _ = pxt.get_table('view')
 
         # the second attempt succeeds

@@ -526,7 +526,9 @@ def init_ls(init_env: None) -> Iterator[None]:
     try:
         for _ in range(max_wait // 5):
             if ls_process.poll() is not None:
-                raise pxt.Error('Label Studio process exited unexpectedly before initialization.')
+                raise pxt.Error(
+                    pxt.ErrorCode.GENERIC_USER_ERROR, 'Label Studio process exited unexpectedly before initialization.'
+                )
             time.sleep(5)
             try:
                 client = label_studio_sdk.Client(url=ls_url, api_key='pxt-api-token')
@@ -542,7 +544,10 @@ def init_ls(init_env: None) -> Iterator[None]:
     if not client:
         # This goes outside the `finally`, to ensure we raise an exception on a failed
         # initialization attempt, but only if we actually timed out (no prior exception)
-        raise pxt.Error(f'Failed to initialize Label Studio pytest fixture after {max_wait} seconds.')
+        raise pxt.Error(
+            pxt.ErrorCode.GENERIC_USER_ERROR,
+            f'Failed to initialize Label Studio pytest fixture after {max_wait} seconds.',
+        )
 
     _logger.info('Label Studio pytest fixture is now running.')
     os.environ['LABEL_STUDIO_API_KEY'] = 'pxt-api-token'

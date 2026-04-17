@@ -211,12 +211,12 @@ class TestCatalog:
         pxt.create_dir('target')
         for creator, _ in creators.values():
             # dirs cannot be replaced by table subtypes
-            with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
+            with pytest.raises(excs.AlreadyExistsError, match='expected a table, view or snapshot'):
                 creator()
             # table subtypes cannot be replaced by dirs
             pxt.drop_dir('target')
             creator()
-            with pytest.raises(excs.Error, match='expected a directory'):
+            with pytest.raises(excs.AlreadyExistsError, match='expected a directory'):
                 pxt.create_dir('target', if_exists='replace')
             pxt.drop_table('target')
             pxt.create_dir('target')

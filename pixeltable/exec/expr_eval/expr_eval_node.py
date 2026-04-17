@@ -489,5 +489,6 @@ class ExprEvalNode(ExecNode):
             pass
         except Exception as exc:
             stack_trace = traceback.format_exc()
-            self.error = excs.Error(f'Exception in task: {exc}\n{stack_trace}')
+            # TODO: find a better error class
+            self.error = excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, f'Exception in task: {exc}\n{stack_trace}')
             self.exc_event.set()

@@ -42,10 +42,10 @@ class TestDirs:
         _ = pxt.get_table('dir1/t1')
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_dir('dir1/t1')
-        with pytest.raises(pxt.Error, match=r'does not exist. Create it first with:'):
+        with pytest.raises(pxt.NotFoundError, match=r'does not exist. Create it first with:'):
             pxt.create_dir('dir2/sub2')
         make_tbl('t2')
-        with pytest.raises(pxt.Error, match="Directory 't2' does not exist"):
+        with pytest.raises(pxt.NotFoundError, match="Directory 't2' does not exist"):
             pxt.create_dir('t2/sub2')
 
         # new client: force loading from store
@@ -99,10 +99,10 @@ class TestDirs:
         assert d3._id != id_before['dir1/sub1/subsub1']
         id_before['dir1/sub1/subsub1'] = d3._id
         assert pxt.list_dirs(recursive=True) == dirs
-        with pytest.raises(pxt.Error, match='already exists and is not empty'):
+        with pytest.raises(pxt.AlreadyExistsError, match='already exists and is not empty'):
             pxt.create_dir('dir1/sub1', if_exists='replace')
         assert pxt.list_dirs(recursive=True) == dirs
-        with pytest.raises(pxt.Error, match='already exists and is not empty'):
+        with pytest.raises(pxt.AlreadyExistsError, match='already exists and is not empty'):
             pxt.create_dir('dir1', if_exists='replace')
         assert pxt.list_dirs(recursive=True) == dirs
 
@@ -123,7 +123,7 @@ class TestDirs:
         # scenario 2: path already exists but is not a Dir
         make_tbl('dir1/t1')
         for if_exists in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(pxt.Error, match='already exists'):
+            with pytest.raises(pxt.AlreadyExistsError, match='already exists'):
                 pxt.create_dir('dir1/t1', if_exists=if_exists)  # type: ignore[arg-type]
 
     def _test_drop_if_not_exists(self, dir_name: str) -> None:
@@ -134,9 +134,9 @@ class TestDirs:
 
         # if_not_exists='error' should raise error
         # default behavior is to raise error
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             pxt.drop_dir(dir_name, if_not_exists='error')
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.NotFoundError, match='does not exist'):
             pxt.drop_dir(dir_name)
 
         # if_not_exists='ignore' should be successful but a no-op
