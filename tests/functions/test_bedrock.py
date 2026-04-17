@@ -20,7 +20,7 @@ from .tool_utils import run_tool_invocations_test
 
 
 @pytest.fixture()
-def bedrock_us_east_1(uses_db: None) -> Iterator[str]:
+def bedrock_us_east_1(uses_db: None) -> Iterator[None]:
     """Configure the Bedrock client for us-east-1. Yields the temp_location S3 URI."""
     Config.init(
         config_overrides={
@@ -29,11 +29,11 @@ def bedrock_us_east_1(uses_db: None) -> Iterator[str]:
         },
         reinit=True,
     )
-    yield 's3://pxt-test-us-east-1/bedrock_outputs/'
+    yield
 
 
 @pytest.fixture()
-def bedrock_us_west_2(uses_db: None) -> Iterator[str]:
+def bedrock_us_west_2(uses_db: None) -> Iterator[None]:
     """Configure the Bedrock client for us-west-2. Yields the temp_location S3 URI."""
     Config.init(
         config_overrides={
@@ -42,7 +42,7 @@ def bedrock_us_west_2(uses_db: None) -> Iterator[str]:
         },
         reinit=True,
     )
-    yield 's3://pxt-test-us-west-2/bedrock_outputs/'
+    yield
 
 
 def _tbl_name(model_id: str) -> str:
@@ -129,6 +129,7 @@ def _converse_image_messages(t: pxt.Table) -> list:
 
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
+@pytest.mark.usefixtures('bedrock_us_east_1')
 class TestBedrock:
     def test_invoke_model_twelvelabs_marengo_image(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
@@ -163,7 +164,7 @@ class TestBedrock:
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         _assert_twelvelabs_embedding(t.select(t.response).collect())
 
-    def test_invoke_model_twelvelabs_marengo_audio(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_invoke_model_twelvelabs_marengo_audio(self, uses_db: None) -> None:
         # Audio auto-routes to StartAsyncInvoke.
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
@@ -179,7 +180,7 @@ class TestBedrock:
         validate_update_status(t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         _assert_twelvelabs_embedding(t.select(t.response).collect())
 
-    def test_invoke_model_twelvelabs_marengo_video(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_invoke_model_twelvelabs_marengo_video(self, uses_db: None) -> None:
         # Video auto-routes to StartAsyncInvoke.
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
@@ -362,7 +363,7 @@ class TestBedrock:
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
 
-    def test_invoke_model_nova_reel(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_invoke_model_nova_reel(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
@@ -425,7 +426,7 @@ class TestBedrock:
             t.insert([{'image': p} for p in img_paths])
             _assert_image_similarity(t, img_paths)
 
-    def test_embed_nova_multimodal_text(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_embed_nova_multimodal_text(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
@@ -436,7 +437,7 @@ class TestBedrock:
         t.insert(_TEXT_ROWS)
         _assert_text_similarity(t)
 
-    def test_embed_nova_multimodal_image(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_embed_nova_multimodal_image(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
@@ -448,7 +449,7 @@ class TestBedrock:
         t.insert([{'image': p} for p in img_paths])
         _assert_image_similarity(t, img_paths)
 
-    def test_invoke_model_nova_multimodal_audio(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_invoke_model_nova_multimodal_audio(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
@@ -470,7 +471,7 @@ class TestBedrock:
         validate_update_status(t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         assert t.select(t.response).collect()[0]['response']['embeddings']
 
-    def test_invoke_model_nova_multimodal_video(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_invoke_model_nova_multimodal_video(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
@@ -496,7 +497,7 @@ class TestBedrock:
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         assert t.select(t.response).collect()[0]['response']['embeddings']
 
-    def test_converse_ai21(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_converse_ai21(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         _run_converse_text(['ai21.jamba-1-5-mini-v1:0', 'ai21.jamba-1-5-large-v1:0'])
 
@@ -510,7 +511,7 @@ class TestBedrock:
             t.insert(_TEXT_ROWS)
             _assert_text_similarity(t)
 
-    def test_embed_cohere_v4_text(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_embed_cohere_v4_text(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
@@ -519,7 +520,7 @@ class TestBedrock:
         validate_update_status(t.insert(text='Hello, world!'), expected_rows=1)
         assert len(t.collect()[0]['embedding']) == 1536
 
-    def test_embed_cohere_v4_text_custom_dimensions(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_embed_cohere_v4_text_custom_dimensions(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
@@ -528,7 +529,7 @@ class TestBedrock:
         validate_update_status(t.insert(text='Hello, world!'), expected_rows=1)
         assert len(t.collect()[0]['embedding']) == 512
 
-    def test_embed_cohere_v4_image(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_embed_cohere_v4_image(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
@@ -538,7 +539,7 @@ class TestBedrock:
         t.insert([{'image': p} for p in img_paths])
         _assert_image_similarity(t, img_paths)
 
-    def test_invoke_model_cohere_v4_image(self, uses_db: None, bedrock_us_east_1: str) -> None:
+    def test_invoke_model_cohere_v4_image(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
@@ -558,7 +559,7 @@ class TestBedrock:
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.select(t.response).collect()[0]['response']['embeddings']['float'][0]
 
-    def test_converse_deepseek(self, uses_db: None, bedrock_us_west_2: str) -> None:
+    def test_converse_deepseek(self, uses_db: None, bedrock_us_west_2: None) -> None:
         skip_test_if_no_aws_credentials()
         _run_converse_text(
             [
@@ -705,7 +706,7 @@ class TestBedrock:
 
         _run_converse_text(['qwen.qwen3-next-80b-a3b'])
 
-    def test_invoke_model_stability_image(self, uses_db: None, bedrock_us_west_2: str) -> None:
+    def test_invoke_model_stability_image(self, uses_db: None, bedrock_us_west_2: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
@@ -719,6 +720,6 @@ class TestBedrock:
         validate_update_status(t.insert(prompt='a cat sitting on a mat'), expected_rows=1)
         assert isinstance(t.collect()[0]['response']['images'][0], PIL.Image.Image)
 
-    def test_converse_writer(self, uses_db: None, bedrock_us_west_2: str) -> None:
+    def test_converse_writer(self, uses_db: None, bedrock_us_west_2: None) -> None:
         skip_test_if_no_aws_credentials()
         _run_converse_text(['us.writer.palmyra-x4-v1:0', 'us.writer.palmyra-x5-v1:0'])
