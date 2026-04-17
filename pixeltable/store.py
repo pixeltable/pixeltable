@@ -25,9 +25,9 @@ _logger = logging.getLogger('pixeltable')
 
 
 class StoreBase:
-    """Base class for the physical PostgreSQL tables that back Pixeltable tables and views.
+    """Base class for the store (physical) tables that back Pixeltable tables and views.
 
-    Each Pixeltable table or view is stored as a single PostgreSQL table whose name is derived from the
+    Each Pixeltable table or view is stored as a single store table whose name is derived from the
     table's UUID: ``tbl_<uuid_hex>`` for tables and ``view_<uuid_hex>`` for views.
 
     ## Physical column layout
@@ -42,7 +42,7 @@ class StoreBase:
     * col_0, ..., col_N: user columns, i.e. all stored catalog columns, including cellmd columns, index value and undo
     columns.
 
-    The following column groups are recognized and exposed from this class:
+    The following column groups are recognized and exposed by this class:
 
     * rowid columns: rowid, pos_0, ..., pos_N
     * pk columns:
@@ -101,8 +101,7 @@ class StoreBase:
     def system_columns(self) -> list[sql.Column]:
         if self.tbl_version.get().is_versioned:
             return [*self._pk_cols, self.v_max_col]
-        else:
-            return self._pk_cols
+        return self._pk_cols
 
     def pk_columns(self) -> list[sql.Column]:
         return self._pk_cols
@@ -135,7 +134,7 @@ class StoreBase:
                 assert len(col_names) > 1, col_names
                 assert col_names[0] == 'rowid', col_names
                 assert not col_names[-1].startswith('pos_'), col_names
-                num_rowid_cols: int  # counts rowid and any pos_X columns
+                num_rowid_cols: int  # number of rowid and pos_i columns
                 for i in range(1, len(col_names)):
                     if not col_names[i].startswith('pos_'):
                         num_rowid_cols = i
@@ -153,7 +152,7 @@ class StoreBase:
                 'v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION)
             )
             self._pk_cols = [*rowid_cols, self.v_min_col]
-            return [*rowid_cols, self.v_min_col, self.v_max_col]
+            return [*self._pk_cols, self.v_max_col]
         else:
             self._pk_cols = rowid_cols
             return rowid_cols
@@ -215,6 +214,7 @@ class StoreBase:
 
         extra_constraints: list[sql.Constraint] = []
         if not tbl_version.is_versioned:
+            # Add a PK constraint for an unversioned table
             extra_constraints.append(sql.PrimaryKeyConstraint(*[col.name for col in self._pk_cols]))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs, *extra_constraints)
@@ -231,9 +231,8 @@ class StoreBase:
         """Return the number of rows visible in self.tbl_version"""
         stmt = sql.select(sql.func.count('*')).select_from(self.sa_tbl)
         if self.tbl_version.get().is_versioned:
-            stmt = stmt.where(self.v_min_col <= self.tbl_version.get().version).where(
-                self.v_max_col > self.tbl_version.get().version
-            )
+            stmt = stmt.where(self.v_min_col <= self.tbl_version.get().version)
+            stmt = stmt.where(self.v_max_col > self.tbl_version.get().version)
         conn = get_runtime().conn
         result = conn.execute(stmt).scalar_one()
         assert isinstance(result, int)
@@ -629,6 +628,7 @@ class StoreBase:
         return sql.and_(clause, self.base._versions_clause(versions[1:], match_on_vmin))
 
     def delete_rows(self, where_clause: sql.ColumnElement[bool] | None) -> int:
+        """Delete rows in an unversioned table. Use soft_delete_rows for versioned tables."""
         assert not self.tbl_version.get().is_versioned
         where_clause = sql.true() if where_clause is None else where_clause
         rowid_join_clause = self._rowid_join_predicate()
@@ -645,7 +645,9 @@ class StoreBase:
         match_on_vmin: bool,
         where_clause: sql.ColumnElement[bool] | None,
     ) -> int:
-        """Mark rows as deleted that are live and were created prior to current_version.
+        """Mark rows as deleted in a versioned table. Only the rows that are live and were created prior to
+        current_version are affected.
+
         Also: populate the undo columns
         Args:
             base_versions: if non-None, join only to base rows that were created at that version,

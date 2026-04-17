@@ -14,6 +14,7 @@ class TestUnversionedTable:
         tbl = pxt.create_table('test', schema, _is_versioned=False)
         md = tbl.get_metadata()
         assert not md['is_versioned']
+        assert md['version'] is None
 
         validate_update_status(tbl.insert([{'c0': 0, 'c1': 'a'}, {'c0': 1, 'c1': 'b'}, {'c0': 2, 'c1': 'c'}]), 3)
         assert tbl.count() == 3
