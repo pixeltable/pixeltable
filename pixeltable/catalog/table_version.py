@@ -612,7 +612,7 @@ class TableVersion:
         return f'idx_{self.id.hex}_{idx_id}'
 
     def add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         status = self._add_index(col, idx_name, idx)
@@ -699,7 +699,7 @@ class TableVersion:
     def drop_index(self, idx_id: int) -> None:
         assert self.is_mutable
         assert idx_id in self._tbl_md.index_md
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -726,7 +726,7 @@ class TableVersion:
 
     def add_columns_ops(self, cols: Iterable[Column]) -> tuple[TableVersionMd, list[TableOp]]:
         """Adds columns to the table."""
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
@@ -807,7 +807,7 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Adds columns to the table."""
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
@@ -926,7 +926,7 @@ class TableVersion:
         """Drop a column from the table."""
 
         assert self.is_mutable
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -979,7 +979,7 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         if not self.is_mutable:
             raise excs.Error(f'Cannot rename column for immutable table {self.name!r}')
         col = self.path.get_column(old_name)
@@ -1008,7 +1008,7 @@ class TableVersion:
         self._create_schema_version()
 
     def set_num_retained_versions(self, new_num_retained_versions: int) -> None:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         _logger.info(
             f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} '
             f'(was {self.num_retained_versions})'
@@ -1017,7 +1017,7 @@ class TableVersion:
         self._create_schema_version()
 
     def _create_schema_version(self) -> None:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
@@ -1128,7 +1128,7 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         assert self.is_mutable
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
@@ -1172,7 +1172,7 @@ class TableVersion:
 
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
             self.path, batch, rowids, cascade=cascade
@@ -1257,7 +1257,7 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         assert self.is_mutable
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         assert all(name in self.cols_by_name for name in col_names)
         assert len(col_names) > 0
         assert len(col_names) == 1 or not errors_only
@@ -1300,7 +1300,7 @@ class TableVersion:
     ) -> UpdateStatus:
         from pixeltable.plan import Planner
 
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         get_runtime().catalog.mark_modified_tvs(self.handle)
         result = UpdateStatus()
         create_new_table_version = plan is not None
@@ -1510,7 +1510,7 @@ class TableVersion:
             self.external_stores[store.name] = store
 
     def link_external_store(self, store: ExternalStore) -> None:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         self.bump_version(bump_schema_version=True)
 
         self.external_stores[store.name] = store
@@ -1520,7 +1520,7 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
 
     def unlink_external_store(self, store: ExternalStore) -> None:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         del self.external_stores[store.name]
         self.bump_version(bump_schema_version=True)
         idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)

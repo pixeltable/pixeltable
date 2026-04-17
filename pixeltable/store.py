@@ -194,7 +194,7 @@ class StoreBase:
         # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
         primary_index = [col for col in tbl_version.cols if col.is_pk]
         if len(primary_index) > 0:
-            assert tbl_version.is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+            assert tbl_version.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
             pk_idx_exprs: list[sql.ColumnElement] = []
             for col in primary_index:
                 if col.col_type.is_string_type():
@@ -613,7 +613,7 @@ class StoreBase:
 
     def _versions_clause(self, versions: list[int | None], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""
-        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         v = versions[0]
         if v is None:
             # we're looking at live rows
@@ -632,7 +632,7 @@ class StoreBase:
         assert not self.tbl_version.get().is_versioned
         where_clause = sql.true() if where_clause is None else where_clause
         rowid_join_clause = self._rowid_join_predicate()
-        assert rowid_join_clause.compare(sql.true()), 'TODO: implement for unversioned tables [PXT-975]'
+        assert rowid_join_clause.compare(sql.true()), 'TODO: implement for unversioned tables [PXT-1101]'
         conn = get_runtime().conn
         stmt = sql.delete(self.sa_tbl).where(where_clause)
         log_explain(_logger, stmt, conn)
@@ -686,7 +686,7 @@ class StoreBase:
         return status.rowcount
 
     def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:
-        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-975]'
+        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         filter_predicate = sql.and_(
             filter_view.v_min_col <= filter_view_version,
             filter_view.v_max_col > filter_view_version,
