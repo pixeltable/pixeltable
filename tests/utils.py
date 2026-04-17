@@ -370,7 +370,9 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: list[str] | No
     return df.to_dict(orient='records')  # type: ignore[return-value]
 
 
-def get_video_files(include_bad_video: bool = False, include_vfr: bool = True, include_mpgs: bool = True) -> list[str]:
+def get_video_files(
+    include_bad_video: bool = False, include_vfr: bool = True, include_mpgs: bool = True, extension: str | None = None
+) -> list[str]:
     glob_result = glob.glob(f'{TESTS_DIR}/**/videos/*', recursive=True)
     if not include_bad_video:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
@@ -378,7 +380,8 @@ def get_video_files(include_bad_video: bool = False, include_vfr: bool = True, i
         glob_result = [f for f in glob_result if 'vfr' not in f]
     if not include_mpgs:
         glob_result = [f for f in glob_result if not f.endswith('.mpg')]
-
+    if extension is not None:
+        glob_result = [f for f in glob_result if f.endswith(extension)]
     glob_result.sort()
     return glob_result
 
@@ -461,11 +464,13 @@ def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
     return ObjectOps.list_uris(uri, n_max=n)
 
 
-def get_audio_files(include_bad_audio: bool = False) -> list[str]:
+def get_audio_files(include_bad_audio: bool = False, extension: str | None = None) -> list[str]:
     audio_dir = TESTS_DIR / 'data' / 'audio'
     glob_result = glob.glob(f'{audio_dir}/*', recursive=True)
     if not include_bad_audio:
         glob_result = [f for f in glob_result if 'bad_audio' not in f]
+    if extension is not None:
+        glob_result = [f for f in glob_result if f.endswith(extension)]
     return glob_result
 
 
@@ -656,6 +661,8 @@ def skip_test_if_no_pxt_credentials() -> None:
 
 
 def skip_test_if_no_aws_credentials() -> None:
+    skip_test_if_not_installed('boto3')
+
     import boto3
     from botocore.exceptions import NoCredentialsError
 

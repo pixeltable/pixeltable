@@ -10,8 +10,14 @@ def default_format(img: PIL.Image.Image) -> str:
     return 'webp' if img.has_transparency_data else 'jpeg'
 
 
-def to_base64(image: PIL.Image.Image, format: str | None = None) -> str:
+def to_base64(image: PIL.Image.Image | str, format: str | None = None) -> str:
+    return base64.b64encode(to_bytes(image, format)).decode('utf-8')
+
+
+def to_bytes(image: PIL.Image.Image | str, format: str | None = None) -> bytes:
+    if isinstance(image, str):
+        with open(image, 'rb') as f:
+            return f.read()
     buffer = BytesIO()
     image.save(buffer, format=format or default_format(image))
-    image_bytes = buffer.getvalue()
-    return base64.b64encode(image_bytes).decode('utf-8')
+    return buffer.getvalue()
