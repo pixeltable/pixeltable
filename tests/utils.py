@@ -83,7 +83,7 @@ def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Tabl
 
 
 def create_table_data(
-    t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10, non_serializable_json: bool = True
+    t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10, non_serializable_json: bool = False
 ) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
