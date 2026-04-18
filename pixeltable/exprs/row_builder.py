@@ -506,7 +506,7 @@ class RowBuilder:
         return result
 
     def create_store_table_row(
-        self, data_row: DataRow, cols_with_excs: set[int] | None, pk: tuple[int, ...]
+        self, data_row: DataRow, cols_with_excs: set[int] | None, pk: tuple[int | UUID, ...]
     ) -> tuple[list[Any], int]:
         """Create a store table row from the slots that have an output column assigned
 

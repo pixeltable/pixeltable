@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import logging
-import random
 import time
 from typing import Any, Iterable, Iterator
 from uuid import UUID
@@ -20,6 +19,7 @@ from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.sql import log_explain, log_stmt
+from pixeltable.utils.uuid import uuid7
 
 _logger = logging.getLogger('pixeltable')
 
@@ -111,6 +111,11 @@ class StoreBase:
             return self._pk_cols[:-1]  # exclude v_min
         return self._pk_cols
 
+    def _rowid_col_type(self) -> sql.types.TypeEngine[Any]:
+        if self.tbl_version.get().is_versioned:
+            return sql.BigInteger()
+        return sql.UUID()
+
     @abc.abstractmethod
     def _create_rowid_columns(self) -> list[sql.Column]:
         """Create and return rowid columns"""
@@ -132,17 +137,19 @@ class StoreBase:
                 # System columns are always followed by at least one user column
                 col_names = [row[0] for row in conn.execute(sql.text(q)).fetchall()]
                 assert len(col_names) > 1, col_names
-                assert col_names[0] == 'rowid', col_names
                 assert not col_names[-1].startswith('pos_'), col_names
-                num_rowid_cols: int  # number of rowid and pos_i columns
-                for i in range(1, len(col_names)):
-                    if not col_names[i].startswith('pos_'):
-                        num_rowid_cols = i
+
+                rowid_cols = []
+                for i, col_name in enumerate(col_names):
+                    if i == 0:
+                        assert col_name == 'rowid', col_names
+                        col_type = self._rowid_col_type()
+                    elif col_name.startswith('pos_'):
+                        col_type = sql.BigInteger()
+                    else:
+                        # reached user columns
                         break
-                rowid_cols = [
-                    sql.Column(col_name, sql.BigInteger, nullable=False, autoincrement=False)
-                    for col_name in col_names[:num_rowid_cols]
-                ]
+                    rowid_cols.append(sql.Column(col_name, col_type, nullable=False, autoincrement=False))
         else:
             rowid_cols = self._create_rowid_columns()
 
@@ -528,15 +535,15 @@ class StoreBase:
                         exc = row.get_first_exc()
                         raise exc
 
+                    pk: tuple[int | UUID, ...]
                     if versioned:
                         rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
                         pk = (*rowid, v_min)
                     else:
-                        # pick a random rowid between 1 and max bigint
-                        # bigint range is [-9223372036854775808, 9223372036854775807], but negative rowids can be
-                        # confusing and difficult to work with.
-                        # For 100M rows, the probability of a collision is ~0.05%
-                        pk = (random.randrange(1, 9223372036854775807),)
+                        # UUID7 appears to be a more performant choice for Postgresql, however for CockroachDB UUID4 is
+                        # recommended.
+                        assert not Env.get().is_using_cockroachdb, 'TODO: implement for unversioned tables [PXT-1101]'
+                        pk = (uuid7(),)
                     assert len(pk) == len(self._pk_cols)
                     table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
@@ -721,8 +728,8 @@ class StoreTable(StoreBase):
         super().__init__(tbl_version)
 
     def _create_rowid_columns(self) -> list[sql.Column]:
-        self.rowid_col = sql.Column('rowid', sql.BigInteger, nullable=False, autoincrement=False)
-        return [self.rowid_col]
+        rowid_col = sql.Column('rowid', self._rowid_col_type(), nullable=False, autoincrement=False)
+        return [rowid_col]
 
     def _storage_name(self) -> str:
         return f'tbl_{self.tbl_version.id.hex}'
