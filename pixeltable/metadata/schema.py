@@ -208,8 +208,6 @@ class TableMd:
     tbl_id: str  # uuid.UUID
     name: str
     is_replica: bool
-    # Versioned tables keep their full schema and row history, and support time travel and rollback.
-    is_versioned: bool
 
     user: str | None
 
@@ -248,6 +246,10 @@ class TableMd:
 
     tbl_state: TableState = TableState.LIVE
     pending_stmt: TableStatement | None = None
+
+    # Versioned tables keep their full schema and row history, and support time travel and rollback.
+    # TODO when the catalog migration happens, let's backfill and get rid of the default.
+    is_versioned: bool = True
 
     @property
     def is_snapshot(self) -> bool:
