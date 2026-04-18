@@ -21,6 +21,7 @@ import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+from pixeltable.functions.math import abs as pxt_abs, floor as pxt_floor
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
@@ -2034,72 +2035,6 @@ def ffmpeg_filter(
     )
 
 
-def pan(video: Any, *, direction: Literal['left', 'right', 'up', 'down'] = 'right', crop_pct: float = 0.2) -> Any:
-    """
-    Apply a smooth pan effect across a video. Convenience function for
-    [`scroll()`][pixeltable.functions.video.scroll] that automatically computes viewport size and speed from the
-    video's dimensions and duration, panning across the full available range.
-
-    The effect crops a viewport that is `(1 - crop_pct)` of the original dimension in the pan direction and smoothly
-    slides it across the full available range over the video's duration.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        video: A pixeltable Video expression (e.g., `tbl.video`).
-        direction: Pan direction: `'left'`, `'right'`, `'up'`, or `'down'`.
-        crop_pct: Fraction of the dimension (width for left/right, height for up/down) used as panning range,
-            between 0.0 (exclusive) and 1.0 (exclusive). Larger values produce more pronounced panning but a
-            narrower output. Default is 0.2 (viewport is 80% of the original dimension).
-
-    Returns:
-        A panned video.
-
-    Examples:
-        Pan rightward (default):
-
-        >>> tbl.select(pan(tbl.video)).collect()
-
-        Pan leftward with a wider range:
-
-        >>> tbl.select(pan(tbl.video, direction='left', crop_pct=0.4)).collect()
-
-        Pan downward:
-
-        >>> tbl.select(pan(tbl.video, direction='down')).collect()
-    """
-    import pixeltable.functions.math as pxtmath
-
-    if crop_pct <= 0.0 or crop_pct >= 1.0:
-        raise pxt.Error(f'crop_pct must be between 0.0 and 1.0 (exclusive), got {crop_pct}')
-
-    md = video.get_metadata()
-    w = md.streams[0].width
-    h = md.streams[0].height
-    duration = video.get_duration()
-
-    if direction in ('left', 'right'):
-        viewport_w = pxtmath.floor(w * (1 - crop_pct)).to_int()
-        pan_range = w - viewport_w
-        speed = pan_range / duration
-        if direction == 'right':
-            return video.scroll(w=viewport_w, x_speed=speed)
-        else:
-            return video.scroll(w=viewport_w, x_start=pan_range.to_int(), x_speed=-speed)
-    elif direction in ('up', 'down'):
-        viewport_h = pxtmath.floor(h * (1 - crop_pct)).to_int()
-        pan_range = h - viewport_h
-        speed = pan_range / duration
-        if direction == 'down':
-            return video.scroll(h=viewport_h, y_speed=speed)
-        else:
-            return video.scroll(h=viewport_h, y_start=pan_range.to_int(), y_speed=-speed)
-    else:
-        raise pxt.Error(f"direction must be one of 'left', 'right', 'up', 'down', got {direction!r}")
-
-
 @pxt.udf(is_method=True)
 def scroll(
     video: pxt.Video,
@@ -2205,6 +2140,77 @@ def scroll(
     output_path = str(TempStore.create_path(extension='.mp4'))
     return av_utils.run_ffmpeg_cmdline(
         cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
+
+
+@pxt.expr_udf(is_method=True)
+def pan(video: pxt.Video, x_sign: int = 0, y_sign: int = 0, crop_pct: float = 0.2) -> pxt.Video:
+    """
+    Apply a smooth pan effect across a video. Convenience wrapper around
+    [`scroll()`][pixeltable.functions.video.scroll] that computes the viewport size, start position, and speed
+    from the video's dimensions and duration so the viewport pans across the full available range over the
+    clip's duration.
+
+    - `x_sign = +1`: pan rightward (viewport starts at the left edge, moves right)
+    - `x_sign = -1`: pan leftward (viewport starts at the right edge, moves left)
+    - `x_sign =  0`: no horizontal motion (full width, no horizontal crop)
+    - `y_sign` works the same way on the vertical axis (`+1` = down, `-1` = up, `0` = none)
+
+    Diagonal pans are produced by passing nonzero values for both axes (e.g. `x_sign=+1, y_sign=-1` pans
+    toward the upper-right). At least one of `x_sign` / `y_sign` must be nonzero, otherwise `scroll()`
+    raises an error.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        x_sign: Horizontal pan direction: `+1` (right), `-1` (left), or `0` (no horizontal motion). Can be a
+            column expression for per-row direction.
+        y_sign: Vertical pan direction: `+1` (down), `-1` (up), or `0` (no vertical motion). Can be a
+            column expression for per-row direction.
+        crop_pct: Fraction of the dimension used as panning range, between 0.0 (exclusive) and 1.0
+            (exclusive). Larger values produce more pronounced panning but a more aggressive crop.
+            Default is 0.2 (viewport is 80% of the original dimension on the panning axis).
+
+    Returns:
+        A panned video.
+
+    Examples:
+        Pan rightward:
+
+        >>> tbl.select(tbl.video.pan(x_sign=+1)).collect()
+
+        Pan leftward with a wider crop:
+
+        >>> tbl.select(tbl.video.pan(x_sign=-1, crop_pct=0.4)).collect()
+
+        Pan diagonally toward the upper-right:
+
+        >>> tbl.select(tbl.video.pan(x_sign=+1, y_sign=-1)).collect()
+
+        Per-row direction driven by an `Int` column with values in {-1, 0, +1}:
+
+        >>> tbl.add_computed_column(clip=tbl.video.pan(x_sign=tbl.pan_sign))
+    """
+    md = video.get_metadata()  # type: ignore[attr-defined]
+    w = md.streams[0].width
+    h = md.streams[0].height
+    duration = video.get_duration()  # type: ignore[attr-defined]
+
+    # abs(sign) collapses the crop to 0 when sign=0, so the unpanned axis stays at full size
+    viewport_w = pxt_floor(w * (1 - crop_pct * pxt_abs(x_sign))).to_int()
+    viewport_h = pxt_floor(h * (1 - crop_pct * pxt_abs(y_sign))).to_int()
+    pan_range_x = w - viewport_w
+    pan_range_y = h - viewport_h
+    x_start = pxt_floor(pan_range_x * (1 - x_sign) / 2).to_int()
+    y_start = pxt_floor(pan_range_y * (1 - y_sign) / 2).to_int()
+    x_speed = pan_range_x / duration * x_sign
+    y_speed = pan_range_y / duration * y_sign
+
+    return scroll(  # type: ignore[return-value]
+        video, w=viewport_w, h=viewport_h, x_speed=x_speed, y_speed=y_speed, x_start=x_start, y_start=y_start
     )
 
 
