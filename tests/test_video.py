@@ -1580,8 +1580,6 @@ class TestVideo:
 
     @pytest.mark.parametrize('x_sign,y_sign,axis', [(-1, 0, 'x'), (+1, 0, 'x'), (0, -1, 'y'), (0, +1, 'y')])
     def test_pan(self, x_sign: int, y_sign: int, axis: str, uses_db: None) -> None:
-        # Exercises receiver-style dispatch (`t.video.pan(...)`); function-call form is exercised
-        # by test_pan_by_column / test_pan_errors below.
         video_filepaths = get_video_files()
         t = pxt.create_table('pan_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
@@ -1610,7 +1608,6 @@ class TestVideo:
         self._validate_videos(result['panned'])
 
     def test_pan_by_column(self, uses_db: None) -> None:
-        """pan() with a column-valued x_sign produces correct per-row direction."""
         video_filepaths = get_video_files()
         t = pxt.create_table('pan_col_test', {'video': pxt.Video, 'pan_sign': pxt.Int})
         rows = [{'video': f, 'pan_sign': +1 if i % 2 == 0 else -1} for i, f in enumerate(video_filepaths)]
