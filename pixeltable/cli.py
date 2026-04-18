@@ -160,7 +160,12 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
 
 
 def _run(config: 'AppConfig', app: Any) -> None:
-    import uvicorn
+    import pixeltable as pxt
+
+    try:
+        import uvicorn
+    except ImportError as e:
+        raise pxt.Error("uvicorn is required for `pxt serve`; install it with `pip install 'fastapi[standard]'`") from e
 
     print(f'Starting Pixeltable service: {config.service.title}')
     print(f'  Listening on http://{config.service.host}:{config.service.port}')

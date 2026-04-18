@@ -9,6 +9,13 @@ Pixeltable can expose table operations and queries as HTTP endpoints via
 `pixeltable.serving.FastAPIRouter`. You can configure endpoints either
 programmatically in Python or declaratively with a TOML service file.
 
+FastAPI and uvicorn are optional dependencies. Install them before using
+`pxt serve` or the Python serving API:
+
+```bash
+pip install 'fastapi[standard]'
+```
+
 ## Quickstart (TOML)
 
 Create a file `service.toml`:
@@ -97,9 +104,11 @@ Top-level settings for the FastAPI application and server.
 
 ### `modules` (optional)
 
-A list of Python modules to import before resolving query function references.
-Required when query routes reference `@pxt.query` or `retrieval_udf` functions
-defined in user code.
+A list of additional Python modules to import at startup, for their
+registration side effects. The module that hosts a query route's dotted
+path is imported automatically, so this is only needed when you depend
+on `@pxt.query` / `@pxt.udf` definitions in *other* modules that wouldn't
+otherwise be loaded.
 
 ```toml
 modules = ["myapp.queries", "myapp.udfs"]
@@ -232,7 +241,9 @@ Make sure the module is listed in `modules` so it gets imported before routes ar
 **Multi-row response** (default):
 
 ```bash
-curl -X POST http://localhost:8000/search -d '{"query_text": "hello"}'
+curl -X POST http://localhost:8000/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query_text": "hello"}'
 # {"rows": [{"id": 1, "text": "hello world", "score": 0.95}, ...]}
 ```
 

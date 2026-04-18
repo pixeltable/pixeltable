@@ -133,7 +133,7 @@ def search(min_id: int) -> pxt.Query:
             # missing routes
             ({}, 'routes'),
             # unknown route type
-            ({'routes': [{'type': 'update', 'path': '/x'}]}, "'insert', 'delete'"),
+            ({'routes': [{'type': 'update', 'path': '/x'}]}, "'insert', 'delete', 'query'"),
             # insert missing table
             ({'routes': [{'type': 'insert', 'path': '/x'}]}, 'table'),
             # query missing query

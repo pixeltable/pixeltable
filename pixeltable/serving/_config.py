@@ -97,9 +97,12 @@ def load_app_config(config_path: str) -> AppConfig:
 
 def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
     """Build a FastAPI instance from an AppConfig"""
-    import fastapi
+    try:
+        import fastapi
 
-    from ._fastapi import FastAPIRouter
+        from ._fastapi import FastAPIRouter
+    except ImportError as e:
+        raise pxt.Error("FastAPI is required for serving; install it with `pip install 'fastapi[standard]'`") from e
 
     # import user modules so @pxt.query / retrieval_udf definitions are registered
     for mod_path in config.modules:
