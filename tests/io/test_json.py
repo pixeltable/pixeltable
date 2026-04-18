@@ -176,8 +176,8 @@ class TestJson:
         for col, expected_url in urls.items():
             assert exported[0][col] == expected_url, f'{col}: expected {expected_url}, got {exported[0][col]}'
 
-    def test_export_media_transform_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        """Exporting a media-typed transform expression (not a bare ColumnRef) should raise an error."""
+    def test_export_unstored_media_expression_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Exporting a media-typed expression that is not backed by a stored column should raise an error."""
 
         t = pxt.create_table('test_json_transform', {'img': pxt.Image})
         t.insert([{'img': get_image_files()[0]}])
