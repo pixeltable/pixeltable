@@ -20,7 +20,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exprs, functions as pxtf
+from pixeltable import exceptions as excs, exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
@@ -1020,7 +1020,7 @@ class TestExprs:
             assert orig_img.size == retrieved_img.size
 
         # Try inserting a non-image
-        with pytest.raises(pxt.ExprEvalError) as exc_info:
+        with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(url='data:text/plain,Hello there.')
         assert (
             str(exc_info.value.__cause__)
@@ -1028,7 +1028,7 @@ class TestExprs:
         )
 
         # Try inserting a bad image
-        with pytest.raises(pxt.ExprEvalError) as exc_info:
+        with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(url=url_encoded_images[0])
         assert (
             str(exc_info.value.__cause__) == 'data URL could not be decoded into a valid image: '

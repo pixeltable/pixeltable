@@ -558,7 +558,7 @@ class Table(SchemaObject):
                         # is a base table column; in that case, we should not
                         # drop/replace that column. Continue to raise error.
                         raise excs.RequestError(
-                            excs.ErrorCode.IMMUTABLE,
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
                             f'Column {new_col_name!r} is a base table column. Cannot replace it.',
                         )
                     col = self._tbl_version.get().cols_by_name[new_col_name]
@@ -883,7 +883,9 @@ class Table(SchemaObject):
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
                 if col.get_tbl().id != self._tbl_version_path.tbl_id:
-                    raise excs.RequestError(excs.ErrorCode.IMMUTABLE, f'Cannot drop base table column {col.name!r}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot drop base table column {col.name!r}'
+                    )
                 col = self._tbl_version.get().cols_by_name[column]
             else:
                 exists = self._tbl_version_path.has_column(column.col)
@@ -896,7 +898,9 @@ class Table(SchemaObject):
                     return
                 col = column.col
                 if col.get_tbl().id != self._tbl_version_path.tbl_id:
-                    raise excs.RequestError(excs.ErrorCode.IMMUTABLE, f'Cannot drop base table column {col.name!r}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot drop base table column {col.name!r}'
+                    )
 
             dependent_user_cols = [c for c in cat.get_column_dependents(col.get_tbl().id, col.id) if c.name is not None]
             if len(dependent_user_cols) > 0:
@@ -1647,7 +1651,9 @@ class Table(SchemaObject):
                         excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is not a computed column'
                     )
                 if col.get_tbl().id != self._tbl_version_path.tbl_id:
-                    raise excs.RequestError(excs.ErrorCode.IMMUTABLE, f'Cannot recompute column of a base: {col_name}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot recompute column of a base: {col_name}'
+                    )
                 col_names.append(col_name)
 
             if where is not None and not where.is_bound_by([self._tbl_version_path]):

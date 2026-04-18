@@ -972,12 +972,16 @@ class TableVersion:
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
         if not self.is_mutable:
-            raise excs.RequestError(excs.ErrorCode.IMMUTABLE, f'Cannot rename column for immutable table {self.name!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename column for immutable table {self.name!r}'
+            )
         col = self.path.get_column(old_name)
         if col is None:
             raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {old_name}')
         if col.get_tbl().id != self.id:
-            raise excs.RequestError(excs.ErrorCode.IMMUTABLE, f'Cannot rename base table column {col.name!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename base table column {col.name!r}'
+            )
         if not is_valid_identifier(new_name):
             raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {new_name}')
         if new_name in self.cols_by_name:
@@ -1206,19 +1210,21 @@ class TableVersion:
                 raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col_name}')
             if col.get_tbl().id != self.id:
                 raise excs.RequestError(
-                    excs.ErrorCode.IMMUTABLE, f'Column {col.name!r} is a base table column and cannot be updated'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col.name!r} is a base table column and cannot be updated',
                 )
             if col.is_computed:
                 raise excs.RequestError(
-                    excs.ErrorCode.IMMUTABLE, f'Column {col_name!r} is computed and cannot be updated'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is computed and cannot be updated'
                 )
             if col.is_pk and not allow_pk:
                 raise excs.RequestError(
-                    excs.ErrorCode.IMMUTABLE, f'Column {col_name!r} is a primary key column and cannot be updated'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col_name!r} is a primary key column and cannot be updated',
                 )
             if col.col_type.is_media_type() and not allow_media:
                 raise excs.RequestError(
-                    excs.ErrorCode.IMMUTABLE, f'Column {col_name!r} is a media column and cannot be updated'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is a media column and cannot be updated'
                 )
 
             # make sure that the value is compatible with the column type
@@ -1398,7 +1404,7 @@ class TableVersion:
         """Reverts the table to the previous version."""
         assert self.is_mutable
         if self.version == 0:
-            raise excs.RequestError(excs.ErrorCode.IMMUTABLE, 'Cannot revert version 0')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot revert version 0')
         self._revert()
 
     def _revert(self) -> None:

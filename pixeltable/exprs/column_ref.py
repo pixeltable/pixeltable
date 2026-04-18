@@ -176,7 +176,7 @@ class ColumnRef(Expr):
         with cat.begin_xact(tbl=self.reference_tbl, for_write=True, lock_mutable_tree=True):
             tbl_version = self.col_handle.tbl_version.get()
             if tbl_version.id != self.reference_tbl.tbl_id:
-                raise excs.RequestError(excs.ErrorCode.IMMUTABLE, 'Cannot recompute column of a base.')
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot recompute column of a base.')
             if tbl_version.is_snapshot:
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot recompute column of a snapshot.')
             col_name = self.col_handle.get().name

@@ -11,6 +11,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip
 
@@ -516,7 +517,7 @@ class TestIndex:
             img_t.drop_embedding_index(column=img_t.category)
 
         img_t.add_computed_column(sim=img_t.category.similarity(string='red_truck', idx='cat_idx'))
-        with pytest.raises(pxt.ExprEvalError) as exc_info:
+        with pytest.raises(excs.ExprEvalError) as exc_info:
             img_t.insert([rows[7]])
         assert 'cannot be used in a computed column' in str(exc_info.value.__cause__)
 

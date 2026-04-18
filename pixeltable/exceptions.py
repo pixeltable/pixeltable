@@ -60,7 +60,6 @@ class ErrorCode(enum.Enum):
     CONSTRAINT_VIOLATION = 3009, 422, False
     UNSUPPORTED_OPERATION = 3010, 400, False
     INVALID_STATE = 3011, 400, False
-    IMMUTABLE = 3012, 400, False
     INVALID_CONFIGURATION = 3013, 422, False
 
     # AuthorizationError (4xxx)

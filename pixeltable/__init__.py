@@ -23,7 +23,6 @@ from .exceptions import (
     ConcurrencyError,
     Error,
     ErrorCode,
-    ExprEvalError,
     ExternalServiceError,
     NotFoundError,
     PixeltableWarning,
