@@ -728,6 +728,7 @@ class StoreTable(StoreBase):
         super().__init__(tbl_version)
 
     def _create_rowid_columns(self) -> list[sql.Column]:
+        # SqlAlchemy auto-enables autoincrement in certain scenarios. We don't need that.
         rowid_col = sql.Column('rowid', self._rowid_col_type(), nullable=False, autoincrement=False)
         return [rowid_col]
 
