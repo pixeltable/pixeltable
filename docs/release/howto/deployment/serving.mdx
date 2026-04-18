@@ -235,8 +235,8 @@ query = "myapp.queries.search_docs"
 | `return_fileresponse` | bool | no | `false` | Return the single media-typed result as a raw file |
 | `method` | `"get"` / `"post"` | no | `"post"` | HTTP method for the endpoint |
 
-The `query` field is a dotted Python path (e.g., `"myapp.queries.search_docs"`).
-Make sure the module is listed in `modules` so it gets imported before routes are resolved.
+The `query` field is a dotted Python path (e.g., `"myapp.queries.search_docs"`);
+the module portion is imported automatically when the route is resolved.
 
 **Multi-row response** (default):
 

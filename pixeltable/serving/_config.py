@@ -87,8 +87,13 @@ def _resolve_dotted_path(dotted: str) -> Any:
 
 def load_app_config(config_path: str) -> AppConfig:
     """Load and validate a TOML service configuration file."""
-    with open(config_path, 'r', encoding='utf-8') as f:
-        raw = toml.load(f)
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            raw = toml.load(f)
+    except OSError as e:
+        raise pxt.Error(f'could not read service configuration file {config_path!r}: {e}') from e
+    except toml.TomlDecodeError as e:
+        raise pxt.Error(f'invalid TOML in service configuration file {config_path!r}: {e}') from e
     try:
         return AppConfig.model_validate(raw)
     except pydantic.ValidationError as e:

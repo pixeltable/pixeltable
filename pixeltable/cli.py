@@ -167,8 +167,12 @@ def _run(config: 'AppConfig', app: Any) -> None:
     except ImportError as e:
         raise pxt.Error("uvicorn is required for `pxt serve`; install it with `pip install 'fastapi[standard]'`") from e
 
+    host, port = config.service.host, config.service.port
+    # wildcard bind addresses aren't navigable; print localhost for the URL hints
+    display_host = 'localhost' if host in ('0.0.0.0', '::', '') else host
     print(f'Starting Pixeltable service: {config.service.title}')
-    print(f'  Listening on http://{config.service.host}:{config.service.port}')
-    print(f'  API docs at http://{config.service.host}:{config.service.port}/docs')
+    print(f'  Bound to {host}:{port}')
+    print(f'  Listening on http://{display_host}:{port}')
+    print(f'  API docs at http://{display_host}:{port}/docs')
     print(f'  Routes: {len(config.routes)}')
-    uvicorn.run(app, host=config.service.host, port=config.service.port)
+    uvicorn.run(app, host=host, port=port)
