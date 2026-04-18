@@ -171,10 +171,17 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                 if col_type.is_image_type():
                     # images get inlined into the parquet file
                     if isinstance(val, PIL.Image.Image):
-                        format = val.format if val.format is not None else 'png'
-                        buf = io.BytesIO()
-                        val.save(buf, format=format)
-                        val = buf.getvalue()
+                        # Only ImageFile subclasses (loaded via Image.open) have .filename;
+                        # in-memory images (resize/convert/Image.new) do not set it at all.
+                        filename = getattr(val, 'filename', None)
+                        if filename is not None:
+                            # read the original file directly to preserve format and avoid lossy re-encoding
+                            with open(filename, 'rb') as f:
+                                val = f.read()
+                        else:
+                            buf = io.BytesIO()
+                            val.save(buf, format='png')
+                            val = buf.getvalue()
                     else:
                         raise excs.Error(f'unknown image type {type(val)}')
                     val_size_bytes = len(val)
