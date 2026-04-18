@@ -20,6 +20,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
+    pxt_raises,
     reload_catalog,
     rerun,
     skip_test_if_not_installed,
@@ -117,7 +118,7 @@ class TestLabelStudio:
         assert store.get_export_columns() == {'image': ts.ImageType(), 'text': ts.StringType()}
         assert store.get_import_columns() == {'annotations': ts.JsonType(nullable=True)}
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.io.create_label_studio_project(
                 t,
                 """
@@ -134,7 +135,7 @@ class TestLabelStudio:
             exc_info.value
         )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             pxt.io.create_label_studio_project(
                 t,
                 """
@@ -426,7 +427,7 @@ class TestLabelStudio:
         t = ls_image_table
         t.add_column(annotations_col=pxt.Json)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.io.create_label_studio_project(
                 t, self.test_config_with_text, media_import_method='post', col_mapping={'image_col': 'image'}
             )
@@ -438,7 +439,7 @@ class TestLabelStudio:
         false_project = LabelStudioProject('false_project', 4171780, media_import_method='post', col_mapping={})
 
         # But trying to do anything with it raises an exception.
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR) as exc_info:
             _ = false_project.project_title
         assert 'Could not locate Label Studio project' in str(exc_info.value)
 

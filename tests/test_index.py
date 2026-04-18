@@ -20,6 +20,7 @@ from .utils import (
     assert_resultset_eq,
     get_sentences,
     list_store_indexes,
+    pxt_raises,
     reload_catalog,
     skip_test_if_not_installed,
     validate_update_status,
@@ -49,7 +50,7 @@ class TestIndex:
 
         # similarity query should fail because there are multiple indices
         # img_idx1 and img_idx2 on img column in multi_idx_img_tbl
-        with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Column 'img' has multiple embedding indices"):
             _ = t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img), asc=False).limit(1).collect()
         # but we can specify the index to use, and the query should work
         query = (
@@ -67,7 +68,7 @@ class TestIndex:
         # After the query is serialized, dropping the index should raise an error
         # on reload, because the index is no longer available
         t.drop_embedding_index(idx_name='img_idx1')
-        with pytest.raises(pxt.NotFoundError, match=r'(?i).*img_idx1.*not found.*'):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=r'(?i).*img_idx1.*not found.*'):
             reload_tester.run_reload_test(clear=False)
 
         # After the query is serialized, dropping and recreating the index should work
@@ -270,43 +271,47 @@ class TestIndex:
             DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
         ):
             for param, expected in type_failures:
-                with pytest.raises(pxt.Error, match=rf'similarity\(.*\): expected {expected}; got `tuple`') as exc_info:
+                with pytest.raises(
+                    pxt.RequestError, match=rf'similarity\(.*\): expected {expected}; got `tuple`'
+                ) as exc_info:
                     _ = t.order_by(t.img.similarity(**{param: ('red truck',)})).limit(1).collect()  # type: ignore[arg-type]
             for param, expected in type_failures:
-                with pytest.raises(pxt.Error, match=rf'similarity\(.*\): expected {expected}; got `list`') as exc_info:
+                with pytest.raises(
+                    pxt.RequestError, match=rf'similarity\(.*\): expected {expected}; got `list`'
+                ) as exc_info:
                     _ = t.order_by(t.img.similarity(**{param: ['red truck']})).limit(1).collect()  # type: ignore[arg-type]
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:  # type: ignore[assignment]
             _ = t.order_by(t.img.similarity(string=t.split)).limit(1).collect()  # type: ignore[arg-type]
         assert 'not an expression' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error, match="No embedding index found for column 'split'"):
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match="No embedding index found for column 'split'"):
             _ = t.order_by(t.split.similarity(string='red truck')).limit(1).collect()
 
         t = small_img_tbl
         t.add_embedding_index('img', image_embed=clip_embed)
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:  # type: ignore[assignment]
             _ = t.order_by(t.img.similarity(string='red truck')).limit(1).collect()
         assert 'does not have a string embedding' in str(exc_info.value).lower()
 
         t.add_embedding_index('img', embedding=clip_embed)
-        with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Column 'img' has multiple embedding indices"):
             _ = t.order_by(t.img.similarity(string='red truck')).limit(1).collect()
 
         # Similarity fails when attempted on a snapshot
         t_s = pxt.create_snapshot('t_s', t)
-        with pytest.raises(pxt.Error, match='Snapshot does not support indices'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
             _ = t_s.order_by(t_s.img.similarity(string='red truck')).limit(1).collect()
 
         # embedding() fails on a snapshot
-        with pytest.raises(pxt.Error, match='Snapshot does not support indices'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
             _ = t_s.select(t_s.img.embedding(idx='other_idx')).limit(2)
 
         t.drop_embedding_index(idx_name='idx0')
         t.drop_embedding_index(idx_name='idx1')
         t.add_embedding_index('split', string_embed=clip_embed)
         sample_img = t.select(t.img).head(1)[0, 'img']
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:  # type: ignore[assignment]
             _ = t.order_by(t.split.similarity(image=sample_img)).limit(1).collect()
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
@@ -392,7 +397,7 @@ class TestIndex:
 
         # when index name is provided, if_exists parameter is applied.
         # invalid value is rejected.
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed, if_exists='invalid')  # type: ignore[arg-type]
         assert (
             "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
@@ -401,9 +406,9 @@ class TestIndex:
 
         # if_exists='error' raises an error if the index name already exists.
         # by default, if_exists='error'.
-        with pytest.raises(pxt.Error, match='Duplicate index name'):
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
             t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
-        with pytest.raises(pxt.Error, match='Duplicate index name'):
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
             t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed, if_exists='error')
         assert len(t._list_index_info_for_test()) == initial_indexes + 3
 
@@ -418,7 +423,7 @@ class TestIndex:
         # that is not an embedding (like, default btree indexes).
         assert indexes[0]['_name'] == 'idx0'
         for ie in ('ignore', 'replace', 'replace_force'):
-            with pytest.raises(pxt.Error, match='not an embedding index'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not an embedding index'):
                 t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=ie)
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
@@ -466,10 +471,10 @@ class TestIndex:
         img_t.insert(new_rows)
         print(img_t.head())
 
-        with pytest.raises(pxt.Error, match='property of another column is not allowed'):
+        with pytest.raises(pxt.RequestError, match='property of another column is not allowed'):
             img_t.add_computed_column(emsg=img_t.img.errormsg)
 
-        with pytest.raises(pxt.Error, match='property of another column is not allowed'):
+        with pytest.raises(pxt.RequestError, match='property of another column is not allowed'):
             img_t.add_computed_column(etype=img_t.img.errortype)
 
         with pytest.raises(AttributeError, match='Unknown method '):
@@ -488,12 +493,12 @@ class TestIndex:
         # Update the row with a new image
         repl_row = rows[7]
         repl_row['pkey'] = 0
-        with pytest.raises(pxt.Error, match='is a media column and cannot be updated'):
+        with pytest.raises(pxt.RequestError, match='is a media column and cannot be updated'):
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
         # Update the row again, looking for an error
-        with pytest.raises(pxt.Error, match='is a media column and cannot be updated'):
+        with pytest.raises(pxt.RequestError, match='is a media column and cannot be updated'):
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
@@ -513,7 +518,9 @@ class TestIndex:
         img_t.insert([rows[6]])
 
         # Attempt to drop the embedding index
-        with pytest.raises(pxt.Error, match="Cannot drop index 'cat_idx' because the following columns depend on it"):
+        with pytest.raises(
+            pxt.RequestError, match="Cannot drop index 'cat_idx' because the following columns depend on it"
+        ):
             img_t.drop_embedding_index(column=img_t.category)
 
         img_t.add_computed_column(sim=img_t.category.similarity(string='red_truck', idx='cat_idx'))
@@ -541,14 +548,14 @@ class TestIndex:
         dummy_img_t = pxt.create_table('dummy', schema)
         dummy_img_t.insert(rows[:10])
 
-        with pytest.raises(pxt.NotFoundError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             # cannot pass another table's column reference
             img_t.add_embedding_index(dummy_img_t.img, embedding=clip_embed)
         assert 'unknown column: dummy.img' in str(exc_info.value).lower()
 
         img_t.add_embedding_index('img', embedding=clip_embed)
 
-        with pytest.raises(pxt.NotFoundError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             # cannot pass another table's column reference
             img_t.drop_embedding_index(column=dummy_img_t.img)
         assert 'unknown column: dummy.img' in str(exc_info.value).lower()
@@ -561,11 +568,11 @@ class TestIndex:
         assert len(res) == 2
         assert isinstance(res[0, 0], np.ndarray)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.AlreadyExistsError) as exc_info:
             # duplicate name
             img_t.add_embedding_index('img', idx_name='idx0', image_embed=clip_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.AlreadyExistsError) as exc_info:
             img_t.add_embedding_index(img_t.img, idx_name='idx0', image_embed=clip_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
@@ -573,10 +580,10 @@ class TestIndex:
 
         # revert() removes the index
         img_t.revert()
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             img_t.drop_embedding_index(column='category')
         assert 'does not have an index' in str(exc_info.value).lower()
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             img_t.drop_embedding_index(column=img_t.category)
         assert 'does not have an index' in str(exc_info.value).lower()
 
@@ -627,21 +634,21 @@ class TestIndex:
         assert isinstance(r[0, 0], np.ndarray)
 
         # embedding() fails when multiple indices are present
-        with pytest.raises(pxt.Error, match='has multiple embedding indices'):
+        with pytest.raises(pxt.RequestError, match='has multiple embedding indices'):
             _ = img_t.select(img_t.img.embedding()).collect()
 
         # Adding an index with an invalid index name fails
-        with pytest.raises(pxt.Error, match='Invalid column name'):
+        with pytest.raises(pxt.RequestError, match='Invalid column name'):
             img_t.add_embedding_index(img_t.img, idx_name='BOGUS COL NAME', embedding=clip_embed)
 
         with pytest.raises(pxt.NotFoundError) as exc_info:
             _ = img_t.img.similarity(string='red truck', idx='doesnotexist')
         assert "index 'doesnotexist' not found" in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.RequestError) as exc_info:
             img_t.drop_embedding_index(column='img')
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.RequestError) as exc_info:
             img_t.drop_embedding_index(column=img_t.img)
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
         img_t.drop_embedding_index(idx_name='other_idx')
@@ -652,13 +659,13 @@ class TestIndex:
         assert "index 'other_idx' not found" in str(exc_info.value).lower()
 
         img_t.drop_embedding_index(column=img_t.img)
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.NotFoundError) as exc_info:
             img_t.drop_embedding_index(column=img_t.img)
         assert 'does not have an index' in str(exc_info.value).lower()
 
         # revert() makes the index reappear
         img_t.revert()
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.AlreadyExistsError) as exc_info:
             img_t.add_embedding_index('img', idx_name='idx0', image_embed=clip_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
@@ -709,137 +716,143 @@ class TestIndex:
         skip_test_if_not_installed('transformers')
         img_t = small_img_tbl
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             img_t.add_embedding_index('img', metric='badmetric', image_embed=clip_embed)  # type: ignore[arg-type]
         assert 'invalid metric badmetric' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.NotFoundError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             # unknown column
             img_t.add_embedding_index('does_not_exist', idx_name='idx0', image_embed=clip_embed)
         assert 'Unknown column: does_not_exist' in str(exc_info.value)
 
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.MISSING_REQUIRED,
             match=r'`embed`, `string_embed`, `image_embed`, `audio_embed`, `video_embed`, or `document_embed` '
             'must be specified',
         ):
             # no embedding function specified
             img_t.add_embedding_index('img')
 
-        with pytest.raises(pxt.Error, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."
+        ):
             # wrong column type
             test_tbl.add_embedding_index('c2', image_embed=clip_embed)
 
-        with pytest.raises(
-            pxt.Error, match=r"The specified embedding function does not support the type `Image` of column 'img'."
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            match=r"The specified embedding function does not support the type `Image` of column 'img'.",
         ):
             # missing embedding function
             img_t.add_embedding_index('img', string_embed=clip_embed)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
             # wrong signature
             img_t.add_embedding_index('img', image_embed=clip)
         assert 'must take a single image parameter' in str(exc_info.value).lower()
 
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
             match=r"The specified embedding function does not support the type `String` of column 'category'.",
         ):
             # missing embedding function
             img_t.add_embedding_index('category', image_embed=clip_embed)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
             # wrong signature
             img_t.add_embedding_index('category', string_embed=clip)
         assert 'must take a single string parameter' in str(exc_info.value).lower()
 
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'The function `clip` is not a valid embedding: '
             'it must take a single string, image, audio, video, or document parameter',
         ):
             # no matching signature
             img_t.add_embedding_index('img', embedding=clip)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
             img_t.add_embedding_index('category', string_embed=self.bad_embed)
         assert 'must return an array' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
             img_t.add_embedding_index('category', string_embed=self.bad_embed2)
         assert 'must return a 1-dimensional array of a specific length' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED) as exc_info:
             img_t.drop_embedding_index()
         assert "exactly one of 'column' or 'idx_name' must be provided" in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.NotFoundError, match="Index 'doesnotexist' does not exist"):
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match="Index 'doesnotexist' does not exist"):
             img_t.drop_embedding_index(idx_name='doesnotexist')
-        with pytest.raises(pxt.NotFoundError, match="Index 'doesnotexist' does not exist"):
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match="Index 'doesnotexist' does not exist"):
             img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='error')
 
         img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='ignore')
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='invalid')  # type: ignore[arg-type]
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.NotFoundError, match='Unknown column: doesnotexist'):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column: doesnotexist'):
             img_t.drop_embedding_index(column='doesnotexist')
         # when dropping an index via a column, if_not_exists does not
         # apply to non-existent column; it will still raise error.
-        with pytest.raises(pxt.NotFoundError, match='Unknown column: doesnotexist'):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column: doesnotexist'):
             img_t.drop_embedding_index(column='doesnotexist', if_not_exists='invalid')  # type: ignore[arg-type]
         with pytest.raises(AttributeError) as exc_info:
             img_t.drop_embedding_index(column=img_t.doesnotexist)
         assert 'Unknown column: doesnotexist' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error, match="Column 'img' does not have an index"):
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match="Column 'img' does not have an index"):
             img_t.drop_embedding_index(column='img')
-        with pytest.raises(pxt.Error, match="Column 'img' does not have an index"):
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match="Column 'img' does not have an index"):
             img_t.drop_embedding_index(column=img_t.img)
         # when dropping an index via a column, if_not_exists applies if
         # the column does not have any index to drop.
-        with pytest.raises(pxt.Error, match="Column 'img' does not have an index"):
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match="Column 'img' does not have an index"):
             img_t.drop_embedding_index(column='img', if_not_exists='error')
         img_t.drop_embedding_index(column=img_t.img, if_not_exists='ignore')
 
         img_t.add_embedding_index('img', idx_name='embed0', embedding=clip_embed)
         img_t.add_embedding_index('img', idx_name='embed1', embedding=clip_embed)
 
-        with pytest.raises(pxt.Error, match="Column 'img' has multiple indices"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Column 'img' has multiple indices"):
             img_t.drop_embedding_index(column='img')
-        with pytest.raises(pxt.Error, match="Column 'img' has multiple indices"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Column 'img' has multiple indices"):
             img_t.drop_embedding_index(column=img_t.img)
 
-        with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Column 'img' has multiple embedding indices"):
             sim = img_t.img.similarity(string='red truck')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
 
         if not Env.get().is_using_cockroachdb:
             # TODO(PXT-941): Revisit embedding index precision behavior for cloud launch
             # In CockroachDB we use VECTOR type that doesn't have the same limitation as pgvector's VECTOR and HALFVEC
-            with pytest.raises(
-                pxt.Error,
+            with pxt_raises(
+                pxt.ErrorCode.INVALID_ARGUMENT,
                 match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision",
             ):
                 test_tbl.add_embedding_index(
                     test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=4001), precision='fp16'
                 )
-            with pytest.raises(
-                pxt.Error,
+            with pxt_raises(
+                pxt.ErrorCode.INVALID_ARGUMENT,
                 match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for fp32 precision",
             ):
                 test_tbl.add_embedding_index(
                     test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=2001), precision='fp32'
                 )
 
-        with pytest.raises(pxt.Error, match=r"Invalid precision.+Must be one of: \['fp16', 'fp32'\]"):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid precision.+Must be one of: \['fp16', 'fp32'\]"):
             test_tbl.add_embedding_index(
                 test_tbl.c1,
                 embedding=TestIndex.dummy_embedding.using(n=2001),
                 precision='invalid',  # type: ignore[arg-type]
             )
-        with pytest.raises(pxt.Error, match='is not a valid embedding: it returns an array of invalid length 0'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match='is not a valid embedding: it returns an array of invalid length 0',
+        ):
             test_tbl.add_embedding_index(test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=0), precision='fp16')
 
     def run_btree_test(self, data: list, data_type: type | _GenericAlias) -> pxt.Table:
@@ -890,7 +903,7 @@ class TestIndex:
         assert t.where(t.data >= s).count() == self.BTREE_TEST_NUM_ROWS - idx
         assert t.where(t.data > s).count() == self.BTREE_TEST_NUM_ROWS - idx - 1
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             assert len(data[56]) == 256
             _ = t.where(t.data == data[56]).count()
         assert 'String literal too long' in str(exc_info.value)
@@ -1090,11 +1103,11 @@ class TestIndex:
         )
         t.insert([{'id': 0, 'vec': np.zeros(384, dtype=np.float32), 'vec2d': np.zeros((10, 10), dtype=np.float32)}])
 
-        with pytest.raises(pxt.Error, match='shape'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='shape'):
             t.add_embedding_index('vec', embedding=self._embed_wrong_shape)
 
         # 2D array columns should be rejected
-        with pytest.raises(pxt.Error, match='1-dimensional'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='1-dimensional'):
             t.add_embedding_index('vec2d')
 
     @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
@@ -1157,7 +1170,7 @@ class TestIndex:
 
         # drop index: query should fail with a clear error
         t.drop_embedding_index(idx_name='emb_idx')
-        with pytest.raises(pxt.Error, match=r"(?i).*No embedding index found for column 'text'.*"):
+        with pytest.raises(pxt.NotFoundError, match=r"(?i).*No embedding index found for column 'text'.*"):
             query.collect()
 
         # recreate index under same name: query should work again
@@ -1173,5 +1186,5 @@ class TestIndex:
 
         # drop the column: query should fail
         t.drop_column('text')
-        with pytest.raises(pxt.Error, match=r'(?i).*column was dropped.*'):
+        with pytest.raises(pxt.NotFoundError, match=r'(?i).*column was dropped.*'):
             query.collect()

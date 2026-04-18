@@ -6,11 +6,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import PIL.Image
-import pytest
 
 import pixeltable as pxt
 
-from ..utils import skip_test_if_not_installed
+from ..utils import pxt_raises, skip_test_if_not_installed
 
 
 @pxt.udf
@@ -82,13 +81,13 @@ class TestLanceDb:
         pxt.io.export_lancedb(t, db_path, 'test')
         validate_data('test', list(t.collect()))
 
-        with pytest.raises(pxt.AlreadyExistsError, match='already exists in'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists in'):
             pxt.io.export_lancedb(t, db_path, 'test', if_exists='error')
 
-        with pytest.raises(pxt.Error, match='must be one of'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be one of'):
             pxt.io.export_lancedb(t, db_path, 'test', if_exists='badval')  # type: ignore[arg-type]
 
-        with pytest.raises(pxt.Error, match='exists and is not a directory'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exists and is not a directory'):
             pxt.io.export_lancedb(t, Path(__file__), 'test', if_exists='overwrite')
 
         # export query result containing PIL image, with if_exists='overwrite'
@@ -115,6 +114,6 @@ class TestLanceDb:
 
         # error during export
         error_db_path = tmp_path / 'error_db'
-        with pytest.raises(pxt.Error):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             pxt.io.export_lancedb(t.select(t.c_int, udf_with_exc(t.c_int, 100)), error_db_path, 'test')
         assert not error_db_path.exists()

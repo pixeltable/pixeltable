@@ -2,9 +2,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import pytest
-
 import pixeltable as pxt
+
+from .utils import pxt_raises
 
 
 class TestConfig:
@@ -57,8 +57,8 @@ class TestConfig:
 
         pxt.init()
         pxt.init()  # Ok to do a parameterless init() a second time
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_STATE,
             match='Pixeltable has already been initialized; cannot specify new config values in the same session',
         ):
             pxt.init({'pixeltable.home': '.'})  # Not ok to specify new config values after init()

@@ -3,12 +3,13 @@ import json
 import pathlib
 import uuid
 
-import pytest
 import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.io.sql import export_sql
+
+from ..utils import pxt_raises
 
 
 class TestSql:
@@ -167,23 +168,23 @@ class TestSql:
 
         # unsupported column type
         t_img = pxt.create_table('test_img', {'img': pxt.Image})
-        with pytest.raises(pxt.Error, match='Cannot export column of type'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot export column of type'):
             export_sql(t_img, 'error_table', db_connect_str=connection_string)
 
         # table exists with if_exists='error'
         t, _ = self.create_test_data(10)
         export_sql(t, 'existing_table', db_connect_str=connection_string)
-        with pytest.raises(pxt.AlreadyExistsError, match='already exists'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             export_sql(t, 'existing_table', db_connect_str=connection_string, if_exists='error')
 
         # missing column in target table
         t2 = pxt.create_table('test2', {'c_int': pxt.Int, 'c_string': pxt.String, 'extra': pxt.Int})
         t2.insert([{'c_int': 1, 'c_string': 'a', 'extra': 100}])
-        with pytest.raises(pxt.Error, match="Column 'extra' not in table"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="Column 'extra' not in table"):
             export_sql(t2, 'existing_table', db_connect_str=connection_string, if_exists='insert')
 
         # incompatible schema
         t3 = pxt.create_table('test3', {'c_int': pxt.Json})
         t3.insert([{'c_int': {'key': 'value'}}])
-        with pytest.raises(pxt.Error, match=r"column 'c_int' of type INTEGER is not compatible"):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"column 'c_int' of type INTEGER is not compatible"):
             export_sql(t3, 'existing_table', db_connect_str=connection_string, if_exists='insert')

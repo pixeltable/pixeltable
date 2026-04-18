@@ -37,6 +37,31 @@ from pixeltable.utils.object_stores import ObjectOps
 TESTS_DIR = Path(os.path.dirname(__file__))
 
 
+_ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
+    0: pxt.Error,
+    1: pxt.NotFoundError,
+    2: pxt.AlreadyExistsError,
+    3: pxt.RequestError,
+    4: pxt.AuthorizationError,
+    5: pxt.ExternalServiceError,
+    6: pxt.ServiceUnavailableError,
+    7: pxt.ConcurrencyError,
+}
+
+
+@contextmanager
+def pxt_raises(code: pxt.ErrorCode, *, match: str | None = None) -> Iterator[pytest.ExceptionInfo[pxt.Error]]:
+    """
+    Assert that the enclosed block raises a `pxt.Error` with the given `error_code`.
+
+    The expected subclass is derived from `code` (the thousands digit selects the subclass).
+    """
+    cls = _ERROR_GROUP_TO_CLS[code.value // 1000]
+    with pytest.raises(cls, match=match) as info:
+        yield info
+    assert info.value.error_code is code, f'expected {code.name}, got {info.value.error_code.name}'
+
+
 def runs_linux_with_gpu() -> bool:
     try:
         import torch

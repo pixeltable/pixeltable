@@ -21,6 +21,7 @@ from .utils import (
     assert_type_eq,
     get_image_files,
     get_video_files,
+    pxt_raises,
     reload_catalog,
     validate_update_status,
 )
@@ -150,35 +151,35 @@ class TestFunction:
         assert "'b'" in str(exc_info.value)
 
         # bad default value
-        with pytest.raises(pxt.Error, match='Default value'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Default value'):
 
             @pxt.udf
             def f1(a: int, b: float, c: float = '') -> float:  # type: ignore[assignment]
                 return a + b + c
 
         # missing param type
-        with pytest.raises(pxt.Error, match="Cannot infer pixeltable type for parameter 'c'"):
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match="Cannot infer pixeltable type for parameter 'c'"):
 
             @pxt.udf
             def f1(a: int, b: float, c='') -> float:  # type: ignore[no-untyped-def]
                 return a + b + c
 
         # bad parameter name
-        with pytest.raises(pxt.Error, match='reserved'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
 
             @pxt.udf
             def f1(group_by: int) -> int:
                 return group_by
 
         # bad parameter name
-        with pytest.raises(pxt.Error, match='reserved'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
 
             @pxt.udf
             def f1(order_by: int) -> int:
                 return order_by
 
         # bad parameter name
-        with pytest.raises(pxt.Error, match='reserved'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
 
             @pxt.udf
             def f1(_int_param: int) -> int:
@@ -208,7 +209,7 @@ class TestFunction:
         assert result[0] == {'increment': 2, 'successor': 2, 'append': 'ax'}
         assert result[1] == {'increment': 3, 'successor': 3, 'append': 'bx'}
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
 
             @pxt.udf(is_method=True, is_property=True)
             def udf7(n: int) -> int:
@@ -216,7 +217,7 @@ class TestFunction:
 
         assert 'Cannot specify both `is_method` and `is_property` (in function `udf7`)' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
 
             @pxt.udf(is_property=True)
             def udf8(a: int, b: int) -> int:
@@ -224,7 +225,7 @@ class TestFunction:
 
         assert '`is_property=True` expects a UDF with exactly 1 parameter, but `udf8` has 2' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
 
             @pxt.udf(is_method=True, _force_stored=True)
             def udf9(n: int) -> int:
@@ -232,7 +233,7 @@ class TestFunction:
 
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
 
             @pxt.udf(is_property=True, _force_stored=True)
             def udf10(n: int) -> int:
@@ -448,15 +449,15 @@ class TestFunction:
         res = t.select(t.pb1, t.pb2, t.pb3).collect()
         assert res[0] == {'pb1': 'a y c default', 'pb2': 'x b z default', 'pb3': 'x y z changed'}
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             self.binding_test_udf.using(non_param='a')
         assert 'Unknown parameter: non_param' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             self.binding_test_udf.using(p1=t.c1)
         assert "Expected a constant value for parameter 'p1' in call to .using()" in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
             self.binding_test_udf.using(p1=5)
         assert "Expected type `String` for parameter 'p1'; got `Int`" in str(exc_info.value)
 
@@ -546,7 +547,7 @@ class TestFunction:
             _ = t.select(self.add1(y=t.c2)).collect()
         assert 'missing a required argument' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
             # parameter types cannot be inferred
             @pxt.expr_udf
             def add1(x, y) -> int:  # type: ignore[no-untyped-def]
@@ -554,7 +555,7 @@ class TestFunction:
 
         assert 'cannot infer pixeltable type' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED) as exc_info:
             # missing param types
             @pxt.expr_udf(param_types=[ts.IntType()])
             def add1(x, y) -> int:  # type: ignore[no-untyped-def]
@@ -578,7 +579,7 @@ class TestFunction:
     # Test that various invalid udf definitions generate
     # correct error messages.
     def test_invalid_udfs(self) -> None:
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
 
             @pxt.udf
             def udf1(name: Batch[str]) -> str:
@@ -586,7 +587,7 @@ class TestFunction:
 
         assert 'batched parameters in udf, but no `batch_size` given' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION) as exc_info:
 
             @pxt.udf(batch_size=32)
             def udf2(name: Batch[str]) -> str:
@@ -594,7 +595,7 @@ class TestFunction:
 
         assert 'batch_size is specified; Python return type must be a `Batch`' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
 
             @pxt.udf
             def udf3(name: str) -> np.ndarray | None:
@@ -602,7 +603,7 @@ class TestFunction:
 
         assert 'cannot infer pixeltable return type' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
 
             @pxt.udf
             def udf4(array: np.ndarray) -> str:
@@ -610,7 +611,7 @@ class TestFunction:
 
         assert "cannot infer pixeltable type for parameter 'array'" in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
 
             @pxt.udf
             def udf5(name: str, untyped) -> str:  # type: ignore[no-untyped-def]
@@ -626,7 +627,7 @@ class TestFunction:
 
         assert '`wrong_param` that is not in a signature' in str(v_exc_info.value).lower()
 
-        with pytest.raises(pxt.AlreadyExistsError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.FUNCTION_ALREADY_EXISTS) as exc_info:
             from .module_with_duplicate_udf import duplicate_udf  # noqa: F401
         assert 'A UDF with that name already exists: tests.module_with_duplicate_udf.duplicate_udf' in str(
             exc_info.value
@@ -695,7 +696,7 @@ class TestFunction:
         assert fc_int2.fn.signature == fn.signatures[1]
         assert fc_int2.col_type.is_int_type()
 
-        with pytest.raises(pxt.Error, match='has no matching signature'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has no matching signature'):
             fn(t.c3, t.c3)
 
         res = t.select(fc_str2, fc_int2).order_by(t.c2).collect()
@@ -907,9 +908,9 @@ class TestFunction:
                     t.where(t.c1 == 'abc').update({'c1': 'def'})
                     t.where(t.c1 == 'def').delete()
             else:
-                with pytest.raises(pxt.Error, match=insert_error_regex(validation_error)):
+                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=insert_error_regex(validation_error)):
                     t.insert(c1='abc')
-                with pytest.raises(pxt.Error, match=update_error_regex(validation_error)):
+                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=update_error_regex(validation_error)):
                     t.where(t.c1 == 'xyz').update({'c1': 'def'})
 
         def warning_regex(msg: str) -> str:
@@ -1151,7 +1152,7 @@ class TestFunction:
             t = pxt.get_table('test')
 
     def test_tool_errors(self) -> None:
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
@@ -1409,7 +1410,7 @@ class TestFunction:
         videos = get_video_files()[:2]
         t_vid = pxt.create_table('test_est_vid', {'video': pxt.Video})
         t_vid.add_computed_column(emb=mock_embed(t_vid.video))
-        with pytest.raises(pxt.Error, match='not in the resolved function signature'):
+        with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match='not in the resolved function signature'):
             t_vid.insert([{'video': v} for v in videos])
 
     def test_resource_estimator_non_polymorphic(self, uses_db: None) -> None:
@@ -1429,19 +1430,19 @@ class TestFunction:
         # scalar
         t1 = pxt.create_table('test_sync_rp', {'text': pxt.String})
         t1.add_computed_column(result=sync_udf_with_rp(t1.text))
-        with pytest.raises(pxt.Error, match='resource_pool requires an async function'):
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t1.insert([{'text': 'hello'}])
 
         # batched
         t2 = pxt.create_table('test_sync_batch_rp', {'text': pxt.String})
         t2.add_computed_column(result=sync_batched_udf_with_rp(t2.text))
-        with pytest.raises(pxt.Error, match='resource_pool requires an async function'):
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t2.insert([{'text': f'hello {i}'} for i in range(8)])
 
         # polymorphic resolved to a sync overload
         t3 = pxt.create_table('test_sync_poly_rp', {'num': pxt.Int})
         t3.add_computed_column(result=sync_poly_udf_with_rp(t3.num))
-        with pytest.raises(pxt.Error, match='resource_pool requires an async function'):
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t3.insert([{'num': 1}])
 
 

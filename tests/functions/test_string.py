@@ -3,8 +3,6 @@ import textwrap
 import unicodedata
 from typing import Callable
 
-import pytest
-
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.functions.string import (
@@ -42,7 +40,7 @@ from pixeltable.functions.string import (
     zfill,
 )
 
-from ..utils import reload_catalog, skip_test_if_not_installed, validate_update_status
+from ..utils import pxt_raises, reload_catalog, skip_test_if_not_installed, validate_update_status
 
 
 class TestString:
@@ -292,11 +290,11 @@ class TestString:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.select(t.s.index('IBM')).collect()
         assert 'ValueError' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.select(t.s.rindex('IBM')).collect()
         assert 'ValueError' in str(exc_info.value)
 

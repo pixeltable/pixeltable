@@ -13,7 +13,7 @@ from pixeltable.functions.net import presigned_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
-from .utils import rerun, skip_test_if_not_installed
+from .utils import pxt_raises, rerun, skip_test_if_not_installed
 
 
 class TestDestination:
@@ -67,35 +67,35 @@ class TestDestination:
         valid_dest = 'tests/data/'
 
         # Basic tests of the destination parameter: types and store / computed
-        with pytest.raises(pxt.Error, match='must be a string or path'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be a string or path'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination=27)
 
-        with pytest.raises(pxt.Error, match='only applies to stored computed columns'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only applies to stored computed columns'):
             t.add_computed_column(img_rot=t.img.rotate(90), stored=False, destination=valid_dest)
 
-        with pytest.raises(pxt.Error, match='only applies to stored computed columns'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only applies to stored computed columns'):
             _ = pxt.create_table('test_dest_bad', schema={'img': {'type': pxt.Image, 'destination': f'{valid_dest}'}})
 
         # Test destination with a non-existent directory
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match='does not exist'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='non_existent_dir/img_rot')
 
         # Test destination with a file path instead of a directory
-        with pytest.raises(pxt.Error, match='must be a directory, not a file'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a directory, not a file'):
             t.add_computed_column(
                 img_rot=t.img.rotate(90), destination='tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'
             )
 
         # Test with invalid scheme
-        with pytest.raises(pxt.Error, match='must be a valid reference to a supported'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
     def test_invalid_bucket(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         t = pxt.create_table('test_invalid_dest', schema={'img': pxt.Image})
 
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.STORAGE_NOT_FOUND,
             match="Client error while validating destination for column 'img_rot': "
             "Bucket 'pxt-test-not-a-bucket' not found",
         ):
@@ -111,7 +111,7 @@ class TestDestination:
             r"Client error while validating destination for column 'img_rot': "
             r"Access denied to bucket 'pxt-test': Forbidden"
         )
-        with pytest.raises(pxt.Error, match=f'{msg1}|{msg2}'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=f'{msg1}|{msg2}'):
             t.add_computed_column(
                 img_rot=t.img.rotate(90),
                 destination='https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest',

@@ -8,7 +8,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
-from tests.utils import get_audio_files, get_image_files, get_video_files, skip_test_if_not_installed, sleep
+from tests.utils import get_audio_files, get_image_files, get_video_files, pxt_raises, skip_test_if_not_installed, sleep
 
 
 @pxt.udf
@@ -957,20 +957,24 @@ class TestFastAPI:
 
         router = FastAPIRouter()
 
-        with pytest.raises(pxt.Error, match=r'must be a @pxt\.query or retrieval_udf'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r'must be a @pxt\.query or retrieval_udf'):
             router.add_query_route(path='/e', query=add_one)  # regular UDF, not a query
-        with pytest.raises(pxt.Error, match="unknown input parameter 'doesnotexist'"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown input parameter 'doesnotexist'"):
             router.add_query_route(path='/e', query=lookup, inputs=['doesnotexist'])
-        with pytest.raises(pxt.Error, match="unknown uploadfile input parameter 'doesnotexist'"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown uploadfile input parameter 'doesnotexist'"):
             router.add_query_route(path='/e', query=lookup, uploadfile_inputs=['doesnotexist'])
-        with pytest.raises(pxt.Error, match="uploadfile input parameter 'min_id' is not a media parameter"):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="uploadfile input parameter 'min_id' is not a media parameter"
+        ):
             router.add_query_route(path='/e', query=lookup, uploadfile_inputs=['min_id'])
-        with pytest.raises(pxt.Error, match='return_fileresponse and background are mutually exclusive'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='return_fileresponse and background are mutually exclusive'
+        ):
             router.add_query_route(path='/e', query=by_text, return_fileresponse=True, background=True)
-        with pytest.raises(pxt.Error, match='exactly one media-typed output column'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one media-typed output column'):
             # by_text returns a single media column; lookup returns (id, text) which is not media-typed
             router.add_query_route(path='/e', query=lookup, return_fileresponse=True)
-        with pytest.raises(pxt.Error, match='GET endpoints cannot have uploadfile_inputs'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 
     def test_add_insert_route_errors(self, uses_db: None) -> None:
@@ -988,28 +992,34 @@ class TestFastAPI:
 
         router = FastAPIRouter()
 
-        with pytest.raises(pxt.Error, match='cannot insert into'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot insert into'):
             v = pxt.create_view('test_serve.errors_view', t)
             router.add_insert_route(v, path='/v')
-        with pytest.raises(pxt.Error, match="unknown input column 'doesnotexist'"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown input column 'doesnotexist'"):
             router.add_insert_route(t, path='/e', inputs=['doesnotexist'])
-        with pytest.raises(pxt.Error, match="unknown uploadfile input column 'doesnotexist'"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown uploadfile input column 'doesnotexist'"):
             router.add_insert_route(t, path='/e', uploadfile_inputs=['doesnotexist'])
-        with pytest.raises(pxt.Error, match="'text_upper' is a computed column"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'text_upper' is a computed column"):
             router.add_insert_route(t, path='/e', inputs=['text_upper'])
-        with pytest.raises(pxt.Error, match="uploadfile input column 'text' is not a media column"):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="uploadfile input column 'text' is not a media column"
+        ):
             router.add_insert_route(t, path='/e', uploadfile_inputs=['text'])
-        with pytest.raises(pxt.Error, match="'frame' is a computed column"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'frame' is a computed column"):
             router.add_insert_route(t, path='/e', uploadfile_inputs=['frame'])
-        with pytest.raises(pxt.Error, match="'image' appears in both `inputs` and `uploadfile_inputs`"):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'image' appears in both `inputs` and `uploadfile_inputs`"
+        ):
             router.add_insert_route(t, path='/e', inputs=['image'], uploadfile_inputs=['image'])
-        with pytest.raises(pxt.Error, match="unknown output column 'doesnotexist'"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown output column 'doesnotexist'"):
             router.add_insert_route(t, path='/e', outputs=['doesnotexist'])
-        with pytest.raises(pxt.Error, match='return_fileresponse and background are mutually exclusive'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='return_fileresponse and background are mutually exclusive'
+        ):
             router.add_insert_route(t, path='/e', outputs=['frame'], return_fileresponse=True, background=True)
-        with pytest.raises(pxt.Error, match='exactly one media-typed output column'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one media-typed output column'):
             router.add_insert_route(t, path='/e', outputs=['id', 'frame'], return_fileresponse=True)
-        with pytest.raises(pxt.Error, match='exactly one media-typed output column'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one media-typed output column'):
             router.add_insert_route(t, path='/e', outputs=['text_upper'], return_fileresponse=True)
 
     def test_add_delete_route(self, uses_db: None) -> None:
@@ -1098,14 +1108,14 @@ class TestFastAPI:
 
         router = FastAPIRouter()
 
-        with pytest.raises(pxt.Error, match='cannot delete from'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot delete from'):
             v = pxt.create_view('test_serve.items_view', t)
             router.add_delete_route(v, path='/v')
-        with pytest.raises(pxt.NotFoundError, match="unknown column 'doesnotexist'"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown column 'doesnotexist'"):
             router.add_delete_route(t, path='/e', match_columns=['doesnotexist'])
-        with pytest.raises(pxt.Error, match='`match_columns` must be non-empty'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='`match_columns` must be non-empty'):
             router.add_delete_route(t, path='/e', match_columns=[])
-        with pytest.raises(pxt.Error, match='table has no primary key'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='table has no primary key'):
             router.add_delete_route(t_no_pk, path='/e')
 
     @pytest.mark.parametrize(
