@@ -176,15 +176,14 @@ class TestJson:
         for col, expected_url in urls.items():
             assert exported[0][col] == expected_url, f'{col}: expected {expected_url}, got {exported[0][col]}'
 
-    def test_export_computed_media_without_destination_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        """Exporting a computed media column without a destination should raise an error."""
+    def test_export_media_transform_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Exporting a media-typed transform expression (not a bare ColumnRef) should raise an error."""
 
-        t = pxt.create_table('test_json_no_dest', {'img': pxt.Image})
-        t.add_computed_column(rotated=t.img.rotate(90))
+        t = pxt.create_table('test_json_transform', {'img': pxt.Image})
         t.insert([{'img': get_image_files()[0]}])
 
-        with pytest.raises(pxt.Error, match='without a destination'):
-            pxt.io.export_json(t, tmp_path / 'should_fail.jsonl')
+        with pytest.raises(pxt.Error, match='Cannot export media expression'):
+            pxt.io.export_json(t.select(t.img.rotate(90)), tmp_path / 'should_fail.jsonl')
 
     def test_export_computed_media_with_destination(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Computed media columns with a local file destination export their file URLs."""
