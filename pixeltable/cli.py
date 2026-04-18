@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 
 def main() -> None:
+    import pixeltable as pxt
+
     parser = argparse.ArgumentParser(prog='pxt', description='Pixeltable command-line interface')
     subparsers = parser.add_subparsers(dest='command', required=True)
 
@@ -19,10 +21,14 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.command == 'serve':
-        _serve(args)
-    else:
-        parser.print_help()
+    try:
+        if args.command == 'serve':
+            _serve(args)
+        else:
+            parser.print_help()
+            sys.exit(1)
+    except pxt.Error as e:
+        print(f'pxt: error: {e}', file=sys.stderr)
         sys.exit(1)
 
 

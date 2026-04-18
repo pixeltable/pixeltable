@@ -132,8 +132,8 @@ def search(min_id: int) -> pxt.Query:
         cases: list[tuple[dict[str, Any], str]] = [
             # missing routes
             ({}, 'routes'),
-            # unknown route type
-            ({'routes': [{'type': 'update', 'path': '/x'}]}, "'insert', 'delete', 'query'"),
+            # unknown route type (match on field name + invalid value to avoid coupling to Pydantic's exact phrasing)
+            ({'routes': [{'type': 'update', 'path': '/x'}]}, r'type.*update|update.*type'),
             # insert missing table
             ({'routes': [{'type': 'insert', 'path': '/x'}]}, 'table'),
             # query missing query
