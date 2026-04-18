@@ -696,7 +696,7 @@ class Query:
             # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         if isinstance(e.exc, excs.Error):
-            raise excs.Error(e.exc.error_code, msg) from e
+            raise type(e.exc)(e.exc.error_code, msg) from e
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, msg) from e
 
     def _output_row_iterator(self) -> Generator[list, None, None]:
