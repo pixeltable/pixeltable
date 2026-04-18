@@ -476,7 +476,7 @@ class Catalog:
             # the table got dropped in the middle of the operation
             tbl_name = tbl.get().name
             _logger.debug(f'Exception: undefined table {tbl_name!r}: Caught {type(e.orig)}: {e!r}')
-            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Table was dropped: {tbl_name}') from None
+            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, f'Table was dropped: {tbl_name}') from None
         elif (
             # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
             #     which is supposed to be deadlock-free.
@@ -590,7 +590,7 @@ class Catalog:
         row = conn.execute(q).one_or_none()
         if row is None:
             if raise_if_not_exists:
-                raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, self._dropped_tbl_error_msg(tbl_id))
+                raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(tbl_id))
             return set()  # nothing to lock
         tbl_md = schema.md_from_dict(schema.TableMd, row.md)
         locked: set[UUID] = set()
@@ -1082,7 +1082,7 @@ class Catalog:
             if drop_obj is not None and drop_expected is not None and not isinstance(drop_obj, drop_expected):
                 expected_name = 'table' if drop_expected is Table else 'directory'
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    excs.ErrorCode.INVALID_ARGUMENT,
                     f'{drop_path!r} needs to be a {expected_name} but is a {drop_obj._display_name()}',
                 )
 
@@ -1145,9 +1145,7 @@ class Catalog:
         if path.is_root:
             # the root dir
             if expected is not None and expected is not Dir:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'{path!r} needs to be a table but is a dir'
-                )
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{path!r} needs to be a table but is a dir')
             dir = self._get_dir(path, lock_dir=lock_obj)
             if dir is None:
                 # TODO: why unknown user?
@@ -1174,7 +1172,7 @@ class Catalog:
         elif obj is not None and expected is not None and not isinstance(obj, expected):
             expected_name = 'table' if expected is Table else 'directory'
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                excs.ErrorCode.INVALID_ARGUMENT,
                 f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.',
             )
         return obj
@@ -1377,8 +1375,8 @@ class Catalog:
             existing_path = Path.parse(existing._path(), allow_system_path=True)
             if existing_path != path and not existing_path.is_system_path:
                 # It does exist, under a different path from the specified one.
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.PATH_ALREADY_EXISTS,
                     f'That table has already been replicated as {existing_path!r}.\n'
                     f'Drop the existing replica if you wish to re-create it.',
                 )
@@ -1674,7 +1672,7 @@ class Catalog:
                     )
                 else:
                     msg = f'{tbl._display_str()} has dependents.'
-                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, msg)
+                raise excs.RequestError(excs.ErrorCode.CONSTRAINT_VIOLATION, msg)
 
         # if this is a mutable view of a mutable base, advance the base's view_sn
         if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
@@ -1834,7 +1832,7 @@ class Catalog:
         q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
         tbl_count = conn.execute(q).scalar()
         if tbl_count == 0:
-            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, self._dropped_tbl_error_msg(tbl_id))
+            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(tbl_id))
         q = (
             sql.select(schema.Table.id)
             .where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
@@ -1878,7 +1876,7 @@ class Catalog:
                 q = sql.select(schema.Table.md).where(where_clause)
                 row = conn.execute(q).one_or_none()
                 if row is None:
-                    raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
+                    raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
 
                 reload = False
 
@@ -1910,7 +1908,9 @@ class Catalog:
                     )
                     row = conn.execute(q).one_or_none()
                     if row is None:
-                        raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
+                        raise excs.NotFoundError(
+                            excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id)
+                        )
                     version = row.md['version']
                     if version != tv.version:  # TODO: How will view_sn work for replicas?
                         _logger.debug(
@@ -2123,7 +2123,7 @@ class Catalog:
                 # rare circumstances involving table versions created specifically with Pixeltable 0.4.3.
                 _logger.info(f'Ancestor {ancestor_id} not found for table {tbl_id}:{version}')
                 raise excs.NotFoundError(
-                    excs.ErrorCode.PATH_NOT_FOUND,
+                    excs.ErrorCode.TABLE_NOT_FOUND,
                     'The specified table version is no longer valid and cannot be retrieved.',
                 )
             ancestor_version_record = _unpack_row(row, [schema.TableVersion])[0]
@@ -2272,7 +2272,7 @@ class Catalog:
 
         row = conn.execute(q).one_or_none()
         if row is None:
-            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
+            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
         tbl_record, version_record, schema_version_record = _unpack_row(
             row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion]
         )
@@ -2528,7 +2528,7 @@ class Catalog:
         if check_pending_ops:
             # if we care about pending ops, we also care whether the table is in the process of getting dropped
             if tbl_md.pending_stmt == schema.TableStatement.DROP_TABLE:
-                raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
+                raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
 
             pending_ops_q = (
                 sql.select(sql.func.count())

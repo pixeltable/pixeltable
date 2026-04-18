@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 from types import TracebackType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from typing_extensions import Self
 
@@ -35,11 +35,12 @@ class ErrorCode(enum.Enum):
     # NotFoundError (1xxx)
     COLUMN_NOT_FOUND = 1000, 404, False
     PATH_NOT_FOUND = 1001, 404, False
-    DIRECTORY_NOT_FOUND = 1002, 404, False
-    INDEX_NOT_FOUND = 1003, 404, False
-    FUNCTION_NOT_FOUND = 1004, 404, False
-    ROW_NOT_FOUND = 1005, 404, False
-    STORAGE_NOT_FOUND = 1006, 404, False
+    TABLE_NOT_FOUND = 1002, 404, False
+    DIRECTORY_NOT_FOUND = 1003, 404, False
+    INDEX_NOT_FOUND = 1004, 404, False
+    FUNCTION_NOT_FOUND = 1005, 404, False
+    ROW_NOT_FOUND = 1006, 404, False
+    STORAGE_NOT_FOUND = 1007, 404, False
 
     # AlreadyExistsError (2xxx)
     COLUMN_ALREADY_EXISTS = 2000, 409, False
@@ -92,7 +93,11 @@ class Error(Exception):
     """
 
     error_code: ErrorCode
-    retry_after: float | None = None
+    retry_after: float | None
+
+    # Thousands digit of the ErrorCode values this class is allowed to carry.
+    # The base Error class carries the 0xxx generic codes; each subclass narrows to its own group.
+    _code_group: ClassVar[int] = 0
 
     def __init__(
         self,
@@ -101,6 +106,8 @@ class Error(Exception):
         cause: BaseException | None = None,
         retry_after: float | None = None,
     ) -> None:
+        cls = type(self)
+        assert error_code.value // 1000 == cls._code_group
         super().__init__(message)
         self.error_code = error_code
         self.retry_after = retry_after
@@ -128,9 +135,13 @@ class Error(Exception):
 class NotFoundError(Error):
     """Resource not found."""
 
+    _code_group = 1
+
 
 class AlreadyExistsError(Error):
     """Resource already exists."""
+
+    _code_group = 2
 
 
 class RequestError(Error):
@@ -142,13 +153,19 @@ class RequestError(Error):
     schema/validation codes -> 422, operation codes -> 400.
     """
 
+    _code_group = 3
+
 
 class AuthorizationError(Error):
     """Caller lacks permission for the requested operation."""
 
+    _code_group = 4
+
 
 class ExternalServiceError(Error):
     """An upstream provider or external store returned an error."""
+
+    _code_group = 5
 
     provider: str | None = None
     provider_http_status_code: int | None = None
@@ -179,9 +196,13 @@ class ExternalServiceError(Error):
 class ServiceUnavailableError(Error):
     """Database, store, or other infrastructure is unreachable."""
 
+    _code_group = 6
+
 
 class ConcurrencyError(Error):
     """Serialization failure, deadlock, or concurrent modification conflict."""
+
+    _code_group = 7
 
 
 class ExprEvalError(Exception):
