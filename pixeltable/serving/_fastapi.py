@@ -302,6 +302,61 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_class'] = FileResponse
         self.add_api_route(path, endpoint, **api_kwargs)
 
+
+    def insert_route(
+        self,
+        t: pxt.Table,
+        *,
+        path: str,
+        inputs: list[str] | None = None,
+        uploadfile_inputs: list[str] | None = None,
+        outputs: list[str] | None = None,
+        background: bool,
+    ) -> Callable:
+        """
+        Decorator that registers a POST endpoint performing a `Table.insert()` followed by user-defined post-processing.
+
+        The request body carries the input column values (JSON, or multipart form data when `uploadfile_inputs` is
+        used). After inserting the row, the decorated function is called with the requested output columns as
+        keyword arguments (parameter names and Pixeltable types must match `outputs`). Its return value, a Pydantic
+        model, becomes the HTTP response body.
+
+        Args:
+            t: The table to insert into.
+            path: The URL path for the endpoint.
+            inputs: Columns to accept as request fields. Defaults to all non-computed columns.
+            uploadfile_inputs: Columns to accept as
+                [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
+                (must be media-typed). These are sent as multipart form data; all other inputs
+                become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
+            outputs: Columns from the inserted row to pass to the decorated function as keyword
+                arguments. Defaults to all columns.
+            background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
+                the insert plus post-processing in a background thread. Poll `job_url` for the
+                result; the decorated function's return value is delivered as the job result.
+
+        Examples:
+            ```python
+            class GenerateResponse(pydantic.BaseModel):
+                caption: str
+                score: float
+
+            @router.insert_route(
+                t, path='/generate', inputs=['prompt'], outputs=['caption', 'score'], background=False
+            )
+            def format_response(*, caption: str, score: float) -> GenerateResponse:
+                return GenerateResponse(caption=caption.strip(), score=round(score, 3))
+            ```
+
+            ```bash
+            curl -X POST http://localhost:8000/generate \\
+              -H 'Content-Type: application/json' \\
+              -d '{"prompt": "a sunset over the ocean"}'
+            # {"caption": "orange sky above calm water", "score": 0.932}
+            ```
+        """
+        raise NotImplementedError
+
     def add_delete_route(
         self, t: pxt.Table, *, path: str, match_columns: list[str] | None = None, background: bool = False
     ) -> None:
