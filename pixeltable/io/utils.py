@@ -118,7 +118,8 @@ def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> list[Expr]:
 
     This avoids Pixeltable's file caching pipeline and instead returns the authoritative
     URL stored in the database for each media column. Media-typed expressions that are not
-    bare ColumnRefs (e.g. computed or transformed images) have no stable URL and are rejected.
+    bare ColumnRefs (e.g. `.resize(...)` or other transformations) have no stable URL and
+    are rejected.
     """
     result: list[Expr] = []
     for expr in copy.deepcopy(select_list_exprs):
