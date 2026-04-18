@@ -188,6 +188,7 @@ def search(min_id: int) -> pxt.Query:
     def test_cli_serve_config(self) -> None:
         """`pxt serve config <path>` loads TOML and applies --port override."""
         skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
 
         config_dict = {
             'service': {'title': 'CLI Test', 'host': '127.0.0.1', 'port': 7777},
@@ -228,6 +229,7 @@ def search(min_id: int) -> pxt.Query:
     def test_cli_serve_insert(self) -> None:
         """`pxt serve insert ...` builds a single-route AppConfig from cmdline args."""
         skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
 
         with (
             patch('pixeltable.serving._config.create_app_from_config') as mock_create,
@@ -265,6 +267,7 @@ def search(min_id: int) -> pxt.Query:
     def test_cli_serve_delete(self) -> None:
         """`pxt serve delete ...` builds a single delete-route AppConfig from cmdline args."""
         skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
 
         with patch('pixeltable.serving._config.create_app_from_config') as mock_create, patch('uvicorn.run'):
             from pixeltable.serving._config import DeleteRouteConfig
@@ -290,6 +293,7 @@ def search(min_id: int) -> pxt.Query:
     def test_cli_serve_query(self) -> None:
         """`pxt serve query ...` builds a single query-route AppConfig from cmdline args."""
         skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
 
         with patch('pixeltable.serving._config.create_app_from_config') as mock_create, patch('uvicorn.run'):
             from pixeltable.serving._config import QueryRouteConfig

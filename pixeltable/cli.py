@@ -170,6 +170,8 @@ def _run(config: 'AppConfig', app: Any) -> None:
     host, port = config.service.host, config.service.port
     # wildcard bind addresses aren't navigable; print localhost for the URL hints
     display_host = 'localhost' if host in ('0.0.0.0', '::', '') else host
+    if ':' in display_host:
+        display_host = f'[{display_host}]'
     print(f'Starting Pixeltable service: {config.service.title}')
     print(f'  Bound to {host}:{port}')
     print(f'  Listening on http://{display_host}:{port}')
