@@ -1611,15 +1611,13 @@ class TestVideo:
 
     def test_pan_by_column(self, uses_db: None) -> None:
         """pan() with a column-valued x_sign produces correct per-row direction."""
-        from pixeltable.functions.video import pan
-
         video_filepaths = get_video_files()
         t = pxt.create_table('pan_col_test', {'video': pxt.Video, 'pan_sign': pxt.Int})
         rows = [{'video': f, 'pan_sign': +1 if i % 2 == 0 else -1} for i, f in enumerate(video_filepaths)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
         md = t.video.get_metadata()
-        panned = pan(t.video, x_sign=t.pan_sign, crop_pct=0.2)
+        panned = t.video.pan(x_sign=t.pan_sign, crop_pct=0.2)
         result = (
             t.where(md.streams[0].duration_seconds != None)
             .select(orig_w=md.streams[0].width, orig_h=md.streams[0].height, panned_md=panned.get_metadata())
@@ -1631,15 +1629,13 @@ class TestVideo:
         assert all(row['panned_md']['streams'][0]['width'] < row['orig_w'] for row in result)
 
     def test_pan_errors(self, uses_db: None) -> None:
-        from pixeltable.functions.video import pan
-
         video_filepaths = get_video_files()
         t = pxt.create_table('pan_err_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         # both signs zero degenerates to scroll() with x_speed=y_speed=0, which scroll rejects
         with pytest.raises(pxt.Error, match=r'at least one of `x_speed` or `y_speed` must be non-zero'):
-            t.select(pan(t.video)).collect()
+            t.select(t.video.pan()).collect()
 
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
