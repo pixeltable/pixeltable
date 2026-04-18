@@ -123,16 +123,11 @@ def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> list[Expr]:
     result: list[Expr] = []
     for expr in copy.deepcopy(select_list_exprs):
         if isinstance(expr, ColumnRef) and expr.col_type.is_media_type():
-            if expr.col.is_computed and expr.col.destination is None:
-                raise excs.Error(
-                    f'Cannot export computed media column {expr.col.name!r} without a destination. '
-                    f'Set a destination on the column or select specific non-media columns instead.'
-                )
             result.append(ColumnPropertyRef(expr, ColumnPropertyRef.Property.FILEURL))
         elif expr.col_type.is_media_type():
             raise excs.Error(
                 f'Cannot export media expression {expr!r}: only stored media columns can be serialized. '
-                f'Materialize it as a computed column with a destination, or select its underlying '
+                f'Materialize it as a computed column, or select its underlying '
                 f'column via `.fileurl` instead.'
             )
         else:
