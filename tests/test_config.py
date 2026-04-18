@@ -21,35 +21,38 @@ class TestConfig:
 
         spawn_cmd(
             'pxt.init({"pixeltable.not_a_config_var": "test"})',
-            'pixeltable.exceptions.Error: Unrecognized configuration variable: pixeltable.not_a_config_var',
+            'pixeltable.exceptions.RequestError: Unrecognized configuration variable: pixeltable.not_a_config_var',
         )
 
         tmp = Path(tempfile.mktemp('.toml'))
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('This is neither a directory nor a valid TOML file.')
-        spawn_cmd(f'pxt.init({{"pixeltable.home": "{tmp}"}})', f'pixeltable.exceptions.Error: Not a directory: {tmp}')
+        spawn_cmd(
+            f'pxt.init({{"pixeltable.home": "{tmp}"}})', f'pixeltable.exceptions.RequestError: Not a directory: {tmp}'
+        )
         spawn_cmd(
             f'pxt.init({{"pixeltable.config": "{tmp}"}})',
-            f'pixeltable.exceptions.Error: Could not read config file: {tmp}',
+            f'pixeltable.exceptions.RequestError: Could not read config file: {tmp}',
         )
 
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('[unknown_section]\nkey = "value"')
         spawn_cmd(
             f'pxt.init({{"pixeltable.config": "{tmp}"}})',
-            "pixeltable.exceptions.Error: Unrecognized section 'unknown_section' in config file:",
+            "pixeltable.exceptions.RequestError: Unrecognized section 'unknown_section' in config file:",
         )
 
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('[pixeltable]\nunknown_key = "value"')
         spawn_cmd(
             f'pxt.init({{"pixeltable.config": "{tmp}"}})',
-            "pixeltable.exceptions.Error: Unrecognized option 'pixeltable.unknown_key' in config file:",
+            "pixeltable.exceptions.RequestError: Unrecognized option 'pixeltable.unknown_key' in config file:",
         )
 
         spawn_cmd(
             'pxt.init({"pixeltable.verbosity": "eggs"})',
-            "pixeltable.exceptions.Error: Invalid value for configuration parameter 'pixeltable.verbosity': eggs",
+            'pixeltable.exceptions.RequestError: Invalid value for configuration parameter '
+            "'pixeltable.verbosity': eggs",
         )
 
         pxt.init()
