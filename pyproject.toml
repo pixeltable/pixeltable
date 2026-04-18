@@ -78,6 +78,9 @@ homepage = "https://pixeltable.com/"
 repository = "https://github.com/pixeltable/pixeltable"
 documentation = "https://docs.pixeltable.com/"
 
+[project.scripts]
+pxt = "pixeltable.cli:main"
+
 [project.entry-points."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
 
