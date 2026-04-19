@@ -141,6 +141,12 @@ def search(min_id: int) -> pxt.Query:
             ({'routes': [{'type': 'query', 'path': '/x'}]}, 'query'),
             # delete missing table
             ({'routes': [{'type': 'delete', 'path': '/x'}]}, 'table'),
+            # extra/unknown key rejected
+            ({'routes': [{'type': 'insert', 'table': 'd.t', 'path': '/x', 'typo_key': 'val'}]}, 'typo_key'),
+            # path missing leading slash
+            ({'routes': [{'type': 'insert', 'table': 'd.t', 'path': 'no-slash'}]}, 'path'),
+            # prefix missing leading slash
+            ({'service': {'prefix': 'api'}, 'routes': [{'type': 'insert', 'table': 'd.t', 'path': '/x'}]}, 'prefix'),
         ]
 
         for config_dict, expected_substring in cases:

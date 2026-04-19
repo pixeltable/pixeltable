@@ -219,7 +219,7 @@ class TestCLI:
             # --json startup record
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--port', '8080', '--json'], capsys)
             data = json.loads(capsys.readouterr().out)
-            assert data['status'] == 'started'
+            assert data['status'] == 'starting'
             assert data['port'] == 8080
             assert 'url' in data and 'docs_url' in data
             assert data['routes'] == 1

@@ -8,6 +8,10 @@ import json as json_mod
 import sys
 from typing import TYPE_CHECKING, Any
 
+import pydantic
+
+import pixeltable as pxt
+
 if TYPE_CHECKING:
     from pixeltable.serving._config import AppConfig, RouteConfig
 
@@ -45,8 +49,6 @@ Examples:
 
 
 def main() -> None:
-    import pixeltable as pxt
-
     parser = _Parser(
         prog='pxt',
         description='Pixeltable command-line interface',
@@ -194,8 +196,11 @@ def _serve(args: argparse.Namespace) -> None:
     if args.mode == 'config':
         config = load_app_config(args.config)
     else:
-        route = _build_route_from_args(args)
-        config = AppConfig(service=ServiceConfig(), routes=[route])
+        try:
+            route = _build_route_from_args(args)
+            config = AppConfig(service=ServiceConfig(), routes=[route])
+        except pydantic.ValidationError as e:
+            raise pxt.Error(str(e)) from e
 
     overrides = {
         k: v
@@ -266,8 +271,6 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
 
 
 def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
-    import pixeltable as pxt
-
     try:
         import uvicorn
     except ImportError as e:
@@ -285,7 +288,7 @@ def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
         print(
             json_mod.dumps(
                 {
-                    'status': 'started',
+                    'status': 'starting',
                     'host': host,
                     'port': port,
                     'url': url,

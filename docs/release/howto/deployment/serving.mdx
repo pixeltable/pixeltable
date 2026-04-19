@@ -230,7 +230,7 @@ query = "myapp.queries.search_docs"
 |---|---|---|---|---|
 | `query` | string | yes | -- | Dotted Python path to a `@pxt.query` or `retrieval_udf` function |
 | `inputs` | list of strings | no | all query parameters | Parameters to accept as request fields |
-| `uploadfile_inputs` | list of strings | no | -- | Parameters to accept as file uploads |
+| `uploadfile_inputs` | list of strings | no | -- | Parameters to accept as file uploads (not supported with `method = "get"`) |
 | `one_row` | bool | no | `false` | Expect exactly one result row (404 on 0, 409 on >1) |
 | `return_fileresponse` | bool | no | `false` | Return the single media-typed result as a raw file |
 | `method` | `"get"` / `"post"` | no | `"post"` | HTTP method for the endpoint |
@@ -366,7 +366,7 @@ All `pxt serve` subcommands accept two additional flags:
 
 When `--json` is set, a successful start emits:
 ```json
-{"status": "started", "host": "0.0.0.0", "port": 8000, "url": "http://localhost:8000", "docs_url": "http://localhost:8000/docs", "routes": 2}
+{"status": "starting", "host": "0.0.0.0", "port": 8000, "url": "http://localhost:8000", "docs_url": "http://localhost:8000/docs", "routes": 2}
 ```
 
 Errors (including port conflicts) emit to stderr:

@@ -22,13 +22,24 @@ _logger = logging.getLogger('pixeltable')
 
 
 class ServiceConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
     title: str = 'Pixeltable'
     prefix: str = ''
     host: str = '0.0.0.0'
     port: int = 8000
 
+    @pydantic.field_validator('prefix')
+    @classmethod
+    def _validate_prefix(cls, v: str) -> str:
+        if v and not v.startswith('/'):
+            raise ValueError(f"prefix must be empty or start with '/' (got {v!r})")
+        return v
+
 
 class InsertRouteConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
     type: Literal['insert']
     table: str
     path: str
@@ -38,16 +49,34 @@ class InsertRouteConfig(pydantic.BaseModel):
     return_fileresponse: bool = False
     background: bool = False
 
+    @pydantic.field_validator('path')
+    @classmethod
+    def _validate_path(cls, v: str) -> str:
+        if not v.startswith('/'):
+            raise ValueError(f"path must start with '/' (got {v!r})")
+        return v
+
 
 class DeleteRouteConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
     type: Literal['delete']
     table: str
     path: str
     match_columns: list[str] | None = None
     background: bool = False
 
+    @pydantic.field_validator('path')
+    @classmethod
+    def _validate_path(cls, v: str) -> str:
+        if not v.startswith('/'):
+            raise ValueError(f"path must start with '/' (got {v!r})")
+        return v
+
 
 class QueryRouteConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
     type: Literal['query']
     path: str
     query: str  # dotted Python path to a @pxt.query or retrieval_udf
@@ -58,13 +87,22 @@ class QueryRouteConfig(pydantic.BaseModel):
     background: bool = False
     method: Literal['get', 'post'] = 'post'
 
+    @pydantic.field_validator('path')
+    @classmethod
+    def _validate_path(cls, v: str) -> str:
+        if not v.startswith('/'):
+            raise ValueError(f"path must start with '/' (got {v!r})")
+        return v
+
 
 RouteConfig = Annotated[InsertRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')]
 
 
 class AppConfig(pydantic.BaseModel):
-    service: ServiceConfig = ServiceConfig()
-    modules: list[str] = []
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    service: ServiceConfig = pydantic.Field(default_factory=ServiceConfig)
+    modules: list[str] = pydantic.Field(default_factory=list)
     routes: list[RouteConfig]
 
 
@@ -78,7 +116,7 @@ def _resolve_dotted_path(dotted: str) -> Any:
         raise pxt.Error(f'invalid query reference {dotted!r}: expected module.attribute')
     try:
         module = importlib.import_module(module_path)
-    except ImportError as e:
+    except Exception as e:
         raise pxt.Error(f'could not import module {module_path!r} (from query reference {dotted!r}): {e}') from e
     if not hasattr(module, attr_name):
         raise pxt.Error(f'{dotted!r}: module {module_path!r} has no attribute {attr_name!r}')
@@ -114,7 +152,7 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
         _logger.info(f'importing module: {mod_path}')
         try:
             importlib.import_module(mod_path)
-        except ImportError as e:
+        except Exception as e:
             raise pxt.Error(f'could not import module {mod_path!r} listed in `modules`: {e}') from e
 
     app = fastapi.FastAPI(title=config.service.title)
