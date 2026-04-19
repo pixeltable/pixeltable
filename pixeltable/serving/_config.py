@@ -37,62 +37,43 @@ class ServiceConfig(pydantic.BaseModel):
         return v
 
 
-class InsertRouteConfig(pydantic.BaseModel):
+class RouteConfigBase(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid')
 
+    path: str
+    background: bool = False
+
+    @pydantic.field_validator('path')
+    @classmethod
+    def _validate_path(cls, v: str) -> str:
+        if not v.startswith('/'):
+            raise ValueError(f"path must start with '/' (got {v!r})")
+        return v
+
+
+class InsertRouteConfig(RouteConfigBase):
     type: Literal['insert']
     table: str
-    path: str
     inputs: list[str] | None = None
     uploadfile_inputs: list[str] | None = None
     outputs: list[str] | None = None
     return_fileresponse: bool = False
-    background: bool = False
-
-    @pydantic.field_validator('path')
-    @classmethod
-    def _validate_path(cls, v: str) -> str:
-        if not v.startswith('/'):
-            raise ValueError(f"path must start with '/' (got {v!r})")
-        return v
 
 
-class DeleteRouteConfig(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
+class DeleteRouteConfig(RouteConfigBase):
     type: Literal['delete']
     table: str
-    path: str
     match_columns: list[str] | None = None
-    background: bool = False
-
-    @pydantic.field_validator('path')
-    @classmethod
-    def _validate_path(cls, v: str) -> str:
-        if not v.startswith('/'):
-            raise ValueError(f"path must start with '/' (got {v!r})")
-        return v
 
 
-class QueryRouteConfig(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
+class QueryRouteConfig(RouteConfigBase):
     type: Literal['query']
-    path: str
     query: str  # dotted Python path to a @pxt.query or retrieval_udf
     inputs: list[str] | None = None
     uploadfile_inputs: list[str] | None = None
     one_row: bool = False
     return_fileresponse: bool = False
-    background: bool = False
     method: Literal['get', 'post'] = 'post'
-
-    @pydantic.field_validator('path')
-    @classmethod
-    def _validate_path(cls, v: str) -> str:
-        if not v.startswith('/'):
-            raise ValueError(f"path must start with '/' (got {v!r})")
-        return v
 
 
 RouteConfig = Annotated[InsertRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')]
