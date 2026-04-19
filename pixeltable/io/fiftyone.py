@@ -57,7 +57,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
                         )
                     if label_name in self.__labels:
                         raise excs.AlreadyExistsError(
-                            excs.ErrorCode.PATH_ALREADY_EXISTS, f'Duplicate label name: {label_name}'
+                            excs.ErrorCode.COLUMN_ALREADY_EXISTS, f'Duplicate label name: {label_name}'
                         )
                     self.__labels[label_name] = (expr, label_cls)
 

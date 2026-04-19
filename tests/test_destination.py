@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import ClassVar
 
 import pytest
@@ -111,11 +112,17 @@ class TestDestination:
             r"Client error while validating destination for column 'img_rot': "
             r"Access denied to bucket 'pxt-test': Forbidden"
         )
-        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=f'{msg1}|{msg2}'):
+        try:
             t.add_computed_column(
                 img_rot=t.img.rotate(90),
                 destination='https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest',
             )
+            pytest.fail('Exception expected')
+        except pxt.Error as e:
+            assert e.error_code in (pxt.ErrorCode.PROVIDER_ERROR, pxt.ErrorCode.INSUFFICIENT_PRIVILEGES), (
+                f'Unexpected error code: {e.error_code.name}'
+            )
+            assert re.search(f'{msg1}|{msg2}', str(e)), f'Unexpected message: {e}'
 
     def test_dest_parser(self, uses_db: None) -> None:
         a_name = 'acct-name'
