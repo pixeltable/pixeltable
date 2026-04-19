@@ -99,20 +99,13 @@ class Error(Exception):
     # The base Error class carries the 0xxx generic codes; each subclass narrows to its own group.
     _code_group: ClassVar[int] = 0
 
-    def __init__(
-        self,
-        error_code: ErrorCode,
-        message: str = '',
-        cause: BaseException | None = None,
-        retry_after: float | None = None,
-    ) -> None:
+    def __init__(self, error_code: ErrorCode, message: str = '', *, retry_after: float | None = None) -> None:
         cls = type(self)
+        # make sure we got an error code appropriate for this exception class
         assert error_code.value // 1000 == cls._code_group
         super().__init__(message)
         self.error_code = error_code
         self.retry_after = retry_after
-        if cause is not None:
-            self.__cause__ = cause
 
     @property
     def http_status(self) -> int:
@@ -120,6 +113,10 @@ class Error(Exception):
 
     @property
     def is_retryable(self) -> bool:
+        """
+        If False, re-running the operation that caused this error without any changes is guaranteed to fail with the
+        same error. If True, the error might be transient and the operation might succeed if retried.
+        """
         return self.error_code.is_retryable
 
     def to_dict(self) -> dict[str, Any]:
@@ -175,12 +172,11 @@ class ExternalServiceError(Error):
         error_code: ErrorCode,
         message: str = '',
         *,
-        cause: BaseException | None = None,
         retry_after: float | None = None,
         provider: str | None = None,
         status_code: int | None = None,
     ) -> None:
-        super().__init__(error_code, message, cause=cause, retry_after=retry_after)
+        super().__init__(error_code, message, retry_after=retry_after)
         self.provider = provider
         self.provider_http_status_code = status_code
 
