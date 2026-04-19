@@ -6,7 +6,6 @@ from typing import Any
 
 import pytest
 import toml
-from fastapi.testclient import TestClient
 
 import pixeltable as pxt
 from pixeltable.serving._config import (
@@ -23,6 +22,7 @@ class TestConfig:
     def test_load_valid_config(self, uses_db: None) -> None:
         """Load a valid TOML config, create an app, and exercise the routes via TestClient."""
         skip_test_if_not_installed('fastapi')
+        from fastapi.testclient import TestClient
 
         pxt.create_dir('test_config')
         t = pxt.create_table('test_config.items', {'id': pxt.Required[pxt.Int], 'name': pxt.String}, primary_key='id')
@@ -78,6 +78,7 @@ class TestConfig:
     def test_query_route_from_config(self, uses_db: None) -> None:
         """Query route resolves a dotted-path reference to a @pxt.query function."""
         skip_test_if_not_installed('fastapi')
+        from fastapi.testclient import TestClient
 
         pxt.create_dir('test_config')
         t = pxt.create_table('test_config.docs', {'id': pxt.Required[pxt.Int], 'text': pxt.String}, primary_key='id')
