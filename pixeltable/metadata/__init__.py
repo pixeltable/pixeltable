@@ -71,7 +71,7 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
             return
         while md_version < VERSION:
             if md_version not in converter_cbs:
-                raise RuntimeError(f'No metadata converter for version {md_version}')
+                raise excs.Error(f'No metadata converter for version {md_version}')
             # We can't use the console logger in Env, because Env might not have been initialized yet.
             _console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')
             converter_cbs[md_version](engine)

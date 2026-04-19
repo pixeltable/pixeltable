@@ -223,7 +223,10 @@ class CallableFunction(Function):
                 # since in that case the FunctionCall is part of an unresolved template; the check will be done again
                 # when the template is fully resolved.
                 if param.name in bound_args and not isinstance(bound_args[param.name], (exprs.Literal, exprs.Variable)):
-                    raise ValueError(f'{self.display_name}(): parameter {param.name} must be a constant value')
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_ARGUMENT,
+                        '{self.display_name}(): parameter {param.name} must be a constant value',
+                    )
 
     def __repr__(self) -> str:
         return f'<Pixeltable UDF {self.name}>'

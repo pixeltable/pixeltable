@@ -205,7 +205,7 @@ class ExprEvalNode(ExecNode):
                     self.schedulers[pool_name] = scheduler(pool_name, self)
                     break
             if pool_name not in self.schedulers:
-                raise RuntimeError(f'No scheduler found for resource pool {pool_name}')
+                raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No scheduler found for resource pool {pool_name}')
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         """
