@@ -208,7 +208,11 @@ def _serve(args: argparse.Namespace) -> None:
         if v is not None
     }
     if overrides:
-        config = config.model_copy(update={'service': config.service.model_copy(update=overrides)})
+        try:
+            new_service = ServiceConfig.model_validate(config.service.model_dump() | overrides)
+        except pydantic.ValidationError as e:
+            raise pxt.Error(str(e)) from e
+        config = config.model_copy(update={'service': new_service})
 
     if args.dry_run:
         _print_dry_run(config, args.json)

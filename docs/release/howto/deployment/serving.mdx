@@ -98,7 +98,7 @@ Top-level settings for the FastAPI application and server.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `title` | string | `"Pixeltable"` | Title shown in the OpenAPI docs |
-| `prefix` | string | `""` | URL prefix prepended to all route paths |
+| `prefix` | string | `""` | URL prefix prepended to all route paths (must be empty or start with `/`) |
 | `host` | string | `"0.0.0.0"` | Server bind address |
 | `port` | integer | `8000` | Server bind port |
 
@@ -384,7 +384,7 @@ Load a TOML service file and start the server.
 | `--host` | string | Bind address (overrides `[service].host`) |
 | `--port` | integer | Bind port (overrides `[service].port`) |
 | `--title` | string | Service title (overrides `[service].title`) |
-| `--prefix` | string | URL prefix (overrides `[service].prefix`) |
+| `--prefix` | string | URL prefix (overrides `[service].prefix`; must be empty or start with `/`) |
 
 ### `pxt serve insert`
 
