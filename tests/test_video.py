@@ -328,13 +328,13 @@ class TestVideo:
         view_t.add_computed_column(transformed=view_t.frame.rotate(30), stored=True)
         _ = view_t.select(make_video(view_t.pos, view_t.transformed)).group_by(base_t).show()
 
-        with pytest.raises(pxt.RequestError):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             # make_video() doesn't allow windows
             _ = view_t.select(make_video(view_t.pos, view_t.frame, group_by=base_t)).show()
-        with pytest.raises(pxt.RequestError):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             # make_video() requires ordering
             _ = view_t.select(make_video(view_t.frame, order_by=view_t.pos)).show()
-        with pytest.raises(pxt.RequestError):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             # incompatible ordering requirements
             _ = (
                 view_t.select(make_video(view_t.pos, view_t.frame), make_video(view_t.pos - 1, view_t.transformed))
@@ -349,7 +349,7 @@ class TestVideo:
         _ = view_t.select(make_video(view_t.pos, view_t.agg)).group_by(base_t).show()
 
         # image cols computed with a window function currently need to be stored
-        with pytest.raises(pxt.RequestError):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             view_t.add_computed_column(agg2=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
 
         # reload from store

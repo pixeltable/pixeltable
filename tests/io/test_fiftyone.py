@@ -96,6 +96,7 @@ class TestFiftyone:
         img = get_image_files()[0]
         t.insert(id=0, image=img)
 
+        # TODO: convert to pxt_raises(<CODE>)
         with pytest.raises(pxt.RequestError, match='`images` must be an expression of type Image'):
             pxt.io.export_images_as_fo_dataset(t, t.id)
 

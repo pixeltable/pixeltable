@@ -1989,14 +1989,14 @@ class TestTable:
         tbl.revert()
         assert ObjectOps.count(view._id, default_output_dest=True) == 0
 
-        with pytest.raises(pxt.RequestError, match=r'because the following columns depend on it:\nc1'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'because the following columns depend on it:\nc1'):
             view.drop_column('frame')
-        with pytest.raises(pxt.RequestError, match=r'because the following columns depend on it:\nc5'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'because the following columns depend on it:\nc5'):
             view.drop_column('frame_idx')
 
         # drop() clears stored images and the cache
         tbl.insert(payload=1, video=get_video_files()[0])
-        with pytest.raises(pxt.RequestError, match='has dependents'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='has dependents'):
             pxt.drop_table('test_tbl')
         pxt.drop_table('test_view')
         pxt.drop_table('test_tbl')

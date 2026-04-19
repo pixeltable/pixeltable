@@ -124,6 +124,7 @@ class TestPublish:
         for version in range(1, 8):
             tbl.insert({'icol': i, 'scol': f'string {i}'} for i in range(version * 10, version * 10 + 10))
 
+        # TODO: convert to pxt_raises(<CODE>)
         with pytest.raises(
             pxt.RequestError,
             match=(

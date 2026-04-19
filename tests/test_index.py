@@ -260,28 +260,24 @@ class TestIndex:
         t = indexed_img_tbl
 
         type_failures = (
-            ('item', '`str` or `PIL.Image.Image`'),
-            ('string', '`str`'),
-            ('image', '`str` or `PIL.Image.Image`'),
-            ('audio', r'`str` \(path to audio file\)'),
-            ('video', r'`str` \(path to video file\)'),
+            ('item', '`str` or `PIL.Image.Image`', pxt.ErrorCode.TYPE_MISMATCH),
+            ('string', '`str`', pxt.ErrorCode.TYPE_MISMATCH),
+            ('image', '`str` or `PIL.Image.Image`', pxt.ErrorCode.TYPE_MISMATCH),
+            ('audio', r'`str` \(path to audio file\)', pxt.ErrorCode.UNSUPPORTED_OPERATION),
+            ('video', r'`str` \(path to video file\)', pxt.ErrorCode.UNSUPPORTED_OPERATION),
         )
 
         with pytest.warns(
             DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
         ):
-            for param, expected in type_failures:
-                with pytest.raises(
-                    pxt.RequestError, match=rf'similarity\(.*\): expected {expected}; got `tuple`'
-                ) as exc_info:
+            for param, expected, code in type_failures:
+                with pxt_raises(code, match=rf'similarity\(.*\): expected {expected}; got `tuple`'):
                     _ = t.order_by(t.img.similarity(**{param: ('red truck',)})).limit(1).collect()  # type: ignore[arg-type]
-            for param, expected in type_failures:
-                with pytest.raises(
-                    pxt.RequestError, match=rf'similarity\(.*\): expected {expected}; got `list`'
-                ) as exc_info:
+            for param, expected, code in type_failures:
+                with pxt_raises(code, match=rf'similarity\(.*\): expected {expected}; got `list`'):
                     _ = t.order_by(t.img.similarity(**{param: ['red truck']})).limit(1).collect()  # type: ignore[arg-type]
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:  # type: ignore[assignment]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.order_by(t.img.similarity(string=t.split)).limit(1).collect()  # type: ignore[arg-type]
         assert 'not an expression' in str(exc_info.value).lower()
 
@@ -290,7 +286,7 @@ class TestIndex:
 
         t = small_img_tbl
         t.add_embedding_index('img', image_embed=clip_embed)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:  # type: ignore[assignment]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.order_by(t.img.similarity(string='red truck')).limit(1).collect()
         assert 'does not have a string embedding' in str(exc_info.value).lower()
 
@@ -311,7 +307,7 @@ class TestIndex:
         t.drop_embedding_index(idx_name='idx1')
         t.add_embedding_index('split', string_embed=clip_embed)
         sample_img = t.select(t.img).head(1)[0, 'img']
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:  # type: ignore[assignment]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.order_by(t.split.similarity(image=sample_img)).limit(1).collect()
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
@@ -471,10 +467,10 @@ class TestIndex:
         img_t.insert(new_rows)
         print(img_t.head())
 
-        with pytest.raises(pxt.RequestError, match='property of another column is not allowed'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='property of another column is not allowed'):
             img_t.add_computed_column(emsg=img_t.img.errormsg)
 
-        with pytest.raises(pxt.RequestError, match='property of another column is not allowed'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='property of another column is not allowed'):
             img_t.add_computed_column(etype=img_t.img.errortype)
 
         with pytest.raises(AttributeError, match='Unknown method '):
@@ -493,12 +489,12 @@ class TestIndex:
         # Update the row with a new image
         repl_row = rows[7]
         repl_row['pkey'] = 0
-        with pytest.raises(pxt.RequestError, match='is a media column and cannot be updated'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is a media column and cannot be updated'):
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
         # Update the row again, looking for an error
-        with pytest.raises(pxt.RequestError, match='is a media column and cannot be updated'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is a media column and cannot be updated'):
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
@@ -518,8 +514,9 @@ class TestIndex:
         img_t.insert([rows[6]])
 
         # Attempt to drop the embedding index
-        with pytest.raises(
-            pxt.RequestError, match="Cannot drop index 'cat_idx' because the following columns depend on it"
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop index 'cat_idx' because the following columns depend on it",
         ):
             img_t.drop_embedding_index(column=img_t.category)
 
@@ -568,11 +565,11 @@ class TestIndex:
         assert len(res) == 2
         assert isinstance(res[0, 0], np.ndarray)
 
-        with pytest.raises(pxt.AlreadyExistsError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS) as exc_info:
             # duplicate name
             img_t.add_embedding_index('img', idx_name='idx0', image_embed=clip_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
-        with pytest.raises(pxt.AlreadyExistsError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS) as exc_info:
             img_t.add_embedding_index(img_t.img, idx_name='idx0', image_embed=clip_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
@@ -580,10 +577,10 @@ class TestIndex:
 
         # revert() removes the index
         img_t.revert()
-        with pytest.raises(pxt.NotFoundError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
             img_t.drop_embedding_index(column='category')
         assert 'does not have an index' in str(exc_info.value).lower()
-        with pytest.raises(pxt.NotFoundError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
             img_t.drop_embedding_index(column=img_t.category)
         assert 'does not have an index' in str(exc_info.value).lower()
 
@@ -634,44 +631,44 @@ class TestIndex:
         assert isinstance(r[0, 0], np.ndarray)
 
         # embedding() fails when multiple indices are present
-        with pytest.raises(pxt.RequestError, match='has multiple embedding indices'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has multiple embedding indices'):
             _ = img_t.select(img_t.img.embedding()).collect()
 
         # Adding an index with an invalid index name fails
-        with pytest.raises(pxt.RequestError, match='Invalid column name'):
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='Invalid column name'):
             img_t.add_embedding_index(img_t.img, idx_name='BOGUS COL NAME', embedding=clip_embed)
 
-        with pytest.raises(pxt.NotFoundError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             _ = img_t.img.similarity(string='red truck', idx='doesnotexist')
         assert "index 'doesnotexist' not found" in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.RequestError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             img_t.drop_embedding_index(column='img')
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
-        with pytest.raises(pxt.RequestError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             img_t.drop_embedding_index(column=img_t.img)
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
         img_t.drop_embedding_index(idx_name='other_idx')
 
-        with pytest.raises(pxt.NotFoundError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             sim = img_t.img.similarity(string='red truck', idx='other_idx')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
         assert "index 'other_idx' not found" in str(exc_info.value).lower()
 
         img_t.drop_embedding_index(column=img_t.img)
-        with pytest.raises(pxt.NotFoundError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
             img_t.drop_embedding_index(column=img_t.img)
         assert 'does not have an index' in str(exc_info.value).lower()
 
         # revert() makes the index reappear
         img_t.revert()
-        with pytest.raises(pxt.AlreadyExistsError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS) as exc_info:
             img_t.add_embedding_index('img', idx_name='idx0', image_embed=clip_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
         # dropping the indexed column also drops indices
         img_t.drop_column('img')
-        with pytest.raises(pxt.NotFoundError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
             img_t.drop_embedding_index(idx_name='idx0')
         assert 'does not exist' in str(exc_info.value).lower()
 
@@ -1170,7 +1167,7 @@ class TestIndex:
 
         # drop index: query should fail with a clear error
         t.drop_embedding_index(idx_name='emb_idx')
-        with pytest.raises(pxt.NotFoundError, match=r"(?i).*No embedding index found for column 'text'.*"):
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match=r"(?i).*No embedding index found for column 'text'.*"):
             query.collect()
 
         # recreate index under same name: query should work again
@@ -1186,5 +1183,5 @@ class TestIndex:
 
         # drop the column: query should fail
         t.drop_column('text')
-        with pytest.raises(pxt.NotFoundError, match=r'(?i).*column was dropped.*'):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=r'(?i).*column was dropped.*'):
             query.collect()

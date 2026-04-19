@@ -135,6 +135,8 @@ class TestDirs:
 
         # if_not_exists='error' should raise error
         # default behavior is to raise error
+        # why pytest.raises() instead of pxt_raises(): may fire PATH_NOT_FOUND or DIRECTORY_NOT_FOUND depending on path
+        # state
         with pytest.raises(pxt.NotFoundError, match='does not exist'):
             pxt.drop_dir(dir_name, if_not_exists='error')
         with pytest.raises(pxt.NotFoundError, match='does not exist'):

@@ -91,5 +91,6 @@ class TestWhisperx:
             ('min_speakers', 1),
             ('max_speakers', 3),
         ):
+            # TODO: convert to pxt_raises(<CODE>)
             with pytest.raises(pxt.RequestError, match=f'`{param_name}` can only be set if `diarize=True`'):
                 t.select(transcription=whisperx.transcribe(t.audio, model='tiny.en', **{param_name: value})).collect()

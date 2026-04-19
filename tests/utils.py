@@ -51,11 +51,7 @@ _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
 
 @contextmanager
 def pxt_raises(code: pxt.ErrorCode, *, match: str | None = None) -> Iterator[pytest.ExceptionInfo[pxt.Error]]:
-    """
-    Assert that the enclosed block raises a `pxt.Error` with the given `error_code`.
-
-    The expected subclass is derived from `code` (the thousands digit selects the subclass).
-    """
+    """Use this in place of pytest.raises() if the expected exception is a pxt.Error."""
     cls = _ERROR_GROUP_TO_CLS[code.value // 1000]
     with pytest.raises(cls, match=match) as info:
         yield info
