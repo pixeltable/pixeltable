@@ -225,7 +225,7 @@ class CallableFunction(Function):
                 if param.name in bound_args and not isinstance(bound_args[param.name], (exprs.Literal, exprs.Variable)):
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_ARGUMENT,
-                        '{self.display_name}(): parameter {param.name} must be a constant value',
+                        f'{self.display_name}(): parameter {param.name} must be a constant value',
                     )
 
     def __repr__(self) -> str:
