@@ -352,6 +352,28 @@ curl http://localhost:8000/jobs/abc123
 The `pxt` command-line entry point is installed alongside the `pixeltable`
 package. All serving subcommands live under `pxt serve`.
 
+```bash
+pxt --version   # print the installed version
+pxt --help      # list available commands
+```
+
+All `pxt serve` subcommands accept two additional flags:
+
+| Flag | Description |
+|---|---|
+| `--dry-run` | Print the fully-resolved config (after all CLI overrides) and exit without starting the server |
+| `--json` | Emit machine-readable JSON: a startup record on stdout, or an error record on stderr |
+
+When `--json` is set, a successful start emits:
+```json
+{"status": "started", "host": "0.0.0.0", "port": 8000, "url": "http://localhost:8000", "docs_url": "http://localhost:8000/docs", "routes": 2}
+```
+
+Errors (including port conflicts) emit to stderr:
+```json
+{"status": "error", "code": "EADDRINUSE", "port": 8000, "message": "port 8000 is already in use"}
+```
+
 ### `pxt serve config <path>`
 
 Load a TOML service file and start the server.
@@ -378,7 +400,7 @@ Start a service exposing exactly one insert route.
 | `--return-fileresponse` | flag | no | Return the single media output as a raw file |
 | `--background` | flag | no | Run the insert in a background thread |
 
-Plus the shared `--host`, `--port`, `--title`, `--prefix` service flags.
+Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
 
 ### `pxt serve delete`
 
@@ -391,7 +413,7 @@ Start a service exposing exactly one delete route.
 | `--match-columns` | strings | no | Columns to match on (defaults to primary key) |
 | `--background` | flag | no | Run the delete in a background thread |
 
-Plus the shared `--host`, `--port`, `--title`, `--prefix` service flags.
+Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
 
 ### `pxt serve query`
 
@@ -408,7 +430,7 @@ Start a service exposing exactly one query route.
 | `--background` | flag | no | Run the query in a background thread |
 | `--method` | `get` / `post` | no | HTTP method (default `post`) |
 
-Plus the shared `--host`, `--port`, `--title`, `--prefix` service flags.
+Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
 
 The dotted path is resolved at startup; the module portion is imported
 automatically, so no separate `--module` flag is needed.
