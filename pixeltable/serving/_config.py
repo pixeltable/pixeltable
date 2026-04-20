@@ -6,15 +6,15 @@ import importlib
 import logging
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-if TYPE_CHECKING:
-    import fastapi
-
 import pydantic
 import toml
 
 import pixeltable as pxt
 import pixeltable.func as func
+from pixeltable.env import Env
 
+if TYPE_CHECKING:
+    import fastapi
 _logger = logging.getLogger('pixeltable')
 
 
@@ -121,12 +121,7 @@ def load_app_config(config_path: str) -> AppConfig:
 
 def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
     """Build a FastAPI instance from an AppConfig"""
-    try:
-        import fastapi
-
-        from ._fastapi import FastAPIRouter
-    except ImportError as e:
-        raise pxt.Error("FastAPI is required for serving; install it with `pip install 'fastapi[standard]'`") from e
+    Env.get().require_package('fastapi')
 
     # import user modules so @pxt.query / retrieval_udf definitions are registered
     for mod_path in config.modules:
@@ -135,6 +130,8 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
             importlib.import_module(mod_path)
         except Exception as e:
             raise pxt.Error(f'could not import module {mod_path!r} listed in `modules`: {e}') from e
+
+    from pixeltable.serving import FastAPIRouter
 
     app = fastapi.FastAPI(title=config.service.title)
     router = FastAPIRouter()
