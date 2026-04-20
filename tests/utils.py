@@ -55,7 +55,7 @@ def pxt_raises(code: pxt.ErrorCode, *, match: str | None = None) -> Iterator[pyt
     cls = _ERROR_GROUP_TO_CLS[code.value // 1000]
     with pytest.raises(cls, match=match) as info:
         yield info
-    assert info.value.error_code is code, f'expected {code.name}, got {info.value.error_code.name}'
+    assert info.value.error_code is code, f'expected {code.name!r}, got {info.value.error_code.name!r}'
 
 
 def runs_linux_with_gpu() -> bool:
