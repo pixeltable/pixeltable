@@ -396,3 +396,21 @@ class TestString:
         assert py_hits == py_hits_expected
         assert sql_hits != py_hits_expected
         assert sql_hits != py_hits
+
+    def test_computed_column_vs_live_select_divergence(self, uses_db: None) -> None:
+        """Insert-time computed-column materialization runs in Python, but live `select upper(t.s)`
+        runs in SQL; the same expression yields two different values, breaking `where(upper(t.s) == t.upper_s)`."""
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t.add_computed_column(upper_s=upper(t.s))
+        s = 'café'
+        validate_update_status(t.insert([{'s': s}]), expected_rows=1)
+
+        stored = t.select(t.upper_s).collect()['upper_s'][0]
+        live = t.select(out=upper(t.s)).collect()['out'][0]
+
+        assert stored == s.upper()
+        assert live != s.upper()
+        assert stored != live
+
+        tautology_hits = list(t.where(upper(t.s) == t.upper_s).select(t.s).collect()['s'])
+        assert tautology_hits == []
