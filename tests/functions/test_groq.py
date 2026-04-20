@@ -35,8 +35,6 @@ class TestGroq:
         assert 'tennessine' in results['output'][0]['choices'][0]['message']['content'].lower()
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.skip(reason='Temporarily disabled')
-    @rerun(reruns=20, reruns_delay=8)
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('groq')
         skip_test_if_no_client('groq')
@@ -53,8 +51,4 @@ class TestGroq:
             t.add_computed_column(tool_calls=groq.invoke_tools(tools, t.response))
             return t
 
-        # Tool choice is implemented, but its behavior in Groq differs subtly from other LLM providers, so there
-        # are no tests currently (until we better understand Groq's behavior).
-        # Groq also seems to do something random in response to a random question (unlike OpenAI, which consistently
-        # calls no tools, as expected).
         run_tool_invocations_test(make_table, test_non_tool_question=False)

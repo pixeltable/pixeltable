@@ -650,7 +650,7 @@ def _(model: str) -> str:
 
 @pxt.udf(batch_size=4)
 async def embed_content(
-    contents: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+    contents: Batch[str], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     """
     Generate embeddings for text, images, video, and other content. For more information on Gemini embeddings API, see:
@@ -666,8 +666,6 @@ async def embed_content(
         config: Configuration for embedding generation, corresponding to keyword arguments of
             `genai.types.EmbedContentConfig`. For details on the parameters, see:
             <https://googleapis.github.io/python-genai/genai.html#genai.types.EmbedContentConfig>
-        use_batch_api: If True, use [Gemini's Batch API](https://ai.google.dev/gemini-api/docs/batch-api) that provides
-            a higher throughput at a lower cost at the expense of higher latency.
 
     Returns:
         The corresponding embedding vector.
@@ -685,39 +683,39 @@ async def embed_content(
         ...     t.text, embedding=embed_content.using(model='gemini-embedding-001')
         ... )
     """
-    return await _embed_content(contents, model, config, use_batch_api)
+    return await _embed_content(contents, model, config)
 
 
 @embed_content.overload
 async def _(
     contents: Batch[PIL.Image.Image], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_content(contents, model, config, use_batch_api=False)
+    return await _embed_content(contents, model, config)
 
 
 @embed_content.overload
 async def _(
     contents: Batch[pxt.Audio], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(contents, model, config, use_batch_api=False)
+    return await _embed_file_content(contents, model, config)
 
 
 @embed_content.overload
 async def _(
     contents: Batch[pxt.Video], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(contents, model, config, use_batch_api=False)
+    return await _embed_file_content(contents, model, config)
 
 
 @embed_content.overload
 async def _(
     contents: Batch[pxt.Document], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(contents, model, config, use_batch_api=False)
+    return await _embed_file_content(contents, model, config)
 
 
 async def _embed_file_content(
-    contents: list[str], model: str, config: dict[str, Any] | None, use_batch_api: bool
+    contents: list[str], model: str, config: dict[str, Any] | None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -747,14 +745,13 @@ async def _embed_file_content(
 
                 contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
 
-        return await _embed_content(contents_, model, config, use_batch_api)
+        return await _embed_content(contents_, model, config)
 
 
 async def _embed_content(
-    contents: Sequence['genai.types.ContentUnion'], model: str, config: dict[str, Any] | None, use_batch_api: bool
+    contents: Sequence['genai.types.ContentUnion'], model: str, config: dict[str, Any] | None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     env.Env.get().require_package('google.genai')
-    from google.genai import types
 
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
@@ -762,49 +759,50 @@ async def _embed_content(
     client = _genai_client()
     config_ = _embedding_config(config)
 
-    if not use_batch_api:
-        result = await client.aio.models.embed_content(model=model, contents=list(contents), config=config_)
-        if len(result.embeddings) != len(contents):
-            raise excs.Error(
-                f'Unexpected response from Gemini server: number of embeddings returned ({len(result.embeddings)}) '
-                f'does not match request batch size ({len(contents)}).'
-            )
-        return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
+    result = await client.aio.models.embed_content(model=model, contents=list(contents), config=config_)
+    if len(result.embeddings) != len(contents):
+        raise excs.Error(
+            f'Unexpected response from Gemini server: number of embeddings returned ({len(result.embeddings)}) '
+            f'does not match request batch size ({len(contents)}).'
+        )
+    return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
     # Batch API
-    batch_job = client.batches.create_embeddings(
-        model=model,
-        src=types.EmbeddingsBatchJobSource(inlined_requests=types.EmbedContentBatch(contents=contents, config=config_)),
-    )
+    # batch_job = client.batches.create_embeddings(
+    #     model=model,
+    #     src=types.EmbeddingsBatchJobSource(
+    #         inlined_requests=types.EmbedContentBatch(contents=contents, config=config_)
+    #     ),
+    # )
 
-    await asyncio.sleep(3)
-    i = 0
-    while True:
-        batch_job = client.batches.get(name=batch_job.name)
-        if batch_job.state in (
-            types.JobState.JOB_STATE_SUCCEEDED,
-            types.JobState.JOB_STATE_FAILED,
-            types.JobState.JOB_STATE_CANCELLED,
-            types.JobState.JOB_STATE_EXPIRED,
-        ):
-            break
-        delay = min(10 + i * 2, 30)
-        _logger.debug(
-            f'Waiting for embedding batch job {batch_job.name} to complete. Latest state: {batch_job.state}. Sleeping'
-            f' for {delay}s before the next attempt.'
-        )
-        await asyncio.sleep(delay)
-        i += 1
+    # await asyncio.sleep(3)
+    # i = 0
+    # while True:
+    #     batch_job = client.batches.get(name=batch_job.name)
+    #     if batch_job.state in (
+    #         types.JobState.JOB_STATE_SUCCEEDED,
+    #         types.JobState.JOB_STATE_FAILED,
+    #         types.JobState.JOB_STATE_CANCELLED,
+    #         types.JobState.JOB_STATE_EXPIRED,
+    #     ):
+    #         break
+    #     delay = min(10 + i * 2, 30)
+    #     _logger.debug(
+    #         f'Waiting for embedding batch job {batch_job.name} to complete. Latest state: {batch_job.state}. Sleeping'
+    #         f' for {delay}s before the next attempt.'
+    #     )
+    #     await asyncio.sleep(delay)
+    #     i += 1
 
-    if batch_job.state != types.JobState.JOB_STATE_SUCCEEDED:
-        raise excs.Error(f'Embedding batch job did not succeed: {batch_job.state}. Error: {batch_job.error}')
+    # if batch_job.state != types.JobState.JOB_STATE_SUCCEEDED:
+    #     raise excs.Error(f'Embedding batch job did not succeed: {batch_job.state}. Error: {batch_job.error}')
 
-    assert batch_job.error is None
-    results = []
-    for resp in batch_job.dest.inlined_embed_content_responses:
-        assert resp.error is None
-        results.append(np.array(resp.response.embedding.values, dtype=np.float32))
-    return results
+    # assert batch_job.error is None
+    # results = []
+    # for resp in batch_job.dest.inlined_embed_content_responses:
+    #     assert resp.error is None
+    #     results.append(np.array(resp.response.embedding.values, dtype=np.float32))
+    # return results
 
 
 _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {
