@@ -2,23 +2,22 @@
 
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
-    working-with-gemini          # Temporary
-    working-with-together        # Flaky
-    working-with-twelvelabs      # [PXT-1040] Temporary (rate limiting issues)
-    rag-operations               # Failing in CI for unknown reasons
-    llm-tool-calling             # Flaky
-    working-with-fabric          # Requires Microsoft Fabric environment
-    working-with-fiftyone        # Voxel51 is currently omitted from our dev env for security reasons
-    working-with-tigris          # Requires Tigris environment
-    img-detection-vs-segmentation  # Segmentation models are crashing in CI (memory issue?)
-    working-with-reve            # Out of credits
+    llm-tool-calling                # Relies on the user separately running an MCP server
+    working-with-bfl                # [PXT-1111] Out of credits
+    working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
+    working-with-fiftyone           # [PXT-1117] Voxel51 is currently omitted from our dev env for security reasons
+    working-with-tigris             # [PXT-1122] Hard-codes getpass() calls for credentials and bucket
+    working-with-reve               # [PXT-1116] Out of credits
+    working-with-runwayml           # [PXT-1120] RunwayML integration is very broken
+    working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
 )
 
 # Notebooks that are skipped unless --include-expensive is passed
 VERY_EXPENSIVE_NOTEBOOKS=(
-    video-generate-ai
-    working-with-bfl
-    working-with-runwayml
+    img-detection-vs-segmentation   # Resource intensive
+    video-generate-ai               # High dollar cost
+    working-with-gemini             # High dollar cost
+    working-with-together           # Poor reliability
 )
 
 IFS=$'\n'

@@ -31,15 +31,13 @@ def run_tool_invocations_test(
         t.insert(prompt='What is the stock price of NVDA today?')
         t.insert(prompt='What is the weather in San Francisco?')
         t.insert(prompt='What is the stock price of NVDA today, and what is the weather in San Francisco?')
-        t.insert(prompt='How many grams of corn are in a bushel?')
         t.insert(prompt='What is the stock price of NVDA today? Also, what is the stock price of UAL?')
+        if test_non_tool_question:
+            t.insert(prompt='How many grams of corn are in a bushel?')
         res = t.select(t.response, t.tool_calls).head()
         print(f'Responses with tool_choice equal to: {tool_choice}')
-        print(res[0]['response'])
-        print(res[1]['response'])
-        print(res[2]['response'])
-        print(res[3]['response'])
-        print(res[4]['response'])
+        for i in range(len(res)):
+            print(res[i]['response'])
 
         # Request for stock price: works except when tool_choice is set explicitly to weather
         print(f'Checking stock price inquiry [tool_choice: {tool_choice}]')
@@ -66,13 +64,13 @@ def run_tool_invocations_test(
         if test_non_tool_question:
             print(f'Checking non-tool question [tool_choice: {tool_choice}]')
             if tool_choice is None or tool_choice.auto:
-                assert res[3]['tool_calls'] == {'stock_price': None, 'weather': None}, res[3]['tool_calls']
+                assert res[4]['tool_calls'] == {'stock_price': None, 'weather': None}, res[4]['tool_calls']
             elif tool_choice.tool == 'stock_price':
-                assert res[3]['tool_calls'] == {'stock_price': [0.0], 'weather': None}
+                assert res[4]['tool_calls'] == {'stock_price': [0.0], 'weather': None}
             elif tool_choice.tool == 'weather':
-                assert res[3]['tool_calls'] == {'stock_price': None, 'weather': ['Unknown city']}
+                assert res[4]['tool_calls'] == {'stock_price': None, 'weather': ['Unknown city']}
             else:
-                assert res[3]['tool_calls'] in [
+                assert res[4]['tool_calls'] in [
                     {'stock_price': [0.0], 'weather': None},
                     {'stock_price': None, 'weather': ['Unknown city']},
                 ]
@@ -101,7 +99,7 @@ def run_tool_invocations_test(
             print(f'Checking multiple stock prices question [tool_choice: {tool_choice}]')
             if tool_choice is None or tool_choice.auto:
                 # If you specify an explicit tool, it seems to only call it once.
-                assert res[4]['tool_calls'] == {'stock_price': [131.17, 82.88], 'weather': None}
+                assert res[3]['tool_calls'] == {'stock_price': [131.17, 82.88], 'weather': None}
 
 
 # Mock UDF for testing LLM tool invocations
