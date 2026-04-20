@@ -7,7 +7,7 @@ the [Working with Together AI](https://docs.pixeltable.com/notebooks/integration
 
 import base64
 import io
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import PIL.Image
