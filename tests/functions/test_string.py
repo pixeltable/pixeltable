@@ -45,6 +45,12 @@ from pixeltable.functions.string import (
 from ..utils import reload_catalog, skip_test_if_not_installed, validate_update_status
 
 
+@pxt.udf
+def noop_str(s: str) -> str:
+    """Identity UDF with no SQL translation; forces Python-path execution."""
+    return s
+
+
 class TestString:
     TEST_STR = """
         The concept of relational database was defined by E. F. Codd at IBM in 1970. Codd introduced the term
@@ -340,3 +346,53 @@ class TestString:
         for row in results:
             assert isinstance(row['text'], str)
             assert len(row['text']) > 0
+
+    UNICODE_STRS = ('café', 'ñoño', 'straße', 'ÀÉÎÕÜ')
+
+    def test_c_locale_case_divergence(self, uses_db: None) -> None:
+        """`upper`/`lower`/`capitalize` return different results on SQL vs Python paths:
+        PG's `LC_CTYPE=C` case-folds ASCII only, so non-ASCII text yields wrong answers."""
+        t = pxt.create_table('test_tbl', {'idx': pxt.Int, 's': pxt.String})
+        validate_update_status(
+            t.insert({'idx': i, 's': s} for i, s in enumerate(self.UNICODE_STRS)), expected_rows=len(self.UNICODE_STRS)
+        )
+
+        test_params: list[tuple[pxt.Function, Callable]] = [
+            (upper, str.upper),
+            (lower, str.lower),
+            (capitalize, str.capitalize),
+        ]
+        for pxt_fn, str_fn in test_params:
+            sql_actual = t.order_by(t.idx).select(out=pxt_fn(t.s)).collect()['out']
+            py_actual = t.order_by(t.idx).select(out=pxt_fn(noop_str(t.s))).collect()['out']
+            py_expected = [str_fn(s) for s in self.UNICODE_STRS]
+
+            assert py_actual == py_expected, pxt_fn
+            assert sql_actual != py_expected, pxt_fn
+            assert sql_actual != py_actual, pxt_fn
+
+    def test_c_locale_contains_and_filter_divergence(self, uses_db: None) -> None:
+        """Case-insensitive `contains` and `where(upper(...) == ...)` silently miss non-ASCII
+        rows when pushed to SQL: `WHERE` semantics depend on whether the planner pushes down."""
+        t = pxt.create_table('test_tbl', {'idx': pxt.Int, 's': pxt.String})
+        validate_update_status(
+            t.insert({'idx': i, 's': s} for i, s in enumerate(self.UNICODE_STRS)), expected_rows=len(self.UNICODE_STRS)
+        )
+
+        needle = 'CAFÉ'
+        sql_actual = t.order_by(t.idx).select(out=t.s.contains(needle, case=False)).collect()['out']
+        py_actual = t.order_by(t.idx).select(out=noop_str(t.s).contains(needle, case=False)).collect()['out']
+        py_expected = [needle.lower() in s.lower() for s in self.UNICODE_STRS]
+
+        assert py_actual == py_expected
+        assert sql_actual != py_expected
+        assert sql_actual != py_actual
+
+        needle_upper = 'CAFÉ'
+        sql_hits = sorted(t.where(upper(t.s) == needle_upper).select(t.s).collect()['s'])
+        py_hits = sorted(t.where(upper(noop_str(t.s)) == needle_upper).select(t.s).collect()['s'])
+        py_hits_expected = sorted(s for s in self.UNICODE_STRS if s.upper() == needle_upper)
+
+        assert py_hits == py_hits_expected
+        assert sql_hits != py_hits_expected
+        assert sql_hits != py_hits
