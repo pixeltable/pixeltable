@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from typing import Any, Literal, TypedDict
 
 
@@ -64,6 +65,8 @@ class IndexMetadata(TypedDict):
 class TableMetadata(TypedDict):
     """Metadata for a Pixeltable table."""
 
+    id: uuid.UUID
+    """The stable UUID of the table. Useful for detecting drop-and-recreate across time."""
     name: str
     """The name of the table (ex: `'my_table'`)."""
     path: str

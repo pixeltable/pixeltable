@@ -18,6 +18,7 @@ from pixeltable.func import Batch, Function, FunctionRegistry
 from .utils import (
     ReloadTester,
     assert_resultset_eq,
+    assert_type_eq,
     get_image_files,
     get_video_files,
     reload_catalog,
@@ -249,13 +250,28 @@ class TestFunction:
         def lt_x(x: int) -> pxt.Query:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
+        assert_type_eq(
+            lt_x.signature.return_type,
+            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
+        )
+
         @pxt.query
         def lt_x_with_default(x: int, mult: int = 2) -> pxt.Query:
             return t.where(t.c2 < x * mult).select(t.c2, t.c1).order_by(t.c1)
 
+        assert_type_eq(
+            lt_x_with_default.signature.return_type,
+            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
+        )
+
         @pxt.query
         def lt_x_with_unused_default(x: int, mult: int = 2) -> pxt.Query:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
+
+        assert_type_eq(
+            lt_x_with_unused_default.signature.return_type,
+            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
+        )
 
         res1 = reload_tester.run_query(t.select(out=lt_x(t.c1)).order_by(t.c1))
         for i in range(100):
@@ -273,6 +289,9 @@ class TestFunction:
         validate_update_status(t.add_computed_column(query1=lt_x(t.c1)))
         validate_update_status(t.add_computed_column(query2=lt_x_with_default(t.c1)))
         validate_update_status(t.add_computed_column(query3=lt_x_with_unused_default(t.c1)))
+        assert t.query1.col_type == lt_x.signature.return_type.copy(nullable=True)
+        assert t.query2.col_type == lt_x_with_default.signature.return_type.copy(nullable=True)
+        assert t.query3.col_type == lt_x_with_unused_default.signature.return_type.copy(nullable=True)
         reload_tester.run_query(t.select(t.query1, t.query2, t.query3).order_by(t.c1))
 
         reload_tester.run_reload_test()
@@ -310,19 +329,35 @@ class TestFunction:
             """simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
+        assert_type_eq(
+            retrieval.signature.return_type,
+            pxt.Json[[{'text': pxt.String | None}]],  # type: ignore[misc]
+        )
+
         res = queries.select(queries.i, out=retrieval(queries.query_text, queries.i)).collect()
-        assert all(len(out) == 2 for out in res['out'])
+        # Default (return_scalar=False): each row is a dict, not a bare string.
+        assert all(len(out) == 2 and all(isinstance(x, dict) for x in out) for out in res['out'])
         validate_update_status(queries.add_computed_column(chunks=retrieval(queries.query_text, queries.i)))
+        assert queries.chunks.col_type == retrieval.signature.return_type.copy(nullable=True)
         res = queries.select(queries.i, queries.chunks).collect()
-        assert all(len(c) == 2 for c in res['chunks'])
+        assert all(len(c) == 2 and all(isinstance(x, dict) for x in c) for c in res['chunks'])
 
         reload_catalog()
         queries = pxt.get_table('queries')
         res = queries.select(queries.chunks).collect()
-        assert all(len(c) == 2 for c in res['chunks'])
+        assert all(len(c) == 2 and all(isinstance(x, dict) for x in c) for c in res['chunks'])
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
         res = queries.select(queries.chunks).collect()
-        assert all(len(c) == 2 for c in res['chunks'])
+        assert all(len(c) == 2 and all(isinstance(x, dict) for x in c) for c in res['chunks'])
+
+        # return_scalar=True: each row is a bare string value.
+        @pxt.query(return_scalar=True)
+        def retrieval_scalar(s: str, n: int) -> pxt.Query:
+            return chunks.select(chunks.text).limit(2)
+
+        assert_type_eq(retrieval_scalar.signature.return_type, pxt.Json[[pxt.String | None]])  # type: ignore[misc]
+        res = queries.select(queries.i, out=retrieval_scalar(queries.query_text, queries.i)).collect()
+        assert all(len(out) == 2 and all(isinstance(x, str) for x in out) for out in res['out'])
 
     def test_query_over_view(self, uses_db: None) -> None:
         pxt.create_dir('test')
@@ -333,8 +368,14 @@ class TestFunction:
         def retrieve() -> pxt.Query:
             return v.select(v.text).limit(20)
 
+        assert_type_eq(
+            retrieve.signature.return_type,
+            pxt.Json[[{'text': pxt.String | None}]],  # type: ignore[misc]
+        )
+
         t = pxt.create_table('test/retrieval', {'n': pxt.Int})
         t.add_computed_column(result=retrieve())
+        assert t.result.col_type == retrieve.signature.return_type
 
         # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
         # to a circular initialization failure.
@@ -356,6 +397,11 @@ class TestFunction:
         def lt_x(x: int) -> pxt.Query:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
+        assert_type_eq(
+            lt_x.signature.return_type,
+            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
+        )
+
         u = pxt.create_table('test2', {'c': pxt.Json})
         u.add_computed_column(out=pxtf.map(u.c['*'], lambda x: lt_x(x)))
         u_rows = [{'c': [i, i + 1, i + 2]} for i in range(10)]
@@ -371,6 +417,11 @@ class TestFunction:
         @pxt.query
         def c(x: int, y: int) -> pxt.Query:
             return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
+
+        assert_type_eq(
+            c.signature.return_type,
+            pxt.Json[[{'c': pxt.Int | None}]],  # type: ignore[misc]
+        )
 
     @staticmethod
     @pxt.udf
@@ -1113,6 +1164,10 @@ class TestFunction:
         )
         t.add_computed_column(ref_id=pxtf.string.format('PXT-{0}', t.customer_id))
 
+        expected_return_type = pxt.Json[
+            [{'customer_id': pxt.String, 'name': pxt.String, 'sales': pxt.Int | None, 'ref_id': pxt.String}]
+        ]
+
         fn1 = pxt.retrieval_udf(t)
         assert fn1.name == 'customers'
         assert list(fn1.signature.parameters.keys()) == ['customer_id', 'name', 'sales']
@@ -1121,6 +1176,7 @@ class TestFunction:
             ts.StringType(),
             ts.IntType(nullable=True),
         ]
+        assert_type_eq(fn1.signature.return_type, expected_return_type)
         assert fn1.comment() == dedent(
             """
             Retrieves an entry from the dataset 'customers' that matches the given parameters.
@@ -1136,6 +1192,7 @@ class TestFunction:
         assert fn2.name == 'customers'
         assert list(fn2.signature.parameters.keys()) == ['customer_id']
         assert [p.col_type for p in fn2.signature.parameters.values()] == [ts.StringType()]
+        assert_type_eq(fn2.signature.return_type, expected_return_type)
         assert fn2.comment() == dedent(
             """
             Retrieves an entry from the dataset 'customers' that matches the given parameters.
@@ -1160,7 +1217,13 @@ class TestFunction:
         assert fn3.name == 'my_customers'
         assert list(fn3.signature.parameters.keys()) == ['customer_id']
         assert [p.col_type for p in fn3.signature.parameters.values()] == [ts.StringType()]
+        assert_type_eq(fn3.signature.return_type, expected_return_type)
         assert fn3.comment() == "I'm a tool that LLMs can use to do stuff."
+
+        # use the retrieval UDF to define a computed column, and verify its type
+        lookup = pxt.create_table('lookup', {'lookup_id': pxt.Required[pxt.String]})
+        lookup.add_computed_column(matching=fn2(customer_id=lookup.lookup_id))
+        assert lookup.matching.col_type == fn2.signature.return_type
 
     def test_from_table(self, uses_db: None) -> None:
         schema = {'in1': pxt.Required[pxt.Int], 'in2': pxt.Required[pxt.String], 'in3': pxt.Float, 'in4': pxt.Image}

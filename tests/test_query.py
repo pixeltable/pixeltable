@@ -1,4 +1,5 @@
 import datetime
+import itertools
 import re
 import urllib.request
 from pathlib import Path
@@ -310,14 +311,14 @@ class TestQuery:
         res = t.select(t.c4).limit(nrows).collect()
         assert len(res) == nrows
 
-        @pxt.query
+        @pxt.query(return_scalar=True)
         def get_lim(n: int) -> pxt.Query:
             return t.select(t.c4).limit(n)
 
         res = t.select(t.c4, get_lim(2)).collect()
         print(res)
         print(res[0]['get_lim'])
-        assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
+        assert res[0]['get_lim'] == [False, True]
 
         with pytest.raises(pxt.Error, match='must be of type `Int`'):
             _ = t.limit(5.3).collect()  # type: ignore[arg-type]
@@ -347,12 +348,12 @@ class TestQuery:
     def test_limit4(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
-        @pxt.query
+        @pxt.query(return_scalar=True)
         def get_lim(n: float) -> pxt.Query:
             return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
 
         res = t.select(t.c4, get_lim(2.2)).collect()
-        assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
+        assert res[0]['get_lim'] == [False, True]
 
     def test_limit5(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -360,13 +361,13 @@ class TestQuery:
         print(res)
         assert res[0]['foo'] == [2, 3, 4]
 
-        @pxt.query
+        @pxt.query(return_scalar=True)
         def get_val(n: int) -> pxt.Query:
             return t.select(foo=[2, 3, n]).limit(2)
 
         res = t.select(t.c4, get_val(4)).limit(2).collect()
         print(res)
-        assert res[0]['get_val'][0]['foo'] == [2, 3, 4]
+        assert res[0]['get_val'][0] == [2, 3, 4]
 
     def test_pagination(self, uses_db: None) -> None:
         """Test limit with offset for pagination"""
@@ -1005,6 +1006,73 @@ class TestQuery:
         with pytest.raises(pxt.Error, match=r'Extra fields .* are not allowed in model') as exc_info:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
+
+    def test_cursor_lifecycle(self, test_tbl: pxt.Table) -> None:
+        query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
+
+        # repr reflects state transitions
+        cur = query.cursor()
+        assert 'pending' in repr(cur)
+        cur.open()
+        assert 'open' in repr(cur)
+        # double open raises
+        with pytest.raises(pxt.Error, match='Cursor is already open'):
+            cur.open()
+        cur.close()
+        assert 'closed' in repr(cur)
+        # double close is a no-op
+        cur.close()
+        # reopen after close raises
+        with pytest.raises(pxt.Error, match='Cursor is closed and cannot be reopened'):
+            cur.open()
+        # iterating a closed cursor raises
+        with pytest.raises(pxt.Error, match='Cursor is closed and cannot be iterated upon'):
+            list(cur)
+
+        # context manager: partial consumption cleans up
+        with query.cursor() as cur:
+            list(itertools.islice(cur, 10))
+        assert cur._closed
+
+        # auto-open and auto-close on exhaustion without context manager
+        cur = query.cursor()
+        rows = list(cur)
+        assert cur._closed
+        assert len(rows) == 100
+
+        # schema
+        cur = query.cursor()
+        assert list(cur._schema.keys()) == ['c1', 'c2', 'c3']
+
+    def test_cursor_row(self, test_tbl: pxt.Table) -> None:
+        query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
+        collected = query.collect()
+
+        with query.cursor() as cur:
+            for i, row in enumerate(cur):
+                # dict-like access
+                assert row['c1'] == collected[i]['c1']
+                assert row['c2'] == collected[i]['c2']
+                assert row['c3'] == collected[i]['c3']
+                # keys / values / items
+                assert list(row.keys()) == ['c1', 'c2', 'c3']
+                assert len(list(row.values())) == 3
+                items = list(row.items())
+                assert items[0] == ('c1', row['c1'])
+                # contains / len
+                assert 'c1' in row
+                assert 'nonexistent' not in row
+                assert len(row) == 3
+                # missing key
+                with pytest.raises(pxt.Error, match='does not exist'):
+                    row['nonexistent']
+
+    def test_table_cursor(self, uses_db: None) -> None:
+        tbl = pxt.create_table('cursor_tbl', {'a': pxt.Int, 'b': pxt.String})
+        tbl.insert([{'a': i, 'b': f'val_{i}'} for i in range(5)])
+        rows = list(tbl.cursor())
+        assert len(rows) == 5
+        assert all('a' in row and 'b' in row for row in rows)
 
     @pytest.mark.benchmark(group='select_inexpensive')
     def test_select_inexpensive(self, uses_db: None, benchmark: Any) -> None:
