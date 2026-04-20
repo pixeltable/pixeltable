@@ -49,27 +49,20 @@ class Config:
 
         self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
 
-        self.__config_dict: dict[str, Any]
-        if os.path.isfile(self.__config_file):
-            with open(self.__config_file, 'r', encoding='utf-8') as stream:
-                try:
-                    self.__config_dict = toml.load(stream)
-                except Exception as exc:
-                    raise excs.Error(f'Could not read config file: {self.__config_file}') from exc
-            for section, section_dict in self.__config_dict.items():
-                if section not in KNOWN_CONFIG_OPTIONS:
-                    raise excs.Error(f'Unrecognized section {section!r} in config file: {self.__config_file}')
-                for key in section_dict:
-                    if key not in KNOWN_CONFIG_OPTIONS[section]:
-                        raise excs.Error(f"Unrecognized option '{section}.{key}' in config file: {self.__config_file}")
-        else:
-            self.__config_dict = self.__create_default_config(self.__config_file)
-            with open(self.__config_file, 'w', encoding='utf-8') as stream:
-                try:
-                    toml.dump(self.__config_dict, stream)
-                except Exception as exc:
-                    raise excs.Error(f'Could not write config file: {self.__config_file}') from exc
-            _logger.info(f'Created default config file at: {self.__config_file}')
+        # Load configuration from (in order of precedence, highest to lowest):
+        #   1. ./pixeltable.toml, if present
+        #   2. The `[tool.pixeltable]` section of ./pyproject.toml, if present
+        #   3. The user's config file (~/.pixeltable/config.toml by default)
+
+        project_config = self.__load_project_config(Path.cwd() / 'pixeltable.toml')
+        pyproject_config = self.__load_pyproject_config(Path.cwd() / 'pyproject.toml')
+        user_config = self.__load_user_config()
+
+        self.__config_dict = {}
+
+        # Load lowest precedence first
+        for source in (user_config, pyproject_config, project_config):
+            self.__merge_config(self.__config_dict, source)
 
     @property
     def home(self) -> Path:
@@ -104,6 +97,82 @@ class Config:
         # Default cache size is 1/5 of free disk space
         file_cache_size_g = free_disk_space_bytes / 5 / (1 << 30)
         return {'pixeltable': {'file_cache_size_g': round(file_cache_size_g, 1), 'hide_warnings': False}}
+
+    @classmethod
+    def __read_toml_file(cls, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+        try:
+            with open(path, 'r', encoding='utf-8') as stream:
+                return toml.load(stream)
+        except Exception as exc:
+            raise excs.Error(f'Could not read config file: {path}') from exc
+
+    @classmethod
+    def __load_project_config(cls, path: Path) -> dict[str, Any]:
+        """Load ./pixeltable.toml, if it exists. Same structure as the user config file."""
+        config_dict = cls.__read_toml_file(path)
+        cls.__validate_config(config_dict, path)
+        return config_dict
+
+    @classmethod
+    def __load_pyproject_config(cls, path: Path) -> dict[str, Any]:
+        """Load the `[tool.pixeltable]` table from ./pyproject.toml, if it exists.
+
+        Subsections are expressed as `[tool.pixeltable.<section>]` (e.g. `[tool.pixeltable.openai]`).
+
+        `[tool.pixeltable.pixeltable]` is shortened to `[tool.pixeltable]`.
+        """
+        pyproject = cls.__read_toml_file(path)
+        config_dict = pyproject.get('tool', {}).get('pixeltable')
+        if not isinstance(config_dict, dict):
+            raise excs.Error(f"Expected a table for '[tool.pixeltable]' in config file: {path}")
+        for key, value in config_dict.items():
+            if key not in KNOWN_CONFIG_OPTIONS:
+                # `key` does not represent a section; relocate it to 'pixeltable' subsection
+                if 'pixeltable' not in config_dict:
+                    config_dict['pixeltable'] = {}
+                config_dict['pixeltable'][key] = value
+                del config_dict[key]
+        cls.__validate_config(config_dict, path)
+        return config_dict
+
+    def __load_user_config(self) -> dict[str, Any]:
+        """Load the user's config file, creating a default one if it does not exist."""
+        if self.__config_file.exists():
+            config_dict = self.__read_toml_file(self.__config_file)
+            self.__validate_config(config_dict, self.__config_file)
+            return config_dict
+
+        else:
+            config_dict = self.__create_default_config(self.__config_file)
+            with open(self.__config_file, 'w', encoding='utf-8') as stream:
+                try:
+                    toml.dump(config_dict, stream)
+                except Exception as exc:
+                    raise excs.Error(f'Could not create config file: {self.__config_file}') from exc
+            _logger.info(f'Created default config file at: {self.__config_file}')
+            return config_dict
+
+    @classmethod
+    def __validate_config(cls, config_dict: dict[str, Any], source: Path) -> None:
+        for section, section_dict in config_dict.items():
+            if section not in KNOWN_CONFIG_OPTIONS:
+                raise excs.Error(f'Unrecognized section {section!r} in config file: {source}')
+            if not isinstance(section_dict, dict):
+                raise excs.Error(f'Expected a table for section {section!r} in config file: {source}')
+            for key in section_dict:
+                if key not in KNOWN_CONFIG_OPTIONS[section]:
+                    raise excs.Error(f"Unrecognized option '{section}.{key}' in config file: {source}")
+
+    @classmethod
+    def __merge_config(cls, base: dict[str, Any], overlay: dict[str, Any]) -> None:
+        """Merge `overlay` into `base` at the section.key level; `overlay` values take precedence."""
+        for section, section_dict in overlay.items():
+            if section in base and isinstance(base[section], dict) and isinstance(section_dict, dict):
+                base[section].update(section_dict)
+            else:
+                base[section] = dict(section_dict) if isinstance(section_dict, dict) else section_dict
 
     def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
         override_var = f'{section}.{key}'
