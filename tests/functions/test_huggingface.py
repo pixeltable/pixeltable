@@ -15,6 +15,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_sentences,
+    pxt_raises,
     reload_catalog,
     rerun,
     skip_test_if_not_installed,
@@ -38,14 +39,14 @@ class TestHuggingface:
         assert status.num_excs == 0
 
         # verify handling of constant params
-        with pytest.raises(ValueError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='parameter model_id must be a constant value'):
             t.add_computed_column(e5_2=sentence_transformer(t.input, model_id=t.input))
-        assert ': parameter model_id must be a constant value' in str(exc_info.value)
-        with pytest.raises(ValueError) as exc_info:
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='parameter normalize_embeddings must be a constant value'
+        ):
             t.add_computed_column(
                 e5_2=sentence_transformer(t.input, model_id=model_id, normalize_embeddings=t.bool_col)
             )
-        assert ': parameter normalize_embeddings must be a constant value' in str(exc_info.value)
 
         # make sure this doesn't cause an exception
         # TODO: is there some way to capture the output?
