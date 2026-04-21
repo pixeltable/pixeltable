@@ -852,6 +852,7 @@ class Planner:
         base_analyzer = Analyzer(
             from_clause, list(base_output_exprs), where_clause=target.predicate, sample_clause=target.sample_clause
         )
+        base_analyzer.finalize(row_builder)
         base_eval_ctx = row_builder.create_eval_ctx(base_analyzer.all_exprs)
         plan = cls._create_query_plan(
             row_builder=row_builder,
@@ -1237,6 +1238,7 @@ class Planner:
         assert isinstance(tbl, catalog.TableVersionPath)
         row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[], tbl=tbl.tbl_version.get())
         analyzer = Analyzer(FromClause(tbls=[tbl]), row_builder.default_eval_ctx.target_exprs)
+        analyzer.finalize(row_builder)
         plan = cls._create_query_plan(
             row_builder=row_builder, analyzer=analyzer, eval_ctx=row_builder.default_eval_ctx, with_pk=True
         )
