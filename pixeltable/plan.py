@@ -353,7 +353,7 @@ class Planner:
         plan = query._create_query_plan()
         sql_node = plan.get_node(exec.SqlNode)
         assert sql_node is not None
-        if sql_node.py_filter is not None:
+        if plan.get_node(exec.FilterNode) is not None:
             raise excs.Error('count() cannot be used with Python-only filters. Use collect() instead.')
         # Get the SQL statement from the SqlNode as a CTE
         cte, _ = sql_node.to_cte(keep_pk=True)
@@ -1127,8 +1127,6 @@ class Planner:
 
         if analyzer.sql_where_clause is not None:
             plan.set_where(analyzer.sql_where_clause)
-        if analyzer.filter is not None:
-            plan.set_py_filter(analyzer.filter)
         if len(analyzer.window_fn_calls) > 0:
             # we need to order the input for window functions
             plan.set_order_by(analyzer.get_window_fn_ob_clause())
@@ -1144,6 +1142,12 @@ class Planner:
 
         plan = cls._add_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
         plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, plan)
+
+        if analyzer.filter is not None:
+            plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan)
+            plan = exec.FilterNode(row_builder, analyzer.filter, input=plan)
+            sql_exprs = exprs.ExprSet(sql_exprs)
+            sql_exprs.add(analyzer.filter)
 
         if analyzer.group_by_clause is not None:
             # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the
