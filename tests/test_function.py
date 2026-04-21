@@ -30,6 +30,18 @@ def dummy_fn(i: int) -> int:
     return i
 
 
+# Module-level expr_udfs used by TestFunction.test_expr_udf_method_property.
+# Defined at module scope so they have a clean self_path and register cleanly into the type-method registry.
+@pxt.expr_udf(is_method=True)
+def _expr_method_plus5(x: int) -> int:
+    return x + 5
+
+
+@pxt.expr_udf(is_property=True)
+def _expr_property_double(x: int) -> int:
+    return x * 2
+
+
 T = typing.TypeVar('T')
 
 
@@ -574,6 +586,40 @@ class TestFunction:
         res1 = t.select(out=self.add2_with_default(t.c2)).order_by(t.c2).collect()
         res2 = t.select(out=self.add2(t.c2, 1)).order_by(t.c2).collect()
         assert_resultset_eq(res1, res2)
+
+    def test_expr_udf_method_property(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+
+        # is_method: receiver-form `t.c2._expr_method_plus5()` matches function-form
+        res_recv = t.select(out=t.c2._expr_method_plus5()).order_by(t.c2).collect()
+        res_func = t.select(out=_expr_method_plus5(t.c2)).order_by(t.c2).collect()
+        res_inline = t.select(out=t.c2 + 5).order_by(t.c2).collect()
+        assert_resultset_eq(res_recv, res_func)
+        assert_resultset_eq(res_recv, res_inline)
+
+        # is_property: receiver-form `t.c2._expr_property_double` (no parens) matches function-form
+        res_prop = t.select(out=t.c2._expr_property_double).order_by(t.c2).collect()
+        res_inline2 = t.select(out=t.c2 * 2).order_by(t.c2).collect()
+        assert_resultset_eq(res_prop, res_inline2)
+
+    def test_expr_udf_method_errors(self) -> None:
+        # is_method and is_property are mutually exclusive
+        with pytest.raises(pxt.Error, match='Cannot specify both `is_method` and `is_property`'):
+
+            @pxt.expr_udf(is_method=True, is_property=True)
+            def bad1(x: int) -> int:
+                return x
+
+        # is_method requires the function to live in a module (has self_path)
+        with pytest.raises(pxt.Error, match='must live in a module'):
+            pxt.expr_udf(is_method=True)(lambda x: x)
+
+        # unknown kwargs are rejected
+        with pytest.raises(pxt.Error, match='Invalid @expr_udf decorator kwargs'):
+
+            @pxt.expr_udf(bogus=True)  # type: ignore[call-overload]
+            def bad2(x: int) -> int:
+                return x
 
     # Test that various invalid udf definitions generate
     # correct error messages.

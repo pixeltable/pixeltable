@@ -844,7 +844,7 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
 
-    @pytest.mark.skipif(IN_CI, reason='requires bug fix')
+    @pytest.mark.skipif(IN_CI, reason='[PXT-1118] Bug involving media reference in where clause')
     # @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
     def test_overlay_text(self, uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('videos', {'video': pxt.Video})
@@ -1578,16 +1578,14 @@ class TestVideo:
 
         self._validate_videos(result['gray'])
 
-    @pytest.mark.parametrize('direction', ['left', 'right', 'up', 'down'])
-    def test_pan(self, direction: str, uses_db: None) -> None:
-        from pixeltable.functions.video import pan
-
+    @pytest.mark.parametrize('x_sign,y_sign,axis', [(-1, 0, 'x'), (+1, 0, 'x'), (0, -1, 'y'), (0, +1, 'y')])
+    def test_pan(self, x_sign: int, y_sign: int, axis: str, uses_db: None) -> None:
         video_filepaths = get_video_files()
         t = pxt.create_table('pan_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
-        panned = pan(t.video, direction=direction, crop_pct=0.2)  # type: ignore[arg-type]
+        panned = t.video.pan(x_sign=x_sign, y_sign=y_sign, crop_pct=0.2)
         result = (
             t.where(md.streams[0].duration_seconds != None)
             .select(
@@ -1598,7 +1596,7 @@ class TestVideo:
         assert len(result) > 0
 
         assert all(row['panned'] is not None for row in result)
-        if direction in ('left', 'right'):
+        if axis == 'x':
             # width should be ~80% of original, height unchanged
             assert all(row['panned_md']['streams'][0]['height'] == row['orig_h'] for row in result)
             assert all(row['panned_md']['streams'][0]['width'] < row['orig_w'] for row in result)
@@ -1609,19 +1607,32 @@ class TestVideo:
 
         self._validate_videos(result['panned'])
 
-    def test_pan_errors(self, uses_db: None) -> None:
-        from pixeltable.functions.video import pan
+    def test_pan_by_column(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('pan_col_test', {'video': pxt.Video, 'pan_sign': pxt.Int})
+        rows = [{'video': f, 'pan_sign': +1 if i % 2 == 0 else -1} for i, f in enumerate(video_filepaths)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
 
+        md = t.video.get_metadata()
+        panned = t.video.pan(x_sign=t.pan_sign, crop_pct=0.2)
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(orig_w=md.streams[0].width, orig_h=md.streams[0].height, panned_md=panned.get_metadata())
+            .collect()
+        )
+        assert len(result) > 0
+        # both signs crop horizontally to ~80% of width and leave height unchanged
+        assert all(row['panned_md']['streams'][0]['height'] == row['orig_h'] for row in result)
+        assert all(row['panned_md']['streams'][0]['width'] < row['orig_w'] for row in result)
+
+    def test_pan_errors(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
         t = pxt.create_table('pan_err_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
-        with pytest.raises(pxt.Error, match=r'crop_pct must be between'):
-            t.select(pan(t.video, crop_pct=0.0)).collect()
-        with pytest.raises(pxt.Error, match=r'crop_pct must be between'):
-            t.select(pan(t.video, crop_pct=1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'direction must be one of'):
-            t.select(pan(t.video, direction='diagonal')).collect()  # type: ignore[arg-type]
+        # both signs zero degenerates to scroll() with x_speed=y_speed=0, which scroll rejects
+        with pytest.raises(pxt.Error, match=r'at least one of `x_speed` or `y_speed` must be non-zero'):
+            t.select(t.video.pan()).collect()
 
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')

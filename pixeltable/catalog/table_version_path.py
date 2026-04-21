@@ -157,10 +157,6 @@ class TableVersionPath:
         self.refresh_cached_md()
         return copy.deepcopy(self._cached_tbl_version.custom_metadata)
 
-    def num_retained_versions(self) -> int:
-        self.refresh_cached_md()
-        return self._cached_tbl_version.num_retained_versions
-
     def media_validation(self) -> MediaValidation:
         self.refresh_cached_md()
         return self._cached_tbl_version.media_validation
