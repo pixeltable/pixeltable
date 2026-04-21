@@ -1,11 +1,10 @@
 # mypy: disable-error-code="misc"
 
-import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
-from ..utils import skip_test_if_not_installed
+from ..utils import pxt_raises, skip_test_if_not_installed
 
 
 class TestJson:
@@ -65,7 +64,7 @@ class TestJson:
         }
 
         # Unequal length lists with mode='strict'
-        with pytest.raises(pxt.Error, match=r'zip\(\) argument 2 is shorter than argument 1'):
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=r'zip\(\) argument 2 is shorter than argument 1'):
             _ = pxt.create_view('test_view_3', t, iterator=pxtf.json.list_iterator(my_int=t.col_4, my_str=t.col_3))
 
         # Unequal length lists with mode='truncated'
@@ -129,26 +128,36 @@ class TestJson:
             },
         )
 
-        with pytest.raises(pxt.Error, match=r'list_iterator\(\): `mode` argument cannot be used with `elements`'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'list_iterator\(\): `mode` argument cannot be used with `elements`',
+        ):
             pxtf.json.list_iterator(t.col_1, mode='truncated')
 
-        with pytest.raises(pxt.Error, match=r'list_iterator\(\): Cannot specify both `elements` and keyword arguments'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'list_iterator\(\): Cannot specify both `elements` and keyword arguments',
+        ):
             pxtf.json.list_iterator(t.col_1, my_int=t.col_2)
 
         invalid_type_cases = (t.col_2, t.col_3, t.col_4, t.col_5)
         for expr in invalid_type_cases:
-            with pytest.raises(
-                pxt.Error, match=r'list_iterator\(\): Expected a type for `elements` matching `list\[dict\]`'
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match=r'list_iterator\(\): Expected a type for `elements` matching `list\[dict\]`',
             ):
                 pxtf.json.list_iterator(expr)
 
-        with pytest.raises(pxt.Error, match=r'list_iterator\(\): No inputs provided'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'list_iterator\(\): No inputs provided'):
             pxtf.json.list_iterator()
 
-        with pytest.raises(pxt.Error, match=r'list_iterator\(\): No inputs provided'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'list_iterator\(\): No inputs provided'):
             pxtf.json.list_iterator(mode='padded')
 
         invalid_type_cases_2 = (t.col_3, t.col_4)
         for expr in invalid_type_cases_2:
-            with pytest.raises(pxt.Error, match=r'list_iterator\(\): Expected a type for `my_int` matching `list`'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match=r'list_iterator\(\): Expected a type for `my_int` matching `list`',
+            ):
                 pxtf.json.list_iterator(my_int=expr)

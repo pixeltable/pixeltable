@@ -106,10 +106,11 @@ def _get_temp_location() -> str:
     """Get the bedrock.temp_location config value, raising a clear error if not set."""
     output_location = Config.get().get_string_value('temp_location', section='bedrock')
     if not output_location:
-        raise pxt.Error(
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
             'bedrock.temp_location must be configured for async model invocation. '
             'Set the environment variable `BEDROCK_TEMP_LOCATION` or add temp_location to the '
-            '`[bedrock]` section of your Pixeltable configuration file.'
+            '`[bedrock]` section of your Pixeltable configuration file.',
         )
     return output_location
 
@@ -260,7 +261,11 @@ async def _bedrock_async_invocation(
             await asyncio.sleep(_ASYNC_INVOCATION_POLL_INTERVAL_SECS)
             elapsed += _ASYNC_INVOCATION_POLL_INTERVAL_SECS
             if elapsed > _ASYNC_INVOCATION_TIMEOUT_SECS:
-                raise pxt.Error(f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s')
+                raise pxt.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_TIMEOUT,
+                    f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s',
+                    provider='bedrock',
+                )
             job: dict[str, Any] = await asyncio.to_thread(
                 _bedrock_client().get_async_invoke, invocationArn=invocation_arn
             )
@@ -268,18 +273,28 @@ async def _bedrock_async_invocation(
             if status == 'Completed':
                 break
             if status == 'Failed':
-                raise pxt.Error(
-                    f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}'
+                raise pxt.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_ERROR,
+                    f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}',
+                    provider='bedrock',
                 )
 
         listed = await asyncio.to_thread(store.client().list_objects_v2, Bucket=store.bucket_name, Prefix=result_prefix)
         keys = [obj['Key'] for obj in listed.get('Contents', [])]
         if not keys:
-            raise pxt.Error(f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed')
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_ERROR,
+                f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed',
+                provider='bedrock',
+            )
 
         result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
         if result_key is None:
-            raise pxt.Error(f'No output file (only manifest) found for job {invocation_id}')
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_ERROR,
+                f'No output file (only manifest) found for job {invocation_id}',
+                provider='bedrock',
+            )
 
         yield result_key
     finally:
@@ -295,7 +310,7 @@ async def _invoke_model_async(body: dict, model_id: str) -> Any:
     from pixeltable.utils.s3_store import S3Store
 
     if not isinstance(store, S3Store):
-        raise pxt.Error('bedrock.temp_location must be an s3:// URI')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bedrock.temp_location must be an s3:// URI')
 
     async with _bedrock_async_invocation(model_id, body, soa, store) as result_key:
         result_uri = f'{soa.prefix_free_uri}{result_key}'
@@ -665,7 +680,9 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         else:
             return np.array(response_body['embedding'], dtype=np.float32)
     except ClientError as e:
-        raise pxt.Error(f'Failed to generate embedding: {e}') from e
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR, f'Failed to generate embedding: {e}', provider='bedrock'
+        ) from e
 
 
 @embed.overload
@@ -711,7 +728,9 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
         else:
             return np.array(response_body['embedding'], dtype=np.float32)
     except ClientError as e:
-        raise pxt.Error(f'Failed to generate embedding: {e}') from e
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR, f'Failed to generate embedding: {e}', provider='bedrock'
+        ) from e
 
 
 @embed.conditional_return_type

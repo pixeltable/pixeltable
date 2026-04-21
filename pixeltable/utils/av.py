@@ -264,7 +264,7 @@ def handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
     error_msg = f'ffmpeg failed with return code {e.returncode}'
     if e.stderr is not None:
         error_msg += f':\n{e.stderr.strip()}'
-    raise pxt.Error(error_msg) from e
+    raise pxt.RequestError(pxt.ErrorCode.INVALID_DATA_FORMAT, error_msg) from e
 
 
 def run_ffmpeg_cmdline(
@@ -291,7 +291,10 @@ def run_ffmpeg_cmdline(
         output_file = Path(output_path)
         if not output_file.exists() or output_file.stat().st_size == 0:
             stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_DATA_FORMAT,
+                f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}',
+            )
         return output_path
     except subprocess.CalledProcessError as e:
         handle_ffmpeg_error(e)

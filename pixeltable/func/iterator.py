@@ -102,7 +102,10 @@ class GeneratingFunction:
         self._infer_properties()
 
         if len(self.unstored_cols) > 0 and not self.has_seek:
-            raise excs.Error(f'Iterator `{self.fqn}` with `unstored_cols` must implement a `seek()` method.')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Iterator `{self.fqn}` with `unstored_cols` must implement a `seek()` method.',
+            )
 
         self.is_legacy_retrofit = False
 
@@ -114,15 +117,22 @@ class GeneratingFunction:
         if isinstance(self.decorated_callable, type):
             # Case 1: decorating a subclass of PxtIterator
             if not issubclass(self.decorated_callable, PxtIterator):
-                raise excs.Error(
-                    f'@pxt.iterator-decorated class `{self.fqn}` must be a subclass of `pixeltable.PxtIterator`.'
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'@pxt.iterator-decorated class `{self.fqn}` must be a subclass of `pixeltable.PxtIterator`.',
                 )
             if self.decorated_callable.__next__ is PxtIterator.__next__:
-                raise excs.Error(f'@pxt.iterator-decorated class `{self.fqn}` must implement a `__next__()` method.')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'@pxt.iterator-decorated class `{self.fqn}` must implement a `__next__()` method.',
+                )
             self.has_seek = self.decorated_callable.seek is not PxtIterator.seek
 
             if not isinstance(self.decorated_callable.validate, MethodType):
-                raise excs.Error(f'`validate()` method of @pxt.iterator `{self.fqn}` must be a @classmethod.')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'`validate()` method of @pxt.iterator `{self.fqn}` must be a @classmethod.',
+                )
             assert isinstance(PxtIterator.validate, MethodType)
             if self.decorated_callable.validate.__func__ is not PxtIterator.validate.__func__:
                 # The PxtIterator subclass defines a validate() method; use it as the validator (but strip the `cls`
@@ -130,8 +140,9 @@ class GeneratingFunction:
                 self._validate = self.decorated_callable.validate
 
             if not isinstance(self.decorated_callable.conditional_output_schema, MethodType):
-                raise excs.Error(
-                    f'`conditional_output_schema()` method of @pxt.iterator `{self.fqn}` must be a @classmethod.'
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'`conditional_output_schema()` method of @pxt.iterator `{self.fqn}` must be a @classmethod.',
                 )
             assert isinstance(PxtIterator.conditional_output_schema, MethodType)
             if (
@@ -147,9 +158,10 @@ class GeneratingFunction:
             # remove type args from return_type (e.g., convert `dict[str, Any]` to `dict`)
             element_type = typing.get_origin(return_type) or return_type
             if not isinstance(element_type, type) or not issubclass(element_type, dict):
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
                     f'`__next__()` method of @pxt.iterator-decorated class `{self.fqn}` '
-                    'must have return type `dict` or a subclass of `TypedDict`.'
+                    'must have return type `dict` or a subclass of `TypedDict`.',
                 )
             output_schema_type = element_type
 
@@ -171,9 +183,10 @@ class GeneratingFunction:
                 or not isinstance(element_type, type)
                 or not issubclass(element_type, dict)
             ):
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
                     f'@pxt.iterator-decorated function `{self.fqn}()` '
-                    'must have return type `Iterator[dict]`, or `Iterator[T]` for a subclass `T` of `TypedDict`.'
+                    'must have return type `Iterator[dict]`, or `Iterator[T]` for a subclass `T` of `TypedDict`.',
                 )
             output_schema_type = element_type
 
@@ -187,31 +200,37 @@ class GeneratingFunction:
         self._default_output_schema = {}
         for name, type_ in annotations:
             if name == _POS_COLUMN_NAME:
-                raise excs.Error(f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.',
+                )
             col_type = ts.ColumnType.from_python_type(type_)
             if col_type is None:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_TYPE,
                     f'Could not infer Pixeltable type for output field {name!r} (with Python type `{type_.__name__}`).'
                     '\nThis field was mentioned in the return type '
                     f'`{output_schema_type.__module__}.{output_schema_type.__qualname__}` '
-                    f'in function `{iter_fn.__module__}.{iter_fn.__qualname__}()`.'
+                    f'in function `{iter_fn.__module__}.{iter_fn.__qualname__}()`.',
                 )
             self._default_output_schema[name] = col_type
 
     def call_output_schema(self, bound_args: dict[str, 'exprs.Expr']) -> dict[str, ts.ColumnType]:
         if self._conditional_output_schema is None:
             if self._default_output_schema is None:
-                raise excs.Error(
-                    f'Iterator `{self.fqn}` must either return a `TypedDict` or define a `conditional_output_schema`.'
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'Iterator `{self.fqn}` must either return a `TypedDict` or define a `conditional_output_schema`.',
                 )
             return self._default_output_schema
 
         else:
             output_schema = self._conditional_output_schema(bound_args)
             if output_schema is None:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
                     f'The `conditional_output_schema` for iterator `{self.fqn}` returned None; '
-                    'it must return a valid output schema dictionary.'
+                    'it must return a valid output schema dictionary.',
                 )
             result: dict[str, ts.ColumnType] = {}
             for name, type_ in output_schema.items():
@@ -225,7 +244,7 @@ class GeneratingFunction:
         try:
             bound_args = self.py_sig.bind(*args, **kwargs).arguments
         except TypeError as exc:
-            raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid iterator arguments: {exc}') from exc
         self.signature.validate_args(bound_args, context=f'in iterator `{self.fqn}`')
         return bound_args
 
@@ -285,7 +304,10 @@ class GeneratingFunction:
     # validate decorator
     def validate(self, fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]:
         if self._validate is not None:
-            raise excs.Error(f'@pxt.iterator `{self.fqn}` already defines a `validate()` method.')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'@pxt.iterator `{self.fqn}` already defines a `validate()` method.',
+            )
         self._validate = fn
         return fn
 
@@ -294,7 +316,10 @@ class GeneratingFunction:
         self, fn: Callable[[dict[str, 'exprs.Expr']], dict[str, type]]
     ) -> Callable[[dict[str, 'exprs.Expr']], dict[str, type]]:
         if self._conditional_output_schema is not None:
-            raise excs.Error(f'@pxt.iterator `{self.fqn}` already defines a `conditional_output_schema()` method.')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'@pxt.iterator `{self.fqn}` already defines a `conditional_output_schema()` method.',
+            )
         self._conditional_output_schema = fn
         return fn
 
@@ -335,16 +360,24 @@ class InvalidGeneratingFunction(GeneratingFunction):
         self.error_msg = error_msg
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'GeneratingFunctionCall':
-        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
+        )
 
     def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
-        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
+        )
 
     def call_output_schema(self, bound_args: dict[str, 'exprs.Expr']) -> dict[str, ts.ColumnType]:
-        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
+        )
 
     def _validate(self, bound_args: dict[str, Any]) -> None:
-        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return self.fn_dict
@@ -490,9 +523,11 @@ def iterator(*args, **kwargs):  # type: ignore[no-untyped-def]
     else:
         unstored_cols = kwargs.pop('unstored_cols', [])
         if len(kwargs) > 0:
-            raise excs.Error(f'Invalid @iterator decorator kwargs: {", ".join(kwargs.keys())}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid @iterator decorator kwargs: {", ".join(kwargs.keys())}'
+            )
         if len(args) > 0:
-            raise excs.Error('Unexpected @iterator decorator arguments.')
+            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, 'Unexpected @iterator decorator arguments.')
 
         def decorator(decorated_fn: Callable) -> GeneratingFunction:
             return GeneratingFunction(decorated_callable=decorated_fn, unstored_cols=unstored_cols)
