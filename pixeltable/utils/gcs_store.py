@@ -266,7 +266,9 @@ class GCSStore(ObjectStoreBase):
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
         """Create a presigned URL for downloading an object from GCS."""
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'StorageObjectAddress does not contain an object name: {soa}'
+            )
 
         gcs_client = self.client()
         bucket = gcs_client.bucket(soa.container)
@@ -281,16 +283,34 @@ class GCSStore(ObjectStoreBase):
         if isinstance(e, NotFound):
             if ignore_404:
                 return
-            raise excs.Error(f'Bucket or object {bucket_name} not found during {operation}: {str(e)!r}')
+            raise excs.NotFoundError(
+                excs.ErrorCode.STORAGE_NOT_FOUND,
+                f'Bucket or object {bucket_name} not found during {operation}: {str(e)!r}',
+            )
         elif isinstance(e, Forbidden):
-            raise excs.Error(f'Access denied to bucket {bucket_name} during {operation}: {str(e)!r}')
+            raise excs.AuthorizationError(
+                excs.ErrorCode.INSUFFICIENT_PRIVILEGES,
+                f'Access denied to bucket {bucket_name} during {operation}: {str(e)!r}',
+            )
         elif isinstance(e, GoogleAPIError):
             # Handle other Google API errors
             error_message = str(e)
             if 'Precondition' in error_message:
-                raise excs.Error(f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}')
+                raise excs.ExternalServiceError(
+                    excs.ErrorCode.PROVIDER_ERROR,
+                    f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}',
+                    provider='gcs',
+                )
             else:
-                raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_message}')
+                raise excs.ExternalServiceError(
+                    excs.ErrorCode.PROVIDER_ERROR,
+                    f'Error during {operation} in bucket {bucket_name}: {error_message}',
+                    provider='gcs',
+                )
         else:
             # Generic error handling
-            raise excs.Error(f'Unexpected error during {operation} in bucket {bucket_name}: {str(e)!r}')
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Unexpected error during {operation} in bucket {bucket_name}: {str(e)!r}',
+                provider='gcs',
+            )

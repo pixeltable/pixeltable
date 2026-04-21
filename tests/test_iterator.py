@@ -10,7 +10,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, func, type_system as ts
 from pixeltable.iterators.base import ComponentIterator
-from tests.utils import reload_catalog
+from tests.utils import pxt_raises, reload_catalog
 
 
 class MyRow(TypedDict):
@@ -28,11 +28,11 @@ def simple_iterator(x: int, str_text: str = 'string') -> Iterator[MyRow]:
 @simple_iterator.validate
 def _(bound_args: dict[str, Any]) -> None:
     if 'x' in bound_args and bound_args['x'] < 0:
-        raise pxt.Error('Parameter `x` must be non-negative.')
+        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `x` must be non-negative.')
     if 'str_text' not in bound_args:
-        raise pxt.Error('Parameter `str_text` must be a constant.')
+        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a constant.')
     if not bound_args['str_text'].isidentifier():
-        raise pxt.Error('Parameter `str_text` must be a valid identifier.')
+        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a valid identifier.')
 
 
 @pxt.iterator
@@ -57,11 +57,11 @@ class class_based_iterator(pxt.PxtIterator[MyRow]):
 @class_based_iterator.validate
 def _(bound_args: dict[str, Any]) -> None:
     if 'x' in bound_args and bound_args['x'] < 0:
-        raise pxt.Error('Parameter `x` must be non-negative.')
+        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `x` must be non-negative.')
     if 'str_text' not in bound_args:
-        raise pxt.Error('Parameter `str_text` must be a constant.')
+        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a constant.')
     if not bound_args['str_text'].isidentifier():
-        raise pxt.Error('Parameter `str_text` must be a valid identifier.')
+        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a valid identifier.')
 
 
 @pxt.iterator(unstored_cols=['icol'])
@@ -90,11 +90,11 @@ class iterator_with_seek(pxt.PxtIterator[MyRow]):
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:
         if 'x' in bound_args and bound_args['x'] < 0:
-            raise pxt.Error('Parameter `x` must be non-negative.')
+            raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `x` must be non-negative.')
         if 'str_text' not in bound_args:
-            raise pxt.Error('Parameter `str_text` must be a constant.')
+            raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a constant.')
         if not bound_args['str_text'].isidentifier():
-            raise pxt.Error('Parameter `str_text` must be a valid identifier.')
+            raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a valid identifier.')
 
 
 class ParamEchoRow(TypedDict):
@@ -168,15 +168,17 @@ class TestIterator:
             ]
 
             # Test that the iterator-specific validator works at insertion time
-            with pytest.raises(pxt.Error, match=r'Parameter `x` must be non-negative.'):
+            with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match=r'Parameter `x` must be non-negative.'):
                 t.insert([{'input': -1}])
 
             # Test that the iterator-specific validator works at iterator creation time
-            with pytest.raises(pxt.Error, match=r'Parameter `x` must be non-negative.'):
+            with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match=r'Parameter `x` must be non-negative.'):
                 it(-1)
-            with pytest.raises(pxt.Error, match=r'Parameter `str_text` must be a constant.'):
+            with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match=r'Parameter `str_text` must be a constant.'):
                 it(t.input, str_text=pxtf.uuid.uuid7().to_string())
-            with pytest.raises(pxt.Error, match=r'Parameter `str_text` must be a valid identifier.'):
+            with pxt_raises(
+                pxt.ErrorCode.GENERIC_USER_ERROR, match=r'Parameter `str_text` must be a valid identifier.'
+            ):
                 it(t.input, str_text='I am not a valid identifier!')
 
             pxt.drop_table(t.get_metadata()['name'], force=True)
@@ -216,8 +218,8 @@ class TestIterator:
 
     def test_iterator_errors(self, uses_db: None) -> None:
         # Error: class not a subclass of PxtIterator
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'@pxt.iterator-decorated class `.*not_pxt_iterator` must be a subclass of `pixeltable.PxtIterator`.',
         ):
 
@@ -227,8 +229,9 @@ class TestIterator:
                     pass
 
         # Error: class doesn't implement __next__()
-        with pytest.raises(
-            pxt.Error, match=r'@pxt.iterator-decorated class `.*no_next_method` must implement a `__next__\(\)` method.'
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r'@pxt.iterator-decorated class `.*no_next_method` must implement a `__next__\(\)` method.',
         ):
 
             @pxt.iterator
@@ -237,8 +240,9 @@ class TestIterator:
                     pass
 
         # Error: unstored_cols without seek() method
-        with pytest.raises(
-            pxt.Error, match=r'Iterator `.*no_seek_method` with `unstored_cols` must implement a `seek\(\)` method.'
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r'Iterator `.*no_seek_method` with `unstored_cols` must implement a `seek\(\)` method.',
         ):
 
             @pxt.iterator(unstored_cols=['icol'])
@@ -250,8 +254,8 @@ class TestIterator:
                     raise StopIteration
 
         # Error: validate() not a @classmethod
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'`validate\(\)` method of @pxt.iterator `.*validate_not_classmethod` must be a @classmethod.',
         ):
 
@@ -267,8 +271,8 @@ class TestIterator:
                     pass
 
         # Error: conditional_output_schema() not a @classmethod
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'`conditional_output_schema\(\)` method of @pxt.iterator '
             r'`.*cos_not_classmethod` must be a @classmethod.',
         ):
@@ -285,8 +289,8 @@ class TestIterator:
                     return None
 
         # Error: __next__() has wrong return type (not dict)
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'`__next__\(\)` method of @pxt.iterator-decorated class '
             r'`.*wrong_next_return_type` must have return type `dict` or a subclass of `TypedDict`.',
         ):
@@ -300,8 +304,8 @@ class TestIterator:
                     raise StopIteration
 
         # Error: function iterator with wrong return type (not Iterator[dict])
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'@pxt.iterator-decorated function `.*wrong_return_type\(\)` must have return type '
             r'`Iterator\[dict\]`, or `Iterator\[T\]` for a subclass `T` of `TypedDict`.',
         ):
@@ -311,8 +315,8 @@ class TestIterator:
                 return x
 
         # Error: function iterator returning Iterator[int] instead of Iterator[dict]
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'@pxt.iterator-decorated function `.*iterator_of_ints\(\)` must have return type '
             r'`Iterator\[dict\]`, or `Iterator\[T\]` for a subclass `T` of `TypedDict`.',
         ):
@@ -326,7 +330,9 @@ class TestIterator:
             icol: int
             bad_field: object  # object cannot be converted to a Pixeltable type
 
-        with pytest.raises(pxt.Error, match=r"Could not infer Pixeltable type for output field 'bad_field'"):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_TYPE, match=r"Could not infer Pixeltable type for output field 'bad_field'"
+        ):
 
             @pxt.iterator
             def bad_field_iterator(x: int) -> Iterator[BadFieldType]:
@@ -338,8 +344,8 @@ class TestIterator:
             yield from []
 
         t = pxt.create_table('tbl_plain_dict', schema={'input': pxt.Int})
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'Iterator `.*plain_dict_iterator` must either return a `TypedDict` '
             r'or define a `conditional_output_schema`.',
         ):
@@ -354,8 +360,9 @@ class TestIterator:
         def _(bound_args: dict[str, Any]) -> dict[str, type] | None:
             return None
 
-        with pytest.raises(
-            pxt.Error, match=r'The `conditional_output_schema` for iterator `.*conditional_returns_none` returned None'
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r'The `conditional_output_schema` for iterator `.*conditional_returns_none` returned None',
         ):
             pxt.create_view('view_cond_none', t, iterator=conditional_returns_none(t.input))
 
@@ -372,8 +379,9 @@ class TestIterator:
             def validate(cls, bound_args: dict[str, Any]) -> None:
                 pass
 
-        with pytest.raises(
-            pxt.Error, match=r'@pxt.iterator `.*iterator_with_validate` already defines a `validate\(\)` method.'
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r'@pxt.iterator `.*iterator_with_validate` already defines a `validate\(\)` method.',
         ):
 
             @iterator_with_validate.validate
@@ -393,8 +401,8 @@ class TestIterator:
             def conditional_output_schema(cls, bound_args: dict[str, exprs.Expr]) -> dict[str, type] | None:
                 return {'icol': int, 'scol': str}
 
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'@pxt.iterator `.*iterator_with_cos` already defines a `conditional_output_schema\(\)` method.',
         ):
 
@@ -403,21 +411,26 @@ class TestIterator:
                 return {'icol': int}
 
         # Error: invalid decorator kwargs
-        with pytest.raises(pxt.Error, match=r'Invalid @iterator decorator kwargs: invalid_kwarg'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid @iterator decorator kwargs: invalid_kwarg'
+        ):
 
             @pxt.iterator(invalid_kwarg='value')  # type: ignore[call-overload]
             def invalid_kwarg_iterator(x: int) -> Iterator[MyRow]:
                 yield from []
 
         # Error: unexpected decorator arguments
-        with pytest.raises(pxt.Error, match=r'Unexpected @iterator decorator arguments.'):
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match=r'Unexpected @iterator decorator arguments.'):
 
             @pxt.iterator('unexpected_arg')  # type: ignore[call-overload]
             def unexpected_arg_iterator(x: int) -> Iterator[MyRow]:
                 yield from []
 
         # Error: use of reserved column name
-        with pytest.raises(pxt.Error, match=r"'pos' is reserved and cannot be the name of an iterator output."):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r"'pos' is reserved and cannot be the name of an iterator output.",
+        ):
 
             class PosRow(TypedDict):
                 pos: int
@@ -477,7 +490,7 @@ class TestIterator:
                     t.where(t.c1 == 6).update({'c1': 7})
                     t.where(t.c1 == 7).delete()
             else:
-                with pytest.raises(pxt.Error, match=error_regex(validation_error)):
+                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=error_regex(validation_error)):
                     t.insert(c1=6)
                 # TODO: Check for error on update, once update plans are working for iterator views
 

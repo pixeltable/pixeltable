@@ -35,14 +35,16 @@ Flag any `is None` or `not` in expression contexts.
 
 - New features need tests in `tests/` (mirrors `pixeltable/` structure).
 - AI provider tests → `tests/functions/test_<provider>.py`, marked `@pytest.mark.remote_api`.
-- `pytest.raises` must always use `match=` to verify error text.
+- any test for a pxt.Error or one of its subclasses needs to use pxt_raises() instead of pytest.raises()
+- pxt_raises() (and pytest.raises(), if justified)  must always use `match=` to verify error text.
 - Tests must assert on user-visible behavior via public API — not `col.stored`, `ColumnRef`, or `TableVersion` internals. Use `Table.get_metadata()`, `t.describe()`, or queries.
 - Test names must be specific for `pytest -k` filtering. Prefer `pytest.parametrize` over duplication.
 - Use shared utilities (`validate_update_status()`, `skip_test_if_not_installed()`, `ReloadTester`). Extend shared fixtures, don't duplicate setup.
 
 ## Error Handling
 
-- `assert` is for internal invariants only. User-reachable paths must raise `excs.Error`.
+- `assert` is for internal invariants only. User-reachable paths must raise `excs.Error` or one of its subclasses.
+- make sure that the pxt.Error subclass and error code matches the actual error being signalled.
 - Error messages should be friendly and specific. Don't stringify large objects.
 
 ## Schema & Migrations
@@ -60,7 +62,8 @@ Flag any `is None` or `not` in expression contexts.
 
 ## Documentation
 
-Docstrings deploy as Mintlify MDX. Check: code fences on own lines, paired backticks, self-closing HTML, all code in fenced blocks. Notebooks need Raw cell with YAML frontmatter, no H1 headers.
+- Docstrings deploy as Mintlify MDX.
+- Check: code fences on own lines, paired backticks, self-closing HTML, all code in fenced blocks. Notebooks need Raw cell with YAML frontmatter, no H1 headers.
 
 ## Co-Changes (Flag if Missing)
 

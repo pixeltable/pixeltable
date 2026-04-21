@@ -167,7 +167,9 @@ def query(*args: Any, **kwargs: Any) -> Any:
         param_types = kwargs.pop('param_types', None)
         return_scalar = kwargs.pop('return_scalar', False)
         if len(kwargs) > 0:
-            raise excs.Error(f'@pxt.query(): unknown argument(s): {", ".join(kwargs)}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'@pxt.query(): unknown argument(s): {", ".join(kwargs)}'
+            )
         return lambda py_fn: make_query_template(py_fn, param_types, return_scalar)
 
 
@@ -210,11 +212,14 @@ def retrieval_udf(
     else:
         for param in parameters:
             if isinstance(param, str) and param not in col_names:
-                raise excs.Error(f'The specified parameter {param!r} is not a column of the table {table._path()!r}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'The specified parameter {param!r} is not a column of the table {table._path()!r}',
+                )
         col_refs = [table[param] if isinstance(param, str) else param for param in parameters]
 
     if len(col_refs) == 0:
-        raise excs.Error('Parameter list cannot be empty.')
+        raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'Parameter list cannot be empty.')
 
     # Construct the Query
     predicates = [col_ref == exprs.Variable(col_ref.col.name, col_ref.col.col_type) for col_ref in col_refs]

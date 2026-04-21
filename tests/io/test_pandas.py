@@ -11,7 +11,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 
-from ..utils import ensure_s3_pytest_resources_access, skip_test_if_not_installed
+from ..utils import ensure_s3_pytest_resources_access, pxt_raises, skip_test_if_not_installed
 
 EXPECTED_SCHEMA = {
     'int_col': ts.IntType(nullable=True),
@@ -188,7 +188,7 @@ class TestPandas:
 
         t2 = import_csv('ibm', 'tests/data/datasets/classeurIBM.csv', primary_key='Date')
         assert t2.count() == 4263
-        with pytest.raises(pxt.Error, match='Duplicate primary key'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t2.insert('tests/data/datasets/classeurIBM.csv')
         assert t2.count() == 4263
 
@@ -268,17 +268,17 @@ class TestPandas:
     def test_pandas_errors(self, uses_db: None) -> None:
         from pixeltable.io import import_csv
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = import_csv(
                 'online_foods', 'tests/data/datasets/onlinefoods.csv', schema_overrides={'Non-Column': pxt.String}
             )
         assert 'Some column(s) specified in `schema_overrides` are not present' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             _ = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key=['!!int', 'Non-Column'])
         assert 'Primary key column(s) are not found in the source:' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = import_csv(
                 # String with null values
                 'edge_cases',
@@ -287,7 +287,7 @@ class TestPandas:
             )
         assert 'Primary key column `string#n` cannot contain null values.' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = import_csv(
                 # Timestamp with null values
                 'edge_cases',

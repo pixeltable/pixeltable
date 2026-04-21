@@ -9,7 +9,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
 
-from .utils import assert_resultset_eq, get_test_video_files, reload_catalog, validate_update_status
+from .utils import assert_resultset_eq, get_test_video_files, pxt_raises, reload_catalog, validate_update_status
 
 
 class ConstantImgFrame(TypedDict):
@@ -70,7 +70,7 @@ class TestComponentView:
         video_filepaths = get_test_video_files()
 
         # bad parameter type
-        with pytest.raises(pxt.Error) as excinfo:
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=frame_iterator(1, fps=1))
         assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
 
@@ -123,7 +123,7 @@ class TestComponentView:
         validate_update_status(video_t.insert(rows))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
 
-        with pytest.raises(pxt.Error, match='Duplicate column name: annotation'):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Required[pxt.Json])
 
     def test_nondeterministic(self, uses_db: None) -> None:
@@ -189,7 +189,7 @@ class TestComponentView:
             # malformed _rowid
             view_t.batch_update([{'annotation': {'a': 1}, '_rowid': (1,)}])
 
-        with pytest.raises(pxt.Error) as excinfo:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as excinfo:
             _ = pxt.create_view(
                 'bad_view',
                 video_t,
@@ -400,12 +400,12 @@ class TestComponentView:
         assert status.num_excs == 0
 
         # view creation fails with an exception
-        with pytest.raises(pxt.Error, match='aborted'):
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='aborted'):
             _ = pxt.create_view('view', t, iterator=error_iterator(t.i, 50))
 
         # the view metadata got cleaned up
         assert 'view' not in pxt.list_tables()
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
             _ = pxt.get_table('view')
 
         # the second attempt succeeds
