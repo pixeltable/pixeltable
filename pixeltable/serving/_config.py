@@ -7,15 +7,16 @@ import logging
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import pydantic
-import toml
 
 import pixeltable as pxt
 import pixeltable.func as func
 from pixeltable import exceptions as excs
+from pixeltable.config import Config
 from pixeltable.env import Env
 
 if TYPE_CHECKING:
     import fastapi
+
 _logger = logging.getLogger('pixeltable')
 
 
@@ -112,31 +113,33 @@ def _resolve_dotted_path(dotted: str) -> Any:
     return getattr(module, attr_name)
 
 
-def load_app_config(config_path: str) -> AppConfig:
-    """Load and validate a TOML service configuration file."""
+def load_app_config(service_name: str) -> AppConfig:
+    raw_configs = Config.get().get_list_value('service') or []
+    if len(raw_configs) == 0:
+        raise excs.NotFoundError(excs.ErrorCode.SERVICE_NOT_FOUND, 'No services found in Pixeltable configuration.')
+
     try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            raw = toml.load(f)
-    except OSError as e:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'could not read service configuration file {config_path!r}: {e}'
-        ) from e
-    except toml.TomlDecodeError as e:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'invalid TOML in service configuration file {config_path!r}: {e}'
-        ) from e
-    try:
-        return AppConfig.model_validate(raw)
+        app_configs = [AppConfig.model_validate(cfg) for cfg in raw_configs]
     except pydantic.ValidationError as e:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'invalid service configuration in {config_path}:\n{e}'
-        ) from e
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid services configuration:\n{e}') from e
+
+    cfg = next((cfg for cfg in app_configs if cfg.service.title == service_name), None)
+    if cfg is None:
+        raise excs.NotFoundError(
+            excs.ErrorCode.SERVICE_NOT_FOUND,
+            f'Service {service_name!r} not found. The following services are configured:\n'
+            f'{[cfg.service.title for cfg in app_configs]}',
+        )
+
+    return cfg
 
 
 def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
     """Build a FastAPI instance from an AppConfig"""
     Env.get().require_package('fastapi')
     import fastapi
+
+    from pixeltable.serving import FastAPIRouter
 
     # import user modules so @pxt.query / retrieval_udf definitions are registered
     for mod_path in config.modules:
@@ -147,8 +150,6 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION, f'could not import module {mod_path!r} listed in `modules`: {e}'
             ) from e
-
-    from pixeltable.serving import FastAPIRouter
 
     app = fastapi.FastAPI(title=config.service.title)
     router = FastAPIRouter()

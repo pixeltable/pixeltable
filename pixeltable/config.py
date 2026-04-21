@@ -248,6 +248,9 @@ class Config:
     def get_bool_value(self, key: str, section: str = 'pixeltable') -> bool | None:
         return self.get_value(key, bool, section)
 
+    def get_list_value(self, key: str, section: str = 'pixeltable') -> list[Any] | None:
+        return self.get_value(key, list, section)
+
 
 KNOWN_CONFIG_OPTIONS = {
     'pixeltable': {
