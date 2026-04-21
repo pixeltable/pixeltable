@@ -440,7 +440,6 @@ class TestQuery:
             return 0
 
     def test_limit_0(self, test_tbl: pxt.Table) -> None:
-        """limit(0) returns correct schema and zero rows across all plan types."""
         t = test_tbl
 
         def check(query: pxt.Query, expected_cols: list[str]) -> None:
@@ -474,6 +473,7 @@ class TestQuery:
         # cursor: schema accessible before and after iteration, no rows yielded
         query = t.select(t.c1, t.c2).order_by(t.c2).limit(0)
         cur = query.cursor()
+        # TODO: add ResultCursor.keys(), analogously to Sqlalchemy's CursorResult.keys()?
         assert list(cur._schema.keys()) == ['c1', 'c2']
         rows = list(cur)
         assert rows == []
