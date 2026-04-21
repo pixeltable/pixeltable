@@ -105,7 +105,9 @@ def transcribe(
             'max_speakers',
         ):
             if args[param] is not None:
-                raise pxt.Error(f'`{param}` can only be set if `diarize=True`')
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION, f'`{param}` can only be set if `diarize=True`'
+                )
 
     device = resolve_torch_device('auto', allow_mps=False)
     compute_type = compute_type or ('float16' if device == 'cuda' else 'int8')
@@ -163,10 +165,11 @@ def _lookup_diarization_model(device: str, model_name: str | None) -> 'Diarizati
     if key not in _diarization_model_cache:
         auth_token = Config.get().get_string_value('auth_token', section='hf')
         if auth_token is None:
-            raise pxt.Error(
+            raise pxt.AuthorizationError(
+                pxt.ErrorCode.MISSING_CREDENTIALS,
                 'A Hugging Face auth token is required to use WhisperX diarization features. To fix this,\n'
                 "set the `HF_AUTH_TOKEN` environment variable, or the 'auth_token' config value in the [hf] "
-                'section of your Pixeltable config file.'
+                'section of your Pixeltable config file.',
             )
         kwargs: dict[str, Any] = {'device': device, 'token': auth_token}
         if model_name is not None:

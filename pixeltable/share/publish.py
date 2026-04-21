@@ -80,7 +80,7 @@ def push_replica(
 ) -> str:
     _logger.info(f'Publishing replica for {src_tbl._name!r} to: {dest_tbl_uri}')
     if not src_tbl._is_versioned():
-        raise excs.Error('Only versioned tables can be shared')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Only versioned tables can be shared')
 
     packager = TablePackager(src_tbl)
     # Create the publish request using packager's bundle_md
@@ -106,7 +106,12 @@ def push_replica(
             get_runtime().catalog.update_additional_md(src_tbl._id, {'pxt_uri': existing_table_uri})
         return existing_table_uri
     if response.status_code != 200:
-        raise excs.Error(f'Error publishing {src_tbl._display_name()}: {response.text}')
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Error publishing {src_tbl._display_name()}: {response.text}',
+            provider='pixeltable_cloud',
+            status_code=response.status_code,
+        )
     publish_response = PublishResponse.model_validate(response.json())
 
     _logger.debug(f'Received PublishResponse: {publish_response}')
@@ -124,7 +129,7 @@ def push_replica(
     elif parsed_location.scheme == 'https':
         _upload_to_presigned_url(file_path=bundle, url=parsed_location.geturl())
     else:
-        raise excs.Error(f'Unsupported destination: {destination_uri}')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported destination: {destination_uri}')
 
     Env.get().console_logger.info('Finalizing replica ...')
     # Use preview data from packager's bundle_md (set during package())
@@ -142,7 +147,12 @@ def push_replica(
         PIXELTABLE_API_URL, data=finalize_request.model_dump_json(), headers=_api_headers()
     )
     if finalize_response_json.status_code != 200:
-        raise excs.Error(f'Error finalizing {src_tbl._display_name()}: {finalize_response_json.text}')
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Error finalizing {src_tbl._display_name()}: {finalize_response_json.text}',
+            provider='pixeltable_cloud',
+            status_code=finalize_response_json.status_code,
+        )
 
     finalize_response = FinalizeResponse.model_validate(finalize_response_json.json())
     confirmed_tbl_uri = finalize_response.confirmed_table_uri
@@ -182,7 +192,12 @@ def pull_replica(dest_path: str, src_tbl_uri: PxtUri) -> pxt.Table:
         PIXELTABLE_API_URL, data=clone_request.model_dump_json(), headers=_api_headers(require_api_key=False)
     )
     if response.status_code != 200:
-        raise excs.Error(f'Error cloning replica: {response.text}')
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Error cloning replica: {response.text}',
+            provider='pixeltable_cloud',
+            status_code=response.status_code,
+        )
     clone_response = ReplicateResponse.model_validate(response.json())
 
     # Prevalidate destination path for replication. We do this before downloading the bundle so that we avoid
@@ -193,9 +208,10 @@ def pull_replica(dest_path: str, src_tbl_uri: PxtUri) -> pxt.Table:
     t = pxt.get_table(dest_path, if_not_exists='ignore')
     if t is not None:
         if str(t._id) != clone_response.md[0].tbl_md.tbl_id:
-            raise excs.Error(
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.PATH_ALREADY_EXISTS,
                 f'An attempt was made to create a replica table at {dest_path!r}, '
-                'but a different table already exists at that location.'
+                'but a different table already exists at that location.',
             )
         known_versions = tuple(v['version'] for v in t.get_versions())
         if clone_response.md[0].version_md.version in known_versions:
@@ -212,7 +228,11 @@ def pull_replica(dest_path: str, src_tbl_uri: PxtUri) -> pxt.Table:
         bundle_path = TempStore.create_path()
         _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
-        raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Unexpected response from server: unsupported bundle uri: {bundle_uri}',
+            provider='pixeltable_cloud',
+        )
 
     pxt_uri = str(clone_response.table_uri)
     md_list = [dataclasses.asdict(md) for md in clone_response.md]
@@ -336,7 +356,12 @@ def delete_replica(dest_uri: PxtUri, version: int | None = None) -> None:
     delete_request = DeleteRequest(table_uri=dest_uri, version=version)
     response = requests.post(PIXELTABLE_API_URL, data=delete_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
-        raise excs.Error(f'Error deleting replica: {response.text}')
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Error deleting replica: {response.text}',
+            provider='pixeltable_cloud',
+            status_code=response.status_code,
+        )
     DeleteResponse.model_validate(response.json())
     Env.get().console_logger.info(f'Deleted replica at: {dest_uri}')
 
@@ -346,7 +371,12 @@ def list_table_versions(table_uri: str) -> list[dict[str, Any]]:
     request_json = {'operation_type': 'list_table_versions', 'table_uri': {'uri': table_uri}}
     response = requests.post(PIXELTABLE_API_URL, data=json.dumps(request_json), headers=_api_headers())
     if response.status_code != 200:
-        raise excs.Error(f'Error listing table versions: {response.text}')
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Error listing table versions: {response.text}',
+            provider='pixeltable_cloud',
+            status_code=response.status_code,
+        )
     response_data = response.json()
     return response_data.get('versions', [])
 
@@ -356,11 +386,12 @@ def _api_headers(require_api_key: bool = True) -> dict[str, str]:
     api_key = Env.get().pxt_api_key
     if api_key is None:
         if require_api_key:
-            raise excs.Error(
+            raise excs.AuthorizationError(
+                excs.ErrorCode.MISSING_CREDENTIALS,
                 'A Pixeltable API key is required to use this feature. '
                 'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
                 f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
-                'For details, see https://docs.pixeltable.com/use-cases/get-started'
+                'For details, see https://docs.pixeltable.com/use-cases/get-started',
             )
         warnings.warn(
             'No Pixeltable API key found; proceeding in read-only mode with limited functionality. '

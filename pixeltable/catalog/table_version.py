@@ -290,7 +290,6 @@ class TableVersion:
         cls,
         name: str,
         cols: list[Column],
-        num_retained_versions: int,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -392,7 +391,6 @@ class TableVersion:
             schema_version=0,
             preceding_schema_version=None,
             columns=schema_col_md,
-            num_retained_versions=num_retained_versions,
             comment=comment,
             custom_metadata=custom_metadata,
             media_validation=media_validation.name.lower(),
@@ -735,8 +733,9 @@ class TableVersion:
         for col in cols:
             # TODO: check this elsewhere?
             if not col.col_type.nullable and not col.is_computed and row_count > 0:
-                raise excs.Error(
-                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows',
                 )
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
@@ -863,8 +862,9 @@ class TableVersion:
         for col in cols_to_add:
             assert col.tbl_handle.id == self.id
             if not col.col_type.nullable and not col.is_computed and row_count > 0:
-                raise excs.Error(
-                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows',
                 )
 
         num_excs = 0
@@ -904,7 +904,8 @@ class TableVersion:
                     # If it wasn't converted, re-raise as a generic Pixeltable error
                     # (this means it's not a known concurrency error; it's something else)
                     raise excs.Error(
-                        f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
+                        excs.ErrorCode.INTERNAL_ERROR,
+                        f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}',
                     ) from exc
             if excs_per_col > 0:
                 cols_with_excs.append(col)
@@ -981,16 +982,20 @@ class TableVersion:
         """Rename a column."""
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         if not self.is_mutable:
-            raise excs.Error(f'Cannot rename column for immutable table {self.name!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename column for immutable table {self.name!r}'
+            )
         col = self.path.get_column(old_name)
         if col is None:
-            raise excs.Error(f'Unknown column: {old_name}')
+            raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {old_name}')
         if col.get_tbl().id != self.id:
-            raise excs.Error(f'Cannot rename base table column {col.name!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename base table column {col.name!r}'
+            )
         if not is_valid_identifier(new_name):
-            raise excs.Error(f'Invalid column name: {new_name}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {new_name}')
         if new_name in self.cols_by_name:
-            raise excs.Error(f'Column {new_name!r} already exists')
+            raise excs.AlreadyExistsError(excs.ErrorCode.COLUMN_ALREADY_EXISTS, f'Column {new_name!r} already exists')
         del self.cols_by_name[old_name]
         col.name = new_name
         self.cols_by_name[new_name] = col
@@ -1005,15 +1010,6 @@ class TableVersion:
     def set_comment(self, new_comment: str | None) -> None:
         _logger.info(f'[{self.name}] Updating comment: {new_comment}')
         self.comment = new_comment
-        self._create_schema_version()
-
-    def set_num_retained_versions(self, new_num_retained_versions: int) -> None:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
-        _logger.info(
-            f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} '
-            f'(was {self.num_retained_versions})'
-        )
-        self.num_retained_versions = new_num_retained_versions
         self._create_schema_version()
 
     def _create_schema_version(self) -> None:
@@ -1133,11 +1129,16 @@ class TableVersion:
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
             if not isinstance(where, exprs.Expr):
-                raise excs.Error(f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION,
+                    f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
+                )
             analysis_info = Planner.analyze(self.path, where)
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
-                raise excs.Error(f'Filter not expressible in SQL: {analysis_info.filter}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
+                )
 
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
 
@@ -1191,7 +1192,9 @@ class TableVersion:
         unmatched_rows = row_update_node.unmatched_rows()
         if len(unmatched_rows) > 0:
             if error_if_not_exists:
-                raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
+                raise excs.NotFoundError(
+                    excs.ErrorCode.ROW_NOT_FOUND, f'batch_update(): {len(unmatched_rows)} row(s) not found'
+                )
             if insert_if_not_exists:
                 insert_status = self.insert(
                     unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
@@ -1205,7 +1208,10 @@ class TableVersion:
         update_targets: dict[Column, exprs.Expr] = {}
         for col_name, val in value_spec.items():
             if not isinstance(col_name, str):
-                raise excs.Error(f'Update specification: dict key must be column name; got {col_name!r}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'Update specification: dict key must be column name; got {col_name!r}',
+                )
             if col_name == _ROWID_COLUMN_NAME:
                 # a valid rowid is a list of ints, one per rowid column
                 assert len(val) == len(self.store_tbl.rowid_columns())
@@ -1214,15 +1220,25 @@ class TableVersion:
                 continue
             col = self.path.get_column(col_name)
             if col is None:
-                raise excs.Error(f'Unknown column: {col_name}')
+                raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col_name}')
             if col.get_tbl().id != self.id:
-                raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col.name!r} is a base table column and cannot be updated',
+                )
             if col.is_computed:
-                raise excs.Error(f'Column {col_name!r} is computed and cannot be updated')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is computed and cannot be updated'
+                )
             if col.is_pk and not allow_pk:
-                raise excs.Error(f'Column {col_name!r} is a primary key column and cannot be updated')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col_name!r} is a primary key column and cannot be updated',
+                )
             if col.col_type.is_media_type() and not allow_media:
-                raise excs.Error(f'Column {col_name!r} is a media column and cannot be updated')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is a media column and cannot be updated'
+                )
 
             # make sure that the value is compatible with the column type
             value_expr: exprs.Expr
@@ -1231,20 +1247,23 @@ class TableVersion:
                 value_expr = exprs.Literal(val, col_type=col.col_type)
             except TypeError as exc:
                 if not allow_exprs:
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Column {col_name!r}: value is not a valid literal for this column '
-                        f'(expected `{col.col_type}`): {val!r}'
+                        f'(expected `{col.col_type}`): {val!r}',
                     ) from exc
                 # it's not a literal, let's try to create an expr from it
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
-                    raise excs.Error(
-                        f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
                     ) from exc
                 if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
                         f'The literal value {val!r} is not compatible with the type '
-                        f'`{col.col_type}` of column {col_name!r}'
+                        f'`{col.col_type}` of column {col_name!r}',
                     ) from exc
             update_targets[col] = value_expr
 
@@ -1344,11 +1363,16 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         if not isinstance(pred, Expr):
-            raise excs.Error(f'{error_prefix} must be a valid Pixeltable expression; got `{type(pred)}`')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'{error_prefix} must be a valid Pixeltable expression; got `{type(pred)}`',
+            )
         analysis_info = Planner.analyze(self.path, pred)
         # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
         if analysis_info.filter is not None:
-            raise excs.Error(f'Filter not expressible in SQL: {analysis_info.filter}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
+            )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
         assert self.is_insertable
@@ -1391,7 +1415,7 @@ class TableVersion:
         assert self.is_mutable
         assert self.is_versioned
         if self.version == 0:
-            raise excs.Error('Cannot revert version 0')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot revert version 0')
         self._revert()
 
     def _revert(self) -> None:
@@ -1413,11 +1437,10 @@ class TableVersion:
         result = list(conn.execute(sql.text(query)))
         if len(result) > 0:
             names = [row[1] for row in result]
-            raise excs.Error(
-                (
-                    f'Current version is needed for {len(result)} snapshot{"s" if len(result) > 1 else ""}: '
-                    f'({", ".join(names)})'
-                )
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Current version is needed for {len(result)} snapshot{"s" if len(result) > 1 else ""}: '
+                f'({", ".join(names)})',
             )
 
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
@@ -1581,15 +1604,6 @@ class TableVersion:
     @property
     def custom_metadata(self) -> Any:
         return self._schema_version_md.custom_metadata
-
-    @property
-    def num_retained_versions(self) -> int:
-        return self._schema_version_md.num_retained_versions
-
-    @num_retained_versions.setter
-    def num_retained_versions(self, n: int) -> None:
-        assert self.effective_version is None
-        self._schema_version_md.num_retained_versions = n
 
     @property
     def version(self) -> int | None:
@@ -1760,18 +1774,25 @@ class TableVersion:
 
     def get_idx(self, col: Column, idx_name: str | None, idx_cls: type[index.IndexBase]) -> TableVersion.IndexInfo:
         if not self.supports_idxs:
-            raise excs.Error('Snapshot does not support indices')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Snapshot does not support indices')
         if col.qid not in self.idxs_by_col:
-            raise excs.Error(f'Column {col.name!r} does not have a {idx_cls.display_name()} index')
+            raise excs.NotFoundError(
+                excs.ErrorCode.INDEX_NOT_FOUND, f'Column {col.name!r} does not have a {idx_cls.display_name()} index'
+            )
         candidates = [info for info in self.idxs_by_col[col.qid] if isinstance(info.idx, idx_cls)]
         if len(candidates) == 0:
-            raise excs.Error(f'No {idx_cls.display_name()} index found for column {col.name!r}')
+            raise excs.NotFoundError(
+                excs.ErrorCode.INDEX_NOT_FOUND, f'No {idx_cls.display_name()} index found for column {col.name!r}'
+            )
         if len(candidates) > 1 and idx_name is None:
-            raise excs.Error(
-                f'Column {col.name!r} has multiple {idx_cls.display_name()} indices; specify `idx_name` instead'
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {col.name!r} has multiple {idx_cls.display_name()} indices; specify `idx_name` instead',
             )
         if idx_name is not None and idx_name not in [info.name for info in candidates]:
-            raise excs.Error(f'Index {idx_name!r} not found for column {col.name!r}')
+            raise excs.NotFoundError(
+                excs.ErrorCode.COLUMN_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
+            )
         return candidates[0] if idx_name is None else next(info for info in candidates if info.name == idx_name)
 
     def get_dependent_columns(self, cols: Iterable[Column]) -> set[Column]:

@@ -425,9 +425,10 @@ class TableRestorer:
         assert isinstance(pxt_md_version, int)
 
         if pxt_md_version != metadata.VERSION:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
                 f'Pixeltable metadata version mismatch: {pxt_md_version} != {metadata.VERSION}.\n'
-                'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
+                'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable',
             )
         # Convert tables metadata from dict to list of TableVersionMd
         tbl_md = [schema.md_from_dict(TableVersionMd, t) for t in self.bundle_md['md']]
@@ -589,8 +590,9 @@ class TableRestorer:
                 _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
                 _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
                 raise excs.Error(
+                    excs.ErrorCode.INTERNAL_ERROR,
                     'Data corruption error: '
-                    'the replica data are inconsistent with data retrieved from a previous replica.'
+                    'the replica data are inconsistent with data retrieved from a previous replica.',
                 )
 
         _logger.debug(f'Verified data integrity between {store_sa_tbl_name!r} and {temp_sa_tbl_name!r}.')

@@ -32,9 +32,15 @@ class ArithmeticExpr(Expr):
 
         # do typechecking after initialization in order for __str__() to work
         if not op1.col_type.is_numeric_type() and not op1.col_type.is_json_type():
-            raise excs.Error(f'{self}: {operator} requires numeric types, but {op1} has type {op1.col_type}')
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'{self}: {operator} requires numeric types, but {op1} has type {op1.col_type}',
+            )
         if not op2.col_type.is_numeric_type() and not op2.col_type.is_json_type():
-            raise excs.Error(f'{self}: {operator} requires numeric types, but {op2} has type {op2.col_type}')
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'{self}: {operator} requires numeric types, but {op2} has type {op2.col_type}',
+            )
 
         self.id = self._create_id()
 
@@ -108,12 +114,14 @@ class ArithmeticExpr(Expr):
 
         # if one or both columns is JsonTyped, we need a dynamic check that they are numeric
         if self._op1.col_type.is_json_type() and op1_val is not None and not isinstance(op1_val, (int, float)):
-            raise excs.Error(
-                f'{self.operator} requires numeric types, but {self._op1} has type {type(op1_val).__name__}'
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'{self.operator} requires numeric types, but {self._op1} has type {type(op1_val).__name__}',
             )
         if self._op2.col_type.is_json_type() and op2_val is not None and not isinstance(op2_val, (int, float)):
-            raise excs.Error(
-                f'{self.operator} requires numeric types, but {self._op2} has type {type(op2_val).__name__}'
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'{self.operator} requires numeric types, but {self._op2} has type {type(op2_val).__name__}',
             )
 
         data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
