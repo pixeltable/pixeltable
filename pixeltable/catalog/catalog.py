@@ -889,7 +889,7 @@ class Catalog:
 
     def record_column_dependencies(self, tbl_version: TableVersion) -> None:
         """Update self._column_dependencies. Only valid for mutable versions."""
-        from pixeltable.exprs import Expr
+        from pixeltable.exprs import ColumnRef, Expr
 
         assert tbl_version.is_mutable
         dependencies: dict[QColumnId, set[QColumnId]] = {}
@@ -898,17 +898,14 @@ class Catalog:
                 continue
             dependencies[QColumnId(tbl_version.id, col.id)] = Expr.get_refd_column_ids(col.value_expr_dict)
 
-        if tbl_version.is_component_view and tbl_version.is_view:
-            iterator_call_dict = tbl_version.view_md.iterator_call
-            if iterator_call_dict is not None:
-                iterator_arg_deps: set[QColumnId] = set()
-                for arg_dict in iterator_call_dict['args']:
-                    iterator_arg_deps.update(Expr.get_refd_column_ids(arg_dict))
-                for kwarg_dict in iterator_call_dict['kwargs'].values():
-                    iterator_arg_deps.update(Expr.get_refd_column_ids(kwarg_dict))
-                if len(iterator_arg_deps) > 0:
-                    for col in tbl_version.iterator_columns():
-                        dependencies[QColumnId(tbl_version.id, col.id)] = iterator_arg_deps
+        if tbl_version.is_component_view:
+            iterator_arg_deps: set[QColumnId] = set()
+            for arg_expr in tbl_version.iterator_call.bound_args.values():
+                for col_ref in arg_expr.subexprs(ColumnRef):
+                    iterator_arg_deps.add(QColumnId(col_ref.col.tbl_handle.id, col_ref.col.id))
+            if len(iterator_arg_deps) > 0:
+                for col in tbl_version.iterator_columns():
+                    dependencies[QColumnId(tbl_version.id, col.id)] = iterator_arg_deps
 
         self._column_dependencies[tbl_version.id] = dependencies
 
