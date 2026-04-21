@@ -898,13 +898,13 @@ class Catalog:
                 continue
             dependencies[QColumnId(tbl_version.id, col.id)] = Expr.get_refd_column_ids(col.value_expr_dict)
 
-        if tbl_version.is_component_view and tbl_version.view_md is not None:
+        if tbl_version.is_component_view and tbl_version.is_view:
             iterator_call_dict = tbl_version.view_md.iterator_call
             if iterator_call_dict is not None:
                 iterator_arg_deps: set[QColumnId] = set()
                 for arg_dict in iterator_call_dict['args']:
                     iterator_arg_deps.update(Expr.get_refd_column_ids(arg_dict))
-                for kwarg_dict in iterator_call_dict.get('kwargs', {}).values():
+                for kwarg_dict in iterator_call_dict['kwargs'].values():
                     iterator_arg_deps.update(Expr.get_refd_column_ids(kwarg_dict))
                 if len(iterator_arg_deps) > 0:
                     for col in tbl_version.iterator_columns():
