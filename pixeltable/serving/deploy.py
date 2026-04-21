@@ -1,5 +1,7 @@
+import io
 import logging
 import os
+import subprocess
 import tarfile
 import tempfile
 from pathlib import Path
@@ -61,6 +63,21 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
     return sorted(files)
 
 
+def _export_conda_env() -> bytes | None:
+    """Export the active conda environment as YAML, without platform-specific build strings.
+
+    Returns the environment.yml content as bytes, or None if not running in a conda environment.
+    """
+    if 'CONDA_DEFAULT_ENV' not in os.environ:
+        return None
+    try:
+        result = subprocess.run(['conda', 'env', 'export', '--no-builds'], capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        _logger.warning(f'Failed to export conda environment: {exc}')
+        return None
+    return result.stdout
+
+
 def package(deploy_config: DeploymentConfig, project_dir: Path | None = None) -> Path:
     """Bundle the contents of a Pixeltable project directory into a tarball.
 
@@ -78,16 +95,18 @@ def package(deploy_config: DeploymentConfig, project_dir: Path | None = None) ->
     if not project_dir.is_dir():
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
 
-    include: list[str] | None = None
-    exclude: list[str] | None = None
-
     _logger.info(f'Packaging project directory: {project_dir}')
     fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_deploy_')
     os.close(fd)
     bundle_path = Path(name)
 
+    conda_env = _export_conda_env()
     files = _collect_project_files(project_dir, deploy_config.include, deploy_config.exclude)
     with tarfile.open(bundle_path, 'w:bz2') as tf:
+        if conda_env is not None:
+            info = tarfile.TarInfo(name='environment.yml')
+            info.size = len(conda_env)
+            tf.addfile(info, fileobj=io.BytesIO(conda_env))
         for f in files:
             tf.add(f, arcname=str(f.relative_to(project_dir)))
 
