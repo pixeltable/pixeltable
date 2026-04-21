@@ -1953,7 +1953,6 @@ class Catalog:
         elif not tv.is_validated:
             # only live instances are invalidated
             assert key.effective_version is None
-            # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
             where_clause: sql.ColumnElement[bool]
             if check_pending_ops:
                 # if we don't want to see pending ops, we also don't want to see dropped tables
