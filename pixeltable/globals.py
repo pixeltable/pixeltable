@@ -59,7 +59,6 @@ def create_table(
     create_default_idxs: bool = True,
     on_error: Literal['abort', 'ignore'] = 'abort',
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
     comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -95,7 +94,6 @@ def create_table(
                 corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
             table.
-        num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
         custom_metadata: Optional user-defined metadata to associate with the table. Must be a valid JSON-serializable
             object [str, int, float, bool, dict, list].
@@ -230,7 +228,6 @@ def create_table(
         comment=comment,
         custom_metadata=custom_metadata,
         media_validation=media_validation_,
-        num_retained_versions=num_retained_versions,
         create_default_idxs=create_default_idxs,
     )
 
@@ -256,7 +253,6 @@ def create_view(
     is_snapshot: bool = False,
     create_default_idxs: bool = False,
     iterator: func.GeneratingFunctionCall | None = None,
-    num_retained_versions: int = 10,
     comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -278,7 +274,6 @@ def create_view(
             Cannot be `True` for snapshots.
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
-        num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
         custom_metadata: Optional user-defined JSON metadata to associate with the view.
         media_validation: Media validation policy for the view.
@@ -389,7 +384,6 @@ def create_view(
         is_snapshot=is_snapshot,
         create_default_idxs=create_default_idxs,
         iterator=iterator,
-        num_retained_versions=num_retained_versions,
         comment=comment,
         custom_metadata=custom_metadata,
         media_validation=media_validation_,
@@ -403,7 +397,6 @@ def create_snapshot(
     *,
     additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     iterator: func.GeneratingFunctionCall | None = None,
-    num_retained_versions: int = 10,
     comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -421,7 +414,6 @@ def create_snapshot(
             [`create_table`][pixeltable.create_table].
         iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
             the base table.
-        num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the snapshot.
         custom_metadata: Optional user-defined JSON metadata to associate with the snapshot.
         media_validation: Media validation policy for the snapshot.
@@ -478,7 +470,6 @@ def create_snapshot(
         additional_columns=additional_columns,
         iterator=iterator,
         is_snapshot=True,
-        num_retained_versions=num_retained_versions,
         comment=comment,
         custom_metadata=custom_metadata,
         media_validation=media_validation,
