@@ -287,7 +287,6 @@ class TableVersion:
         cls,
         name: str,
         cols: list[Column],
-        num_retained_versions: int,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -387,7 +386,6 @@ class TableVersion:
             schema_version=0,
             preceding_schema_version=None,
             columns=schema_col_md,
-            num_retained_versions=num_retained_versions,
             comment=comment,
             custom_metadata=custom_metadata,
             media_validation=media_validation.name.lower(),
@@ -1002,14 +1000,6 @@ class TableVersion:
         self.comment = new_comment
         self._create_schema_version()
 
-    def set_num_retained_versions(self, new_num_retained_versions: int) -> None:
-        _logger.info(
-            f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} '
-            f'(was {self.num_retained_versions})'
-        )
-        self.num_retained_versions = new_num_retained_versions
-        self._create_schema_version()
-
     def _create_schema_version(self) -> None:
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -1589,15 +1579,6 @@ class TableVersion:
     @property
     def custom_metadata(self) -> Any:
         return self._schema_version_md.custom_metadata
-
-    @property
-    def num_retained_versions(self) -> int:
-        return self._schema_version_md.num_retained_versions
-
-    @num_retained_versions.setter
-    def num_retained_versions(self, n: int) -> None:
-        assert self.effective_version is None
-        self._schema_version_md.num_retained_versions = n
 
     @property
     def version(self) -> int:

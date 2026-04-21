@@ -69,7 +69,6 @@ def import_rows(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
     comment: str = '',
 ) -> pxt.Table:
     """
@@ -90,20 +89,13 @@ def import_rows(
         schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
             as described above.
         primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
-        num_retained_versions: The number of retained versions of the table
-            (see [`create_table()`][pixeltable.create_table]).
         comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
 
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     return pxt.create_table(
-        tbl_path,
-        source=rows,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
+        tbl_path, source=rows, schema_overrides=schema_overrides, primary_key=primary_key, comment=comment
     )
 
 
@@ -113,7 +105,6 @@ def import_json(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
     comment: str = '',
     **kwargs: Any,
 ) -> pxt.Table:
@@ -128,8 +119,6 @@ def import_json(
         schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
             (see [`import_rows()`][pixeltable.io.import_rows]).
         primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
-        num_retained_versions: The number of retained versions of the table
-            (see [`create_table()`][pixeltable.create_table]).
         comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
         kwargs: Additional keyword arguments to pass to `json.loads`.
 
@@ -141,7 +130,6 @@ def import_json(
         source=filepath_or_url,
         schema_overrides=schema_overrides,
         primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
         comment=comment,
         extra_args=kwargs,
     )

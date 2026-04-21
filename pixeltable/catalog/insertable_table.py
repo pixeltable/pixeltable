@@ -69,7 +69,6 @@ class InsertableTable(Table):
         name: str,
         schema: dict[str, type | ColumnSpec | exprs.Expr],
         primary_key: list[str],
-        num_retained_versions: int,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -95,7 +94,6 @@ class InsertableTable(Table):
         md = TableVersion.create_initial_md(
             name,
             columns,
-            num_retained_versions,
             comment,
             custom_metadata,
             media_validation,

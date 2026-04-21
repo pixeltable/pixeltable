@@ -10,9 +10,12 @@ def resolve_symbol(symbol_path: str) -> object | None:
     module: ModuleType | None = None
     i = len(path_elems) - 1
     while i > 0 and module is None:
+        module_path = '.'.join(path_elems[:i])
         try:
-            module = importlib.import_module('.'.join(path_elems[:i]))
-        except ModuleNotFoundError:
+            module = importlib.import_module(module_path)
+        except ModuleNotFoundError as e:
+            if e.name != module_path and not module_path.startswith(f'{e.name}.'):
+                raise
             i -= 1
     if i == 0:
         return None  # Not resolvable

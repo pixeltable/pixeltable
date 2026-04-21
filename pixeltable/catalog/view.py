@@ -83,7 +83,6 @@ class View(Table):
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,
         create_default_idxs: bool,
-        num_retained_versions: int,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -198,7 +197,6 @@ class View(Table):
         md = TableVersion.create_initial_md(
             name,
             columns,
-            num_retained_versions,
             comment,
             custom_metadata,
             media_validation=media_validation,
