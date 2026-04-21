@@ -20,14 +20,7 @@ from pixeltable.functions.vision import (
     overlay_segmentation,
 )
 
-from ..utils import (
-    IN_CI,
-    get_image_files,
-    get_video_files,
-    pxt_raises,
-    skip_test_if_not_installed,
-    validate_update_status,
-)
+from ..utils import get_image_files, get_video_files, pxt_raises, skip_test_if_not_installed, validate_update_status
 
 
 class TestVision:
@@ -1233,10 +1226,9 @@ class TestVision:
             t.select(udf_call).collect()
         t.delete()
 
-    @pytest.mark.skipif(IN_CI, reason='Crashing in CI (memory issue?)')
+    @pytest.mark.expensive  # Resource-intensive
     def test_overlay_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
-
         from pixeltable.functions.huggingface import detr_for_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})

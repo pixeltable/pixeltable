@@ -12,7 +12,6 @@ from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
-    IN_CI,
     ReloadTester,
     get_audio_file,
     get_audio_files,
@@ -406,7 +405,7 @@ class TestAudio:
         assert len(audio_data) > 0
         return audio_data, duration_seconds, sample_rate
 
-    @pytest.mark.skipif(IN_CI, reason='Runs out of disk space on CI')
+    @pytest.mark.expensive  # Large dataset; requires substantial disk space
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
     def test_encode_dataset_audio(self, uses_db: None) -> None:
         """

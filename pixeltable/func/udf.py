@@ -253,11 +253,15 @@ def expr_udf(py_fn: Callable) -> ExprTemplateFunction: ...
 
 
 @overload
-def expr_udf(*, param_types: list[ts.ColumnType] | None = None) -> Callable[[Callable], ExprTemplateFunction]: ...
+def expr_udf(
+    *, param_types: list[ts.ColumnType] | None = None, is_method: bool = False, is_property: bool = False
+) -> Callable[[Callable], ExprTemplateFunction]: ...
 
 
 def expr_udf(*args: Any, **kwargs: Any) -> Any:
-    def make_expr_template(py_fn: Callable, param_types: list[ts.ColumnType] | None) -> ExprTemplateFunction:
+    def make_expr_template(
+        py_fn: Callable, param_types: list[ts.ColumnType] | None, is_method: bool, is_property: bool
+    ) -> ExprTemplateFunction:
         from pixeltable import exprs
 
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
@@ -265,6 +269,18 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
             function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
         else:
             function_path = None
+
+        function_name = py_fn.__name__
+        if is_method and is_property:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)',
+            )
+        if (is_method or is_property) and function_path is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'`{function_name}`: expr_udfs declared with `is_method` or `is_property` must live in a module',
+            )
 
         # TODO: verify that the inferred return type matches that of the template
         # TODO: verify that the signature doesn't contain batched parameters
@@ -279,14 +295,33 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         sig.return_type = expr.col_type
         if function_path is not None:
             validate_symbol_path(function_path)
-        return ExprTemplateFunction([ExprTemplate(expr, sig)], self_path=function_path, name=py_fn.__name__)
+        result = ExprTemplateFunction(
+            [ExprTemplate(expr, sig)],
+            self_path=function_path,
+            name=function_name,
+            is_method=is_method,
+            is_property=is_property,
+        )
+        # method/property dispatch requires registration in the type-method registry
+        if (is_method or is_property) and function_path is not None:
+            FunctionRegistry.get().register_function(function_path, result)
+        return result
 
     if len(args) == 1:
         assert len(kwargs) == 0 and callable(args[0])
-        return make_expr_template(args[0], None)
+        return make_expr_template(args[0], None, False, False)
     else:
-        assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
-        return lambda py_fn: make_expr_template(py_fn, kwargs['param_types'])
+        assert len(args) == 0
+        unknown = set(kwargs) - {'param_types', 'is_method', 'is_property'}
+        if unknown:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Invalid @expr_udf decorator kwargs: {", ".join(sorted(unknown))}',
+            )
+        param_types = kwargs.get('param_types')
+        is_method = kwargs.get('is_method', False)
+        is_property = kwargs.get('is_property', False)
+        return lambda py_fn: make_expr_template(py_fn, param_types, is_method, is_property)
 
 
 def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, description: str | None) -> ExprTemplateFunction:

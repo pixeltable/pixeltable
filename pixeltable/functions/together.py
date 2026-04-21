@@ -7,12 +7,11 @@ the [Working with Together AI](https://docs.pixeltable.com/notebooks/integration
 
 import base64
 import io
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import PIL.Image
 import requests
-import tenacity
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -35,19 +34,6 @@ def _(api_key: str) -> 'together.AsyncTogether':
 
 def _together_client() -> 'together.AsyncTogether':
     return get_runtime().get_client('together')
-
-
-T = TypeVar('T')
-
-
-def _retry(fn: Callable[..., T]) -> Callable[..., T]:
-    import together
-
-    return tenacity.retry(
-        retry=tenacity.retry_if_exception_type(together.RateLimitError),
-        wait=tenacity.wait_random_exponential(multiplier=1, max=60),
-        stop=tenacity.stop_after_attempt(20),
-    )(fn)
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:together:chat')
@@ -76,18 +62,18 @@ async def completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] |
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column
+        Add a computed column that applies the model `Qwen/Qwen3.5-9B` to an existing Pixeltable column
         `tbl.prompt` of the table `tbl`:
 
         >>> tbl.add_computed_column(
-        ...     response=completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1')
+        ...     response=completions(tbl.prompt, model='Qwen/Qwen3.5-9B')
         ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
 
     result = await _together_client().completions.create(prompt=prompt, model=model, **model_kwargs)
-    return result.dict()
+    return result.model_dump()
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:together:chat')
@@ -118,21 +104,19 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column
+        Add a computed column that applies the model `openai/gpt-oss-20b` to an existing Pixeltable column
         `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
-        ...     response=chat_completions(
-        ...         messages, model='mistralai/Mixtral-8x7B-v0.1'
-        ...     )
+        ...     response=chat_completions(messages, model='openai/gpt-oss-20b')
         ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
 
     result = await _together_client().chat.completions.create(messages=messages, model=model, **model_kwargs)  # type: ignore[arg-type]
-    return result.dict()
+    return result.model_dump()
 
 
 _embedding_dimensions_cache = {
@@ -171,12 +155,12 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
         An array representing the application of the given embedding to `input`.
 
     Examples:
-        Add a computed column that applies the model `togethercomputer/m2-bert-80M-8k-retrieval`
+        Add a computed column that applies the model `intfloat/multilingual-e5-large-instruct`
         to an existing Pixeltable column `tbl.text` of the table `tbl`:
 
         >>> tbl.add_computed_column(
         ...     response=embeddings(
-        ...         tbl.text, model='togethercomputer/m2-bert-80M-8k-retrieval'
+        ...         tbl.text, model='intfloat/multilingual-e5-large-instruct'
         ...     )
         ... )
     """
@@ -219,30 +203,34 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         The generated image.
 
     Examples:
-        Add a computed column that applies the model `stabilityai/stable-diffusion-xl-base-1.0`
+        Add a computed column that applies the model `black-forest-labs/FLUX.1-schnell`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> tbl.add_computed_column(
         ...     response=image_generations(
-        ...         tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0'
+        ...         tbl.prompt, model='black-forest-labs/FLUX.1-schnell'
         ...     )
         ... )
     """
-    import together
-
     if model_kwargs is None:
         model_kwargs = {}
 
     result = await _together_client().images.generate(prompt=prompt, model=model, **model_kwargs)
     data = result.data[0]
-    if isinstance(data, together.types.ImageDataB64) and data.b64_json is not None:
-        b64_bytes = base64.b64decode(data.b64_json)
+
+    # For an unknown reason, the type information in the Together SDK is wrong, and we have to do it this way:
+    b64_json = getattr(data, 'b64_json', None)
+    url = getattr(data, 'url', None)
+
+    if b64_json is not None:
+        b64_bytes = base64.b64decode(b64_json)
         img = PIL.Image.open(io.BytesIO(b64_bytes))
         img.load()
         return img
-    elif isinstance(data, together.types.ImageDataURL) and data.url is not None:
+    elif url is not None:
         try:
-            resp = requests.get(data.url)
+            resp = requests.get(url, timeout=60.0)
+            resp.raise_for_status()
             with io.BytesIO(resp.content) as fp:
                 image = PIL.Image.open(fp)
                 image.load()

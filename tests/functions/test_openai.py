@@ -451,7 +451,9 @@ class TestOpenai:
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
         assert result['edited'][0]['data'][0].size == (512, 512)
 
-    @pytest.mark.skip(reason='Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.')
+    @pytest.mark.skip(
+        reason='[PXT-1115] Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.'
+    )
     @pytest.mark.expensive
     def test_image_variations(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')

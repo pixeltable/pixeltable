@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import IN_CI, pxt_raises, rerun, skip_test_if_not_installed
+from ..utils import pxt_raises, rerun, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -225,7 +225,7 @@ class TestHfDatasets:
         assert all(pathlib.Path(row['image_localpath']).exists() for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    @pytest.mark.very_expensive  # I/O intensive
     def test_import_arrays(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -282,7 +282,7 @@ class TestHfDatasets:
     # TODO: find out whether we need a workaround
     # @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.parametrize('streaming', [False])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    @pytest.mark.very_expensive  # I/O intensive
     def test_import_list_of_dict(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -317,7 +317,7 @@ class TestHfDatasets:
         assert all(isinstance(x, dict) for row in res for x in row['prev_messages'])
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    @pytest.mark.very_expensive  # I/O intensive
     def test_import_classlabel(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -337,7 +337,7 @@ class TestHfDatasets:
         assert all(row['label'] in ['neg', 'pos'] for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    @pytest.mark.very_expensive  # I/O intensive
     def test_import_sequence_of_float(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -360,7 +360,7 @@ class TestHfDatasets:
         assert all(row['emb'].dtype == np.float32 for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    @pytest.mark.very_expensive  # I/O intensive
     def test_import_sequence_of_dict(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -384,7 +384,7 @@ class TestHfDatasets:
         assert all(isinstance(row['answers']['answer_start'], np.ndarray) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    @pytest.mark.very_expensive  # I/O intensive
     def test_import_nested_struct(self, streaming: bool, uses_db: None) -> None:
         """
         Test importing dataset with nested structures:
@@ -414,7 +414,7 @@ class TestHfDatasets:
         assert all(isinstance(row['context']['sentences'], list) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    @pytest.mark.very_expensive  # I/O intensive
     def test_import_arraynd(self, streaming: bool, uses_db: None) -> None:
         """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')
