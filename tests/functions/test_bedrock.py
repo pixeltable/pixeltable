@@ -25,7 +25,7 @@ def bedrock_us_east_1(uses_db: None) -> Iterator[None]:
     Config.init(
         config_overrides={
             'bedrock.region_name': 'us-east-1',
-            'bedrock.temp_location': 's3://pxt-test-us-east-1/bedrock_outputs/',
+            'bedrock.temp_location': 's3://pxt-bedrock-test-us-east-1/bedrock_outputs/',
         },
         reinit=True,
     )
@@ -38,7 +38,7 @@ def bedrock_us_west_2(uses_db: None) -> Iterator[None]:
     Config.init(
         config_overrides={
             'bedrock.region_name': 'us-west-2',
-            'bedrock.temp_location': 's3://pxt-test-us-west-2/bedrock_outputs/',
+            'bedrock.temp_location': 's3://pxt-bedrock-test-us-west-2/bedrock_outputs/',
         },
         reinit=True,
     )
