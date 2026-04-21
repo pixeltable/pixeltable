@@ -1288,18 +1288,18 @@ class TableVersion:
             base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
             # propagate to views
             for view in self.mutable_views:
-                view_tv = view.get()
                 recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
-                needs_iterator_reload = view_tv.is_component_view and any(
+                view = view.get()
+                needs_iterator_reload = view.is_component_view and any(
                     col.is_iterator_col for col in recomputed_cols
                 )
                 if needs_iterator_reload:
-                    plan, _ = Planner.create_view_load_plan(view_tv.path, propagates_insert=True)
+                    plan, _ = Planner.create_view_load_plan(view.path, propagates_insert=True)
                 else:
                     plan = None
                     if len(recomputed_cols) > 0:
-                        plan = Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols)
-                status = view_tv.propagate_update(
+                        plan = Planner.create_view_update_plan(view.path, recompute_targets=recomputed_cols)
+                status = view.propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
                 )
                 result += status.to_cascade()
