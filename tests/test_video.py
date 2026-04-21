@@ -300,6 +300,16 @@ class TestVideo:
             ],
         }
 
+        # get_metadata() can also be used in a where() clause
+        inline_res = (
+            base_t.where(base_t.video.get_metadata().size == 2234371)
+            .select(md=base_t.video.get_metadata())
+            .collect()['md']
+        )
+        assert len(inline_res) == 1
+        assert inline_res[0]['size'] == 2234371
+        assert inline_res[0]['streams'][0]['width'] == 640
+
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
     class agg_fn(pxt.Aggregator):
