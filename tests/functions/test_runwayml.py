@@ -136,7 +136,9 @@ class TestRunwayML:
         skip_test_if_no_client('runwayml')
         from pixeltable.functions.runwayml import video_to_video
 
-        video_url = 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4'
+        video_url = (
+            'https://multimedia-commons.s3.amazonaws.com/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
+        )
         t = pxt.create_table('test_tbl', {'video_url': pxt.String, 'prompt': pxt.String})
         t.add_computed_column(output=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720'))
         validate_update_status(t.insert(video_url=video_url, prompt='Transform to anime style'), 1)

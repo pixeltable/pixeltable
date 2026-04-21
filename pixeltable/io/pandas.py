@@ -25,7 +25,6 @@ def import_pandas(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
     comment: str = '',
 ) -> pxt.Table:
     """Creates a new base table from a Pandas
@@ -51,12 +50,7 @@ def import_pandas(
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     return pxt.create_table(
-        tbl_name,
-        source=df,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
+        tbl_name, source=df, schema_overrides=schema_overrides, primary_key=primary_key, comment=comment
     )
 
 
@@ -66,7 +60,6 @@ def import_excel(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
     comment: str = '',
     **kwargs: Any,
 ) -> pxt.Table:
@@ -84,7 +77,6 @@ def import_excel(
         source=io,
         schema_overrides=schema_overrides,
         primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
         comment=comment,
         extra_args=kwargs,
     )
