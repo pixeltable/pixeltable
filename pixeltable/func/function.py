@@ -13,7 +13,7 @@ from typing_extensions import Self
 from pixeltable import exceptions as excs, type_system as ts
 
 from .globals import resolve_symbol
-from .signature import Signature
+from .signature import Parameter, Signature
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -197,7 +197,10 @@ class Function(ABC):
         if len(self.signatures) == 1:
             # Only one signature: call _bind_to_signature() and surface any errors directly
             result = 0
-            bound_args = self._bind_to_signature(0, args, kwargs)
+            try:
+                bound_args = self._bind_to_signature(0, args, kwargs)
+            except TypeError as e:
+                raise TypeError(self._bind_error_msg(self.signatures[0], args, kwargs, e)) from e
         else:
             # Multiple signatures: try each signature in declaration order and trap any errors.
             # If none of them succeed, raise a generic error message.
@@ -216,6 +219,41 @@ class Function(ABC):
         assert result >= 0
         assert bound_args is not None
         return self._resolved_fns[result], bound_args
+
+    def _bind_error_msg(
+        self, signature: Signature, args: Sequence[Any], kwargs: dict[str, Any], cause: TypeError
+    ) -> str:
+        from pixeltable.exprs import Expr, Literal
+
+        def _val_repr(literal: Literal) -> str:
+            if literal.val is None:
+                return 'None'
+            repr_str = f'{type(literal.val).__name__}({literal.val!r})'
+            return repr_str[:100] + '...' if len(repr_str) > 100 else repr_str
+
+        def _param_desc(p: Parameter) -> str:
+            prefix = ''
+            if p.kind == inspect.Parameter.VAR_POSITIONAL:
+                prefix = '*'
+            elif p.kind == inspect.Parameter.VAR_KEYWORD:
+                prefix = '**'
+            type_str = f': {p.col_type}' if p.col_type is not None else ''
+            default_str = f' = {_val_repr(p.default)}' if p.has_default() else ''
+            return f'{prefix}{p.name}{type_str}{default_str}'
+
+        def _arg_desc(v: Any) -> str:
+            if isinstance(v, Literal):
+                return _val_repr(v)
+            if isinstance(v, Expr):
+                return str(v.col_type)
+            return type(v).__name__
+
+        param_descs = [_param_desc(p) for p in signature.parameters_by_pos]
+        expected = ', '.join(param_descs)
+        arg_descs = [_arg_desc(a) for a in args]
+        kwarg_descs = [f'{k}={_arg_desc(v)}' for k, v in kwargs.items()]
+        provided = ', '.join(arg_descs + kwarg_descs)
+        return f'{cause}; expected ({expected}), got ({provided})'
 
     def _bind_to_signature(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
         from pixeltable import exprs

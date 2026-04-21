@@ -5,6 +5,7 @@ import typing
 import warnings
 from datetime import datetime, timezone
 from textwrap import dedent
+from typing import Any
 
 import numpy as np
 import pytest
@@ -25,10 +26,6 @@ from .utils import (
     reload_catalog,
     validate_update_status,
 )
-
-
-def dummy_fn(i: int) -> int:
-    return i
 
 
 # Module-level expr_udfs used by TestFunction.test_expr_udf_method_property.
@@ -162,40 +159,133 @@ class TestFunction:
             _ = t.select(self.f1(c=1.0, a=t.c2)).collect()
         assert "'b'" in str(exc_info.value)
 
-        # bad default value
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Default value'):
+    @staticmethod
+    @pxt.udf()
+    def udf_pos_only_params(a: int, b: int, /) -> int:
+        raise AssertionError()
 
-            @pxt.udf
-            def f1(a: int, b: float, c: float = '') -> float:  # type: ignore[assignment]
-                return a + b + c
+    @staticmethod
+    @pxt.udf()
+    def udf_kw_only_params(*, a: int, b: int) -> int:
+        raise AssertionError()
 
-        # missing param type
-        with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match="Cannot infer pixeltable type for parameter 'c'"):
+    @staticmethod
+    @pxt.udf()
+    def udf_pos_or_kw_params(a: int, b: int) -> int:
+        raise AssertionError()
 
-            @pxt.udf
-            def f1(a: int, b: float, c='') -> float:  # type: ignore[no-untyped-def]
-                return a + b + c
+    @staticmethod
+    @pxt.udf()
+    def udf_default_param_val(a: int, b: int = 0) -> int:
+        raise AssertionError()
 
-        # bad parameter name
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+    @staticmethod
+    @pxt.udf()
+    def udf_default_param_none(a: int, b: str | None = None) -> int:
+        raise AssertionError()
 
-            @pxt.udf
-            def f1(group_by: int) -> int:
-                return group_by
+    @staticmethod
+    @pxt.udf()
+    def udf_variadic_pos(*args: Any) -> int:
+        raise AssertionError()
 
-        # bad parameter name
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+    @staticmethod
+    @pxt.udf()
+    def udf_variadic_kw(**kwargs: Any) -> int:
+        raise AssertionError()
 
-            @pxt.udf
-            def f1(order_by: int) -> int:
-                return order_by
+    def test_invalid_call(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        missing_a = r"missing a required argument: 'a'"
+        missing_b = r"missing a required argument: 'b'"
+        pos_only_a = r"'a' parameter is positional only, but was passed as a keyword"
+        pos_only_b = r"'b' parameter is positional only, but was passed as a keyword"
+        multi_a = r"multiple values for argument 'a'"
+        too_many_pos = r'too many positional arguments'
+        exp_ab = r'expected \(a: Int, b: Int\)'
 
-        # bad parameter name
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+        # udf with positional params only
+        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(\)'):
+            _ = t.select(self.udf_pos_only_params()).collect()
+        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=int\(0\)\)'):
+            _ = t.select(self.udf_pos_only_params(x=0)).collect()
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(int\(0\)\)'):
+            _ = t.select(self.udf_pos_only_params(0)).collect()
+        with pytest.raises(TypeError, match=rf'{pos_only_a}; {exp_ab}, got \(a=int\(1\)\)'):
+            _ = t.select(self.udf_pos_only_params(a=1)).collect()
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(int\(1\), a=int\(1\)\)'):
+            _ = t.select(self.udf_pos_only_params(1, a=1)).collect()
+        with pytest.raises(TypeError, match=rf'{pos_only_b}; {exp_ab}, got \(int\(1\), b=int\(1\)\)'):
+            _ = t.select(self.udf_pos_only_params(1, b=1)).collect()
 
-            @pxt.udf
-            def f1(_int_param: int) -> int:
-                return _int_param
+        # udf with keyword params only
+        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(\)'):
+            _ = t.select(self.udf_kw_only_params()).collect()
+        with pytest.raises(TypeError, match=rf'{too_many_pos}; {exp_ab}, got \(int\(0\)\)'):
+            _ = t.select(self.udf_kw_only_params(0)).collect()
+        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=int\(0\)\)'):
+            _ = t.select(self.udf_kw_only_params(x=0)).collect()
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=int\(0\)\)'):
+            _ = t.select(self.udf_kw_only_params(a=0)).collect()
+
+        # udf with positional or kw params
+        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=int\(0\)\)'):
+            _ = t.select(self.udf_pos_or_kw_params(x=0)).collect()
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=int\(0\)\)'):
+            _ = t.select(self.udf_pos_or_kw_params(a=0)).collect()
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=int\(0\), x=int\(1\)\)'):
+            _ = t.select(self.udf_pos_or_kw_params(a=0, x=1)).collect()
+        with pytest.raises(TypeError, match=rf'{multi_a}; {exp_ab}, got \(int\(0\), a=int\(0\)\)'):
+            _ = t.select(self.udf_pos_or_kw_params(0, a=0)).collect()
+
+        # udf with default param value
+        with pytest.raises(TypeError, match=rf'{missing_a}; expected \(a: Int, b: Int = int\(0\)\), got \(\)'):
+            _ = t.select(self.udf_default_param_val()).collect()
+        with pytest.raises(TypeError, match=rf'{missing_a}; expected \(a: Int, b: String | None = None\), got \(\)'):
+            _ = t.select(self.udf_default_param_none()).collect()
+        with pytest.raises(
+            TypeError, match=rf'{missing_a}; expected \(a: Int, b: String | None = None\), got \(b=None\)'
+        ):
+            _ = t.select(self.udf_default_param_none(b=None)).collect()
+
+        # udf with variadic positional params
+        with pytest.raises(
+            TypeError, match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(x=int\(1\)\)"
+        ):
+            _ = t.select(self.udf_variadic_pos(x=1)).collect()
+        with pytest.raises(
+            TypeError,
+            match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(int\(0\), x=int\(1\)\)",
+        ):
+            _ = t.select(self.udf_variadic_pos(0, x=1)).collect()
+
+        # udf with variadic kw params
+        with pytest.raises(
+            TypeError, match=r'too many positional arguments; expected \(\*\*kwargs\), got \(int\(1\)\)'
+        ):
+            _ = t.select(self.udf_variadic_kw(1)).collect()
+        with pytest.raises(
+            TypeError, match=r'too many positional arguments; expected \(\*\*kwargs\), got \(int\(1\), x=int\(0\)\)'
+        ):
+            _ = t.select(self.udf_variadic_kw(1, x=0)).collect()
+
+        # column ref as an argument for udf
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(Int\)'):
+            _ = t.select(self.udf_pos_only_params(t.c2)).collect()
+
+        # arbitrary expr as an argument
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(Float\)'):
+            _ = t.select(self.udf_pos_only_params(t.c2 + t.c3)).collect()
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Float\)'):
+            _ = t.select(self.udf_kw_only_params(a=t.c2 + t.c3)).collect()
+
+        # function call as an argument
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+            _ = t.select(self.udf_kw_only_params(a=t.c2.increment())).collect()
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+            _ = t.select(self.udf_kw_only_params(a=t.c2.successor)).collect()
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+            _ = t.select(self.udf_kw_only_params(a=self.udf_pos_only_params(0, 0))).collect()
 
     @staticmethod
     @pxt.udf(is_method=True)
@@ -473,10 +563,6 @@ class TestFunction:
             self.binding_test_udf.using(p1=5)
         assert "Expected type `String` for parameter 'p1'; got `Int`" in str(exc_info.value)
 
-        with pytest.raises(TypeError) as exc_info:
-            _ = pb1(p1='a')
-        assert 'missing a required argument' in str(exc_info.value).lower()
-
     def test_nested_partial_binding(self, uses_db: None) -> None:
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = pb1.using(p1='x')
@@ -555,10 +641,6 @@ class TestFunction:
         res2 = t.select(t.c2 + 1, t.other_int + 1).order_by(t.c2).collect()
         assert_resultset_eq(res1, res2)
 
-        with pytest.raises(TypeError) as exc_info:
-            _ = t.select(self.add1(y=t.c2)).collect()
-        assert 'missing a required argument' in str(exc_info.value).lower()
-
         with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
             # parameter types cannot be inferred
             @pxt.expr_udf
@@ -575,14 +657,13 @@ class TestFunction:
 
         assert "missing type for parameter 'y'" in str(exc_info.value).lower()
 
-        with pytest.raises(TypeError) as t_exc_info:
+        with pytest.raises(TypeError, match='takes 0 positional arguments'):
             # signature has correct parameter kind
             @pxt.expr_udf
             def add1(*, x: int) -> int:
                 return x
 
             _ = t.select(add1(t.c2)).collect()
-        assert 'takes 0 positional arguments' in str(t_exc_info.value).lower()
 
         res1 = t.select(out=self.add2_with_default(t.c2)).order_by(t.c2).collect()
         res2 = t.select(out=self.add2(t.c2, 1)).order_by(t.c2).collect()
@@ -678,6 +759,41 @@ class TestFunction:
         assert 'A UDF with that name already exists: tests.module_with_duplicate_udf.duplicate_udf' in str(
             exc_info.value
         )
+
+        # bad default value
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Default value'):
+
+            @pxt.udf
+            def f1(a: int, b: float, c: float = '') -> float:  # type: ignore[assignment]
+                return a + b + c
+
+        # missing param type
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match="Cannot infer pixeltable type for parameter 'c'"):
+
+            @pxt.udf
+            def f1(a: int, b: float, c='') -> float:  # type: ignore[no-untyped-def]
+                return a + b + c
+
+        # bad parameter name
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+
+            @pxt.udf
+            def f1(group_by: int) -> int:
+                return group_by
+
+        # bad parameter name
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+
+            @pxt.udf
+            def f1(order_by: int) -> int:
+                return order_by
+
+        # bad parameter name
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+
+            @pxt.udf
+            def f1(_int_param: int) -> int:
+                return _int_param
 
     def test_udf_docstring(self) -> None:
         assert self.func.__doc__ == 'A UDF.'
