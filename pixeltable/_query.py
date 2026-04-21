@@ -748,7 +748,7 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        if self.limit is not None and self.limit_val == 0:
+        if self.limit_val is not None and self.limit_val.val == 0:
             return 0
         with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False) as conn:
             count_stmt = Planner.create_count_stmt(self)
