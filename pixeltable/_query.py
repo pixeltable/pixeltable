@@ -518,6 +518,15 @@ class Query:
                     yield row
 
     def _create_query_plan(self) -> exec.ExecNode:
+        has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in self._from_clause.tbls)
+        if has_unversioned_tbl:
+            # For now, we only support queries of the simplest form on unversioned tables
+            assert len(self._from_clause.tbls) == 1, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert self.grouping_tbl is None, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert self.group_by_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert self.sample_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
+
         # construct a group-by clause if we're grouping by a table
         group_by_clause: list[exprs.Expr] | None = None
         if self.grouping_tbl is not None:
@@ -1099,6 +1108,11 @@ class Query:
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
+        assert len(self._from_clause.tbls) > 0
+        if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and unversioned tables'
+            )
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'join() cannot be used with sample()')
         join_pred: exprs.Expr | None

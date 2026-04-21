@@ -202,6 +202,7 @@ class View(Table):
             media_validation=media_validation,
             view_md=view_md,
             create_default_idxs=create_default_idxs,
+            is_versioned=base.is_versioned(),
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load

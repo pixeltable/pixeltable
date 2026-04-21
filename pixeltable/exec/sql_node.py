@@ -159,7 +159,7 @@ class SqlNode(ExecNode):
             # we also need to retrieve the pk columns
             assert tbl is not None
             self.num_pk_cols = len(tbl.tbl_version.get().store_tbl.pk_columns())
-            assert self.num_pk_cols > 1
+            assert self.num_pk_cols > 0
 
         # additional state
         self.cellmd_item_idxs = exprs.ExprDict()
@@ -288,8 +288,14 @@ class SqlNode(ExecNode):
             deleted_at_current_version = set()
         candidates = tbl.get_tbl_versions()
         assert len(candidates) > 0
+        versioned = candidates[0].get().is_versioned
+        if not versioned:
+            assert len(created_at_current_version) == 0
+            assert len(deleted_at_current_version) == 0
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
         for t in candidates[1:]:
+            # the tables in the path must either all be versioned or not
+            assert t.get().is_versioned == versioned
             if t.id in refd_tbl_ids:
                 joined_tbls.append(t)
 
@@ -313,7 +319,7 @@ class SqlNode(ExecNode):
                 stmt = stmt.where(tv.store_tbl.v_max_col == tv.version)
             elif t.id in created_at_current_version:
                 stmt = stmt.where(tv.store_tbl.v_min_col == tv.version)
-            else:
+            elif versioned:
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
             prev_tv = tv

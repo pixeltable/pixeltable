@@ -109,6 +109,7 @@ class TablePackager:
         """
         Exports the data from `t` into a Parquet table.
         """
+        assert tv.is_versioned
         # `tv` must be an ancestor of the primary table
         assert any(tv.id == base.id for base in self.table._tbl_version_path.get_tbl_versions())
         sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
@@ -467,6 +468,7 @@ class TableRestorer:
         """
         Import the Parquet table into the Pixeltable catalog.
         """
+        assert tv.is_versioned
         tbl_id = UUID(tbl_md.tbl_md.tbl_id)
         parquet_dir = bundle_path / 'tables' / f'tbl_{tbl_id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))

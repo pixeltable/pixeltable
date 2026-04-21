@@ -172,6 +172,7 @@ class Table(SchemaObject):
             path=self._path(),
             columns=column_info,
             indices=index_info,
+            is_versioned=tv.is_versioned,
             is_replica=tv.is_replica,
             is_view=False,
             is_snapshot=False,
@@ -187,8 +188,8 @@ class Table(SchemaObject):
             iterator_call=None,
         )
 
-    def _get_version(self) -> int:
-        """Return the version of this table. Used by tests to ascertain version changes."""
+    def _get_version(self) -> int | None:
+        """Return the version of this table or None if not versioned. Used by tests to ascertain version changes."""
         return self._tbl_version_path.version()
 
     def _get_pxt_uri(self) -> str | None:
@@ -385,6 +386,9 @@ class Table(SchemaObject):
     @abc.abstractmethod
     def _effective_base_versions(self) -> list[int | None]:
         """The effective versions of the ancestor bases, starting with its immediate base."""
+
+    def _is_versioned(self) -> bool:
+        return self._tbl_version_path.is_versioned()
 
     def _get_comment(self) -> str:
         return self._tbl_version_path.comment()
@@ -1085,6 +1089,9 @@ class Table(SchemaObject):
             ...     image_embed=image_embedding_fn,
             ... )
         """
+        assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
+            'TODO: implement for unversioned tables [PXT-1101]'
+        )
 
         with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('add an index to')
@@ -1690,7 +1697,12 @@ class Table(SchemaObject):
         """
         with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('revert')
-            self._tbl_version.get().revert()
+            tv = self._tbl_version.get()
+            if not tv.is_versioned:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'Revert is supported on versioned tables only'
+                )
+            tv.revert()
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
 
@@ -1907,6 +1919,7 @@ class Table(SchemaObject):
         tbl_id = self._id
         # Collect an extra version, if available, to allow for computation of the first version's schema change
         vers_list = get_runtime().catalog.collect_tbl_history(tbl_id, n + 1)
+        assert vers_list[0].tbl_md.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # Construct the metadata change description dictionary
         md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]
