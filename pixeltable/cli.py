@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import pydantic
 
 import pixeltable as pxt
+from pixeltable import exceptions as excs
 
 if TYPE_CHECKING:
     from pixeltable.serving._config import AppConfig, RouteConfig
@@ -200,7 +201,7 @@ def _serve(args: argparse.Namespace) -> None:
             route = _build_route_from_args(args)
             config = AppConfig(service=ServiceConfig(), routes=[route])
         except pydantic.ValidationError as e:
-            raise pxt.Error(str(e)) from e
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, str(e)) from e
 
     overrides = {
         k: v
@@ -211,7 +212,7 @@ def _serve(args: argparse.Namespace) -> None:
         try:
             new_service = ServiceConfig.model_validate(config.service.model_dump() | overrides)
         except pydantic.ValidationError as e:
-            raise pxt.Error(str(e)) from e
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, str(e)) from e
         config = config.model_copy(update={'service': new_service})
 
     if args.dry_run:
@@ -278,7 +279,10 @@ def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
     try:
         import uvicorn
     except ImportError as e:
-        raise pxt.Error("uvicorn is required for `pxt serve`; install it with `pip install 'fastapi[standard]'`") from e
+        raise excs.RequestError(
+            excs.ErrorCode.MISSING_REQUIRED,
+            "uvicorn is required for `pxt serve`; install it with `pip install 'fastapi[standard]'`",
+        ) from e
 
     host, port = config.service.host, config.service.port
     # wildcard bind addresses aren't navigable; print localhost for the URL hints

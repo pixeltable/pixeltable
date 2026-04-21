@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+import textwrap
 from typing import Any
 
 import pytest
@@ -89,16 +90,17 @@ class TestConfig:
 
         query_mod = types.ModuleType('_test_query_mod')
         # we need to exec in the module's namespace so @pxt.query sees the right globals
+
         exec(
-            """
-import pixeltable as pxt
+            textwrap.dedent("""
+                import pixeltable as pxt
 
-t = pxt.get_table('test_config.docs')
+                t = pxt.get_table('test_config.docs')
 
-@pxt.query
-def search(min_id: int) -> pxt.Query:
-    return t.where(t.id >= min_id).select(t.id, t.text).order_by(t.id)
-""",
+                @pxt.query
+                def search(min_id: int) -> pxt.Query:
+                    return t.where(t.id >= min_id).select(t.id, t.text).order_by(t.id)
+            """),
             query_mod.__dict__,
         )
         import sys

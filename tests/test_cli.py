@@ -252,7 +252,10 @@ class TestCLI:
             assert data['port'] == 8080
 
         # pxt.Error plain: _emit_error writes 'pxt: error: ...' to stderr
-        with patch('pixeltable.serving._config.create_app_from_config', side_effect=pxt.Error('bad config')):
+        with patch(
+            'pixeltable.serving._config.create_app_from_config',
+            side_effect=pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bad config'),
+        ):
             _run_cli(
                 ['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins'],
                 capsys,
@@ -261,7 +264,10 @@ class TestCLI:
             )
 
         # pxt.Error --json: _emit_error writes a JSON error record to stderr
-        with patch('pixeltable.serving._config.create_app_from_config', side_effect=pxt.Error('bad config')):
+        with patch(
+            'pixeltable.serving._config.create_app_from_config',
+            side_effect=pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bad config'),
+        ):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--json'], capsys, exit_code=1)
             data = json.loads(capsys.readouterr().err)
             assert data['status'] == 'error'

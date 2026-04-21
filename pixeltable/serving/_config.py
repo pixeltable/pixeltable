@@ -11,6 +11,7 @@ import toml
 
 import pixeltable as pxt
 import pixeltable.func as func
+from pixeltable import exceptions as excs
 from pixeltable.env import Env
 
 if TYPE_CHECKING:
@@ -94,13 +95,20 @@ def _resolve_dotted_path(dotted: str) -> Any:
     """
     module_path, _, attr_name = dotted.rpartition('.')
     if not module_path:
-        raise pxt.Error(f'invalid query reference {dotted!r}: expected module.attribute')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'invalid query reference {dotted!r}: expected module.attribute'
+        )
     try:
         module = importlib.import_module(module_path)
     except Exception as e:
-        raise pxt.Error(f'could not import module {module_path!r} (from query reference {dotted!r}): {e}') from e
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'could not import module {module_path!r} (from query reference {dotted!r}): {e}',
+        ) from e
     if not hasattr(module, attr_name):
-        raise pxt.Error(f'{dotted!r}: module {module_path!r} has no attribute {attr_name!r}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'{dotted!r}: module {module_path!r} has no attribute {attr_name!r}'
+        )
     return getattr(module, attr_name)
 
 
@@ -110,13 +118,19 @@ def load_app_config(config_path: str) -> AppConfig:
         with open(config_path, 'r', encoding='utf-8') as f:
             raw = toml.load(f)
     except OSError as e:
-        raise pxt.Error(f'could not read service configuration file {config_path!r}: {e}') from e
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'could not read service configuration file {config_path!r}: {e}'
+        ) from e
     except toml.TomlDecodeError as e:
-        raise pxt.Error(f'invalid TOML in service configuration file {config_path!r}: {e}') from e
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'invalid TOML in service configuration file {config_path!r}: {e}'
+        ) from e
     try:
         return AppConfig.model_validate(raw)
     except pydantic.ValidationError as e:
-        raise pxt.Error(f'invalid service configuration in {config_path}:\n{e}') from e
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'invalid service configuration in {config_path}:\n{e}'
+        ) from e
 
 
 def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
@@ -130,7 +144,9 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
         try:
             importlib.import_module(mod_path)
         except Exception as e:
-            raise pxt.Error(f'could not import module {mod_path!r} listed in `modules`: {e}') from e
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'could not import module {mod_path!r} listed in `modules`: {e}'
+            ) from e
 
     from pixeltable.serving import FastAPIRouter
 
@@ -155,9 +171,10 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
         elif isinstance(route, QueryRouteConfig):
             query_fn = _resolve_dotted_path(route.query)
             if not isinstance(query_fn, func.QueryTemplateFunction):
-                raise pxt.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
                     f'query reference {route.query!r} resolved to {type(query_fn).__name__}, '
-                    f'expected a @pxt.query or retrieval_udf'
+                    f'expected a @pxt.query or retrieval_udf',
                 )
             router.add_query_route(
                 path=route.path,
