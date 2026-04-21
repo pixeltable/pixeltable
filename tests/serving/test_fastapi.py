@@ -1022,6 +1022,209 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one media-typed output column'):
             router.add_insert_route(t, path='/e', outputs=['text_upper'], return_fileresponse=True)
 
+    def test_insert_route(self, uses_db: None) -> None:
+        """`insert_route()` as a decorator: user fn consumes inserted outputs and shapes the response."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        import pydantic
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.decorated', {'id': pxt.Int, 'prompt': pxt.String})
+        t.add_computed_column(greeting='hello, ' + t.prompt)
+        t.add_computed_column(length=t.prompt.len())
+
+        app = fastapi.FastAPI()
+        router = FastAPIRouter()
+
+        class GenResponse(pydantic.BaseModel):
+            tag: str
+            size: int
+
+        @router.insert_route(t, path='/generate', inputs=['id', 'prompt'], outputs=['greeting', 'length'])
+        def format_response(*, greeting: str, length: int) -> GenResponse:
+            return GenResponse(tag=greeting.upper(), size=length * 2)
+
+        app.include_router(router)
+        client = TestClient(app)
+
+        # foreground
+        resp = client.post('/generate', json={'id': 1, 'prompt': 'world'})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'tag': 'HELLO, WORLD', 'size': 10}
+        assert t.where(t.id == 1).count() == 1
+
+        # decorator should return the function unchanged (callable for unit tests)
+        direct = format_response(greeting='hi', length=2)
+        assert isinstance(direct, GenResponse) and direct.tag == 'HI' and direct.size == 4
+
+    def test_insert_route_image(self, uses_db: None) -> None:
+        """Media columns surface as /media/ URLs in the decorated fn's kwargs."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        import pydantic
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.img_dec', {'id': pxt.Int, 'image': pxt.Image})
+        t.add_computed_column(thumb=t.image.resize([32, 32]))
+
+        app = fastapi.FastAPI()
+        router = FastAPIRouter()
+
+        class ImgResp(pydantic.BaseModel):
+            thumb_url: str
+            is_media_url: bool
+
+        @router.insert_route(t, path='/img', inputs=['id', 'image'], outputs=['thumb'])
+        def make_resp(*, thumb: str) -> ImgResp:
+            return ImgResp(thumb_url=thumb, is_media_url='/media/' in thumb)
+
+        app.include_router(router)
+        client = TestClient(app)
+
+        image_path = get_image_files()[0]
+        resp = client.post('/img', json={'id': 1, 'image': image_path})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body['is_media_url'] is True
+        assert '/media/' in body['thumb_url']
+
+    @pytest.mark.parametrize('use_uploadfile', [True, False])
+    def test_insert_route_uploadfile(self, uses_db: None, use_uploadfile: bool) -> None:
+        """Decorator + multipart/form-data upload."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        import pydantic
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.upl_dec', {'id': pxt.Int, 'image': pxt.Image})
+        t.add_computed_column(thumb=t.image.resize([16, 16]))
+
+        app = fastapi.FastAPI()
+        router = FastAPIRouter()
+
+        class UplResp(pydantic.BaseModel):
+            thumb_url: str
+
+        uploadfile_inputs = ['image'] if use_uploadfile else None
+        inputs = ['id'] if use_uploadfile else ['id', 'image']
+
+        @router.insert_route(t, path='/upl', inputs=inputs, uploadfile_inputs=uploadfile_inputs, outputs=['thumb'])
+        def make_resp(*, thumb: str) -> UplResp:
+            return UplResp(thumb_url=thumb)
+
+        app.include_router(router)
+        client = TestClient(app)
+
+        image_path = get_image_files()[0]
+        if use_uploadfile:
+            with open(image_path, 'rb') as f:
+                resp = client.post(
+                    '/upl', files={'image': (os.path.basename(image_path), f.read(), 'image/jpeg')}, data={'id': '1'}
+                )
+        else:
+            resp = client.post('/upl', json={'id': 1, 'image': image_path})
+        assert resp.status_code == 200, resp.text
+        assert '/media/' in resp.json()['thumb_url']
+
+    def test_insert_route_background(self, uses_db: None) -> None:
+        """Background variant: 202-like response with job_url; poll for the decorated fn's result."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        import pydantic
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.bg_dec', {'id': pxt.Int, 'delay': pxt.Float, 'value': pxt.Int})
+        t.add_computed_column(slept=sleep(t.delay))
+
+        app = fastapi.FastAPI()
+        router = FastAPIRouter()
+
+        class BgResp(pydantic.BaseModel):
+            doubled: int
+
+        @router.insert_route(t, path='/bg', outputs=['value'], background=True)
+        def make_resp(*, value: int) -> BgResp:
+            return BgResp(doubled=value * 2)
+
+        app.include_router(router)
+        client = TestClient(app)
+
+        resp = client.post('/bg', json={'id': 1, 'delay': 0.05, 'value': 7})
+        assert resp.status_code == 200, resp.text
+        job = resp.json()
+        assert isinstance(job.get('id'), str) and '/jobs/' in job['job_url']
+
+        deadline = time.time() + 10.0
+        while True:
+            status_resp = client.get(job['job_url'])
+            assert status_resp.status_code == 200
+            st = status_resp.json()
+            if st['status'] == 'pending':
+                assert time.time() < deadline, 'job still pending'
+                time.sleep(0.02)
+                continue
+            assert st['status'] == 'done', st
+            break
+        assert st['result'] == {'doubled': 14}
+
+    def test_insert_route_errors(self, uses_db: None) -> None:
+        skip_test_if_not_installed('fastapi')
+        import pydantic
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.dec_err', {'id': pxt.Int, 'text': pxt.String})
+        t.add_computed_column(text_upper=t.text.upper())
+        router = FastAPIRouter()
+
+        # upstream validation errors (shared with add_insert_route) still fire:
+        with pytest.raises(pxt.Error, match="insert_route\\(\\): unknown output column 'doesnotexist'"):
+
+            @router.insert_route(t, path='/e', outputs=['doesnotexist'])
+            def _(*, doesnotexist: str) -> pydantic.BaseModel:  # pragma: no cover - never reached
+                raise AssertionError
+
+        # fn-shape errors:
+        class Resp(pydantic.BaseModel):
+            x: int
+
+        with pytest.raises(pxt.Error, match='must be keyword-only'):
+
+            @router.insert_route(t, path='/e1', outputs=['id'])
+            def _(id: int) -> Resp:  # positional-or-keyword is rejected
+                return Resp(x=id)
+
+        with pytest.raises(pxt.Error, match="parameter 'bogus' is not among the declared outputs"):
+
+            @router.insert_route(t, path='/e2', outputs=['id'])
+            def _(*, bogus: int) -> Resp:
+                return Resp(x=bogus)
+
+        with pytest.raises(pxt.Error, match='missing parameters for outputs'):
+
+            @router.insert_route(t, path='/e3', outputs=['id', 'text'])
+            def _(*, id: int) -> Resp:
+                return Resp(x=id)
+
+        with pytest.raises(pxt.Error, match=r'must have a return annotation that is a pydantic\.BaseModel subclass'):
+
+            @router.insert_route(t, path='/e4', outputs=['id'])
+            def _(*, id: int):  # type: ignore[no-untyped-def]  # intentionally missing return annotation
+                return {'x': id}
+
     def test_add_delete_route(self, uses_db: None) -> None:
         """Delete routes: primary-key default, explicit match_columns, multi-col AND, 0-match, background."""
         skip_test_if_not_installed('fastapi')
