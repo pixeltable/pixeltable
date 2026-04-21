@@ -910,7 +910,8 @@ class Catalog:
                 for col_ref in arg_expr.subexprs(ColumnRef):
                     iterator_arg_deps.add(QColumnId(col_ref.col.tbl_handle.id, col_ref.col.id))
             if len(iterator_arg_deps) > 0:
-                for col in tbl_version.iterator_columns():
+                pos_col = tbl_version.cols_by_id[0]
+                for col in [pos_col, *tbl_version.iterator_columns()]:
                     dependencies[QColumnId(tbl_version.id, col.id)] = iterator_arg_deps
 
         self._column_dependencies[tbl_version.id] = dependencies

@@ -1346,7 +1346,7 @@ class TableVersion:
                 view_tv = view.get()
                 recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
                 needs_iterator_reload = view_tv.is_component_view and any(
-                    col.is_iterator_col for col in recomputed_cols
+                    col.id <= view_tv.num_iterator_cols for col in recomputed_cols
                 )
                 plan = None
                 if needs_iterator_reload:
