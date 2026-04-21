@@ -31,6 +31,7 @@ class FilterNode(ExecNode):
         self.offset = None
 
     def set_limit(self, limit: int) -> None:
+        assert limit > 0
         self.limit = limit
 
     def set_offset(self, offset: int) -> None:

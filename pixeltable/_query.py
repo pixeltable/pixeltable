@@ -478,6 +478,8 @@ class Query:
         """Run the query and return rows as a generator.
         This function must not modify the state of the Query, otherwise it breaks dataset caching.
         """
+        if self.limit_val is not None and self.limit_val.val == 0:
+            return
         plan = self._create_query_plan()
 
         def exec_plan() -> Iterator[exprs.DataRow]:
@@ -493,6 +495,8 @@ class Query:
         """Run the query and return rows as a generator.
         This function must not modify the state of the Query, otherwise it breaks dataset caching.
         """
+        if self.limit_val is not None and self.limit_val.val == 0:
+            return
         plan = self._create_query_plan()
         with plan:
             async for row_batch in plan:

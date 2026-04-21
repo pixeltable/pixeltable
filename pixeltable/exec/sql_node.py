@@ -237,7 +237,7 @@ class SqlNode(ExecNode):
     def _ordering_tbl_ids(self) -> set[UUID]:
         return exprs.Expr.all_tbl_ids(e for e, _ in self.order_by_clause)
 
-    def to_cte(self, keep_pk: bool = False) -> tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]] | None:
+    def to_cte(self, keep_pk: bool = False) -> tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]:
         """
         Creates a CTE that materializes the output of this node plus a mapping from select list expr to output column.
         keep_pk: if True, the PK columns are included in the CTE Select statement
@@ -335,6 +335,7 @@ class SqlNode(ExecNode):
         self.order_by_clause = combined
 
     def set_limit(self, limit: int) -> None:
+        assert limit > 0
         self.limit = limit
 
     def set_offset(self, offset: int) -> None:

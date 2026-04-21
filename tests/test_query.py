@@ -427,6 +427,57 @@ class TestQuery:
         res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=25).collect()
         assert len(res) == 0  # No more rows
 
+    @pxt.uda
+    class py_agg(pxt.Aggregator):
+        def __init__(self) -> None:
+            pass
+
+        def update(self, val: int) -> None:
+            pass
+
+        def value(self) -> int:
+            return 0
+
+    def test_limit_0(self, test_tbl: pxt.Table) -> None:
+        """limit(0) returns correct schema and zero rows across all plan types."""
+        t = test_tbl
+
+        def check(query: pxt.Query, expected_cols: list[str]) -> None:
+            assert list(query.schema.keys()) == expected_cols
+            res = query.collect()
+            assert len(res) == 0
+            assert list(res.schema.keys()) == expected_cols
+
+        # plain SQL scan
+        check(t.select(t.c1, t.c2).order_by(t.c2).limit(0), ['c1', 'c2'])
+
+        # SQL scan with offset
+        check(t.select(t.c1, t.c2).order_by(t.c2).limit(0, offset=5), ['c1', 'c2'])
+
+        # SQL aggregation (SqlAggregationNode): all exprs translatable to SQL
+        check(t.group_by(t.c1).select(t.c1, cnt=pxt.functions.count(t.c2)).limit(0), ['c1', 'cnt'])
+
+        # Python filter (FilterNode path): UDF forces Python-side filter
+        @pxt.udf(_force_stored=True)
+        def is_positive(x: int) -> bool:
+            return x > 0
+
+        check(t.where(is_positive(t.c2)).select(t.c1, t.c2).order_by(t.c2).limit(0), ['c1', 'c2'])
+
+        # Python filter with offset
+        check(t.where(is_positive(t.c2)).select(t.c1, t.c2).order_by(t.c2).limit(0, offset=3), ['c1', 'c2'])
+
+        # in-memory aggregation (AggregationNode): Python UDA cannot be pushed to SQL
+        check(t.group_by(t.c1).select(t.c1, s=self.py_agg(t.c2)).limit(0), ['c1', 's'])
+
+        # cursor: schema accessible before and after iteration, no rows yielded
+        query = t.select(t.c1, t.c2).order_by(t.c2).limit(0)
+        cur = query.cursor()
+        assert list(cur._schema.keys()) == ['c1', 'c2']
+        rows = list(cur)
+        assert rows == []
+        assert list(cur._schema.keys()) == ['c1', 'c2']
+
     def test_head_tail(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.head(10).to_pandas()

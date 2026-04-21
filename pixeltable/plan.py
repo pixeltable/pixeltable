@@ -1170,7 +1170,6 @@ class Planner:
                 sql_elements.contains_all(analyzer.select_list)
                 and sql_elements.contains_all(analyzer.grouping_exprs)
                 and isinstance(plan, exec.SqlNode)
-                and plan.to_cte() is not None
             ):
                 plan = exec.SqlAggregationNode(
                     row_builder, input=plan, select_list=analyzer.select_list, group_by_items=analyzer.group_by_clause
