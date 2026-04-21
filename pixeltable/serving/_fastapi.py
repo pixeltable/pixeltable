@@ -88,7 +88,7 @@ def _run_endpoint_op(
             except Exception:
                 _logger.warning(f'failed to delete tmp file: {p}', exc_info=True)
         if isinstance(e, pxt.Error):
-            raise HTTPException(status_code=400, detail=str(e)) from e
+            raise HTTPException(status_code=e.http_status, detail=e.to_dict()) from e
         raise
 
 
@@ -206,9 +206,15 @@ class FastAPIRouter(fastapi.APIRouter):
         """
         md = t.get_metadata()
         if md['kind'] != 'table':
-            raise pxt.Error(f'add_insert_route(): cannot insert into {md["kind"]} {md["name"]!r}')
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                f'add_insert_route(): cannot insert into {md["kind"]} {md["name"]!r}',
+            )
         if return_fileresponse and background:
-            raise pxt.Error('add_insert_route(): return_fileresponse and background are mutually exclusive')
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                'add_insert_route(): return_fileresponse and background are mutually exclusive',
+            )
 
         tbl_path = md['path']
         tbl_id = md['id']
@@ -223,7 +229,10 @@ class FastAPIRouter(fastapi.APIRouter):
         if inputs is not None or uploadfile_inputs is not None:
             for name in [*(inputs or []), *(uploadfile_inputs or [])]:
                 if name in col_md and col_md[name]['is_computed']:
-                    raise pxt.Error(f'add_insert_route(): {name!r} is a computed column and cannot be used as input')
+                    raise pxt.RequestError(
+                        pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'add_insert_route(): {name!r} is a computed column and cannot be used as input',
+                    )
 
         input_col_names, output_col_names = self._validate_args(
             input_schema={c.name: c.col_type for c in cols_by_name.values() if not c.is_computed},
@@ -387,7 +396,10 @@ class FastAPIRouter(fastapi.APIRouter):
         """
         md = t.get_metadata()
         if md['kind'] != 'table':
-            raise pxt.Error(f'add_delete_route(): cannot delete from {md["kind"]} {md["name"]!r}')
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                f'add_delete_route(): cannot delete from {md["kind"]} {md["name"]!r}',
+            )
 
         tbl_path = md['path']
         tbl_id = md['id']
@@ -398,13 +410,18 @@ class FastAPIRouter(fastapi.APIRouter):
         if match_columns is None:
             pk = [name for name, c in col_md.items() if c['is_primary_key']]
             if not pk:
-                raise pxt.Error('add_delete_route(): table has no primary key; specify `match_columns` explicitly')
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                    'add_delete_route(): table has no primary key; specify `match_columns` explicitly',
+                )
             match_columns = pk
         if len(match_columns) == 0:
-            raise pxt.Error('add_delete_route(): `match_columns` must be non-empty')
+            raise pxt.RequestError(
+                pxt.ErrorCode.MISSING_REQUIRED, 'add_delete_route(): `match_columns` must be non-empty'
+            )
         for name in match_columns:
             if name not in col_md:
-                raise pxt.Error(f'add_delete_route(): unknown column {name!r}')
+                raise pxt.NotFoundError(pxt.ErrorCode.COLUMN_NOT_FOUND, f'add_delete_route(): unknown column {name!r}')
 
         endpoint_model: type[pydantic.BaseModel] = BackgroundJobResponse if background else DeleteResponse
 
@@ -526,15 +543,22 @@ class FastAPIRouter(fastapi.APIRouter):
             ```
         """
         if not isinstance(query, func.QueryTemplateFunction):
-            raise pxt.Error(
-                f'add_query_route(): `query` must be a @pxt.query or retrieval_udf, not {type(query).__name__}'
+            raise pxt.RequestError(
+                pxt.ErrorCode.TYPE_MISMATCH,
+                f'add_query_route(): `query` must be a @pxt.query or retrieval_udf, not {type(query).__name__}',
             )
         if return_fileresponse and background:
-            raise pxt.Error('add_query_route(): return_fileresponse and background are mutually exclusive')
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                'add_query_route(): return_fileresponse and background are mutually exclusive',
+            )
         uploadfile_inputs = uploadfile_inputs or []
 
         if method == 'get' and len(uploadfile_inputs) > 0:
-            raise pxt.Error(f'add_query_route(): GET endpoints cannot have uploadfile_inputs (got {uploadfile_inputs})')
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                f'add_query_route(): GET endpoints cannot have uploadfile_inputs (got {uploadfile_inputs})',
+            )
 
         query_params = dict(query.signature.parameters)
         query_schema = {p.name: p.col_type for p in query_params.values()}
@@ -747,21 +771,30 @@ class FastAPIRouter(fastapi.APIRouter):
             input_cols = []
             for name in inputs:
                 if name not in input_schema:
-                    raise pxt.Error(f'{error_prefix}: unknown input {input_item_str} {name!r}')
+                    raise pxt.NotFoundError(
+                        pxt.ErrorCode.COLUMN_NOT_FOUND, f'{error_prefix}: unknown input {input_item_str} {name!r}'
+                    )
                 input_cols.append(name)
 
         # validate uploadfile_inputs
         if uploadfile_inputs is not None:
             for name in uploadfile_inputs:
                 if name not in input_schema:
-                    raise pxt.Error(f'{error_prefix}: unknown uploadfile input {input_item_str} {name!r}')
+                    raise pxt.NotFoundError(
+                        pxt.ErrorCode.COLUMN_NOT_FOUND,
+                        f'{error_prefix}: unknown uploadfile input {input_item_str} {name!r}',
+                    )
                 col_type = input_schema[name]
                 if not col_type.is_media_type():
-                    raise pxt.Error(
-                        f'{error_prefix}: uploadfile input {input_item_str} {name!r} is not a media {input_item_str}'
+                    raise pxt.RequestError(
+                        pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{error_prefix}: uploadfile input {input_item_str} {name!r} is not a media {input_item_str}',
                     )
                 if inputs is not None and name in inputs:
-                    raise pxt.Error(f'{error_prefix}: {name!r} appears in both `inputs` and `uploadfile_inputs`')
+                    raise pxt.RequestError(
+                        pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{error_prefix}: {name!r} appears in both `inputs` and `uploadfile_inputs`',
+                    )
                 if name not in input_cols:
                     input_cols.append(name)
 
@@ -773,12 +806,15 @@ class FastAPIRouter(fastapi.APIRouter):
             output_cols = []
             for name in outputs:
                 if name not in output_schema:
-                    raise pxt.Error(f'{error_prefix}: unknown output {output_item_str} {name!r}')
+                    raise pxt.NotFoundError(
+                        pxt.ErrorCode.COLUMN_NOT_FOUND, f'{error_prefix}: unknown output {output_item_str} {name!r}'
+                    )
                 output_cols.append(name)
 
         if return_fileresponse and (len(output_cols) != 1 or not output_schema[output_cols[0]].is_media_type()):
-            raise pxt.Error(
-                f'{error_prefix}: return_fileresponse=True requires exactly one media-typed output {output_item_str}'
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{error_prefix}: return_fileresponse=True requires exactly one media-typed output {output_item_str}',
             )
 
         return input_cols, output_cols

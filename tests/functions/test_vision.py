@@ -20,7 +20,7 @@ from pixeltable.functions.vision import (
     overlay_segmentation,
 )
 
-from ..utils import IN_CI, get_image_files, get_video_files, skip_test_if_not_installed, validate_update_status
+from ..utils import get_image_files, get_video_files, pxt_raises, skip_test_if_not_installed, validate_update_status
 
 
 class TestVision:
@@ -120,7 +120,7 @@ class TestVision:
                     .collect()
                 )
 
-        with pytest.raises(pxt.Error, match='Only one of'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Only one of'):
             # multiple color specifications
             _ = v.select(
                 bboxes_draw(
@@ -132,11 +132,11 @@ class TestVision:
                 )
             ).collect()
 
-        with pytest.raises(pxt.Error, match='Number of boxes and labels must match'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Number of boxes and labels must match'):
             # labels don't match boxes
             _ = v.select(bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, labels=[2])).collect()
 
-        with pytest.raises(pxt.Error, match='Number of boxes and box colors must match'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Number of boxes and box colors must match'):
             # box_colors don't match boxes
             _ = v.select(bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, box_colors=['red'])).collect()
 
@@ -256,85 +256,85 @@ class TestVision:
         t.insert([{'bboxes': [[100, 100, 200, 300]]}])
 
         # no size parameter
-        with pytest.raises(pxt.Error, match='Exactly one of'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='Exactly one of'):
             t.select(bboxes_resize(t.bboxes, 'xyxy')).collect()
 
         # invalid format
-        with pytest.raises(pxt.Error, match='Invalid format'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid format'):
             t.select(bboxes_resize(t.bboxes, 'coco', width=50)).collect()
 
         # multiple size parameters (int)
-        with pytest.raises(pxt.Error, match='Exactly one of'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='Exactly one of'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=50, height=50)).collect()
 
         # invalid aspect mode (float aspect)
-        with pytest.raises(pxt.Error, match='Invalid aspect_mode'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid aspect_mode'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect=16 / 9, aspect_mode='other')).collect()
 
         # invalid aspect ratio string
-        with pytest.raises(pxt.Error, match='Invalid aspect ratio'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid aspect ratio'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='bad', aspect_mode='crop')).collect()
 
         # aspect without aspect_mode
-        with pytest.raises(pxt.Error, match=r'aspect_mode.*required'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'aspect_mode.*required'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='1:1')).collect()
 
         # aspect_mode without aspect
-        with pytest.raises(pxt.Error, match='aspect_mode is only valid'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='aspect_mode is only valid'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=50, aspect_mode='crop')).collect()
 
         # float width with absolute boxes (dispatches to float overload → _bboxes_resize(width_f=...))
-        with pytest.raises(pxt.Error, match='width/height require relative'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='width/height require relative'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=0.5)).collect()
 
         # float height with absolute boxes
-        with pytest.raises(pxt.Error, match='width/height require relative'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='width/height require relative'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', height=0.5)).collect()
 
         # int width with relative boxes
         t_rel = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
         t_rel.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
-        with pytest.raises(pxt.Error, match='width/height require absolute'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='width/height require absolute'):
             t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width=50)).collect()
 
         # int height with relative boxes
-        with pytest.raises(pxt.Error, match='width/height require absolute'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='width/height require absolute'):
             t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height=50)).collect()
 
         # zero/negative width (int)
-        with pytest.raises(pxt.Error, match='width must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='width must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=0)).collect()
-        with pytest.raises(pxt.Error, match='width must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='width must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=-10)).collect()
 
         # zero/negative height (int)
-        with pytest.raises(pxt.Error, match='height must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='height must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', height=0)).collect()
-        with pytest.raises(pxt.Error, match='height must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='height must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', height=-10)).collect()
 
         # zero/negative width (float)
-        with pytest.raises(pxt.Error, match='width must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='width must be positive'):
             t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width=0.0)).collect()
-        with pytest.raises(pxt.Error, match='width must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='width must be positive'):
             t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width=-0.1)).collect()
 
         # zero/negative height (float)
-        with pytest.raises(pxt.Error, match='height must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='height must be positive'):
             t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height=0.0)).collect()
-        with pytest.raises(pxt.Error, match='height must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='height must be positive'):
             t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height=-0.1)).collect()
 
         # zero/negative aspect (float)
-        with pytest.raises(pxt.Error, match='aspect must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='aspect must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect=0.0, aspect_mode='crop')).collect()
-        with pytest.raises(pxt.Error, match='aspect must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='aspect must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect=-1.0, aspect_mode='crop')).collect()
 
         # aspect string with zero component
-        with pytest.raises(pxt.Error, match='width and height must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='width and height must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='0:9', aspect_mode='crop')).collect()
-        with pytest.raises(pxt.Error, match='width and height must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='width and height must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='9:0', aspect_mode='crop')).collect()
 
     def test_bboxes_resize_degenerate(self, uses_db: None) -> None:
@@ -441,47 +441,47 @@ class TestVision:
         t.insert([{'bboxes': [[100, 100, 200, 300]]}])
 
         # invalid format
-        with pytest.raises(pxt.Error, match='Invalid format'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid format'):
             t.select(bboxes_scale(t.bboxes, 'coco', factor=2.0)).collect()
 
         # no factors specified
-        with pytest.raises(pxt.Error, match='at least one of'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='at least one of'):
             t.select(bboxes_scale(t.bboxes, 'xyxy')).collect()
 
         # factor with x_factor
-        with pytest.raises(pxt.Error, match='mutually exclusive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='mutually exclusive'):
             t.select(bboxes_scale(t.bboxes, 'xyxy', factor=2.0, x_factor=1.5)).collect()
 
         # factor with y_factor
-        with pytest.raises(pxt.Error, match='mutually exclusive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='mutually exclusive'):
             t.select(bboxes_scale(t.bboxes, 'xyxy', factor=2.0, y_factor=1.5)).collect()
 
         # factor with both x_factor and y_factor
-        with pytest.raises(pxt.Error, match='mutually exclusive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='mutually exclusive'):
             t.select(bboxes_scale(t.bboxes, 'xyxy', factor=2.0, x_factor=1.5, y_factor=1.5)).collect()
 
         # zero factor
-        with pytest.raises(pxt.Error, match='factor must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='factor must be positive'):
             t.select(bboxes_scale(t.bboxes, 'xyxy', factor=0.0)).collect()
 
         # negative factor
-        with pytest.raises(pxt.Error, match='factor must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='factor must be positive'):
             t.select(bboxes_scale(t.bboxes, 'xyxy', factor=-1.0)).collect()
 
         # zero x_factor
-        with pytest.raises(pxt.Error, match='x_factor must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='x_factor must be positive'):
             t.select(bboxes_scale(t.bboxes, 'xyxy', x_factor=0.0)).collect()
 
         # negative x_factor
-        with pytest.raises(pxt.Error, match='x_factor must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='x_factor must be positive'):
             t.select(bboxes_scale(t.bboxes, 'xyxy', x_factor=-1.0)).collect()
 
         # zero y_factor
-        with pytest.raises(pxt.Error, match='y_factor must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='y_factor must be positive'):
             t.select(bboxes_scale(t.bboxes, 'xyxy', y_factor=0.0)).collect()
 
         # negative y_factor
-        with pytest.raises(pxt.Error, match='y_factor must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='y_factor must be positive'):
             t.select(bboxes_scale(t.bboxes, 'xyxy', y_factor=-1.0)).collect()
 
     def test_bboxes_scale_degenerate(self, uses_db: None) -> None:
@@ -558,37 +558,37 @@ class TestVision:
         t.insert([{'bboxes': [[100, 100, 200, 300]]}])
 
         # invalid format
-        with pytest.raises(pxt.Error, match='Invalid format'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid format'):
             t.select(bboxes_pad(t.bboxes, 'coco', x=10)).collect()
 
         # no params specified
-        with pytest.raises(pxt.Error, match='at least one padding parameter'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='at least one padding parameter'):
             t.select(bboxes_pad(t.bboxes, 'xyxy')).collect()
 
         # x with left
-        with pytest.raises(pxt.Error, match='mutually exclusive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='mutually exclusive'):
             t.select(bboxes_pad(t.bboxes, 'xyxy', x=10, left=5)).collect()
 
         # x with right
-        with pytest.raises(pxt.Error, match='mutually exclusive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='mutually exclusive'):
             t.select(bboxes_pad(t.bboxes, 'xyxy', x=10, right=5)).collect()
 
         # y with top
-        with pytest.raises(pxt.Error, match='mutually exclusive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='mutually exclusive'):
             t.select(bboxes_pad(t.bboxes, 'xyxy', y=10, top=5)).collect()
 
         # y with bottom
-        with pytest.raises(pxt.Error, match='mutually exclusive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='mutually exclusive'):
             t.select(bboxes_pad(t.bboxes, 'xyxy', y=10, bottom=5)).collect()
 
         # negative value
-        with pytest.raises(pxt.Error, match='must be >= 0'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >= 0'):
             t.select(bboxes_pad(t.bboxes, 'xyxy', x=-5)).collect()
 
         # relative bboxes
         t2 = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
         t2.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
-        with pytest.raises(pxt.Error, match='absolute pixel coordinates'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='absolute pixel coordinates'):
             t2.select(bboxes_pad(t2.bboxes, 'xyxy', x=10)).collect()
 
     def test_bboxes_pad_degenerate(self, uses_db: None) -> None:
@@ -680,9 +680,9 @@ class TestVision:
     def test_bboxes_convert_errors(self, uses_db: None) -> None:
         t = pxt.create_table('convert_err', {'bboxes': pxt.Json})
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
-        with pytest.raises(pxt.Error, match='Invalid src_format'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid src_format'):
             t.select(bboxes_convert(t.bboxes, src_format='coco', dst_format='xyxy')).collect()
-        with pytest.raises(pxt.Error, match='Invalid dst_format'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid dst_format'):
             t.select(bboxes_convert(t.bboxes, src_format='xyxy', dst_format='coco')).collect()
         t.delete()
 
@@ -780,37 +780,37 @@ class TestVision:
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
 
         # invalid format
-        with pytest.raises(pxt.Error, match='Invalid format'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid format'):
             t.select(bboxes_clip_to_canvas(t.bboxes, 'coco', width=640, height=480)).collect()
 
         # Missing both width/height for absolute coords
-        with pytest.raises(pxt.Error, match='both width and height must be specified'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='both width and height must be specified'):
             t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy')).collect()
 
         # Missing height for absolute coords
-        with pytest.raises(pxt.Error, match='both width and height must be specified'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='both width and height must be specified'):
             t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640)).collect()
 
         # Missing width for absolute coords
-        with pytest.raises(pxt.Error, match='both width and height must be specified'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='both width and height must be specified'):
             t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', height=480)).collect()
 
         # Invalid min_visibility
-        with pytest.raises(pxt.Error, match='min_visibility must be between'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='min_visibility must be between'):
             t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480, min_visibility=1.5)).collect()
 
-        with pytest.raises(pxt.Error, match='min_visibility must be between'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='min_visibility must be between'):
             t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480, min_visibility=-0.1)).collect()
 
         # Negative min_area
-        with pytest.raises(pxt.Error, match='min_area must be >= 0'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='min_area must be >= 0'):
             t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480, min_area=-1.0)).collect()
 
         t.delete()
         t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
 
         # width/height specified for relative coords
-        with pytest.raises(pxt.Error, match='must not be specified for relative'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='must not be specified for relative'):
             t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480)).collect()
 
         self._test_bbox_validation(t, bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480))
@@ -952,7 +952,7 @@ class TestVision:
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
 
         # invalid format
-        with pytest.raises(pxt.Error, match='Invalid format'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid format'):
             t.select(
                 bboxes_crop_canvas(
                     t.bboxes,
@@ -965,13 +965,13 @@ class TestVision:
             ).collect()
 
         # Missing canvas_width/canvas_height for absolute coords
-        with pytest.raises(pxt.Error, match='both canvas_width and canvas_height must be specified'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='both canvas_width and canvas_height must be specified'):
             t.select(
                 bboxes_crop_canvas(t.bboxes, 'xyxy', canvas_region=[10, 10, 100, 100], canvas_region_format='xyxy')
             ).collect()
 
         # Invalid canvas_region_format
-        with pytest.raises(pxt.Error, match='Invalid canvas_region_format'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid canvas_region_format'):
             t.select(
                 bboxes_crop_canvas(
                     t.bboxes,
@@ -984,7 +984,7 @@ class TestVision:
             ).collect()
 
         # Crop region with zero area (rx1 == rx2)
-        with pytest.raises(pxt.Error, match='must have positive area'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must have positive area'):
             t.select(
                 bboxes_crop_canvas(
                     t.bboxes,
@@ -997,7 +997,7 @@ class TestVision:
             ).collect()
 
         # Crop region extending beyond canvas
-        with pytest.raises(pxt.Error, match='extends beyond canvas bounds'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='extends beyond canvas bounds'):
             t.select(
                 bboxes_crop_canvas(
                     t.bboxes,
@@ -1013,7 +1013,7 @@ class TestVision:
         t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
 
         # canvas_width/canvas_height specified for relative coords
-        with pytest.raises(pxt.Error, match='must not be specified for relative'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='must not be specified for relative'):
             t.select(
                 bboxes_crop_canvas(
                     t.bboxes,
@@ -1026,7 +1026,7 @@ class TestVision:
             ).collect()
 
         # Crop region extending beyond relative canvas
-        with pytest.raises(pxt.Error, match='extends beyond canvas bounds'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='extends beyond canvas bounds'):
             t.select(
                 bboxes_crop_canvas(t.bboxes, 'xyxy', canvas_region=[0.1, 0.1, 1.5, 0.5], canvas_region_format='xyxy')
             ).collect()
@@ -1109,19 +1109,22 @@ class TestVision:
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
 
         # invalid format
-        with pytest.raises(pxt.Error, match='Invalid format'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid format'):
             t.select(bboxes_resize_canvas(t.bboxes, 'coco', canvas_scale=2.0)).collect()
 
         # No resize params specified
-        with pytest.raises(pxt.Error, match='requires either all of'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires either all of'):
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy')).collect()
 
         # canvas_scale + canvas_scale_x (mutually exclusive)
-        with pytest.raises(pxt.Error, match='canvas_scale is mutually exclusive with canvas_scale_x/canvas_scale_y'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match='canvas_scale is mutually exclusive with canvas_scale_x/canvas_scale_y',
+        ):
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0, canvas_scale_x=1.5)).collect()
 
         # new_canvas_width/height + canvas_scale (mutually exclusive)
-        with pytest.raises(pxt.Error, match='is mutually exclusive with canvas_scale'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is mutually exclusive with canvas_scale'):
             t.select(
                 bboxes_resize_canvas(
                     t.bboxes,
@@ -1135,28 +1138,28 @@ class TestVision:
             ).collect()
 
         # incomplete resize args
-        with pytest.raises(pxt.Error, match='requires either all of'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires either all of'):
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', new_canvas_width=1280, canvas_width=960)).collect()
-        with pytest.raises(pxt.Error, match='requires either all of'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires either all of'):
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', new_canvas_height=1280, canvas_height=960)).collect()
 
         # new_canvas_width/height without canvas_width/canvas_height
-        with pytest.raises(pxt.Error, match='also require canvas_width/canvas_height'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='also require canvas_width/canvas_height'):
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=960)).collect()
 
         # Non-positive scale factors
-        with pytest.raises(pxt.Error, match='canvas_scale must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='canvas_scale must be positive'):
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=-1.0)).collect()
 
         # Non-positive new dimensions
-        with pytest.raises(pxt.Error, match='new_canvas_width must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='new_canvas_width must be positive'):
             t.select(
                 bboxes_resize_canvas(
                     t.bboxes, 'xyxy', new_canvas_width=-100, new_canvas_height=960, canvas_width=640, canvas_height=480
                 )
             ).collect()
 
-        with pytest.raises(pxt.Error, match='new_canvas_height must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='new_canvas_height must be positive'):
             t.select(
                 bboxes_resize_canvas(
                     t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=-100, canvas_width=640, canvas_height=480
@@ -1164,14 +1167,14 @@ class TestVision:
             ).collect()
 
         # Non-positive canvas dimensions
-        with pytest.raises(pxt.Error, match='canvas_width must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='canvas_width must be positive'):
             t.select(
                 bboxes_resize_canvas(
                     t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=960, canvas_width=-640, canvas_height=480
                 )
             ).collect()
 
-        with pytest.raises(pxt.Error, match='canvas_height must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='canvas_height must be positive'):
             t.select(
                 bboxes_resize_canvas(
                     t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=960, canvas_width=640, canvas_height=-480
@@ -1179,17 +1182,17 @@ class TestVision:
             ).collect()
 
         # Non-positive scale_x/scale_y
-        with pytest.raises(pxt.Error, match='canvas_scale_x must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='canvas_scale_x must be positive'):
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale_x=-1.0)).collect()
 
-        with pytest.raises(pxt.Error, match='canvas_scale_y must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='canvas_scale_y must be positive'):
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale_y=-1.0)).collect()
 
         t.delete()
         t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
 
         # Relative coords with new_canvas_width/height
-        with pytest.raises(pxt.Error, match='requires absolute bounding boxes'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires absolute bounding boxes'):
             t.select(
                 bboxes_resize_canvas(
                     t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=960, canvas_width=640, canvas_height=480
@@ -1197,7 +1200,7 @@ class TestVision:
             ).collect()
 
         # Relative coords with canvas_scale
-        with pytest.raises(pxt.Error, match='requires absolute bounding boxes'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires absolute bounding boxes'):
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0)).collect()
 
         self._test_bbox_validation(t, bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0))
@@ -1207,26 +1210,25 @@ class TestVision:
         # Mixed int/float within a single box
         t.delete()
         t.insert([{'bboxes': [[10, 20.0, 30, 40]]}])
-        with pytest.raises(pxt.Error, match=r'either all int.*or all float'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'either all int.*or all float'):
             t.select(udf_call).collect()
         t.delete()
 
         # Mixed absolute/relative across boxes
         t.insert([{'bboxes': [[10, 20, 30, 40], [0.1, 0.2, 0.3, 0.4]]}])
-        with pytest.raises(pxt.Error, match=r'either all int.*or all float'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'either all int.*or all float'):
             t.select(udf_call).collect()
         t.delete()
 
         # Wrong coordinate count
         t.insert([{'bboxes': [[10, 20, 30]]}])
-        with pytest.raises(pxt.Error, match='exactly 4 coordinates'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly 4 coordinates'):
             t.select(udf_call).collect()
         t.delete()
 
-    @pytest.mark.skipif(IN_CI, reason='Crashing in CI (memory issue?)')
+    @pytest.mark.expensive  # Resource-intensive
     def test_overlay_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
-
         from pixeltable.functions.huggingface import detr_for_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})

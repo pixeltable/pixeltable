@@ -18,6 +18,7 @@ from .utils import (
     get_documents,
     get_image_files,
     get_video_files,
+    pxt_raises,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -104,19 +105,19 @@ class TestDocument:
             'page, block',  # block does not exist
         ]
         for sep in invalid_separators:
-            with pytest.raises(pxt.Error, match='Invalid separator'):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid separator'):
                 _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators=sep))
 
-        with pytest.raises(pxt.Error, match='both'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='both'):
             _ = pxt.create_view(
                 'chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit, token_limit', limit=10)
             )
 
         # test that limit is required for char_limit and token_limit
-        with pytest.raises(pxt.Error, match='limit'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='limit'):
             _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit'))
 
-        with pytest.raises(pxt.Error, match='limit'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='limit'):
             _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='token_limit'))
 
         # test invalid metadata
@@ -126,12 +127,14 @@ class TestDocument:
             'page bounding_box',  # separator
         ]
         for md in invalid_metadata:
-            with pytest.raises(pxt.Error, match='Invalid metadata'):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid metadata'):
                 _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='', metadata=md))
 
         invalid_separators = ['page, sentence', 'paragraph, sentence', 'char_limit, sentence', 'token_limit, sentence']
         for sep in invalid_separators:
-            with pytest.raises(pxt.Error, match="Image elements are only supported for the 'page' separator"):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Image elements are only supported for the 'page' separator"
+            ):
                 _ = pxt.create_view(
                     'chunks', t, iterator=document_splitter(document=t.doc, separators=sep, elements=['image'])
                 )
@@ -139,12 +142,12 @@ class TestDocument:
         pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
         t = pxt.create_table('docs', {'doc': pxt.Document}, if_exists='replace')
         _ = pxt.create_view('paragraphs', t, iterator=document_splitter(t.doc, separators='paragraph'))
-        with pytest.raises(pxt.Error, match=r'not currently supported.+contact us'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'not currently supported.+contact us'):
             t.insert(doc=pdf_file)
 
-        # Error message will depend on which dependencies are installed.
-        with pytest.raises(
-            pxt.Error,
+        # RequestError message will depend on which dependencies are installed.
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
             match=r"This feature requires the `spacy` package|Failed to locate spaCy model 'not_a_spacy_model'",
         ):
             _ = pxt.create_view(
@@ -280,7 +283,7 @@ class TestDocument:
                 if md_element in requested_md_elements:
                     _ = res[md_element]
                 else:
-                    with pytest.raises(pxt.Error):
+                    with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME):
                         _ = res[md_element]
             pxt.drop_table('chunks')
 

@@ -90,7 +90,10 @@ def encode_audio(
         ... )
     """
     if format not in av_utils.AUDIO_FORMATS:
-        raise pxt.Error(f'Only the following formats are supported: {av_utils.AUDIO_FORMATS.keys()}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            f'Only the following formats are supported: {av_utils.AUDIO_FORMATS.keys()}',
+        )
     if output_sample_rate is None:
         output_sample_rate = input_sample_rate
 
@@ -115,8 +118,9 @@ def encode_audio(
             audio_data_transformed[1::2] = audio_data[1]
             audio_data_transformed = audio_data_transformed.reshape(1, -1)
         case _:
-            raise pxt.Error(
-                f'Supported input array shapes are (N,), (1, N) for mono and (2, N) for stereo, got {audio_data.shape}'
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Supported input array shapes are (N,), (1, N) for mono and (2, N) for stereo, got {audio_data.shape}',
             )
 
     with av.open(output_path, mode='w') as output_container:
@@ -172,11 +176,13 @@ def multiply_volume(
     Env.get().require_binary('ffmpeg')
 
     if start_time is not None and start_time < 0:
-        raise pxt.Error(f'`start_time` must be non-negative, got {start_time}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`start_time` must be non-negative, got {start_time}')
     if end_time is not None and end_time < 0:
-        raise pxt.Error(f'`end_time` must be non-negative, got {end_time}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`end_time` must be non-negative, got {end_time}')
     if start_time is not None and end_time is not None and end_time <= start_time:
-        raise pxt.Error(f'`end_time` ({end_time}) must be greater than `start_time` ({start_time})')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'`end_time` ({end_time}) must be greater than `start_time` ({start_time})'
+        )
 
     if start_time is None and end_time is None:
         filter_expr = f'volume={factor}'
@@ -224,12 +230,14 @@ def fade_in(audio: pxt.Audio, *, duration: float) -> pxt.Audio:
     """
     Env.get().require_binary('ffmpeg')
     if duration <= 0:
-        raise pxt.Error(f'`duration` must be positive, got {duration}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`duration` must be positive, got {duration}')
 
     input_path = str(audio)
     clip_duration = av_utils.get_audio_duration(input_path)
     if clip_duration is None:
-        raise pxt.Error(f'cannot determine duration of audio clip: {input_path}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'cannot determine duration of audio clip: {input_path}'
+        )
     # make sure we reach full volume by the end
     fade_duration = min(duration, clip_duration)
 
@@ -267,12 +275,14 @@ def fade_out(audio: pxt.Audio, *, duration: float) -> pxt.Audio:
     """
     Env.get().require_binary('ffmpeg')
     if duration <= 0:
-        raise pxt.Error(f'`duration` must be positive, got {duration}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`duration` must be positive, got {duration}')
 
     input_path = str(audio)
     clip_duration = av_utils.get_audio_duration(input_path)
     if clip_duration is None:
-        raise pxt.Error(f'cannot determine duration of audio clip: {input_path}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'cannot determine duration of audio clip: {input_path}'
+        )
     fade_duration = min(duration, clip_duration)
     start = clip_duration - fade_duration
 
@@ -465,7 +475,9 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
             try:
                 frame = next(self.container.decode(audio=0))
             except EOFError as e:
-                raise excs.Error(f"Failed to read audio file '{self.audio_path}': {e}") from e
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_DATA_FORMAT, f"Failed to read audio file '{self.audio_path}': {e}"
+                ) from e
             except StopIteration:
                 # no more frames to scan
                 break
@@ -517,11 +529,13 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
         min_segment_duration = bound_args.get('min_segment_duration')
 
         if duration is not None and duration <= 0.0:
-            raise excs.Error('`duration` must be a positive number')
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`duration` must be a positive number')
         if duration is not None and min_segment_duration is not None and duration < min_segment_duration:
-            raise excs.Error('`duration` must be at least `min_segment_duration`')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, '`duration` must be at least `min_segment_duration`'
+            )
         if duration is not None and overlap is not None and overlap >= duration:
-            raise excs.Error('`overlap` must be strictly less than `duration`')
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`overlap` must be strictly less than `duration`')
 
 
 __all__ = local_public_names(__name__)

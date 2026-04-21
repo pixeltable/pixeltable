@@ -128,8 +128,9 @@ def _converse_image_messages(t: pxt.Table) -> list:
 
 
 @pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+@pytest.mark.expensive
 @pytest.mark.usefixtures('bedrock_us_east_1')
+@rerun(reruns=3, reruns_delay=8)
 class TestBedrock:
     def test_invoke_model_twelvelabs_marengo_image(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()

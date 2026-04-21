@@ -54,9 +54,10 @@ def presigned_url(uri: str, expiration_seconds: int) -> str:
 
     # For file:// URLs, we can't generate presigned URLs
     if soa.storage_target == StorageTarget.LOCAL_STORE:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             'Cannot generate presigned URL for local file:// URLs. '
-            'Please use cloud storage (S3, GCS, Azure) for presigned URLs.'
+            'Please use cloud storage (S3, GCS, Azure) for presigned URLs.',
         )
 
     store = ObjectOps.get_store(soa, allow_obj_name=True)

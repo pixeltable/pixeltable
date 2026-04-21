@@ -12,11 +12,11 @@ from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
-    IN_CI,
     ReloadTester,
     get_audio_file,
     get_audio_files,
     get_video_files,
+    pxt_raises,
     rerun,
     skip_test_if_not_installed,
     validate_update_status,
@@ -316,21 +316,21 @@ class TestAudio:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
-        with pytest.raises(pxt.Error, match=r'`duration` must be a positive number'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be a positive number'):
             _ = pxt.create_view(
                 'audio_segments',
                 base_t,
                 iterator=audio_splitter(audio=base_t.audio, duration=-1, overlap=1, min_segment_duration=1),
             )
 
-        with pytest.raises(pxt.Error, match=r'`duration` must be at least `min_segment_duration`'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be at least `min_segment_duration`'):
             _ = pxt.create_view(
                 'audio_segments',
                 base_t,
                 iterator=audio_splitter(audio=base_t.audio, duration=1, overlap=0, min_segment_duration=2),
             )
 
-        with pytest.raises(pxt.Error, match=r'`overlap` must be strictly less than `duration`'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`overlap` must be strictly less than `duration`'):
             _ = pxt.create_view(
                 'audio_segments',
                 base_t,
@@ -405,7 +405,7 @@ class TestAudio:
         assert len(audio_data) > 0
         return audio_data, duration_seconds, sample_rate
 
-    @pytest.mark.skipif(IN_CI, reason='Runs out of disk space on CI')
+    @pytest.mark.expensive  # Large dataset; requires substantial disk space
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
     def test_encode_dataset_audio(self, uses_db: None) -> None:
         """
@@ -462,17 +462,17 @@ class TestAudio:
         t = pxt.create_table('test_audio', {'audio': pxt.Audio})
         validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
 
-        with pytest.raises(pxt.Error, match=r'`start_time` must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`start_time` must be non-negative'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'`end_time` must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`end_time` must be non-negative'):
             t.select(t.audio.multiply_volume(factor=1.0, end_time=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'`start_time` must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`start_time` must be non-negative'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=-1.0, end_time=3.0)).collect()
-        with pytest.raises(pxt.Error, match=r'`end_time` must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`end_time` must be non-negative'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=0.0, end_time=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'`end_time` .* must be greater than `start_time`'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`end_time` .* must be greater than `start_time`'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=5.0, end_time=3.0)).collect()
-        with pytest.raises(pxt.Error, match=r'`end_time` .* must be greater than `start_time`'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`end_time` .* must be greater than `start_time`'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=5.0, end_time=5.0)).collect()
 
     def test_fade_in(self, uses_db: None) -> None:
@@ -489,9 +489,9 @@ class TestAudio:
         t = pxt.create_table('test_audio', {'audio': pxt.Audio})
         validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
 
-        with pytest.raises(pxt.Error, match=r'`duration` must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
             t.select(t.audio.fade_in(duration=0)).collect()
-        with pytest.raises(pxt.Error, match=r'`duration` must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
             t.select(t.audio.fade_in(duration=-1.0)).collect()
 
     def test_fade_out(self, uses_db: None) -> None:
@@ -508,9 +508,9 @@ class TestAudio:
         t = pxt.create_table('test_audio', {'audio': pxt.Audio})
         validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
 
-        with pytest.raises(pxt.Error, match=r'`duration` must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
             t.select(t.audio.fade_out(duration=0)).collect()
-        with pytest.raises(pxt.Error, match=r'`duration` must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
             t.select(t.audio.fade_out(duration=-1.0)).collect()
 
     def test_normalize(self, uses_db: None) -> None:
@@ -526,11 +526,11 @@ class TestAudio:
         # invalid format
         t = pxt.create_table('test_encode', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
         t.insert(audio_array=np.zeros(100, dtype=np.float32))
-        with pytest.raises(pxt.Error, match=r'Only the following formats are supported'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Only the following formats are supported'):
             t.select(encode_audio(t.audio_array, input_sample_rate=44100, format='invalid')).collect()
 
         # invalid array shape: (3, N) is neither mono nor stereo
         t2 = pxt.create_table('test_encode2', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
         t2.insert(audio_array=np.zeros((3, 100), dtype=np.float32))
-        with pytest.raises(pxt.Error, match=r'Supported input array shapes are'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Supported input array shapes are'):
             t2.select(encode_audio(t2.audio_array, input_sample_rate=44100, format='wav')).collect()
