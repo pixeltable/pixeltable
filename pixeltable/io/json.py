@@ -45,7 +45,6 @@ def import_json(
         source=filepath_or_url,
         schema_overrides=schema_overrides,
         primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
         comment=comment,
         extra_args=kwargs,
     )
