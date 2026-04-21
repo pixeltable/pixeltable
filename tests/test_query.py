@@ -30,6 +30,7 @@ from .utils import (
 
 
 class TestQuery:
+    @staticmethod
     @pxt.udf
     def is_even_py(x: int) -> bool:
         return x % 2 == 0
