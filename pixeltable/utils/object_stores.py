@@ -413,8 +413,9 @@ class ObjectOps:
         if soa.storage_target == StorageTarget.HTTP_STORE and soa.is_http_readable:
             return HTTPStore(soa)
         error_col_name = f'Column {col_name!r}: ' if col_name is not None else ''
-        raise excs.Error(
-            f'{error_col_name}`destination` must be a valid reference to a supported destination, got {dest!r}'
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'{error_col_name}`destination` must be a valid reference to a supported destination, got {dest!r}',
         )
 
     @classmethod
@@ -432,13 +433,18 @@ class ObjectOps:
         if isinstance(dest, Path):
             dest = str(dest)
         if dest is not None and not isinstance(dest, str):
-            raise excs.Error(f'{error_col_str}: `destination` must be a string or path; got {dest!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH, f'{error_col_str}: `destination` must be a string or path; got {dest!r}'
+            )
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
         dest2 = store.validate(error_col_str)
         if dest2 is None:
-            raise excs.Error(f'{error_col_str}: `destination` must be a supported destination; got {dest!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{error_col_str}: `destination` must be a supported destination; got {dest!r}',
+            )
         return dest2
 
     @classmethod
@@ -569,7 +575,9 @@ class HTTPStore(ObjectStoreBase):
             The HTTP URL as-is since it's already servable
         """
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'StorageObjectAddress does not contain an object name: {soa}'
+            )
 
         # Construct the full HTTP URL from the StorageObjectAddress
         return f'{soa.scheme}://{soa.account_extension}/{soa.key}'

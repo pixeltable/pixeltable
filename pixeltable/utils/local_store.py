@@ -52,9 +52,11 @@ class LocalStore(ObjectStoreBase):
 
         # Check if path exists and validate it's a directory
         if not dest_path.exists():
-            raise excs.Error(f'{error_col_name}`destination` does not exist')
+            raise excs.NotFoundError(excs.ErrorCode.STORAGE_NOT_FOUND, f'{error_col_name}`destination` does not exist')
         if not dest_path.is_dir():
-            raise excs.Error(f'{error_col_name}`destination` must be a directory, not a file')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'{error_col_name}`destination` must be a directory, not a file'
+            )
 
         # Check if path is absolute
         if dest_path.is_absolute():
@@ -66,7 +68,9 @@ class LocalStore(ObjectStoreBase):
             absolute_path = dest_path.resolve()
             return absolute_path.as_uri()
         except (OSError, ValueError) as e:
-            raise excs.Error(f'{error_col_name}`destination` must be a valid path. Error: {e}') from None
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'{error_col_name}`destination` must be a valid path. Error: {e}'
+            ) from None
 
     @staticmethod
     def file_url_to_path(url: str) -> Path | None:
@@ -187,7 +191,9 @@ class LocalStore(ObjectStoreBase):
 
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
         """Create a presigned URL for local storage (not supported)."""
-        raise excs.Error('Cannot generate servable URL for local file storage.')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot generate servable URL for local file storage.'
+        )
 
     def delete(self, tbl_id: UUID, tbl_version: int | None = None) -> int | None:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete

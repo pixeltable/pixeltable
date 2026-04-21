@@ -17,7 +17,18 @@ from .catalog import (
     VersionMetadata,
     View,
 )
-from .exceptions import Error, ExprEvalError, PixeltableWarning
+from .exceptions import (
+    AlreadyExistsError,
+    AuthorizationError,
+    ConcurrencyError,
+    Error,
+    ErrorCode,
+    ExternalServiceError,
+    NotFoundError,
+    PixeltableWarning,
+    RequestError,
+    ServiceUnavailableError,
+)
 from .func import (
     Aggregator,
     Function,

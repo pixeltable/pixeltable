@@ -1,10 +1,8 @@
 """Tests for the partial unique B-tree index on primary key columns."""
 
-import pytest
-
 import pixeltable as pxt
 from pixeltable.index.btree import BtreeIndex
-from tests.utils import reload_catalog, validate_update_status
+from tests.utils import pxt_raises, reload_catalog, validate_update_status
 
 
 class TestPrimaryKeyIndex:
@@ -14,7 +12,7 @@ class TestPrimaryKeyIndex:
         validate_update_status(t.insert([{'id': 1, 'name': 'alice'}, {'id': 2, 'name': 'bob'}]), expected_rows=2)
 
         # Duplicate PK is rejected with a clear error
-        with pytest.raises(pxt.Error, match='Duplicate primary key'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t.insert([{'id': 1, 'name': 'charlie'}])
         assert t.count() == 2
         assert t.where(t.id == 1).collect()['name'] == ['alice']
@@ -30,7 +28,7 @@ class TestPrimaryKeyIndex:
         # Index still enforced after catalog reload
         reload_catalog()
         t = pxt.get_table('test_pk')
-        with pytest.raises(pxt.Error, match='Duplicate primary key'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t.insert([{'id': 1, 'name': 'dupe'}])
         validate_update_status(t.insert([{'id': 3, 'name': 'dave'}]), expected_rows=1)
         assert t.count() == 3
@@ -47,7 +45,7 @@ class TestPrimaryKeyIndex:
         )
 
         # Same 'a' with different 'b' is fine — only exact composite match is rejected
-        with pytest.raises(pxt.Error, match='Duplicate primary key'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t.insert([{'a': 1, 'b': 'x', 'val': 30}])
         assert t.count() == 2
 
@@ -65,7 +63,7 @@ class TestPrimaryKeyIndex:
         validate_update_status(t.insert([{'key': base + '_suffix1', 'val': 1}]), expected_rows=1)
 
         # Different string, but first MAX_STRING_LEN chars are identical -- index treats them as duplicates
-        with pytest.raises(pxt.Error, match='Duplicate primary key'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t.insert([{'key': base + '_suffix2', 'val': 2}])
 
         # String that differs within the first MAX_STRING_LEN chars is fine
@@ -78,7 +76,7 @@ class TestPrimaryKeyIndex:
         t = pxt.create_table('test_pk', {'id': pxt.Required[pxt.Int], 'v': pxt.String}, primary_key='id')
         validate_update_status(t.insert([{'id': 1, 'v': 'a'}]), expected_rows=1)
 
-        with pytest.raises(pxt.Error, match='Duplicate primary key'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t.insert([{'id': 2, 'v': 'b'}, {'id': 1, 'v': 'c'}])
 
         # Original data is unchanged
@@ -93,7 +91,7 @@ class TestPrimaryKeyIndex:
         t = pxt.create_table('test_pk', schema, primary_key=pk_cols)
 
         row = {f'k{i}': 'a' * BtreeIndex.MAX_STRING_LEN for i in range(11)}
-        with pytest.raises(pxt.Error, match='Primary key value too large for index'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Primary key value too large for index'):
             t.insert([row])
 
     def test_batch_update_with_pk_index(self, uses_db: None) -> None:
@@ -107,5 +105,5 @@ class TestPrimaryKeyIndex:
         assert t.count() == 2
 
         # The PK is still taken by the live row
-        with pytest.raises(pxt.Error, match='Duplicate primary key'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t.insert([{'id': 1, 'val': 50}])

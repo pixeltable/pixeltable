@@ -503,9 +503,10 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
     assert isinstance(tokenizer, Speech2TextTokenizer)
 
     if language is not None and language not in tokenizer.lang_code_to_id:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             f"Language code '{language}' is not supported by the model '{model_id}'. "
-            f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}'
+            f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}',
         )
 
     forced_bos_token_id: int | None = None if language is None else tokenizer.lang_code_to_id[language]
@@ -826,8 +827,9 @@ def token_classification(
     # Validate aggregation strategy
     valid_strategies = {'simple', 'first', 'average', 'max'}
     if aggregation_strategy not in valid_strategies:
-        raise excs.Error(
-            f'Invalid aggregation_strategy {aggregation_strategy!r}. Must be one of: {", ".join(valid_strategies)}'
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'Invalid aggregation_strategy {aggregation_strategy!r}. Must be one of: {", ".join(valid_strategies)}',
         )
 
     with torch.no_grad():
@@ -1043,15 +1045,17 @@ def translation(
 
     # Language validation - following speech2text_for_conditional_generation pattern
     if src_lang is not None and src_lang not in lang_code_to_id:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'Source language code {src_lang!r} is not supported by the model {model_id!r}. '
-            f'Supported languages are: {list(lang_code_to_id.keys())}'
+            f'Supported languages are: {list(lang_code_to_id.keys())}',
         )
 
     if target_lang is not None and target_lang not in lang_code_to_id:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'Target language code {target_lang!r} is not supported by the model {model_id!r}. '
-            f'Supported languages are: {list(lang_code_to_id.keys())}'
+            f'Supported languages are: {list(lang_code_to_id.keys())}',
         )
 
     with torch.no_grad():
@@ -1126,10 +1130,15 @@ def text_to_image(
 
     # Parameter validation - following best practices pattern
     if height <= 0 or width <= 0:
-        raise excs.Error(f'Height ({height}) and width ({width}) must be positive integers')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'Height ({height}) and width ({width}) must be positive integers'
+        )
 
     if height % 8 != 0 or width % 8 != 0:
-        raise excs.Error(f'Height ({height}) and width ({width}) must be divisible by 8 for most diffusion models')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'Height ({height}) and width ({width}) must be divisible by 8 for most diffusion models',
+        )
 
     pipeline = _lookup_model(
         model_id,
@@ -1433,9 +1442,10 @@ def automatic_speech_recognition(
             try:
                 _ = tokenizer.get_decoder_prompt_ids(language=language)
             except Exception:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f"Language code '{language}' is not supported by Whisper model '{model_id}'. "
-                    f"Try common codes like 'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh'."
+                    f"Try common codes like 'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh'.",
                 ) from None
 
     elif 'wav2vec2' in model_id.lower():
@@ -1565,16 +1575,21 @@ def image_to_video(
 
     # Parameter validation - following best practices pattern
     if num_frames < 1:
-        raise excs.Error(f'num_frames must be at least 1, got {num_frames}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'num_frames must be at least 1, got {num_frames}')
 
     if num_frames > 25:
-        raise excs.Error(f'num_frames cannot exceed 25 for most video diffusion models, got {num_frames}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'num_frames cannot exceed 25 for most video diffusion models, got {num_frames}',
+        )
 
     if fps < 1:
-        raise excs.Error(f'fps must be at least 1, got {fps}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'fps must be at least 1, got {fps}')
 
     if fps > 60:
-        raise excs.Error(f'fps should not exceed 60 for reasonable video generation, got {fps}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'fps should not exceed 60 for reasonable video generation, got {fps}'
+        )
 
     pipe = _lookup_model(
         model_id,
