@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_not_installed
+from ..utils import pxt_raises, rerun, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -201,7 +201,7 @@ class TestHfDatasets:
 
     def test_import_hf_dataset_invalid(self, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.io.import_huggingface_dataset('test', {})
         assert 'Unsupported data source type' in str(exc_info.value)
 

@@ -230,6 +230,6 @@ class CachePrefetchNode(ExecNode):
             return fetch_url(url), None
         except Exception as e:
             # we want to add the file url to the exception message
-            exc = excs.Error(f'Failed to download {url}: {e}')
+            exc = excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, f'Failed to download {url}: {e}')
             _logger.debug(f'Failed to download {url}: {e}', exc_info=e)
             return None, exc

@@ -396,7 +396,10 @@ class StoreBase:
                     for row in row_batch:
                         if abort_on_exc and row.has_exc():
                             exc = row.get_first_exc()
-                            raise excs.Error(f'Error while evaluating computed column {col.name!r}:\n{exc}') from exc
+                            raise excs.RequestError(
+                                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                                f'Error while evaluating computed column {col.name!r}:\n{exc}',
+                            ) from exc
                         table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
                         num_excs += num_row_exc
                         batch_table_rows.append(tuple(table_row))
@@ -532,14 +535,17 @@ class StoreBase:
                 detail = e.orig.diag.message_detail or ''
                 for col in self.tbl_version.get().primary_key_columns():
                     detail = detail.replace(col.store_name(), col.name)
-                raise excs.Error(f'Duplicate primary key value: {detail}') from e
+                raise excs.RequestError(
+                    excs.ErrorCode.CONSTRAINT_VIOLATION, f'Duplicate primary key value: {detail}'
+                ) from e
             raise
         except sql.exc.OperationalError as e:
             if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded) and 'pk_idx_' in str(e.orig):
                 pk_col_names = [col.name for col in self.tbl_version.get().primary_key_columns()]
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.CONSTRAINT_VIOLATION,
                     f'Primary key value too large for index: the combined size of the insert for columns '
-                    f'({", ".join(pk_col_names)}) exceeds the maximum btree index row size'
+                    f'({", ".join(pk_col_names)}) exceeds the maximum btree index row size',
                 ) from e
             raise
 

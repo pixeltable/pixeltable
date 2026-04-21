@@ -547,11 +547,18 @@ class tile_iterator(pxt.PxtIterator[Tile]):
         tile_size = bound_args.get('tile_size')
         overlap = bound_args.get('overlap', (0, 0))
         if tile_size[0] <= 0 or tile_size[1] <= 0:
-            raise excs.Error(f'`tile_size` dimensions must be positive; got {tile_size}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'`tile_size` dimensions must be positive; got {tile_size}'
+            )
         if overlap[0] < 0 or overlap[1] < 0:
-            raise excs.Error(f'`overlap` dimensions must be non-negative; got {overlap}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'`overlap` dimensions must be non-negative; got {overlap}'
+            )
         if overlap[0] >= tile_size[0] or overlap[1] >= tile_size[1]:
-            raise excs.Error(f'`overlap` dimensions {overlap} are not strictly smaller than `tile_size` {tile_size}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'`overlap` dimensions {overlap} are not strictly smaller than `tile_size` {tile_size}',
+            )
 
 
 @pxt.udf(is_method=True)
@@ -593,9 +600,9 @@ def to_video(
     """
     Env.get().require_binary('ffmpeg')
     if duration <= 0:
-        raise excs.Error(f'duration must be positive, got {duration}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'duration must be positive, got {duration}')
     if fps <= 0:
-        raise excs.Error(f'fps must be positive, got {fps}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'fps must be positive, got {fps}')
 
     # ffmpeg needs file input
     image_path = str(TempStore.create_path(extension='.png'))
