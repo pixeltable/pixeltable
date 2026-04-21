@@ -104,7 +104,10 @@ class View(Table):
         # verify that filters can be evaluated in the context of the base
         if predicate is not None:
             if not predicate.is_bound_by([base]):
-                raise excs.Error(f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}',
+                )
             # create a copy that we can modify and store
             predicate = predicate.copy()
         if sample_clause is not None:
@@ -112,8 +115,9 @@ class View(Table):
             if sample_clause.stratify_exprs is not None and not all(
                 stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
             ):
-                raise excs.Error(
-                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
                 )
             # create a copy that we can modify and store
             sc = sample_clause
@@ -127,9 +131,10 @@ class View(Table):
                 continue
             # make sure that the value can be computed in the context of the base
             if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Column {col.name!r}: Value expression cannot be computed in the context of the '
-                    f'base table {base.tbl_name()!r}'
+                    f'base table {base.tbl_name()!r}',
                 )
 
         if iterator_call is not None:
@@ -197,6 +202,7 @@ class View(Table):
             media_validation=media_validation,
             view_md=view_md,
             create_default_idxs=create_default_idxs,
+            is_versioned=base.is_versioned(),
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
@@ -230,7 +236,9 @@ class View(Table):
     def _verify_column(cls, col: Column) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
-            raise excs.Error(f'Column {col.name!r}: Non-computed columns in views must be nullable')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'Column {col.name!r}: Non-computed columns in views must be nullable'
+            )
         super()._verify_column(col)
 
     @classmethod
@@ -304,10 +312,14 @@ class View(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        raise excs.Error(f'{self._display_str()}: Cannot insert into a {self._display_name()}.')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot insert into a {self._display_name()}.'
+        )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
-        raise excs.Error(f'{self._display_str()}: Cannot delete from a {self._display_name()}.')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot delete from a {self._display_name()}.'
+        )
 
     @property
     def _base_tbl_id(self) -> UUID | None:

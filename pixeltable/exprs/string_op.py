@@ -28,15 +28,20 @@ class StringOp(Expr):
         assert op1.col_type.is_string_type()
         if operator in (StringOperator.CONCAT, StringOperator.REPEAT):
             if operator == StringOperator.CONCAT and not op2.col_type.is_string_type():
-                raise excs.Error(
-                    f'{self}: {operator} on strings requires string type, but {op2} has type {op2.col_type}'
+                raise excs.RequestError(
+                    excs.ErrorCode.TYPE_MISMATCH,
+                    f'{self}: {operator} on strings requires string type, but {op2} has type {op2.col_type}',
                 )
             if operator == StringOperator.REPEAT and not op2.col_type.is_int_type():
-                raise excs.Error(f'{self}: {operator} on strings requires int type, but {op2} has type {op2.col_type}')
+                raise excs.RequestError(
+                    excs.ErrorCode.TYPE_MISMATCH,
+                    f'{self}: {operator} on strings requires int type, but {op2} has type {op2.col_type}',
+                )
         else:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'{self}: invalid operation {operator} on strings; '
-                f'only operators {StringOperator.CONCAT} and {StringOperator.REPEAT} are supported'
+                f'only operators {StringOperator.CONCAT} and {StringOperator.REPEAT} are supported',
             )
         self.id = self._create_id()
 
