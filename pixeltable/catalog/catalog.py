@@ -540,13 +540,15 @@ class Catalog:
 
         # we always convert UndefinedTable exceptions (they can't be retried)
         if isinstance(e.orig, psycopg.errors.UndefinedTable):
+            # the table got dropped in the middle of the operation
+            tbl_name = None
             if tbl is not None:
-                # the table got dropped in the middle of the operation
                 tbl_name = tbl.get().name
-                _logger.debug(f'Exception: undefined table {tbl_name!r}: Caught {type(e.orig)}: {e!r}')
-                raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, f'Table was dropped: {tbl_name}') from None
-            else:
-                raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, 'Table was dropped') from None
+            _logger.debug(f'Exception: undefined table {(tbl_name or "<unknown>")!r}: Caught {type(e.orig)}: {e!r}')
+            raise excs.NotFoundError(
+                excs.ErrorCode.TABLE_NOT_FOUND,
+                f'Table was dropped: {tbl_name}' if tbl_name is not None else 'Table was dropped',
+            ) from None
         elif (
             # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
             #     which is supposed to be deadlock-free.
