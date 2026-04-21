@@ -143,16 +143,24 @@ class ColumnRef(Expr):
         ):
             is_valid = (self.col.is_computed or self.col.col_type.is_media_type()) and self.col.is_stored
             if not is_valid:
-                raise excs.Error(f'{name} only valid for a stored computed or media column: {self}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{name} only valid for a stored computed or media column: {self}',
+                )
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
         if (
             name == ColumnPropertyRef.Property.FILEURL.name.lower()
             or name == ColumnPropertyRef.Property.LOCALPATH.name.lower()
         ):
             if not self.col.col_type.is_media_type():
-                raise excs.Error(f'{name} only valid for image/video/audio/document columns: {self}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{name} only valid for image/video/audio/document columns: {self}',
+                )
             if self.col.is_computed and not self.col.is_stored:
-                raise excs.Error(f'{name} not valid for computed unstored columns: {self}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'{name} not valid for computed unstored columns: {self}'
+                )
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
 
         if self.col_type.is_json_type():
@@ -168,9 +176,9 @@ class ColumnRef(Expr):
         with cat.begin_xact(for_write=True, tvp_write_targets=[self.reference_tbl], lock_mutable_tree=True):
             tbl_version = self.col_handle.tbl_version.get()
             if tbl_version.id != self.reference_tbl.tbl_id:
-                raise excs.Error('Cannot recompute column of a base.')
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot recompute column of a base.')
             if tbl_version.is_snapshot:
-                raise excs.Error('Cannot recompute column of a snapshot.')
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot recompute column of a snapshot.')
             col_name = self.col_handle.get().name
             status = tbl_version.recompute_columns([col_name], errors_only=errors_only, cascade=cascade)
             FileCache.get().emit_eviction_warnings()
@@ -269,12 +277,16 @@ class ColumnRef(Expr):
         )
 
         if item is not None and arg_count != 0:
-            raise excs.Error('similarity(): `item` is deprecated and cannot be used together with modality arguments')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'similarity(): `item` is deprecated and cannot be used together with modality arguments',
+            )
 
         if arg_count > 1:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., document=...,'
-                ' vector=...'
+                ' vector=...',
             )
 
         expr: Expr
@@ -284,34 +296,49 @@ class ColumnRef(Expr):
         if item is not None:
             if isinstance(item, Expr):  # This can happen when using similarity() with @query
                 if not (item.col_type.is_string_type() or item.col_type.is_image_type()):
-                    raise excs.Error(f'similarity(): expected `String` or `Image`; got `{item.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(): expected `String` or `Image`; got `{item.col_type}`',
+                    )
                 expr = item
             else:
                 if not isinstance(item, (str, PIL.Image.Image)):
-                    raise excs.Error(f'similarity(): expected `str` or `PIL.Image.Image`; got `{type(item).__name__}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(): expected `str` or `PIL.Image.Image`; got `{type(item).__name__}`',
+                    )
                 expr = Expr.from_object(item)
                 assert expr.col_type.is_string_type() or expr.col_type.is_image_type()
 
         if string is not None:
             if isinstance(string, Expr):
                 if not string.col_type.is_string_type():
-                    raise excs.Error(f'similarity(string=...): expected `String`; got `{string.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(string=...): expected `String`; got `{string.col_type}`',
+                    )
                 expr = string
             else:
                 if not isinstance(string, str):
-                    raise excs.Error(f'similarity(string=...): expected `str`; got `{type(string).__name__}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(string=...): expected `str`; got `{type(string).__name__}`',
+                    )
                 expr = Expr.from_object(string)
                 assert expr.col_type.is_string_type()
 
         if image is not None:
             if isinstance(image, Expr):
                 if not image.col_type.is_image_type():
-                    raise excs.Error(f'similarity(image=...): expected `Image`; got `{image.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH, f'similarity(image=...): expected `Image`; got `{image.col_type}`'
+                    )
                 expr = image
             else:
                 if not isinstance(image, (str, PIL.Image.Image)):
-                    raise excs.Error(
-                        f'similarity(image=...): expected `str` or `PIL.Image.Image`; got `{type(image).__name__}`'
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(image=...): expected `str` or `PIL.Image.Image`; got `{type(image).__name__}`',
                     )
                 if isinstance(image, str):
                     image_path = fetch_url(image, allow_local_file=True)
@@ -323,12 +350,15 @@ class ColumnRef(Expr):
         if audio is not None:
             if isinstance(audio, Expr):
                 if not audio.col_type.is_audio_type():
-                    raise excs.Error(f'similarity(audio=...): expected `Audio`; got `{audio.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH, f'similarity(audio=...): expected `Audio`; got `{audio.col_type}`'
+                    )
                 expr = audio
             else:
                 if not isinstance(audio, str):
-                    raise excs.Error(
-                        f'similarity(audio=...): expected `str` (path to audio file); got `{type(audio).__name__}`'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'similarity(audio=...): expected `str` (path to audio file); got `{type(audio).__name__}`',
                     )
                 audio_path = fetch_url(audio, allow_local_file=True)
                 expr = Literal(str(audio_path), ts.AudioType())
@@ -336,12 +366,15 @@ class ColumnRef(Expr):
         if video is not None:
             if isinstance(video, Expr):
                 if not video.col_type.is_video_type():
-                    raise excs.Error(f'similarity(video=...): expected `Video`; got `{video.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH, f'similarity(video=...): expected `Video`; got `{video.col_type}`'
+                    )
                 expr = video
             else:
                 if not isinstance(video, str):
-                    raise excs.Error(
-                        f'similarity(video=...): expected `str` (path to video file); got `{type(video).__name__}`'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'similarity(video=...): expected `str` (path to video file); got `{type(video).__name__}`',
                     )
                 video_path = fetch_url(video, allow_local_file=True)
                 expr = Literal(str(video_path), ts.VideoType())
@@ -349,13 +382,17 @@ class ColumnRef(Expr):
         if document is not None:
             if isinstance(document, Expr):
                 if not document.col_type.is_document_type():
-                    raise excs.Error(f'similarity(document=...): expected `Document`; got `{document.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(document=...): expected `Document`; got `{document.col_type}`',
+                    )
                 expr = document
             else:
                 if not isinstance(document, str):
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
                         'similarity(document=...): expected `str` (path to document file); '
-                        f'got `{type(document).__name__}`'
+                        f'got `{type(document).__name__}`',
                     )
                 document_path = fetch_url(document, allow_local_file=True)
                 expr = Literal(str(document_path), ts.DocumentType())
@@ -363,19 +400,29 @@ class ColumnRef(Expr):
         if vector is not None:
             if isinstance(vector, Expr):
                 if not vector.col_type.is_array_type():
-                    raise excs.Error(f'similarity(vector=...): expected `Array`; got `{vector.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(vector=...): expected `Array`; got `{vector.col_type}`',
+                    )
                 expr = vector
             else:
                 if not isinstance(vector, np.ndarray):
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'similarity(vector=...): expected `numpy.ndarray`, or array `Expr`; '
-                        f'got `{type(vector).__name__}`'
+                        f'got `{type(vector).__name__}`',
                     )
                 if vector.ndim != 1:
-                    raise excs.Error(f'similarity(vector=...): expected 1-dimensional array; got shape {vector.shape}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'similarity(vector=...): expected 1-dimensional array; got shape {vector.shape}',
+                    )
 
                 if not np.issubdtype(vector.dtype, np.floating):
-                    raise excs.Error(f'similarity(vector=...): expected float array; got dtype {vector.dtype}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'similarity(vector=...): expected float array; got dtype {vector.dtype}',
+                    )
 
                 col_type = ts.ColumnType.infer_literal_type(vector)
                 expr = Literal(vector, col_type=col_type)

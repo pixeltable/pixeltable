@@ -9,6 +9,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
+from pixeltable import exceptions as excs
 from pixeltable.config import Config
 
 from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
@@ -109,7 +110,7 @@ class TestOpenai:
         # contain the string "json", it refuses the request.
         # TODO This should probably not be throwing an exception, but rather logging the error in
         # `t.chat_output_4.errormsg` etc.
-        with pytest.raises(pxt.ExprEvalError) as exc_info:
+        with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(input='Say something interesting.')
         assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
 
@@ -450,7 +451,9 @@ class TestOpenai:
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
         assert result['edited'][0]['data'][0].size == (512, 512)
 
-    @pytest.mark.skip(reason='Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.')
+    @pytest.mark.skip(
+        reason='[PXT-1115] Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.'
+    )
     @pytest.mark.expensive
     def test_image_variations(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')

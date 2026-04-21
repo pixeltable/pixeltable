@@ -78,6 +78,9 @@ homepage = "https://pixeltable.com/"
 repository = "https://github.com/pixeltable/pixeltable"
 documentation = "https://docs.pixeltable.com/"
 
+[project.scripts]
+pxt = "pixeltable.cli:main"
+
 [project.entry-points."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
 
@@ -143,7 +146,7 @@ dev = [
     "soundfile>=0.13",
     "openai>=2",
     "anthropic>=0.53.0",
-    "together>=1.5.26",
+    "together>=2.8",
     "fal-client>=0.5.6",
     "fireworks-ai>=0.17.6",
     "mistralai>=2.0",
@@ -183,7 +186,7 @@ dev = [
     "voyageai>=0.3.7 ; python_version < '3.14'",
     "scenedetect>=0.6.0.1 ; python_version < '3.14' or sys_platform != 'win32'",
     "opentelemetry-exporter-otlp>=1.38.0",
-    "runwayml>=4.2.0",
+    "runwayml>=4.12.0",
     "ipywidgets>=8.0.0",
     "mdformat>=1.0.0",
     "nbqa>=1.9.1",

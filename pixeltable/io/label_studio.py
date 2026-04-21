@@ -76,9 +76,11 @@ class LabelStudioProject(Project):
             try:
                 self._project = _label_studio_client().get_project(self.project_id)
             except HTTPError as exc:
-                raise excs.Error(
+                raise excs.ExternalServiceError(
+                    excs.ErrorCode.PROVIDER_ERROR,
                     f'Could not locate Label Studio project: {self.project_id} '
-                    '(cannot connect to server or project no longer exists)'
+                    '(cannot connect to server or project no longer exists)',
+                    provider='label_studio',
                 ) from exc
         return self._project
 
@@ -458,7 +460,7 @@ class LabelStudioProject(Project):
         """
         root: ET.Element = ET.fromstring(xml_config)
         if root.tag.lower() != 'view':
-            raise excs.Error('Root of Label Studio config must be a `View`')
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'Root of Label Studio config must be a `View`')
         config = _LabelStudioConfig(
             data_keys=cls.__parse_data_keys_config(root), rectangle_labels=cls.__parse_rectangle_labels_config(root)
         )
@@ -475,8 +477,9 @@ class LabelStudioProject(Project):
                 name = element.attrib.get('name')
                 column_type = _LS_TAG_MAP.get(element.tag.lower())
                 if column_type is None:
-                    raise excs.Error(
-                        f'Unsupported Label Studio data type: `{element.tag}` (in data key `{external_col_name}`)'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Unsupported Label Studio data type: `{element.tag}` (in data key `{external_col_name}`)',
                     )
                 config[external_col_name] = _DataKey(name=name, column_type=column_type)
         return config
@@ -492,7 +495,10 @@ class LabelStudioProject(Project):
                 labels = [child.attrib['value'] for child in element if child.tag.lower() == 'label']
                 for label in labels:
                     if label not in coco.COCO_2017_CATEGORIES.values():
-                        raise excs.Error(f'Label in `rectanglelabels` config is not a valid COCO object name: {label}')
+                        raise excs.RequestError(
+                            excs.ErrorCode.INVALID_ARGUMENT,
+                            f'Label in `rectanglelabels` config is not a valid COCO object name: {label}',
+                        )
                 config[name] = _RectangleLabel(to_name=to_name, labels=labels)
         return config
 
@@ -590,14 +596,22 @@ class LabelStudioProject(Project):
 
         # Perform some additional validation
         if media_import_method == 'post' and len(config.data_keys) > 1:
-            raise excs.Error('`media_import_method` cannot be `post` if there is more than one data key')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                '`media_import_method` cannot be `post` if there is more than one data key',
+            )
 
         if s3_configuration is not None:
             if media_import_method != 'url':
-                raise excs.Error("`s3_configuration` is only valid when `media_import_method == 'url'`")
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    "`s3_configuration` is only valid when `media_import_method == 'url'`",
+                )
             s3_configuration = copy.copy(s3_configuration)
             if 'bucket' not in s3_configuration:
-                raise excs.Error('`s3_configuration` must contain a `bucket` field')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, '`s3_configuration` must contain a `bucket` field'
+                )
             if 'title' not in s3_configuration:
                 s3_configuration['title'] = 'Pixeltable-S3-Import-Storage'
             if (
@@ -635,11 +649,12 @@ class LabelStudioProject(Project):
                         and 'non_field_errors' in response['validation_errors']
                         and 'LOCAL_FILES_SERVING_ENABLED' in response['validation_errors']['non_field_errors'][0]
                     ):
-                        raise excs.Error(
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
                             '`media_import_method` is set to `file`, but your Label Studio server is not configured '
                             'for local file storage.\nPlease set the `LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED` '
                             'environment variable to `true` in the environment where your Label Studio server '
-                            'is running.'
+                            'is running.',
                         ) from exc
                 raise  # Handle any other exception type normally
 
@@ -672,9 +687,10 @@ class _LabelStudioConfig:
         data_key_names = {key.name for key in self.data_keys.values() if key.name is not None}
         for name, rl in self.rectangle_labels.items():
             if rl.to_name not in data_key_names:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Invalid Label Studio configuration: `toName` attribute of RectangleLabels `{name}` '
-                    f'references an unknown data key: `{rl.to_name}`'
+                    f'references an unknown data key: `{rl.to_name}`',
                 )
 
     @property

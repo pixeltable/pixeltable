@@ -109,6 +109,7 @@ class TablePackager:
         """
         Exports the data from `t` into a Parquet table.
         """
+        assert tv.is_versioned
         # `tv` must be an ancestor of the primary table
         assert any(tv.id == base.id for base in self.table._tbl_version_path.get_tbl_versions())
         sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
@@ -426,9 +427,10 @@ class TableRestorer:
         assert isinstance(pxt_md_version, int)
 
         if pxt_md_version != metadata.VERSION:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
                 f'Pixeltable metadata version mismatch: {pxt_md_version} != {metadata.VERSION}.\n'
-                'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
+                'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable',
             )
         # Convert tables metadata from dict to list of TableVersionMd
         tbl_md = [schema.md_from_dict(TableVersionMd, t) for t in self.bundle_md['md']]
@@ -471,6 +473,7 @@ class TableRestorer:
         """
         Import the Parquet table into the Pixeltable catalog.
         """
+        assert tv.is_versioned
         tbl_id = UUID(tbl_md.tbl_md.tbl_id)
         parquet_dir = bundle_path / 'tables' / f'tbl_{tbl_id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))
@@ -592,8 +595,9 @@ class TableRestorer:
                 _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
                 _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
                 raise excs.Error(
+                    excs.ErrorCode.INTERNAL_ERROR,
                     'Data corruption error: '
-                    'the replica data are inconsistent with data retrieved from a previous replica.'
+                    'the replica data are inconsistent with data retrieved from a previous replica.',
                 )
 
         _logger.debug(f'Verified data integrity between {store_sa_tbl_name!r} and {temp_sa_tbl_name!r}.')
