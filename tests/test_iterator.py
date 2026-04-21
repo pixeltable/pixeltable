@@ -730,25 +730,39 @@ class TestIterator:
             v1 = pxt.get_table('v1')
             v2 = pxt.get_table('v2')
 
-    def test_update_iterator_param_inconsistency(self, uses_db: None) -> None:
-        """Updating a base table column used as an iterator parameter produces inconsistent view rows:
-        the base column value is updated but the iterator output still reflects the old value."""
+    def test_update_iterator_param(self, uses_db: None) -> None:
+        """Updating a base table column used as an iterator parameter re-evaluates the iterator."""
         t = pxt.create_table('tbl', {'icol': pxt.Int})
         v = pxt.create_view('view', t, iterator=param_echo_iterator(t.icol))
         t.insert([{'icol': 5}])
         t.update({'icol': 6})
 
         rows = v.order_by(v.pos).collect()
-        # Bug: icol is 6 but iterator output still reflects the old call with a=5.
-        # All rows show icol=6 (updated) but scol='{i}/5' (stale iterator output).
+        assert len(rows) == 6, f'expected 6 rows after update, got {len(rows)}'
         for row in rows:
-            assert row['icol'] == 6, 'base column should be updated to 6'
+            assert row['icol'] == 6
         scol_values = [row['scol'] for row in rows]
-        assert scol_values == ['0/5', '1/5', '2/5', '3/5', '4/5'], (
-            f'iterator output was not re-evaluated after update: {scol_values}'
-        )
-        # There should be 5 rows (from the original a=5 call), not 6
-        assert len(rows) == 5, f'expected 5 rows from stale iterator, got {len(rows)}'
+        assert scol_values == ['0/6', '1/6', '2/6', '3/6', '4/6', '5/6']
+
+    def test_update_iterator_param_with_dependent_view(self, uses_db: None) -> None:
+        """A view on an iterator view also updates when the base iterator param changes."""
+        t = pxt.create_table('tbl', {'icol': pxt.Int})
+        v = pxt.create_view('iter_view', t, iterator=param_echo_iterator(t.icol))
+        v2 = pxt.create_view('child_view', v)
+        v2.add_computed_column(derived=v2.scol + '_suffix')
+        t.insert([{'icol': 3}])
+
+        rows = v2.order_by(v2.pos).collect()
+        assert len(rows) == 3
+        assert [r['derived'] for r in rows] == ['0/3_suffix', '1/3_suffix', '2/3_suffix']
+
+        t.update({'icol': 2})
+
+        rows = v2.order_by(v2.pos).collect()
+        assert len(rows) == 2
+        assert [r['icol'] for r in rows] == [2, 2]
+        assert [r['scol'] for r in rows] == ['0/2', '1/2']
+        assert [r['derived'] for r in rows] == ['0/2_suffix', '1/2_suffix']
 
 
 evolving_iterator: func.GeneratingFunction | None = None
