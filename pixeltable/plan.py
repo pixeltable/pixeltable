@@ -367,6 +367,7 @@ class Planner:
     def create_count_stmt(cls, query: 'pxt.Query') -> sql.Select:
         """Creates a SQL SELECT COUNT(*) statement for counting rows in a Query."""
         # Create the query plan
+        assert query.limit_val is None or query.limit_val > 0
         plan = query._create_query_plan()
         sql_node = plan.get_node(exec.SqlNode)
         assert sql_node is not None
