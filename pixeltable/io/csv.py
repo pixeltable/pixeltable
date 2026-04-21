@@ -20,8 +20,7 @@ def import_csv(
     filepath_or_buffer: str | os.PathLike,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
-    comment: str = '',
+    comment: str | None = None,
     **kwargs: Any,
 ) -> pxt.Table:
     """
@@ -38,7 +37,6 @@ def import_csv(
         source=filepath_or_buffer,
         schema_overrides=schema_overrides,
         primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
         comment=comment,
         extra_args=kwargs,
     )
