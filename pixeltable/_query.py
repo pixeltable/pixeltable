@@ -1325,6 +1325,14 @@ class Query:
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'limit() cannot be used with sample()')
 
+        # Reject negative int constants here. Non-int types fall through to _convert_param_to_typed_expr,
+        # which raises TYPE_MISMATCH. Expression-valued limits (from @pxt.query bodies) aren't validated
+        # here; users constructing queries directly always pass a Python int.
+        if isinstance(n, int) and not isinstance(n, bool) and n < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'limit()' parameter must be >= 0")
+        if offset is not None and isinstance(offset, int) and not isinstance(offset, bool) and offset < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'offset' parameter must be >= 0")
+
         limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
         offset_expr = None
         if offset is not None:

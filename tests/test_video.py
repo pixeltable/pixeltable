@@ -14,7 +14,6 @@ from pixeltable.utils import av as av_utils
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
-    IN_CI,
     generate_test_video,
     get_audio_files,
     get_image_files,
@@ -851,7 +850,6 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
 
-    @pytest.mark.skipif(IN_CI, reason='[PXT-1118] Bug involving media reference in where clause')
     # @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
     def test_overlay_text(self, uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('videos', {'video': pxt.Video})
