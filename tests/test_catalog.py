@@ -7,7 +7,7 @@ import pixeltable.exceptions as excs
 from pixeltable.catalog import Path, is_valid_identifier
 from pixeltable.share.packager import TablePackager, TableRestorer
 from tests.conftest import clean_db
-from tests.utils import reload_catalog
+from tests.utils import pxt_raises, reload_catalog
 
 
 class TestCatalog:
@@ -26,7 +26,7 @@ class TestCatalog:
         """Test path validation using Path.parse()."""
         # Test empty path
         Path.parse('', allow_empty_path=True)  # Should succeed
-        with pytest.raises(excs.Error):
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.parse('', allow_empty_path=False)  # Should fail
 
         valid_paths = ['a', 'a_.b_', 'a.b.c', 'a.b.c.d']
@@ -39,9 +39,9 @@ class TestCatalog:
 
         for invalid_path in invalid_paths:
             # Should fail regardless of empty_is_valid setting
-            with pytest.raises(excs.Error):
+            with pxt_raises(excs.ErrorCode.INVALID_PATH):
                 Path.parse(invalid_path, allow_empty_path=False)
-            with pytest.raises(excs.Error):
+            with pxt_raises(excs.ErrorCode.INVALID_PATH):
                 Path.parse(invalid_path, allow_empty_path=True)
 
     def test_path_parse(self) -> None:
@@ -211,12 +211,12 @@ class TestCatalog:
         pxt.create_dir('target')
         for creator, _ in creators.values():
             # dirs cannot be replaced by table subtypes
-            with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
+            with pxt_raises(excs.ErrorCode.PATH_ALREADY_EXISTS, match='expected a table, view or snapshot'):
                 creator()
             # table subtypes cannot be replaced by dirs
             pxt.drop_dir('target')
             creator()
-            with pytest.raises(excs.Error, match='expected a directory'):
+            with pxt_raises(excs.ErrorCode.PATH_ALREADY_EXISTS, match='expected a directory'):
                 pxt.create_dir('target', if_exists='replace')
             pxt.drop_table('target')
             pxt.create_dir('target')

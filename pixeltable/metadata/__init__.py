@@ -61,16 +61,17 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
         assert isinstance(md_version, int)
         _logger.info(f'Current database version: {md_version}, installed version: {VERSION}')
         if md_version > VERSION:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
                 'This Pixeltable database was created with a newer Pixeltable version '
                 f'than the one currently installed ({pxt.__version__}).\n'
-                'Please update to the latest Pixeltable version by running: pip install --upgrade pixeltable'
+                'Please update to the latest Pixeltable version by running: pip install --upgrade pixeltable',
             )
         if md_version == VERSION:
             return
         while md_version < VERSION:
             if md_version not in converter_cbs:
-                raise RuntimeError(f'No metadata converter for version {md_version}')
+                raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No metadata converter for version {md_version}')
             # We can't use the console logger in Env, because Env might not have been initialized yet.
             _console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')
             converter_cbs[md_version](engine)

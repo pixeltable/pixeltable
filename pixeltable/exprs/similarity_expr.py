@@ -65,8 +65,9 @@ class SimilarityExpr(Expr):
             tv = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=False)
             column = tv.path.get_column_by_qid(self.qcol_id)
             if column is None:
-                raise excs.Error(
-                    f'Column {self.qcol_id!r} not found in table version {self.table_version_key!r} or its bases'
+                raise excs.NotFoundError(
+                    excs.ErrorCode.COLUMN_NOT_FOUND,
+                    f'Column {self.qcol_id!r} not found in table version {self.table_version_key!r} or its bases',
                 )
         # Get embedding index for given column
         idx_info = tv.get_idx(column, self.idx_name, EmbeddingIndex)
@@ -79,9 +80,10 @@ class SimilarityExpr(Expr):
         if not item.col_type.is_array_type() and item.col_type._type not in idx.embeddings:
             type_str = item.col_type._type.name.lower()
             article = 'an' if type_str[0] in 'aeiou' else 'a'
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have {article} '
-                f'{type_str} embedding and does not support {type_str} queries'
+                f'{type_str} embedding and does not support {type_str} queries',
             )
         self.id = self._create_id()
 
@@ -152,7 +154,9 @@ class SimilarityExpr(Expr):
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
         if not isinstance(self.components[0], Literal):
-            raise excs.Error('similarity(): requires a value, not an expression')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'similarity(): requires a value, not an expression'
+            )
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info.idx.similarity_clause(idx_info.val_col, self.components[0])
@@ -162,7 +166,9 @@ class SimilarityExpr(Expr):
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
         if not isinstance(self.components[0], Literal):
-            raise excs.Error('similarity(): requires a value, not an expression')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'similarity(): requires a value, not an expression'
+            )
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info.idx.order_by_clause(idx_info.val_col, self.components[0], is_asc)
@@ -176,8 +182,9 @@ class SimilarityExpr(Expr):
         )
         col = tbl_version.path.get_column_by_qid(self.qcol_id)
         if col is None:
-            raise excs.Error(
-                f'Embedding index {self.idx_name!r} no longer exists because the indexed column was dropped'
+            raise excs.NotFoundError(
+                excs.ErrorCode.INDEX_NOT_FOUND,
+                f'Embedding index {self.idx_name!r} no longer exists because the indexed column was dropped',
             )
         # get_idx() raises if the index no longer exists (e.g. it was dropped)
         idx_info = tbl_version.get_idx(col, self.idx_name, EmbeddingIndex)
@@ -185,7 +192,9 @@ class SimilarityExpr(Expr):
         return idx_info
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        raise excs.Error('similarity(): cannot be used in a computed column')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'similarity(): cannot be used in a computed column'
+        )
 
     def _as_dict(self) -> dict:
         return {

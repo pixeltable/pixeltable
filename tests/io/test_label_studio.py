@@ -20,6 +20,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
+    pxt_raises,
     reload_catalog,
     rerun,
     skip_test_if_not_installed,
@@ -117,7 +118,7 @@ class TestLabelStudio:
         assert store.get_export_columns() == {'image': ts.ImageType(), 'text': ts.StringType()}
         assert store.get_import_columns() == {'annotations': ts.JsonType(nullable=True)}
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.io.create_label_studio_project(
                 t,
                 """
@@ -134,7 +135,7 @@ class TestLabelStudio:
             exc_info.value
         )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             pxt.io.create_label_studio_project(
                 t,
                 """
@@ -426,7 +427,7 @@ class TestLabelStudio:
         t = ls_image_table
         t.add_column(annotations_col=pxt.Json)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.io.create_label_studio_project(
                 t, self.test_config_with_text, media_import_method='post', col_mapping={'image_col': 'image'}
             )
@@ -438,7 +439,7 @@ class TestLabelStudio:
         false_project = LabelStudioProject('false_project', 4171780, media_import_method='post', col_mapping={})
 
         # But trying to do anything with it raises an exception.
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR) as exc_info:
             _ = false_project.project_title
         assert 'Could not locate Label Studio project' in str(exc_info.value)
 
@@ -526,7 +527,9 @@ def init_ls(init_env: None) -> Iterator[None]:
     try:
         for _ in range(max_wait // 5):
             if ls_process.poll() is not None:
-                raise pxt.Error('Label Studio process exited unexpectedly before initialization.')
+                raise pxt.Error(
+                    pxt.ErrorCode.GENERIC_USER_ERROR, 'Label Studio process exited unexpectedly before initialization.'
+                )
             time.sleep(5)
             try:
                 client = label_studio_sdk.Client(url=ls_url, api_key='pxt-api-token')
@@ -542,7 +545,10 @@ def init_ls(init_env: None) -> Iterator[None]:
     if not client:
         # This goes outside the `finally`, to ensure we raise an exception on a failed
         # initialization attempt, but only if we actually timed out (no prior exception)
-        raise pxt.Error(f'Failed to initialize Label Studio pytest fixture after {max_wait} seconds.')
+        raise pxt.Error(
+            pxt.ErrorCode.GENERIC_USER_ERROR,
+            f'Failed to initialize Label Studio pytest fixture after {max_wait} seconds.',
+        )
 
     _logger.info('Label Studio pytest fixture is now running.')
     os.environ['LABEL_STUDIO_API_KEY'] = 'pxt-api-token'

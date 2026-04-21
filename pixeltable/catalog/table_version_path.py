@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import logging
 from typing import Any
 from uuid import UUID
 
@@ -11,8 +10,6 @@ from .column import Column
 from .globals import MediaValidation, QColumnId
 from .table_version import TableVersion, TableVersionKey
 from .table_version_handle import TableVersionHandle
-
-_logger = logging.getLogger('pixeltable')
 
 
 class TableVersionPath:
@@ -106,8 +103,10 @@ class TableVersionPath:
         """Return the id of the table/view that this path represents"""
         return self.tbl_version.id
 
-    def version(self) -> int:
+    def version(self) -> int | None:
         """Return the version of the table/view that this path represents"""
+        if not self.is_versioned():
+            return None
         self.refresh_cached_md()
         return self._cached_tbl_version.version
 
@@ -115,6 +114,10 @@ class TableVersionPath:
         """Return the version of the table/view that this path represents"""
         self.refresh_cached_md()
         return self._cached_tbl_version.schema_version
+
+    def is_versioned(self) -> bool:
+        self.refresh_cached_md()
+        return self._cached_tbl_version.is_versioned
 
     def tbl_name(self) -> str:
         """Return the name of the table/view that this path represents"""
