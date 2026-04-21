@@ -349,7 +349,11 @@ class TestString:
 
     def test_c_locale_case_divergence(self, uses_db: None) -> None:
         """`upper`/`lower`/`capitalize` return different results on SQL vs Python paths:
-        PG's `LC_CTYPE=C` case-folds ASCII only, so non-ASCII text yields wrong answers."""
+        PG's `LC_CTYPE=C` case-folds ASCII only, so non-ASCII text yields wrong answers.
+
+        TODO: Fix this divergence. The SQL and Python paths should produce identical results
+        for all Unicode input. See PXT-1133.
+        """
         t = pxt.create_table('test_tbl', {'idx': pxt.Int, 's': pxt.String})
         validate_update_status(
             t.insert({'idx': i, 's': s} for i, s in enumerate(self.UNICODE_STRS)), expected_rows=len(self.UNICODE_STRS)
@@ -371,7 +375,11 @@ class TestString:
 
     def test_c_locale_contains_and_filter_divergence(self, uses_db: None) -> None:
         """Case-insensitive `contains` and `where(upper(...) == ...)` silently miss non-ASCII
-        rows when pushed to SQL: `WHERE` semantics depend on whether the planner pushes down."""
+        rows when pushed to SQL: `WHERE` semantics depend on whether the planner pushes down.
+
+        TODO: Fix this divergence. The SQL and Python paths should produce identical results
+        for all Unicode input. See PXT-1133.
+        """
         t = pxt.create_table('test_tbl', {'idx': pxt.Int, 's': pxt.String})
         validate_update_status(
             t.insert({'idx': i, 's': s} for i, s in enumerate(self.UNICODE_STRS)), expected_rows=len(self.UNICODE_STRS)
@@ -397,7 +405,11 @@ class TestString:
 
     def test_computed_column_vs_live_select_divergence(self, uses_db: None) -> None:
         """Insert-time computed-column materialization runs in Python, but live `select upper(t.s)`
-        runs in SQL; the same expression yields two different values, breaking `where(upper(t.s) == t.upper_s)`."""
+        runs in SQL; the same expression yields two different values, breaking `where(upper(t.s) == t.upper_s)`.
+
+        TODO: Fix this divergence. The SQL and Python paths should produce identical results
+        for all Unicode input. See PXT-1133.
+        """
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         t.add_computed_column(upper_s=upper(t.s))
         s = 'café'
