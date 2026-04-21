@@ -99,7 +99,7 @@ if [[ $INCLUDE_EXPENSIVE == false ]]; then
 fi
 
 # Get a list of all API keys referenced in the notebooks
-REF_API_KEYS=$(grep -hoE '[A-Z0-9_]*_(API|ACCESS)_(KEY|TOKEN)(_[A-Z0-9_]*)?' "$TARGET_DIR"/*.ipynb | sort | uniq)
+REF_API_KEYS=$(grep -hoE '[A-Z0-9_]*_(API|ACCESS)_(KEY|TOKEN|SECRET)(_[A-Z0-9_]*)?' "$TARGET_DIR"/*.ipynb | sort | uniq)
 echo
 echo "Checking for API keys: $(echo "$REF_API_KEYS" | tr '\n' ' ')"
 for env in $REF_API_KEYS; do
