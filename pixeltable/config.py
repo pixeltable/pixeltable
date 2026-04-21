@@ -246,6 +246,7 @@ KNOWN_CONFIG_OPTIONS = {
         's3_profile': 'AWS config profile name used to access S3 storage',
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
+        'deployment': 'Deployment configuration',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},
