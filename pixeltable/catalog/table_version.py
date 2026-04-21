@@ -1293,12 +1293,11 @@ class TableVersion:
                 needs_iterator_reload = view.is_component_view and any(
                     col.is_iterator_col for col in recomputed_cols
                 )
+                plan = None
                 if needs_iterator_reload:
                     plan, _ = Planner.create_view_load_plan(view.path, propagates_insert=True)
-                else:
-                    plan = None
-                    if len(recomputed_cols) > 0:
-                        plan = Planner.create_view_update_plan(view.path, recompute_targets=recomputed_cols)
+                elif len(recomputed_cols) > 0:
+                    plan = Planner.create_view_update_plan(view.path, recompute_targets=recomputed_cols)
                 status = view.propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
                 )
