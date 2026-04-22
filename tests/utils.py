@@ -27,6 +27,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
+from pixeltable.catalog import retry_loop
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.types import ColumnSpec
@@ -852,7 +853,13 @@ class ReloadTester:
         assert len(self.query_info) > 0, 'No queries in ReloadTester!'
         # enumerate(): the list index is useful for debugging
         for _idx, (query_dict, result_set) in enumerate(self.query_info):
-            query = pxt.Query.from_dict(query_dict)
+
+            @retry_loop()
+            def query_from_dict() -> pxt.Query:
+                return pxt.Query.from_dict(query_dict)
+
+            query = query_from_dict()
+
             new_result_set = query.collect()
             try:
                 assert_resultset_eq(result_set, new_result_set, compare_col_names=True)

@@ -4,8 +4,8 @@ import builtins
 import copy
 import dataclasses
 import hashlib
+import itertools
 import json
-import logging
 import traceback
 from pathlib import Path
 from types import TracebackType
@@ -23,6 +23,7 @@ from typing import (
     Sequence,
     TypeVar,
 )
+from uuid import UUID
 
 import pandas as pd
 import pydantic
@@ -43,8 +44,6 @@ if TYPE_CHECKING:
     import torch.utils.data
 
 __all__ = ['Query', 'ResultCursor', 'ResultSet', 'Row']
-
-_logger = logging.getLogger('pixeltable')
 
 
 class ResultSet:
@@ -765,19 +764,30 @@ class Query:
             raise type(e.exc)(e.exc.error_code, msg) from e
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, msg) from e
 
+    def referenced_tbl_ids(self) -> set[UUID]:
+        """Returns the IDs of all tables referenced by this query"""
+        all_exprs = itertools.chain(
+            self._select_list_exprs,
+            [] if self.where_clause is None else [self.where_clause],
+            self.group_by_clause or [],
+            [] if self.order_by_clause is None else (e for e, _ in self.order_by_clause),
+        )
+        tbl_ids = exprs.Expr.all_tbl_ids(all_exprs)
+        for tvp in self._from_clause.tbls:
+            tbl_ids.update(tvh.id for tvh in tvp.get_tbl_versions())
+        return tbl_ids
+
     def _output_row_iterator(self) -> Generator[list, None, None]:
-        # TODO: extend begin_xact() to accept multiple TVPs for joins
-        single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
-        with get_runtime().catalog.begin_xact(tbl=single_tbl, for_write=False):
+        tbl_ids = self.referenced_tbl_ids()
+        with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=tbl_ids):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-                get_runtime().catalog.convert_sql_exc(
-                    e, tbl=(single_tbl.tbl_version if single_tbl is not None else None)
-                )
+                single_tbl = next(iter(tbl_ids)) if len(tbl_ids) == 1 else None
+                get_runtime().catalog.convert_sql_exc(e, tbl_id=single_tbl)
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
@@ -811,7 +821,7 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False) as conn:
+        with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()) as conn:
             count_stmt = Planner.create_count_stmt(self)
             result: int = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)
@@ -1550,7 +1560,7 @@ class Query:
             >>> person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._first_tbl], lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def recompute_columns(
@@ -1574,9 +1584,10 @@ class Query:
             >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
         self._validate_mutable('recompute_columns', False)
-        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._first_tbl], lock_mutable_tree=True):
             tbl = get_runtime().catalog.get_table_by_id(self._first_tbl.tbl_id)
-            return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
+
+        return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
         """Delete rows form the underlying table of the Query.
@@ -1594,7 +1605,7 @@ class Query:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `delete` on a view.')
-        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._first_tbl], lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
@@ -1657,41 +1668,38 @@ class Query:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
-        # we need to wrap the construction with a transaction, because it might need to load metadata
-        with get_runtime().catalog.begin_xact(for_write=False):
-            tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
-            join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
-            from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
-            select_list = (
-                [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']]
-                if d['select_list'] is not None
-                else None
-            )
-            where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
-            group_by_clause = (
-                [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
-            )
-            grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
-            order_by_clause = (
-                [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
-                if d['order_by_clause'] is not None
-                else None
-            )
-            limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
-            offset_val = exprs.Expr.from_dict(d['offset_val']) if d.get('offset_val') is not None else None
-            sample_clause = SampleClause.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
+        assert get_runtime().in_xact, 'Run Query.from_dict() in a transaction because it may involve metadata loading'
+        tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
+        join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
+        from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
+        select_list = (
+            [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] if d['select_list'] is not None else None
+        )
+        where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
+        group_by_clause = (
+            [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
+        )
+        grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+        order_by_clause = (
+            [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
+            if d['order_by_clause'] is not None
+            else None
+        )
+        limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
+        offset_val = exprs.Expr.from_dict(d['offset_val']) if d.get('offset_val') is not None else None
+        sample_clause = SampleClause.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
 
-            return Query(
-                from_clause=from_clause,
-                select_list=select_list,
-                where_clause=where_clause,
-                group_by_clause=group_by_clause,
-                grouping_tbl=grouping_tbl,
-                order_by_clause=order_by_clause,
-                limit=limit_val,
-                offset=offset_val,
-                sample_clause=sample_clause,
-            )
+        return Query(
+            from_clause=from_clause,
+            select_list=select_list,
+            where_clause=where_clause,
+            group_by_clause=group_by_clause,
+            grouping_tbl=grouping_tbl,
+            order_by_clause=order_by_clause,
+            limit=limit_val,
+            offset=offset_val,
+            sample_clause=sample_clause,
+        )
 
     def _hash_result_set(self) -> str:
         """Return a hash that changes when the result set changes."""
@@ -1735,8 +1743,7 @@ class Query:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            # TODO: extend begin_xact() to accept multiple TVPs for joins
-            with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False):
+            with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1781,7 +1788,7 @@ class Query:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False):
+            with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)
 

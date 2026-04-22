@@ -102,7 +102,7 @@ def push_replica(
         Env.get().console_logger.info(
             f'Replica for version {publish_request.md[0].version_md.version} already exists at {existing_table_uri}.'
         )
-        with get_runtime().catalog.begin_xact(tbl_id=src_tbl._id, for_write=True):
+        with get_runtime().catalog.begin_xact(for_write=True, write_tbl_ids=[src_tbl._id]):
             get_runtime().catalog.update_additional_md(src_tbl._id, {'pxt_uri': existing_table_uri})
         return existing_table_uri
     if response.status_code != 200:
@@ -158,7 +158,7 @@ def push_replica(
     confirmed_tbl_uri = finalize_response.confirmed_table_uri
     Env.get().console_logger.info(f'The published table is now available at: {confirmed_tbl_uri}')
 
-    with get_runtime().catalog.begin_xact(tbl_id=src_tbl._id, for_write=True):
+    with get_runtime().catalog.begin_xact(for_write=True, write_tbl_ids=[src_tbl._id]):
         get_runtime().catalog.update_additional_md(src_tbl._id, {'pxt_uri': str(confirmed_tbl_uri)})
 
     return str(confirmed_tbl_uri)
