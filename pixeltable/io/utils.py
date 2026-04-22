@@ -165,7 +165,7 @@ def atomic_write(file_path: Path, **open_kwargs: Any) -> Iterator[IO[str]]:
 
 
 def convert_rows(cursor: Iterable[Any], col_types: dict[str, ts.ColumnType]) -> Iterator[dict[str, Any]]:
-    """Convert raw cursor rows into export-ready dicts.
+    """Convert raw cursor rows into json-serializable dicts.
 
     Yields one dict per row with values converted as follows:
     - None: preserved as None
