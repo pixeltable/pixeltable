@@ -340,6 +340,131 @@ class FastAPIRouter(fastapi.APIRouter):
         )
         return input_col_names, output_col_names, cols_by_name
 
+    def _validate_update_args(
+        self,
+        t: pxt.Table,
+        *,
+        inputs: list[str] | None,
+        outputs: list[str] | None,
+        return_fileresponse: bool,
+        background: bool,
+        error_prefix: str,
+    ) -> tuple[list[str], list[str], list[str], dict[str, catalog.Column]]:
+        """Validate update-route args and return (pk_col_names, input_col_names, output_col_names, cols_by_name)."""
+        md = t.get_metadata()
+        if md['kind'] != 'table':
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot update {md["kind"]} {md["name"]!r}'
+            )
+        if return_fileresponse and background:
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'{error_prefix}: return_fileresponse and background are mutually exclusive',
+            )
+
+        col_md = md['columns']
+        pk_col_names = [name for name, c in col_md.items() if c['is_primary_key']]
+        if not pk_col_names:
+            raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
+
+        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        pk_set = set(pk_col_names)
+
+        # computed, PK, and media columns cannot be inputs
+        for name in inputs or []:
+            if name in col_md and col_md[name]['is_computed']:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_prefix}: {name!r} is a computed column and cannot be used as input',
+                )
+            if name in pk_set:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_prefix}: {name!r} is a primary key column and cannot be used as input',
+                )
+            if name in cols_by_name and cols_by_name[name].col_type.is_media_type():
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{error_prefix}: {name!r} is a media column and cannot be updated',
+                )
+
+        # input_schema: non-computed, non-PK, non-media columns
+        input_schema = {
+            c.name: c.col_type
+            for c in cols_by_name.values()
+            if not c.is_computed and c.name not in pk_set and not c.col_type.is_media_type()
+        }
+        input_col_names, output_col_names = self._validate_args(
+            input_schema=input_schema,
+            output_schema={c.name: c.col_type for c in cols_by_name.values()},
+            inputs=inputs,
+            uploadfile_inputs=None,
+            outputs=outputs,
+            return_fileresponse=return_fileresponse,
+            error_prefix=error_prefix,
+            input_item_str='column',
+            output_item_str='column',
+        )
+        return pk_col_names, input_col_names, output_col_names, cols_by_name
+
+    def _add_update_route(
+        self,
+        t: pxt.Table,
+        *,
+        path: str,
+        pk_col_names: list[str],
+        input_col_names: list[str],
+        background: bool,
+        endpoint_name: str,
+        endpoint_model: type[pydantic.BaseModel] | None,
+        response_class: type | None,
+        row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
+    ) -> None:
+        """Shared wiring for `add_update_route()`.
+
+        The endpoint signature includes the PK columns (for row identification) followed by
+        the input columns (the values to update). `row_processor` is called with the single
+        updated row dict and `url_for_media`.
+        """
+        md = t.get_metadata()
+        tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
+
+        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        pk_cols = [cols_by_name[name] for name in pk_col_names]
+        input_cols = [cols_by_name[name] for name in input_col_names]
+        pk_col_names_set = set(pk_col_names)
+
+        def run_update(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+            tbl = pxt.get_table(tbl_path)
+            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
+                raise HTTPException(
+                    status_code=409,
+                    detail='table schema changed since route was registered; please restart the service',
+                )
+            where_expr: exprs.Expr | None = None
+            for name in pk_col_names:
+                pred = tbl[name] == row_kwargs[name]
+                where_expr = pred if where_expr is None else (where_expr & pred)
+            values = {name: val for name, val in row_kwargs.items() if name not in pk_col_names_set}
+            status = tbl.update(values, where=where_expr, return_rows=True)
+            if status.num_rows == 0:
+                raise HTTPException(status_code=404, detail='row not found')
+            rows = status.rows or []
+            if len(rows) != 1:
+                raise HTTPException(status_code=500, detail=f'update returned unexpected row count ({len(rows)})')
+            return row_processor(rows[0], url_for_media)
+
+        sig = self._create_endpoint_signature(input_cols=pk_cols + input_cols)
+        endpoint = self._create_endpoint(
+            endpoint_name, sig, uploadfile_inputs=[], background=background, endpoint_op=run_update
+        )
+        api_kwargs: dict[str, Any] = {'methods': ['POST']}
+        if endpoint_model is not None:
+            api_kwargs['response_model'] = endpoint_model
+        if response_class is not None:
+            api_kwargs['response_class'] = response_class
+        self.add_api_route(path, endpoint, **api_kwargs)
+
     def insert_route(
         self,
         t: pxt.Table,
@@ -467,7 +592,6 @@ class FastAPIRouter(fastapi.APIRouter):
         *,
         path: str,
         inputs: list[str] | None = None,
-        uploadfile_inputs: list[str] | None = None,
         outputs: list[str] | None = None,
         return_fileresponse: bool = False,
         background: bool = False,
@@ -476,27 +600,23 @@ class FastAPIRouter(fastapi.APIRouter):
         Add a POST endpoint that updates a single row in `t` and returns the updated row.
         The row to update is identified by its primary key, which must be included in the
         request body alongside the input column values. The update is performed via
-        [`batch_update()`][pixeltable.Table.batch_update] using the primary key columns and
-        the columns referenced in `inputs`.
+        [`update()`][pixeltable.Table.update] using the primary key columns to identify the
+        row and the columns referenced in `inputs` as the values to set.
 
         The request body contains values for the primary key columns plus the input columns
-        as JSON fields (or as
-        [multipart form data](https://fastapi.tiangolo.com/tutorial/request-files/) when
-        `uploadfile_inputs` is used). The response is a JSON object with the output column
-        values, or a
+        as JSON fields. The response is a JSON object with the output column values, or a
         [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse)
         when `return_fileresponse=True`.
+
+        Note: media-typed columns (image, video, audio, document) are excluded from `inputs`
+        and from the default input set.
 
         Args:
             t: The table to update.
             path: The URL path for the endpoint.
-            inputs: Columns to accept as request fields, excluding primary key columns
-                (which are always included). Defaults to all non-computed, non-primary-key
-                columns.
-            uploadfile_inputs: Columns to accept as
-                [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
-                (must be media-typed). These are sent as multipart form data; all other inputs
-                become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
+            inputs: Columns to accept as request fields, excluding primary key and media-typed
+                columns (which cannot be updated). Defaults to all non-computed, non-primary-key,
+                non-media columns.
             outputs: Columns to include in the response. Defaults to all columns (including
                 inputs).
             return_fileresponse: If True, return the single media-typed output column as a
@@ -520,21 +640,6 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"prompt": "a sunset over the ocean", "result": "..."}
             ```
 
-            File upload:
-
-            ```python
-            router.add_update_route(
-                t, path='/replace-image', inputs=['width', 'height'],
-                uploadfile_inputs=['image'], outputs=['resized'], return_fileresponse=True,
-            )
-            ```
-
-            ```bash
-            curl -X POST http://localhost:8000/replace-image \
-              -F id=1 -F image=@photo.jpg -F width=640 -F height=480 \
-              --output resized.jpg
-            ```
-
             Background processing:
 
             ```python
@@ -553,7 +658,44 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"status": "done", "result": {...}}
             ```
         """
-        pass
+        pk_col_names, input_col_names, output_col_names, cols_by_name = self._validate_update_args(
+            t,
+            inputs=inputs,
+            outputs=outputs,
+            return_fileresponse=return_fileresponse,
+            background=background,
+            error_prefix='add_update_route()',
+        )
+        output_cols = [cols_by_name[name] for name in output_col_names]
+
+        path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
+        update_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
+
+        endpoint_model: type[pydantic.BaseModel] | None
+        if background:
+            endpoint_model = BackgroundJobResponse
+        elif return_fileresponse:
+            endpoint_model = None
+        else:
+            endpoint_model = update_response_model
+
+        def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+            output = self._create_output(
+                [row], output_col_names, update_response_model, return_fileresponse, url_for_media
+            )
+            return output[0] if isinstance(output, list) else output
+
+        self._add_update_route(
+            t,
+            path=path,
+            pk_col_names=pk_col_names,
+            input_col_names=input_col_names,
+            background=background,
+            endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
+            endpoint_model=endpoint_model,
+            response_class=FileResponse if return_fileresponse else None,
+            row_processor=row_processor,
+        )
 
     def add_delete_route(
         self, t: pxt.Table, *, path: str, match_columns: list[str] | None = None, background: bool = False

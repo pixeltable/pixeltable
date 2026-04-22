@@ -2267,6 +2267,21 @@ class TestTable:
             # some rows are missing rowids
             _ = t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two'}])
 
+        # cascade with SQL-expressible computed columns
+        t = pxt.create_table(
+            'cascade_test', {'id': pxt.Required[pxt.Int], 'val': pxt.String, 'num': pxt.Float}, primary_key='id'
+        )
+        t.add_computed_column(val_upper=t.val.upper())
+        t.add_computed_column(num_x2=t.num * 2)
+        t.insert([{'id': 1, 'val': 'hello', 'num': 1.0}, {'id': 2, 'val': 'world', 'num': 2.0}])
+        validate_update_status(
+            t.batch_update([{'id': 1, 'val': 'updated', 'num': 10.0}, {'id': 2, 'val': 'changed', 'num': 20.0}]),
+            expected_rows=2,
+        )
+        res = t.order_by(t.id).collect()
+        assert res[0].items() >= {'id': 1, 'val_upper': 'UPDATED', 'num_x2': 20.0}
+        assert res[1].items() >= {'id': 2, 'val_upper': 'CHANGED', 'num_x2': 40.0}
+
     @pytest.mark.cockroachdb
     def test_update(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl

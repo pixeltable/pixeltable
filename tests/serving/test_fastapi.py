@@ -1075,6 +1075,102 @@ class TestFastAPI:
             def _(*, id: int):  # type: ignore[no-untyped-def]  # intentionally missing return annotation
                 return {'x': id}
 
+    def test_add_update_route(self, uses_db: None) -> None:
+        """Update routes: JSON, subset inputs/outputs, FileResponse, 404 for missing row, background."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        image_path = get_image_files()[0]
+        pxt.create_dir('test_serve')
+        t = pxt.create_table(
+            'test_serve.items',
+            {'id': pxt.Required[pxt.Int], 'text': pxt.String, 'value': pxt.Int, 'image': pxt.Image},
+            primary_key='id',
+        )
+        t.add_computed_column(text_upper=t.text.upper())
+        t.add_computed_column(thumb=t.image.resize([16, 16]))
+        t.insert(
+            [
+                {'id': 1, 'text': 'hello', 'value': 10, 'image': image_path},
+                {'id': 2, 'text': 'world', 'value': 20, 'image': image_path},
+            ]
+        )
+
+        router = FastAPIRouter()
+        # /all: default inputs (text + value, excludes PK, computed, and media), all outputs
+        router.add_update_route(t, path='/all')
+        # /text-only: update only text, return only text + text_upper
+        router.add_update_route(t, path='/text-only', inputs=['text'], outputs=['text', 'text_upper'])
+        # /thumb: FileResponse variant - return computed thumb for a given row
+        router.add_update_route(t, path='/thumb', inputs=['value'], outputs=['thumb'], return_fileresponse=True)
+        # /bg: background variant
+        router.add_update_route(t, path='/bg', inputs=['value'], background=True)
+        client = make_test_client(router)
+
+        # /all: update row 1 (text + value; image excluded from default inputs)
+        resp = client.post('/all', json={'id': 1, 'text': 'updated', 'value': 99})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body['text'] == 'updated' and body['value'] == 99 and body['text_upper'] == 'UPDATED'
+        row = t.where(t.id == 1).select(t.text, t.value).collect()[0]
+        assert row == {'text': 'updated', 'value': 99}
+
+        # /text-only: update row 2, partial output
+        resp = client.post('/text-only', json={'id': 2, 'text': 'changed'})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert set(body.keys()) == {'text', 'text_upper'}
+        assert body['text'] == 'changed' and body['text_upper'] == 'CHANGED'
+
+        # /all: 404 for missing row
+        resp = client.post('/all', json={'id': 9999, 'text': 'x', 'value': 0})
+        assert resp.status_code == 404, resp.text
+
+        # /thumb: FileResponse returns thumbnail bytes for row 1
+        resp = client.post('/thumb', json={'id': 1, 'value': 99})
+        thumb_path = t.where(t.id == 1).select(p=t.thumb.localpath).collect()[0]['p']
+        assert_fileresponse_ok(resp, thumb_path, 'image/')
+
+        # /bg: background variant
+        resp = client.post('/bg', json={'id': 1, 'value': 42})
+        assert resp.status_code == 200, resp.text
+        job = resp.json()
+        result = await_background_job(client, job, require_pending=False)['result']
+        assert result['value'] == 42
+        assert t.where(t.id == 1).select(t.value).collect()[0] == {'value': 42}
+
+    def test_add_update_route_errors(self, uses_db: None) -> None:
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table(
+            'test_serve.items', {'id': pxt.Required[pxt.Int], 'text': pxt.String, 'image': pxt.Image}, primary_key='id'
+        )
+        t.add_computed_column(text_upper=t.text.upper())
+        t_no_pk = pxt.create_table('test_serve.nopk', {'text': pxt.String})
+        router = FastAPIRouter()
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot update'):
+            v = pxt.create_view('test_serve.items_view', t)
+            router.add_update_route(v, path='/v')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='table has no primary key'):
+            router.add_update_route(t_no_pk, path='/e')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'text_upper' is a computed column"):
+            router.add_update_route(t, path='/e', inputs=['text_upper'])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'id' is a primary key column"):
+            router.add_update_route(t, path='/e', inputs=['id'])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'image' is a media column"):
+            router.add_update_route(t, path='/e', inputs=['image'])
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown input column 'doesnotexist'"):
+            router.add_update_route(t, path='/e', inputs=['doesnotexist'])
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='return_fileresponse and background are mutually exclusive'
+        ):
+            router.add_update_route(t, path='/e', outputs=['image'], return_fileresponse=True, background=True)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly one media-typed output column'):
+            router.add_update_route(t, path='/e', outputs=['text'], return_fileresponse=True)
+
     def test_add_delete_route(self, uses_db: None) -> None:
         """Delete routes: primary-key default, explicit match_columns, multi-col AND, 0-match, background."""
         skip_test_if_not_installed('fastapi')
