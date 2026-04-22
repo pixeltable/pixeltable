@@ -21,7 +21,7 @@ from .tool_utils import run_tool_invocations_test
 
 @pytest.fixture()
 def bedrock_us_east_1(uses_db: None) -> Iterator[None]:
-    """Configure the Bedrock client for us-east-1. Yields the temp_location S3 URI."""
+    """Configure the Bedrock client and temp_location for us-east-1."""
     Config.init(
         config_overrides={
             'bedrock.region_name': 'us-east-1',
@@ -34,7 +34,7 @@ def bedrock_us_east_1(uses_db: None) -> Iterator[None]:
 
 @pytest.fixture()
 def bedrock_us_west_2(uses_db: None) -> Iterator[None]:
-    """Configure the Bedrock client for us-west-2. Yields the temp_location S3 URI."""
+    """Configure the Bedrock client and temp_location for us-west-2."""
     Config.init(
         config_overrides={
             'bedrock.region_name': 'us-west-2',
