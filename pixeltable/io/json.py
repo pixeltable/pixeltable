@@ -79,7 +79,7 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path) ->
     else:
         query = table_or_query
 
-    query = query._with_new_select_list(replace_media_with_fileurl(query._select_list_exprs))
+    query = query._replace_select_list(replace_media_with_fileurl(query._select_list_exprs))
 
     col_types: dict[str, ts.ColumnType] = {name: ct for name, ct in query.schema.items() if not ct.is_binary_type()}
 

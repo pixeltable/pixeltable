@@ -689,7 +689,7 @@ class Query:
             offset=offset_val,
         )
 
-    def _with_new_select_list(self, new_exprs: list[exprs.Expr]) -> Query:
+    def _replace_select_list(self, new_exprs: list[exprs.Expr]) -> Query:
         """Return a new Query with the given select-list exprs.
 
         All other clauses are cloned either here or in __init__().
