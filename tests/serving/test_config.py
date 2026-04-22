@@ -1,21 +1,18 @@
 """Tests for TOML-based service configuration and app creation."""
 
 import os
+import sys
 import tempfile
 import textwrap
+import types
 from typing import Any
 
 import pytest
 import toml
 
 import pixeltable as pxt
-from pixeltable.serving._config import (
-    AppConfig,
-    QueryRouteConfig,
-    ServiceConfig,
-    create_service_from_config,
-    lookup_service_config,
-)
+from pixeltable import config
+from pixeltable.serving._config import create_service_from_config, lookup_service_config
 from tests.utils import skip_test_if_not_installed
 
 
@@ -29,31 +26,40 @@ class TestConfig:
         t = pxt.create_table('test_config.items', {'id': pxt.Required[pxt.Int], 'name': pxt.String}, primary_key='id')
         t.add_computed_column(name_upper=t.name.upper())
 
-        config_dict = {
-            'service': {'title': 'Test Service', 'port': 9999},
-            'routes': [
-                {
-                    'type': 'insert',
-                    'table': 'test_config.items',
-                    'path': '/insert',
-                    'inputs': ['id', 'name'],
-                    'outputs': ['id', 'name', 'name_upper'],
-                },
-                {'type': 'delete', 'table': 'test_config.items', 'path': '/delete'},
-            ],
-        }
+        file_contents = textwrap.dedent(
+            """
+            [[service]]
+            name = "test-service"
+            port = 9999
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as f:
-            toml.dump(config_dict, f)
-            config_path = f.name
+            [[service.routes]]
+            type = "insert"
+            table = "test_config/items"
+            path = "/insert"
+            inputs = ["id", "name"]
+            outputs = ["id", "name", "name_upper"]
+
+            [[service.routes]]
+            type = "delete"
+            table = "test_config/items"
+            path = "/delete"
+            """.strip()
+        )
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as fp:
+            fp.write(file_contents)
+            config_path = fp.name
 
         try:
-            config = lookup_service_config(config_path)
-            assert config.service.title == 'Test Service'
-            assert config.service.port == 9999
-            assert len(config.routes) == 2
+            config.Config.get().init({}, additional_config_files=[config_path], reinit=True)
+            services = config.Config.get().get_value('service', list[config.ServiceConfig])
+            assert len(services) == 1
+            cfg = services[0]
+            assert cfg.name == 'test-service'
+            assert cfg.port == 9999
+            assert len(cfg.routes) == 2
 
-            app = create_service_from_config(config)
+            app = create_service_from_config(cfg)
             client = TestClient(app)
 
             # insert
@@ -73,6 +79,7 @@ class TestConfig:
             resp = client.post('/delete', json={'id': 1})
             assert resp.status_code == 200, resp.text
             assert resp.json() == {'num_rows': 0}
+
         finally:
             os.unlink(config_path)
 
@@ -86,7 +93,6 @@ class TestConfig:
         t.insert([{'id': 1, 'text': 'hello'}, {'id': 2, 'text': 'world'}])
 
         # define a query function in a temporary module
-        import types
 
         query_mod = types.ModuleType('_test_query_mod')
         # we need to exec in the module's namespace so @pxt.query sees the right globals
@@ -103,27 +109,33 @@ class TestConfig:
             """),
             query_mod.__dict__,
         )
-        import sys
 
         sys.modules['_test_query_mod'] = query_mod
 
+        config_dict = {
+            'service': [
+                {
+                    'name': 'query-service',
+                    'modules': ['_test_query_mod'],
+                    'routes': [{'type': 'query', 'path': '/search', 'query': '_test_query_mod.search'}],
+                }
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as f:
+            toml.dump(config_dict, f)
+            config_path = f.name
+
         try:
-            config_dict = {
-                'modules': ['_test_query_mod'],
-                'routes': [{'type': 'query', 'path': '/search', 'query': '_test_query_mod.search'}],
-            }
-
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as f:
-                toml.dump(config_dict, f)
-                config_path = f.name
-
-            config = lookup_service_config(config_path)
-            app = create_service_from_config(config)
+            config.Config.get().init({}, additional_config_files=[config_path], reinit=True)
+            cfg = lookup_service_config('query-service')
+            app = create_service_from_config(cfg)
             client = TestClient(app)
 
             resp = client.post('/search', json={'min_id': 2})
             assert resp.status_code == 200, resp.text
             assert resp.json() == {'rows': [{'id': 2, 'text': 'world'}]}
+
         finally:
             os.unlink(config_path)
             del sys.modules['_test_query_mod']

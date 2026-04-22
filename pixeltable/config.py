@@ -72,6 +72,7 @@ class ServiceConfig(pydantic.BaseModel):
     host: str = '0.0.0.0'
     port: int = 8000
     routes: list[RouteConfig]
+    modules: list[str] = pydantic.Field(default_factory=list)  # List of user modules to import
 
     @pydantic.field_validator('prefix')
     @classmethod
@@ -123,11 +124,12 @@ class Config:
         project_config = self.__load_project_config(Path.cwd() / 'pixeltable.toml')
         pyproject_config = self.__load_pyproject_config(Path.cwd() / 'pyproject.toml')
         user_config = self.__load_user_config()
+        additional_configs = [self.__load_project_config(Path(f)) for f in additional_config_files]
 
         self.__config_dict = {}
 
         # Load lowest precedence first
-        for source in (user_config, pyproject_config, project_config):
+        for source in (*additional_configs, user_config, pyproject_config, project_config):
             self.__merge_config(self.__config_dict, source)
 
     @property
@@ -146,7 +148,9 @@ class Config:
         return cls.__instance
 
     @classmethod
-    def init(cls, config_overrides: dict[str, Any], additional_config_files: list[str] | None = None, reinit: bool = False) -> None:
+    def init(
+        cls, config_overrides: dict[str, Any], additional_config_files: list[str] | None = None, reinit: bool = False
+    ) -> None:
         if additional_config_files is None:
             additional_config_files = []
         with cls.__init_lock:
@@ -200,13 +204,6 @@ class Config:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION, f"Expected a table for '[tool.pixeltable]' in config file: {path}"
             )
-        for key, value in config_dict.items():
-            if key not in KNOWN_CONFIG_OPTIONS:
-                # `key` does not represent a section; relocate it to 'pixeltable' subsection
-                if 'pixeltable' not in config_dict:
-                    config_dict['pixeltable'] = {}
-                config_dict['pixeltable'][key] = value
-                del config_dict[key]
         cls.__validate_config(config_dict, path)
         return config_dict
 
@@ -231,6 +228,13 @@ class Config:
 
     @classmethod
     def __validate_config(cls, config_dict: dict[str, Any], source: Path) -> None:
+        non_section_keys = [key for key in config_dict if key not in KNOWN_CONFIG_OPTIONS]
+        for key in non_section_keys:
+            # `key` does not represent a section; relocate it to 'pixeltable' subsection
+            if 'pixeltable' not in config_dict:
+                config_dict['pixeltable'] = {}
+            config_dict['pixeltable'][key] = config_dict[key]
+            del config_dict[key]
         for section, section_dict in config_dict.items():
             if section not in KNOWN_CONFIG_OPTIONS:
                 raise excs.RequestError(
@@ -250,7 +254,9 @@ class Config:
                 info = KNOWN_CONFIG_OPTIONS[section][key]
                 if isinstance(info, tuple):
                     _, expected_type = info
-                    section_dict[key] = cls.__validate_config_item(section, key, section_dict[key], expected_type, source)
+                    section_dict[key] = cls.__validate_config_item(
+                        section, key, section_dict[key], expected_type, source
+                    )
 
     @classmethod
     def __validate_config_item(cls, section: str, key: str, item: Any, expected_type: type, source: Path) -> Any:
