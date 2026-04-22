@@ -1350,8 +1350,8 @@ class Catalog:
             if not is_snapshot and base.is_mutable():
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
-                # TODO: assert that the lock was acquired?
-                self._acquire_write_lock(tbl_id=base.tbl_id)
+                base_id = base.tbl_id
+                assert self._acquire_write_lock(tbl_id=base_id), base_id
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
                 base_tv.tbl_md.view_sn += 1
                 result = get_runtime().conn.execute(
@@ -1681,8 +1681,7 @@ class Catalog:
                 # this is a mutable view of a mutable base;
                 # lock the base before the view, in order to avoid deadlocks with concurrent inserts/updates
                 base_id = tbl._tbl_version_path.base.tbl_id
-                # TODO: assert that lock was acquired?
-                self._acquire_write_lock(tbl_id=base_id)
+                assert self._acquire_write_lock(tbl_id=base_id), base_id
 
             self._drop_tbl(tbl, force=force, is_replace=False)
 
