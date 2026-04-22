@@ -992,8 +992,9 @@ class Catalog:
 
         if tbl_version.is_component_view:
             iterator_arg_deps: set[QColumnId] = set()
-            for arg_expr in tbl_version.iterator_call.bound_args.values():
-                for col_ref in arg_expr.subexprs(ColumnRef):
+            iterator_args = tbl_version.iterator_args_expr()
+            if iterator_args is not None:
+                for col_ref in iterator_args.subexprs(ColumnRef):
                     iterator_arg_deps.add(QColumnId(col_ref.col.tbl_handle.id, col_ref.col.id))
             if len(iterator_arg_deps) > 0:
                 for col in tbl_version.iterator_columns():
