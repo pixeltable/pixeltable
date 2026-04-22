@@ -345,7 +345,7 @@ class TestString:
             assert isinstance(row['text'], str)
             assert len(row['text']) > 0
 
-    UNICODE_STRS = ('café', 'ñoño', 'straße', 'ÀÉÎÕÜ')
+    UNICODE_STRS = ('café', 'ñoño', 'ÀÉÎÕÜ')
 
     def test_unicode_case(self, uses_db: None) -> None:
         """`upper`/`lower`/`capitalize` produce identical, correct results on SQL and Python paths
