@@ -13,8 +13,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional, TypeVar
 
-import PIL.Image
 import fastapi
+import PIL.Image
 import pydantic
 from fastapi import Body, File, Form, HTTPException, Query as QueryParam, Request, UploadFile
 from fastapi.responses import FileResponse
@@ -95,9 +95,6 @@ def _run_endpoint_op(
 class FastAPIRouter(fastapi.APIRouter):
     """
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
-
-    TODO:
-    - periodically purge _jobs
     """
 
     _executor: ThreadPoolExecutor
@@ -463,6 +460,47 @@ class FastAPIRouter(fastapi.APIRouter):
                 f'insert_route(): {fn_name!r} must have a return annotation that is a pydantic.BaseModel subclass; '
                 f'got {return_annot!r}',
             )
+
+    def add_update_route(
+            self,
+            t: pxt.Table,
+            *,
+            path: str,
+            inputs: list[str] | None = None,
+            uploadfile_inputs: list[str] | None = None,
+            outputs: list[str] | None = None,
+            return_fileresponse: bool = False,
+            background: bool = False,
+    ) -> None:
+        """
+        Add a POST endpoint that updates a single row in `t`, identified by its primary key, and returns the
+        newly-updated row. The update is performed as a `Table.batch_update()` with the primary key columns and the
+        columns referenced in `inputs`.
+
+        The request body contains values for the primary key columns plus the input columns as JSON fields (or as
+        [multipart form data](https://fastapi.tiangolo.com/tutorial/request-files/) when
+        `uploadfile_inputs` is used). The response is a JSON object with the output column values,
+        or a [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse)
+        when `return_fileresponse=True`.
+
+        Args:
+            t: The table to insert into.
+            path: The URL path for the endpoint.
+            inputs: Column to be updated. Defaults to all non-computed, non-primary key columns.
+            uploadfile_inputs: Columns to accept as
+                [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
+                (must be media-typed). These are sent as multipart form data; all other inputs
+                become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
+            outputs: Columns to include in the response. Defaults to all columns (including inputs).
+            return_fileresponse: If True, return the single media-typed output column as a
+                [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
+                Requires exactly one media-typed output column.
+            background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
+                the insert in a background thread. Poll `job_url` for the result. Mutually
+                exclusive with `return_fileresponse`.
+
+        Examples:
+        """
 
     def add_delete_route(
         self, t: pxt.Table, *, path: str, match_columns: list[str] | None = None, background: bool = False

@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 
@@ -16,13 +16,90 @@ def add_one(x: int) -> int:
     return x + 1
 
 
+# ---------------------------------------------------------------------------
+# Test helpers
+# ---------------------------------------------------------------------------
+
+
+def make_test_client(router: Any) -> Any:
+    """Create a FastAPI app, include `router`, and return a TestClient."""
+    import fastapi
+    from fastapi.testclient import TestClient
+
+    app = fastapi.FastAPI()
+    app.include_router(router)
+    return TestClient(app)
+
+
+def make_media_poster(
+    client: Any, media_path: str, media_col: str, mime_type: str, use_uploadfile: bool
+) -> Callable[..., Any]:
+    """Return a POST helper that sends `media_path` to `path` with extra scalar fields."""
+
+    def post(path: str, row_id: int, **fields: Any) -> Any:
+        if use_uploadfile:
+            with open(media_path, 'rb') as f:
+                data = f.read()
+            return client.post(
+                path,
+                files={media_col: (os.path.basename(media_path), data, mime_type)},
+                data={'id': str(row_id), **{k: str(v) for k, v in fields.items()}},
+            )
+        return client.post(path, json={'id': row_id, media_col: media_path, **fields})
+
+    return post
+
+
+def await_background_job(
+    client: Any, job: dict[str, Any], *, timeout: float = 30.0, require_pending: bool = True
+) -> dict[str, Any]:
+    """Poll `job['job_url']` until terminal; validate structure and return the status body."""
+    assert isinstance(job.get('id'), str) and len(job['id']) > 0
+    assert isinstance(job.get('job_url'), str) and '/jobs/' in job['job_url'] and job['id'] in job['job_url']
+    saw_pending = False
+    deadline = time.time() + timeout
+    while True:
+        status_resp = client.get(job['job_url'])
+        assert status_resp.status_code == 200, status_resp.text
+        body = status_resp.json()
+        assert body['status'] in ('pending', 'done', 'error')
+        if body['status'] == 'pending':
+            saw_pending = True
+            assert body.get('result') is None and body.get('error') is None
+            assert time.time() < deadline, f'job {job["id"]} still pending after {timeout}s'
+            time.sleep(0.05)
+            continue
+        if body['status'] == 'error':
+            raise AssertionError(f'background job failed: {body.get("error")}')
+        assert body['status'] == 'done' and body.get('error') is None
+        assert body.get('result') is not None
+        if require_pending:
+            assert saw_pending, 'polling never observed pending - sleep column not delaying'
+        return body
+
+
+def assert_media_fetchable(client: Any, url: str, local_path: str, *, label: str = '') -> None:
+    """Assert `url` is a /media/ URL, returns 200, and its bytes match `local_path`."""
+    tag = f'{label}: ' if label else ''
+    assert '/media/' in url, f'{tag}expected /media/ URL, got: {url}'
+    resp = client.get(url)
+    assert resp.status_code == 200, f'{tag}{resp.text}'
+    with open(local_path, 'rb') as f:
+        assert resp.content == f.read(), f'{tag}downloaded bytes differ from stored file'
+
+
+def assert_fileresponse_ok(resp: Any, local_path: str, mime_prefix: str) -> None:
+    """Assert `resp` is a 200 FileResponse with the right content-type and matching bytes."""
+    assert resp.status_code == 200, resp.text
+    assert resp.headers['content-type'].startswith(mime_prefix), resp.headers['content-type']
+    with open(local_path, 'rb') as f:
+        assert resp.content == f.read()
+
+
 class TestFastAPI:
     def test_add_insert_route_scalars(self, uses_db: None) -> None:
         """Test insert routes with all scalar types and various input/output combinations."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
@@ -42,7 +119,6 @@ class TestFastAPI:
         t.add_computed_column(float_abs=t.float_col.abs())
         t.add_computed_column(json_str=pxt_json.dumps(t.json_col))
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         # default inputs and outputs
         router.add_insert_route(t, path='/all')
@@ -52,8 +128,7 @@ class TestFastAPI:
         router.add_insert_route(t, path='/partial-out', outputs=['id', 'str_upper', 'int_plus1'])
         # minimal inputs and outputs
         router.add_insert_route(t, path='/minimal', inputs=['id', 'int_col'], outputs=['int_plus1'])
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         all_input = {
             'id': 1,
@@ -118,9 +193,6 @@ class TestFastAPI:
     def test_add_insert_route_video(self, uses_db: None, use_uploadfile: bool) -> None:
         """Test insert routes with video data, including FileResponse."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         video_path = get_video_files()[0]
@@ -131,7 +203,6 @@ class TestFastAPI:
         t.add_computed_column(resized=t.video.resize(width=t.width, height=t.height))
         t.add_computed_column(thumbnail=t.video.extract_frame(timestamp=0.0))
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         # When uploading, 'video' moves from inputs into uploadfile_inputs. Other inputs
         # (defaulted for /all, explicit for /resize and /thumbnail) become Form fields
@@ -157,22 +228,9 @@ class TestFastAPI:
             outputs=['thumbnail'],
             return_fileresponse=True,
         )
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
         media_dir = str(Env.get().media_dir)
-
-        def post(path: str, row_id: int, **fields: Any) -> Any:
-            """Send a POST to `path` with the fixed video plus scalar fields, honoring use_uploadfile."""
-            if use_uploadfile:
-                with open(video_path, 'rb') as f:
-                    video_bytes = f.read()
-                return client.post(
-                    path,
-                    files={'video': (os.path.basename(video_path), video_bytes, 'video/webm')},
-                    data={'id': str(row_id), **{k: str(v) for k, v in fields.items()}},
-                )
-            else:
-                return client.post(path, json={'id': row_id, 'video': video_path, **fields})
+        post = make_media_poster(client, video_path, 'video', 'video/webm', use_uploadfile)
 
         # route /all: JSON response with media URLs
         resp = post('/all', 1, width=320, height=240)
@@ -183,55 +241,35 @@ class TestFastAPI:
 
         video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
         if use_uploadfile:
-            # this needs to be a file in our media dir
-            assert '/media/' in result['video'], result['video']
             assert video_local.startswith(media_dir + os.sep), f'video not under media_dir: {video_local}'
-            # we got the fetchable url in the response
-            media_resp = client.get(result['video'])
-            assert media_resp.status_code == 200, media_resp.text
-            with open(video_local, 'rb') as f:
-                assert media_resp.content == f.read()
+            assert_media_fetchable(client, result['video'], video_local)
         else:
             # this stores the local file reference we passed in
             assert result['video'].startswith('file:')
             assert not video_local.startswith(media_dir + os.sep), f'external video moved into media_dir: {video_local}'
 
         paths = t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
-        # validate that 'resized' and 'thumbnail' outputs are fetchable media
         for col in ('resized', 'thumbnail'):
-            assert '/media/' in result[col]
-            media_resp = client.get(result[col])
-            assert media_resp.status_code == 200, f'{col}: {media_resp.text}'
-            with open(paths[col], 'rb') as f:
-                assert media_resp.content == f.read(), f'{col}: downloaded bytes differ from stored file'
+            assert_media_fetchable(client, result[col], paths[col], label=col)
         # verify persisted row
         row = t.where(t.id == 1).select(t.id, t.width, t.height).collect()[0]
         assert row == {'id': 1, 'width': 320, 'height': 240}
 
         # route /resize: FileResponse with resized video; response bytes must match the stored file
         resp = post('/resize', 2, width=160)
-        assert resp.status_code == 200, resp.text
-        assert resp.headers['content-type'].startswith('video/')
         resized_path = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
-        with open(resized_path, 'rb') as f:
-            assert resp.content == f.read()
+        assert_fileresponse_ok(resp, resized_path, 'video/')
 
         # route /thumbnail: FileResponse with thumbnail image; response bytes must match the stored file
         resp = post('/thumbnail', 3, height=120)
-        assert resp.status_code == 200, resp.text
-        assert resp.headers['content-type'].startswith('image/')
         thumbnail_path = t.where(t.id == 3).select(p=t.thumbnail.localpath).collect()[0]['p']
-        with open(thumbnail_path, 'rb') as f:
-            assert resp.content == f.read()
+        assert_fileresponse_ok(resp, thumbnail_path, 'image/')
 
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_image(self, uses_db: None, use_uploadfile: bool) -> None:
         """Image counterpart of test_add_insert_route_video. Structurally parallel so the two
         tests can later be generalized over a media-kind fixture."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         image_path = get_image_files()[0]
@@ -248,7 +286,6 @@ class TestFastAPI:
         # rotated: uses neither scalar input (mirrors video.extract_frame(timestamp=0.0))
         t.add_computed_column(rotated=t.image.rotate(angle=90))
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         # When uploading, 'image' moves from inputs into uploadfile_inputs. Other inputs
         # (defaulted for /all, explicit for /resize and /rotate) become Form fields
@@ -276,22 +313,9 @@ class TestFastAPI:
             outputs=['rotated'],
             return_fileresponse=True,
         )
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
         media_dir = str(Env.get().media_dir)
-
-        def post(path: str, row_id: int, **fields: Any) -> Any:
-            """Send a POST to `path` with the fixed image plus scalar fields, honoring use_uploadfile."""
-            if use_uploadfile:
-                with open(image_path, 'rb') as f:
-                    image_bytes = f.read()
-                return client.post(
-                    path,
-                    files={'image': (os.path.basename(image_path), image_bytes, 'image/jpeg')},
-                    data={'id': str(row_id), **{k: str(v) for k, v in fields.items()}},
-                )
-            else:
-                return client.post(path, json={'id': row_id, 'image': image_path, **fields})
+        post = make_media_poster(client, image_path, 'image', 'image/jpeg', use_uploadfile)
 
         # route /all: JSON response with media URLs
         resp = post('/all', 1, width=128, height=96)
@@ -302,47 +326,30 @@ class TestFastAPI:
 
         image_local = t.where(t.id == 1).select(p=t.image.localpath).collect()[0]['p']
         if use_uploadfile:
-            # this needs to be a file in our media dir
-            assert '/media/' in result['image'], result['image']
             assert image_local.startswith(media_dir + os.sep), f'image not under media_dir: {image_local}'
-            # we got the fetchable url in the response
-            media_resp = client.get(result['image'])
-            assert media_resp.status_code == 200, media_resp.text
-            with open(image_local, 'rb') as f:
-                assert media_resp.content == f.read()
+            assert_media_fetchable(client, result['image'], image_local)
         else:
             # this stores the local file reference we passed in
             assert result['image'].startswith('file:')
             assert not image_local.startswith(media_dir + os.sep), f'external image moved into media_dir: {image_local}'
 
         paths = t.where(t.id == 1).select(resized=t.resized.localpath, rotated=t.rotated.localpath).collect()[0]
-        # validate that 'resized' and 'rotated' outputs are fetchable media
         for col in ('resized', 'rotated'):
-            assert '/media/' in result[col]
-            media_resp = client.get(result[col])
-            assert media_resp.status_code == 200, f'{col}: {media_resp.text}'
-            with open(paths[col], 'rb') as f:
-                assert media_resp.content == f.read(), f'{col}: downloaded bytes differ from stored file'
+            assert_media_fetchable(client, result[col], paths[col], label=col)
         # verify persisted row
         row = t.where(t.id == 1).select(t.id, t.width, t.height).collect()[0]
         assert row == {'id': 1, 'width': 128, 'height': 96}
 
         # route /resize: FileResponse with resized image; response bytes must match the stored file
         resp = post('/resize', 2, width=64, height=48)
-        assert resp.status_code == 200, resp.text
-        assert resp.headers['content-type'].startswith('image/')
         resized_path = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
-        with open(resized_path, 'rb') as f:
-            assert resp.content == f.read()
+        assert_fileresponse_ok(resp, resized_path, 'image/')
 
         # route /rotate: FileResponse with rotated image; response bytes must match the stored file.
         # width/height must be supplied (schema-required) even though the rotation doesn't use them.
         resp = post('/rotate', 3, width=32, height=24)
-        assert resp.status_code == 200, resp.text
-        assert resp.headers['content-type'].startswith('image/')
         rotated_path = t.where(t.id == 3).select(p=t.rotated.localpath).collect()[0]['p']
-        with open(rotated_path, 'rb') as f:
-            assert resp.content == f.read()
+        assert_fileresponse_ok(resp, rotated_path, 'image/')
 
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_audio(self, uses_db: None, use_uploadfile: bool) -> None:
@@ -350,9 +357,6 @@ class TestFastAPI:
         three tests can later be generalized over a media-kind fixture. Uses the audio UDFs
         `multiply_volume` (two scalar inputs) and `normalize` (no scalar inputs)."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         # Use sample-16-bit.wav specifically so the mime type in upload mode is deterministic.
@@ -369,7 +373,6 @@ class TestFastAPI:
         # normalized: uses neither scalar input (mirrors video.extract_frame(timestamp=0.0))
         t.add_computed_column(normalized=t.audio.normalize())
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         # When uploading, 'audio' moves from inputs into uploadfile_inputs. Other inputs
         # (defaulted for /all, explicit for /scale and /normalize) become Form fields
@@ -397,22 +400,9 @@ class TestFastAPI:
             outputs=['normalized'],
             return_fileresponse=True,
         )
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
         media_dir = str(Env.get().media_dir)
-
-        def post(path: str, row_id: int, **fields: Any) -> Any:
-            """Send a POST to `path` with the fixed audio plus scalar fields, honoring use_uploadfile."""
-            if use_uploadfile:
-                with open(audio_path, 'rb') as f:
-                    audio_bytes = f.read()
-                return client.post(
-                    path,
-                    files={'audio': (os.path.basename(audio_path), audio_bytes, 'audio/wav')},
-                    data={'id': str(row_id), **{k: str(v) for k, v in fields.items()}},
-                )
-            else:
-                return client.post(path, json={'id': row_id, 'audio': audio_path, **fields})
+        post = make_media_poster(client, audio_path, 'audio', 'audio/wav', use_uploadfile)
 
         # route /all: JSON response with media URLs
         resp = post('/all', 1, factor=0.5, end_time=0.5)
@@ -423,56 +413,36 @@ class TestFastAPI:
 
         audio_local = t.where(t.id == 1).select(p=t.audio.localpath).collect()[0]['p']
         if use_uploadfile:
-            # this needs to be a file in our media dir
-            assert '/media/' in result['audio'], result['audio']
             assert audio_local.startswith(media_dir + os.sep), f'audio not under media_dir: {audio_local}'
-            # we got the fetchable url in the response
-            media_resp = client.get(result['audio'])
-            assert media_resp.status_code == 200, media_resp.text
-            with open(audio_local, 'rb') as f:
-                assert media_resp.content == f.read()
+            assert_media_fetchable(client, result['audio'], audio_local)
         else:
             # this stores the local file reference we passed in
             assert result['audio'].startswith('file:')
             assert not audio_local.startswith(media_dir + os.sep), f'external audio moved into media_dir: {audio_local}'
 
         paths = t.where(t.id == 1).select(scaled=t.scaled.localpath, normalized=t.normalized.localpath).collect()[0]
-        # validate that 'scaled' and 'normalized' outputs are fetchable media
         for col in ('scaled', 'normalized'):
-            assert '/media/' in result[col]
-            media_resp = client.get(result[col])
-            assert media_resp.status_code == 200, f'{col}: {media_resp.text}'
-            with open(paths[col], 'rb') as f:
-                assert media_resp.content == f.read(), f'{col}: downloaded bytes differ from stored file'
+            assert_media_fetchable(client, result[col], paths[col], label=col)
         # verify persisted row
         row = t.where(t.id == 1).select(t.id, t.factor, t.end_time).collect()[0]
         assert row == {'id': 1, 'factor': 0.5, 'end_time': 0.5}
 
         # route /scale: FileResponse with volume-scaled audio; response bytes must match the stored file
         resp = post('/scale', 2, factor=0.25, end_time=1.0)
-        assert resp.status_code == 200, resp.text
-        assert resp.headers['content-type'].startswith('audio/')
         scaled_path = t.where(t.id == 2).select(p=t.scaled.localpath).collect()[0]['p']
-        with open(scaled_path, 'rb') as f:
-            assert resp.content == f.read()
+        assert_fileresponse_ok(resp, scaled_path, 'audio/')
 
         # route /normalize: FileResponse with normalized audio; response bytes must match the stored file.
         # factor/end_time must be supplied (schema-required) even though normalize doesn't use them.
         resp = post('/normalize', 3, factor=0.5, end_time=0.5)
-        assert resp.status_code == 200, resp.text
-        assert resp.headers['content-type'].startswith('audio/')
         normalized_path = t.where(t.id == 3).select(p=t.normalized.localpath).collect()[0]['p']
-        with open(normalized_path, 'rb') as f:
-            assert resp.content == f.read()
+        assert_fileresponse_ok(resp, normalized_path, 'audio/')
 
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video_bg(self, uses_db: None, use_uploadfile: bool) -> None:
         """Background variant of test_add_insert_route_video: POST returns a job id/url, the
         work runs in FastAPIRouter._executor, and the result is fetched via /jobs/{id}."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         video_path = get_video_files()[0]
@@ -487,7 +457,6 @@ class TestFastAPI:
         # between the POST and the first GET and we wouldn't exercise the polling path.
         t.add_computed_column(delay=sleep(1.0))
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         uploadfile_inputs = ['video'] if use_uploadfile else None
         # /all: defaults for inputs/outputs, all columns in the response
@@ -501,50 +470,9 @@ class TestFastAPI:
             outputs=['resized'],
             background=True,
         )
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
         media_dir = str(Env.get().media_dir)
-
-        def post(path: str, row_id: int, **fields: Any) -> Any:
-            if use_uploadfile:
-                with open(video_path, 'rb') as f:
-                    video_bytes = f.read()
-                return client.post(
-                    path,
-                    files={'video': (os.path.basename(video_path), video_bytes, 'video/webm')},
-                    data={'id': str(row_id), **{k: str(v) for k, v in fields.items()}},
-                )
-            return client.post(path, json={'id': row_id, 'video': video_path, **fields})
-
-        def await_job(job: dict[str, Any]) -> dict[str, Any]:
-            """Validate the BackgroundJobResponse structure, poll until terminal, return the status body."""
-            assert isinstance(job.get('id'), str) and len(job['id']) > 0
-            assert isinstance(job.get('job_url'), str) and '/jobs/' in job['job_url'] and job['id'] in job['job_url']
-            saw_pending = False
-            deadline = time.time() + 30.0
-            while True:
-                status_resp = client.get(job['job_url'])
-                assert status_resp.status_code == 200, status_resp.text
-                body = status_resp.json()
-                assert body['status'] in ('pending', 'done', 'error')
-                if body['status'] == 'pending':
-                    saw_pending = True
-                    assert body.get('result') is None and body.get('error') is None
-                    if time.time() > deadline:
-                        raise AssertionError(f'job {job["id"]} still pending after 30s')
-                    time.sleep(0.05)
-                    continue
-                # terminal state
-                if body['status'] == 'error':
-                    raise AssertionError(f'background job failed: {body.get("error")}')
-                assert body['status'] == 'done'
-                assert body.get('error') is None
-                assert body.get('result') is not None
-                # The sleep(0.3) computed column should guarantee we see 'pending' at least once.
-                assert saw_pending, (
-                    'polling never observed a pending response - sleep column is not delaying the insert'
-                )
-                return body
+        post = make_media_poster(client, video_path, 'video', 'video/webm', use_uploadfile)
 
         # unknown job id -> 404 (exercised once; independent of the actual jobs)
         assert client.get('/jobs/__nonexistent__').status_code == 404
@@ -553,49 +481,34 @@ class TestFastAPI:
         resp = post('/all', 1, width=320, height=240)
         assert resp.status_code == 200, resp.text
         job = resp.json()
-        result = await_job(job)['result']
+        result = await_background_job(client, job)['result']
         assert result['id'] == 1 and result['width'] == 320 and result['height'] == 240
 
         video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
         if use_uploadfile:
-            assert '/media/' in result['video'], result['video']
             assert video_local.startswith(media_dir + os.sep), f'video not under media_dir: {video_local}'
-            media_resp = client.get(result['video'])
-            assert media_resp.status_code == 200, media_resp.text
-            with open(video_local, 'rb') as vf:
-                assert media_resp.content == vf.read()
+            assert_media_fetchable(client, result['video'], video_local)
         else:
             assert result['video'].startswith('file:')
             assert not video_local.startswith(media_dir + os.sep)
 
         paths = t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
         for col in ('resized', 'thumbnail'):
-            assert '/media/' in result[col]
-            media_resp = client.get(result[col])
-            assert media_resp.status_code == 200, f'{col}: {media_resp.text}'
-            with open(paths[col], 'rb') as mf:
-                assert media_resp.content == mf.read()
+            assert_media_fetchable(client, result[col], paths[col], label=col)
 
         # /resize route (row id 2): single-output JSON response
         resp = post('/resize', 2, width=160)
         assert resp.status_code == 200, resp.text
         job = resp.json()
-        result = await_job(job)['result']
+        result = await_background_job(client, job)['result']
         # single-output response model: only 'resized' is present
         assert set(result.keys()) == {'resized'}, result
-        assert '/media/' in result['resized']
         resize_local = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
-        media_resp = client.get(result['resized'])
-        assert media_resp.status_code == 200, media_resp.text
-        with open(resize_local, 'rb') as rf:
-            assert media_resp.content == rf.read()
+        assert_media_fetchable(client, result['resized'], resize_local)
 
     def test_openapi(self, uses_db: None) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
@@ -613,14 +526,12 @@ class TestFastAPI:
         # description is absent (i.e. not fabricated).
         t.add_computed_column(rotated=t.image.rotate(90))
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         router.add_insert_route(t, path='/json')
         router.add_insert_route(t, path='/upload', uploadfile_inputs=['image'])
         router.add_insert_route(t, path='/file', outputs=['rotated'], return_fileresponse=True)
         router.add_insert_route(t, path='/bg', background=True)
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         spec = client.get('/openapi.json').json()
         paths = spec['paths']
@@ -712,9 +623,6 @@ class TestFastAPI:
     def test_add_query_route_scalars(self, uses_db: None) -> None:
         """Multi-column scalar query route, plus retrieval_udf flavor and registration errors."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
@@ -735,7 +643,6 @@ class TestFastAPI:
         def lookup_with_default(min_len: int = 3) -> pxt.Query:
             return t.where(t.length >= min_len).select(t.id, t.text).order_by(t.id)
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         router.add_query_route(path='/lookup', query=lookup)
         router.add_query_route(path='/lookup-id-only', query=lookup)
@@ -746,8 +653,7 @@ class TestFastAPI:
         # retrieval_udf variant: all columns from the table are returned, one parameter
         id_lookup = pxt.retrieval_udf(t, parameters=['id'])
         router.add_query_route(path='/by-id', query=id_lookup)
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         # /lookup: all rows with length >= 3 -> rows 3,4,5
         resp = client.post('/lookup', json={'min_len': 3})
@@ -805,9 +711,6 @@ class TestFastAPI:
         """Single-column queries: return_scalar=False produces dict-per-row in a wrapper,
         return_scalar=True produces a plain list of scalar values."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
@@ -822,12 +725,10 @@ class TestFastAPI:
         def all_texts_scalar() -> pxt.Query:
             return t.select(t.text).order_by(t.id)
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         router.add_query_route(path='/texts', query=all_texts)
         router.add_query_route(path='/texts-scalar', query=all_texts_scalar)
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         # return_scalar=False (default): dict-per-row wrapped in {'rows': [...]}
         resp = client.post('/texts', json={})
@@ -842,9 +743,6 @@ class TestFastAPI:
     def test_add_query_route_image(self, uses_db: None) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         image_path = get_image_files()[0]
@@ -865,7 +763,6 @@ class TestFastAPI:
         def all_images() -> pxt.Query:
             return t.select(t.resized).order_by(t.id)
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         # JSON variant: list of {'image': <media url>}
         router.add_query_route(path='/all-json', query=all_images)
@@ -875,8 +772,7 @@ class TestFastAPI:
         router.add_query_route(path='/all-file', query=all_images, return_fileresponse=True)
         # Background variant
         router.add_query_route(path='/one-bg', query=one_image, background=True)
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         resized_locals = {row['id']: row['p'] for row in t.select(t.id, p=t.resized.localpath).collect()}
 
@@ -893,10 +789,7 @@ class TestFastAPI:
 
         # FileResponse: exactly one matching row -> image bytes
         resp = client.post('/one-file', json={'img_id': 1})
-        assert resp.status_code == 200, resp.text
-        assert resp.headers['content-type'].startswith('image/')
-        with open(resized_locals[1], 'rb') as f:
-            assert resp.content == f.read()
+        assert_fileresponse_ok(resp, resized_locals[1], 'image/')
 
         # FileResponse: 0 matching rows -> 404
         resp = client.post('/one-file', json={'img_id': 999})
@@ -911,22 +804,7 @@ class TestFastAPI:
         resp = client.post('/one-bg', json={'img_id': 1})
         assert resp.status_code == 200, resp.text
         job = resp.json()
-        assert isinstance(job.get('id'), str) and '/jobs/' in job['job_url']
-        saw_pending = False
-        deadline = time.time() + 30.0
-        while True:
-            status_resp = client.get(job['job_url'])
-            assert status_resp.status_code == 200
-            st = status_resp.json()
-            if st['status'] == 'pending':
-                saw_pending = True
-                assert time.time() < deadline, f'job {job["id"]} still pending after 30s'
-                time.sleep(0.05)
-                continue
-            assert st['status'] == 'done', st
-            break
-        assert saw_pending, 'polling never observed pending - sleep column not delaying'
-        result = st['result']
+        result = await_background_job(client, job)['result']
         assert isinstance(result, dict) and 'rows' in result
         assert len(result['rows']) == 1
         assert '/media/' in result['rows'][0]['resized']
@@ -1025,9 +903,7 @@ class TestFastAPI:
     def test_insert_route(self, uses_db: None) -> None:
         """`insert_route()` as a decorator: user fn consumes inserted outputs and shapes the response."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
         import pydantic
-        from fastapi.testclient import TestClient
 
         from pixeltable.serving import FastAPIRouter
 
@@ -1036,7 +912,6 @@ class TestFastAPI:
         t.add_computed_column(greeting='hello, ' + t.prompt)
         t.add_computed_column(length=t.prompt.len())
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
 
         class GenResponse(pydantic.BaseModel):
@@ -1047,8 +922,7 @@ class TestFastAPI:
         def format_response(*, greeting: str, length: int) -> GenResponse:
             return GenResponse(tag=greeting.upper(), size=length * 2)
 
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         # foreground
         resp = client.post('/generate', json={'id': 1, 'prompt': 'world'})
@@ -1063,9 +937,7 @@ class TestFastAPI:
     def test_insert_route_image(self, uses_db: None) -> None:
         """Media columns surface as /media/ URLs in the decorated fn's kwargs."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
         import pydantic
-        from fastapi.testclient import TestClient
 
         from pixeltable.serving import FastAPIRouter
 
@@ -1073,7 +945,6 @@ class TestFastAPI:
         t = pxt.create_table('test_serve.img_dec', {'id': pxt.Int, 'image': pxt.Image})
         t.add_computed_column(thumb=t.image.resize([32, 32]))
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
 
         class ImgResp(pydantic.BaseModel):
@@ -1084,8 +955,7 @@ class TestFastAPI:
         def make_resp(*, thumb: str) -> ImgResp:
             return ImgResp(thumb_url=thumb, is_media_url='/media/' in thumb)
 
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         image_path = get_image_files()[0]
         resp = client.post('/img', json={'id': 1, 'image': image_path})
@@ -1098,9 +968,7 @@ class TestFastAPI:
     def test_insert_route_uploadfile(self, uses_db: None, use_uploadfile: bool) -> None:
         """Decorator + multipart/form-data upload."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
         import pydantic
-        from fastapi.testclient import TestClient
 
         from pixeltable.serving import FastAPIRouter
 
@@ -1108,7 +976,6 @@ class TestFastAPI:
         t = pxt.create_table('test_serve.upl_dec', {'id': pxt.Int, 'image': pxt.Image})
         t.add_computed_column(thumb=t.image.resize([16, 16]))
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
 
         class UplResp(pydantic.BaseModel):
@@ -1121,8 +988,7 @@ class TestFastAPI:
         def make_resp(*, thumb: str) -> UplResp:
             return UplResp(thumb_url=thumb)
 
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         image_path = get_image_files()[0]
         if use_uploadfile:
@@ -1138,9 +1004,7 @@ class TestFastAPI:
     def test_insert_route_background(self, uses_db: None) -> None:
         """Background variant: 202-like response with job_url; poll for the decorated fn's result."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
         import pydantic
-        from fastapi.testclient import TestClient
 
         from pixeltable.serving import FastAPIRouter
 
@@ -1148,7 +1012,6 @@ class TestFastAPI:
         t = pxt.create_table('test_serve.bg_dec', {'id': pxt.Int, 'delay': pxt.Float, 'value': pxt.Int})
         t.add_computed_column(slept=sleep(t.delay))
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
 
         class BgResp(pydantic.BaseModel):
@@ -1158,26 +1021,13 @@ class TestFastAPI:
         def make_resp(*, value: int) -> BgResp:
             return BgResp(doubled=value * 2)
 
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         resp = client.post('/bg', json={'id': 1, 'delay': 0.05, 'value': 7})
         assert resp.status_code == 200, resp.text
         job = resp.json()
-        assert isinstance(job.get('id'), str) and '/jobs/' in job['job_url']
-
-        deadline = time.time() + 10.0
-        while True:
-            status_resp = client.get(job['job_url'])
-            assert status_resp.status_code == 200
-            st = status_resp.json()
-            if st['status'] == 'pending':
-                assert time.time() < deadline, 'job still pending'
-                time.sleep(0.02)
-                continue
-            assert st['status'] == 'done', st
-            break
-        assert st['result'] == {'doubled': 14}
+        result = await_background_job(client, job, require_pending=False)['result']
+        assert result == {'doubled': 14}
 
     def test_insert_route_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fastapi')
@@ -1191,7 +1041,7 @@ class TestFastAPI:
         router = FastAPIRouter()
 
         # upstream validation errors (shared with add_insert_route) still fire:
-        with pytest.raises(pxt.Error, match="insert_route\\(\\): unknown output column 'doesnotexist'"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown output column 'doesnotexist'"):
 
             @router.insert_route(t, path='/e', outputs=['doesnotexist'])
             def _(*, doesnotexist: str) -> pydantic.BaseModel:  # pragma: no cover - never reached
@@ -1201,25 +1051,25 @@ class TestFastAPI:
         class Resp(pydantic.BaseModel):
             x: int
 
-        with pytest.raises(pxt.Error, match='must be keyword-only'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='must be keyword-only'):
 
             @router.insert_route(t, path='/e1', outputs=['id'])
             def _(id: int) -> Resp:  # positional-or-keyword is rejected
                 return Resp(x=id)
 
-        with pytest.raises(pxt.Error, match="parameter 'bogus' is not among the declared outputs"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'bogus' is not among the declared outputs"):
 
             @router.insert_route(t, path='/e2', outputs=['id'])
             def _(*, bogus: int) -> Resp:
                 return Resp(x=bogus)
 
-        with pytest.raises(pxt.Error, match='missing parameters for outputs'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='missing parameters for outputs'):
 
             @router.insert_route(t, path='/e3', outputs=['id', 'text'])
             def _(*, id: int) -> Resp:
                 return Resp(x=id)
 
-        with pytest.raises(pxt.Error, match=r'must have a return annotation that is a pydantic\.BaseModel subclass'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'pydantic\.BaseModel subclass'):
 
             @router.insert_route(t, path='/e4', outputs=['id'])
             def _(*, id: int):  # type: ignore[no-untyped-def]  # intentionally missing return annotation
@@ -1228,9 +1078,6 @@ class TestFastAPI:
     def test_add_delete_route(self, uses_db: None) -> None:
         """Delete routes: primary-key default, explicit match_columns, multi-col AND, 0-match, background."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
@@ -1247,14 +1094,12 @@ class TestFastAPI:
             ]
         )
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         router.add_delete_route(t, path='/by-pk')  # defaults to primary key
         router.add_delete_route(t, path='/by-group', match_columns=['group'])
         router.add_delete_route(t, path='/by-group-value', match_columns=['group', 'value'])
         router.add_delete_route(t, path='/by-pk-bg', background=True)
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         # /by-pk: default pk match deletes exactly one row
         resp = client.post('/by-pk', json={'id': 1})
@@ -1286,19 +1131,8 @@ class TestFastAPI:
         resp = client.post('/by-pk-bg', json={'id': 5})
         assert resp.status_code == 200, resp.text
         job = resp.json()
-        assert isinstance(job.get('id'), str) and '/jobs/' in job['job_url']
-        deadline = time.time() + 10.0
-        while True:
-            status_resp = client.get(job['job_url'])
-            assert status_resp.status_code == 200
-            st = status_resp.json()
-            if st['status'] == 'pending':
-                assert time.time() < deadline, 'job still pending'
-                time.sleep(0.02)
-                continue
-            assert st['status'] == 'done', st
-            break
-        assert st['result'] == {'num_rows': 1}
+        result = await_background_job(client, job, require_pending=False)['result']
+        assert result == {'num_rows': 1}
         assert t.where(t.id == 5).count() == 0
 
     def test_add_delete_route_errors(self, uses_db: None) -> None:
@@ -1331,9 +1165,6 @@ class TestFastAPI:
     ) -> None:
         """Schema-version bump or drop-and-recreate after route registration causes the handler to 409."""
         skip_test_if_not_installed('fastapi')
-        import fastapi
-        from fastapi.testclient import TestClient
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
@@ -1341,14 +1172,12 @@ class TestFastAPI:
         t = pxt.create_table('test_serve.items', schema, primary_key='id')
         t.insert([{'id': 1, 'val': 10}])
 
-        app = fastapi.FastAPI()
         router = FastAPIRouter()
         if op_name == 'insert':
             router.add_insert_route(t, path='/ep')
         else:
             router.add_delete_route(t, path='/ep')
-        app.include_router(router)
-        client = TestClient(app)
+        client = make_test_client(router)
 
         # baseline: endpoint works before schema change
         resp = client.post('/ep', json=first_body)
