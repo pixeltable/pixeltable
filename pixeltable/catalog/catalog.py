@@ -100,15 +100,18 @@ def retry_loop(
                     # in order for retry to work, we need to make sure that there aren't any prior db updates
                     # that are part of an ongoing transaction
                     assert not get_runtime().in_xact
-                    with cat.begin_xact(
-                        for_write=for_write,
-                        read_tvps=read_tvps,
-                        read_tbl_ids=read_tbl_ids,
-                        write_tvps=write_tvps,
-                        write_tbl_ids=write_tbl_ids,
-                        convert_db_excs=False,
-                        lock_mutable_tree=lock_mutable_tree,
-                        finalize_pending_ops=True,
+                    with (
+                        cat._allow_tbl_md_read(),
+                        cat.begin_xact(
+                            for_write=for_write,
+                            read_tvps=read_tvps,
+                            read_tbl_ids=read_tbl_ids,
+                            write_tvps=write_tvps,
+                            write_tbl_ids=write_tbl_ids,
+                            convert_db_excs=False,
+                            lock_mutable_tree=lock_mutable_tree,
+                            finalize_pending_ops=True,
+                        ),
                     ):
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
@@ -300,7 +303,9 @@ class Catalog:
     def _allow_tbl_md_read(self) -> Iterator[None]:
         """Context manager that sets self._tbl_md_read_allowed and thus allows reading new table metadata."""
         if self._tbl_md_read_allowed:
-            raise AssertionError('_allow_tbl_md_read is not reentrant')
+            # this ctx manager is reentrant
+            yield
+            return
         self._tbl_md_read_allowed = True
         try:
             yield
@@ -1938,7 +1943,7 @@ class Catalog:
         conn = get_runtime().conn
         assert conn is not None
         tv = self._tbl_versions.get(key)
-        if tv is None and not self._tbl_md_read_allowed and not self._in_retry_loop:
+        if tv is None and not self._tbl_md_read_allowed:
             raise AssertionError(
                 'Loading new table metadata is not allowed in the middle of a transaction. '
                 'To fix this, either: (1) declare all tables to be accessed upfront via begin_xact(), '
