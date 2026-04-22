@@ -971,10 +971,10 @@ class TestFastAPI:
             pxt.ErrorCode.INVALID_ARGUMENT, match='return_fileresponse and background are mutually exclusive'
         ):
             router.add_query_route(path='/e', query=by_text, return_fileresponse=True, background=True)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one media-typed output column'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly one media-typed output column'):
             # by_text returns a single media column; lookup returns (id, text) which is not media-typed
             router.add_query_route(path='/e', query=lookup, return_fileresponse=True)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='GET endpoints cannot have uploadfile_inputs'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 
     def test_add_insert_route_errors(self, uses_db: None) -> None:
@@ -999,16 +999,16 @@ class TestFastAPI:
             router.add_insert_route(t, path='/e', inputs=['doesnotexist'])
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown uploadfile input column 'doesnotexist'"):
             router.add_insert_route(t, path='/e', uploadfile_inputs=['doesnotexist'])
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'text_upper' is a computed column"):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'text_upper' is a computed column"):
             router.add_insert_route(t, path='/e', inputs=['text_upper'])
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION, match="uploadfile input column 'text' is not a media column"
         ):
             router.add_insert_route(t, path='/e', uploadfile_inputs=['text'])
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'frame' is a computed column"):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'frame' is a computed column"):
             router.add_insert_route(t, path='/e', uploadfile_inputs=['frame'])
         with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'image' appears in both `inputs` and `uploadfile_inputs`"
+            pxt.ErrorCode.INVALID_ARGUMENT, match="'image' appears in both `inputs` and `uploadfile_inputs`"
         ):
             router.add_insert_route(t, path='/e', inputs=['image'], uploadfile_inputs=['image'])
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown output column 'doesnotexist'"):
@@ -1017,9 +1017,9 @@ class TestFastAPI:
             pxt.ErrorCode.INVALID_ARGUMENT, match='return_fileresponse and background are mutually exclusive'
         ):
             router.add_insert_route(t, path='/e', outputs=['frame'], return_fileresponse=True, background=True)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one media-typed output column'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly one media-typed output column'):
             router.add_insert_route(t, path='/e', outputs=['id', 'frame'], return_fileresponse=True)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one media-typed output column'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly one media-typed output column'):
             router.add_insert_route(t, path='/e', outputs=['text_upper'], return_fileresponse=True)
 
     def test_insert_route(self, uses_db: None) -> None:

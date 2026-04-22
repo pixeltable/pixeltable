@@ -13,8 +13,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional, TypeVar
 
-import fastapi
 import PIL.Image
+import fastapi
 import pydantic
 from fastapi import Body, File, Form, HTTPException, Query as QueryParam, Request, UploadFile
 from fastapi.responses import FileResponse
@@ -133,7 +133,7 @@ class FastAPIRouter(fastapi.APIRouter):
         endpoint_name: str,
         endpoint_model: type[pydantic.BaseModel] | None,
         response_class: type | None,
-        build_response: Callable[[dict[str, Any], Callable[[str], str]], Any],
+        row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
     ) -> None:
         """Shared wiring for `add_insert_route()` / `insert_route()`.
 
@@ -141,9 +141,7 @@ class FastAPIRouter(fastapi.APIRouter):
         `url_for_media`, and returns the HTTP response body.
         """
         md = t.get_metadata()
-        tbl_path = md['path']
-        tbl_id = md['id']
-        schema_version = md['schema_version']
+        tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
 
         cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
         input_cols = [cols_by_name[name] for name in input_col_names]
@@ -161,7 +159,7 @@ class FastAPIRouter(fastapi.APIRouter):
             if status.rows is None or len(status.rows) != 1:
                 n = 0 if status.rows is None else len(status.rows)
                 raise HTTPException(status_code=500, detail=f'insert returned unexpected row count ({n})')
-            return build_response(status.rows[0], url_for_media)
+            return row_processor(status.rows[0], url_for_media)
 
         sig = self._create_endpoint_signature(input_cols=input_cols, upload_col_names=uploadfile_inputs)
         endpoint = self._create_endpoint(
@@ -280,7 +278,7 @@ class FastAPIRouter(fastapi.APIRouter):
         else:
             endpoint_model = insert_response_model
 
-        def build_response(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+        def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
             output = self._create_output(
                 [row], output_col_names, insert_response_model, return_fileresponse, url_for_media
             )
@@ -295,7 +293,7 @@ class FastAPIRouter(fastapi.APIRouter):
             endpoint_name=f'insert_{path.strip("/").replace("/", "_") or "root"}',
             endpoint_model=endpoint_model,
             response_class=FileResponse if return_fileresponse else None,
-            build_response=build_response,
+            row_processor=row_processor,
         )
 
     def _validate_insert_args(
@@ -412,8 +410,7 @@ class FastAPIRouter(fastapi.APIRouter):
             self._validate_insert_route_fn(user_fn, output_col_names=output_col_names)
             response_model = user_fn.__annotations__['return']
 
-            def build_response(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
-                self._flush_pil_to_temp(row)
+            def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 return user_fn(**kwargs)
 
@@ -426,7 +423,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 endpoint_name=f'insert_{path.strip("/").replace("/", "_") or "root"}',
                 endpoint_model=BackgroundJobResponse if background else response_model,
                 response_class=None,
-                build_response=build_response,
+                row_processor=row_processor,
             )
             return user_fn
 
@@ -466,16 +463,6 @@ class FastAPIRouter(fastapi.APIRouter):
                 f'insert_route(): {fn_name!r} must have a return annotation that is a pydantic.BaseModel subclass; '
                 f'got {return_annot!r}',
             )
-
-    @staticmethod
-    def _flush_pil_to_temp(row: dict[str, Any]) -> None:
-        """Replace in-memory PIL images with the `file://` uri of a newly written temp file."""
-        for col_name, val in row.items():
-            if isinstance(val, PIL.Image.Image):
-                fmt = image_utils.default_format(val)
-                dest = TempStore.create_path(extension=f'.{fmt}')
-                val.save(dest, format=fmt)
-                row[col_name] = dest.as_uri()
 
     def add_delete_route(
         self, t: pxt.Table, *, path: str, match_columns: list[str] | None = None, background: bool = False
@@ -1017,8 +1004,15 @@ class FastAPIRouter(fastapi.APIRouter):
         - a list of pydantic model instances, if output_model is not None
         - otherwise a list of row dicts
         """
+        # flush PIL images to temp files, store the local file:// uri
         for row in rows:
-            self._flush_pil_to_temp(row)
+            for col_name, val in row.items():
+                if isinstance(val, PIL.Image.Image):
+                    fmt = image_utils.default_format(val)
+                    ext = f'.{fmt}'
+                    dest = TempStore.create_path(extension=ext)
+                    val.save(dest, format=fmt)
+                    row[col_name] = dest.as_uri()
 
         if return_fileresponse:
             assert len(output_names) == 1 and len(rows) == 1
