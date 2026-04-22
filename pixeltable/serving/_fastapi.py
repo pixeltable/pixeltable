@@ -119,56 +119,6 @@ class FastAPIRouter(fastapi.APIRouter):
     def _shutdown(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
 
-    def _add_insert_route(
-        self,
-        t: pxt.Table,
-        *,
-        path: str,
-        uploadfile_inputs: list[str],
-        input_col_names: list[str],
-        background: bool,
-        endpoint_name: str,
-        endpoint_model: type[pydantic.BaseModel] | None,
-        response_class: type | None,
-        row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
-    ) -> None:
-        """Shared wiring for `add_insert_route()` / `insert_route()`.
-
-        `build_response` is called with the single inserted row (as a dict) plus
-        `url_for_media`, and returns the HTTP response body.
-        """
-        md = t.get_metadata()
-        tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
-
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
-        input_cols = [cols_by_name[name] for name in input_col_names]
-
-        def run_insert(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            # handles aren't thread-portable, so fetch and re-validate against the registered schema
-            tbl = pxt.get_table(tbl_path)
-            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
-                raise HTTPException(
-                    status_code=409,
-                    detail='table schema changed since route was registered; please restart the service',
-                )
-
-            status = tbl.insert([row_kwargs], return_rows=True)
-            if status.rows is None or len(status.rows) != 1:
-                n = 0 if status.rows is None else len(status.rows)
-                raise HTTPException(status_code=500, detail=f'insert returned unexpected row count ({n})')
-            return row_processor(status.rows[0], url_for_media)
-
-        sig = self._create_endpoint_signature(input_cols=input_cols, upload_col_names=uploadfile_inputs)
-        endpoint = self._create_endpoint(
-            endpoint_name, sig, uploadfile_inputs=uploadfile_inputs, background=background, endpoint_op=run_insert
-        )
-        api_kwargs: dict[str, Any] = {'methods': ['POST']}
-        if endpoint_model is not None:
-            api_kwargs['response_model'] = endpoint_model
-        if response_class is not None:
-            api_kwargs['response_class'] = response_class
-        self.add_api_route(path, endpoint, **api_kwargs)
-
     def add_insert_route(
         self,
         t: pxt.Table,
@@ -293,178 +243,6 @@ class FastAPIRouter(fastapi.APIRouter):
             row_processor=row_processor,
         )
 
-    def _validate_insert_args(
-        self,
-        t: pxt.Table,
-        *,
-        inputs: list[str] | None,
-        uploadfile_inputs: list[str] | None,
-        outputs: list[str] | None,
-        return_fileresponse: bool,
-        background: bool,
-        error_prefix: str,
-    ) -> tuple[list[str], list[str], dict[str, catalog.Column]]:
-        """Validate insert-route args and return (input_col_names, output_col_names, cols_by_name)."""
-        md = t.get_metadata()
-        if md['kind'] != 'table':
-            raise pxt.RequestError(
-                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot insert into {md["kind"]} {md["name"]!r}'
-            )
-        if return_fileresponse and background:
-            raise pxt.RequestError(
-                pxt.ErrorCode.INVALID_ARGUMENT,
-                f'{error_prefix}: return_fileresponse and background are mutually exclusive',
-            )
-
-        col_md = md['columns']
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
-
-        # computed columns cannot be input
-        for name in [*(inputs or []), *(uploadfile_inputs or [])]:
-            if name in col_md and col_md[name]['is_computed']:
-                raise pxt.RequestError(
-                    pxt.ErrorCode.INVALID_ARGUMENT,
-                    f'{error_prefix}: {name!r} is a computed column and cannot be used as input',
-                )
-
-        input_col_names, output_col_names = self._validate_args(
-            input_schema={c.name: c.col_type for c in cols_by_name.values() if not c.is_computed},
-            output_schema={c.name: c.col_type for c in cols_by_name.values()},
-            inputs=inputs,
-            uploadfile_inputs=uploadfile_inputs,
-            outputs=outputs,
-            return_fileresponse=return_fileresponse,
-            error_prefix=error_prefix,
-            input_item_str='column',
-            output_item_str='column',
-        )
-        return input_col_names, output_col_names, cols_by_name
-
-    def _validate_update_args(
-        self,
-        t: pxt.Table,
-        *,
-        inputs: list[str] | None,
-        outputs: list[str] | None,
-        return_fileresponse: bool,
-        background: bool,
-        error_prefix: str,
-    ) -> tuple[list[str], list[str], list[str], dict[str, catalog.Column]]:
-        """Validate update-route args and return (pk_col_names, input_col_names, output_col_names, cols_by_name)."""
-        md = t.get_metadata()
-        if md['kind'] != 'table':
-            raise pxt.RequestError(
-                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot update {md["kind"]} {md["name"]!r}'
-            )
-        if return_fileresponse and background:
-            raise pxt.RequestError(
-                pxt.ErrorCode.INVALID_ARGUMENT,
-                f'{error_prefix}: return_fileresponse and background are mutually exclusive',
-            )
-
-        col_md = md['columns']
-        pk_col_names = [name for name, c in col_md.items() if c['is_primary_key']]
-        if not pk_col_names:
-            raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
-
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
-        pk_set = set(pk_col_names)
-
-        # computed, PK, and media columns cannot be inputs
-        for name in inputs or []:
-            if name in col_md and col_md[name]['is_computed']:
-                raise pxt.RequestError(
-                    pxt.ErrorCode.INVALID_ARGUMENT,
-                    f'{error_prefix}: {name!r} is a computed column and cannot be used as input',
-                )
-            if name in pk_set:
-                raise pxt.RequestError(
-                    pxt.ErrorCode.INVALID_ARGUMENT,
-                    f'{error_prefix}: {name!r} is a primary key column and cannot be used as input',
-                )
-            if name in cols_by_name and cols_by_name[name].col_type.is_media_type():
-                raise pxt.RequestError(
-                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{error_prefix}: {name!r} is a media column and cannot be updated',
-                )
-
-        # input_schema: non-computed, non-PK, non-media columns
-        input_schema = {
-            c.name: c.col_type
-            for c in cols_by_name.values()
-            if not c.is_computed and c.name not in pk_set and not c.col_type.is_media_type()
-        }
-        input_col_names, output_col_names = self._validate_args(
-            input_schema=input_schema,
-            output_schema={c.name: c.col_type for c in cols_by_name.values()},
-            inputs=inputs,
-            uploadfile_inputs=None,
-            outputs=outputs,
-            return_fileresponse=return_fileresponse,
-            error_prefix=error_prefix,
-            input_item_str='column',
-            output_item_str='column',
-        )
-        return pk_col_names, input_col_names, output_col_names, cols_by_name
-
-    def _add_update_route(
-        self,
-        t: pxt.Table,
-        *,
-        path: str,
-        pk_col_names: list[str],
-        input_col_names: list[str],
-        background: bool,
-        endpoint_name: str,
-        endpoint_model: type[pydantic.BaseModel] | None,
-        response_class: type | None,
-        row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
-    ) -> None:
-        """Shared wiring for `add_update_route()`.
-
-        The endpoint signature includes the PK columns (for row identification) followed by
-        the input columns (the values to update). `row_processor` is called with the single
-        updated row dict and `url_for_media`.
-        """
-        md = t.get_metadata()
-        tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
-
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
-        pk_cols = [cols_by_name[name] for name in pk_col_names]
-        input_cols = [cols_by_name[name] for name in input_col_names]
-        pk_col_names_set = set(pk_col_names)
-
-        def run_update(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            tbl = pxt.get_table(tbl_path)
-            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
-                raise HTTPException(
-                    status_code=409,
-                    detail='table schema changed since route was registered; please restart the service',
-                )
-            where_expr: exprs.Expr | None = None
-            for name in pk_col_names:
-                pred = tbl[name] == row_kwargs[name]
-                where_expr = pred if where_expr is None else (where_expr & pred)
-            values = {name: val for name, val in row_kwargs.items() if name not in pk_col_names_set}
-            status = tbl.update(values, where=where_expr, return_rows=True)
-            if status.num_rows == 0:
-                raise HTTPException(status_code=404, detail='row not found')
-            rows = status.rows or []
-            if len(rows) != 1:
-                raise HTTPException(status_code=500, detail=f'update returned unexpected row count ({len(rows)})')
-            return row_processor(rows[0], url_for_media)
-
-        sig = self._create_endpoint_signature(input_cols=pk_cols + input_cols)
-        endpoint = self._create_endpoint(
-            endpoint_name, sig, uploadfile_inputs=[], background=background, endpoint_op=run_update
-        )
-        api_kwargs: dict[str, Any] = {'methods': ['POST']}
-        if endpoint_model is not None:
-            api_kwargs['response_model'] = endpoint_model
-        if response_class is not None:
-            api_kwargs['response_class'] = response_class
-        self.add_api_route(path, endpoint, **api_kwargs)
-
     def insert_route(
         self,
         t: pxt.Table,
@@ -550,41 +328,6 @@ class FastAPIRouter(fastapi.APIRouter):
             return user_fn
 
         return decorator
-
-    @staticmethod
-    def _validate_insert_route_fn(user_fn: Callable, *, output_col_names: list[str]) -> None:
-        """Validate the shape of the user's decorated function for `insert_route()`."""
-        sig = inspect.signature(user_fn)
-        fn_name = getattr(user_fn, '__name__', repr(user_fn))
-        param_names: set[str] = set()
-        for p in sig.parameters.values():
-            if p.kind != inspect.Parameter.KEYWORD_ONLY:
-                raise pxt.RequestError(
-                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'insert_route(): {fn_name!r} parameter {p.name!r} must be keyword-only '
-                    '(place parameters after `*` in the signature)',
-                )
-            if p.name not in output_col_names:
-                raise pxt.RequestError(
-                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'insert_route(): {fn_name!r} parameter {p.name!r} is not among the declared outputs '
-                    f'{output_col_names}',
-                )
-            param_names.add(p.name)
-        missing = [n for n in output_col_names if n not in param_names]
-        if missing:
-            raise pxt.RequestError(
-                pxt.ErrorCode.MISSING_REQUIRED,
-                f'insert_route(): {fn_name!r} is missing parameters for outputs {missing}; every declared '
-                'output must appear as a keyword-only parameter',
-            )
-        return_annot = user_fn.__annotations__.get('return')
-        if not (isinstance(return_annot, type) and issubclass(return_annot, pydantic.BaseModel)):
-            raise pxt.RequestError(
-                pxt.ErrorCode.INVALID_ARGUMENT,
-                f'insert_route(): {fn_name!r} must have a return annotation that is a pydantic.BaseModel subclass; '
-                f'got {return_annot!r}',
-            )
 
     def add_update_route(
         self,
@@ -696,6 +439,86 @@ class FastAPIRouter(fastapi.APIRouter):
             response_class=FileResponse if return_fileresponse else None,
             row_processor=row_processor,
         )
+
+    def update_route(
+        self,
+        t: pxt.Table,
+        *,
+        path: str,
+        inputs: list[str] | None = None,
+        outputs: list[str] | None = None,
+        background: bool = False,
+    ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
+        """
+        Decorator that registers a POST endpoint performing a `Table.batch_update()` followed by
+        user-defined post-processing.
+
+        The request body carries values for the primary key columns (to identify the row) plus the
+        input column values as JSON fields. After updating the row, the decorated function is called
+        with the requested output columns as keyword arguments (parameter names and Pixeltable types
+        must match `outputs`). Its return value must be a Pydantic model and is returned as the HTTP
+        response body.
+
+        If the row does not exist, the endpoint returns HTTP 404 without calling the decorated
+        function.
+
+        Note: media-typed columns (image, video, audio, document) and primary key columns cannot be
+        used as `inputs`. Primary key columns are always part of the request body for row
+        identification.
+
+        Args:
+            t: The table to update.
+            path: The URL path for the endpoint.
+            inputs: Columns to accept as update fields. Defaults to all non-computed, non-primary-key,
+                non-media columns.
+            outputs: Columns from the updated row to pass to the decorated function as keyword
+                arguments. Defaults to all columns.
+            background: If True, return immediately with `{"id": ..., "job_url": ...}` and run the
+                update plus post-processing in a background thread. Poll `job_url` for the result;
+                the decorated function's return value is delivered as the job result.
+
+        Examples:
+            ```python
+            class ItemResponse(pydantic.BaseModel):
+                id: int
+                summary: str
+                score: float
+
+            @router.update_route(
+                t, path='/update', inputs=['text'], outputs=['id', 'text', 'score']
+            )
+            def format_response(*, id: int, text: str, score: float) -> ItemResponse:
+                return ItemResponse(id=id, summary=text[:100], score=round(score, 3))
+            ```
+
+            ```bash
+            curl -X POST http://localhost:8000/update \\
+              -H 'Content-Type: application/json' \\
+              -d '{"id": 42, "text": "new content"}'
+            # {"id": 42, "summary": "new content", "score": 0.871}
+            ```
+
+            Background processing:
+
+            ```python
+            @router.update_route(t, path='/slow-update', background=True)
+            def format_response(*, id: int, result: str) -> MyResponse:
+                return MyResponse(id=id, result=result.strip())
+            ```
+
+            ```bash
+            # submit
+            curl -X POST http://localhost:8000/slow-update \\
+              -H 'Content-Type: application/json' \\
+              -d '{"id": 1, "text": "hello"}'
+            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
+
+            # poll
+            curl http://localhost:8000/jobs/abc123
+            # {"status": "done", "result": {"id": 1, "result": "hello"}}
+            ```
+        """
+        raise NotImplementedError
 
     def add_delete_route(
         self, t: pxt.Table, *, path: str, match_columns: list[str] | None = None, background: bool = False
@@ -1034,6 +857,251 @@ class FastAPIRouter(fastapi.APIRouter):
         if return_fileresponse:
             api_kwargs['response_class'] = FileResponse
         self.add_api_route(path, endpoint, **api_kwargs)
+
+    def _add_insert_route(
+        self,
+        t: pxt.Table,
+        *,
+        path: str,
+        uploadfile_inputs: list[str],
+        input_col_names: list[str],
+        background: bool,
+        endpoint_name: str,
+        endpoint_model: type[pydantic.BaseModel] | None,
+        response_class: type | None,
+        row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
+    ) -> None:
+        md = t.get_metadata()
+        tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
+
+        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        input_cols = [cols_by_name[name] for name in input_col_names]
+
+        def run_insert(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+            # handles aren't thread-portable, so fetch and re-validate against the registered schema
+            tbl = pxt.get_table(tbl_path)
+            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
+                raise HTTPException(
+                    status_code=409,
+                    detail='table schema changed since route was registered; please restart the service',
+                )
+
+            status = tbl.insert([row_kwargs], return_rows=True)
+            if status.rows is None or len(status.rows) != 1:
+                n = 0 if status.rows is None else len(status.rows)
+                raise HTTPException(status_code=500, detail=f'insert returned unexpected row count ({n})')
+            return row_processor(status.rows[0], url_for_media)
+
+        sig = self._create_endpoint_signature(input_cols=input_cols, upload_col_names=uploadfile_inputs)
+        endpoint = self._create_endpoint(
+            endpoint_name, sig, uploadfile_inputs=uploadfile_inputs, background=background, endpoint_op=run_insert
+        )
+        api_kwargs: dict[str, Any] = {'methods': ['POST']}
+        if endpoint_model is not None:
+            api_kwargs['response_model'] = endpoint_model
+        if response_class is not None:
+            api_kwargs['response_class'] = response_class
+        self.add_api_route(path, endpoint, **api_kwargs)
+
+    def _validate_insert_args(
+        self,
+        t: pxt.Table,
+        *,
+        inputs: list[str] | None,
+        uploadfile_inputs: list[str] | None,
+        outputs: list[str] | None,
+        return_fileresponse: bool,
+        background: bool,
+        error_prefix: str,
+    ) -> tuple[list[str], list[str], dict[str, catalog.Column]]:
+        """Validate insert-route args and return (input_col_names, output_col_names, cols_by_name)."""
+        md = t.get_metadata()
+        if md['kind'] != 'table':
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot insert into {md["kind"]} {md["name"]!r}'
+            )
+        if return_fileresponse and background:
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'{error_prefix}: return_fileresponse and background are mutually exclusive',
+            )
+
+        col_md = md['columns']
+        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+
+        # computed columns cannot be input
+        for name in [*(inputs or []), *(uploadfile_inputs or [])]:
+            if name in col_md and col_md[name]['is_computed']:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_prefix}: {name!r} is a computed column and cannot be used as input',
+                )
+
+        input_col_names, output_col_names = self._validate_args(
+            input_schema={c.name: c.col_type for c in cols_by_name.values() if not c.is_computed},
+            output_schema={c.name: c.col_type for c in cols_by_name.values()},
+            inputs=inputs,
+            uploadfile_inputs=uploadfile_inputs,
+            outputs=outputs,
+            return_fileresponse=return_fileresponse,
+            error_prefix=error_prefix,
+            input_item_str='column',
+            output_item_str='column',
+        )
+        return input_col_names, output_col_names, cols_by_name
+
+    def _validate_insert_route_fn(self, user_fn: Callable, *, output_col_names: list[str]) -> None:
+        """Validate the shape of the user's decorated function for `insert_route()`."""
+        sig = inspect.signature(user_fn)
+        fn_name = getattr(user_fn, '__name__', repr(user_fn))
+        param_names: set[str] = set()
+        for p in sig.parameters.values():
+            if p.kind != inspect.Parameter.KEYWORD_ONLY:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'insert_route(): {fn_name!r} parameter {p.name!r} must be keyword-only '
+                    '(place parameters after `*` in the signature)',
+                )
+            if p.name not in output_col_names:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'insert_route(): {fn_name!r} parameter {p.name!r} is not among the declared outputs '
+                    f'{output_col_names}',
+                )
+            param_names.add(p.name)
+        missing = [n for n in output_col_names if n not in param_names]
+        if missing:
+            raise pxt.RequestError(
+                pxt.ErrorCode.MISSING_REQUIRED,
+                f'insert_route(): {fn_name!r} is missing parameters for outputs {missing}; every declared '
+                'output must appear as a keyword-only parameter',
+            )
+        return_annot = user_fn.__annotations__.get('return')
+        if not (isinstance(return_annot, type) and issubclass(return_annot, pydantic.BaseModel)):
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'insert_route(): {fn_name!r} must have a return annotation that is a pydantic.BaseModel subclass; '
+                f'got {return_annot!r}',
+            )
+
+    def _add_update_route(
+        self,
+        t: pxt.Table,
+        *,
+        path: str,
+        pk_col_names: list[str],
+        input_col_names: list[str],
+        background: bool,
+        endpoint_name: str,
+        endpoint_model: type[pydantic.BaseModel] | None,
+        response_class: type | None,
+        row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
+    ) -> None:
+        """Shared wiring for `add_update_route()`.
+
+        The endpoint signature includes the PK columns (for row identification) followed by
+        the input columns (the values to update). `row_processor` is called with the single
+        updated row dict and `url_for_media`.
+        """
+        md = t.get_metadata()
+        tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
+
+        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        pk_cols = [cols_by_name[name] for name in pk_col_names]
+        input_cols = [cols_by_name[name] for name in input_col_names]
+
+        def run_update(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+            tbl = pxt.get_table(tbl_path)
+            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
+                raise HTTPException(
+                    status_code=409,
+                    detail='table schema changed since route was registered; please restart the service',
+                )
+            status = tbl.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
+            if status.num_rows == 0:
+                raise HTTPException(status_code=404, detail='row not found')
+            rows = status.rows or []
+            if len(rows) != 1:
+                raise HTTPException(status_code=500, detail=f'update returned unexpected row count ({len(rows)})')
+            return row_processor(rows[0], url_for_media)
+
+        sig = self._create_endpoint_signature(input_cols=pk_cols + input_cols)
+        endpoint = self._create_endpoint(
+            endpoint_name, sig, uploadfile_inputs=[], background=background, endpoint_op=run_update
+        )
+        api_kwargs: dict[str, Any] = {'methods': ['POST']}
+        if endpoint_model is not None:
+            api_kwargs['response_model'] = endpoint_model
+        if response_class is not None:
+            api_kwargs['response_class'] = response_class
+        self.add_api_route(path, endpoint, **api_kwargs)
+
+    def _validate_update_args(
+        self,
+        t: pxt.Table,
+        *,
+        inputs: list[str] | None,
+        outputs: list[str] | None,
+        return_fileresponse: bool,
+        background: bool,
+        error_prefix: str,
+    ) -> tuple[list[str], list[str], list[str], dict[str, catalog.Column]]:
+        """Validate update-route args and return (pk_col_names, input_col_names, output_col_names, cols_by_name)."""
+        md = t.get_metadata()
+        if md['kind'] != 'table':
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot update {md["kind"]} {md["name"]!r}'
+            )
+        if return_fileresponse and background:
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'{error_prefix}: return_fileresponse and background are mutually exclusive',
+            )
+
+        col_md = md['columns']
+        pk_col_names = [name for name, c in col_md.items() if c['is_primary_key']]
+        if not pk_col_names:
+            raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
+
+        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        pk_set = set(pk_col_names)
+
+        # computed, PK, and media columns cannot be inputs
+        for name in inputs or []:
+            if name in col_md and col_md[name]['is_computed']:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_prefix}: {name!r} is a computed column and cannot be used as input',
+                )
+            if name in pk_set:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_prefix}: {name!r} is a primary key column and cannot be used as input',
+                )
+            if name in cols_by_name and cols_by_name[name].col_type.is_media_type():
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{error_prefix}: {name!r} is a media column and cannot be updated',
+                )
+
+        # input_schema: non-computed, non-PK, non-media columns
+        input_schema = {
+            c.name: c.col_type
+            for c in cols_by_name.values()
+            if not c.is_computed and c.name not in pk_set and not c.col_type.is_media_type()
+        }
+        input_col_names, output_col_names = self._validate_args(
+            input_schema=input_schema,
+            output_schema={c.name: c.col_type for c in cols_by_name.values()},
+            inputs=inputs,
+            uploadfile_inputs=None,
+            outputs=outputs,
+            return_fileresponse=return_fileresponse,
+            error_prefix=error_prefix,
+            input_item_str='column',
+            output_item_str='column',
+        )
+        return pk_col_names, input_col_names, output_col_names, cols_by_name
 
     def _create_endpoint(
         self,
