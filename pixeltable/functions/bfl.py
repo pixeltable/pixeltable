@@ -310,7 +310,10 @@ async def edit(
     # Add reference images if provided
     if reference_images:
         if len(reference_images) > 7:
-            raise pxt.Error('Maximum 7 additional reference images allowed (8 total including input_image)')
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                'Maximum 7 additional reference images allowed (8 total including input_image)',
+            )
         for i, ref_img in enumerate(reference_images, start=2):
             payload[f'input_image_{i}'] = to_base64(ref_img)
 
@@ -451,7 +454,9 @@ async def expand(
         ... )
     """
     if top == 0 and bottom == 0 and left == 0 and right == 0:
-        raise pxt.Error('At least one expansion direction (top, bottom, left, right) must be > 0')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, 'At least one expansion direction (top, bottom, left, right) must be > 0'
+        )
 
     endpoint = f'/v1/{model}'
     payload: dict = {

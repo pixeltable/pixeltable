@@ -45,9 +45,10 @@ class Comparison(Expr):
             and len(self._op2.val) >= index.BtreeIndex.MAX_STRING_LEN
         ):
             # we can't use an index for this after all
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'String literal too long for comparison against indexed column {self._op1.col.name!r} '
-                f'(max length is {index.BtreeIndex.MAX_STRING_LEN - 1})'
+                f'(max length is {index.BtreeIndex.MAX_STRING_LEN - 1})',
             )
 
         self.id = self._create_id()

@@ -111,7 +111,6 @@ pytest -m "remote_api" tests/functions/test_openai.py
 **Test markers:**
 - `@pytest.mark.expensive` - Long-running tests
 - `@pytest.mark.remote_api` - Tests calling external APIs
-- `@pytest.mark.corrupts_db` - Tests that modify database state destructively
 
 ### Required After Every Code Change
 

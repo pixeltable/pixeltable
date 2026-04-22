@@ -20,7 +20,7 @@ eval "$(conda shell.bash hook)"
 export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
 
-"$SCRIPT_DIR/prepare-nb-tests.sh" "$TEST_PATH" docs/release
+"$SCRIPT_DIR/prepare-nb-tests.sh" --include-expensive "$TEST_PATH" docs/release
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
 rm -f "$TEST_PATH"/img-detection-vs-segmentation.ipynb  # failing for unknown reasons (runs fine locally)
 

@@ -22,26 +22,18 @@ class InMemoryDataNode(ExecNode):
     tbl: catalog.TableVersionHandle
 
     input_rows: list[dict[str, Any]]
-    start_row_id: int
     output_batch: DataRowBatch | None
 
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]
 
-    def __init__(
-        self,
-        tbl: catalog.TableVersionHandle,
-        rows: list[dict[str, Any]],
-        row_builder: exprs.RowBuilder,
-        start_row_id: int,
-    ):
+    def __init__(self, tbl: catalog.TableVersionHandle, rows: list[dict[str, Any]], row_builder: exprs.RowBuilder):
         # we materialize the input slots
         output_exprs = list(row_builder.input_exprs)
         super().__init__(row_builder, output_exprs, [], None)
         assert tbl.get().is_insertable
         self.tbl = tbl
         self.input_rows = rows
-        self.start_row_id = start_row_id
         self.output_batch = None
 
     def _open(self) -> None:

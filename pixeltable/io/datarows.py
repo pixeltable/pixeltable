@@ -25,21 +25,27 @@ def _infer_schema_from_rows(
             elif value is not None:
                 # If `key` is not in `schema_overrides`, then we infer its type from the data.
                 # The column type will always be nullable by default.
-                col_type = ts.ColumnType.infer_literal_type(value, nullable=col_name not in primary_key)
+                # To avoid making presumptions about JSON type schemas, and also for performance reasons,
+                #     JSON type schema inference is disabled when importing data.
+                col_type = ts.ColumnType.infer_literal_type(
+                    value, nullable=col_name not in primary_key, infer_json_type_schema=False
+                )
                 if col_type is None:
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_TYPE,
                         f'Could not infer type for column `{col_name}`; the value in row {n} '
-                        f'has an unsupported type: {type(value)}'
+                        f'has an unsupported type: {type(value)}',
                     )
                 if col_name not in schema:
                     schema[col_name] = col_type
                 else:
                     supertype = schema[col_name].supertype(col_type, for_inference=True)
                     if supertype is None:
-                        raise excs.Error(
+                        raise excs.RequestError(
+                            excs.ErrorCode.INVALID_TYPE,
                             f'Could not infer type of column `{col_name}`; the value in row {n} '
                             f'does not match preceding type {schema[col_name]}: {value!r}\n'
-                            'Consider specifying the type explicitly in `schema_overrides`.'
+                            'Consider specifying the type explicitly in `schema_overrides`.',
                         )
                     schema[col_name] = supertype
             else:
@@ -49,9 +55,10 @@ def _infer_schema_from_rows(
     if len(entirely_none_cols) > 0:
         # A column can only end up in `entirely_none_cols` if it was not in `schema_overrides` and
         # was not encountered in any row with a non-None value.
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'The following columns have no non-null values: {", ".join(entirely_none_cols)}\n'
-            'Consider specifying the type(s) explicitly in `schema_overrides`.'
+            'Consider specifying the type(s) explicitly in `schema_overrides`.',
         )
     return schema
 
@@ -62,7 +69,6 @@ def import_rows(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
     comment: str = '',
 ) -> pxt.Table:
     """
@@ -83,20 +89,13 @@ def import_rows(
         schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
             as described above.
         primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
-        num_retained_versions: The number of retained versions of the table
-            (see [`create_table()`][pixeltable.create_table]).
         comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
 
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     return pxt.create_table(
-        tbl_path,
-        source=rows,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
+        tbl_path, source=rows, schema_overrides=schema_overrides, primary_key=primary_key, comment=comment
     )
 
 
@@ -106,7 +105,6 @@ def import_json(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
     comment: str = '',
     **kwargs: Any,
 ) -> pxt.Table:
@@ -121,8 +119,6 @@ def import_json(
         schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
             (see [`import_rows()`][pixeltable.io.import_rows]).
         primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
-        num_retained_versions: The number of retained versions of the table
-            (see [`create_table()`][pixeltable.create_table]).
         comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
         kwargs: Additional keyword arguments to pass to `json.loads`.
 
@@ -134,7 +130,6 @@ def import_json(
         source=filepath_or_url,
         schema_overrides=schema_overrides,
         primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
         comment=comment,
         extra_args=kwargs,
     )

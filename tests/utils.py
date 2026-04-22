@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sysconfig
+import time
 import uuid
 from contextlib import contextmanager
 from io import StringIO
@@ -36,6 +37,27 @@ from pixeltable.utils.object_stores import ObjectOps
 TESTS_DIR = Path(os.path.dirname(__file__))
 
 
+_ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
+    0: pxt.Error,
+    1: pxt.NotFoundError,
+    2: pxt.AlreadyExistsError,
+    3: pxt.RequestError,
+    4: pxt.AuthorizationError,
+    5: pxt.ExternalServiceError,
+    6: pxt.ServiceUnavailableError,
+    7: pxt.ConcurrencyError,
+}
+
+
+@contextmanager
+def pxt_raises(code: pxt.ErrorCode, *, match: str | None = None) -> Iterator[pytest.ExceptionInfo[pxt.Error]]:
+    """Use this in place of pytest.raises() if the expected exception is a pxt.Error."""
+    cls = _ERROR_GROUP_TO_CLS[code.value // 1000]
+    with pytest.raises(cls, match=match) as info:
+        yield info
+    assert info.value.error_code is code, f'expected {code.name!r}, got {info.value.error_code.name!r}'
+
+
 def runs_linux_with_gpu() -> bool:
     try:
         import torch
@@ -43,6 +65,13 @@ def runs_linux_with_gpu() -> bool:
         return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
     except ImportError:
         return False
+
+
+@pxt.udf
+def sleep(n: float) -> float:
+    """Sleep for `n` seconds, return `n`. Used in tests to deliberately delay inserts."""
+    time.sleep(n)
+    return n
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
@@ -333,7 +362,9 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: list[str] | No
     return df.to_dict(orient='records')  # type: ignore[return-value]
 
 
-def get_video_files(include_bad_video: bool = False, include_vfr: bool = True, include_mpgs: bool = True) -> list[str]:
+def get_video_files(
+    include_bad_video: bool = False, include_vfr: bool = True, include_mpgs: bool = True, extension: str | None = None
+) -> list[str]:
     glob_result = glob.glob(f'{TESTS_DIR}/**/videos/*', recursive=True)
     if not include_bad_video:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
@@ -341,7 +372,8 @@ def get_video_files(include_bad_video: bool = False, include_vfr: bool = True, i
         glob_result = [f for f in glob_result if 'vfr' not in f]
     if not include_mpgs:
         glob_result = [f for f in glob_result if not f.endswith('.mpg')]
-
+    if extension is not None:
+        glob_result = [f for f in glob_result if f.endswith(extension)]
     glob_result.sort()
     return glob_result
 
@@ -424,11 +456,13 @@ def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
     return ObjectOps.list_uris(uri, n_max=n)
 
 
-def get_audio_files(include_bad_audio: bool = False) -> list[str]:
+def get_audio_files(include_bad_audio: bool = False, extension: str | None = None) -> list[str]:
     audio_dir = TESTS_DIR / 'data' / 'audio'
     glob_result = glob.glob(f'{audio_dir}/*', recursive=True)
     if not include_bad_audio:
         glob_result = [f for f in glob_result if 'bad_audio' not in f]
+    if extension is not None:
+        glob_result = [f for f in glob_result if f.endswith(extension)]
     return glob_result
 
 
@@ -450,6 +484,10 @@ def get_sentences(n: int = 100) -> list[str]:
         questions_list = json.load(f)
     # this dataset contains \' around the questions
     return [q['question'].replace("'", '') for q in questions_list[:n]]
+
+
+def assert_type_eq(col_type: ts.ColumnType, pxt_type: ts._PxtType) -> None:
+    assert col_type == ts.ColumnType.normalize_type(pxt_type)
 
 
 def assert_resultset_eq(r1: ResultSet, r2: ResultSet, compare_col_names: bool = False) -> None:
@@ -531,14 +569,15 @@ def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatche
 def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata) -> None:
     """
     Assert that table metadata (user-facing metadata as returned by `tbl.get_metadata()`) matches the expected dict.
-    `version_created` will be checked to be less than 1 minute ago; the other fields will be checked for exact
-    equality.
+    `version_created` will be checked to be less than 1 minute ago; `id` is asserted to be a UUID but its value
+    is not compared; the other fields will be checked for exact equality.
     """
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     actual_created_at: datetime.datetime = actual['version_created']
     assert (now - actual_created_at).total_seconds() <= (120 if Env.get().is_using_cockroachdb else 60)
+    assert isinstance(actual['id'], uuid.UUID)
 
-    trimmed_actual = {k: v for k, v in actual.items() if k != 'version_created'}
+    trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
     tc = TestCase()
     tc.maxDiff = 10_000
     tc.assertDictEqual(expected, trimmed_actual)
@@ -590,6 +629,8 @@ def skip_test_if_no_pxt_credentials() -> None:
 
 
 def skip_test_if_no_aws_credentials() -> None:
+    skip_test_if_not_installed('boto3')
+
     import boto3
     from botocore.exceptions import NoCredentialsError
 
