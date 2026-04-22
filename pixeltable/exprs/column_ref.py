@@ -174,7 +174,7 @@ class ColumnRef(Expr):
     def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
         cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(tbl=self.reference_tbl, for_write=True, lock_mutable_tree=True):
+        with cat.begin_xact(for_write=True, write_tvps=[self.reference_tbl], lock_mutable_tree=True):
             tbl_version = self.col_handle.tbl_version.get()
             if tbl_version.id != self.reference_tbl.tbl_id:
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot recompute column of a base.')
