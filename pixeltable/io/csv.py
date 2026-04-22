@@ -9,7 +9,7 @@ from typing import Any
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.io.utils import atomic_write, convert_rows, replace_media_with_fileurl
+from pixeltable.io.utils import atomic_write, replace_media_with_fileurl
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
@@ -87,10 +87,11 @@ def export_csv(
         writer = csv.writer(f, delimiter=delimiter, quoting=quoting)  # type: ignore[arg-type]
         writer.writerow(col_types.keys())
 
-        for row in convert_rows(cursor, col_types):
+        for row in cursor:
+            json_row = row.to_json()
             csv_row: list[Any] = []
             for col_name, col_type in col_types.items():
-                val = row[col_name]
+                val = json_row[col_name]
                 if val is None:
                     csv_row.append('')
                 elif col_type.is_json_type() or col_type.is_array_type():

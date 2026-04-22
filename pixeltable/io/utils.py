@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import copy
-import json
 import os
 import tempfile
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
@@ -12,7 +11,6 @@ from typing import IO, Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 from pixeltable.catalog.globals import is_system_column_name
 from pixeltable.exprs.column_property_ref import ColumnPropertyRef
 from pixeltable.exprs.column_ref import ColumnRef
@@ -162,40 +160,3 @@ def atomic_write(file_path: Path, **open_kwargs: Any) -> Iterator[IO[str]]:
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
-
-
-def convert_rows(cursor: Iterable[Any], col_types: dict[str, ts.ColumnType]) -> Iterator[dict[str, Any]]:
-    """Convert raw cursor rows into json-serializable dicts.
-
-    Yields one dict per row with values converted as follows:
-    - None: preserved as None
-    - Timestamp, Date: ISO 8601 string
-    - UUID: string
-    - Array: Python list (via tolist())
-    - Json: validated for serializability, kept as native Python
-    - All others: unchanged
-    """
-    for row in cursor:
-        row_dict: dict[str, Any] = {}
-        for col_name, col_type in col_types.items():
-            val = row[col_name]
-            if val is None:
-                row_dict[col_name] = None
-            elif col_type.is_timestamp_type() or col_type.is_date_type():
-                row_dict[col_name] = val.isoformat()
-            elif col_type.is_uuid_type():
-                row_dict[col_name] = str(val)
-            elif col_type.is_array_type():
-                row_dict[col_name] = val.tolist()
-            elif col_type.is_json_type():
-                try:
-                    json.dumps(val)
-                except (TypeError, ValueError) as err:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_DATA_FORMAT,
-                        f'Column {col_name!r} contains a value that is not JSON-serializable: {err}',
-                    ) from err
-                row_dict[col_name] = val
-            else:
-                row_dict[col_name] = val
-        yield row_dict
