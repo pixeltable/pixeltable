@@ -246,7 +246,7 @@ def create_table(
         if isinstance(data_source, QueryTableDataConduit):
             query = data_source.pxt_query
             with get_runtime().catalog.begin_xact(
-                for_write=True, tvp_write_targets=[tbl._tbl_version_path], lock_mutable_tree=True
+                for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
             ):
                 tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
         elif data_source is not None and not is_direct_query:

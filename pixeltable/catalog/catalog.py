@@ -79,10 +79,10 @@ T = TypeVar('T')
 def retry_loop(
     *,
     for_write: bool = False,
-    tvp_read_targets: Collection[TableVersionPath] | None = None,
-    tbl_id_read_targets: Collection[UUID] | None = None,
-    tvp_write_targets: Collection[TableVersionPath] | None = None,
-    tbl_id_write_targets: Collection[UUID] | None = None,
+    read_tvps: Collection[TableVersionPath] | None = None,
+    read_tbl_ids: Collection[UUID] | None = None,
+    write_tvps: Collection[TableVersionPath] | None = None,
+    write_tbl_ids: Collection[UUID] | None = None,
     lock_mutable_tree: bool = False,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
@@ -102,10 +102,10 @@ def retry_loop(
                     assert not get_runtime().in_xact
                     with cat.begin_xact(
                         for_write=for_write,
-                        tvp_read_targets=tvp_read_targets,
-                        tbl_id_read_targets=tbl_id_read_targets,
-                        tvp_write_targets=tvp_write_targets,
-                        tbl_id_write_targets=tbl_id_write_targets,
+                        read_tvps=read_tvps,
+                        read_tbl_ids=read_tbl_ids,
+                        write_tvps=write_tvps,
+                        write_tbl_ids=write_tbl_ids,
                         convert_db_excs=False,
                         lock_mutable_tree=lock_mutable_tree,
                         finalize_pending_ops=True,
@@ -312,10 +312,10 @@ class Catalog:
         self,
         *,
         for_write: bool = False,
-        tvp_read_targets: Collection[TableVersionPath] | None = None,
-        tbl_id_read_targets: Collection[UUID] | None = None,
-        tvp_write_targets: Collection[TableVersionPath] | None = None,
-        tbl_id_write_targets: Collection[UUID] | None = None,
+        read_tvps: Collection[TableVersionPath] | None = None,
+        read_tbl_ids: Collection[UUID] | None = None,
+        write_tvps: Collection[TableVersionPath] | None = None,
+        write_tbl_ids: Collection[UUID] | None = None,
         lock_mutable_tree: bool = False,
         convert_db_excs: bool = True,
         finalize_pending_ops: bool = True,
@@ -327,9 +327,9 @@ class Catalog:
         or metadata.
 
         Locking protocol (via _acquire_locks()):
-        - write targets (tvp_write_targets, tbl_id_write_targets): x-locks each Table record (see
+        - write targets (write_tvps, write_tbl_ids): x-locks each Table record (see
           _acquire_write_lock() / _acquire_path_locks())
-        - read targets (tvp_read_targets, tbl_id_read_targets): refreshes the metadata cache, no x-lock
+        - read targets (read_tvps, read_tbl_ids): refreshes the metadata cache, no x-lock
         - if lock_mutable_tree == True, also x-locks all mutable views of each write target
         - if finalize_pending_ops == True and a PendingTableOpsError is raised, finalizes pending ops and retries
         - this needs to be done in a retry loop, because Postgres can abort the transaction
@@ -339,18 +339,16 @@ class Catalog:
 
         If convert_db_excs == True, converts DBAPIErrors into excs.Errors if possible.
         """
-        assert for_write or not (tvp_write_targets or tbl_id_write_targets), (
-            'for_write must be True when write targets are specified'
-        )
-        tvp_read_targets = tvp_read_targets or []
-        tvp_write_targets = tvp_write_targets or []
-        tbl_id_read_targets = tbl_id_read_targets or []
-        tbl_id_write_targets = tbl_id_write_targets or []
+        assert for_write or not (write_tvps or write_tbl_ids), 'for_write must be True when write targets are specified'
+        read_tvps = read_tvps or []
+        write_tvps = write_tvps or []
+        read_tbl_ids = read_tbl_ids or []
+        write_tbl_ids = write_tbl_ids or []
         if get_runtime().in_xact:
             # make sure all required locks are already being held
-            for tvp in tvp_write_targets:
+            for tvp in write_tvps:
                 assert tvp.tbl_id in self._x_locked_tbl_ids, f'{tvp.tbl_id} not locked: {self._x_locked_tbl_ids}'
-            for tbl_id in tbl_id_write_targets:
+            for tbl_id in write_tbl_ids:
                 assert tbl_id in self._x_locked_tbl_ids, f'{tbl_id} not locked: {self._x_locked_tbl_ids}'
             yield get_runtime().conn
             return
@@ -376,10 +374,10 @@ class Catalog:
                     with self._allow_tbl_md_read():
                         try:
                             self._acquire_locks(
-                                tvp_read_targets=tvp_read_targets,
-                                tbl_id_read_targets=tbl_id_read_targets,
-                                tvp_write_targets=tvp_write_targets,
-                                tbl_id_write_targets=tbl_id_write_targets,
+                                read_tvps=read_tvps,
+                                read_tbl_ids=read_tbl_ids,
+                                write_tvps=write_tvps,
+                                write_tbl_ids=write_tbl_ids,
                                 lock_mutable_tree=lock_mutable_tree,
                                 finalize_pending_ops=finalize_pending_ops,
                             )
@@ -425,9 +423,7 @@ class Catalog:
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
-                single_tbl, single_tbl_id = self._get_single_tbl(
-                    tvp_write_targets, tvp_read_targets, tbl_id_write_targets, tbl_id_read_targets
-                )
+                single_tbl, single_tbl_id = self._get_single_tbl(write_tvps, read_tvps, write_tbl_ids, read_tbl_ids)
                 self.convert_sql_exc(e, tbl_id=single_tbl_id, tbl=single_tbl, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
@@ -455,7 +451,7 @@ class Catalog:
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.key)
                     # Clear potentially corrupted cached metadata
-                    for tvp in [*tvp_write_targets, *tvp_read_targets]:
+                    for tvp in [*write_tvps, *read_tvps]:
                         tvp.clear_cached_md()
 
                 self._undo_actions.clear()
@@ -463,10 +459,10 @@ class Catalog:
 
     def _acquire_locks(
         self,
-        tvp_read_targets: Collection[TableVersionPath],
-        tbl_id_read_targets: Collection[UUID],
-        tvp_write_targets: Collection[TableVersionPath],
-        tbl_id_write_targets: Collection[UUID],
+        read_tvps: Collection[TableVersionPath],
+        read_tbl_ids: Collection[UUID],
+        write_tvps: Collection[TableVersionPath],
+        write_tbl_ids: Collection[UUID],
         lock_mutable_tree: bool = False,
         finalize_pending_ops: bool = True,
     ) -> None:
@@ -477,7 +473,7 @@ class Catalog:
         Refreshes the metadata cache for the read targets.
         """
         x_locked_ids: set[UUID] = set()
-        for tbl_id in tbl_id_write_targets:
+        for tbl_id in write_tbl_ids:
             if tbl_id in x_locked_ids:
                 continue
             x_locked_ids.update(
@@ -485,7 +481,7 @@ class Catalog:
                     tbl_id=tbl_id, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
                 )
             )
-        for tvp in tvp_write_targets:
+        for tvp in write_tvps:
             if tvp.tbl_id in x_locked_ids:
                 continue
             x_locked_ids.update(
@@ -493,9 +489,9 @@ class Catalog:
                     tbl=tvp, for_write=True, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
                 )
             )
-        for tbl_id in tbl_id_read_targets:
+        for tbl_id in read_tbl_ids:
             self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
-        for tvp in tvp_read_targets:
+        for tvp in read_tvps:
             self._acquire_path_locks(tbl=tvp, for_write=False, check_pending_ops=finalize_pending_ops)
 
         self._x_locked_tbl_ids = x_locked_ids
@@ -515,18 +511,18 @@ class Catalog:
 
     def _get_single_tbl(
         self,
-        tvp_write_targets: Collection[TableVersionPath],
-        tvp_read_targets: Collection[TableVersionPath],
-        tbl_id_write_targets: Collection[UUID],
-        tbl_id_read_targets: Collection[UUID],
+        write_tvps: Collection[TableVersionPath],
+        read_tvps: Collection[TableVersionPath],
+        write_tbl_ids: Collection[UUID],
+        read_tbl_ids: Collection[UUID],
     ) -> tuple[TableVersionHandle | None, UUID | None]:
         """Return (tbl, None) or (None, tbl_id) iff the transaction touches exactly one table; else (None, None)."""
-        total = len(tvp_write_targets) + len(tvp_read_targets) + len(tbl_id_read_targets) + len(tbl_id_write_targets)
+        total = len(write_tvps) + len(read_tvps) + len(read_tbl_ids) + len(write_tbl_ids)
         if total != 1:
             return None, None
-        if tvp_write_targets or tvp_read_targets:
-            return next(iter(tvp_write_targets or tvp_read_targets)).tbl_version, None
-        return None, next(iter(tbl_id_read_targets or tbl_id_write_targets))
+        if write_tvps or read_tvps:
+            return next(iter(write_tvps or read_tvps)).tbl_version, None
+        return None, next(iter(read_tbl_ids or write_tbl_ids))
 
     def convert_sql_exc(
         self,
@@ -757,7 +753,7 @@ class Catalog:
             try:
                 with (
                     self.begin_xact(
-                        for_write=True, tbl_id_write_targets=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
+                        for_write=True, write_tbl_ids=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
                     ) as conn,
                     self._allow_tbl_md_read(),
                 ):
@@ -869,7 +865,7 @@ class Catalog:
                 # inside a transaction and therefore wouldn't end up here
 
                 with self.begin_xact(
-                    for_write=True, tbl_id_write_targets=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
+                    for_write=True, write_tbl_ids=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
                 ) as conn:
                     _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                     if is_final_op:
@@ -927,7 +923,7 @@ class Catalog:
                     # we got an error for the last op and can abort this statement: switch to rollback mode
                     exc = e
                     with self.begin_xact(
-                        for_write=True, tbl_id_write_targets=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
+                        for_write=True, write_tbl_ids=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
                     ) as conn:
                         stmt = (
                             sql.update(schema.Table)
@@ -1322,7 +1318,7 @@ class Catalog:
         self._roll_forward_ids.clear()
         tbl_id, is_created = create_fn()
         self._roll_forward()
-        with self.begin_xact(for_write=True, tbl_id_write_targets=[tbl_id]):
+        with self.begin_xact(for_write=True, write_tbl_ids=[tbl_id]):
             tbl = self.get_table_by_id(tbl_id)
             _logger.info(f'Created table {tbl._name!r}, id={tbl._id}')
             Env.get().console_logger.info(f'Created table {tbl._name!r}.')
@@ -1394,11 +1390,11 @@ class Catalog:
 
         self._roll_forward()
 
-        with self.begin_xact(for_write=True, tbl_id_write_targets=[view_id]):
+        with self.begin_xact(for_write=True, write_tbl_ids=[view_id]):
             return self.get_table_by_id(view_id)
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
-        @retry_loop(for_write=True, tvp_write_targets=[tbl], lock_mutable_tree=False)
+        @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)
         def add_fn() -> None:
             tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None, None), validate_initialized=True)
             md, ops = tv.add_columns_ops(cols)

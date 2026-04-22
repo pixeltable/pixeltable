@@ -88,7 +88,7 @@ class TablePackager:
             json.dump(self.bundle_md, fp)
         self.tables_dir = self.tmp_dir / 'tables'
         self.tables_dir.mkdir()
-        with get_runtime().catalog.begin_xact(for_write=False, tvp_read_targets=[self.table._tbl_version_path]):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=[self.table._tbl_version_path]):
             for tv in self.table._tbl_version_path.get_tbl_versions():
                 _logger.info(f'Exporting table {tv.get().versioned_name!r}.')
                 self.__export_table(tv.get())

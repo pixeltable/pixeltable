@@ -336,7 +336,7 @@ class View(Table):
         base_tbl_id = self._base_tbl_id
         if base_tbl_id is None:
             return None
-        with get_runtime().catalog.begin_xact(tbl_id_read_targets=[base_tbl_id]):
+        with get_runtime().catalog.begin_xact(read_tbl_ids=[base_tbl_id]):
             return get_runtime().catalog.get_table_by_id(base_tbl_id)
 
     @property

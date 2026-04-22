@@ -152,7 +152,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
     # TODO: in order to avoid having to deal with ExprEvalError here, ResultSet should be an iterator
     # over _exec()
     try:
-        with get_runtime().catalog.begin_xact(for_write=False, tbl_id_read_targets=query.referenced_tbl_ids()):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=query.referenced_tbl_ids()):
             for data_row in query._exec():
                 num_batch_rows += 1
                 for (col_name, col_type), e in zip(query.schema.items(), query._select_list_exprs):
