@@ -347,12 +347,9 @@ class TestString:
 
     UNICODE_STRS = ('café', 'ñoño', 'straße', 'ÀÉÎÕÜ')
 
-    def test_c_locale_case_divergence(self, uses_db: None) -> None:
-        """`upper`/`lower`/`capitalize` return different results on SQL vs Python paths:
-        PG's `LC_CTYPE=C` case-folds ASCII only, so non-ASCII text yields wrong answers.
-
-        TODO: Fix this divergence. The SQL and Python paths should produce identical results
-        for all Unicode input. See PXT-1133.
+    def test_unicode_case(self, uses_db: None) -> None:
+        """`upper`/`lower`/`capitalize` produce identical, correct results on SQL and Python paths
+        for non-ASCII input.
         """
         t = pxt.create_table('test_tbl', {'idx': pxt.Int, 's': pxt.String})
         validate_update_status(
@@ -370,15 +367,12 @@ class TestString:
             py_expected = [str_fn(s) for s in self.UNICODE_STRS]
 
             assert py_actual == py_expected, pxt_fn
-            assert sql_actual != py_expected, pxt_fn
-            assert sql_actual != py_actual, pxt_fn
+            assert sql_actual == py_expected, pxt_fn
+            assert sql_actual == py_actual, pxt_fn
 
-    def test_c_locale_contains_and_filter_divergence(self, uses_db: None) -> None:
-        """Case-insensitive `contains` and `where(upper(...) == ...)` silently miss non-ASCII
-        rows when pushed to SQL: `WHERE` semantics depend on whether the planner pushes down.
-
-        TODO: Fix this divergence. The SQL and Python paths should produce identical results
-        for all Unicode input. See PXT-1133.
+    def test_unicode_contains_and_filter(self, uses_db: None) -> None:
+        """Case-insensitive `contains` and `where(upper(...) == ...)` produce identical, correct
+        results on SQL and Python paths for non-ASCII input.
         """
         t = pxt.create_table('test_tbl', {'idx': pxt.Int, 's': pxt.String})
         validate_update_status(
@@ -391,8 +385,8 @@ class TestString:
         py_expected = [needle.lower() in s.lower() for s in self.UNICODE_STRS]
 
         assert py_actual == py_expected
-        assert sql_actual != py_expected
-        assert sql_actual != py_actual
+        assert sql_actual == py_expected
+        assert sql_actual == py_actual
 
         needle_upper = 'CAFÉ'
         sql_hits = sorted(t.where(upper(t.s) == needle_upper).select(t.s).collect()['s'])
@@ -400,15 +394,12 @@ class TestString:
         py_hits_expected = sorted(s for s in self.UNICODE_STRS if s.upper() == needle_upper)
 
         assert py_hits == py_hits_expected
-        assert sql_hits != py_hits_expected
-        assert sql_hits != py_hits
+        assert sql_hits == py_hits_expected
+        assert sql_hits == py_hits
 
-    def test_computed_column_vs_live_select_divergence(self, uses_db: None) -> None:
-        """Insert-time computed-column materialization runs in Python, but live `select upper(t.s)`
-        runs in SQL; the same expression yields two different values, breaking `where(upper(t.s) == t.upper_s)`.
-
-        TODO: Fix this divergence. The SQL and Python paths should produce identical results
-        for all Unicode input. See PXT-1133.
+    def test_computed_column_vs_live_select_unicode(self, uses_db: None) -> None:
+        """Insert-time computed-column materialization (Python) and live `select upper(t.s)` (SQL)
+        produce identical results on non-ASCII input, so `where(upper(t.s) == t.upper_s)` is a tautology.
         """
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         t.add_computed_column(upper_s=upper(t.s))
@@ -419,8 +410,8 @@ class TestString:
         live = t.select(out=upper(t.s)).collect()['out'][0]
 
         assert stored == s.upper()
-        assert live != s.upper()
-        assert stored != live
+        assert live == s.upper()
+        assert stored == live
 
         tautology_hits = list(t.where(upper(t.s) == t.upper_s).select(t.s).collect()['s'])
-        assert tautology_hits == []
+        assert tautology_hits == [s]
