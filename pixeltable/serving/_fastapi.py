@@ -462,45 +462,98 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
     def add_update_route(
-            self,
-            t: pxt.Table,
-            *,
-            path: str,
-            inputs: list[str] | None = None,
-            uploadfile_inputs: list[str] | None = None,
-            outputs: list[str] | None = None,
-            return_fileresponse: bool = False,
-            background: bool = False,
+        self,
+        t: pxt.Table,
+        *,
+        path: str,
+        inputs: list[str] | None = None,
+        uploadfile_inputs: list[str] | None = None,
+        outputs: list[str] | None = None,
+        return_fileresponse: bool = False,
+        background: bool = False,
     ) -> None:
         """
-        Add a POST endpoint that updates a single row in `t`, identified by its primary key, and returns the
-        newly-updated row. The update is performed as a `Table.batch_update()` with the primary key columns and the
-        columns referenced in `inputs`.
+        Add a POST endpoint that updates a single row in `t` and returns the updated row.
+        The row to update is identified by its primary key, which must be included in the
+        request body alongside the input column values. The update is performed via
+        [`batch_update()`][pixeltable.Table.batch_update] using the primary key columns and
+        the columns referenced in `inputs`.
 
-        The request body contains values for the primary key columns plus the input columns as JSON fields (or as
+        The request body contains values for the primary key columns plus the input columns
+        as JSON fields (or as
         [multipart form data](https://fastapi.tiangolo.com/tutorial/request-files/) when
-        `uploadfile_inputs` is used). The response is a JSON object with the output column values,
-        or a [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse)
+        `uploadfile_inputs` is used). The response is a JSON object with the output column
+        values, or a
+        [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse)
         when `return_fileresponse=True`.
 
         Args:
-            t: The table to insert into.
+            t: The table to update.
             path: The URL path for the endpoint.
-            inputs: Column to be updated. Defaults to all non-computed, non-primary key columns.
+            inputs: Columns to accept as request fields, excluding primary key columns
+                (which are always included). Defaults to all non-computed, non-primary-key
+                columns.
             uploadfile_inputs: Columns to accept as
                 [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
                 (must be media-typed). These are sent as multipart form data; all other inputs
                 become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
-            outputs: Columns to include in the response. Defaults to all columns (including inputs).
+            outputs: Columns to include in the response. Defaults to all columns (including
+                inputs).
             return_fileresponse: If True, return the single media-typed output column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
                 Requires exactly one media-typed output column.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
-                the insert in a background thread. Poll `job_url` for the result. Mutually
+                the update in a background thread. Poll `job_url` for the result. Mutually
                 exclusive with `return_fileresponse`.
 
         Examples:
+            JSON request/response (table has primary key `id`):
+
+            ```python
+            router.add_update_route(t, path='/update', inputs=['prompt'], outputs=['prompt', 'result'])
+            ```
+
+            ```bash
+            curl -X POST http://localhost:8000/update \
+              -H 'Content-Type: application/json' \
+              -d '{"id": 1, "prompt": "a sunset over the ocean"}'
+            # {"prompt": "a sunset over the ocean", "result": "..."}
+            ```
+
+            File upload:
+
+            ```python
+            router.add_update_route(
+                t, path='/replace-image', inputs=['width', 'height'],
+                uploadfile_inputs=['image'], outputs=['resized'], return_fileresponse=True,
+            )
+            ```
+
+            ```bash
+            curl -X POST http://localhost:8000/replace-image \
+              -F id=1 -F image=@photo.jpg -F width=640 -F height=480 \
+              --output resized.jpg
+            ```
+
+            Background processing:
+
+            ```python
+            router.add_update_route(t, path='/slow-update', background=True)
+            ```
+
+            ```bash
+            # submit
+            curl -X POST http://localhost:8000/slow-update \
+              -H 'Content-Type: application/json' \
+              -d '{"id": 1, "prompt": "hello"}'
+            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
+
+            # poll
+            curl http://localhost:8000/jobs/abc123
+            # {"status": "done", "result": {...}}
+            ```
         """
+        pass
 
     def add_delete_route(
         self, t: pxt.Table, *, path: str, match_columns: list[str] | None = None, background: bool = False
