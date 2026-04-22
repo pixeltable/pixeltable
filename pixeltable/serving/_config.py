@@ -4,89 +4,19 @@ from __future__ import annotations
 
 import importlib
 import logging
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import pydantic
 
 import pixeltable as pxt
 import pixeltable.func as func
-from pixeltable import exceptions as excs
-from pixeltable.config import Config
+from pixeltable import config, exceptions as excs
 from pixeltable.env import Env
 
 if TYPE_CHECKING:
     import fastapi
 
 _logger = logging.getLogger('pixeltable')
-
-
-# Pydantic models for TOML validation --
-
-
-class ServiceConfig(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    title: str = 'Pixeltable'
-    prefix: str = ''
-    host: str = '0.0.0.0'
-    port: int = 8000
-
-    @pydantic.field_validator('prefix')
-    @classmethod
-    def _validate_prefix(cls, v: str) -> str:
-        if v and not v.startswith('/'):
-            raise ValueError(f"prefix must be empty or start with '/' (got {v!r})")
-        return v
-
-
-class RouteConfigBase(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    path: str
-    background: bool = False
-
-    @pydantic.field_validator('path')
-    @classmethod
-    def _validate_path(cls, v: str) -> str:
-        if not v.startswith('/'):
-            raise ValueError(f"path must start with '/' (got {v!r})")
-        return v
-
-
-class InsertRouteConfig(RouteConfigBase):
-    type: Literal['insert']
-    table: str
-    inputs: list[str] | None = None
-    uploadfile_inputs: list[str] | None = None
-    outputs: list[str] | None = None
-    return_fileresponse: bool = False
-
-
-class DeleteRouteConfig(RouteConfigBase):
-    type: Literal['delete']
-    table: str
-    match_columns: list[str] | None = None
-
-
-class QueryRouteConfig(RouteConfigBase):
-    type: Literal['query']
-    query: str  # dotted Python path to a @pxt.query or retrieval_udf
-    inputs: list[str] | None = None
-    uploadfile_inputs: list[str] | None = None
-    one_row: bool = False
-    return_fileresponse: bool = False
-    method: Literal['get', 'post'] = 'post'
-
-
-RouteConfig = Annotated[InsertRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')]
-
-
-class AppConfig(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    service: ServiceConfig = pydantic.Field(default_factory=ServiceConfig)
-    modules: list[str] = pydantic.Field(default_factory=list)
-    routes: list[RouteConfig]
 
 
 def _resolve_dotted_path(dotted: str) -> Any:
@@ -113,28 +43,23 @@ def _resolve_dotted_path(dotted: str) -> Any:
     return getattr(module, attr_name)
 
 
-def load_app_config(service_name: str) -> AppConfig:
-    raw_configs = Config.get().get_list_value('service') or []
-    if len(raw_configs) == 0:
+def lookup_service_config(service_name: str) -> config.ServiceConfig:
+    services = config.Config.get().get_value('service', list[config.ServiceConfig])
+    if len(services) == 0:
         raise excs.NotFoundError(excs.ErrorCode.SERVICE_NOT_FOUND, 'No services found in Pixeltable configuration.')
 
-    try:
-        app_configs = [AppConfig.model_validate(cfg) for cfg in raw_configs]
-    except pydantic.ValidationError as e:
-        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid services configuration:\n{e}') from e
-
-    cfg = next((cfg for cfg in app_configs if cfg.service.title == service_name), None)
+    cfg = next((cfg for cfg in services if cfg.name == service_name), None)
     if cfg is None:
         raise excs.NotFoundError(
             excs.ErrorCode.SERVICE_NOT_FOUND,
             f'Service {service_name!r} not found. The following services are configured:\n'
-            f'{[cfg.service.title for cfg in app_configs]}',
+            f'{", ".join(cfg.name for cfg in services)}',
         )
 
     return cfg
 
 
-def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
+def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
     """Build a FastAPI instance from an AppConfig"""
     Env.get().require_package('fastapi')
     import fastapi
@@ -142,7 +67,7 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
     from pixeltable.serving import FastAPIRouter
 
     # import user modules so @pxt.query / retrieval_udf definitions are registered
-    for mod_path in config.modules:
+    for mod_path in cfg.modules:
         _logger.info(f'importing module: {mod_path}')
         try:
             importlib.import_module(mod_path)
@@ -151,11 +76,11 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
                 excs.ErrorCode.INVALID_CONFIGURATION, f'could not import module {mod_path!r} listed in `modules`: {e}'
             ) from e
 
-    app = fastapi.FastAPI(title=config.service.title)
+    app = fastapi.FastAPI(title=cfg.name)
     router = FastAPIRouter()
 
-    for route in config.routes:
-        if isinstance(route, InsertRouteConfig):
+    for route in cfg.routes:
+        if isinstance(route, config.InsertRouteConfig):
             t = pxt.get_table(route.table)
             router.add_insert_route(
                 t,
@@ -166,10 +91,10 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
                 return_fileresponse=route.return_fileresponse,
                 background=route.background,
             )
-        elif isinstance(route, DeleteRouteConfig):
+        elif isinstance(route, config.DeleteRouteConfig):
             t = pxt.get_table(route.table)
             router.add_delete_route(t, path=route.path, match_columns=route.match_columns, background=route.background)
-        elif isinstance(route, QueryRouteConfig):
+        elif isinstance(route, config.QueryRouteConfig):
             query_fn = _resolve_dotted_path(route.query)
             if not isinstance(query_fn, func.QueryTemplateFunction):
                 raise excs.RequestError(
@@ -189,5 +114,5 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
             )
         _logger.info(f'registered {route.type} route: {route.path}')
 
-    app.include_router(router, prefix=config.service.prefix)
+    app.include_router(router, prefix=cfg.prefix)
     return app

@@ -5,9 +5,11 @@ import logging
 import os
 import shutil
 import threading
+import typing
 from pathlib import Path
-from typing import Any, ClassVar, TypeVar
+from typing import Annotated, Any, ClassVar, Literal, TypeVar
 
+import pydantic
 import toml
 
 from pixeltable import exceptions as excs
@@ -15,6 +17,68 @@ from pixeltable import exceptions as excs
 _logger = logging.getLogger('pixeltable')
 
 T = TypeVar('T')
+
+
+# Pydantic models for service and deployment configuration.
+
+
+class RouteConfigBase(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    path: str
+    background: bool = False
+
+    @pydantic.field_validator('path')
+    @classmethod
+    def _validate_path(cls, v: str) -> str:
+        if not v.startswith('/'):
+            raise ValueError(f"path must start with '/' (got {v!r})")
+        return v
+
+
+class InsertRouteConfig(RouteConfigBase):
+    type: Literal['insert']
+    table: str
+    inputs: list[str] | None = None
+    uploadfile_inputs: list[str] | None = None
+    outputs: list[str] | None = None
+    return_fileresponse: bool = False
+
+
+class DeleteRouteConfig(RouteConfigBase):
+    type: Literal['delete']
+    table: str
+    match_columns: list[str] | None = None
+
+
+class QueryRouteConfig(RouteConfigBase):
+    type: Literal['query']
+    query: str  # dotted Python path to a @pxt.query or retrieval_udf
+    inputs: list[str] | None = None
+    uploadfile_inputs: list[str] | None = None
+    one_row: bool = False
+    return_fileresponse: bool = False
+    method: Literal['get', 'post'] = 'post'
+
+
+RouteConfig = Annotated[InsertRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')]
+
+
+class ServiceConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    name: str
+    prefix: str = ''
+    host: str = '0.0.0.0'
+    port: int = 8000
+    routes: list[RouteConfig]
+
+    @pydantic.field_validator('prefix')
+    @classmethod
+    def _validate_prefix(cls, v: str) -> str:
+        if v and not v.startswith('/'):
+            raise ValueError(f"prefix must be empty or start with '/' (got {v!r})")
+        return v
 
 
 class Config:
@@ -31,7 +95,7 @@ class Config:
     __config_overrides: dict[str, Any]
     __config_dict: dict[str, Any]
 
-    def __init__(self, config_overrides: dict[str, Any]) -> None:
+    def __init__(self, config_overrides: dict[str, Any], additional_config_files: list[str]) -> None:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
 
         for var in config_overrides:
@@ -82,13 +146,15 @@ class Config:
         return cls.__instance
 
     @classmethod
-    def init(cls, config_overrides: dict[str, Any], reinit: bool = False) -> None:
+    def init(cls, config_overrides: dict[str, Any], additional_config_files: list[str] | None = None, reinit: bool = False) -> None:
+        if additional_config_files is None:
+            additional_config_files = []
         with cls.__init_lock:
             if reinit:
                 cls.__instance = None
             if cls.__instance is None:
-                cls.__instance = cls(config_overrides)
-            elif len(config_overrides) > 0:
+                cls.__instance = cls(config_overrides, additional_config_files)
+            elif len(config_overrides) > 0 or len(additional_config_files) > 0:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_STATE,
                     'Pixeltable has already been initialized; cannot specify new config values in the same session',
@@ -129,7 +195,7 @@ class Config:
         `[tool.pixeltable.pixeltable]` is shortened to `[tool.pixeltable]`.
         """
         pyproject = cls.__read_toml_file(path)
-        config_dict = pyproject.get('tool', {}).get('pixeltable')
+        config_dict = pyproject.get('tool', {}).get('pixeltable', {})
         if not isinstance(config_dict, dict):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION, f"Expected a table for '[tool.pixeltable]' in config file: {path}"
@@ -181,6 +247,32 @@ class Config:
                         excs.ErrorCode.INVALID_CONFIGURATION,
                         f"Unrecognized option '{section}.{key}' in config file: {source}",
                     )
+                info = KNOWN_CONFIG_OPTIONS[section][key]
+                if isinstance(info, tuple):
+                    _, expected_type = info
+                    section_dict[key] = cls.__validate_config_item(section, key, section_dict[key], expected_type, source)
+
+    @classmethod
+    def __validate_config_item(cls, section: str, key: str, item: Any, expected_type: type, source: Path) -> Any:
+        origin_t = typing.get_origin(expected_type) or expected_type
+        # Currently only list[PydanticModel] validation is supported.
+        # TODO: Introduce fail-fast config validation for more types
+        assert origin_t is list
+        if not isinstance(item, origin_t):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f"Invalid type for option '{section}.{key}' in config file: {source}\n"
+                f'(expected `{origin_t.__name__}`, got `{type(item).__name__}`)',
+            )
+        subscript = typing.get_args(expected_type)
+        assert subscript is not None and len(subscript) == 1 and issubclass(subscript[0], pydantic.BaseModel)
+        model_type = subscript[0]
+        try:
+            return [model_type.model_validate(entry) for entry in item]
+        except pydantic.ValidationError as e:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid `{subscript[0].__name__}` in config file: {source}\n{e}'
+            ) from e
 
     @classmethod
     def __merge_config(cls, base: dict[str, Any], overlay: dict[str, Any]) -> None:
@@ -272,7 +364,8 @@ KNOWN_CONFIG_OPTIONS = {
         's3_profile': 'AWS config profile name used to access S3 storage',
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
-        'deployment': 'Deployment configuration',
+        'service': ('Service configurations', list[ServiceConfig]),
+        'deployment': 'Deployment configurations',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},

@@ -192,10 +192,10 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
 
 
 def _serve(args: argparse.Namespace) -> None:
-    from pixeltable.serving._config import AppConfig, ServiceConfig, create_app_from_config, load_app_config
+    from pixeltable.serving._config import AppConfig, ServiceConfig, create_service_from_config, lookup_service_config
 
     if args.mode == 'config':
-        config = load_app_config(args.config)
+        config = lookup_service_config(args.config)
     else:
         try:
             route = _build_route_from_args(args)
@@ -219,7 +219,7 @@ def _serve(args: argparse.Namespace) -> None:
         _print_dry_run(config, args.json)
         return
 
-    _run(config, create_app_from_config(config), args.json)
+    _run(config, create_service_from_config(config), args.json)
 
 
 def _print_dry_run(config: 'AppConfig', json_output: bool) -> None:

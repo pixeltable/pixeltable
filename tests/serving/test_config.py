@@ -13,8 +13,8 @@ from pixeltable.serving._config import (
     AppConfig,
     QueryRouteConfig,
     ServiceConfig,
-    create_app_from_config,
-    load_app_config,
+    create_service_from_config,
+    lookup_service_config,
 )
 from tests.utils import skip_test_if_not_installed
 
@@ -48,12 +48,12 @@ class TestConfig:
             config_path = f.name
 
         try:
-            config = load_app_config(config_path)
+            config = lookup_service_config(config_path)
             assert config.service.title == 'Test Service'
             assert config.service.port == 9999
             assert len(config.routes) == 2
 
-            app = create_app_from_config(config)
+            app = create_service_from_config(config)
             client = TestClient(app)
 
             # insert
@@ -117,8 +117,8 @@ class TestConfig:
                 toml.dump(config_dict, f)
                 config_path = f.name
 
-            config = load_app_config(config_path)
-            app = create_app_from_config(config)
+            config = lookup_service_config(config_path)
+            app = create_service_from_config(config)
             client = TestClient(app)
 
             resp = client.post('/search', json={'min_id': 2})
@@ -157,7 +157,7 @@ class TestConfig:
                 config_path = f.name
             try:
                 with pytest.raises(pxt.Error, match=expected_substring):
-                    load_app_config(config_path)
+                    lookup_service_config(config_path)
             finally:
                 os.unlink(config_path)
 
@@ -170,19 +170,19 @@ class TestConfig:
 
         # query reference without a dot
         with pytest.raises(pxt.Error, match='invalid query reference'):
-            create_app_from_config(_query_app('noseparator'))
+            create_service_from_config(_query_app('noseparator'))
 
         # query module not importable
         with pytest.raises(pxt.Error, match='could not import module'):
-            create_app_from_config(_query_app('definitely_not_a_real_module_xyz.search'))
+            create_service_from_config(_query_app('definitely_not_a_real_module_xyz.search'))
 
         # query module exists but attribute is missing
         with pytest.raises(pxt.Error, match='has no attribute'):
-            create_app_from_config(_query_app('os.this_attr_does_not_exist'))
+            create_service_from_config(_query_app('os.this_attr_does_not_exist'))
 
         # query resolves to something that isn't a @pxt.query
         with pytest.raises(pxt.Error, match=r'expected a @pxt\.query'):
-            create_app_from_config(_query_app('os.getcwd'))
+            create_service_from_config(_query_app('os.getcwd'))
 
         # `modules` entry that fails to import
         bad_modules_app = AppConfig(
@@ -191,4 +191,4 @@ class TestConfig:
             routes=[QueryRouteConfig(type='query', path='/x', query='os.getcwd')],
         )
         with pytest.raises(pxt.Error, match='listed in `modules`'):
-            create_app_from_config(bad_modules_app)
+            create_service_from_config(bad_modules_app)
