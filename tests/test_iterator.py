@@ -711,10 +711,10 @@ class TestIterator:
             assert v2.icol.col.is_iterator_col
             assert v2._tbl_version.get().is_iterator_column(v2.icol.col)
 
-            assert not v1.pos.col.is_iterator_col
-            assert not v1._tbl_version.get().is_iterator_column(v1.pos.col)
-            assert not v2.pos.col.is_iterator_col
-            assert not v2._tbl_version.get().is_iterator_column(v2.pos.col)
+            assert v1.pos.col.is_iterator_col
+            assert v1._tbl_version.get().is_iterator_column(v1.pos.col)
+            assert v2.pos.col.is_iterator_col
+            assert v2._tbl_version.get().is_iterator_column(v2.pos.col)
 
             assert not v1.additional_col_1.col.is_iterator_col
             assert not v1._tbl_version.get().is_iterator_column(v1.additional_col_1.col)
@@ -730,14 +730,19 @@ class TestIterator:
             assert v2.icol_1.col.is_iterator_col
             assert v2._tbl_version.get().is_iterator_column(v2.icol_1.col)
 
-            assert not v2.pos_1.col.is_iterator_col
-            assert not v2._tbl_version.get().is_iterator_column(v2.pos_1.col)
+            assert v2.pos_1.col.is_iterator_col
+            assert v2._tbl_version.get().is_iterator_column(v2.pos_1.col)
 
             assert not v2.additional_col_2.col.is_iterator_col
             assert not v2._tbl_version.get().is_iterator_column(v2.additional_col_2.col)
 
-            assert v1._tbl_version.get().iterator_columns() == [v1.icol.col, v1.scol.col, v1.acol.col]
-            assert v2._tbl_version.get().iterator_columns() == [v2.icol_1.col, v2.scol_1.col, v2.acol_1.col]
+            assert v1._tbl_version.get().iterator_columns() == [v1.pos.col, v1.icol.col, v1.scol.col, v1.acol.col]
+            assert v2._tbl_version.get().iterator_columns() == [
+                v2.pos_1.col,
+                v2.icol_1.col,
+                v2.scol_1.col,
+                v2.acol_1.col,
+            ]
 
             reload_catalog()
             v1 = pxt.get_table('v1')

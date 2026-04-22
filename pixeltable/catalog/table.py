@@ -451,9 +451,7 @@ class Table(SchemaObject):
         for i, col in enumerate(cols):
             computed_with = col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
             source_tv = col.get_tbl()
-            if source_tv.is_iterator_column(col) or (source_tv.is_component_view and col.id == 0):
-                # col is an iterator column (including the special "pos" column) of an iterator view. Computed With
-                # should be the iterator class name.
+            if source_tv.is_iterator_column(col):
                 assert source_tv.iterator_call is not None
                 computed_with = source_tv.iterator_call.it.name
 

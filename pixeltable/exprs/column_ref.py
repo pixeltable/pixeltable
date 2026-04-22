@@ -80,7 +80,8 @@ class ColumnRef(Expr):
         self.reference_tbl = reference_tbl
         self.col_handle = col.handle
 
-        self.is_unstored_iter_col = col.is_iterator_col and not col.is_stored
+        # pos (id=0) is an unstored iterator column, but its value comes from the PK, not the iterator output dict
+        self.is_unstored_iter_col = col.is_iterator_col and not col.is_stored and col.id != 0
         self.iter_arg_ctx = None
         self.iter_outputs = None
         self.base_rowid_len = 0
