@@ -135,10 +135,11 @@ def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> list[Expr]:
         if isinstance(expr, ColumnRef) and expr.col_type.is_media_type():
             result.append(ColumnPropertyRef(expr, ColumnPropertyRef.Property.FILEURL))
         elif expr.col_type.is_media_type():
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Cannot export media expression {expr!r}: only stored media columns can be serialized. '
                 f'Materialize it as a computed column, or select its underlying '
-                f'column via `.fileurl` instead.'
+                f'column via `.fileurl` instead.',
             )
         else:
             result.append(expr)
@@ -190,8 +191,9 @@ def convert_rows(cursor: Iterable[Any], col_types: dict[str, ts.ColumnType]) -> 
                 try:
                     json.dumps(val)
                 except (TypeError, ValueError) as err:
-                    raise excs.Error(
-                        f'Column {col_name!r} contains a value that is not JSON-serializable: {err}'
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_DATA_FORMAT,
+                        f'Column {col_name!r} contains a value that is not JSON-serializable: {err}',
                     ) from err
                 row_dict[col_name] = val
             else:
