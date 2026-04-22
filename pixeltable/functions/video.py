@@ -262,7 +262,9 @@ def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | No
             return None
 
     except Exception as e:
-        raise pxt.Error(f'extract_frame(): failed to extract frame: {e}') from e
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'extract_frame(): failed to extract frame: {e}'
+        ) from e
 
 
 @pxt.udf(is_method=True)
@@ -305,18 +307,24 @@ def clip(
     """
     Env.get().require_binary('ffmpeg')
     if start_time < 0:
-        raise pxt.Error(f'start_time must be non-negative, got {start_time}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'start_time must be non-negative, got {start_time}')
     if end_time is not None and end_time <= start_time:
-        raise pxt.Error(f'end_time ({end_time}) must be greater than start_time ({start_time})')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'end_time ({end_time}) must be greater than start_time ({start_time})'
+        )
     if duration is not None and duration <= 0:
-        raise pxt.Error(f'duration must be positive, got {duration}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'duration must be positive, got {duration}')
     if end_time is not None and duration is not None:
-        raise pxt.Error('end_time and duration cannot both be specified')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, 'end_time and duration cannot both be specified')
     if mode == 'fast':
         if video_encoder is not None:
-            raise pxt.Error("video_encoder is not supported for mode='fast'")
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, "video_encoder is not supported for mode='fast'"
+            )
         if video_encoder_args is not None:
-            raise pxt.Error("video_encoder_args is not supported for mode='fast'")
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, "video_encoder_args is not supported for mode='fast'"
+            )
 
     video_duration = av_utils.get_video_duration(video)
     if video_duration is not None and start_time > video_duration:
@@ -404,16 +412,22 @@ def segment_video(
     """
     Env.get().require_binary('ffmpeg')
     if duration is not None and segment_times is not None:
-        raise pxt.Error('duration and segment_times cannot both be specified')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, 'duration and segment_times cannot both be specified'
+        )
     if duration is not None and duration <= 0:
-        raise pxt.Error(f'duration must be positive, got {duration}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'duration must be positive, got {duration}')
     if segment_times is not None and len(segment_times) == 0:
-        raise pxt.Error('segment_times cannot be empty')
+        raise pxt.RequestError(pxt.ErrorCode.MISSING_REQUIRED, 'segment_times cannot be empty')
     if mode == 'fast':
         if video_encoder is not None:
-            raise pxt.Error("video_encoder is not supported for mode='fast'")
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, "video_encoder is not supported for mode='fast'"
+            )
         if video_encoder_args is not None:
-            raise pxt.Error("video_encoder_args is not supported for mode='fast'")
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, "video_encoder_args is not supported for mode='fast'"
+            )
 
     base_path = TempStore.create_path(extension='')
 
@@ -500,17 +514,20 @@ def _concat_videos(
         metadata = av_utils.get_metadata(str(video))
         video_stream = next((stream for stream in metadata['streams'] if stream['type'] == 'video'), None)
         if video_stream is None:
-            raise pxt.Error(f'{error_prefix}: file {video!r} has no video stream')
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: file {video!r} has no video stream'
+            )
         resolutions.append((video_stream['width'], video_stream['height']))
 
     # check for divergence
     x0, y0 = resolutions[0]
     for i, (x, y) in enumerate(resolutions[1:], start=1):
         if (x0, y0) != (x, y):
-            raise pxt.Error(
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
                 f'{error_prefix}: requires that all videos have the same resolution, but:'
                 f'\n  video 0 ({videos[0]!r}): {x0}x{y0}'
-                f'\n  video {i} ({videos[i]!r}): {x}x{y}.'
+                f'\n  video {i} ({videos[i]!r}): {x}x{y}.',
             )
 
     # ffmpeg -f concat needs an input file list
@@ -711,13 +728,17 @@ def with_audio(
     """
     Env.get().require_binary('ffmpeg')
     if video_start_time < 0:
-        raise pxt.Error(f'video_offset must be non-negative, got {video_start_time}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'video_offset must be non-negative, got {video_start_time}'
+        )
     if audio_start_time < 0:
-        raise pxt.Error(f'audio_offset must be non-negative, got {audio_start_time}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'audio_offset must be non-negative, got {audio_start_time}'
+        )
     if video_duration is not None and video_duration <= 0:
-        raise pxt.Error(f'video_duration must be positive, got {video_duration}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'video_duration must be positive, got {video_duration}')
     if audio_duration is not None and audio_duration <= 0:
-        raise pxt.Error(f'audio_duration must be positive, got {audio_duration}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'audio_duration must be positive, got {audio_duration}')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
 
@@ -803,13 +824,17 @@ def mix_audio(
     """
     Env.get().require_binary('ffmpeg')
     if audio_volume < 0:
-        raise pxt.Error(f'audio_volume must be non-negative, got {audio_volume}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'audio_volume must be non-negative, got {audio_volume}')
     if original_volume < 0:
-        raise pxt.Error(f'original_volume must be non-negative, got {original_volume}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'original_volume must be non-negative, got {original_volume}'
+        )
     if audio_start_time < 0:
-        raise pxt.Error(f'audio_start_time must be non-negative, got {audio_start_time}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'audio_start_time must be non-negative, got {audio_start_time}'
+        )
     if not av_utils.has_audio_stream(str(video)):
-        raise pxt.Error('mix_audio() requires a video with an audio stream')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, 'mix_audio() requires a video with an audio stream')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
 
@@ -924,15 +949,21 @@ def overlay_text(
     """
     Env.get().require_binary('ffmpeg')
     if font_size <= 0:
-        raise pxt.Error(f'font_size must be positive, got {font_size}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'font_size must be positive, got {font_size}')
     if opacity < 0.0 or opacity > 1.0:
-        raise pxt.Error(f'opacity must be between 0.0 and 1.0, got {opacity}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'opacity must be between 0.0 and 1.0, got {opacity}')
     if horizontal_margin < 0:
-        raise pxt.Error(f'horizontal_margin must be non-negative, got {horizontal_margin}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'horizontal_margin must be non-negative, got {horizontal_margin}'
+        )
     if vertical_margin < 0:
-        raise pxt.Error(f'vertical_margin must be non-negative, got {vertical_margin}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'vertical_margin must be non-negative, got {vertical_margin}'
+        )
     if box_opacity < 0.0 or box_opacity > 1.0:
-        raise pxt.Error(f'box_opacity must be between 0.0 and 1.0, got {box_opacity}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'box_opacity must be between 0.0 and 1.0, got {box_opacity}'
+        )
     if box_border is not None and not (
         isinstance(box_border, (list, tuple))
         and len(box_border) >= 1
@@ -940,16 +971,22 @@ def overlay_text(
         and all(isinstance(x, int) for x in box_border)
         and all(x >= 0 for x in box_border)
     ):
-        raise pxt.Error(f'box_border must be a list or tuple of 1-4 non-negative ints, got {box_border!s} instead')
+        raise pxt.RequestError(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            f'box_border must be a list or tuple of 1-4 non-negative ints, got {box_border!s} instead',
+        )
 
     output_path = str(TempStore.create_path(extension='.mp4'))
 
     if start_time is not None and start_time < 0:
-        raise pxt.Error(f'start_time must be non-negative, got {start_time}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'start_time must be non-negative, got {start_time}')
     if end_time is not None and end_time < 0:
-        raise pxt.Error(f'end_time must be non-negative, got {end_time}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'end_time must be non-negative, got {end_time}')
     if start_time is not None and end_time is not None and start_time >= end_time:
-        raise pxt.Error(f'start_time must be less than end_time, got start_time={start_time}, end_time={end_time}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'start_time must be less than end_time, got start_time={start_time}, end_time={end_time}',
+        )
 
     drawtext_params = _create_drawtext_params(
         text,
@@ -1108,19 +1145,26 @@ def overlay_image(
     """
     Env.get().require_binary('ffmpeg')
     if horizontal_margin < 0:
-        raise pxt.Error(f'horizontal_margin must be non-negative, got {horizontal_margin}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'horizontal_margin must be non-negative, got {horizontal_margin}'
+        )
     if vertical_margin < 0:
-        raise pxt.Error(f'vertical_margin must be non-negative, got {vertical_margin}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'vertical_margin must be non-negative, got {vertical_margin}'
+        )
     if opacity < 0.0 or opacity > 1.0:
-        raise pxt.Error(f'opacity must be between 0.0 and 1.0, got {opacity}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'opacity must be between 0.0 and 1.0, got {opacity}')
     if scale is not None and scale <= 0:
-        raise pxt.Error(f'scale must be positive, got {scale}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'scale must be positive, got {scale}')
     if start_time is not None and start_time < 0:
-        raise pxt.Error(f'start_time must be non-negative, got {start_time}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'start_time must be non-negative, got {start_time}')
     if end_time is not None and end_time < 0:
-        raise pxt.Error(f'end_time must be non-negative, got {end_time}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'end_time must be non-negative, got {end_time}')
     if start_time is not None and end_time is not None and start_time >= end_time:
-        raise pxt.Error(f'start_time must be less than end_time, got start_time={start_time}, end_time={end_time}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'start_time must be less than end_time, got start_time={start_time}, end_time={end_time}',
+        )
 
     output_path = str(TempStore.create_path(extension='.mp4'))
 
@@ -1247,9 +1291,14 @@ def crop(
     Env.get().require_binary('ffmpeg')
 
     if len(bbox) != 4 or not all(isinstance(x, int) for x in bbox) or not all(x >= 0 for x in bbox):
-        raise pxt.Error(f'bbox must have exactly 4 non-negative integers, got {bbox}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'bbox must have exactly 4 non-negative integers, got {bbox}'
+        )
     if bbox_format == 'xyxy' and (bbox[2] <= bbox[0] or bbox[3] <= bbox[1]):
-        raise pxt.Error(f'x2 must be greater than x1 and y2 must be greater than y1 for xyxy format, got {bbox}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'x2 must be greater than x1 and y2 must be greater than y1 for xyxy format, got {bbox}',
+        )
 
     # normalize to xywh
     x: int
@@ -1267,7 +1316,10 @@ def crop(
         x = cx - w // 2
         y = cy - h // 2
     else:
-        raise pxt.Error(f"bbox_format must be one of ['xyxy', 'xywh', 'cxcywh'], got {bbox_format!r}")
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f"bbox_format must be one of ['xyxy', 'xywh', 'cxcywh'], got {bbox_format!r}",
+        )
 
     cmd = ['-i', str(video), '-vf', f'crop={w}:{h}:{x}:{y}', '-c:a', 'copy']
     output_path = str(TempStore.create_path(extension='.mp4'))
@@ -1320,16 +1372,18 @@ def resize(
     Env.get().require_binary('ffmpeg')
 
     if scale is not None and (width is not None or height is not None):
-        raise pxt.Error('`scale` is mutually exclusive with `width` and `height`')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, '`scale` is mutually exclusive with `width` and `height`'
+        )
     if scale is not None:
         if scale <= 0:
-            raise pxt.Error(f'`scale` must be positive, got {scale}')
+            raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`scale` must be positive, got {scale}')
         scale_filter = f'scale=trunc(iw*{scale}/2)*2:trunc(ih*{scale}/2)*2'
     elif width is not None or height is not None:
         if width is not None and width <= 0:
-            raise pxt.Error(f'`width` must be positive, got {width}')
+            raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`width` must be positive, got {width}')
         if height is not None and height <= 0:
-            raise pxt.Error(f'`height` must be positive, got {height}')
+            raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`height` must be positive, got {height}')
 
         # Use -2 for the unspecified dimension: like -1 (preserve aspect ratio),
         # but rounds to the nearest even value (required by most codecs)
@@ -1337,7 +1391,9 @@ def resize(
         h_expr = str(height) if height is not None else '-2'
         scale_filter = f'scale={w_expr}:{h_expr}'
     else:
-        raise pxt.Error('At least one of `width`, `height`, or `scale` must be specified')
+        raise pxt.RequestError(
+            pxt.ErrorCode.MISSING_REQUIRED, 'At least one of `width`, `height`, or `scale` must be specified'
+        )
 
     output_path = str(TempStore.create_path(extension='.mp4'))
     cmd = ['-i', str(video), '-vf', scale_filter, '-c:a', 'copy']
@@ -1392,11 +1448,13 @@ def reverse(
     segment_bytes = 2**30
     segment_duration = av_utils.estimate_segment_duration(video, segment_bytes)
     if segment_duration is None:
-        raise pxt.Error(f'not a valid video: {video}')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'not a valid video: {video}')
 
     duration = av_utils.get_video_duration(video)
     if duration is None:
-        raise excs.Error(f'reverse(): could not determine video duration: {video}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_DATA_FORMAT, f'reverse(): could not determine video duration: {video}'
+        )
 
     with av.open(video) as container:
         has_audio = any(s.type == 'audio' for s in container.streams)
@@ -1462,7 +1520,7 @@ def _fade(
 ) -> str:
     Env.get().require_binary('ffmpeg')
     if duration <= 0:
-        raise pxt.Error(f'duration must be positive, got {duration}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'duration must be positive, got {duration}')
 
     if direction == 'in':
         start_time = 0.0
@@ -1555,7 +1613,7 @@ def fade_out(
     """
     video_duration = av_utils.get_video_duration(video)
     if video_duration is None:
-        raise pxt.Error('fade_out(): could not determine video duration')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_DATA_FORMAT, 'fade_out(): could not determine video duration')
     return _fade(
         video,
         'out',
@@ -1633,7 +1691,7 @@ def transition(
     """
     Env.get().require_binary('ffmpeg')
     if duration <= 0:
-        raise pxt.Error(f'duration must be positive, got {duration}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'duration must be positive, got {duration}')
 
     # xfade requires both inputs to have the same resolution
     md1 = av_utils.get_metadata(str(video1))
@@ -1643,18 +1701,27 @@ def transition(
     v2_stream = next(s for s in md2['streams'] if s['type'] == 'video')
     w2, h2 = v2_stream['width'], v2_stream['height']
     if (w1, h1) != (w2, h2):
-        raise pxt.Error(f'video1 and video2 must have the same resolution, got {w1}x{h1} and {w2}x{h2}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'video1 and video2 must have the same resolution, got {w1}x{h1} and {w2}x{h2}',
+        )
 
     video1_duration = av_utils.get_video_duration(video1)
     if video1_duration is None:
-        raise pxt.Error(f'Could not determine duration of {video1}')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Could not determine duration of {video1}')
     if duration > video1_duration:
-        raise pxt.Error(f'transition duration ({duration}s) exceeds duration ({video1_duration}s) of {video1}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            f'transition duration ({duration}s) exceeds duration ({video1_duration}s) of {video1}',
+        )
     video2_duration = av_utils.get_video_duration(video2)
     if video2_duration is None:
-        raise pxt.Error(f'Could not determine duration of {video2}')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Could not determine duration of {video2}')
     if duration > video2_duration:
-        raise pxt.Error(f'transition duration ({duration}s) exceeds duration ({video2_duration}s) of {video2}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            f'transition duration ({duration}s) exceeds duration ({video2_duration}s) of {video2}',
+        )
 
     offset = video1_duration - duration
     output_path = str(TempStore.create_path(extension='.mp4'))
@@ -1717,7 +1784,7 @@ def speed(
     """
     Env.get().require_binary('ffmpeg')
     if factor <= 0:
-        raise pxt.Error(f'factor must be positive, got {factor}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'factor must be positive, got {factor}')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
     # setpts=PTS/<factor> adjusts video timing; atempo=<factor> adjusts audio speed (preserving pitch).
@@ -1952,7 +2019,7 @@ def adjust_brightness(
     """
     Env.get().require_binary('ffmpeg')
     if factor < 0:
-        raise pxt.Error(f'factor must be non-negative, got {factor}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'factor must be non-negative, got {factor}')
 
     # FFmpeg eq filter: brightness is additive (-1.0 to 1.0), gamma is multiplicative.
     # Using curves filter with a master curve for true multiplicative brightness.
@@ -2098,13 +2165,15 @@ def scroll(
     Env.get().require_binary('ffmpeg')
 
     if x_speed == 0 and y_speed == 0:
-        raise pxt.Error('at least one of `x_speed` or `y_speed` must be non-zero')
+        raise pxt.RequestError(
+            pxt.ErrorCode.MISSING_REQUIRED, 'at least one of `x_speed` or `y_speed` must be non-zero'
+        )
     if w is None and h is None:
-        raise pxt.Error('at least one of `w` or `h` must be specified')
+        raise pxt.RequestError(pxt.ErrorCode.MISSING_REQUIRED, 'at least one of `w` or `h` must be specified')
     if w is not None and w <= 0:
-        raise pxt.Error(f'`w` must be positive, got {w}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`w` must be positive, got {w}')
     if h is not None and h <= 0:
-        raise pxt.Error(f'`h` must be positive, got {h}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`h` must be positive, got {h}')
 
     # Read input dimensions to fill in defaults and validate
     with av.open(video) as container:
@@ -2116,18 +2185,22 @@ def scroll(
     out_h = h if h is not None else in_h
 
     if out_w > in_w or out_h > in_h:
-        raise pxt.Error(f'viewport ({out_w}x{out_h}) must not exceed input dimensions ({in_w}x{in_h})')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            f'viewport ({out_w}x{out_h}) must not exceed input dimensions ({in_w}x{in_h})',
+        )
     if out_w == in_w and out_h == in_h:
-        raise pxt.Error(
-            f'viewport ({out_w}x{out_h}) equals input dimensions; at least one must be smaller for scrolling'
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'viewport ({out_w}x{out_h}) equals input dimensions; at least one must be smaller for scrolling',
         )
 
     x_max = in_w - out_w
     y_max = in_h - out_h
     if x_start < 0 or x_start > x_max:
-        raise pxt.Error(f'x_start must be between 0 and {x_max}, got {x_start}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'x_start must be between 0 and {x_max}, got {x_start}')
     if y_start < 0 or y_start > y_max:
-        raise pxt.Error(f'y_start must be between 0 and {y_max}, got {y_start}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'y_start must be between 0 and {y_max}, got {y_start}')
 
     # Build the crop filter with time-dependent x/y expressions and edge clamping.
     # Example for w=1280 on a 1920-wide input, x_start=0, x_speed=64:
@@ -2271,11 +2344,13 @@ def zoom(
     Env.get().require_binary('ffmpeg')
 
     if start_scale < 1.0:
-        raise pxt.Error(f'start_scale must be >= 1.0, got {start_scale}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'start_scale must be >= 1.0, got {start_scale}')
     if end_scale < 1.0:
-        raise pxt.Error(f'end_scale must be >= 1.0, got {end_scale}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'end_scale must be >= 1.0, got {end_scale}')
     if center is not None and (len(center) != 2 or not all(0.0 <= c <= 1.0 for c in center)):
-        raise pxt.Error(f'center must be [x, y] with values in [0.0, 1.0], got {center}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, f'center must be [x, y] with values in [0.0, 1.0], got {center}'
+        )
     cx, cy = center if center is not None else [0.5, 0.5]
 
     with av.open(video) as container:
@@ -2293,7 +2368,7 @@ def zoom(
     #           :d=1:s=1920x1080:fps=25
     duration = av_utils.get_video_duration(video)
     if duration is None:
-        raise pxt.Error('zoom(): could not determine video duration')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_DATA_FORMAT, 'zoom(): could not determine video duration')
     total_frames = max(1, round(fps * duration))
 
     # z interpolates linearly from start_scale to end_scale over total_frames
@@ -2414,7 +2489,9 @@ def scene_detect_adaptive(
         )
         return _scene_detect(video, fps, detector)
     except Exception as e:
-        raise pxt.Error(f'scene_detect_adaptive(): failed to detect scenes: {e}') from e
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_adaptive(): failed to detect scenes: {e}'
+        ) from e
 
 
 @pxt.udf(is_method=True)
@@ -2515,7 +2592,9 @@ def scene_detect_content(
         )
         return _scene_detect(video, fps, detector)
     except Exception as e:
-        raise pxt.Error(f'scene_detect_content(): failed to detect scenes: {e}') from e
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_content(): failed to detect scenes: {e}'
+        ) from e
 
 
 @pxt.udf(is_method=True)
@@ -2606,7 +2685,9 @@ def scene_detect_threshold(
         )
         return _scene_detect(video, fps, detector)
     except Exception as e:
-        raise pxt.Error(f'scene_detect_threshold(): failed to detect scenes: {e}') from e
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_threshold(): failed to detect scenes: {e}'
+        ) from e
 
 
 @pxt.udf(is_method=True)
@@ -2678,7 +2759,9 @@ def scene_detect_histogram(
         detector = HistogramDetector(threshold=threshold, bins=bins, min_scene_len=min_scene_len)
         return _scene_detect(video, fps, detector)
     except Exception as e:
-        raise pxt.Error(f'scene_detect_histogram(): failed to detect scenes: {e}') from e
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_histogram(): failed to detect scenes: {e}'
+        ) from e
 
 
 @pxt.udf(is_method=True)
@@ -2757,7 +2840,9 @@ def scene_detect_hash(
         detector = HashDetector(threshold=threshold, size=size, lowpass=lowpass, min_scene_len=min_scene_len)
         return _scene_detect(video, fps, detector)
     except Exception as e:
-        raise pxt.Error(f'scene_detect_hash(): failed to detect scenes: {e}') from e
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_hash(): failed to detect scenes: {e}'
+        ) from e
 
 
 class _SceneDetectFrameInfo(NamedTuple):
@@ -2958,7 +3043,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                 self.video_duration = None
 
         if self.video_duration is None and self.num_frames is not None:
-            raise excs.Error(f'Could not determine duration of video: {video}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Could not determine duration of video: {video}'
+            )
 
         # If self.fps or self.num_frames is specified, we cannot rely on knowing in advance which frame positions will
         # be needed, since for variable framerate videos we do not know in advance the precise timestamp of each frame.
@@ -3094,9 +3181,12 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         num_frames = bound_args.get('num_frames')
         keyframes_only = bound_args.get('keyframes_only', False)
         if int(fps is not None) + int(num_frames is not None) + int(keyframes_only) > 1:
-            raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'At most one of `fps`, `num_frames` or `keyframes_only` may be specified',
+            )
         if fps is not None and (not isinstance(fps, (int, float)) or fps <= 0.0):
-            raise excs.Error('`fps` must be a positive number')
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`fps` must be a positive number')
 
 
 class LegacyFrame(TypedDict):
@@ -3306,7 +3396,7 @@ def video_splitter(
             error_msg = f'ffmpeg failed with return code {e.returncode}'
             if e.stderr:
                 error_msg += f': {e.stderr.strip()}'
-            raise pxt.Error(error_msg) from e
+            raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, error_msg) from e
 
     else:  # mode == 'accurate'
         base_path = TempStore.create_path(extension='')
@@ -3353,7 +3443,7 @@ def video_splitter(
             error_msg = f'ffmpeg failed with return code {e.returncode}'
             if e.stderr:
                 error_msg += f': {e.stderr.strip()}'
-            raise pxt.Error(error_msg) from e
+            raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, error_msg) from e
 
 
 @video_splitter.validate
@@ -3370,29 +3460,40 @@ def _(bound_args: dict[str, Any]) -> None:
 
     if 'duration' in bound_args and 'segment_times' in bound_args and duration is None and segment_times is None:
         # Both 'duration' and 'segment_times' are specified as constants, and they're both `None`
-        raise excs.Error('Must specify either duration or segment_times')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Must specify either duration or segment_times')
     if duration is not None and segment_times is not None:
-        raise excs.Error('duration and segment_times cannot both be specified')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'duration and segment_times cannot both be specified'
+        )
     if segment_times is not None and overlap is not None:
-        raise excs.Error('overlap cannot be specified with segment_times')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'overlap cannot be specified with segment_times')
     if duration is not None and isinstance(duration, (int, float)):
         if duration <= 0.0:
-            raise excs.Error(f'duration must be a positive number: {duration}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'duration must be a positive number: {duration}')
         if (
             min_segment_duration is not None
             and isinstance(min_segment_duration, (int, float))
             and duration < min_segment_duration
         ):
-            raise excs.Error(f'duration must be at least min_segment_duration: {duration} < {min_segment_duration}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'duration must be at least min_segment_duration: {duration} < {min_segment_duration}',
+            )
         if overlap is not None and isinstance(overlap, (int, float)) and overlap >= duration:
-            raise excs.Error(f'overlap must be less than duration: {overlap} >= {duration}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'overlap must be less than duration: {overlap} >= {duration}'
+            )
     if mode == 'accurate' and overlap is not None:
-        raise excs.Error("Cannot specify overlap for mode='accurate'")
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, "Cannot specify overlap for mode='accurate'")
     if mode == 'fast':
         if video_encoder is not None:
-            raise excs.Error("Cannot specify video_encoder for mode='fast'")
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, "Cannot specify video_encoder for mode='fast'"
+            )
         if video_encoder_args is not None:
-            raise excs.Error("Cannot specify video_encoder_args for mode='fast'")
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, "Cannot specify video_encoder_args for mode='fast'"
+            )
 
 
 __all__ = local_public_names(__name__)

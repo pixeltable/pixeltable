@@ -43,7 +43,7 @@ def _sa_type(col_type: ts.ColumnType) -> sql.types.TypeEngine:
         return sql.LargeBinary()
     elif col_type.is_json_type():
         return sql.JSON()
-    raise pxt.Error(f'Cannot export column of type {col_type}')
+    raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot export column of type {col_type}')
 
 
 def _postgresql_type(col_type: ts.ColumnType) -> sql.types.TypeEngine:
@@ -112,7 +112,9 @@ def export_sql(
     target: sql.Table | None = None
     if _table_exists(engine, target_table_name, target_schema_name):
         if if_exists == 'error':
-            raise pxt.Error(f'Table {target_table_name!r} already exists in:\n{db_connect_str}')
+            raise pxt.AlreadyExistsError(
+                pxt.ErrorCode.PATH_ALREADY_EXISTS, f'Table {target_table_name!r} already exists in:\n{db_connect_str}'
+            )
         target = sql.Table(target_table_name, metadata, schema=target_schema_name, autoload_with=engine)
         if if_exists == 'replace':
             # drop existing table first
@@ -174,7 +176,7 @@ _SAMPLE_LITERALS: dict[ts.ColumnType.Type, Any] = {
 def _check_schema_compatible(tbl: sql.Table, source_schema: dict[str, ts.ColumnType], engine: sql.Engine) -> None:
     for col_name, source_type in source_schema.items():
         if col_name not in tbl.c:
-            raise pxt.Error(f'Column {col_name!r} not in table {tbl.name!r}')
+            raise pxt.NotFoundError(pxt.ErrorCode.COLUMN_NOT_FOUND, f'Column {col_name!r} not in table {tbl.name!r}')
 
         target_type = tbl.c[col_name].type
         # CAST(<literal> AS target_type)
@@ -186,7 +188,8 @@ def _check_schema_compatible(tbl: sql.Table, source_schema: dict[str, ts.ColumnT
             try:
                 conn.execute(query)
             except Exception:
-                raise pxt.Error(
+                raise pxt.RequestError(
+                    pxt.ErrorCode.TYPE_MISMATCH,
                     f'Table {tbl.name!r}: column {col_name!r} of type {target_type} is not compatible with '
-                    f'the source type ({source_type})'
+                    f'the source type ({source_type})',
                 ) from None

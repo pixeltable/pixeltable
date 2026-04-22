@@ -236,9 +236,14 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
                 image.load()
                 return image
         except Exception as exc:
-            raise excs.Error('Failed to download generated image from together.ai.') from exc
-
-    raise excs.Error('Response does not contain a generated image.')
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                'Failed to download generated image from together.ai.',
+                provider='together',
+            ) from exc
+    raise excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_ERROR, 'Response does not contain a generated image.', provider='together'
+    )
 
 
 __all__ = local_public_names(__name__)

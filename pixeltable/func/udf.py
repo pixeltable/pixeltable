@@ -63,7 +63,9 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         return_value = kwargs.pop('return_value', None)
         description = kwargs.pop('description', None)
         if len(kwargs) > 0:
-            raise excs.Error(f'Invalid udf kwargs: {", ".join(kwargs.keys())}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid udf kwargs: {", ".join(kwargs.keys())}'
+            )
         return from_table(args[0], return_value, description)
 
     else:
@@ -78,9 +80,11 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         type_substitutions = kwargs.pop('type_substitutions', None)
         force_stored = kwargs.pop('_force_stored', False)
         if len(kwargs) > 0:
-            raise excs.Error(f'Invalid @udf decorator kwargs: {", ".join(kwargs.keys())}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid @udf decorator kwargs: {", ".join(kwargs.keys())}'
+            )
         if len(args) > 0:
-            raise excs.Error('Unexpected @udf decorator arguments.')
+            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, 'Unexpected @udf decorator arguments.')
 
         def decorator(decorated_fn: Callable) -> CallableFunction:
             return make_function(
@@ -143,10 +147,11 @@ def make_function(
     errmsg_name = function_name if function_path is None else function_path
 
     if defined_in_script:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
             f'Defining the UDF {errmsg_name!r} directly in the global namespace of a Python script\n'
             f'is not allowed. To fix this error, move the UDF {errmsg_name!r} into a named module\n'
-            '(a .py file other than your script), then import that module into your script.'
+            '(a .py file other than your script), then import that module into your script.',
         )
 
     signatures: list[Signature]
@@ -156,33 +161,56 @@ def make_function(
         # batched functions must have a batched return type
         # TODO: remove 'Python' from the error messages when we have full inference with Annotated types
         if batch_size is not None and not sig.is_batched:
-            raise excs.Error(f'{errmsg_name}(): batch_size is specified; Python return type must be a `Batch`')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{errmsg_name}(): batch_size is specified; Python return type must be a `Batch`',
+            )
         if batch_size is not None and len(sig.batched_parameters) == 0:
-            raise excs.Error(f'{errmsg_name}(): batch_size is specified; at least one Python parameter must be `Batch`')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{errmsg_name}(): batch_size is specified; at least one Python parameter must be `Batch`',
+            )
         if batch_size is None and len(sig.batched_parameters) > 0:
-            raise excs.Error(f'{errmsg_name}(): batched parameters in udf, but no `batch_size` given')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{errmsg_name}(): batched parameters in udf, but no `batch_size` given',
+            )
 
         if is_method and is_property:
-            raise excs.Error(f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)',
+            )
         if is_property and len(sig.parameters) != 1:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
                 '`is_property=True` expects a UDF with exactly 1 parameter, but '
-                f'`{function_name}` has {len(sig.parameters)}'
+                f'`{function_name}` has {len(sig.parameters)}',
             )
         if (is_method or is_property) and function_path is None:
-            raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                'Stored functions cannot be declared using `is_method` or `is_property`',
+            )
 
         signatures = [sig]
     else:
         if function_path is None:
-            raise excs.Error(
-                f'{errmsg_name}(): type substitutions can only be used with module UDFs (not locally defined UDFs)'
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{errmsg_name}(): type substitutions can only be used with module UDFs (not locally defined UDFs)',
             )
         if batch_size is not None:
-            raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with batched functions')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{errmsg_name}(): type substitutions cannot be used with batched functions',
+            )
         if is_method is not None or is_property is not None:
             # TODO: Support this for `is_method`?
-            raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with `is_method` or `is_property`')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{errmsg_name}(): type substitutions cannot be used with `is_method` or `is_property`',
+            )
         signatures = [
             Signature.create(decorated_fn, param_types, return_type, type_substitutions=subst)
             for subst in type_substitutions
@@ -192,7 +220,10 @@ def make_function(
         py_fn = decorated_fn
     else:
         if function_path is None:
-            raise excs.Error(f'{errmsg_name}(): @udf decorator with a `substitute_fn` can only be used in a module')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{errmsg_name}(): @udf decorator with a `substitute_fn` can only be used in a module',
+            )
         py_fn = substitute_fn
 
     result = CallableFunction(
@@ -241,10 +272,14 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
 
         function_name = py_fn.__name__
         if is_method and is_property:
-            raise excs.Error(f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)',
+            )
         if (is_method or is_property) and function_path is None:
-            raise excs.Error(
-                f'`{function_name}`: expr_udfs declared with `is_method` or `is_property` must live in a module'
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'`{function_name}`: expr_udfs declared with `is_method` or `is_property` must live in a module',
             )
 
         # TODO: verify that the inferred return type matches that of the template
@@ -279,7 +314,10 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         assert len(args) == 0
         unknown = set(kwargs) - {'param_types', 'is_method', 'is_property'}
         if unknown:
-            raise excs.Error(f'Invalid @expr_udf decorator kwargs: {", ".join(sorted(unknown))}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Invalid @expr_udf decorator kwargs: {", ".join(sorted(unknown))}',
+            )
         param_types = kwargs.get('param_types')
         is_method = kwargs.get('is_method', False)
         is_property = kwargs.get('is_property', False)

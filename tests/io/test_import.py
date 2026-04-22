@@ -6,7 +6,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..utils import ensure_s3_pytest_resources_access
+from ..utils import ensure_s3_pytest_resources_access, pxt_raises
 
 EXPECTED_SCHEMA = {
     'name': ts.StringType(nullable=True),
@@ -41,31 +41,31 @@ class TestImport:
         assert t2.count() == 4
         assert t2._get_schema() == EXPECTED_SCHEMA | {'children': ts.FloatType(nullable=True)}
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.io.import_rows('example3', [{'only_none': None}])
         assert 'The following columns have no non-null values: only_none' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.io.import_rows('example4', [{'col': 1}], schema_overrides={'not_col': pxt.String})
         assert 'Some column(s) specified in `schema_overrides` are not present in the source: not_col' in str(
             exc_info.value
         )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
             pxt.io.import_rows('example5', [{'col': 1}, {'col': 'value'}])
         assert (
             'Could not infer type of column `col`; '
             "the value in row 1 does not match preceding type Int | None: 'value'" in str(exc_info.value)
         )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
             pxt.io.import_rows('example6', [{'col': str}])
         assert (
             "Could not infer type for column `col`; the value in row 0 has an unsupported type: <class 'type'>"
             in str(exc_info.value)
         )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             pxt.io.import_rows('example7', [{'__unusable_name': 'abc'}])
         assert 'Column names must be valid pixeltable identifiers' in str(exc_info.value)
 

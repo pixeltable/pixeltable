@@ -1,10 +1,10 @@
-import pytest
-
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import reset_runtime
+
+from .utils import pxt_raises
 
 
 def _reset_env(reinit: bool, db_name: str) -> None:
@@ -65,7 +65,7 @@ class TestEnvReset:
         t2.insert([{'value': 42}])
 
         # Verify table1 doesn't exist in env2
-        with pytest.raises(excs.Error):
+        with pxt_raises(excs.ErrorCode.PATH_NOT_FOUND):
             pxt.get_table('table1')
 
         # Switch back to Environment 1
@@ -79,7 +79,7 @@ class TestEnvReset:
         assert t1_again.count() == 1
 
         # Verify table2 doesn't exist in env1
-        with pytest.raises(excs.Error):
+        with pxt_raises(excs.ErrorCode.PATH_NOT_FOUND):
             pxt.get_table('table2')
 
     def test_metadata_persistence(self, uses_db: None) -> None:

@@ -183,7 +183,9 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                             val.save(buf, format='png')
                             val = buf.getvalue()
                     else:
-                        raise excs.Error(f'unknown image type {type(val)}')
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION, f'unknown image type {type(val)}'
+                        )
                     val_size_bytes = len(val)
                 elif col_type.is_uuid_type():
                     # pa.uuid() uses fixed_size_binary(16) as storage type
@@ -213,7 +215,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                     val = val.astimezone(datetime.timezone.utc)
                     val_size_bytes = 8
                 else:
-                    raise excs.Error(f'unknown type {col_type} for {col_name}')
+                    raise excs.RequestError(excs.ErrorCode.INVALID_TYPE, f'unknown type {col_type} for {col_name}')
 
                 batch_columns[col_name].append(val)
                 current_byte_estimate += val_size_bytes

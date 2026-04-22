@@ -91,9 +91,10 @@ class ColumnHandle:
     def get(self) -> 'Column':
         if self.col_id not in self.tbl_version.get().cols_by_id:
             schema_version_drop = self.tbl_version.get()._tbl_md.column_md[self.col_id].schema_version_drop
-            raise excs.Error(
+            raise excs.NotFoundError(
+                excs.ErrorCode.COLUMN_NOT_FOUND,
                 f'Column was dropped (no record for column ID {self.col_id} in table '
-                f'{self.tbl_version.get().versioned_name!r}; it was dropped in table version {schema_version_drop})'
+                f'{self.tbl_version.get().versioned_name!r}; it was dropped in table version {schema_version_drop})',
             )
         return self.tbl_version.get().cols_by_id[self.col_id]
 
