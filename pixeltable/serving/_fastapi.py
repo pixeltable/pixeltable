@@ -256,6 +256,10 @@ class FastAPIRouter(fastapi.APIRouter):
         keyword arguments (parameter names and Pixeltable types must match `outputs`). Its return value must be a
         Pydantic model and is returned as the HTTP response body.
 
+        Media-typed outputs (image, video, audio, document) are delivered to the function as `/media/` URL
+        strings -- annotate those parameters as `str` (or `str | None` if the column is nullable), not as
+        `pxt.Image` / `pxt.Video` / etc.
+
         Args:
             t: The table to insert into.
             path: The URL path for the endpoint.
@@ -344,9 +348,10 @@ class FastAPIRouter(fastapi.APIRouter):
         """
         Add a POST endpoint that updates a single row in `t` and returns the updated row.
         The row to update is identified by its primary key, which must be included in the
-        request body alongside the input column values. The update is performed via
-        [`update()`][pixeltable.Table.update] using the primary key columns to identify the
-        row and the columns referenced in `inputs` as the values to set.
+        request body alongside the input column values. The update is performed via a
+        single-row [`batch_update()`][pixeltable.Table.batch_update] call, using the primary
+        key columns to identify the row and the columns referenced in `inputs` as the values
+        to set.
 
         The request body contains values for the primary key columns plus the input columns
         as JSON fields. The response is a JSON object with the output column values, or a
@@ -456,6 +461,10 @@ class FastAPIRouter(fastapi.APIRouter):
         with the requested output columns as keyword arguments (parameter names and Pixeltable types
         must match `outputs`). Its return value must be a Pydantic model and is returned as the HTTP
         response body.
+
+        Media-typed outputs (image, video, audio, document) are delivered to the function as `/media/` URL
+        strings -- annotate those parameters as `str` (or `str | None` if the column is nullable), not as
+        `pxt.Image` / `pxt.Video` / etc.
 
         If the row does not exist, the endpoint returns HTTP 404 without calling the decorated
         function.
@@ -963,7 +972,7 @@ class FastAPIRouter(fastapi.APIRouter):
         sig = inspect.signature(user_fn)
         fn_name = getattr(user_fn, '__name__', repr(user_fn))
         param_names: set[str] = set()
-        output_col_names = set(output_schema.keys())
+        output_col_names = list(output_schema.keys())
         for p in sig.parameters.values():
             if p.kind != inspect.Parameter.KEYWORD_ONLY:
                 raise pxt.RequestError(
