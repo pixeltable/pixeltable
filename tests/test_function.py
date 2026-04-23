@@ -754,7 +754,10 @@ class TestFunction:
         )
 
         # bad default value
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Default value'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Default value for parameter 'c' has type `String`, which is not of type `Float`: ''",
+        ):
 
             @pxt.udf
             def f1(a: int, b: float, c: float = '') -> float:  # type: ignore[assignment]
@@ -768,21 +771,23 @@ class TestFunction:
                 return a + b + c
 
         # bad parameter name
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'group_by' is a reserved parameter name"):
 
             @pxt.udf
             def f1(group_by: int) -> int:
                 return group_by
 
         # bad parameter name
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'order_by' is a reserved parameter name"):
 
             @pxt.udf
             def f1(order_by: int) -> int:
                 return order_by
 
         # bad parameter name
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'_int_param': parameters starting with '_' are reserved"
+        ):
 
             @pxt.udf
             def f1(_int_param: int) -> int:
