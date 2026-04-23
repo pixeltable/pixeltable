@@ -208,7 +208,7 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"status": "done", "result": {...}}
             ```
         """
-        input_col_names, output_col_names, cols_by_name = self._validate_insert_args(
+        _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             t,
             inputs=inputs,
             uploadfile_inputs=uploadfile_inputs,
@@ -216,6 +216,7 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse=return_fileresponse,
             background=background,
             error_prefix='add_insert_route()',
+            is_update=False,
         )
         uploadfile_inputs = uploadfile_inputs or []
         output_cols = [cols_by_name[name] for name in output_col_names]
@@ -294,7 +295,7 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"caption": "orange sky above calm water", "score": 0.932}
             ```
         """
-        input_col_names, output_col_names, cols_by_name = self._validate_insert_args(
+        _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             t,
             inputs=inputs,
             uploadfile_inputs=uploadfile_inputs,
@@ -302,6 +303,7 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse=False,
             background=background,
             error_prefix='insert_route()',
+            is_update=False,
         )
         uploadfile_inputs = uploadfile_inputs or []
 
@@ -404,13 +406,15 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"status": "done", "result": {...}}
             ```
         """
-        pk_col_names, input_col_names, output_col_names, cols_by_name = self._validate_update_args(
+        pk_col_names, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             t,
             inputs=inputs,
+            uploadfile_inputs=None,
             outputs=outputs,
             return_fileresponse=return_fileresponse,
             background=background,
             error_prefix='add_update_route()',
+            is_update=True,
         )
         output_cols = [cols_by_name[name] for name in output_col_names]
 
@@ -513,13 +517,15 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"status": "done", "result": {"id": 1, "result": "hello"}}
             ```
         """
-        pk_col_names, input_col_names, output_col_names, cols_by_name = self._validate_update_args(
+        pk_col_names, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             t,
             inputs=inputs,
+            uploadfile_inputs=None,
             outputs=outputs,
             return_fileresponse=False,
             background=background,
             error_prefix='update_route()',
+            is_update=True,
         )
 
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
@@ -935,53 +941,6 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_class'] = FileResponse
         self.add_api_route(path, endpoint, **api_kwargs)
 
-    def _validate_insert_args(
-        self,
-        t: pxt.Table,
-        *,
-        inputs: list[str] | None,
-        uploadfile_inputs: list[str] | None,
-        outputs: list[str] | None,
-        return_fileresponse: bool,
-        background: bool,
-        error_prefix: str,
-    ) -> tuple[list[str], list[str], dict[str, catalog.Column]]:
-        """Validate insert-route args and return (input_col_names, output_col_names, cols_by_name)."""
-        md = t.get_metadata()
-        if md['kind'] != 'table':
-            raise pxt.RequestError(
-                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot insert into {md["kind"]} {md["name"]!r}'
-            )
-        if return_fileresponse and background:
-            raise pxt.RequestError(
-                pxt.ErrorCode.INVALID_ARGUMENT,
-                f'{error_prefix}: return_fileresponse and background are mutually exclusive',
-            )
-
-        col_md = md['columns']
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
-
-        # computed columns cannot be input
-        for name in [*(inputs or []), *(uploadfile_inputs or [])]:
-            if name in col_md and col_md[name]['is_computed']:
-                raise pxt.RequestError(
-                    pxt.ErrorCode.INVALID_ARGUMENT,
-                    f'{error_prefix}: {name!r} is a computed column and cannot be used as input',
-                )
-
-        input_col_names, output_col_names = self._validate_args(
-            input_schema={c.name: c.col_type for c in cols_by_name.values() if not c.is_computed},
-            output_schema={c.name: c.col_type for c in cols_by_name.values()},
-            inputs=inputs,
-            uploadfile_inputs=uploadfile_inputs,
-            outputs=outputs,
-            return_fileresponse=return_fileresponse,
-            error_prefix=error_prefix,
-            input_item_str='column',
-            output_item_str='column',
-        )
-        return input_col_names, output_col_names, cols_by_name
-
     def _validate_decorated_fn(
         self, user_fn: Callable, *, output_schema: dict[str, ts.ColumnType], error_prefix: str = 'insert_route()'
     ) -> None:
@@ -1103,89 +1062,28 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_class'] = FileResponse
         self.add_api_route(path, endpoint, **api_kwargs)
 
-    def _validate_update_args(
-        self,
-        t: pxt.Table,
-        *,
-        inputs: list[str] | None,
-        outputs: list[str] | None,
-        return_fileresponse: bool,
-        background: bool,
-        error_prefix: str,
-    ) -> tuple[list[str], list[str], list[str], dict[str, catalog.Column]]:
-        """Validate update-route args and return (pk_col_names, input_col_names, output_col_names, cols_by_name)."""
-        md = t.get_metadata()
-        if md['kind'] != 'table':
-            raise pxt.RequestError(
-                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot update {md["kind"]} {md["name"]!r}'
-            )
-        if return_fileresponse and background:
-            raise pxt.RequestError(
-                pxt.ErrorCode.INVALID_ARGUMENT,
-                f'{error_prefix}: return_fileresponse and background are mutually exclusive',
-            )
-
-        col_md = md['columns']
-        pk_col_names = [name for name, c in col_md.items() if c['is_primary_key']]
-        if not pk_col_names:
-            raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
-
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
-        pk_set = set(pk_col_names)
-
-        # computed, PK, and media columns cannot be inputs
-        for name in inputs or []:
-            if name in col_md and col_md[name]['is_computed']:
-                raise pxt.RequestError(
-                    pxt.ErrorCode.INVALID_ARGUMENT,
-                    f'{error_prefix}: {name!r} is a computed column and cannot be used as input',
-                )
-            if name in pk_set:
-                raise pxt.RequestError(
-                    pxt.ErrorCode.INVALID_ARGUMENT,
-                    f'{error_prefix}: {name!r} is a primary key column and cannot be used as input',
-                )
-            if name in cols_by_name and cols_by_name[name].col_type.is_media_type():
-                raise pxt.RequestError(
-                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{error_prefix}: {name!r} is a media column and cannot be updated',
-                )
-
-        # input_schema: non-computed, non-PK, non-media columns
-        input_schema = {
-            c.name: c.col_type
-            for c in cols_by_name.values()
-            if not c.is_computed and c.name not in pk_set and not c.col_type.is_media_type()
-        }
-        input_col_names, output_col_names = self._validate_args(
-            input_schema=input_schema,
-            output_schema={c.name: c.col_type for c in cols_by_name.values()},
-            inputs=inputs,
-            uploadfile_inputs=None,
-            outputs=outputs,
-            return_fileresponse=return_fileresponse,
-            error_prefix=error_prefix,
-            input_item_str='column',
-            output_item_str='column',
-        )
-        return pk_col_names, input_col_names, output_col_names, cols_by_name
-
     def _validate_dml_args(
         self,
         t: pxt.Table,
         *,
         inputs: list[str] | None,
+        uploadfile_inputs: list[str] | None,
         outputs: list[str] | None,
         return_fileresponse: bool,
         background: bool,
         error_prefix: str,
-        validate_update: bool,
+        is_update: bool,
     ) -> tuple[list[str], list[str], list[str], dict[str, catalog.Column]]:
-        """Validate update-route args and return (pk_col_names, input_col_names, output_col_names, cols_by_name)."""
+        """
+        Validate insert-/update-route args. Returns (pk_col_names, input_col_names, output_col_names, cols_by_name).
+
+        For insert routes, pk_col_names is [].
+        """
+        verb = 'update' if is_update else 'insert into'
         md = t.get_metadata()
         if md['kind'] != 'table':
             raise pxt.RequestError(
-                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot update {md["kind"]} {md["name"]!r}'
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot {verb} {md["kind"]} {md["name"]!r}'
             )
         if return_fileresponse and background:
             raise pxt.RequestError(
@@ -1195,13 +1093,13 @@ class FastAPIRouter(fastapi.APIRouter):
 
         col_md = md['columns']
         pk_col_names = [name for name, c in col_md.items() if c['is_primary_key']]
-        if validate_update and not pk_col_names:
+        if is_update and not pk_col_names:
             raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
 
         cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
         pk_set = set(pk_col_names)
 
-        for name in inputs or []:
+        for name in [*(inputs or []), *(uploadfile_inputs or [])]:
             # computed columns cannot be inputs
             if name in col_md and col_md[name]['is_computed']:
                 raise pxt.RequestError(
@@ -1210,31 +1108,30 @@ class FastAPIRouter(fastapi.APIRouter):
                 )
 
             # PK columns cannot be inputs for an update route
-            if validate_update and name in pk_set:
+            if is_update and name in pk_set:
                 raise pxt.RequestError(
                     pxt.ErrorCode.INVALID_ARGUMENT,
                     f'{error_prefix}: {name!r} is a primary key column and cannot be used as input',
                 )
 
             # media columns cannot be updated
-            if validate_update and name in cols_by_name and cols_by_name[name].col_type.is_media_type():
+            if is_update and name in cols_by_name and cols_by_name[name].col_type.is_media_type():
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{error_prefix}: {name!r} is a media column and cannot be updated',
                 )
 
-        # # input_schema: non-computed, non-PK, non-media columns
-        # input_schema = {
-        #     c.name: c.col_type
-        #     for c in cols_by_name.values()
-        #     if not c.is_computed and c.name not in pk_set and not c.col_type.is_media_type()
-        # }
+        # input_schema: non-computed columns; for updates, also exclude PK and media columns
+        input_schema = {
+            c.name: c.col_type
+            for c in cols_by_name.values()
+            if not c.is_computed and not (is_update and (c.name in pk_set or c.col_type.is_media_type()))
+        }
         input_col_names, output_col_names = self._validate_args(
-            input_schema={c.name: c.col_type for c in cols_by_name.values() if not c.is_computed},
-            # input_schema=input_schema,
+            input_schema=input_schema,
             output_schema={c.name: c.col_type for c in cols_by_name.values()},
             inputs=inputs,
-            uploadfile_inputs=None,
+            uploadfile_inputs=uploadfile_inputs,
             outputs=outputs,
             return_fileresponse=return_fileresponse,
             error_prefix=error_prefix,
