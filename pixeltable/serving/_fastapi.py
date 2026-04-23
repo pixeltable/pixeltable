@@ -217,14 +217,6 @@ class FastAPIRouter(fastapi.APIRouter):
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
         insert_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
-        endpoint_model: type[pydantic.BaseModel] | None
-        if background:
-            endpoint_model = BackgroundJobResponse
-        elif return_fileresponse:
-            endpoint_model = None
-        else:
-            endpoint_model = insert_response_model
-
         def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
             output = self._create_output(
                 [row], output_col_names, insert_response_model, return_fileresponse, url_for_media
@@ -236,11 +228,11 @@ class FastAPIRouter(fastapi.APIRouter):
             path=path,
             uploadfile_inputs=uploadfile_inputs,
             input_col_names=input_col_names,
+            return_fileresponse=return_fileresponse,
             background=background,
             endpoint_name=f'insert_{path.strip("/").replace("/", "_") or "root"}',
-            endpoint_model=endpoint_model,
-            response_class=FileResponse if return_fileresponse else None,
             row_processor=row_processor,
+            row_processor_model=insert_response_model,
         )
 
     def insert_route(
@@ -295,7 +287,7 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"caption": "orange sky above calm water", "score": 0.932}
             ```
         """
-        input_col_names, output_col_names, _ = self._validate_insert_args(
+        input_col_names, output_col_names, cols_by_name = self._validate_insert_args(
             t,
             inputs=inputs,
             uploadfile_inputs=uploadfile_inputs,
@@ -307,7 +299,11 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs = uploadfile_inputs or []
 
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
-            self._validate_insert_route_fn(user_fn, output_col_names=output_col_names)
+            self._validate_decorated_fn(
+                user_fn,
+                output_schema={col_name: cols_by_name[col_name].col_type for col_name in output_col_names},
+                error_prefix='insert_route()',
+            )
             response_model = user_fn.__annotations__['return']
 
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
@@ -319,11 +315,11 @@ class FastAPIRouter(fastapi.APIRouter):
                 path=path,
                 uploadfile_inputs=uploadfile_inputs,
                 input_col_names=input_col_names,
+                return_fileresponse=False,
                 background=background,
                 endpoint_name=f'insert_{path.strip("/").replace("/", "_") or "root"}',
-                endpoint_model=BackgroundJobResponse if background else response_model,
-                response_class=None,
                 row_processor=row_processor,
+                row_processor_model=response_model,
             )
             return user_fn
 
@@ -518,7 +514,41 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"status": "done", "result": {"id": 1, "result": "hello"}}
             ```
         """
-        raise NotImplementedError
+        pk_col_names, input_col_names, output_col_names, cols_by_name = self._validate_update_args(
+            t,
+            inputs=inputs,
+            outputs=outputs,
+            return_fileresponse=False,
+            background=background,
+            error_prefix='update_route()',
+        )
+
+        def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
+            self._validate_decorated_fn(
+                user_fn,
+                output_schema={col_name: cols_by_name[col_name].col_type for col_name in output_col_names},
+                error_prefix='update_route()',
+            )
+            response_model = user_fn.__annotations__['return']
+
+            def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
+                kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
+                return user_fn(**kwargs)
+
+            self._add_update_route(
+                t,
+                path=path,
+                pk_col_names=pk_col_names,
+                input_col_names=input_col_names,
+                background=background,
+                endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
+                endpoint_model=BackgroundJobResponse if background else response_model,
+                response_class=None,
+                row_processor=row_processor,
+            )
+            return user_fn
+
+        return decorator
 
     def add_delete_route(
         self, t: pxt.Table, *, path: str, match_columns: list[str] | None = None, background: bool = False
@@ -865,11 +895,11 @@ class FastAPIRouter(fastapi.APIRouter):
         path: str,
         uploadfile_inputs: list[str],
         input_col_names: list[str],
+        return_fileresponse: bool,
         background: bool,
         endpoint_name: str,
-        endpoint_model: type[pydantic.BaseModel] | None,
-        response_class: type | None,
         row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
+        row_processor_model: type[pydantic.BaseModel],
     ) -> None:
         md = t.get_metadata()
         tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
@@ -897,10 +927,13 @@ class FastAPIRouter(fastapi.APIRouter):
             endpoint_name, sig, uploadfile_inputs=uploadfile_inputs, background=background, endpoint_op=run_insert
         )
         api_kwargs: dict[str, Any] = {'methods': ['POST']}
-        if endpoint_model is not None:
-            api_kwargs['response_model'] = endpoint_model
-        if response_class is not None:
-            api_kwargs['response_class'] = response_class
+        if background:
+            api_kwargs['response_model'] = BackgroundJobResponse
+        elif not return_fileresponse:
+            assert row_processor_model is not None
+            api_kwargs['response_model'] = row_processor_model
+        if return_fileresponse:
+            api_kwargs['response_class'] = FileResponse
         self.add_api_route(path, endpoint, **api_kwargs)
 
     def _validate_insert_args(
@@ -950,22 +983,25 @@ class FastAPIRouter(fastapi.APIRouter):
         )
         return input_col_names, output_col_names, cols_by_name
 
-    def _validate_insert_route_fn(self, user_fn: Callable, *, output_col_names: list[str]) -> None:
-        """Validate the shape of the user's decorated function for `insert_route()`."""
+    def _validate_decorated_fn(
+        self, user_fn: Callable, *, output_schema: dict[str, ts.ColumnType], error_prefix: str = 'insert_route()'
+    ) -> None:
+        """Validate the decorated function of insert_/update_route()"""
         sig = inspect.signature(user_fn)
         fn_name = getattr(user_fn, '__name__', repr(user_fn))
         param_names: set[str] = set()
+        output_col_names = set(output_schema.keys())
         for p in sig.parameters.values():
             if p.kind != inspect.Parameter.KEYWORD_ONLY:
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'insert_route(): {fn_name!r} parameter {p.name!r} must be keyword-only '
+                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} must be keyword-only '
                     '(place parameters after `*` in the signature)',
                 )
             if p.name not in output_col_names:
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'insert_route(): {fn_name!r} parameter {p.name!r} is not among the declared outputs '
+                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} is not among the declared outputs '
                     f'{output_col_names}',
                 )
             param_names.add(p.name)
@@ -973,14 +1009,14 @@ class FastAPIRouter(fastapi.APIRouter):
         if missing:
             raise pxt.RequestError(
                 pxt.ErrorCode.MISSING_REQUIRED,
-                f'insert_route(): {fn_name!r} is missing parameters for outputs {missing}; every declared '
+                f'{error_prefix}: {fn_name!r} is missing parameters for outputs {missing}; every declared '
                 'output must appear as a keyword-only parameter',
             )
         return_annot = user_fn.__annotations__.get('return')
         if not (isinstance(return_annot, type) and issubclass(return_annot, pydantic.BaseModel)):
             raise pxt.RequestError(
                 pxt.ErrorCode.INVALID_ARGUMENT,
-                f'insert_route(): {fn_name!r} must have a return annotation that is a pydantic.BaseModel subclass; '
+                f'{error_prefix}: {fn_name!r} must have a return annotation that is a pydantic.BaseModel subclass; '
                 f'got {return_annot!r}',
             )
 
@@ -1341,7 +1377,7 @@ class FastAPIRouter(fastapi.APIRouter):
         return any(resolved == d or d in resolved.parents for d in self._allowed_media_dirs)
 
     def _register_media_route(self) -> None:
-        """Register a `GET /media/{path:path}` route that serves Pixeltable media and tmp files"""
+        """Register a GET /media/{path:path} route that serves Pixeltable media and tmp files"""
 
         def serve_media(path: str) -> FileResponse:
             resolved = (self._home_dir / path).resolve()

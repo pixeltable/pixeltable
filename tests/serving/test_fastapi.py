@@ -1171,6 +1171,104 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly one media-typed output column'):
             router.add_update_route(t, path='/e', outputs=['text'], return_fileresponse=True)
 
+    def test_update_route(self, uses_db: None) -> None:
+        """`update_route()` decorator: custom response model, 404, background, function still callable."""
+        skip_test_if_not_installed('fastapi')
+        import pydantic
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table(
+            'test_serve.items', {'id': pxt.Required[pxt.Int], 'text': pxt.String, 'value': pxt.Int}, primary_key='id'
+        )
+        t.add_computed_column(text_upper=t.text.upper())
+        t.insert([{'id': 1, 'text': 'hello', 'value': 10}, {'id': 2, 'text': 'world', 'value': 20}])
+
+        router = FastAPIRouter()
+
+        class UpdateResp(pydantic.BaseModel):
+            key: int
+            upper: str
+            doubled: int
+
+        @router.update_route(t, path='/update', inputs=['text', 'value'], outputs=['id', 'text_upper', 'value'])
+        def format_response(*, id: int, text_upper: str, value: int) -> UpdateResp:
+            return UpdateResp(key=id, upper=text_upper, doubled=value * 2)
+
+        @router.update_route(t, path='/bg', inputs=['value'], outputs=['id', 'value'], background=True)
+        def bg_response(*, id: int, value: int) -> UpdateResp:
+            return UpdateResp(key=id, upper='', doubled=value * 2)
+
+        client = make_test_client(router)
+
+        # successful update: response is shaped by the decorated function
+        resp = client.post('/update', json={'id': 1, 'text': 'updated', 'value': 99})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'key': 1, 'upper': 'UPDATED', 'doubled': 198}
+        assert t.where(t.id == 1).select(t.text, t.value).collect()[0] == {'text': 'updated', 'value': 99}
+
+        # 404 for missing row
+        resp = client.post('/update', json={'id': 9999, 'text': 'x', 'value': 0})
+        assert resp.status_code == 404, resp.text
+
+        # decorator returns the function unchanged -- still directly callable
+        direct = format_response(id=7, text_upper='HI', value=5)
+        assert isinstance(direct, UpdateResp) and direct.key == 7 and direct.upper == 'HI' and direct.doubled == 10
+
+        # background variant
+        resp = client.post('/bg', json={'id': 2, 'value': 7})
+        assert resp.status_code == 200, resp.text
+        job = resp.json()
+        result = await_background_job(client, job, require_pending=False)['result']
+        assert result == {'key': 2, 'upper': '', 'doubled': 14}
+
+    def test_update_route_errors(self, uses_db: None) -> None:
+        skip_test_if_not_installed('fastapi')
+        import pydantic
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.items', {'id': pxt.Required[pxt.Int], 'text': pxt.String}, primary_key='id')
+        t.add_computed_column(text_upper=t.text.upper())
+        router = FastAPIRouter()
+
+        # upstream validation errors (shared with add_update_route) still fire
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown output column 'doesnotexist'"):
+
+            @router.update_route(t, path='/e', outputs=['doesnotexist'])
+            def _(*, doesnotexist: str) -> pydantic.BaseModel:  # pragma: no cover
+                raise AssertionError
+
+        # fn-shape errors: error_prefix must say 'update_route()'
+        class Resp(pydantic.BaseModel):
+            x: int
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='update_route.*must be keyword-only'):
+
+            @router.update_route(t, path='/e1', outputs=['id'])
+            def _(id: int) -> Resp:
+                return Resp(x=id)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="update_route.*'bogus' is not among"):
+
+            @router.update_route(t, path='/e2', outputs=['id'])
+            def _(*, bogus: int) -> Resp:
+                return Resp(x=bogus)
+
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='update_route.*missing parameters for outputs'):
+
+            @router.update_route(t, path='/e3', outputs=['id', 'text'])
+            def _(*, id: int) -> Resp:
+                return Resp(x=id)
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'update_route.*pydantic\.BaseModel subclass'):
+
+            @router.update_route(t, path='/e4', outputs=['id'])
+            def _(*, id: int):  # type: ignore[no-untyped-def]
+                return {'x': id}
+
     def test_add_delete_route(self, uses_db: None) -> None:
         """Delete routes: primary-key default, explicit match_columns, multi-col AND, 0-match, background."""
         skip_test_if_not_installed('fastapi')
