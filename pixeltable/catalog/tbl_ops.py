@@ -49,6 +49,13 @@ class TableOp:
     num_ops: int  # total number of ops forming the update operation
     status: OpStatus
 
+    # New version and schema version of the table. Both are required for new table ops, but declared optional for
+    # backward compatibility.
+    # The chance of encountering legacy TableOps with a None value is small and diminishing over time, so this should be
+    # safe enough to make required in a few months or so.
+    tbl_version: int | None
+    tbl_schema_version: int | None
+
     def to_dict(self) -> dict:
         result = dataclasses.asdict(self, dict_factory=schema.md_dict_factory)
         result['_classname'] = self.__class__.__name__
@@ -61,6 +68,12 @@ class TableOp:
         # TODO: delete this line, and the assert the follows, in ~ May 2026 or later. The chance of anyone still having
         # needs_xact in their pending table ops at that point will be extremely low.
         needs_xact_legacy = data.pop('needs_xact', None)
+
+        # TableOps serialized by older Pixeltable versions won't have tbl_version and tbl_schema_version.
+        # These 2 lines can go away after awhile.
+        data.setdefault('tbl_version', None)
+        data.setdefault('tbl_schema_version', None)
+
         op_class = getattr(sys.modules[__name__], classname)
         op = schema.md_from_dict(op_class, data)
         if needs_xact_legacy is not None:

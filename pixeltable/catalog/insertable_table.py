@@ -104,8 +104,22 @@ class InsertableTable(Table):
         )
 
         ops = [
-            CreateTableMdOp(tbl_id=md.tbl_md.tbl_id, op_sn=0, num_ops=2, status=OpStatus.PENDING),
-            CreateStoreTableOp(tbl_id=md.tbl_md.tbl_id, op_sn=1, num_ops=2, status=OpStatus.PENDING),
+            CreateTableMdOp(
+                tbl_id=md.tbl_md.tbl_id,
+                op_sn=0,
+                num_ops=2,
+                status=OpStatus.PENDING,
+                tbl_version=md.tbl_md.current_version,
+                tbl_schema_version=md.tbl_md.current_schema_version,
+            ),
+            CreateStoreTableOp(
+                tbl_id=md.tbl_md.tbl_id,
+                op_sn=1,
+                num_ops=2,
+                status=OpStatus.PENDING,
+                tbl_version=md.tbl_md.current_version,
+                tbl_schema_version=md.tbl_md.current_schema_version,
+            ),
         ]
         return md, ops
 
