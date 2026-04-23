@@ -11,7 +11,7 @@ import urllib.parse
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Annotated, Any, Callable, Literal, Optional, TypeVar
+from typing import Annotated, Any, Callable, Literal, Optional, TypeVar, get_type_hints
 
 import fastapi
 import PIL.Image
@@ -307,12 +307,11 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs = uploadfile_inputs or []
 
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
-            self._validate_decorated_fn(
+            response_model = self._validate_decorated_fn(
                 user_fn,
                 output_schema={col_name: cols_by_name[col_name].col_type for col_name in output_col_names},
                 error_prefix='insert_route()',
             )
-            response_model = user_fn.__annotations__['return']
 
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
@@ -537,12 +536,11 @@ class FastAPIRouter(fastapi.APIRouter):
         )
 
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
-            self._validate_decorated_fn(
+            response_model = self._validate_decorated_fn(
                 user_fn,
                 output_schema={col_name: cols_by_name[col_name].col_type for col_name in output_col_names},
                 error_prefix='update_route()',
             )
-            response_model = user_fn.__annotations__['return']
 
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
@@ -967,10 +965,18 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _validate_decorated_fn(
         self, user_fn: Callable, *, output_schema: dict[str, ts.ColumnType], error_prefix: str = 'insert_route()'
-    ) -> None:
-        """Validate the decorated function of insert_/update_route()"""
+    ) -> type[pydantic.BaseModel]:
+        """Validate the decorated function of insert_/update_route(); return the resolved response model."""
         sig = inspect.signature(user_fn)
         fn_name = getattr(user_fn, '__name__', repr(user_fn))
+        # resolve PEP-563 string annotations (from __future__ import annotations) and forward refs
+        try:
+            hints = get_type_hints(user_fn)
+        except NameError as e:
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: {fn_name!r}: cannot resolve type annotations: {e}'
+            ) from e
+
         param_names: set[str] = set()
         output_col_names = list(output_schema.keys())
         for p in sig.parameters.values():
@@ -984,22 +990,23 @@ class FastAPIRouter(fastapi.APIRouter):
             if p.name not in output_col_names:
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} is not among the declared outputs '
+                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} is not in the declared outputs '
                     f'{output_col_names}',
                 )
 
-            if p.annotation is inspect.Parameter.empty:
+            if p.name not in hints:
                 raise pxt.RequestError(
                     pxt.ErrorCode.INVALID_ARGUMENT,
                     f'{error_prefix}: {fn_name!r} parameter {p.name!r} has no type annotation',
                 )
+            param_annot = hints[p.name]
 
-            param_col_type = ts.ColumnType.from_python_type(p.annotation)
+            param_col_type = ts.ColumnType.from_python_type(param_annot)
             if param_col_type is None:
                 raise pxt.RequestError(
                     pxt.ErrorCode.INVALID_TYPE,
                     f'{error_prefix}: {fn_name!r} parameter {p.name!r}: cannot interpret annotation '
-                    f'{p.annotation!r} as a Pixeltable type',
+                    f'{param_annot!r} as a Pixeltable type',
                 )
 
             output_col_type = output_schema[p.name]
@@ -1009,7 +1016,7 @@ class FastAPIRouter(fastapi.APIRouter):
             if not param_col_type.is_supertype_of(expected_col_type):
                 raise pxt.RequestError(
                     pxt.ErrorCode.TYPE_MISMATCH,
-                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} has annotation {p.annotation!r} '
+                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} has annotation {param_annot!r} '
                     f'({param_col_type}), which is incompatible with column type {expected_col_type}',
                 )
 
@@ -1023,13 +1030,14 @@ class FastAPIRouter(fastapi.APIRouter):
                 'output must appear as a keyword-only parameter',
             )
 
-        return_annot = user_fn.__annotations__.get('return')
+        return_annot = hints.get('return')
         if not (isinstance(return_annot, type) and issubclass(return_annot, pydantic.BaseModel)):
             raise pxt.RequestError(
                 pxt.ErrorCode.INVALID_ARGUMENT,
                 f'{error_prefix}: {fn_name!r} must have a return annotation that is a pydantic.BaseModel subclass; '
                 f'got {return_annot!r}',
             )
+        return return_annot
 
     def _validate_dml_args(
         self,

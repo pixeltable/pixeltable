@@ -1142,6 +1142,105 @@ class TestFastAPI:
         def _ok2(*, length: int | None) -> R:
             return R(x=length or 0)
 
+    def test_route_decorators_future_annotations(self, uses_db: None) -> None:
+        """Decorated function defined in a module with `from __future__ import annotations`.
+
+        Under PEP 563, parameter and return annotations are strings at runtime; the validator
+        must resolve them via typing.get_type_hints() before interpreting them.
+        """
+        skip_test_if_not_installed('fastapi')
+        import sys
+        import textwrap
+        import types
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table(
+            'test_serve.future', {'id': pxt.Required[pxt.Int], 'text': pxt.Required[pxt.String]}, primary_key='id'
+        )
+        t.add_computed_column(text_upper=t.text.upper())
+        t.insert([{'id': 1, 'text': 'hello'}])
+
+        user_mod = types.ModuleType('_test_future_ann_mod')
+        # exec in a module whose source explicitly enables PEP 563 so annotations stay as strings
+        exec(
+            textwrap.dedent("""
+                from __future__ import annotations
+
+                import pydantic
+
+                class InsResp(pydantic.BaseModel):
+                    tag: str
+
+                class UpdResp(pydantic.BaseModel):
+                    key: int
+                    tag: str
+
+                def fmt_insert(*, text_upper: str) -> InsResp:
+                    return InsResp(tag=text_upper)
+
+                def fmt_update(*, id: int, text_upper: str) -> UpdResp:
+                    return UpdResp(key=id, tag=text_upper)
+            """),
+            user_mod.__dict__,
+        )
+        sys.modules['_test_future_ann_mod'] = user_mod
+
+        try:
+            router = FastAPIRouter()
+            router.insert_route(t, path='/ins', outputs=['text_upper'])(user_mod.fmt_insert)
+            router.update_route(t, path='/upd', inputs=['text'], outputs=['id', 'text_upper'])(user_mod.fmt_update)
+            client = make_test_client(router)
+
+            resp = client.post('/ins', json={'id': 2, 'text': 'world'})
+            assert resp.status_code == 200, resp.text
+            assert resp.json() == {'tag': 'WORLD'}
+
+            resp = client.post('/upd', json={'id': 1, 'text': 'updated'})
+            assert resp.status_code == 200, resp.text
+            assert resp.json() == {'key': 1, 'tag': 'UPDATED'}
+        finally:
+            del sys.modules['_test_future_ann_mod']
+
+    def test_route_decorators_unresolvable_annotation(self, uses_db: None) -> None:
+        """Forward-ref that can't be resolved produces a clean INVALID_ARGUMENT error at registration."""
+        skip_test_if_not_installed('fastapi')
+        import sys
+        import textwrap
+        import types
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table(
+            'test_serve.unresolvable', {'id': pxt.Required[pxt.Int], 'text': pxt.Required[pxt.String]}, primary_key='id'
+        )
+
+        user_mod = types.ModuleType('_test_unresolvable_ann_mod')
+        exec(
+            textwrap.dedent("""
+                from __future__ import annotations
+
+                import pydantic
+
+                class R(pydantic.BaseModel):
+                    x: int
+
+                def fmt(*, id: DoesNotExist) -> R:  # noqa: F821 - intentionally unresolvable
+                    return R(x=id)
+            """),
+            user_mod.__dict__,
+        )
+        sys.modules['_test_unresolvable_ann_mod'] = user_mod
+
+        try:
+            router = FastAPIRouter()
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='cannot resolve type annotations'):
+                router.insert_route(t, path='/e', outputs=['id'])(user_mod.fmt)
+        finally:
+            del sys.modules['_test_unresolvable_ann_mod']
+
     def test_insert_route_image(self, uses_db: None) -> None:
         """Media columns surface as /media/ URLs in the decorated fn's kwargs."""
         skip_test_if_not_installed('fastapi')
@@ -1268,11 +1367,11 @@ class TestFastAPI:
             def _(id: int) -> Resp:  # positional-or-keyword is rejected
                 return Resp(x=id)
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'bogus' is not among the declared outputs"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'doesnotexist' is not in the declared outputs"):
 
             @router.insert_route(t, path='/e2', outputs=['id'])
-            def _(*, bogus: int) -> Resp:
-                return Resp(x=bogus)
+            def _(*, doesnotexist: int) -> Resp:
+                return Resp(x=doesnotexist)
 
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='missing parameters for outputs'):
 
@@ -1464,11 +1563,11 @@ class TestFastAPI:
             def _(id: int) -> Resp:
                 return Resp(x=id)
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="update_route.*'bogus' is not among"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="update_route.*'doesnotexist' is not in"):
 
             @router.update_route(t, path='/e2', outputs=['id'])
-            def _(*, bogus: int) -> Resp:
-                return Resp(x=bogus)
+            def _(*, doesnotexist: int) -> Resp:
+                return Resp(x=doesnotexist)
 
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='update_route.*missing parameters for outputs'):
 
