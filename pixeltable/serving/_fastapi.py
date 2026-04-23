@@ -1053,8 +1053,6 @@ class FastAPIRouter(fastapi.APIRouter):
     ) -> tuple[list[str], list[str], list[str], dict[str, catalog.Column]]:
         """
         Validate insert-/update-route args. Returns (pk_col_names, input_col_names, output_col_names, cols_by_name).
-
-        For insert routes, pk_col_names is [].
         """
         verb = 'update' if is_update else 'insert into'
         md = t.get_metadata()
