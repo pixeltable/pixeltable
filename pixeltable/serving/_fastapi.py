@@ -92,13 +92,6 @@ def _run_endpoint_op(
         raise
 
 
-def _wire_col_type(col_type: ts.ColumnType) -> ts.ColumnType:
-    """ColumnType as seen by a decorated function consumer: media columns are delivered as URL strings."""
-    if col_type.is_media_type():
-        return ts.StringType(nullable=col_type.nullable)
-    return col_type
-
-
 class FastAPIRouter(fastapi.APIRouter):
     """
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
@@ -231,16 +224,18 @@ class FastAPIRouter(fastapi.APIRouter):
             )
             return output[0] if isinstance(output, list) else output
 
-        self._add_insert_route(
+        self._add_dml_route(
             t,
             path=path,
-            uploadfile_inputs=uploadfile_inputs,
+            pk_col_names=[],
             input_col_names=input_col_names,
+            uploadfile_inputs=uploadfile_inputs,
             return_fileresponse=return_fileresponse,
             background=background,
             endpoint_name=f'insert_{path.strip("/").replace("/", "_") or "root"}',
             row_processor=row_processor,
             row_processor_model=insert_response_model,
+            is_update=False,
         )
 
     def insert_route(
@@ -319,16 +314,18 @@ class FastAPIRouter(fastapi.APIRouter):
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 return user_fn(**kwargs)
 
-            self._add_insert_route(
+            self._add_dml_route(
                 t,
                 path=path,
-                uploadfile_inputs=uploadfile_inputs,
+                pk_col_names=[],
                 input_col_names=input_col_names,
+                uploadfile_inputs=uploadfile_inputs,
                 return_fileresponse=False,
                 background=background,
                 endpoint_name=f'insert_{path.strip("/").replace("/", "_") or "root"}',
                 row_processor=row_processor,
                 row_processor_model=response_model,
+                is_update=False,
             )
             return user_fn
 
@@ -427,16 +424,18 @@ class FastAPIRouter(fastapi.APIRouter):
             )
             return output[0] if isinstance(output, list) else output
 
-        self._add_update_route(
+        self._add_dml_route(
             t,
             path=path,
             pk_col_names=pk_col_names,
             input_col_names=input_col_names,
+            uploadfile_inputs=[],
             return_fileresponse=return_fileresponse,
             background=background,
             endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
             row_processor=row_processor,
             row_processor_model=update_response_model,
+            is_update=True,
         )
 
     def update_route(
@@ -540,16 +539,18 @@ class FastAPIRouter(fastapi.APIRouter):
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 return user_fn(**kwargs)
 
-            self._add_update_route(
+            self._add_dml_route(
                 t,
                 path=path,
                 pk_col_names=pk_col_names,
                 input_col_names=input_col_names,
+                uploadfile_inputs=[],
                 return_fileresponse=False,
                 background=background,
                 endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
                 row_processor=row_processor,
                 row_processor_model=response_model,
+                is_update=True,
             )
             return user_fn
 
@@ -893,26 +894,36 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_class'] = FileResponse
         self.add_api_route(path, endpoint, **api_kwargs)
 
-    def _add_insert_route(
+    def _add_dml_route(
         self,
         t: pxt.Table,
         *,
         path: str,
-        uploadfile_inputs: list[str],
+        pk_col_names: list[str],
         input_col_names: list[str],
+        uploadfile_inputs: list[str],
         return_fileresponse: bool,
         background: bool,
         endpoint_name: str,
         row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
-        row_processor_model: type[pydantic.BaseModel],
+        row_processor_model: type[pydantic.BaseModel] | None,
+        is_update: bool,
     ) -> None:
+        """Shared wiring for insert/update routes.
+
+        The endpoint signature is the PK columns (for row identification, update only) followed by
+        the input columns. `row_processor` is called with the single inserted/updated row dict and
+        `url_for_media`. For insert routes, `pk_col_names` must be []; for update routes,
+        `uploadfile_inputs` must be [].
+        """
         md = t.get_metadata()
         tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
 
         cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        pk_cols = [cols_by_name[name] for name in pk_col_names]
         input_cols = [cols_by_name[name] for name in input_col_names]
 
-        def run_insert(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+        def run_dml(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
             # handles aren't thread-portable, so fetch and re-validate against the registered schema
             tbl = pxt.get_table(tbl_path)
             if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
@@ -920,16 +931,20 @@ class FastAPIRouter(fastapi.APIRouter):
                     status_code=409,
                     detail='table schema changed since route was registered; please restart the service',
                 )
+            if is_update:
+                status = tbl.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
+                if status.num_rows == 0:
+                    raise HTTPException(status_code=404, detail='row not found')
+            else:
+                status = tbl.insert([row_kwargs], return_rows=True)
+            rows = status.rows or []
+            if len(rows) != 1:
+                raise HTTPException(status_code=500, detail=f'operation returned unexpected row count ({len(rows)})')
+            return row_processor(rows[0], url_for_media)
 
-            status = tbl.insert([row_kwargs], return_rows=True)
-            if status.rows is None or len(status.rows) != 1:
-                n = 0 if status.rows is None else len(status.rows)
-                raise HTTPException(status_code=500, detail=f'insert returned unexpected row count ({n})')
-            return row_processor(status.rows[0], url_for_media)
-
-        sig = self._create_endpoint_signature(input_cols=input_cols, upload_col_names=uploadfile_inputs)
+        sig = self._create_endpoint_signature(input_cols=pk_cols + input_cols, upload_col_names=uploadfile_inputs)
         endpoint = self._create_endpoint(
-            endpoint_name, sig, uploadfile_inputs=uploadfile_inputs, background=background, endpoint_op=run_insert
+            endpoint_name, sig, uploadfile_inputs=uploadfile_inputs, background=background, endpoint_op=run_dml
         )
         api_kwargs: dict[str, Any] = {'methods': ['POST']}
         if background:
@@ -1006,61 +1021,6 @@ class FastAPIRouter(fastapi.APIRouter):
                 f'{error_prefix}: {fn_name!r} must have a return annotation that is a pydantic.BaseModel subclass; '
                 f'got {return_annot!r}',
             )
-
-    def _add_update_route(
-        self,
-        t: pxt.Table,
-        *,
-        path: str,
-        pk_col_names: list[str],
-        input_col_names: list[str],
-        return_fileresponse: bool,
-        background: bool,
-        endpoint_name: str,
-        row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
-        row_processor_model: type[pydantic.BaseModel] | None,
-    ) -> None:
-        """Shared wiring for `add_update_route()` and `update_route()`.
-
-        The endpoint signature includes the PK columns (for row identification) followed by
-        the input columns (the values to update). `row_processor` is called with the single
-        updated row dict and `url_for_media`.
-        """
-        md = t.get_metadata()
-        tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
-
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
-        pk_cols = [cols_by_name[name] for name in pk_col_names]
-        input_cols = [cols_by_name[name] for name in input_col_names]
-
-        def run_update(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            tbl = pxt.get_table(tbl_path)
-            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
-                raise HTTPException(
-                    status_code=409,
-                    detail='table schema changed since route was registered; please restart the service',
-                )
-            status = tbl.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
-            if status.num_rows == 0:
-                raise HTTPException(status_code=404, detail='row not found')
-            rows = status.rows or []
-            if len(rows) != 1:
-                raise HTTPException(status_code=500, detail=f'update returned unexpected row count ({len(rows)})')
-            return row_processor(rows[0], url_for_media)
-
-        sig = self._create_endpoint_signature(input_cols=pk_cols + input_cols)
-        endpoint = self._create_endpoint(
-            endpoint_name, sig, uploadfile_inputs=[], background=background, endpoint_op=run_update
-        )
-        api_kwargs: dict[str, Any] = {'methods': ['POST']}
-        if background:
-            api_kwargs['response_model'] = BackgroundJobResponse
-        elif not return_fileresponse:
-            assert row_processor_model is not None
-            api_kwargs['response_model'] = row_processor_model
-        if return_fileresponse:
-            api_kwargs['response_class'] = FileResponse
-        self.add_api_route(path, endpoint, **api_kwargs)
 
     def _validate_dml_args(
         self,
