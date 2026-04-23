@@ -200,7 +200,8 @@ class Function(ABC):
             try:
                 bound_args = self._bind_to_signature(0, args, kwargs)
             except TypeError as e:
-                raise TypeError(self._bind_error_msg(self.signatures[0], args, kwargs, e)) from e
+                msg = self._bind_error_msg(self.signatures[0], args, kwargs, e)
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, msg) from e
         else:
             # Multiple signatures: try each signature in declaration order and trap any errors.
             # If none of them succeed, raise a generic error message.

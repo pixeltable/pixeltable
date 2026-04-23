@@ -195,81 +195,91 @@ class TestFunction:
         exp_ab = r'expected \(a: Int, b: Int\)'
 
         # udf with positional params only
-        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(\)'):
             _ = t.select(self.udf_pos_only_params()).collect()
-        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
             _ = t.select(self.udf_pos_only_params(x=0)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Int\)'):
             _ = t.select(self.udf_pos_only_params(0)).collect()
-        with pytest.raises(TypeError, match=rf'{pos_only_a}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{pos_only_a}; {exp_ab}, got \(a=Int\)'):
             _ = t.select(self.udf_pos_only_params(a=1)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(Int, a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Int, a=Int\)'):
             _ = t.select(self.udf_pos_only_params(1, a=1)).collect()
-        with pytest.raises(TypeError, match=rf'{pos_only_b}; {exp_ab}, got \(Int, b=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{pos_only_b}; {exp_ab}, got \(Int, b=Int\)'):
             _ = t.select(self.udf_pos_only_params(1, b=1)).collect()
 
         # udf with keyword params only
-        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(\)'):
             _ = t.select(self.udf_kw_only_params()).collect()
-        with pytest.raises(TypeError, match=rf'{too_many_pos}; {exp_ab}, got \(Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{too_many_pos}; {exp_ab}, got \(Int\)'):
             _ = t.select(self.udf_kw_only_params(0)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
             _ = t.select(self.udf_kw_only_params(x=0)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
             _ = t.select(self.udf_kw_only_params(a=0)).collect()
 
         # udf with positional or kw params
-        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
             _ = t.select(self.udf_pos_or_kw_params(x=0)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
             _ = t.select(self.udf_pos_or_kw_params(a=0)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int, x=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int, x=Int\)'):
             _ = t.select(self.udf_pos_or_kw_params(a=0, x=1)).collect()
-        with pytest.raises(TypeError, match=rf'{multi_a}; {exp_ab}, got \(Int, a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{multi_a}; {exp_ab}, got \(Int, a=Int\)'):
             _ = t.select(self.udf_pos_or_kw_params(0, a=0)).collect()
 
         # udf with default param value
-        with pytest.raises(TypeError, match=rf'{missing_a}; expected \(a: Int, b: Int = int\(0\)\), got \(\)'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; expected \(a: Int, b: Int = int\(0\)\), got \(\)'
+        ):
             _ = t.select(self.udf_default_param_val()).collect()
-        with pytest.raises(TypeError, match=rf'{missing_a}; expected \(a: Int, b: String | None = None\), got \(\)'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=rf'{missing_a}; expected \(a: Int, b: String | None = None\), got \(\)',
+        ):
             _ = t.select(self.udf_default_param_none()).collect()
-        with pytest.raises(
-            TypeError, match=rf'{missing_a}; expected \(a: Int, b: String | None = None\), got \(b=None\)'
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=rf'{missing_a}; expected \(a: Int, b: String | None = None\), got \(b=None\)',
         ):
             _ = t.select(self.udf_default_param_none(b=None)).collect()
 
         # udf with variadic positional params
-        with pytest.raises(
-            TypeError, match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(x=Int\)"
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(x=Int\)",
         ):
             _ = t.select(self.udf_variadic_pos(x=1)).collect()
-        with pytest.raises(
-            TypeError, match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(Int, x=Int\)"
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(Int, x=Int\)",
         ):
             _ = t.select(self.udf_variadic_pos(0, x=1)).collect()
 
         # udf with variadic kw params
-        with pytest.raises(TypeError, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int\)'):
             _ = t.select(self.udf_variadic_kw(1)).collect()
-        with pytest.raises(TypeError, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int, x=Int\)'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int, x=Int\)'
+        ):
             _ = t.select(self.udf_variadic_kw(1, x=0)).collect()
 
         # column ref as an argument for udf
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Int\)'):
             _ = t.select(self.udf_pos_only_params(t.c2)).collect()
 
         # arbitrary expr as an argument
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(Float\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Float\)'):
             _ = t.select(self.udf_pos_only_params(t.c2 + t.c3)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Float\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Float\)'):
             _ = t.select(self.udf_kw_only_params(a=t.c2 + t.c3)).collect()
 
         # function call as an argument
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
             _ = t.select(self.udf_kw_only_params(a=t.c2.increment())).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
             _ = t.select(self.udf_kw_only_params(a=t.c2.successor)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
             _ = t.select(self.udf_kw_only_params(a=self.udf_pos_only_params(0, 0))).collect()
 
     @staticmethod
