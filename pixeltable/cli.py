@@ -6,15 +6,12 @@ import argparse
 import errno
 import json as json_mod
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pydantic
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
-
-if TYPE_CHECKING:
-    from pixeltable.serving._config import AppConfig, RouteConfig
+from pixeltable import config, exceptions as excs
 
 
 class _Parser(argparse.ArgumentParser):
@@ -222,27 +219,24 @@ def _serve(args: argparse.Namespace) -> None:
     _run(config, create_service_from_config(config), args.json)
 
 
-def _print_dry_run(config: 'AppConfig', json_output: bool) -> None:
+def _print_dry_run(svc: config.ServiceConfig, json_output: bool) -> None:
     if json_output:
-        print(config.model_dump_json(indent=2))
+        print(svc.model_dump_json(indent=2))
     else:
-        svc = config.service
         print(f'Service:  {svc.title}')
         print(f'  Host:   {svc.host}')
         print(f'  Port:   {svc.port}')
         if svc.prefix:
             print(f'  Prefix: {svc.prefix}')
-        print(f'Routes ({len(config.routes)}):')
-        for route in config.routes:
+        print(f'Routes ({len(svc.routes)}):')
+        for route in svc.routes:
             d = route.model_dump()
             print(f'  [{d["type"]}] {d["path"]}')
 
 
-def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
-    from pixeltable.serving._config import DeleteRouteConfig, InsertRouteConfig, QueryRouteConfig
-
+def _build_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
     if args.mode == 'insert':
-        return InsertRouteConfig(
+        return config.InsertRouteConfig(
             type='insert',
             table=args.table,
             path=args.path,
@@ -253,7 +247,7 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
             background=args.background,
         )
     if args.mode == 'delete':
-        return DeleteRouteConfig(
+        return config.DeleteRouteConfig(
             type='delete',
             table=args.table,
             path=args.path,
@@ -261,7 +255,7 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
             background=args.background,
         )
     if args.mode == 'query':
-        return QueryRouteConfig(
+        return config.QueryRouteConfig(
             type='query',
             path=args.path,
             query=args.query,
@@ -275,7 +269,7 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
     raise AssertionError(f'unknown serve mode: {args.mode}')
 
 
-def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
+def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None:
     try:
         import uvicorn
     except ImportError as e:
@@ -284,7 +278,7 @@ def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
             "uvicorn is required for `pxt serve`; install it with `pip install 'fastapi[standard]'`",
         ) from e
 
-    host, port = config.service.host, config.service.port
+    host, port = cfg.host, cfg.port
     # wildcard bind addresses aren't navigable; print localhost for the URL hints
     display_host = 'localhost' if host in ('0.0.0.0', '::', '') else host
     if ':' in display_host:
@@ -301,16 +295,16 @@ def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
                     'port': port,
                     'url': url,
                     'docs_url': docs_url,
-                    'routes': len(config.routes),
+                    'routes': len(cfg.routes),
                 }
             )
         )
     else:
-        print(f'Starting Pixeltable service: {config.service.title}')
+        print(f'Starting Pixeltable service: {cfg.name}')
         print(f'  Bound to {host}:{port}')
         print(f'  Listening on {url}')
         print(f'  API docs at {docs_url}')
-        print(f'  Routes: {len(config.routes)}')
+        print(f'  Routes: {len(cfg.routes)}')
 
     try:
         uvicorn.run(app, host=host, port=port)

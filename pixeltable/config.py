@@ -350,7 +350,7 @@ class Config:
         return self.get_value(key, list, section)
 
 
-KNOWN_CONFIG_OPTIONS = {
+KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'pixeltable': {
         'home': 'Path to the Pixeltable home directory',
         'config': 'Path to the Pixeltable config file',

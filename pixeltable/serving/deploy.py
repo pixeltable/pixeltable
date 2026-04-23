@@ -27,7 +27,9 @@ def get_deployment_configs() -> dict[str, DeploymentConfig]:
     try:
         configs = [DeploymentConfig(**entry) for entry in value]
     except pydantic.ValidationError as exc:
-        raise excs.Error(f'Invalid deployment configuration:\n{exc}') from exc
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid deployment configuration:\n{exc}'
+        ) from exc
     return {config.name: config for config in configs}
 
 
