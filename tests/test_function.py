@@ -548,6 +548,10 @@ class TestFunction:
             self.binding_test_udf.using(p1=5)
         assert "Expected type `String` for parameter 'p1'; got `Int`" in str(exc_info.value)
 
+        with pytest.raises(TypeError) as exc_info:
+            _ = pb1(p1='a')
+        assert 'missing a required argument' in str(exc_info.value).lower()
+
     def test_nested_partial_binding(self, uses_db: None) -> None:
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = pb1.using(p1='x')
@@ -625,6 +629,10 @@ class TestFunction:
         res1 = t.select(out1=self.add1(t.c2), out2=self.add1(t.other_int)).order_by(t.c2).collect()
         res2 = t.select(t.c2 + 1, t.other_int + 1).order_by(t.c2).collect()
         assert_resultset_eq(res1, res2)
+
+        with pytest.raises(TypeError) as exc_info:
+            _ = t.select(self.add1(y=t.c2)).collect()
+        assert 'missing a required argument' in str(exc_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
             # parameter types cannot be inferred
