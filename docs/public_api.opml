@@ -488,6 +488,8 @@
           <outline text="func|pixeltable.io.import_parquet" />
           <outline text="func|pixeltable.io.import_rows" />
           <outline text="func|pixeltable.io.import_huggingface_dataset" />
+          <outline text="func|pixeltable.io.export_csv" />
+          <outline text="func|pixeltable.io.export_json" />
           <outline text="func|pixeltable.io.export_parquet" />
           <outline text="func|pixeltable.io.export_sql" />
           <outline text="func|pixeltable.io.export_lancedb" />
