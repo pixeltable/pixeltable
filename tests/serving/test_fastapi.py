@@ -740,6 +740,67 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.json() == ['t0', 't1', 't2']
 
+    def test_add_query_route_one_row(self, uses_db: None) -> None:
+        """one_row=True returns a flat JSON object (or bare scalar with return_scalar=True).
+        0 rows -> 404; >1 rows -> 409."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String})
+        # id=0 appears twice on purpose, to exercise the >1-row branch
+        t.insert([{'id': 0, 'text': 'dup-a'}, {'id': 0, 'text': 'dup-b'}, {'id': 1, 'text': 't1'}])
+
+        @pxt.query
+        def by_id(id: int) -> pxt.Query:
+            return t.where(t.id == id).select(t.id, t.text).order_by(t.text)
+
+        @pxt.query(return_scalar=True)
+        def text_by_id(id: int) -> pxt.Query:
+            return t.where(t.id == id).select(t.text).order_by(t.text)
+
+        router = FastAPIRouter()
+        router.add_query_route(path='/by-id', query=by_id, one_row=True)
+        router.add_query_route(path='/text-by-id', query=text_by_id, one_row=True)
+        client = make_test_client(router)
+
+        # non-scalar one_row: flat JSON object, NOT wrapped in {'rows': [...]}
+        resp = client.post('/by-id', json={'id': 1})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'id': 1, 'text': 't1'}
+
+        # scalar one_row: bare value, NOT a list
+        resp = client.post('/text-by-id', json={'id': 1})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == 't1'
+
+        # 0 rows -> 404
+        resp = client.post('/by-id', json={'id': 999})
+        assert resp.status_code == 404, resp.text
+        resp = client.post('/text-by-id', json={'id': 999})
+        assert resp.status_code == 404, resp.text
+
+        # >1 rows -> 409 with 'expected exactly 1' in the detail
+        resp = client.post('/by-id', json={'id': 0})
+        assert resp.status_code == 409, resp.text
+        assert 'expected exactly 1' in resp.json()['detail']
+        resp = client.post('/text-by-id', json={'id': 0})
+        assert resp.status_code == 409, resp.text
+
+        # OpenAPI: non-scalar one_row advertises the row model, not the wrapper
+        openapi = client.get('/openapi.json').json()
+        by_id_200 = openapi['paths']['/by-id']['post']['responses']['200']['content']['application/json']['schema']
+        # should reference the row-shaped model (has 'id' and 'text' properties), not a wrapper with 'rows'
+        assert '$ref' in by_id_200
+        row_schema = openapi['components']['schemas'][by_id_200['$ref'].split('/')[-1]]
+        assert set(row_schema['properties'].keys()) == {'id', 'text'}
+        # scalar one_row schema has no 'rows' wrapper and is not an array
+        scalar_schema = openapi['paths']['/text-by-id']['post']['responses']['200']['content']['application/json'][
+            'schema'
+        ]
+        assert scalar_schema.get('type') != 'array'
+        assert 'rows' not in str(scalar_schema)
+
     def test_add_query_route_image(self, uses_db: None) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
         skip_test_if_not_installed('fastapi')
@@ -808,6 +869,47 @@ class TestFastAPI:
         assert isinstance(result, dict) and 'rows' in result
         assert len(result['rows']) == 1
         assert '/media/' in result['rows'][0]['resized']
+
+    def test_add_query_route_image_transform(self, uses_db: None) -> None:
+        """Inline image transformations (non-ColumnRef expressions) in the SELECT list.
+
+        The query-route rewrite at `_fastapi.py` only targets `ColumnRef` items. When the
+        SELECT list contains a raw image-valued expression (e.g., `t.image.resize([16, 16])`),
+        the expression evaluates to a `PIL.Image.Image` at runtime and `_create_output`
+        flushes it to a temp file so the JSON / FileResponse paths can deliver it.
+        """
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        image_path = get_image_files()[0]
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.img_xform', {'id': pxt.Int, 'image': pxt.Image})
+        t.insert([{'id': 1, 'image': image_path}, {'id': 2, 'image': image_path}])
+
+        @pxt.query
+        def thumb_by_id(img_id: int) -> pxt.Query:
+            return t.where(t.id == img_id).select(thumb=t.image.resize([16, 16]))
+
+        router = FastAPIRouter()
+        router.add_query_route(path='/transform-json', query=thumb_by_id, one_row=True)
+        router.add_query_route(path='/transform-file', query=thumb_by_id, return_fileresponse=True)
+        client = make_test_client(router)
+
+        # JSON: inline transform expression surfaces as a /media/ URL
+        resp = client.post('/transform-json', json={'img_id': 1})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert 'thumb' in body
+        assert '/media/' in body['thumb'], f'expected /media/ URL, got: {body["thumb"]!r}'
+        media_resp = client.get(body['thumb'])
+        assert media_resp.status_code == 200
+        assert len(media_resp.content) > 0
+
+        # FileResponse: image bytes with an image/* content type
+        resp = client.post('/transform-file', json={'img_id': 1})
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'].startswith('image/')
+        assert len(resp.content) > 0
 
     def test_add_query_route_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fastapi')
@@ -971,6 +1073,13 @@ class TestFastAPI:
             def _(*, length: int) -> R:
                 return R(x=length)
 
+        # annotation that ColumnType.from_python_type() cannot interpret
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match='cannot interpret annotation'):
+
+            @router.insert_route(t, path='/e4', outputs=['id'])
+            def _(*, id: complex) -> R:
+                return R(x=0)
+
         # `T | None` for non-nullable column is accepted (user annotates looser)
         @router.insert_route(t, path='/ok1', outputs=['id'])
         def _ok1(*, id: int | None) -> R:
@@ -978,6 +1087,58 @@ class TestFastAPI:
 
         # `T | None` for nullable column is accepted
         @router.insert_route(t, path='/ok2', outputs=['length'])
+        def _ok2(*, length: int | None) -> R:
+            return R(x=length or 0)
+
+    def test_update_route_type_validation(self, uses_db: None) -> None:
+        """Update-route parameter annotations are validated against column types (strict nullability)."""
+        skip_test_if_not_installed('fastapi')
+        import pydantic
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.types', {'id': pxt.Required[pxt.Int], 'prompt': pxt.String}, primary_key='id')
+        t.add_computed_column(length=t.prompt.len())
+        router = FastAPIRouter()
+
+        class R(pydantic.BaseModel):
+            x: int
+
+        # missing annotation
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='update_route.*has no type annotation'):
+
+            @router.update_route(t, path='/e1', outputs=['id'])
+            def _(*, id) -> R:  # type: ignore[no-untyped-def]
+                return R(x=id)
+
+        # wrong scalar type
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='update_route.*parameter .id. has annotation'):
+
+            @router.update_route(t, path='/e2', outputs=['id'])
+            def _(*, id: str) -> R:
+                return R(x=0)
+
+        # non-nullable annotation for nullable column
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='update_route.*parameter .length. has annotation'):
+
+            @router.update_route(t, path='/e3', outputs=['length'])
+            def _(*, length: int) -> R:
+                return R(x=length)
+
+        # unmappable annotation
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match='update_route.*cannot interpret annotation'):
+
+            @router.update_route(t, path='/e4', outputs=['id'])
+            def _(*, id: complex) -> R:
+                return R(x=0)
+
+        # `T | None` is accepted for both nullable and non-nullable columns
+        @router.update_route(t, path='/ok1', outputs=['id'])
+        def _ok1(*, id: int | None) -> R:
+            return R(x=id or 0)
+
+        @router.update_route(t, path='/ok2', outputs=['length'])
         def _ok2(*, length: int | None) -> R:
             return R(x=length or 0)
 
