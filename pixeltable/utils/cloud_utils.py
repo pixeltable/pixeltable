@@ -67,7 +67,7 @@ def get_presigned_url_from_cloud(
     Uses backend credentials on the cloud so URL expiry is independent of temp credential TTL.
     """
     request = GetPresignedUrlRequest(
-        org_slug=org_slug, db_slug=db_slug, bucket=bucket, key=key, method=method, expiration=expiration
+        org_slug=org_slug, db_slug=db_slug, bucket_name=bucket, key=key, method=method, expiration=expiration
     )
     try:
         response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)

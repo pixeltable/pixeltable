@@ -23,7 +23,7 @@ class GetPresignedUrlRequest(RequestBaseModel):
     )
     org_slug: str
     db_slug: str
-    bucket: str = 'home'
+    bucket_name: str = 'home'
     key: str  # Object key within the home bucket
     method: Literal['get', 'put'] = 'get'  # HTTP method for the presigned URL
     expiration: int = 3600  # URL expiry in seconds
