@@ -40,6 +40,11 @@ Examples:
   pxt serve insert --table my_dir.my_table --path /generate \\
     --inputs prompt --outputs prompt result --port 8000"""
 
+_EPILOG_UPDATE = """\
+Examples:
+  pxt serve update --table my_dir.my_table --path /update \\
+    --inputs prompt --outputs id result --port 8000"""
+
 _EPILOG_DELETE = """\
 Examples:
   pxt serve delete --table my_dir.my_table --path /delete"""
@@ -138,6 +143,32 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     insert_parser.add_argument('--background', action='store_true', help='Run the insert in the background')
     _add_service_args(insert_parser)
     _add_output_args(insert_parser)
+
+    # pxt serve update
+    update_parser = serve_sub.add_parser(
+        'update',
+        help='Single update endpoint',
+        epilog=_EPILOG_UPDATE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    update_parser.add_argument('--table', required=True, help='Fully-qualified table path')
+    update_parser.add_argument('--path', required=True, help='HTTP path for the endpoint')
+    update_parser.add_argument(
+        '--inputs',
+        nargs='+',
+        default=None,
+        help='Non-PK column names accepted from the JSON body (PK columns are always accepted)',
+    )
+    update_parser.add_argument('--outputs', nargs='+', default=None, help='Column names returned in the response')
+    update_parser.add_argument(
+        '--return-fileresponse',
+        action='store_true',
+        dest='return_fileresponse',
+        help='Stream the output as a file response',
+    )
+    update_parser.add_argument('--background', action='store_true', help='Run the update in the background')
+    _add_service_args(update_parser)
+    _add_output_args(update_parser)
 
     # pxt serve delete
     delete_parser = serve_sub.add_parser(
@@ -239,7 +270,7 @@ def _print_dry_run(config: 'AppConfig', json_output: bool) -> None:
 
 
 def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
-    from pixeltable.serving._config import DeleteRouteConfig, InsertRouteConfig, QueryRouteConfig
+    from pixeltable.serving._config import DeleteRouteConfig, InsertRouteConfig, QueryRouteConfig, UpdateRouteConfig
 
     if args.mode == 'insert':
         return InsertRouteConfig(
@@ -248,6 +279,16 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
             path=args.path,
             inputs=args.inputs,
             uploadfile_inputs=args.uploadfile_inputs,
+            outputs=args.outputs,
+            return_fileresponse=args.return_fileresponse,
+            background=args.background,
+        )
+    if args.mode == 'update':
+        return UpdateRouteConfig(
+            type='update',
+            table=args.table,
+            path=args.path,
+            inputs=args.inputs,
             outputs=args.outputs,
             return_fileresponse=args.return_fileresponse,
             background=args.background,
