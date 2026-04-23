@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import itertools
 import typing
 from abc import ABC, abstractmethod
 from copy import copy
@@ -239,9 +240,9 @@ class Function(ABC):
                 return str(v.col_type)
             return type(v).__name__
 
-        arg_descs = [_arg_desc(a) for a in args]
-        kwarg_descs = [f'{k}={_arg_desc(v)}' for k, v in kwargs.items()]
-        provided = ', '.join(arg_descs + kwarg_descs)
+        arg_descs = (_arg_desc(a) for a in args)
+        kwarg_descs = (f'{k}={_arg_desc(v)}' for k, v in kwargs.items())
+        provided = ', '.join(itertools.chain(arg_descs, kwarg_descs))
         return f'{cause}; expected ({signature.params_str()}), got ({provided})'
 
     def _bind_to_signature(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
