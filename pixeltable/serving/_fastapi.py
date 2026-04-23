@@ -92,6 +92,13 @@ def _run_endpoint_op(
         raise
 
 
+def _wire_col_type(col_type: ts.ColumnType) -> ts.ColumnType:
+    """ColumnType as seen by a decorated function consumer: media columns are delivered as URL strings."""
+    if col_type.is_media_type():
+        return ts.StringType(nullable=col_type.nullable)
+    return col_type
+
+
 class FastAPIRouter(fastapi.APIRouter):
     """
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
@@ -990,13 +997,41 @@ class FastAPIRouter(fastapi.APIRouter):
                     f'{error_prefix}: {fn_name!r} parameter {p.name!r} must be keyword-only '
                     '(place parameters after `*` in the signature)',
                 )
+
             if p.name not in output_col_names:
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{error_prefix}: {fn_name!r} parameter {p.name!r} is not among the declared outputs '
                     f'{output_col_names}',
                 )
+
+            if p.annotation is inspect.Parameter.empty:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} has no type annotation',
+                )
+
+            param_col_type = ts.ColumnType.from_python_type(p.annotation)
+            if param_col_type is None:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_TYPE,
+                    f'{error_prefix}: {fn_name!r} parameter {p.name!r}: cannot interpret annotation '
+                    f'{p.annotation!r} as a Pixeltable type',
+                )
+
+            output_col_type = output_schema[p.name]
+            expected_col_type = (
+                ts.StringType(nullable=output_col_type.nullable) if output_col_type.is_media_type() else output_col_type
+            )
+            if not param_col_type.is_supertype_of(expected_col_type):
+                raise pxt.RequestError(
+                    pxt.ErrorCode.TYPE_MISMATCH,
+                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} has annotation {p.annotation!r} '
+                    f'({param_col_type}), which is incompatible with column type {expected_col_type}',
+                )
+
             param_names.add(p.name)
+
         missing = [n for n in output_col_names if n not in param_names]
         if missing:
             raise pxt.RequestError(
@@ -1004,6 +1039,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 f'{error_prefix}: {fn_name!r} is missing parameters for outputs {missing}; every declared '
                 'output must appear as a keyword-only parameter',
             )
+
         return_annot = user_fn.__annotations__.get('return')
         if not (isinstance(return_annot, type) and issubclass(return_annot, pydantic.BaseModel)):
             raise pxt.RequestError(
@@ -1123,6 +1159,79 @@ class FastAPIRouter(fastapi.APIRouter):
         }
         input_col_names, output_col_names = self._validate_args(
             input_schema=input_schema,
+            output_schema={c.name: c.col_type for c in cols_by_name.values()},
+            inputs=inputs,
+            uploadfile_inputs=None,
+            outputs=outputs,
+            return_fileresponse=return_fileresponse,
+            error_prefix=error_prefix,
+            input_item_str='column',
+            output_item_str='column',
+        )
+        return pk_col_names, input_col_names, output_col_names, cols_by_name
+
+    def _validate_dml_args(
+        self,
+        t: pxt.Table,
+        *,
+        inputs: list[str] | None,
+        outputs: list[str] | None,
+        return_fileresponse: bool,
+        background: bool,
+        error_prefix: str,
+        validate_update: bool,
+    ) -> tuple[list[str], list[str], list[str], dict[str, catalog.Column]]:
+        """Validate update-route args and return (pk_col_names, input_col_names, output_col_names, cols_by_name)."""
+        md = t.get_metadata()
+        if md['kind'] != 'table':
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot update {md["kind"]} {md["name"]!r}'
+            )
+        if return_fileresponse and background:
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'{error_prefix}: return_fileresponse and background are mutually exclusive',
+            )
+
+        col_md = md['columns']
+        pk_col_names = [name for name, c in col_md.items() if c['is_primary_key']]
+        if validate_update and not pk_col_names:
+            raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
+
+        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        pk_set = set(pk_col_names)
+
+        for name in inputs or []:
+            # computed columns cannot be inputs
+            if name in col_md and col_md[name]['is_computed']:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_prefix}: {name!r} is a computed column and cannot be used as input',
+                )
+
+            # PK columns cannot be inputs for an update route
+            if validate_update and name in pk_set:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_prefix}: {name!r} is a primary key column and cannot be used as input',
+                )
+
+            # media columns cannot be updated
+            if validate_update and name in cols_by_name and cols_by_name[name].col_type.is_media_type():
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{error_prefix}: {name!r} is a media column and cannot be updated',
+                )
+
+        # # input_schema: non-computed, non-PK, non-media columns
+        # input_schema = {
+        #     c.name: c.col_type
+        #     for c in cols_by_name.values()
+        #     if not c.is_computed and c.name not in pk_set and not c.col_type.is_media_type()
+        # }
+        input_col_names, output_col_names = self._validate_args(
+            input_schema={c.name: c.col_type for c in cols_by_name.values() if not c.is_computed},
+            # input_schema=input_schema,
             output_schema={c.name: c.col_type for c in cols_by_name.values()},
             inputs=inputs,
             uploadfile_inputs=None,

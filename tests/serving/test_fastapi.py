@@ -919,7 +919,8 @@ class TestFastAPI:
             size: int
 
         @router.insert_route(t, path='/generate', inputs=['id', 'prompt'], outputs=['greeting', 'length'])
-        def format_response(*, greeting: str, length: int) -> GenResponse:
+        def format_response(*, greeting: str | None, length: int | None) -> GenResponse:
+            assert greeting is not None and length is not None
             return GenResponse(tag=greeting.upper(), size=length * 2)
 
         client = make_test_client(router)
@@ -933,6 +934,52 @@ class TestFastAPI:
         # decorator should return the function unchanged (callable for unit tests)
         direct = format_response(greeting='hi', length=2)
         assert isinstance(direct, GenResponse) and direct.tag == 'HI' and direct.size == 4
+
+    def test_insert_route_type_validation(self, uses_db: None) -> None:
+        """Parameter annotations are validated against the column types (strict nullability)."""
+        skip_test_if_not_installed('fastapi')
+        import pydantic
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.types', {'id': pxt.Required[pxt.Int], 'prompt': pxt.String})
+        t.add_computed_column(length=t.prompt.len())
+        router = FastAPIRouter()
+
+        class R(pydantic.BaseModel):
+            x: int
+
+        # missing annotation
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='has no type annotation'):
+
+            @router.insert_route(t, path='/e1', outputs=['id'])
+            def _(*, id) -> R:  # type: ignore[no-untyped-def]
+                return R(x=id)
+
+        # wrong scalar type
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='parameter .id. has annotation'):
+
+            @router.insert_route(t, path='/e2', outputs=['id'])
+            def _(*, id: str) -> R:
+                return R(x=0)
+
+        # non-nullable annotation for nullable column (length is Optional[int] from String.len())
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='parameter .length. has annotation'):
+
+            @router.insert_route(t, path='/e3', outputs=['length'])
+            def _(*, length: int) -> R:
+                return R(x=length)
+
+        # `T | None` for non-nullable column is accepted (user annotates looser)
+        @router.insert_route(t, path='/ok1', outputs=['id'])
+        def _ok1(*, id: int | None) -> R:
+            return R(x=id or 0)
+
+        # `T | None` for nullable column is accepted
+        @router.insert_route(t, path='/ok2', outputs=['length'])
+        def _ok2(*, length: int | None) -> R:
+            return R(x=length or 0)
 
     def test_insert_route_image(self, uses_db: None) -> None:
         """Media columns surface as /media/ URLs in the decorated fn's kwargs."""
@@ -952,7 +999,8 @@ class TestFastAPI:
             is_media_url: bool
 
         @router.insert_route(t, path='/img', inputs=['id', 'image'], outputs=['thumb'])
-        def make_resp(*, thumb: str) -> ImgResp:
+        def make_resp(*, thumb: str | None) -> ImgResp:
+            assert thumb is not None
             return ImgResp(thumb_url=thumb, is_media_url='/media/' in thumb)
 
         client = make_test_client(router)
@@ -985,7 +1033,8 @@ class TestFastAPI:
         inputs = ['id'] if use_uploadfile else ['id', 'image']
 
         @router.insert_route(t, path='/upl', inputs=inputs, uploadfile_inputs=uploadfile_inputs, outputs=['thumb'])
-        def make_resp(*, thumb: str) -> UplResp:
+        def make_resp(*, thumb: str | None) -> UplResp:
+            assert thumb is not None
             return UplResp(thumb_url=thumb)
 
         client = make_test_client(router)
@@ -1018,7 +1067,8 @@ class TestFastAPI:
             doubled: int
 
         @router.insert_route(t, path='/bg', outputs=['value'], background=True)
-        def make_resp(*, value: int) -> BgResp:
+        def make_resp(*, value: int | None) -> BgResp:
+            assert value is not None
             return BgResp(doubled=value * 2)
 
         client = make_test_client(router)
@@ -1036,7 +1086,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir('test_serve')
-        t = pxt.create_table('test_serve.dec_err', {'id': pxt.Int, 'text': pxt.String})
+        t = pxt.create_table('test_serve.dec_err', {'id': pxt.Required[pxt.Int], 'text': pxt.Required[pxt.String]})
         t.add_computed_column(text_upper=t.text.upper())
         router = FastAPIRouter()
 
@@ -1193,11 +1243,13 @@ class TestFastAPI:
             doubled: int
 
         @router.update_route(t, path='/update', inputs=['text', 'value'], outputs=['id', 'text_upper', 'value'])
-        def format_response(*, id: int, text_upper: str, value: int) -> UpdateResp:
+        def format_response(*, id: int, text_upper: str | None, value: int | None) -> UpdateResp:
+            assert text_upper is not None and value is not None
             return UpdateResp(key=id, upper=text_upper, doubled=value * 2)
 
         @router.update_route(t, path='/bg', inputs=['value'], outputs=['id', 'value'], background=True)
-        def bg_response(*, id: int, value: int) -> UpdateResp:
+        def bg_response(*, id: int, value: int | None) -> UpdateResp:
+            assert value is not None
             return UpdateResp(key=id, upper='', doubled=value * 2)
 
         client = make_test_client(router)
