@@ -19,6 +19,7 @@ from .utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
+    pxt_raises,
     reload_catalog,
     skip_test_if_not_installed,
     validate_update_status,
@@ -123,7 +124,7 @@ class TestVideo:
         assert num_frames_50.count() == 50
         assert num_frames_1000.count() == 448
 
-        with pytest.raises(pxt.Error, match='At most one of'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At most one of'):
             _ = pxt.create_view('invalid_args', videos, iterator=frame_iterator(videos.video, fps=1 / 2, num_frames=10))
 
     def test_frame_iterator_seek(self, uses_db: None) -> None:
@@ -177,10 +178,10 @@ class TestVideo:
         res = frames.order_by(frames.pos).collect()
         assert keyframes_count == sum(attrs['key_frame'] for attrs in res['frame_attrs'])
 
-        with pytest.raises(pxt.Error, match='At most one of'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At most one of'):
             _ = pxt.create_view('invalid', videos, iterator=frame_iterator(videos.video, keyframes_only=True, fps=1))
 
-        with pytest.raises(pxt.Error, match='At most one of'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At most one of'):
             _ = pxt.create_view(
                 'invalid', videos, iterator=frame_iterator(videos.video, keyframes_only=True, num_frames=10)
             )
@@ -327,13 +328,13 @@ class TestVideo:
         view_t.add_computed_column(transformed=view_t.frame.rotate(30), stored=True)
         _ = view_t.select(make_video(view_t.pos, view_t.transformed)).group_by(base_t).show()
 
-        with pytest.raises(pxt.Error):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             # make_video() doesn't allow windows
             _ = view_t.select(make_video(view_t.pos, view_t.frame, group_by=base_t)).show()
-        with pytest.raises(pxt.Error):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             # make_video() requires ordering
             _ = view_t.select(make_video(view_t.frame, order_by=view_t.pos)).show()
-        with pytest.raises(pxt.Error):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             # incompatible ordering requirements
             _ = (
                 view_t.select(make_video(view_t.pos, view_t.frame), make_video(view_t.pos - 1, view_t.transformed))
@@ -348,7 +349,7 @@ class TestVideo:
         _ = view_t.select(make_video(view_t.pos, view_t.agg)).group_by(base_t).show()
 
         # image cols computed with a window function currently need to be stored
-        with pytest.raises(pxt.Error):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             view_t.add_computed_column(agg2=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
 
         # reload from store
@@ -391,16 +392,18 @@ class TestVideo:
         )
         assert result_df['clip'].isnull().all(), result_df['clip']
 
-        with pytest.raises(pxt.Error, match='start_time must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='start_time must be non-negative'):
             _ = t.select(invalid_clip=t.video.clip(start_time=-1.0)).collect()
 
-        with pytest.raises(pxt.Error, match=r'end_time \(5.0\) must be greater than start_time \(10.0\)'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match=r'end_time \(5.0\) must be greater than start_time \(10.0\)'
+        ):
             _ = t.select(invalid_clip=t.video.clip(start_time=10.0, end_time=5.0)).collect()
 
-        with pytest.raises(pxt.Error, match='duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='duration must be positive'):
             _ = t.select(invalid_clip=t.video.clip(start_time=10.0, duration=-1.0)).collect()
 
-        with pytest.raises(pxt.Error, match='end_time and duration cannot both be specified'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='end_time and duration cannot both be specified'):
             _ = t.select(invalid_clip=t.video.clip(start_time=10.0, end_time=20.0, duration=10.0)).collect()
 
     def test_extract_frame(self, uses_db: None) -> None:
@@ -445,7 +448,7 @@ class TestVideo:
         result_df = t.select(frame=t.video.extract_frame(timestamp=1000.0)).collect().to_pandas()
         assert result_df['frame'].isnull().all()
 
-        with pytest.raises(pxt.Error):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             t.add_computed_column(invalid3=t.video.extract_frame(timestamp=-1.0))
 
     def _validate_segments(
@@ -532,21 +535,23 @@ class TestVideo:
         t = pxt.create_table('test_segments', {'video': pxt.Video})
         t.insert([{'video': f} for f in get_video_files()])
 
-        with pytest.raises(pxt.Error, match='duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='duration must be positive'):
             _ = t.select(invalid=t.video.segment_video(duration=0.0)).collect()
 
-        with pytest.raises(pxt.Error, match='video_encoder is not supported'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='video_encoder is not supported'):
             _ = t.select(invalid=t.video.segment_video(duration=5.0, mode='fast', video_encoder='libx264')).collect()
 
-        with pytest.raises(pxt.Error, match='video_encoder_args is not supported'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='video_encoder_args is not supported'):
             _ = t.select(
                 invalid=t.video.segment_video(duration=5.0, mode='fast', video_encoder_args={'crf': 18})
             ).collect()
 
-        with pytest.raises(pxt.Error, match='segment_times cannot be empty'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='segment_times cannot be empty'):
             _ = t.select(invalid=t.video.segment_video(segment_times=[])).collect()
 
-        with pytest.raises(pxt.Error, match='duration and segment_times cannot both be specified'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match='duration and segment_times cannot both be specified'
+        ):
             _ = t.select(invalid=t.video.segment_video(duration=1.0, segment_times=[1.0, 2.0])).collect()
 
     def test_concat_videos(self, uses_db: None) -> None:
@@ -630,7 +635,7 @@ class TestVideo:
 
         t = pxt.create_table('test_resolution', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
         t.insert([{'v1': low_res, 'v2': high_res, 'v3': mid_res}])
-        with pytest.raises(pxt.Error, match='requires that all videos have the same resolution'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires that all videos have the same resolution'):
             _ = t.add_computed_column(
                 concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
             )
@@ -692,7 +697,7 @@ class TestVideo:
 
         t2 = pxt.create_table('test_agg_resolution', {'id': pxt.Int, 'video': pxt.Video})
         t2.insert([{'id': 0, 'video': low_res}, {'id': 1, 'video': high_res}])
-        with pytest.raises(pxt.Error, match='requires that all videos have the same resolution'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires that all videos have the same resolution'):
             t2.select(concat_videos_agg(t2.id, t2.video)).collect()
 
     def _validate_splitter_segments(
@@ -817,34 +822,36 @@ class TestVideo:
 
     def test_video_splitter_errors(self, uses_db: None) -> None:
         t = pxt.create_table('videos', {'video': pxt.Video})
-        with pytest.raises(pxt.Error, match='Must specify either duration or segment_times'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Must specify either duration or segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video))
-        with pytest.raises(pxt.Error, match='duration must be a positive number'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='duration must be a positive number'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=-1))
-        with pytest.raises(pxt.Error, match='overlap must be less than duration'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='overlap must be less than duration'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=1, overlap=1))
-        with pytest.raises(pxt.Error, match='duration must be at least min_segment_duration'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='duration must be at least min_segment_duration'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=1, min_segment_duration=2))
-        with pytest.raises(pxt.Error, match='Cannot specify overlap'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot specify overlap'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=10, mode='accurate', overlap=5))
-        with pytest.raises(pxt.Error, match='Cannot specify video_encoder'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot specify video_encoder'):
             _ = pxt.create_view(
                 's', t, iterator=video_splitter(t.video, duration=10, mode='fast', video_encoder='libx264')
             )
-        with pytest.raises(pxt.Error, match='Cannot specify video_encoder_args'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot specify video_encoder_args'):
             _ = pxt.create_view(
                 's', t, iterator=video_splitter(t.video, duration=10, mode='fast', video_encoder_args={'crf': 18})
             )
-        with pytest.raises(pxt.Error, match='duration and segment_times cannot both be specified'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match='duration and segment_times cannot both be specified'
+        ):
             _ = pxt.create_view(
                 's', t, iterator=video_splitter(t.video, duration=10, segment_times=[1, 2], mode='fast')
             )
-        with pytest.raises(pxt.Error, match='Cannot specify overlap'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot specify overlap'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, mode='accurate', duration=3, overlap=1))
-        with pytest.raises(pxt.Error, match='overlap cannot be specified with segment_times'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
 
-    @pytest.mark.skipif(IN_CI, reason='requires bug fix')
+    @pytest.mark.skipif(IN_CI, reason='[PXT-1118] Bug involving media reference in where clause')
     # @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
     def test_overlay_text(self, uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('videos', {'video': pxt.Video})
@@ -1079,33 +1086,37 @@ class TestVideo:
         t = pxt.create_table('videos_errors', {'video': pxt.Video})
         t.insert([{'video': v} for v in get_video_files()])
 
-        with pytest.raises(pxt.Error, match='font_size must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='font_size must be positive'):
             t.select(t.video.overlay_text('Test', font_size=0)).collect()
-        with pytest.raises(pxt.Error, match='font_size must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='font_size must be positive'):
             t.select(t.video.overlay_text('Test', font_size=-10)).collect()
-        with pytest.raises(pxt.Error, match=re.escape('opacity must be between 0.0 and 1.0')):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape('opacity must be between 0.0 and 1.0')):
             t.select(t.video.overlay_text('Test', opacity=-0.1)).collect()
-        with pytest.raises(pxt.Error, match=re.escape('opacity must be between 0.0 and 1.0')):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape('opacity must be between 0.0 and 1.0')):
             t.select(t.video.overlay_text('Test', opacity=1.1)).collect()
-        with pytest.raises(pxt.Error, match=re.escape('horizontal_margin must be non-negative')):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape('horizontal_margin must be non-negative')):
             t.select(t.video.overlay_text('Test', horizontal_margin=-5)).collect()
-        with pytest.raises(pxt.Error, match=re.escape('vertical_margin must be non-negative')):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape('vertical_margin must be non-negative')):
             t.select(t.video.overlay_text('Test', vertical_margin=-10)).collect()
-        with pytest.raises(pxt.Error, match=re.escape('box_opacity must be between 0.0 and 1.0')):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape('box_opacity must be between 0.0 and 1.0')):
             t.select(t.video.overlay_text('Test', box=True, box_opacity=-0.5)).collect()
-        with pytest.raises(pxt.Error, match=re.escape('box_opacity must be between 0.0 and 1.0')):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape('box_opacity must be between 0.0 and 1.0')):
             t.select(t.video.overlay_text('Test', box=True, box_opacity=2.0)).collect()
-        with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')
+        ):
             t.select(t.video.overlay_text('Test', box=True, box_border=[1, 2, 3, 4, 5])).collect()
-        with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')
+        ):
             t.select(t.video.overlay_text('Test', box=True, box_border=[-5, 10])).collect()
-        with pytest.raises(pxt.Error, match=r'start_time must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'start_time must be non-negative'):
             t.select(t.video.overlay_text('x', start_time=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'end_time must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'end_time must be non-negative'):
             t.select(t.video.overlay_text('x', end_time=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'start_time must be less than end_time'):
             t.select(t.video.overlay_text('x', start_time=3.0, end_time=1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'start_time must be less than end_time'):
             t.select(t.video.overlay_text('x', start_time=2.0, end_time=2.0)).collect()
 
     @pytest.mark.parametrize(
@@ -1160,31 +1171,39 @@ class TestVideo:
         t = pxt.create_table('crop_error_test', {'video': pxt.Video})
         t.insert({'video': f} for f in get_video_files()[:1])
 
-        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='bbox must have exactly 4 non-negative integers'):
             t.select(t.video.crop([0, 0, 100])).collect()
 
-        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='bbox must have exactly 4 non-negative integers'):
             t.select(t.video.crop([0, 0, 100, 100, 50])).collect()
 
-        with pytest.raises(pxt.Error, match='bbox_format must be one of'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='bbox_format must be one of'):
             t.select(t.video.crop([0, 0, 100, 100], bbox_format='invalid')).collect()
 
-        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='bbox must have exactly 4 non-negative integers'):
             t.select(t.video.crop([-1, 0, 100, 100], bbox_format='xywh')).collect()
 
-        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='bbox must have exactly 4 non-negative integers'):
             t.select(t.video.crop([0, -1, 100, 100], bbox_format='xywh')).collect()
 
-        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='x2 must be greater than x1 and y2 must be greater than y1'
+        ):
             t.select(t.video.crop([100, 0, 50, 100], bbox_format='xyxy')).collect()
 
-        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='x2 must be greater than x1 and y2 must be greater than y1'
+        ):
             t.select(t.video.crop([0, 100, 100, 50], bbox_format='xyxy')).collect()
 
-        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='x2 must be greater than x1 and y2 must be greater than y1'
+        ):
             t.select(t.video.crop([50, 0, 50, 100], bbox_format='xyxy')).collect()
 
-        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='x2 must be greater than x1 and y2 must be greater than y1'
+        ):
             t.select(t.video.crop([0, 50, 100, 50], bbox_format='xyxy')).collect()
 
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
@@ -1225,17 +1244,17 @@ class TestVideo:
         assert all(math.isclose(5.0, row['duration'], abs_tol=0.25) for row in result)
 
         # error conditions
-        with pytest.raises(pxt.Error, match='video_offset must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='video_offset must be non-negative'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, video_start_time=-1.0))
-        with pytest.raises(pxt.Error, match='audio_offset must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='audio_offset must be non-negative'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_start_time=-1.0))
-        with pytest.raises(pxt.Error, match='video_duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='video_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, video_duration=0.0))
-        with pytest.raises(pxt.Error, match='video_duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='video_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, video_duration=-1.0))
-        with pytest.raises(pxt.Error, match='audio_duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=0.0))
-        with pytest.raises(pxt.Error, match='audio_duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
 
     def test_resize(self, uses_db: None, tmp_path: Path) -> None:
@@ -1301,23 +1320,29 @@ class TestVideo:
         t = pxt.create_table('resize_err_test', {'video': pxt.Video})
         validate_update_status(t.insert([{'video': v} for v in videos]))
 
-        with pytest.raises(pxt.Error, match='`scale` is mutually exclusive with `width` and `height`'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='`scale` is mutually exclusive with `width` and `height`'
+        ):
             t.select(t.video.resize(width=320, scale=0.5)).collect()
-        with pytest.raises(pxt.Error, match='`scale` is mutually exclusive with `width` and `height`'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='`scale` is mutually exclusive with `width` and `height`'
+        ):
             t.select(t.video.resize(height=240, scale=0.5)).collect()
-        with pytest.raises(pxt.Error, match='`width` must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`width` must be positive'):
             t.select(t.video.resize(width=0)).collect()
-        with pytest.raises(pxt.Error, match='`width` must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`width` must be positive'):
             t.select(t.video.resize(width=-180)).collect()
-        with pytest.raises(pxt.Error, match='`height` must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`height` must be positive'):
             t.select(t.video.resize(height=0)).collect()
-        with pytest.raises(pxt.Error, match='`height` must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`height` must be positive'):
             t.select(t.video.resize(height=-180)).collect()
-        with pytest.raises(pxt.Error, match='`scale` must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`scale` must be positive'):
             t.select(t.video.resize(scale=0)).collect()
-        with pytest.raises(pxt.Error, match='`scale` must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`scale` must be positive'):
             t.select(t.video.resize(scale=-1.0)).collect()
-        with pytest.raises(pxt.Error, match='At least one of `width`, `height`, or `scale` must be specified'):
+        with pxt_raises(
+            pxt.ErrorCode.MISSING_REQUIRED, match='At least one of `width`, `height`, or `scale` must be specified'
+        ):
             t.select(t.video.resize()).collect()
 
     @pytest.mark.parametrize('audio_mode', ['drop', 'reverse', 'keep'])
@@ -1375,15 +1400,17 @@ class TestVideo:
         t = pxt.create_table('scroll_err_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
-        with pytest.raises(pxt.Error, match=r'at least one of .x_speed. or .y_speed. must be non-zero'):
+        with pxt_raises(
+            pxt.ErrorCode.MISSING_REQUIRED, match=r'at least one of .x_speed. or .y_speed. must be non-zero'
+        ):
             t.select(t.video.scroll(w=160)).collect()
-        with pytest.raises(pxt.Error, match=r'viewport.*must not exceed input dimensions'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'viewport.*must not exceed input dimensions'):
             t.select(t.video.scroll(w=99999, x_speed=10)).collect()
-        with pytest.raises(pxt.Error, match='at least one of `w` or `h`'):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='at least one of `w` or `h`'):
             t.select(t.video.scroll(x_speed=10)).collect()
-        with pytest.raises(pxt.Error, match=r'x_start must be between'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'x_start must be between'):
             t.select(t.video.scroll(w=160, x_speed=10, x_start=9999)).collect()
-        with pytest.raises(pxt.Error, match=r'y_start must be between'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'y_start must be between'):
             t.select(t.video.scroll(w=160, x_speed=10, y_start=9999)).collect()
 
     def test_zoom(self, uses_db: None) -> None:
@@ -1423,13 +1450,13 @@ class TestVideo:
         t = pxt.create_table('zoom_err_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
-        with pytest.raises(pxt.Error, match=r'start_scale must be >= 1\.0'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'start_scale must be >= 1\.0'):
             t.select(t.video.zoom(start_scale=0.5)).collect()
-        with pytest.raises(pxt.Error, match=r'end_scale must be >= 1\.0'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'end_scale must be >= 1\.0'):
             t.select(t.video.zoom(end_scale=0.5)).collect()
-        with pytest.raises(pxt.Error, match=r'center must be'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'center must be'):
             t.select(t.video.zoom(center=[0.5])).collect()
-        with pytest.raises(pxt.Error, match=r'center must be'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'center must be'):
             t.select(t.video.zoom(center=[0.5, 1.5])).collect()
 
     @pytest.mark.parametrize('fade_fn', [pxtf.video.fade_in, pxtf.video.fade_out])
@@ -1461,11 +1488,11 @@ class TestVideo:
         t = pxt.create_table('fade_err_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
-        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
             t.select(t.video.fade_in(duration=0)).collect()
-        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
             t.select(t.video.fade_in(duration=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
             t.select(t.video.fade_out(duration=0)).collect()
 
     def test_speed(self, uses_db: None) -> None:
@@ -1498,9 +1525,9 @@ class TestVideo:
         t = pxt.create_table('speed_err_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
-        with pytest.raises(pxt.Error, match=r'factor must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'factor must be positive'):
             t.select(t.video.speed(factor=0)).collect()
-        with pytest.raises(pxt.Error, match=r'factor must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'factor must be positive'):
             t.select(t.video.speed(factor=-1.0)).collect()
 
     def test_mirror(self, uses_db: None) -> None:
@@ -1578,16 +1605,14 @@ class TestVideo:
 
         self._validate_videos(result['gray'])
 
-    @pytest.mark.parametrize('direction', ['left', 'right', 'up', 'down'])
-    def test_pan(self, direction: str, uses_db: None) -> None:
-        from pixeltable.functions.video import pan
-
+    @pytest.mark.parametrize('x_sign,y_sign,axis', [(-1, 0, 'x'), (+1, 0, 'x'), (0, -1, 'y'), (0, +1, 'y')])
+    def test_pan(self, x_sign: int, y_sign: int, axis: str, uses_db: None) -> None:
         video_filepaths = get_video_files()
         t = pxt.create_table('pan_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
-        panned = pan(t.video, direction=direction, crop_pct=0.2)  # type: ignore[arg-type]
+        panned = t.video.pan(x_sign=x_sign, y_sign=y_sign, crop_pct=0.2)
         result = (
             t.where(md.streams[0].duration_seconds != None)
             .select(
@@ -1598,7 +1623,7 @@ class TestVideo:
         assert len(result) > 0
 
         assert all(row['panned'] is not None for row in result)
-        if direction in ('left', 'right'):
+        if axis == 'x':
             # width should be ~80% of original, height unchanged
             assert all(row['panned_md']['streams'][0]['height'] == row['orig_h'] for row in result)
             assert all(row['panned_md']['streams'][0]['width'] < row['orig_w'] for row in result)
@@ -1609,19 +1634,32 @@ class TestVideo:
 
         self._validate_videos(result['panned'])
 
-    def test_pan_errors(self, uses_db: None) -> None:
-        from pixeltable.functions.video import pan
+    def test_pan_by_column(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('pan_col_test', {'video': pxt.Video, 'pan_sign': pxt.Int})
+        rows = [{'video': f, 'pan_sign': +1 if i % 2 == 0 else -1} for i, f in enumerate(video_filepaths)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
 
+        md = t.video.get_metadata()
+        panned = t.video.pan(x_sign=t.pan_sign, crop_pct=0.2)
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(orig_w=md.streams[0].width, orig_h=md.streams[0].height, panned_md=panned.get_metadata())
+            .collect()
+        )
+        assert len(result) > 0
+        # both signs crop horizontally to ~80% of width and leave height unchanged
+        assert all(row['panned_md']['streams'][0]['height'] == row['orig_h'] for row in result)
+        assert all(row['panned_md']['streams'][0]['width'] < row['orig_w'] for row in result)
+
+    def test_pan_errors(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
         t = pxt.create_table('pan_err_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
-        with pytest.raises(pxt.Error, match=r'crop_pct must be between'):
-            t.select(pan(t.video, crop_pct=0.0)).collect()
-        with pytest.raises(pxt.Error, match=r'crop_pct must be between'):
-            t.select(pan(t.video, crop_pct=1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'direction must be one of'):
-            t.select(pan(t.video, direction='diagonal')).collect()  # type: ignore[arg-type]
+        # both signs zero degenerates to scroll() with x_speed=y_speed=0, which scroll rejects
+        with pytest.raises(pxt.Error, match=r'at least one of `x_speed` or `y_speed` must be non-zero'):
+            t.select(t.video.pan()).collect()
 
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
@@ -1722,13 +1760,13 @@ class TestVideo:
         t = pxt.create_table('to_video_err', {'image': pxt.Image})
         validate_update_status(t.insert({'image': f} for f in image_filepaths), expected_rows=1)
 
-        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
             t.select(t.image.to_video(duration=0)).collect()
-        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
             t.select(t.image.to_video(duration=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'fps must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'fps must be positive'):
             t.select(t.image.to_video(duration=1.0, fps=0)).collect()
-        with pytest.raises(pxt.Error, match=r'fps must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'fps must be positive'):
             t.select(t.image.to_video(duration=1.0, fps=-5)).collect()
 
     def test_mix_audio(self, uses_db: None, tmp_path: Path) -> None:
@@ -1760,18 +1798,18 @@ class TestVideo:
         t = pxt.create_table('mix_audio_err', {'video': pxt.Video, 'audio': pxt.Audio})
         validate_update_status(t.insert([{'video': video, 'audio': audio_filepaths[0]}]), expected_rows=1)
 
-        with pytest.raises(pxt.Error, match=r'audio_volume must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'audio_volume must be non-negative'):
             t.select(t.video.mix_audio(t.audio, audio_volume=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'original_volume must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'original_volume must be non-negative'):
             t.select(t.video.mix_audio(t.audio, original_volume=-0.5)).collect()
-        with pytest.raises(pxt.Error, match=r'audio_start_time must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'audio_start_time must be non-negative'):
             t.select(t.video.mix_audio(t.audio, audio_start_time=-1.0)).collect()
 
         # silent video should raise a clear error
         silent_video = generate_test_video(tmp_path, duration=2.0, has_audio=False)
         t2 = pxt.create_table('mix_audio_silent_err', {'video': pxt.Video, 'audio': pxt.Audio})
         validate_update_status(t2.insert([{'video': silent_video, 'audio': audio_filepaths[0]}]), expected_rows=1)
-        with pytest.raises(pxt.Error, match=r'requires a video with an audio stream'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'requires a video with an audio stream'):
             t2.select(t2.video.mix_audio(t2.audio)).collect()
 
     def test_overlay_image(self, uses_db: None, tmp_path: Path) -> None:
@@ -1842,25 +1880,25 @@ class TestVideo:
         t = pxt.create_table('overlay_image_err', {'video': pxt.Video, 'logo': pxt.Image})
         validate_update_status(t.insert([{'video': video, 'logo': image_filepaths[0]}]), expected_rows=1)
 
-        with pytest.raises(pxt.Error, match=r'opacity must be between'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'opacity must be between'):
             t.select(t.video.overlay_image(t.logo, opacity=1.5)).collect()
-        with pytest.raises(pxt.Error, match=r'opacity must be between'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'opacity must be between'):
             t.select(t.video.overlay_image(t.logo, opacity=-0.1)).collect()
-        with pytest.raises(pxt.Error, match=r'scale must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'scale must be positive'):
             t.select(t.video.overlay_image(t.logo, scale=0.0)).collect()
-        with pytest.raises(pxt.Error, match=r'scale must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'scale must be positive'):
             t.select(t.video.overlay_image(t.logo, scale=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'horizontal_margin must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'horizontal_margin must be non-negative'):
             t.select(t.video.overlay_image(t.logo, horizontal_margin=-1)).collect()
-        with pytest.raises(pxt.Error, match=r'vertical_margin must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'vertical_margin must be non-negative'):
             t.select(t.video.overlay_image(t.logo, vertical_margin=-1)).collect()
-        with pytest.raises(pxt.Error, match=r'start_time must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'start_time must be non-negative'):
             t.select(t.video.overlay_image(t.logo, start_time=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'end_time must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'end_time must be non-negative'):
             t.select(t.video.overlay_image(t.logo, end_time=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'start_time must be less than end_time'):
             t.select(t.video.overlay_image(t.logo, start_time=3.0, end_time=1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'start_time must be less than end_time'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'start_time must be less than end_time'):
             t.select(t.video.overlay_image(t.logo, start_time=2.0, end_time=2.0)).collect()
 
     def test_adjust_brightness(self, uses_db: None) -> None:
@@ -1906,7 +1944,7 @@ class TestVideo:
         t = pxt.create_table('brightness_err', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
-        with pytest.raises(pxt.Error, match=r'factor must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'factor must be non-negative'):
             t.select(t.video.adjust_brightness(factor=-0.5)).collect()
 
     def test_transition(self, uses_db: None, tmp_path: Path) -> None:
@@ -1982,11 +2020,11 @@ class TestVideo:
         t = pxt.create_table('transition_err', {'v1': pxt.Video, 'v2': pxt.Video})
         validate_update_status(t.insert([{'v1': v1, 'v2': v2}]), expected_rows=1)
 
-        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
             t.select(transition(t.v1, t.v2, duration=0)).collect()
-        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
             t.select(transition(t.v1, t.v2, duration=-1.0)).collect()
-        with pytest.raises(pxt.Error, match=r'transition duration.*exceeds duration'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'transition duration.*exceeds duration'):
             t.select(transition(t.v1, t.v2, duration=10.0)).collect()
 
         # mismatched resolutions
@@ -1994,7 +2032,7 @@ class TestVideo:
         v_large = generate_test_video(tmp_path, duration=2.0, size='640x360')
         u = pxt.create_table('transition_res_err', {'v1': pxt.Video, 'v2': pxt.Video})
         validate_update_status(u.insert([{'v1': v_small, 'v2': v_large}]), expected_rows=1)
-        with pytest.raises(pxt.Error, match=r'must have the same resolution'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'must have the same resolution'):
             u.select(transition(u.v1, u.v2, duration=0.5)).collect()
 
         # duration exceeds video2
@@ -2002,7 +2040,7 @@ class TestVideo:
         v_short = generate_test_video(tmp_path, duration=0.5, size='640x360')
         u2 = pxt.create_table('transition_video2_err', {'v1': pxt.Video, 'v2': pxt.Video})
         validate_update_status(u2.insert([{'v1': v_long, 'v2': v_short}]), expected_rows=1)
-        with pytest.raises(pxt.Error, match=r'transition duration.*exceeds duration'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'transition duration.*exceeds duration'):
             u2.select(transition(u2.v1, u2.v2, duration=1.0)).collect()
 
     def test_ffmpeg_filter(self, uses_db: None) -> None:

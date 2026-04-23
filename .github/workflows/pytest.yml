@@ -52,7 +52,8 @@ env:
   PXTTEST_COCKROACH_DB_CONNECT_STR: ${{ secrets.PXTTEST_COCKROACH_DB_CONNECT_STR }}
   PXTTEST_COCKROACH_DB_ROOT_CERT: ${{ secrets.PXTTEST_COCKROACH_DB_ROOT_CERT }}
   PXTTEST_IN_CI: 1
-  MINTLIFY_VERSION: 4.2.357
+  MINTLIFY_VERSION: 4.2.506
+  NB_TEST_OPTS: ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-expensive' || '' }}
   UV_VERSION: 0.9.3
 
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
@@ -61,6 +62,8 @@ env:
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF -DGGML_METAL_EMBED_LIBRARY=OFF'
   # This is required to build onnxsim on Ubuntu / Python 3.12+ configurations.
   CMAKE_POLICY_VERSION_MINIMUM: 3.5
+  # This helps reduce memory pressure when loading models with transformers 5.2.0+.
+  HF_DEACTIVATE_ASYNC_LOAD: 1
 
   # API keys for various services. In a PR, these secrets will be empty.
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -68,13 +71,18 @@ env:
   AWS_DEFAULT_REGION: us-west-2
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+  AZURE_STORAGE_ACCOUNT_KEY: ${{ secrets.AZURE_STORAGE_ACCOUNT_KEY }}
+  AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
   B2_ACCESS_KEY_ID: ${{ secrets.B2_ACCESS_KEY_ID }}
   B2_SECRET_ACCESS_KEY: ${{ secrets.B2_SECRET_ACCESS_KEY }}
+  BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
+  BFL_API_KEY: ${{ secrets.BFL_API_KEY }}
   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
   FAL_API_KEY: ${{ secrets.FAL_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   GCS_SERVICE_ACCOUNT_KEY: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
   GOOGLE_APPLICATION_CREDENTIALS: '/tmp/gcs-key.json'
   GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
   HF_AUTH_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
@@ -84,12 +92,11 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
   R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
   R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+  REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
   TIGRIS_ACCESS_KEY_ID: ${{ secrets.TIGRIS_ACCESS_KEY_ID }}
   TIGRIS_SECRET_ACCESS_KEY: ${{ secrets.TIGRIS_SECRET_ACCESS_KEY }}
-  # BFL_API_KEY: ${{ secrets.BFL_API_KEY }}  # Disabled: paid API with limited credits
-  REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
-  REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
   TWELVELABS_API_KEY: ${{ secrets.TWELVELABS_API_KEY }}
   VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
@@ -101,9 +108,9 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Generate test matrix
@@ -127,7 +134,7 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -163,7 +170,7 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Install ollama
-        if: ${{ matrix.uv-options == '' && matrix.os == 'ubuntu-24.04' }}
+        if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           sleep 10  # Wait for the ollama server to start
@@ -212,7 +219,7 @@ jobs:
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/release tests
+          ./scripts/prepare-nb-tests.sh --no-pip $NB_TEST_OPTS tests/target/nb-tests docs/release tests
           set +e  # don't exit immediately on error, so that we can retry
           pytest -v -m '' --nbmake --nbmake-timeout=1800 tests/target/nb-tests/*.ipynb
           pytest -v -m '' --nbmake --nbmake-timeout=1800 --lf --lfnf=none  # retry failed tests once

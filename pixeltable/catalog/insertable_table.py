@@ -69,35 +69,38 @@ class InsertableTable(Table):
         name: str,
         schema: dict[str, type | ColumnSpec | exprs.Expr],
         primary_key: list[str],
-        num_retained_versions: int,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
+        is_versioned: bool,
     ) -> tuple[TableVersionMd, list[TableOp]]:
         columns = [Column.create(name, spec) for name, spec in schema.items()]
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
         for pk_col in primary_key:
             if pk_col not in column_names:
-                raise excs.Error(f'Primary key column {pk_col!r} not found in table schema.')
+                raise excs.NotFoundError(
+                    excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
+                )
             col = columns[column_names.index(pk_col)]
             if col.col_type.nullable:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Primary key column {pk_col!r} cannot be nullable. '
-                    f'Declare it as `Required` instead: `pxt.Required[pxt.{col.col_type._to_base_str()}]`'
+                    f'Declare it as `Required` instead: `pxt.Required[pxt.{col.col_type._to_base_str()}]`',
                 )
             col.is_pk = True
 
         md = TableVersion.create_initial_md(
             name,
             columns,
-            num_retained_versions,
             comment,
             custom_metadata,
             media_validation,
             create_default_idxs=create_default_idxs,
             view_md=None,
+            is_versioned=is_versioned,
         )
 
         ops = [
@@ -116,12 +119,19 @@ class InsertableTable(Table):
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
+        return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus: ...
 
     @overload
     def insert(
-        self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
+        self,
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        return_rows: bool = False,
+        **kwargs: Any,
     ) -> UpdateStatus: ...
 
     def insert(
@@ -133,12 +143,13 @@ class InsertableTable(Table):
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
+        return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
         from pixeltable.io.table_data_conduit import TableDataConduit
 
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
-            raise excs.Error('Cannot insert an empty sequence.')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
         if source is None:
@@ -155,11 +166,18 @@ class InsertableTable(Table):
         data_source.prepare_for_insert_into_table()
 
         return self.insert_table_data_source(
-            data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
+            data_source=data_source,
+            fail_on_exception=fail_on_exception,
+            print_stats=print_stats,
+            return_rows=return_rows,
         )
 
     def insert_table_data_source(
-        self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
+        self,
+        data_source: TableDataConduit,
+        fail_on_exception: bool,
+        print_stats: bool = False,
+        return_rows: bool = False,
     ) -> pxt.UpdateStatus:
         """Insert row batches into this table from a `TableDataConduit`."""
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
@@ -174,7 +192,11 @@ class InsertableTable(Table):
             else:
                 for row_batch in data_source.valid_row_batch():
                     status += self._tbl_version.get().insert(
-                        rows=row_batch, query=None, print_stats=print_stats, fail_on_exception=fail_on_exception
+                        rows=row_batch,
+                        query=None,
+                        print_stats=print_stats,
+                        fail_on_exception=fail_on_exception,
+                        return_rows=return_rows,
                     )
 
         Env.get().console_logger.info(status.insert_msg(start_ts))

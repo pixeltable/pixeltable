@@ -8,11 +8,26 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Sequence, TypeVar
+from types import TracebackType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Callable,
+    Generator,
+    Hashable,
+    Iterable,
+    Iterator,
+    Mapping,
+    NoReturn,
+    Sequence,
+    TypeVar,
+)
 
 import pandas as pd
 import pydantic
 import sqlalchemy.exc as sql_exc
+from typing_extensions import Self
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
 from pixeltable.catalog import is_valid_identifier
@@ -27,18 +42,39 @@ from pixeltable.utils.formatter import Formatter
 if TYPE_CHECKING:
     import torch.utils.data
 
-__all__ = ['Query']
+__all__ = ['Query', 'ResultCursor', 'ResultSet', 'Row']
 
 _logger = logging.getLogger('pixeltable')
 
 
 class ResultSet:
-    _rows: list[list[Any]]
+    """
+    A dataset obtained by executing a [`Query`][pixeltable.Query]. Returned by
+    [`Query.collect()`][pixeltable.Query.collect], [`Query.head()`][pixeltable.Query.head],
+    [`Query.tail()`][pixeltable.Query.tail], and the equivalent methods on class [`Table`][pixeltable.Table].
+
+    A `ResultSet` is structured as a table with rows (indexed by integers) and columns (indexed by strings).
+    The column names correspond to the expressions in the query's select list. The values in a `ResultSet` can
+    be accessed in various ways:
+
+    - `len(result)` returns the number of rows
+    - `result[i]` returns the `i`th row as a `dict` mapping column names to values
+    - `result['col']` returns a `list` of all values in the column named `'col'`
+    - `result[i, 'col']` returns the specific value in the `i`th row and column `'col'`
+
+    `ResultSet` implements the Sequence protocol, so it can be iterated over and converted to other sequence
+    types in the usual fashion; for example:
+
+    - `for row in result` (iterates over rows)
+    - `list(result)` (converts to a list of rows)
+    """
+
+    _rows: list[Row]
     _col_names: list[str]
     __schema: dict[str, ColumnType]
     __formatter: Formatter
 
-    def __init__(self, rows: list[list[Any]], schema: dict[str, ColumnType]):
+    def __init__(self, rows: list[Row], schema: dict[str, ColumnType]):
         self._rows = rows
         self._col_names = list(schema.keys())
         self.__schema = schema
@@ -70,13 +106,18 @@ class ResultSet:
         self._rows.reverse()
 
     def to_pandas(self) -> pd.DataFrame:
-        return pd.DataFrame.from_records(self._rows, columns=self._col_names)
+        """Convert the `ResultSet` to a Pandas `DataFrame`.
+
+        Returns:
+            A `DataFrame` with one column per column in the `ResultSet`.
+        """
+        return pd.DataFrame.from_records([row._data for row in self._rows], columns=self._col_names)
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
 
     def to_pydantic(self, model: type[BaseModelT]) -> Iterator[BaseModelT]:
         """
-        Convert the ResultSet to a list of Pydantic model instances.
+        Convert the `ResultSet` to Pydantic model instances.
 
         Args:
             model: A Pydantic model class.
@@ -96,39 +137,45 @@ class ResultSet:
         col_names = set(self._col_names)
         missing_fields = required_fields - col_names
         if len(missing_fields) > 0:
-            raise excs.Error(
-                f'Required model fields {missing_fields} are missing from result set columns {self._col_names}'
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Required model fields {missing_fields} are missing from result set columns {self._col_names}',
             )
         if forbid_extra_fields:
             extra_fields = col_names - set(model_fields.keys())
             if len(extra_fields) > 0:
-                raise excs.Error(f"Extra fields {extra_fields} are not allowed in model with extra='forbid'")
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f"Extra fields {extra_fields} are not allowed in model with extra='forbid'",
+                )
 
         for row in self:
             try:
                 yield model(**row)
             except pydantic.ValidationError as e:
-                raise excs.Error(str(e)) from e
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, str(e)) from e
 
     def _row_to_dict(self, row_idx: int) -> dict[str, Any]:
-        return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
+        return dict(self._rows[row_idx].items())
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
             if index not in self._col_names:
-                raise excs.Error(f'Invalid column name: {index}')
-            col_idx = self._col_names.index(index)
-            return [row[col_idx] for row in self._rows]
+                raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {index}')
+            return [row[index] for row in self._rows]
         if isinstance(index, int):
             return self._row_to_dict(index)
         if isinstance(index, tuple) and len(index) == 2:
             if not isinstance(index[0], int) or not isinstance(index[1], (str, int)):
-                raise excs.Error(f'Bad index, expected [<row idx>, <column name | column index>]: {index}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Bad index, expected [<row idx>, <column name | column index>]: {index}',
+                )
             if isinstance(index[1], str) and index[1] not in self._col_names:
-                raise excs.Error(f'Invalid column name: {index[1]}')
-            col_idx = self._col_names.index(index[1]) if isinstance(index[1], str) else index[1]
+                raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {index[1]}')
+            col_idx = self._col_names[index[1]] if isinstance(index[1], int) else index[1]
             return self._rows[index[0]][col_idx]
-        raise excs.Error(f'Bad index: {index}')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Bad index: {index}')
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
         return (self._row_to_dict(i) for i in range(len(self)))
@@ -142,36 +189,138 @@ class ResultSet:
         return hash(self.to_pandas())
 
 
-# # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
-# class AnalysisInfo:
-#     def __init__(self, tbl: catalog.TableVersion):
-#         self.tbl = tbl
-#         # output of the SQL scan stage
-#         self.sql_scan_output_exprs: list[exprs.Expr] = []
-#         # output of the agg stage
-#         self.agg_output_exprs: list[exprs.Expr] = []
-#         # Where clause of the Select stmt of the SQL scan stage
-#         self.sql_where_clause: sql.ClauseElement | None = None
-#         # filter predicate applied to input rows of the SQL scan stage
-#         self.filter: exprs.Predicate | None = None
-#         self.similarity_clause: exprs.ImageSimilarityPredicate | None = None
-#         self.agg_fn_calls: list[exprs.FunctionCall] = []  # derived from unique_exprs
-#         self.has_frame_col: bool = False  # True if we're referencing the frame col
-#
-#         self.evaluator: exprs.Evaluator | None = None
-#         self.sql_scan_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of SQL scan stage
-#         self.agg_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of agg stage
-#         self.filter_eval_ctx: list[exprs.Expr] = []
-#         self.group_by_eval_ctx: list[exprs.Expr] = []
-#
-#     def finalize_exec(self) -> None:
-#         """
-#         Call release() on all collected Exprs.
-#         """
-#         exprs.Expr.release_list(self.sql_scan_output_exprs)
-#         exprs.Expr.release_list(self.agg_output_exprs)
-#         if self.filter is not None:
-#             self.filter.release()
+class Row(Mapping[str, Any]):
+    """A dict-like wrapper over a single result row.
+
+    Supports key access (`row['col']`), membership (`'col' in row`),
+    iteration over keys, and the standard `get`, `keys`, `values`,
+    and `items` methods.
+    """
+
+    def __init__(self, data: Iterable[Any], columns: dict[str, int]):
+        self._data = tuple(data)
+        self._columns = columns
+
+    def __getitem__(self, key: str) -> Any:
+        if key not in self._columns:
+            raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Column {key!r} does not exist in the row.')
+        return self._data[self._columns[key]]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key not in self._columns:
+            return default
+        return self._data[self._columns[key]]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._columns)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._columns
+
+    def __len__(self) -> int:
+        return len(self._columns)
+
+    def __repr__(self) -> str:
+        return 'Row({' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '})'
+
+
+class ResultCursor(Iterable[Row]):
+    """Cursor that iterates over query results.
+
+    Wraps a Query and yields Row objects one at a time,
+    avoiding materializing all results into memory.
+
+    A cursor transitions through three states: pending (created but not yet started), open (actively
+    iterating), and closed (resources released). Iteration auto-opens and auto-closes the cursor, or you can
+    use it as a context manager for explicit lifecycle control.
+
+    Examples:
+        Iterate over all rows in a table:
+
+        ```python
+        for row in t.cursor():
+            print(row['col_name'])
+        ```
+
+        Use as a context manager for early termination:
+
+        ```python
+        with t.select(t.col1, t.col2).cursor() as cur:
+            for row in cur:
+                if row['col1'] > threshold:
+                    break  # resources are released on exit
+        ```
+    """
+
+    def __init__(self, query: Query):
+        self._query = query
+        self._row_iterator: Generator[list[Any], None, None] | None = None
+        self._columns: dict[str, int] = {name: i for i, name in enumerate(query.schema)}
+        self._closed = False
+
+    def open(self) -> None:
+        """Start the underlying query and prepare the cursor for iteration.
+
+        Raises an error if the cursor is already open or has been closed.
+        Called automatically when iterating if not already open.
+        """
+        if self._row_iterator is not None:
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is already open.')
+        if self._closed:
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is closed and cannot be reopened.')
+        self._row_iterator = self._query._output_row_iterator()
+
+    def close(self) -> None:
+        """Release the underlying database transaction and query resources.
+
+        Safe to call multiple times. Once closed, the cursor cannot be reopened.
+        Also called automatically via the context manager protocol and on garbage collection.
+        """
+        if self._closed:
+            return
+        if self._row_iterator is not None:
+            # Sends GeneratorExit into _output_row_iterator, unwinding begin_xact()
+            self._row_iterator.close()
+        self._row_iterator = None
+        self._closed = True
+
+    def __enter__(self) -> Self:
+        self.open()
+        return self
+
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+    ) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        self.close()
+
+    def __iter__(self) -> Iterator[Row]:
+        if self._closed:
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is closed and cannot be iterated upon.')
+        if self._row_iterator is None:
+            self.open()
+        assert self._row_iterator is not None
+        try:
+            for data in self._row_iterator:
+                yield Row(data, self._columns)
+        finally:
+            self.close()
+
+    @property
+    def _schema(self) -> dict[str, ColumnType]:
+        return self._query.schema
+
+    def __repr__(self) -> str:
+        if self._closed:
+            state = 'closed'
+        elif self._row_iterator is not None:
+            state = 'open'
+        else:
+            state = 'pending'
+        cols = ', '.join(f'{name}: {col_type}' for name, col_type in self._schema.items())
+        return f'ResultCursor({state}, columns=[{cols}])'
 
 
 class Query:
@@ -265,6 +414,11 @@ class Query:
     def _first_tbl(self) -> catalog.TableVersionPath:
         return self._from_clause._first_tbl
 
+    @property
+    def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
+        """Return the select list that would get materialized by collect()."""
+        return list(zip(self._select_list_exprs, self._schema.keys()))
+
     def _vars(self) -> dict[str, exprs.Variable]:
         """
         Return a dict mapping variable name to Variable for all Variables contained in any component of the Query
@@ -287,7 +441,9 @@ class Query:
             if var.name not in unique_vars:
                 unique_vars[var.name] = var
             elif unique_vars[var.name].col_type != var.col_type:
-                raise excs.Error(f'Multiple definitions of parameter {var.name!r}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Multiple definitions of parameter {var.name!r}'
+                )
         return unique_vars
 
     @classmethod
@@ -296,18 +452,23 @@ class Query:
     ) -> exprs.Expr | None:
         if v is None:
             if required:
-                raise excs.Error(f'{name!r} parameter must be present')
+                raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, f'{name!r} parameter must be present')
             return v
         v_expr = exprs.Expr.from_object(v)
         if not v_expr.col_type.matches(required_type):
-            raise excs.Error(f'{name!r} parameter must be of type `{required_type}`; got `{v_expr.col_type}`')
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'{name!r} parameter must be of type `{required_type}`; got `{v_expr.col_type}`',
+            )
         if range is not None:
             if not isinstance(v_expr, exprs.Literal):
-                raise excs.Error(f'{name!r} parameter must be a constant; got: {v_expr}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be a constant; got: {v_expr}'
+                )
             if range[0] is not None and not (v_expr.val >= range[0]):
-                raise excs.Error(f'{name!r} parameter must be >= {range[0]}')
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be >= {range[0]}')
             if range[1] is not None and not (v_expr.val <= range[1]):
-                raise excs.Error(f'{name!r} parameter must be <= {range[1]}')
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be <= {range[1]}')
         return v_expr
 
     @classmethod
@@ -353,6 +514,15 @@ class Query:
                     yield row
 
     def _create_query_plan(self) -> exec.ExecNode:
+        has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in self._from_clause.tbls)
+        if has_unversioned_tbl:
+            # For now, we only support queries of the simplest form on unversioned tables
+            assert len(self._from_clause.tbls) == 1, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert self.grouping_tbl is None, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert self.group_by_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert self.sample_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
+
         # construct a group-by clause if we're grouping by a table
         group_by_clause: list[exprs.Expr] | None = None
         if self.grouping_tbl is not None:
@@ -387,7 +557,7 @@ class Query:
 
     def show(self, n: int = 20) -> ResultSet:
         if self.sample_clause is not None:
-            raise excs.Error('show() cannot be used with sample()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'show() cannot be used with sample()')
         assert n is not None
         return self.limit(n).collect()
 
@@ -407,13 +577,13 @@ class Query:
                 if the Query has an order_by clause.
         """
         if self.order_by_clause is not None:
-            raise excs.Error('head() cannot be used with order_by()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with order_by()')
         if self._has_joins():
-            raise excs.Error('head() not supported for joins')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() not supported for joins')
         if self.sample_clause is not None:
-            raise excs.Error('head() cannot be used with sample()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with sample()')
         if self.group_by_clause is not None:
-            raise excs.Error('head() cannot be used with group_by()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with group_by()')
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
@@ -434,13 +604,13 @@ class Query:
                 if the Query has an order_by clause.
         """
         if self.order_by_clause is not None:
-            raise excs.Error('tail() cannot be used with order_by()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with order_by()')
         if self._has_joins():
-            raise excs.Error('tail() not supported for joins')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() not supported for joins')
         if self.sample_clause is not None:
-            raise excs.Error('tail() cannot be used with sample()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with sample()')
         if self.group_by_clause is not None:
-            raise excs.Error('tail() cannot be used with group_by()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with group_by()')
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
@@ -475,7 +645,10 @@ class Query:
             var_expr = vars[arg_name]
             arg_expr = exprs.Expr.from_object(arg_val)
             if arg_expr is None:
-                raise excs.Error(f'That argument cannot be converted to a Pixeltable expression: {arg_val}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION,
+                    f'That argument cannot be converted to a Pixeltable expression: {arg_val}',
+                )
             var_exprs[var_expr] = arg_expr
 
         exprs.Expr.list_substitute(select_list_exprs, var_exprs)
@@ -495,11 +668,15 @@ class Query:
         if limit_val is not None:
             limit_val = limit_val.substitute(var_exprs)
             if limit_val is not None and not isinstance(limit_val, exprs.Literal):
-                raise excs.Error(f'limit(): parameter must be a constant; got: {limit_val}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, f'limit(): parameter must be a constant; got: {limit_val}'
+                )
         if offset_val is not None:
             offset_val = offset_val.substitute(var_exprs)
             if offset_val is not None and not isinstance(offset_val, exprs.Literal):
-                raise excs.Error(f'offset parameter must be a constant; got: {offset_val}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, f'offset parameter must be a constant; got: {offset_val}'
+                )
 
         return Query(
             from_clause=self._from_clause,
@@ -527,9 +704,11 @@ class Query:
             nl = '\n'
             # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
-        raise excs.Error(msg) from e
+        if isinstance(e.exc, excs.Error):
+            raise type(e.exc)(e.exc.error_code, msg) from e
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, msg) from e
 
-    def _output_row_iterator(self) -> Iterator[list]:
+    def _output_row_iterator(self) -> Generator[list, None, None]:
         # TODO: extend begin_xact() to accept multiple TVPs for joins
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         with get_runtime().catalog.begin_xact(tbl=single_tbl, for_write=False):
@@ -545,12 +724,22 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        return ResultSet(list(self._output_row_iterator()), self.schema)
+        return ResultSet(list(self.cursor()), self.schema)
+
+    def cursor(self) -> ResultCursor:
+        """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.
+
+        See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
+        """
+        return ResultCursor(self)
 
     async def _acollect(self) -> ResultSet:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
+        columns = {name: i for i, name in enumerate(self.schema)}
         try:
-            result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec()]
+            result = [
+                Row(tuple(row[e.slot_idx] for e in self._select_list_exprs), columns) async for row in self._aexec()
+            ]
             return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
@@ -671,10 +860,10 @@ class Query:
 
         """
         if self.select_list is not None:
-            raise excs.Error('Select list already specified')
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Select list already specified')
         for name, _ in named_items.items():
             if not isinstance(name, str) or not is_valid_identifier(name):
-                raise excs.Error(f'Invalid name: {name}')
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid name: {name}')
         base_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
         if len(base_list) == 0:
             return self
@@ -684,9 +873,9 @@ class Query:
         for raw_expr, name in base_list:
             expr = exprs.Expr.from_object(raw_expr)
             if expr is None:
-                raise excs.Error(f'Invalid expression: {raw_expr}')
+                raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {raw_expr}')
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
-                raise excs.Error(f'Invalid type: {raw_expr}')
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
             if len(self._from_clause.tbls) == 1:
                 # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
                 # such as `snapshot.select(base_tbl.col)`
@@ -699,9 +888,10 @@ class Query:
                     # If retarget() fails, then the succeeding is_bound_by() will raise an error.
                     pass
             if not expr.is_bound_by(self._from_clause.tbls):
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f"That expression cannot be evaluated in the context of this query's tables "
-                    f'({",".join(tbl.tbl_version.get().versioned_name for tbl in self._from_clause.tbls)}): {expr}'
+                    f'({",".join(tbl.tbl_version.get().versioned_name for tbl in self._from_clause.tbls)}): {expr}',
                 )
             select_list.append((expr, name))
 
@@ -712,7 +902,10 @@ class Query:
             if name in seen:
                 repeated_names = [j for j, x in enumerate(names) if x == name]
                 pretty = ', '.join(map(str, repeated_names))
-                raise excs.Error(f'Repeated column name {name!r} in select() at positions: {pretty}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Repeated column name {name!r} in select() at positions: {pretty}',
+                )
             seen.add(name)
 
         return Query(
@@ -751,13 +944,18 @@ class Query:
             >>> query = person.where(t.age > 30)
         """
         if self.where_clause is not None:
-            raise excs.Error('where() clause already specified')
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'where() clause already specified')
         if self.sample_clause is not None:
-            raise excs.Error('where() cannot be used after sample()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'where() cannot be used after sample()')
         if not isinstance(pred, exprs.Expr):
-            raise excs.Error(f'where() expects a Pixeltable expression; got: {pred}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION, f'where() expects a Pixeltable expression; got: {pred}'
+            )
         if not pred.col_type.is_bool_type():
-            raise excs.Error(f'where() expression needs to return `Bool`, but instead returns `{pred.col_type}`')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'where() expression needs to return `Bool`, but instead returns `{pred.col_type}`',
+            )
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
@@ -780,21 +978,33 @@ class Query:
             on = [on]
         elif isinstance(on, exprs.Expr):
             if not on.is_bound_by(joined_tbls):
-                raise excs.Error(f'`on` expression cannot be evaluated in the context of the joined tables: {on}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'`on` expression cannot be evaluated in the context of the joined tables: {on}',
+                )
             if not on.col_type.is_bool_type():
-                raise excs.Error(
-                    f'`on` expects an expression of type `Bool`, but got one of type `{on.col_type}`: {on}'
+                raise excs.RequestError(
+                    excs.ErrorCode.TYPE_MISMATCH,
+                    f'`on` expects an expression of type `Bool`, but got one of type `{on.col_type}`: {on}',
                 )
             return on
         elif not isinstance(on, Sequence) or len(on) == 0:
-            raise excs.Error('`on` must be a sequence of column references or a boolean expression')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, '`on` must be a sequence of column references or a boolean expression'
+            )
 
         assert isinstance(on, Sequence)
         for col_ref in on:
             if not isinstance(col_ref, exprs.ColumnRef):
-                raise excs.Error('`on` must be a sequence of column references or a boolean expression')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    '`on` must be a sequence of column references or a boolean expression',
+                )
             if not col_ref.is_bound_by(joined_tbls):
-                raise excs.Error(f'`on` expression cannot be evaluated in the context of the joined tables: {col_ref}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'`on` expression cannot be evaluated in the context of the joined tables: {col_ref}',
+                )
             col_refs.append(col_ref)
 
         predicates: list[exprs.Expr] = []
@@ -804,7 +1014,9 @@ class Query:
             # identify the referenced column by name in 'other'
             rhs_col = other.get_column(col_ref.col.name)
             if rhs_col is None:
-                raise excs.Error(f'`on` column {col_ref.col.name!r} not found in joined table')
+                raise excs.NotFoundError(
+                    excs.ErrorCode.COLUMN_NOT_FOUND, f'`on` column {col_ref.col.name!r} not found in joined table'
+                )
             rhs_col_ref = exprs.ColumnRef(rhs_col)
 
             lhs_col_ref: exprs.ColumnRef | None = None
@@ -818,11 +1030,17 @@ class Query:
                     if col is None:
                         continue
                     if lhs_col_ref is not None:
-                        raise excs.Error(f'`on`: ambiguous column reference: {col_ref.col.name}')
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
+                            f'`on`: ambiguous column reference: {col_ref.col.name}',
+                        )
                     lhs_col_ref = exprs.ColumnRef(col)
                 if lhs_col_ref is None:
                     tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
-                    raise excs.Error(f'`on`: column {col_ref.col.name!r} not found in any of: {" ".join(tbl_names)}')
+                    raise excs.NotFoundError(
+                        excs.ErrorCode.COLUMN_NOT_FOUND,
+                        f'`on`: column {col_ref.col.name!r} not found in any of: {" ".join(tbl_names)}',
+                    )
             pred = exprs.Comparison(exprs.ComparisonOperator.EQ, lhs_col_ref, rhs_col_ref)
             predicates.append(pred)
 
@@ -884,16 +1102,23 @@ class Query:
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
+        assert len(self._from_clause.tbls) > 0
+        if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and unversioned tables'
+            )
         if self.sample_clause is not None:
-            raise excs.Error('join() cannot be used with sample()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'join() cannot be used with sample()')
         join_pred: exprs.Expr | None
         if how == 'cross':
             if on is not None:
-                raise excs.Error('`on` not allowed for cross join')
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, '`on` not allowed for cross join')
             join_pred = None
         else:
             if on is None:
-                raise excs.Error(f'`how={how!r}` requires `on` to be present')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'`how={how!r}` requires `on` to be present'
+                )
             join_pred = self._create_join_predicate(other._tbl_version_path, on)
         join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, '`how`'), join_predicate=join_pred)
         from_clause = plan.FromClause(
@@ -955,28 +1180,33 @@ class Query:
             >>> query = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
         """
         if self.group_by_clause is not None:
-            raise excs.Error('group_by() already specified')
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'group_by() already specified')
         if self.sample_clause is not None:
-            raise excs.Error('group_by() cannot be used with sample()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by() cannot be used with sample()')
 
         grouping_tbl: catalog.TableVersion | None = None
         group_by_clause: list[exprs.Expr] | None = None
         for item in grouping_items:
             if isinstance(item, (catalog.Table, catalog.TableVersion)):
                 if len(grouping_items) > 1:
-                    raise excs.Error('group_by(): only one Table can be specified')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by(): only one Table can be specified'
+                    )
                 if len(self._from_clause.tbls) > 1:
-                    raise excs.Error('group_by() with Table not supported for joins')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by() with Table not supported for joins'
+                    )
                 grouping_tbl = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
                 # we need to make sure that the grouping table is a base of self.tbl
                 base = self._first_tbl.find_tbl_version(grouping_tbl.id)
                 if base is None or base.id == self._first_tbl.tbl_id:
-                    raise excs.Error(
-                        f'group_by(): {grouping_tbl.name!r} is not a base table of {self._first_tbl.tbl_name()!r}'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'group_by(): {grouping_tbl.name!r} is not a base table of {self._first_tbl.tbl_name()!r}',
                     )
                 break
             if not isinstance(item, exprs.Expr):
-                raise excs.Error(f'Invalid expression in group_by(): {item}')
+                raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in group_by(): {item}')
         if grouping_tbl is None:
             group_by_clause = list(grouping_items)
         return Query(
@@ -1048,10 +1278,10 @@ class Query:
             >>> query = book.order_by(t.price, asc=False).order_by(t.pages)
         """
         if self.sample_clause is not None:
-            raise excs.Error('order_by() cannot be used with sample()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'order_by() cannot be used with sample()')
         for e in expr_list:
             if not isinstance(e, exprs.Expr):
-                raise excs.Error(f'Invalid expression in order_by(): {e}')
+                raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in order_by(): {e}')
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend([(e.copy(), asc) for e in expr_list])
         return Query(
@@ -1087,7 +1317,7 @@ class Query:
             >>> query.limit(10, offset=20).collect()
         """
         if self.sample_clause is not None:
-            raise excs.Error('limit() cannot be used with sample()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'limit() cannot be used with sample()')
 
         limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
         offset_expr = None
@@ -1164,21 +1394,25 @@ class Query:
         """
         # Check context of usage
         if self.sample_clause is not None:
-            raise excs.Error('Multiple sample() clauses not allowed')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Multiple sample() clauses not allowed')
         if self.group_by_clause is not None:
-            raise excs.Error('sample() cannot be used with group_by()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'sample() cannot be used with group_by()')
         if self.order_by_clause is not None:
-            raise excs.Error('sample() cannot be used with order_by()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'sample() cannot be used with order_by()')
         if self.limit_val is not None:
-            raise excs.Error('sample() cannot be used with limit()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'sample() cannot be used with limit()')
         if self._has_joins():
-            raise excs.Error('sample() cannot be used with join()')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'sample() cannot be used with join()')
 
         # Check paramter combinations
         if (n is not None) + (n_per_stratum is not None) + (fraction is not None) != 1:
-            raise excs.Error('Exactly one of `n`, `n_per_stratum`, or `fraction` must be specified.')
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, 'Exactly one of `n`, `n_per_stratum`, or `fraction` must be specified.'
+            )
         if n_per_stratum is not None and stratify_by is None:
-            raise excs.Error('Must specify `stratify_by` to use `n_per_stratum`')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Must specify `stratify_by` to use `n_per_stratum`'
+            )
 
         # Check parameter types and values
         n = self.validate_constant_type_range(n, ts.IntType(nullable=False), False, 'n', (1, None))
@@ -1196,16 +1430,22 @@ class Query:
             if isinstance(stratify_by, exprs.Expr):
                 stratify_by = [stratify_by]
             if not isinstance(stratify_by, (list, tuple)):
-                raise excs.Error('`stratify_by` must be a list of scalar expressions')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, '`stratify_by` must be a list of scalar expressions'
+                )
             for expr in stratify_by:
                 if expr is None or not isinstance(expr, exprs.Expr):
-                    raise excs.Error(f'Invalid expression: {expr}')
+                    raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {expr}')
                 if not expr.col_type.is_scalar_type():
-                    raise excs.Error(f'Invalid type: expression must be a scalar type (not `{expr.col_type}`)')
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_ARGUMENT,
+                        f'Invalid type: expression must be a scalar type (not `{expr.col_type}`)',
+                    )
                 if not expr.is_bound_by(self._from_clause.tbls):
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f"That expression cannot be evaluated in the context of this query's tables "
-                        f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr}'
+                        f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr}',
                     )
                 stratify_exprs.append(expr)
 
@@ -1295,7 +1535,7 @@ class Query:
         """
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
-            raise excs.Error('Cannot use `delete` on a view.')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `delete` on a view.')
         with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
@@ -1312,22 +1552,22 @@ class Query:
         assert len(self._from_clause.tbls) == 1
         # First check if it's a replica, since every replica handle is also a snapshot
         if self._first_tbl.is_replica():
-            raise excs.Error(f'Cannot use `{op_name}` on a replica.')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` on a replica.')
         if self._first_tbl.is_snapshot():
-            raise excs.Error(f'Cannot use `{op_name}` on a snapshot.')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` on a snapshot.')
 
     def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:
         """Tests whether the sequence of operations on this Query is valid for a mutation operation."""
         if self.group_by_clause is not None or self.grouping_tbl is not None:
-            raise excs.Error(f'Cannot use `{op_name}` after `group_by`.')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `group_by`.')
         if self.order_by_clause is not None:
-            raise excs.Error(f'Cannot use `{op_name}` after `order_by`.')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `order_by`.')
         if self.select_list is not None and not allow_select:
-            raise excs.Error(f'Cannot use `{op_name}` after `select`.')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `select`.')
         if self.limit_val is not None:
-            raise excs.Error(f'Cannot use `{op_name}` after `limit`.')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `limit`.')
         if self._has_joins():
-            raise excs.Error(f'Cannot use `{op_name}` after `join`.')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `join`.')
 
     def as_dict(self) -> dict[str, Any]:
         """

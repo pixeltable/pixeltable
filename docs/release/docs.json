@@ -44,7 +44,7 @@
             "pages": [
               "platform/configuration",
               {
-                "group": "Migrating from...",
+                "group": "Migrating from ...",
                 "pages": [
                   "migrate/from-diy-data-pipeline",
                   "migrate/from-rdbms-vectordbs",
@@ -73,6 +73,7 @@
                   "howto/providers/working-with-pydantic",
                   "howto/providers/working-with-replicate",
                   "howto/providers/working-with-reve",
+                  "howto/providers/working-with-runwayml",
                   "howto/providers/working-with-tigris",
                   "howto/providers/working-with-together",
                   "howto/providers/working-with-twelvelabs",
@@ -94,6 +95,7 @@
                       "howto/cookbooks/core/query-join-tables",
                       "howto/cookbooks/core/version-control-history",
                       "howto/cookbooks/core/custom-aggregates-uda",
+                      "howto/cookbooks/core/custom-iterators",
                       "howto/cookbooks/core/data-split-rows",
                       "howto/cookbooks/core/time-zones"
                     ]
@@ -222,7 +224,9 @@
                       "sdk/latest/math",
                       "sdk/latest/string",
                       "sdk/latest/timestamp",
-                      "sdk/latest/video"
+                      "sdk/latest/uuid",
+                      "sdk/latest/video",
+                      "sdk/latest/vision"
                     ]
                   },
                   {
@@ -249,7 +253,6 @@
                       "sdk/latest/runwayml",
                       "sdk/latest/together",
                       "sdk/latest/twelvelabs",
-                      "sdk/latest/vision",
                       "sdk/latest/voyageai",
                       "sdk/latest/whisper",
                       "sdk/latest/whisperx",
@@ -359,7 +362,13 @@
     }
   },
   "styling": {
-    "eyebrows": "breadcrumbs"
+    "eyebrows": "breadcrumbs",
+    "codeblocks": {
+      "theme": {
+        "light": "light-plus",
+        "dark": "dark-plus"
+      }
+    }
   },
   "appearance": {
     "default": "system",

@@ -78,8 +78,9 @@ def _parse_separators(separators: str) -> list[Separator]:
         if not clean_s:
             continue
         if clean_s not in Separator.__members__:
-            raise excs.Error(
-                f'Invalid separator: `{s.strip()}`. Valid separators are: {", ".join(Separator.__members__).lower()}'
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'Invalid separator: `{s.strip()}`. Valid separators are: {", ".join(Separator.__members__).lower()}',
             )
         ret.append(Separator[clean_s])
     return ret
@@ -92,8 +93,9 @@ def _parse_metadata(metadata: str) -> list[ChunkMetadata]:
         if not clean_m:
             continue
         if clean_m not in ChunkMetadata.__members__:
-            raise excs.Error(
-                f'Invalid metadata: `{m.strip()}`. Valid metadata are: {", ".join(ChunkMetadata.__members__).lower()}'
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'Invalid metadata: `{m.strip()}`. Valid metadata are: {", ".join(ChunkMetadata.__members__).lower()}',
             )
         ret.append(ChunkMetadata[clean_m])
     return ret
@@ -107,10 +109,13 @@ def _parse_elements(elements: list[Literal['text', 'image']] | None) -> list[Ele
     for e in elements:
         clean_e = e.strip().upper()
         if clean_e not in Element.__members__:
-            raise excs.Error(f'Invalid element: `{e}`. Valid elements are: {", ".join(Element.__members__).lower()}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'Invalid element: `{e}`. Valid elements are: {", ".join(Element.__members__).lower()}',
+            )
         result.append(Element[clean_e])
     if len(result) == 0:
-        raise excs.Error('elements cannot be empty')
+        raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'elements cannot be empty')
     return result
 
 
@@ -427,9 +432,10 @@ class document_splitter(pxt.PxtIterator):
 
     def _pdf_sections(self) -> Iterator[DocumentSection]:
         if Separator.PARAGRAPH in self._separators:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'Paragraph splitting is not currently supported for PDF documents. Please contact'
-                ' us at https://github.com/pixeltable/pixeltable/issues if you need this feature.'
+                ' us at https://github.com/pixeltable/pixeltable/issues if you need this feature.',
             )
 
         doc: PdfDocument = self._doc_handle.pdf_doc
@@ -537,19 +543,31 @@ class document_splitter(pxt.PxtIterator):
         overlap = bound_args.get('overlap')
 
         if Element.IMAGE in elements and separators != [Separator.PAGE]:
-            raise excs.Error("Image elements are only supported for the 'page' separator on PDF documents")
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                "Image elements are only supported for the 'page' separator on PDF documents",
+            )
         if limit is not None or overlap is not None:
             if Separator.TOKEN_LIMIT not in separators and Separator.CHAR_LIMIT not in separators:
-                raise excs.Error("limit/overlap requires the 'token_limit' or 'char_limit' separator")
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    "limit/overlap requires the 'token_limit' or 'char_limit' separator",
+                )
             if limit is not None and limit <= 0:
-                raise excs.Error("'limit' must be a positive integer")
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'limit' must be a positive integer")
             if overlap is not None and overlap < 0:
-                raise excs.Error("'overlap' must be a non-negative integer")
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'overlap' must be a non-negative integer")
         if Separator.TOKEN_LIMIT in separators or Separator.CHAR_LIMIT in separators:
             if Separator.TOKEN_LIMIT in separators and Separator.CHAR_LIMIT in separators:
-                raise excs.Error("Cannot specify both 'token_limit' and 'char_limit' separators")
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    "Cannot specify both 'token_limit' and 'char_limit' separators",
+                )
             if bound_args.get('limit') is None:
-                raise excs.Error("'limit' must be specified with 'token_limit' and 'char_limit' separators")
+                raise excs.RequestError(
+                    excs.ErrorCode.MISSING_REQUIRED,
+                    "'limit' must be specified with 'token_limit' and 'char_limit' separators",
+                )
 
         if Separator.SENTENCE in separators:
             # Validate spaCy model
@@ -565,7 +583,9 @@ class document_splitter(pxt.PxtIterator):
         elements = [Element.TEXT]
         if bound_args.get('elements') is not None:
             if not isinstance(bound_args['elements'], exprs.Literal):
-                raise excs.Error('document_splitter(): `elements` must be a constant expression.')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, 'document_splitter(): `elements` must be a constant expression.'
+                )
             elements = _parse_elements(bound_args['elements'].val)
         for element in elements:
             if element == Element.TEXT:
@@ -575,7 +595,9 @@ class document_splitter(pxt.PxtIterator):
 
         if bound_args.get('metadata') is not None:
             if not isinstance(bound_args['metadata'], exprs.Literal):
-                raise excs.Error('document_splitter(): `metadata` must be a constant expression.')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, 'document_splitter(): `metadata` must be a constant expression.'
+                )
             md_fields = _parse_metadata(bound_args['metadata'].val)
             for md_field in md_fields:
                 schema[md_field.name.lower()] = _METADATA_COLUMN_TYPES[md_field]  # type: ignore[assignment]

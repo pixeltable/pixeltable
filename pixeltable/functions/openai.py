@@ -738,7 +738,9 @@ def _decode_image_response(result: dict) -> dict:
     for i in range(len(result['data'])):
         b64_str = result['data'][i].get('b64_json')
         if b64_str is None:
-            raise excs.Error('Image content is missing in the response.')
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR, 'Image content is missing in the response.', provider='openai'
+            )
         b64_bytes = base64.b64decode(b64_str)
         img = PIL.Image.open(io.BytesIO(b64_bytes))
         img.load()

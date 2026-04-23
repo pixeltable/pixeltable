@@ -858,7 +858,10 @@ def string_splitter(text: str, separators: str, *, spacy_model: str = 'en_core_w
 @string_splitter.validate
 def _(bound_args: dict[str, Any]) -> None:
     if bound_args['separators'] != 'sentence':
-        raise excs.Error("Only 'sentence' is supported as a separator in `string_splitter` iterator.")
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            "Only 'sentence' is supported as a separator in `string_splitter` iterator.",
+        )
 
 
 __all__ = local_public_names(__name__)

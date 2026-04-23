@@ -58,7 +58,9 @@ class JoinType(enum.Enum):
             return cls[name.upper()]
         except KeyError as exc:
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__)
-            raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]') from exc
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'{error_prefix} must be one of: [{val_strs}]'
+            ) from exc
 
 
 @dataclasses.dataclass
@@ -225,7 +227,9 @@ class Analyzer:
         self.all_exprs.extend(e for e, _ in self.order_by_clause)
         if self.filter is not None:
             if sample_clause is not None:
-                raise excs.Error(f'Filter {self.filter} not expressible in SQL')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter {self.filter} not expressible in SQL'
+                )
             self.all_exprs.append(self.filter)
 
         self.agg_order_by = []
@@ -262,27 +266,38 @@ class Analyzer:
         grouping_expr_ids = {e.id for e in self.group_by_clause}
         is_agg_output = [self._determine_agg_status(e, grouping_expr_ids)[0] for e in self.select_list]
         if is_agg_output.count(False) > 0:
-            raise excs.Error(
-                f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}'
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}',
             )
 
         # check that Where clause and filter doesn't contain aggregates
         if self.sql_where_clause is not None and any(
             _is_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)
         ):
-            raise excs.Error(f'where() cannot contain aggregate functions: {self.sql_where_clause}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'where() cannot contain aggregate functions: {self.sql_where_clause}',
+            )
         if self.filter is not None and any(
             _is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)
         ):
-            raise excs.Error(f'where() cannot contain aggregate functions: {self.filter}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION, f'where() cannot contain aggregate functions: {self.filter}'
+            )
 
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
         # aggregation and rely on the SqlScanNode returning data in the correct order)
         for e in self.group_by_clause:
             if not self.sql_elements.contains(e):
-                raise excs.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION,
+                    f'Invalid grouping expression, needs to be expressible in SQL: {e}',
+                )
             if e.contains_(filter=_is_agg_fn_call):
-                raise excs.Error(f'Grouping expression contains aggregate function: {e}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION, f'Grouping expression contains aggregate function: {e}'
+                )
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
         """Determine whether expr is the input to or output of an aggregate function.
@@ -295,7 +310,7 @@ class Analyzer:
             for c in e.components:
                 _, is_input = self._determine_agg_status(c, grouping_expr_ids)
                 if not is_input:
-                    raise excs.Error(f'Invalid nested aggregates: {e}')
+                    raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested aggregates: {e}')
             return True, False
         elif isinstance(e, exprs.Literal):
             return True, True
@@ -311,7 +326,9 @@ class Analyzer:
             is_output = component_is_output.count(True) == len(e.components)
             is_input = component_is_input.count(True) == len(e.components)
             if not is_output and not is_input:
-                raise excs.Error(f'Invalid expression, mixes aggregate with non-aggregate: {e}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression, mixes aggregate with non-aggregate: {e}'
+                )
             return is_output, is_input
 
     def finalize(self, row_builder: exprs.RowBuilder) -> None:
@@ -354,7 +371,10 @@ class Planner:
         sql_node = plan.get_node(exec.SqlNode)
         assert sql_node is not None
         if sql_node.py_filter is not None:
-            raise excs.Error('count() cannot be used with Python-only filters. Use collect() instead.')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'count() cannot be used with Python-only filters. Use collect() instead.',
+            )
         # Get the SQL statement from the SqlNode as a CTE
         cte, _ = sql_node.to_cte(keep_pk=True)
         count_stmt = sql.select(sql.func.count().label('all_count')).select_from(cte)
@@ -375,7 +395,7 @@ class Planner:
         row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
 
         # create InMemoryDataNode for 'rows'
-        plan: exec.ExecNode = exec.InMemoryDataNode(tbl.handle, rows, row_builder, tbl.next_row_id)
+        plan: exec.ExecNode = exec.InMemoryDataNode(tbl.handle, rows, row_builder)
 
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
 
@@ -423,12 +443,59 @@ class Planner:
         return plan
 
     @classmethod
+    def _build_update_columns(
+        cls, target: catalog.TableVersion, updated_cols: set[Column], recomputed_cols: set[Column]
+    ) -> tuple[list[Column], list[exprs.Expr], list[Column]]:
+        """Classifies columns for an update plan and builds recomputed/remap expressions.
+
+        Mutates `recomputed_cols` in-place (adds changed index val cols, removes non-stored).
+
+        Returns:
+            - evaluated_cols: recomputed + remap columns (parallel with select_list)
+            - select_list: resolved exprs for evaluated_cols
+            - identity_cols: unchanged stored columns
+        """
+
+        # We always need to update all indices on any updated/recomputed column
+        modified_base_cols = {c for c in updated_cols | recomputed_cols if c.get_tbl().id == target.id}
+        modified_val_cols = target.get_idx_val_columns(modified_base_cols)
+        recomputed_cols |= modified_val_cols
+
+        # Building exclude lists for non-identity cols
+        unmodified_val_cols = {idx.val_col for idx in target.idxs.values()} - modified_val_cols
+        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
+
+        # we only need to recompute stored columns (unstored ones are substituted away)
+        recomputed_cols -= {c for c in recomputed_cols if not c.is_stored}
+        recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
+
+        excluded = updated_cols | recomputed_cols | idx_undo_cols | unmodified_val_cols
+        identity_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in excluded]
+
+        evaluated_cols: list[Column] = []
+        select_list: list[exprs.Expr] = []
+
+        recomputed_exprs = [
+            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
+        ]
+        # recomputed cols reference the new values of the updated cols
+        evaluated_cols.extend(recomputed_base_cols)
+        select_list.extend(recomputed_exprs)
+
+        # Mapping undo columns into corresponding value columns
+        for info in target.idxs.values():
+            if info.val_col in unmodified_val_cols:
+                evaluated_cols.append(info.val_col)
+                select_list.append(exprs.ColumnRef(info.undo_col))
+
+        return evaluated_cols, select_list, identity_cols
+
+    @classmethod
     def create_update_plan(
         cls,
         tbl: catalog.TableVersionPath,
         update_targets: dict[catalog.Column, exprs.Expr],
         recompute_targets: list[catalog.Column],
-        where_clause: exprs.Expr | None,
         cascade: bool,
     ) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]:
         """Creates a plan to materialize updated rows.
@@ -447,55 +514,40 @@ class Planner:
         """
         # retrieve all stored cols and all target exprs
         assert isinstance(tbl, catalog.TableVersionPath)
+        # Either we are doing an update or recompute, but not both
+        assert len(update_targets) == 0 or len(recompute_targets) == 0
+
         target = tbl.tbl_version.get()  # the one we need to update
-        updated_cols = list(update_targets.keys())
-        recomputed_cols: set[Column]
-        if len(recompute_targets) > 0:
-            assert len(update_targets) == 0
-            recomputed_cols = {*recompute_targets}
-            if cascade:
-                recomputed_cols |= target.get_dependent_columns(recomputed_cols)
-        else:
-            recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
-        # regardless of cascade, we need to update all indices on any updated/recomputed column
-        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
-        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
-        recomputed_cols.update(idx_val_cols)
-        # we only need to recompute stored columns (unstored ones are substituted away)
-        recomputed_cols = {c for c in recomputed_cols if c.is_stored}
+        # Updated cols are columns for which a new value is explicitly provided
+        # Recomputed cols are columns for which we need to compute a new value (not necessarily due to upstream change)
+        updated_cols = set(update_targets.keys())
+        recomputed_cols = set(recompute_targets)
+        if cascade:
+            recomputed_cols |= target.get_dependent_columns(updated_cols | recomputed_cols)
 
-        cls.__check_valid_columns(tbl.tbl_version.get(), recomputed_cols, 'updated in')
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, updated_cols, recomputed_cols)
 
-        # our query plan
-        # - evaluates the update targets and recomputed columns
-        # - copies all other stored columns
-        recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == tbl.tbl_version.id}
-        copied_cols = [
-            col
-            for col in target.cols_by_id.values()
-            if col.is_stored and col not in updated_cols and col not in recomputed_base_cols
-        ]
-        select_list: list[exprs.Expr] = list(update_targets.values())
+        cls.__check_valid_columns(target, recomputed_cols, 'updated in')
 
-        recomputed_exprs = [
-            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
-        ]
-        # recomputed cols reference the new values of the updated cols
+        # Substitute update target exprs into recomputed exprs before building select_list
         spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
-        exprs.Expr.list_substitute(recomputed_exprs, spec)
-        select_list.extend(recomputed_exprs)
+        exprs.Expr.list_substitute(eval_exprs, spec)
+        evaluated_cols: list[Column] = list(update_targets.keys()) + eval_cols
+        select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
 
-        # we need to retrieve the PK columns of the existing rows
+        # Read from rows that were just deleted (expired) at the current version.
+        # The where clause was already applied during deletion; delete_rows() nullifies index value columns,
+        # which would cause the where clause to fail on the expired rows.
         plan = cls.create_query_plan(
             FromClause(tbls=[tbl]),
             select_list=select_list,
-            columns=copied_cols,
-            where_clause=where_clause,
+            columns=identity_cols,
             ignore_errors=True,
+            deleted_at_current_version=[tbl.tbl_version],
         )
-        evaluated_cols = updated_cols + list(recomputed_base_cols)  # same order as select_list
-        # update row builder with column information
-        plan.row_builder.add_table_columns(copied_cols)
+
+        # Register output columns with the row builder
+        plan.row_builder.add_table_columns(identity_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
 
@@ -503,7 +555,11 @@ class Planner:
         plan = cls._add_save_node(plan)
 
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return plan, [f'{c.get_tbl().name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
+        return (
+            plan,
+            [f'{c.get_tbl().name}.{c.name}' for c in list(update_targets.keys()) + recomputed_user_cols],
+            recomputed_user_cols,
+        )
 
     @classmethod
     def __check_valid_columns(
@@ -511,7 +567,8 @@ class Planner:
     ) -> None:
         for col in cols:
             if col.value_expr is not None and not col.value_expr.is_valid:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_STATE,
                     dedent(
                         f"""
                         Data cannot be {op_name} the {tbl.display_str()},
@@ -520,7 +577,7 @@ class Planner:
                         """
                     )
                     .strip()
-                    .format(validation_error=col.value_expr.validation_error)
+                    .format(validation_error=col.value_expr.validation_error),
                 )
 
     @classmethod
@@ -531,7 +588,8 @@ class Planner:
             return
 
         if not iterator.is_valid:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
                 dedent(
                     f"""
                     Data cannot be {op_name} the {tbl.display_str()},
@@ -540,7 +598,7 @@ class Planner:
                     """
                 )
                 .strip()
-                .format(validation_error=iterator.validation_error)
+                .format(validation_error=iterator.validation_error),
             )
 
     @classmethod
@@ -662,25 +720,14 @@ class Planner:
         # retrieve all stored cols and all target exprs
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
-        # regardless of cascade, we need to update all indices on any updated column
-        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
-        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
-        recomputed_cols.update(idx_val_cols)
-        # we only need to recompute stored columns (unstored ones are substituted away)
-        recomputed_cols = {c for c in recomputed_cols if c.is_stored}
-        recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
-        copied_cols = [
-            col
-            for col in target.cols_by_id.values()
-            if col.is_stored and col not in updated_cols and col not in recomputed_base_cols
-        ]
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols]
 
-        recomputed_exprs = [
-            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
-        ]
-        # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further substitution is needed
-        select_list.extend(recomputed_exprs)
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, updated_cols, recomputed_cols)
+
+        # Materialize as a list once for stable iteration order across parallel lists
+        updated_cols_list = list(updated_cols)
+        # Prepend updated cols as ColumnRefs (RowUpdateNode modifies them in-place; no further substitution needed)
+        evaluated_cols: list[Column] = updated_cols_list + eval_cols
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols_list] + eval_exprs
 
         # ExecNode tree (from bottom to top):
         # - SqlLookupNode to retrieve the existing rows
@@ -698,10 +745,11 @@ class Planner:
             tbl,
             row_builder,
             sql_exprs,
-            columns=copied_cols,
+            columns=identity_cols,
             sa_key_cols=sa_key_cols,
             key_vals=key_vals,
             cell_md_col_refs=cell_md_col_refs,
+            deleted_at_current_version=[tbl.tbl_version],
         )
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
         row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, sql_lookup_node)
@@ -710,10 +758,9 @@ class Planner:
             # we need an ExprEvalNode to evaluate the remaining output exprs
             plan = exec.ExprEvalNode(row_builder, analyzer.select_list, sql_exprs, input=plan)
 
-        # update row builder with column information
-        evaluated_cols = list(updated_cols) + list(recomputed_base_cols)  # same order as select_list
+        # Register output columns with the row builder
         row_builder.set_slot_idxs(select_list, remove_duplicates=False)
-        plan.row_builder.add_table_columns(copied_cols)
+        plan.row_builder.add_table_columns(identity_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         ctx = exec.ExecContext(row_builder)
@@ -728,7 +775,7 @@ class Planner:
             plan,
             row_update_node,
             sql_lookup_node.where_clause_element,
-            list(updated_cols) + recomputed_user_cols,
+            updated_cols_list + recomputed_user_cols,
             recomputed_user_cols,
         )
 
@@ -751,31 +798,25 @@ class Planner:
         assert isinstance(view, catalog.TableVersionPath)
         assert view.is_view
         target = view.tbl_version.get()
+        recomputed_cols = set(recompute_targets)
 
-        # Columns to recompute are recompute targets plus their index value columns
-        recomputed_cols = target.get_idx_val_columns(recompute_targets)
-        recomputed_cols.update(recompute_targets)
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, set(), recomputed_cols)
+        # Identity columns are all other stored columns that aren't being recomputed
+        # and go through select_list as ColumnRefs (no separate columns= path) unlike other update plans
+        evaluated_cols: list[Column] = identity_cols + eval_cols
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(c) for c in identity_cols] + eval_exprs
 
-        # Copied columns are all other stored columns
-        copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in recomputed_cols]
-
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
-        # resolve recomputed exprs to stored columns in the base
-        recomputed_exprs = [
-            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_cols) for c in recomputed_cols
-        ]
-        select_list.extend(recomputed_exprs)
-
-        # we need to retrieve the PK columns of the existing rows
+        # Read the just-expired rows (v_max == current_version) to copy stored column values
         plan = cls.create_query_plan(
             FromClause(tbls=[view]),
             select_list,
             where_clause=target.predicate,
             ignore_errors=True,
-            exact_version_only=view.get_bases(),
+            created_at_current_version=view.get_bases(),
+            deleted_at_current_version=[view.tbl_version],
         )
-        materialized_cols = copied_cols + list(recomputed_cols)  # same order as select_list
-        for i, col in enumerate(materialized_cols):
+        # Register output columns with the row builder
+        for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
@@ -839,7 +880,7 @@ class Planner:
             analyzer=base_analyzer,
             eval_ctx=base_eval_ctx,
             with_pk=True,
-            exact_version_only=view.get_bases() if propagates_insert else [],
+            created_at_current_version=view.get_bases() if propagates_insert else [],
         )
         exec_ctx = plan.ctx
         if target.is_component_view:
@@ -862,7 +903,10 @@ class Planner:
         """Verify that join clauses are expressible in SQL"""
         for join_clause in analyzer.from_clause.join_clauses:
             if join_clause.join_predicate is not None and analyzer.sql_elements.get(join_clause.join_predicate) is None:
-                raise excs.Error(f'Join predicate {join_clause.join_predicate} not expressible in SQL')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Join predicate {join_clause.join_predicate} not expressible in SQL',
+                )
 
     @classmethod
     def _create_combined_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> OrderByClause | None:
@@ -892,9 +936,10 @@ class Planner:
         for ordering in ob_clauses[1:]:
             combined = combine_order_by_clauses([combined_ordering, ordering])
             if combined is None:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Incompatible ordering requirements: '
-                    f'{print_order_by_clause(combined_ordering)} vs {print_order_by_clause(ordering)}'
+                    f'{print_order_by_clause(combined_ordering)} vs {print_order_by_clause(ordering)}',
                 )
             combined_ordering = combined
         return combined_ordering
@@ -942,7 +987,8 @@ class Planner:
         offset: exprs.Expr | None = None,
         sample_clause: SampleClause | None = None,
         ignore_errors: bool = False,
-        exact_version_only: list[catalog.TableVersionHandle] | None = None,
+        created_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
         """
         Return plan for executing a query.
@@ -952,7 +998,7 @@ class Planner:
         - materializes cell values of 'columns' (and their cellmd, if applicable) into DataRow.cell_vals/cell_md
 
         Updates 'select_list' in place to make it executable.
-        TODO: make exact_version_only a flag and use the versions from tbl
+        TODO: make created_at_current_version a flag and use the versions from tbl
         """
         if select_list is None:
             select_list = []
@@ -960,8 +1006,10 @@ class Planner:
             columns = []
         if order_by_clause is None:
             order_by_clause = []
-        if exact_version_only is None:
-            exact_version_only = []
+        if created_at_current_version is None:
+            created_at_current_version = []
+        if deleted_at_current_version is None:
+            deleted_at_current_version = []
 
         analyzer = Analyzer(
             from_clause,
@@ -989,7 +1037,8 @@ class Planner:
             limit=limit,
             offset=offset,
             with_pk=True,
-            exact_version_only=exact_version_only,
+            created_at_current_version=created_at_current_version,
+            deleted_at_current_version=deleted_at_current_version,
         )
         plan.ctx.ignore_errors = ignore_errors
         select_list.clear()
@@ -1006,7 +1055,8 @@ class Planner:
         limit: exprs.Expr | None = None,
         offset: exprs.Expr | None = None,
         with_pk: bool = False,
-        exact_version_only: list[catalog.TableVersionHandle] | None = None,
+        created_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.
@@ -1014,12 +1064,14 @@ class Planner:
         Args:
             plan_target: if not None, generate a plan that materializes only expression that can be evaluted
                 in the context of that table version (eg, if 'tbl' is a view, 'plan_target' might be the base)
-        TODO: make exact_version_only a flag and use the versions from tbl
+        TODO: make created_at_current_version a flag and use the versions from tbl
         """
         if columns is None:
             columns = []
-        if exact_version_only is None:
-            exact_version_only = []
+        if created_at_current_version is None:
+            created_at_current_version = []
+        if deleted_at_current_version is None:
+            deleted_at_current_version = []
         sql_elements = analyzer.sql_elements
         is_python_agg = not sql_elements.contains_all(analyzer.agg_fn_calls) or not sql_elements.contains_all(
             analyzer.window_fn_calls
@@ -1084,7 +1136,8 @@ class Planner:
                 columns=[c for c in columns if c.get_tbl().id == tbl.tbl_id],
                 set_pk=with_pk,
                 cell_md_col_refs=cls._cell_md_col_refs(tbl_scan_exprs),
-                exact_version_only=exact_version_only,
+                created_at_current_version=created_at_current_version,
+                deleted_at_current_version=deleted_at_current_version,
             )
             tbl_scan_plans.append(plan)
 

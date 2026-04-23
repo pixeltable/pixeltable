@@ -134,9 +134,10 @@ class RateLimitsScheduler(Scheduler):
             extra = set(param_names) - set(request.fn_call.fn.signature.parameters.keys())
             if extra:
                 fn = request.fn_call.fn
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
                     f'resource_estimator for {fn.self_path or fn} has parameters '
-                    f'{extra} that are not in the resolved function signature'
+                    f'{extra} that are not in the resolved function signature',
                 )
             per_row_kwargs = request.fn_call.get_param_values(param_names, request.rows)
             # If the estimator declares '_param_types', inject a dict mapping param names to Pixeltable
