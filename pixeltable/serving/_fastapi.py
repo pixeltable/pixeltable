@@ -410,14 +410,6 @@ class FastAPIRouter(fastapi.APIRouter):
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
         update_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
-        endpoint_model: type[pydantic.BaseModel] | None
-        if background:
-            endpoint_model = BackgroundJobResponse
-        elif return_fileresponse:
-            endpoint_model = None
-        else:
-            endpoint_model = update_response_model
-
         def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
             output = self._create_output(
                 [row], output_col_names, update_response_model, return_fileresponse, url_for_media
@@ -429,11 +421,11 @@ class FastAPIRouter(fastapi.APIRouter):
             path=path,
             pk_col_names=pk_col_names,
             input_col_names=input_col_names,
+            return_fileresponse=return_fileresponse,
             background=background,
             endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
-            endpoint_model=endpoint_model,
-            response_class=FileResponse if return_fileresponse else None,
             row_processor=row_processor,
+            row_processor_model=update_response_model,
         )
 
     def update_route(
@@ -540,11 +532,11 @@ class FastAPIRouter(fastapi.APIRouter):
                 path=path,
                 pk_col_names=pk_col_names,
                 input_col_names=input_col_names,
+                return_fileresponse=False,
                 background=background,
                 endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
-                endpoint_model=BackgroundJobResponse if background else response_model,
-                response_class=None,
                 row_processor=row_processor,
+                row_processor_model=response_model,
             )
             return user_fn
 
@@ -1027,13 +1019,13 @@ class FastAPIRouter(fastapi.APIRouter):
         path: str,
         pk_col_names: list[str],
         input_col_names: list[str],
+        return_fileresponse: bool,
         background: bool,
         endpoint_name: str,
-        endpoint_model: type[pydantic.BaseModel] | None,
-        response_class: type | None,
         row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
+        row_processor_model: type[pydantic.BaseModel] | None,
     ) -> None:
-        """Shared wiring for `add_update_route()`.
+        """Shared wiring for `add_update_route()` and `update_route()`.
 
         The endpoint signature includes the PK columns (for row identification) followed by
         the input columns (the values to update). `row_processor` is called with the single
@@ -1066,10 +1058,13 @@ class FastAPIRouter(fastapi.APIRouter):
             endpoint_name, sig, uploadfile_inputs=[], background=background, endpoint_op=run_update
         )
         api_kwargs: dict[str, Any] = {'methods': ['POST']}
-        if endpoint_model is not None:
-            api_kwargs['response_model'] = endpoint_model
-        if response_class is not None:
-            api_kwargs['response_class'] = response_class
+        if background:
+            api_kwargs['response_model'] = BackgroundJobResponse
+        elif not return_fileresponse:
+            assert row_processor_model is not None
+            api_kwargs['response_model'] = row_processor_model
+        if return_fileresponse:
+            api_kwargs['response_class'] = FileResponse
         self.add_api_route(path, endpoint, **api_kwargs)
 
     def _validate_update_args(
