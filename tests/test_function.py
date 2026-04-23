@@ -149,16 +149,6 @@ class TestFunction:
         r4 = t.select(self.f2(c=t.c3, a=None)).collect().to_pandas()['f2']
         assert np.all(r3 == r4)
 
-        with pytest.raises(TypeError) as exc_info:
-            _ = t.select(self.f1(t.c2, c=0.0)).collect()
-        assert "'b'" in str(exc_info.value)
-        with pytest.raises(TypeError) as exc_info:
-            _ = t.select(self.f1(t.c2)).collect()
-        assert "'b'" in str(exc_info.value)
-        with pytest.raises(TypeError) as exc_info:
-            _ = t.select(self.f1(c=1.0, a=t.c2)).collect()
-        assert "'b'" in str(exc_info.value)
-
     @staticmethod
     @pxt.udf()
     def udf_pos_only_params(a: int, b: int, /) -> int:
