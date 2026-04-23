@@ -88,7 +88,7 @@ class TablePackager:
             json.dump(self.bundle_md, fp)
         self.tables_dir = self.tmp_dir / 'tables'
         self.tables_dir.mkdir()
-        with get_runtime().catalog.begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=[self.table._tbl_version_path]):
             for tv in self.table._tbl_version_path.get_tbl_versions():
                 _logger.info(f'Exporting table {tv.get().versioned_name!r}.')
                 self.__export_table(tv.get())
@@ -411,6 +411,8 @@ class TableRestorer:
         self.media_files = {}
 
     def restore(self, bundle_path: Path, pxt_uri: str | None = None, explicit_version: int | None = None) -> pxt.Table:
+        from pixeltable.catalog import retry_loop
+
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
@@ -440,7 +442,8 @@ class TableRestorer:
 
         cat = get_runtime().catalog
 
-        with cat.begin_xact(for_write=True):
+        @retry_loop(for_write=True)
+        def do_restore() -> pxt.Table:
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
             # versions that have not been seen before.
             cat.create_replica(catalog.Path.parse(self.tbl_path), tbl_md)
@@ -463,6 +466,8 @@ class TableRestorer:
                 cat.update_additional_md(tbl._id, {'pxt_uri': pxt_uri})
             tbl._tbl_version_path.clear_cached_md()  # TODO: Clear cached md for ancestors too?
             return tbl
+
+        return do_restore()
 
     def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionMd) -> None:
         """

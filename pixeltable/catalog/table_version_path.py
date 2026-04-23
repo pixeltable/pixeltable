@@ -77,7 +77,7 @@ class TableVersionPath:
         elif self._cached_tbl_version is not None:
             return
 
-        with get_runtime().catalog.begin_xact(tbl_id=self.tbl_version.id, for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=[self.tbl_version.id]):
             self._cached_tbl_version = self.tbl_version.get()
 
     def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
