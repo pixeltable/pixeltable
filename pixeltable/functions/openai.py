@@ -418,7 +418,7 @@ def _token_count_for_image(image: PIL.Image.Image) -> int:
     )
 
 
-def _messages_resource_estimator(
+def _messages_resource_estimate(
     messages: list, max_completion_tokens: int, text_type: str, image_type: str
 ) -> dict[str, int]:
     num_tokens = 0.0
@@ -559,7 +559,7 @@ def _(messages: list, model: str, model_kwargs: dict[str, Any] | None = None) ->
     max_tokens = model_kwargs.get('max_tokens')
     n = model_kwargs.get('n')
 
-    return _messages_resource_estimator(
+    return _messages_resource_estimate(
         messages,
         (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model)),
         text_type='text',
@@ -617,7 +617,7 @@ async def responses(
         ...     response=responses(
         ...         messages,
         ...         model='gpt-4o-mini',
-        ...         instructions='You are a helpful assistant.',
+        ...         model_kwargs={'instructions': 'You are a helpful assistant.'},
         ...     )
         ... )
 
@@ -692,12 +692,12 @@ def _(input: list, model: str, model_kwargs: dict[str, Any] | None = None) -> di
 
     max_output_tokens = model_kwargs.get('max_output_tokens', _default_max_tokens(model))
 
-    return _messages_resource_estimator(input, max_output_tokens, text_type='input_text', image_type='input_image')
+    return _messages_resource_estimate(input, max_output_tokens, text_type='input_text', image_type='input_image')
 
 
 @pxt.udf(is_deterministic=False)
 @deprecated(
-    reason='vision() is deprecated as a separate API; use chat_completions() instead',
+    reason='vision() is deprecated as a separate API; use chat_completions() or responses() instead',
     version='0.5.18',
     category=excs.PixeltableDeprecationWarning,
 )

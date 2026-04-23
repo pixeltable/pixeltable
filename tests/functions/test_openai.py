@@ -121,27 +121,25 @@ class TestOpenai:
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(input_msgs=msgs)
         # Basic responses call with instructions
-        t.add_computed_column(
-            resp_output=responses(model='gpt-4o-mini', input=t.input_msgs, instructions='You are a helpful assistant.')
-        )
-        # with inlined messages
-        t.add_computed_column(resp_output_2=responses(model='gpt-4o-mini', input=msgs))
+        t.add_computed_column(resp_output=responses(msgs, model='gpt-4o-mini'))
         # test model_kwargs (temperature, max_output_tokens)
         t.add_computed_column(
-            resp_output_3=responses(
+            resp_output_2=responses(
+                msgs,
                 model='gpt-4o-mini',
-                input=msgs,
-                instructions='You are a helpful assistant.',
-                model_kwargs={'temperature': 0.7, 'max_output_tokens': 300, 'store': False},
+                model_kwargs={
+                    'instructions': 'You are an elementary school teacher explaining the answers to a group of students.',
+                    'temperature': 0.7,
+                    'max_output_tokens': 300,
+                    'store': False,
+                },
             )
         )
-        validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)
+        validate_update_status(t.insert(input='What are atoms made of?'), 1)
         result = t.collect()
-        assert len(result['resp_output'][0]['output_text']) > 0
-        assert len(result['resp_output_2'][0]['output_text']) > 0
-        assert len(result['resp_output_3'][0]['output_text']) > 0
+        assert 'proton' in result['resp_output'][0]['output_text'].lower()
+        assert 'proton' in result['resp_output_2'][0]['output_text'].lower()
 
     @rerun(reruns=6, reruns_delay=8)
     def test_responses_tool_invocations(self, uses_db: None) -> None:
