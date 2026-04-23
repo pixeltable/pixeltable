@@ -207,35 +207,35 @@ class TestFunction:
         # udf with positional params only
         with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(\)'):
             _ = t.select(self.udf_pos_only_params()).collect()
-        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=int\(0\)\)'):
+        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
             _ = t.select(self.udf_pos_only_params(x=0)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(int\(0\)\)'):
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(Int\)'):
             _ = t.select(self.udf_pos_only_params(0)).collect()
-        with pytest.raises(TypeError, match=rf'{pos_only_a}; {exp_ab}, got \(a=int\(1\)\)'):
+        with pytest.raises(TypeError, match=rf'{pos_only_a}; {exp_ab}, got \(a=Int\)'):
             _ = t.select(self.udf_pos_only_params(a=1)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(int\(1\), a=int\(1\)\)'):
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(Int, a=Int\)'):
             _ = t.select(self.udf_pos_only_params(1, a=1)).collect()
-        with pytest.raises(TypeError, match=rf'{pos_only_b}; {exp_ab}, got \(int\(1\), b=int\(1\)\)'):
+        with pytest.raises(TypeError, match=rf'{pos_only_b}; {exp_ab}, got \(Int, b=Int\)'):
             _ = t.select(self.udf_pos_only_params(1, b=1)).collect()
 
         # udf with keyword params only
         with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(\)'):
             _ = t.select(self.udf_kw_only_params()).collect()
-        with pytest.raises(TypeError, match=rf'{too_many_pos}; {exp_ab}, got \(int\(0\)\)'):
+        with pytest.raises(TypeError, match=rf'{too_many_pos}; {exp_ab}, got \(Int\)'):
             _ = t.select(self.udf_kw_only_params(0)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=int\(0\)\)'):
+        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
             _ = t.select(self.udf_kw_only_params(x=0)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=int\(0\)\)'):
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
             _ = t.select(self.udf_kw_only_params(a=0)).collect()
 
         # udf with positional or kw params
-        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=int\(0\)\)'):
+        with pytest.raises(TypeError, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
             _ = t.select(self.udf_pos_or_kw_params(x=0)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=int\(0\)\)'):
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
             _ = t.select(self.udf_pos_or_kw_params(a=0)).collect()
-        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=int\(0\), x=int\(1\)\)'):
+        with pytest.raises(TypeError, match=rf'{missing_b}; {exp_ab}, got \(a=Int, x=Int\)'):
             _ = t.select(self.udf_pos_or_kw_params(a=0, x=1)).collect()
-        with pytest.raises(TypeError, match=rf'{multi_a}; {exp_ab}, got \(int\(0\), a=int\(0\)\)'):
+        with pytest.raises(TypeError, match=rf'{multi_a}; {exp_ab}, got \(Int, a=Int\)'):
             _ = t.select(self.udf_pos_or_kw_params(0, a=0)).collect()
 
         # udf with default param value
@@ -250,22 +250,19 @@ class TestFunction:
 
         # udf with variadic positional params
         with pytest.raises(
-            TypeError, match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(x=int\(1\)\)"
+            TypeError, match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(x=Int\)"
         ):
             _ = t.select(self.udf_variadic_pos(x=1)).collect()
         with pytest.raises(
-            TypeError,
-            match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(int\(0\), x=int\(1\)\)",
+            TypeError, match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(Int, x=Int\)"
         ):
             _ = t.select(self.udf_variadic_pos(0, x=1)).collect()
 
         # udf with variadic kw params
-        with pytest.raises(
-            TypeError, match=r'too many positional arguments; expected \(\*\*kwargs\), got \(int\(1\)\)'
-        ):
+        with pytest.raises(TypeError, match=r'too many positional arguments; expected \(\*\*kwargs\), got \(Int\)'):
             _ = t.select(self.udf_variadic_kw(1)).collect()
         with pytest.raises(
-            TypeError, match=r'too many positional arguments; expected \(\*\*kwargs\), got \(int\(1\), x=int\(0\)\)'
+            TypeError, match=r'too many positional arguments; expected \(\*\*kwargs\), got \(Int, x=Int\)'
         ):
             _ = t.select(self.udf_variadic_kw(1, x=0)).collect()
 

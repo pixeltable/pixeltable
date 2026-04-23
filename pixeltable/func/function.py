@@ -242,8 +242,8 @@ class Function(ABC):
             return f'{prefix}{p.name}{type_str}{default_str}'
 
         def _arg_desc(v: Any) -> str:
-            if isinstance(v, Literal):
-                return _val_repr(v)
+            if isinstance(v, Literal) and v.val is None:
+                return 'None'
             if isinstance(v, Expr):
                 return str(v.col_type)
             return type(v).__name__
