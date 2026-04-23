@@ -160,16 +160,19 @@ class TestConfig:
             # path missing leading slash
             ({'routes': [{'type': 'insert', 'table': 'd.t', 'path': 'no-slash'}]}, 'path'),
             # prefix missing leading slash
-            ({'service': {'prefix': 'api'}, 'routes': [{'type': 'insert', 'table': 'd.t', 'path': '/x'}]}, 'prefix'),
+            ({'prefix': 'api', 'routes': [{'type': 'insert', 'table': 'd.t', 'path': '/x'}]}, 'prefix'),
         ]
 
         for config_dict, expected_substring in cases:
+            config_dict['name'] = 'test-service'
+            config_dict = {'service': [config_dict]}  # wrap in top-level 'service' key
             with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as f:
                 toml.dump(config_dict, f)
                 config_path = f.name
             try:
                 with pytest.raises(pxt.Error, match=expected_substring):
-                    lookup_service_config(config_path)
+                    config.Config.get().init({}, additional_config_files=[config_path], reinit=True)
+                    lookup_service_config('test')
             finally:
                 os.unlink(config_path)
 
@@ -177,8 +180,10 @@ class TestConfig:
         """create_app_from_config surfaces clear errors for module/query resolution failures."""
         skip_test_if_not_installed('fastapi')
 
-        def _query_app(query: str) -> AppConfig:
-            return AppConfig(service=ServiceConfig(), routes=[QueryRouteConfig(type='query', path='/x', query=query)])
+        def _query_app(query: str) -> config.ServiceConfig:
+            return config.ServiceConfig(
+                name='test', routes=[config.QueryRouteConfig(type='query', path='/x', query=query)]
+            )
 
         # query reference without a dot
         with pytest.raises(pxt.Error, match='invalid query reference'):
@@ -197,10 +202,10 @@ class TestConfig:
             create_service_from_config(_query_app('os.getcwd'))
 
         # `modules` entry that fails to import
-        bad_modules_app = AppConfig(
-            service=ServiceConfig(),
+        bad_modules_app = config.ServiceConfig(
+            name='test',
             modules=['definitely_not_a_real_module_xyz'],
-            routes=[QueryRouteConfig(type='query', path='/x', query='os.getcwd')],
+            routes=[config.QueryRouteConfig(type='query', path='/x', query='os.getcwd')],
         )
         with pytest.raises(pxt.Error, match='listed in `modules`'):
             create_service_from_config(bad_modules_app)
