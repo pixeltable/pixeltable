@@ -82,6 +82,14 @@ class ServiceConfig(pydantic.BaseModel):
         return v
 
 
+class DeploymentConfig(pydantic.BaseModel):
+    name: str
+    include: list[str] | None = None
+    exclude: list[str] | None = None
+    env_dependencies: list[str] = pydantic.Field(default_factory=list)
+    python_dependencies: list[str] = pydantic.Field(default_factory=list)
+
+
 class Config:
     """
     The (global) Pixeltable configuration, as loaded from `config.toml`. Provides methods for retrieving
@@ -371,7 +379,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'service': ('Service configurations', list[ServiceConfig]),
-        'deployment': 'Deployment configurations',
+        'deployment': ('Deployment configurations', list[DeploymentConfig]),
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},

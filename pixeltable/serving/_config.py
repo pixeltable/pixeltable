@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import pydantic
 
@@ -43,20 +43,35 @@ def _resolve_dotted_path(dotted: str) -> Any:
     return getattr(module, attr_name)
 
 
-def lookup_service_config(service_name: str) -> config.ServiceConfig:
-    services = config.Config.get().get_value('service', list[config.ServiceConfig])
-    if len(services) == 0:
-        raise excs.NotFoundError(excs.ErrorCode.SERVICE_NOT_FOUND, 'No services found in Pixeltable configuration.')
+T = TypeVar('T', bound='pydantic.BaseModel')
 
-    cfg = next((cfg for cfg in services if cfg.name == service_name), None)
+
+def _lookup_config(cfg_block: str, name: str, cfg_type: type[T]) -> T:
+    items = config.Config.get().get_value(cfg_block, list[cfg_type])
+    if len(items) == 0:
+        raise excs.NotFoundError(
+            excs.ErrorCode.SERVICE_NOT_FOUND, f'No {cfg_block}s found in Pixeltable configuration.'
+        )
+
+    cfg = next((cfg for cfg in items if cfg.name == name), None)
     if cfg is None:
         raise excs.NotFoundError(
             excs.ErrorCode.SERVICE_NOT_FOUND,
-            f'Service {service_name!r} not found. The following services are configured:\n'
-            f'{", ".join(cfg.name for cfg in services)}',
+            f'{cfg_block.title()} {name!r} not found. The following {cfg_block}s are configured:\n'
+            f'{", ".join(cfg.name for cfg in items)}',
         )
 
     return cfg
+
+
+def lookup_service_config(name: str) -> config.ServiceConfig:
+    """Lookup a ServiceConfig by name from the Pixeltable configuration."""
+    return _lookup_config('service', name, config.ServiceConfig)
+
+
+def lookup_deployment_config(name: str) -> config.DeploymentConfig:
+    """Lookup a DeploymentConfig by name from the Pixeltable configuration."""
+    return _lookup_config('deployment', name, config.DeploymentConfig)
 
 
 def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':

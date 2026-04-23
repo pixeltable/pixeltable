@@ -6,31 +6,30 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-import pydantic
-
-from pixeltable import exceptions as excs
-from pixeltable.config import Config
+from pixeltable import config
+from pixeltable.env import Env
+from pixeltable.serving._config import lookup_deployment_config
 
 _logger = logging.getLogger('pixeltable')
 
 
-class DeploymentConfig(pydantic.BaseModel):
-    name: str
-    include: list[str] | None = None
-    exclude: list[str] | None = None
-
-
-def get_deployment_configs() -> dict[str, DeploymentConfig]:
-    value = Config.get().get_value('deployment', list)
-    if value is None:
-        return {}
-    try:
-        configs = [DeploymentConfig(**entry) for entry in value]
-    except pydantic.ValidationError as exc:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid deployment configuration:\n{exc}'
-        ) from exc
-    return {config.name: config for config in configs}
+def deploy(deployment_name: str) -> None:
+    cfg = lookup_deployment_config(deployment_name)
+    Env.get().console_logger.info(f'Deploying {deployment_name!r} ...')
+    conda_export = _export_conda_env()
+    lockfile = _find_lockfile()
+    if conda_export is None and len(cfg.env_dependencies) == 0:
+        Env.get().console_logger.warning(
+            'No conda environment was detected and no environment dependencies are specified in config.\n'
+            'The deployment may not have the necessary dependencies to run correctly.'
+        )
+    if lockfile is None and len(cfg.python_dependencies) == 0:
+        Env.get().console_logger.warning(
+            'No dependency lockfile was found and no Python dependencies are specified in config.\n'
+            'The deployment may not have the necessary dependencies to run correctly.'
+        )
+    bundle_path = package(cfg, conda_export=conda_export)
+    Env.get().console_logger.info(f'Built project bundle: {bundle_path}')
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
@@ -72,20 +71,36 @@ def _export_conda_env() -> bytes | None:
     """
     if 'CONDA_DEFAULT_ENV' not in os.environ:
         return None
+
+    Env.get().console_logger.info(f'Found a conda environment: {os.environ["CONDA_DEFAULT_ENV"]}')
     try:
-        result = subprocess.run(['conda', 'env', 'export', '--no-builds'], capture_output=True, check=True)
+        result = subprocess.run(('conda', 'env', 'export', '--no-builds'), capture_output=True, check=True)
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        _logger.warning(f'Failed to export conda environment: {exc}')
+        Env.get().console_logger.warning(f'Failed to export conda environment: {exc}')
         return None
     return result.stdout
 
 
-def package(deploy_config: DeploymentConfig, project_dir: Path | None = None) -> Path:
+def _find_lockfile() -> Path | None:
+    cwd = Path.cwd()
+    for name in ('uv.lock', 'poetry.lock', 'requirements.txt'):
+        path = cwd / name
+        if path.is_file():
+            Env.get().console_logger.info(f'Found a dependency lockfile: {path}')
+            return path
+    return None
+
+
+def package(
+    deploy_config: config.DeploymentConfig, project_dir: Path | None = None, conda_export: bytes | None = None
+) -> Path:
     """Bundle the contents of a Pixeltable project directory into a tarball.
 
     Args:
-        deployment: Name of a deployment configuration.
+        deploy_config: Deployment configuration.
         project_dir: Path to the project directory. Defaults to the current working directory.
+        conda_export: Output of ``conda env export --no-builds``, included as ``environment.yml``
+            in the bundle when provided.
 
     Returns:
         Path to the generated tarball.
@@ -102,15 +117,15 @@ def package(deploy_config: DeploymentConfig, project_dir: Path | None = None) ->
     os.close(fd)
     bundle_path = Path(name)
 
-    conda_env = _export_conda_env()
     files = _collect_project_files(project_dir, deploy_config.include, deploy_config.exclude)
     with tarfile.open(bundle_path, 'w:bz2') as tf:
-        if conda_env is not None:
+        if conda_export is not None:
             info = tarfile.TarInfo(name='environment.yml')
-            info.size = len(conda_env)
-            tf.addfile(info, fileobj=io.BytesIO(conda_env))
+            info.size = len(conda_export)
+            tf.addfile(info, fileobj=io.BytesIO(conda_export))
         for f in files:
-            tf.add(f, arcname=str(f.relative_to(project_dir)))
+            relpath = f.relative_to(project_dir)
+            tf.add(f, arcname=f'project/{relpath}')
 
     _logger.info(f'Packaging complete: {bundle_path}')
     return bundle_path
