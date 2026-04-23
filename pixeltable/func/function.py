@@ -227,12 +227,6 @@ class Function(ABC):
     ) -> str:
         from pixeltable.exprs import Expr, Literal
 
-        def _val_repr(literal: Literal) -> str:
-            if literal.val is None:
-                return 'None'
-            repr_str = f'{type(literal.val).__name__}({literal.val!r})'
-            return repr_str[:100] + '...' if len(repr_str) > 100 else repr_str
-
         def _arg_desc(v: Any) -> str:
             if isinstance(v, Literal) and v.val is None:
                 return 'None'
