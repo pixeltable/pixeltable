@@ -206,4 +206,4 @@ class TestJson:
         for exp_row, url_row in zip(exported, fileurls):
             assert exp_row['rotated'] == url_row['rotated_fileurl']
             assert exp_row['rotated'].startswith('file:')
-            assert str(dest_path) in exp_row['rotated']
+            assert dest_path.as_posix() in exp_row['rotated']
