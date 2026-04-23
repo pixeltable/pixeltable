@@ -259,10 +259,10 @@ class TestFunction:
             _ = t.select(self.udf_variadic_pos(0, x=1)).collect()
 
         # udf with variadic kw params
-        with pytest.raises(TypeError, match=r'too many positional arguments; expected \(\*\*kwargs\), got \(Int\)'):
+        with pytest.raises(TypeError, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int\)'):
             _ = t.select(self.udf_variadic_kw(1)).collect()
         with pytest.raises(
-            TypeError, match=r'too many positional arguments; expected \(\*\*kwargs\), got \(Int, x=Int\)'
+            TypeError, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int, x=Int\)'
         ):
             _ = t.select(self.udf_variadic_kw(1, x=0)).collect()
 
