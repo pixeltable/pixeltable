@@ -192,7 +192,7 @@ class TestFunction:
         pos_only_b = r"'b' parameter is positional only, but was passed as a keyword"
         multi_a = r"multiple values for argument 'a'"
         too_many_pos = r'too many positional arguments'
-        exp_ab = r'expected \(a: Int, b: Int\)'
+        exp_ab = r'expected \(a: pxt\.Int, b: pxt\.Int\)'
 
         # udf with positional params only
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(\)'):
@@ -230,17 +230,17 @@ class TestFunction:
 
         # udf with default param value
         with pxt_raises(
-            pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; expected \(a: Int, b: Int = int\(0\)\), got \(\)'
+            pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; expected \(a: pxt\.Int, b: pxt\.Int\), got \(\)'
         ):
             _ = t.select(self.udf_default_param_val()).collect()
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT,
-            match=rf'{missing_a}; expected \(a: Int, b: String | None = None\), got \(\)',
+            match=rf'{missing_a}; expected \(a: pxt\.Int, b: pxt\.String \| None\), got \(\)',
         ):
             _ = t.select(self.udf_default_param_none()).collect()
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT,
-            match=rf'{missing_a}; expected \(a: Int, b: String | None = None\), got \(b=None\)',
+            match=rf'{missing_a}; expected \(a: pxt\.Int, b: pxt\.String \| None\), got \(b=None\)',
         ):
             _ = t.select(self.udf_default_param_none(b=None)).collect()
 

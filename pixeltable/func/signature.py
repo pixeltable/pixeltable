@@ -229,7 +229,8 @@ class Signature:
     def __hash__(self) -> int:
         return hash((self.return_type, self.parameters))
 
-    def __str__(self) -> str:
+    def params_str(self) -> str:
+        """Generates a user friendly string describing this signature's input parameters"""
         param_strs: list[str] = []
         for p in self.parameters.values():
             if p.kind == inspect.Parameter.VAR_POSITIONAL:
@@ -238,7 +239,10 @@ class Signature:
                 param_strs.append(f'**{p.name}')
             else:
                 param_strs.append(f'{p.name}: pxt.{p.col_type}')
-        return f'({", ".join(param_strs)}) -> pxt.{self.get_return_type()}'
+        return ', '.join(param_strs)
+
+    def __str__(self) -> str:
+        return f'({self.params_str()}) -> pxt.{self.get_return_type()}'
 
     @classmethod
     def _infer_type(cls, annotation: type | None) -> tuple[ts.ColumnType | None, bool | None]:
