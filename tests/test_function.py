@@ -251,9 +251,7 @@ class TestFunction:
         # udf with variadic kw params
         with pytest.raises(TypeError, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int\)'):
             _ = t.select(self.udf_variadic_kw(1)).collect()
-        with pytest.raises(
-            TypeError, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int, x=Int\)'
-        ):
+        with pytest.raises(TypeError, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int, x=Int\)'):
             _ = t.select(self.udf_variadic_kw(1, x=0)).collect()
 
         # column ref as an argument for udf
