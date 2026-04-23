@@ -229,9 +229,7 @@ class TestFunction:
             _ = t.select(self.udf_pos_or_kw_params(0, a=0)).collect()
 
         # udf with default param value
-        with pxt_raises(
-            pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; expected \(a: pxt\.Int, b: pxt\.Int\), got \(\)'
-        ):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(\)'):
             _ = t.select(self.udf_default_param_val()).collect()
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT,
