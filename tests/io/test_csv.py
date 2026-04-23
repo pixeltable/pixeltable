@@ -155,4 +155,5 @@ class TestCsv:
         fileurls = t.select(t.rotated.fileurl).collect()
         for exp_row, url_row in zip(exported, fileurls):
             assert exp_row['rotated'] == url_row['rotated_fileurl']
-            assert dest_uri in exp_row['rotated']
+            assert exp_row['rotated'].startswith('file:')
+            assert str(dest_path) in exp_row['rotated']
