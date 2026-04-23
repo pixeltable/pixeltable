@@ -222,9 +222,8 @@ class Function(ABC):
         assert bound_args is not None
         return self._resolved_fns[result], bound_args
 
-    def _bind_error_msg(
-        self, signature: Signature, args: Sequence[Any], kwargs: dict[str, Any], cause: TypeError
-    ) -> str:
+    @staticmethod
+    def _bind_error_msg(signature: Signature, args: Sequence[Any], kwargs: dict[str, Any], cause: TypeError) -> str:
         from pixeltable.exprs import Expr, Literal
 
         def _arg_desc(v: Any) -> str:
