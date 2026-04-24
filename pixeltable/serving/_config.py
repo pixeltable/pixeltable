@@ -106,6 +106,16 @@ def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
                 return_fileresponse=route.return_fileresponse,
                 background=route.background,
             )
+        elif isinstance(route, config.UpdateRouteConfig):
+            t = pxt.get_table(route.table)
+            router.add_update_route(
+                t,
+                path=route.path,
+                inputs=route.inputs,
+                outputs=route.outputs,
+                return_fileresponse=route.return_fileresponse,
+                background=route.background,
+            )
         elif isinstance(route, config.DeleteRouteConfig):
             t = pxt.get_table(route.table)
             router.add_delete_route(t, path=route.path, match_columns=route.match_columns, background=route.background)

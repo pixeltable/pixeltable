@@ -45,6 +45,14 @@ class InsertRouteConfig(RouteConfigBase):
     return_fileresponse: bool = False
 
 
+class UpdateRouteConfig(RouteConfigBase):
+    type: Literal['update']
+    table: str
+    inputs: list[str] | None = None
+    outputs: list[str] | None = None
+    return_fileresponse: bool = False
+
+
 class DeleteRouteConfig(RouteConfigBase):
     type: Literal['delete']
     table: str
@@ -61,7 +69,9 @@ class QueryRouteConfig(RouteConfigBase):
     method: Literal['get', 'post'] = 'post'
 
 
-RouteConfig = Annotated[InsertRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')]
+RouteConfig = Annotated[
+    InsertRouteConfig | UpdateRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')
+]
 
 
 class ServiceConfig(pydantic.BaseModel):

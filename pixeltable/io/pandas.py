@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import os
+import typing
 import uuid
 from typing import Any
 
@@ -11,6 +14,9 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.env import Env
+
+if typing.TYPE_CHECKING:
+    import pixeltable as pxt
 
 
 def import_pandas(
@@ -45,33 +51,6 @@ def import_pandas(
     """
     return pxt.create_table(
         tbl_name, source=df, schema_overrides=schema_overrides, primary_key=primary_key, comment=comment
-    )
-
-
-def import_csv(
-    tbl_name: str,
-    filepath_or_buffer: str | os.PathLike,
-    schema_overrides: dict[str, Any] | None = None,
-    primary_key: str | list[str] | None = None,
-    comment: str = '',
-    **kwargs: Any,
-) -> pxt.Table:
-    """
-    Creates a new base table from a csv file. This is a convenience method and is equivalent
-    to calling `import_pandas(table_path, pd.read_csv(filepath_or_buffer, **kwargs), schema=schema)`.
-    See the Pandas documentation for [`read_csv`](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html)
-    for more details.
-
-    Returns:
-        A handle to the newly created [`Table`][pixeltable.Table].
-    """
-    return pxt.create_table(
-        tbl_name,
-        source=filepath_or_buffer,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        comment=comment,
-        extra_args=kwargs,
     )
 
 

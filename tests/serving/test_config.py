@@ -40,6 +40,13 @@ class TestConfig:
             outputs = ["id", "name", "name_upper"]
 
             [[service.routes]]
+            type = "update"
+            table = "test_config/items"
+            path = "/update"
+            inputs = ["name"]
+            outputs = ["id", "name", "name_upper"]
+
+            [[service.routes]]
             type = "delete"
             table = "test_config/items"
             path = "/delete"
@@ -57,7 +64,7 @@ class TestConfig:
             cfg = services[0]
             assert cfg.name == 'test-service'
             assert cfg.port == 9999
-            assert len(cfg.routes) == 2
+            assert len(cfg.routes) == 3
 
             app = create_service_from_config(cfg)
             client = TestClient(app)
@@ -69,6 +76,18 @@ class TestConfig:
             assert data['id'] == 1
             assert data['name'] == 'alice'
             assert data['name_upper'] == 'ALICE'
+
+            # update: change the name, verify cascade of name_upper
+            resp = client.post('/update', json={'id': 1, 'name': 'bob'})
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            assert data['id'] == 1
+            assert data['name'] == 'bob'
+            assert data['name_upper'] == 'BOB'
+
+            # update: missing row -> 404
+            resp = client.post('/update', json={'id': 999, 'name': 'x'})
+            assert resp.status_code == 404, resp.text
 
             # delete
             resp = client.post('/delete', json={'id': 1})
@@ -148,9 +167,11 @@ class TestConfig:
             # missing routes
             ({}, 'routes'),
             # unknown route type (match on field name + invalid value to avoid coupling to Pydantic's exact phrasing)
-            ({'routes': [{'type': 'update', 'path': '/x'}]}, r'type.*update|update.*type'),
+            ({'routes': [{'type': 'notarealtype', 'path': '/x'}]}, r'type.*notarealtype|notarealtype.*type'),
             # insert missing table
             ({'routes': [{'type': 'insert', 'path': '/x'}]}, 'table'),
+            # update missing table
+            ({'routes': [{'type': 'update', 'path': '/x'}]}, 'table'),
             # query missing query
             ({'routes': [{'type': 'query', 'path': '/x'}]}, 'query'),
             # delete missing table
