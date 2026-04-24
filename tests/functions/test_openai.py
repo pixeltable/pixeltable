@@ -81,13 +81,10 @@ class TestOpenai:
         assert results[1]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
 
         # Raw srt/vtt responses populate the matching top-level field, leave the others None.
-        for row in results:
-            srt = row['transcription_srt']
-            assert isinstance(srt['srt'], str) and len(srt['srt']) > 0
-            assert srt['text'] is None and srt['vtt'] is None
-            vtt = row['translation_vtt']
-            assert isinstance(vtt['vtt'], str) and vtt['vtt'].startswith('WEBVTT')
-            assert vtt['text'] is None and vtt['srt'] is None
+        srts = [r['transcription_srt'] for r in results]
+        vtts = [r['translation_vtt'] for r in results]
+        assert all(s['srt'] and s['text'] is None and s['vtt'] is None for s in srts)
+        assert all(v['vtt'].startswith('WEBVTT') and v['text'] is None and v['srt'] is None for v in vtts)
 
         # Schema-driven projection: text is typed String, so extracting it yields a first-class String column.
         t.add_computed_column(transcribed=t.transcription.text)
@@ -357,7 +354,7 @@ class TestOpenai:
         t.add_computed_column(moderation=moderations(input=t.input))
         t.add_computed_column(moderation_2=moderations(input=t.input, model='omni-moderation-latest'))
 
-        # Response schema: results is a typed list, each Moderation has a typed `flagged` Bool and nested categories.
+        # Response schema: results is a typed list, each Moderation has a typed flagged Bool and nested categories.
         mod_type = t.get_metadata()['columns']['moderation']['type_']
         assert "'results':" in mod_type
         assert "'flagged': Bool" in mod_type

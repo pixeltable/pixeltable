@@ -286,8 +286,8 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, 
 
 # TypedDict mirrors of openai.types.audio.transcription / translation (and their verbose variants).
 # Field names and nullability match the SDK. The response shape varies by response_format; the schema is the
-# superset, with exactly one of `text` / `srt` / `vtt` populated per row when a raw-string format is requested.
-# `usage` is a discriminated union in the SDK (tokens vs duration); kept as dict to avoid committing to one variant.
+# superset, with exactly one of text / srt / vtt populated per row when a raw-string format is requested.
+# usage is a discriminated union in the SDK (tokens vs duration); kept as dict to avoid committing to one variant.
 
 
 class TranscriptionWord(TypedDict):
