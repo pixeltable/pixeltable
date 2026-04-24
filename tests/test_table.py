@@ -3417,6 +3417,19 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
+    @staticmethod
+    @pxt.udf
+    def wrap_image_in_json(img: PIL.Image.Image) -> dict:
+        return {'data': [img], 'meta': 'x'}
+
+    def test_add_computed_column_embedded_img(self, uses_db: None) -> None:
+        t = pxt.create_table('test_pil_in_json', {'img': pxt.Image})
+        t.insert([{'img': get_image_files()[0]}])
+        t.add_computed_column(wrapped=self.wrap_image_in_json(t.img))
+        t.add_computed_column(extracted=t.wrapped.data[0])
+        res = t.select(t.extracted).collect()
+        assert isinstance(res['extracted'][0], PIL.Image.Image)
+
     @pytest.mark.cockroachdb
     def test_computed_column_types(self, uses_db: None) -> None:
         t = pxt.create_table(
