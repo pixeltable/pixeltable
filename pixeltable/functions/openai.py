@@ -596,8 +596,7 @@ async def responses(
     - `pip install openai`
 
     Args:
-        input: A list of input items for the model, using the same role/content structure as Chat Completions
-            messages. Supports text, image, and file inputs.
+        input: A list of input items for the model, as described in the OpenAI API documentation.
         model: The model to use for generating a response.
         model_kwargs: Additional keyword args for the OpenAI `responses` API. For details on the available
             parameters, see: <https://developers.openai.com/api/docs/api-reference/responses/create>
@@ -635,7 +634,7 @@ async def responses(
         ... ]
         ... tbl.add_computed_column(response=responses(messages, model='gpt-4o-mini'))
     """
-    # Copy to avoid mutating the Literal's internal dict (which would corrupt the stored expression)
+    # Copy to avoid mutating the input dict, in case it came here through a Literal
     model_kwargs = dict(model_kwargs) if model_kwargs is not None else {}
 
     # In Responses API, functions use internally-tagged polymorphism (flat structure)
