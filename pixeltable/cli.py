@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import argparse
 import errno
-import json as json_mod
+import json
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pydantic
 
 import pixeltable as pxt
 from pixeltable import config, exceptions as excs
 from pixeltable.serving._config import create_service_from_config, lookup_service_config
-
-if TYPE_CHECKING:
-    from pixeltable.config import RouteConfig, ServiceConfig
 
 
 class _Parser(argparse.ArgumentParser):
@@ -96,7 +93,7 @@ def main() -> None:
 
 def _emit_error(message: str, json_output: bool) -> None:
     if json_output:
-        print(json_mod.dumps({'status': 'error', 'message': message}), file=sys.stderr)
+        print(json.dumps({'status': 'error', 'message': message}), file=sys.stderr)
     else:
         print(f'pxt: error: {message}', file=sys.stderr)
 
@@ -247,7 +244,7 @@ def _serve(args: argparse.Namespace) -> None:
     _run(cfg, create_service_from_config(cfg), args.json)
 
 
-def _print_dry_run(config: 'ServiceConfig', json_output: bool) -> None:
+def _print_dry_run(config: config.ServiceConfig, json_output: bool) -> None:
     if json_output:
         print(config.model_dump_json(indent=2))
     else:
@@ -262,11 +259,9 @@ def _print_dry_run(config: 'ServiceConfig', json_output: bool) -> None:
             print(f'  [{d["type"]}] {d["path"]}')
 
 
-def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
-    from pixeltable.config import DeleteRouteConfig, InsertRouteConfig, QueryRouteConfig
-
+def _build_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
     if args.mode == 'insert':
-        return InsertRouteConfig(
+        return config.InsertRouteConfig(
             type='insert',
             table=args.table,
             path=args.path,
@@ -276,8 +271,18 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
             return_fileresponse=args.return_fileresponse,
             background=args.background,
         )
+    if args.mode == 'update':
+        return config.UpdateRouteConfig(
+            type='update',
+            table=args.table,
+            path=args.path,
+            inputs=args.inputs,
+            outputs=args.outputs,
+            return_fileresponse=args.return_fileresponse,
+            background=args.background,
+        )
     if args.mode == 'delete':
-        return DeleteRouteConfig(
+        return config.DeleteRouteConfig(
             type='delete',
             table=args.table,
             path=args.path,
@@ -285,7 +290,7 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
             background=args.background,
         )
     if args.mode == 'query':
-        return QueryRouteConfig(
+        return config.QueryRouteConfig(
             type='query',
             path=args.path,
             query=args.query,
@@ -299,7 +304,7 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
     raise AssertionError(f'unknown serve mode: {args.mode}')
 
 
-def _run(config: 'ServiceConfig', app: Any, json_output: bool = False) -> None:
+def _run(config: config.ServiceConfig, app: Any, json_output: bool = False) -> None:
     try:
         import uvicorn
     except ImportError as e:
@@ -318,7 +323,7 @@ def _run(config: 'ServiceConfig', app: Any, json_output: bool = False) -> None:
 
     if json_output:
         print(
-            json_mod.dumps(
+            json.dumps(
                 {
                     'status': 'starting',
                     'host': host,
@@ -343,7 +348,7 @@ def _run(config: 'ServiceConfig', app: Any, json_output: bool = False) -> None:
             message = f'port {port} is already in use'
             if json_output:
                 print(
-                    json_mod.dumps({'status': 'error', 'code': 'EADDRINUSE', 'port': port, 'message': message}),
+                    json.dumps({'status': 'error', 'code': 'EADDRINUSE', 'port': port, 'message': message}),
                     file=sys.stderr,
                 )
             else:

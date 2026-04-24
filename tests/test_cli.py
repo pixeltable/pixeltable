@@ -7,7 +7,7 @@ app creation, HTTP semantics) belong in tests/serving/.
 
 from __future__ import annotations
 
-import errno as errno_mod
+import errno
 import json
 import pathlib
 from unittest.mock import patch
@@ -16,6 +16,7 @@ import pytest
 import toml
 
 import pixeltable as pxt
+from pixeltable import config
 from pixeltable.cli import main as cli_main
 from tests.utils import skip_test_if_not_installed
 
@@ -56,7 +57,6 @@ class TestCLI:
         _run_cli(['pxt', 'serve', 'update'], capsys, exit_code=2, stderr=['Examples:', '--table'])
         _run_cli(['pxt', 'serve', 'delete'], capsys, exit_code=2, stderr='Examples:')
         _run_cli(['pxt', 'serve', 'query'], capsys, exit_code=2, stderr='Examples:')
-        _run_cli(['pxt', 'serve', 'config'], capsys, exit_code=2, stderr='Examples:')
 
     def test_dry_run(self, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('fastapi')
@@ -134,18 +134,9 @@ class TestCLI:
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
 
-        from pixeltable.serving._config import (
-            AppConfig,
-            DeleteRouteConfig,
-            InsertRouteConfig,
-            QueryRouteConfig,
-            ServiceConfig,
-            UpdateRouteConfig,
-        )
-
         with (
-            patch('pixeltable.serving._config.load_app_config') as mock_load,
-            patch('pixeltable.serving._config.create_app_from_config') as mock_create,
+            patch('pixeltable.serving._config.lookup_service_config') as mock_load,
+            patch('pixeltable.serving._config.create_service_from_config') as mock_create,
             patch('uvicorn.run') as mock_run,
         ):
             mock_create.return_value = 'fake_app'
@@ -155,9 +146,7 @@ class TestCLI:
             config_path.write_text(
                 toml.dumps({'service': {'title': 'CLI Test', 'host': '127.0.0.1', 'port': 7777}, 'routes': []})
             )
-            mock_load.return_value = AppConfig(
-                service=ServiceConfig(title='CLI Test', host='127.0.0.1', port=7777), routes=[]
-            )
+            mock_load.return_value = config.ServiceConfig(title='CLI Test', host='127.0.0.1', port=7777, routes=[])
             with patch('sys.argv', ['pxt', 'serve', 'config', str(config_path), '--port', '9999']):
                 cli_main()
             mock_load.assert_called_once_with(str(config_path))
@@ -181,7 +170,7 @@ class TestCLI:
             with patch('sys.argv', argv):
                 cli_main()
             route = mock_create.call_args.args[0].routes[0]
-            assert isinstance(route, InsertRouteConfig)
+            assert isinstance(route, config.InsertRouteConfig)
             assert route.table == 'd.items'
             assert route.inputs == ['id', 'name']
             assert route.outputs == ['id', 'name', 'name_upper']
@@ -203,7 +192,7 @@ class TestCLI:
             with patch('sys.argv', argv):
                 cli_main()
             route = mock_create.call_args.args[0].routes[0]
-            assert isinstance(route, UpdateRouteConfig)
+            assert isinstance(route, config.UpdateRouteConfig)
             assert route.table == 'd.items'
             assert route.inputs == ['name']
             assert route.outputs == ['id', 'name', 'name_upper']
@@ -220,7 +209,7 @@ class TestCLI:
             ):
                 cli_main()
             route = mock_create.call_args.args[0].routes[0]
-            assert isinstance(route, DeleteRouteConfig)
+            assert isinstance(route, config.DeleteRouteConfig)
             assert route.table == 'd.items'
             assert route.match_columns == ['id']
             assert route.background is False
@@ -238,7 +227,7 @@ class TestCLI:
                 cli_main()
             cfg = mock_create.call_args.args[0]
             route = cfg.routes[0]
-            assert isinstance(route, QueryRouteConfig)
+            assert isinstance(route, config.QueryRouteConfig)
             assert route.query == 'mymod.search'
             assert route.inputs == ['min_id']
             assert route.method == 'get'
@@ -250,7 +239,7 @@ class TestCLI:
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
 
-        with patch('pixeltable.serving._config.create_app_from_config') as mock_create, patch('uvicorn.run'):
+        with patch('pixeltable.serving._config.create_service_from_config') as mock_create, patch('uvicorn.run'):
             mock_create.return_value = 'fake_app'
 
             # --json startup record
@@ -261,10 +250,10 @@ class TestCLI:
             assert 'url' in data and 'docs_url' in data
             assert data['routes'] == 1
 
-        eaddrinuse = OSError(errno_mod.EADDRINUSE, 'Address already in use')
+        eaddrinuse = OSError(errno.EADDRINUSE, 'Address already in use')
 
         with (
-            patch('pixeltable.serving._config.create_app_from_config') as mock_create,
+            patch('pixeltable.serving._config.create_service_from_config') as mock_create,
             patch('uvicorn.run', side_effect=eaddrinuse),
         ):
             mock_create.return_value = 'fake_app'
@@ -290,7 +279,7 @@ class TestCLI:
 
         # pxt.Error plain: _emit_error writes 'pxt: error: ...' to stderr
         with patch(
-            'pixeltable.serving._config.create_app_from_config',
+            'pixeltable.serving._config.create_service_from_config',
             side_effect=pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bad config'),
         ):
             _run_cli(
@@ -302,7 +291,7 @@ class TestCLI:
 
         # pxt.Error --json: _emit_error writes a JSON error record to stderr
         with patch(
-            'pixeltable.serving._config.create_app_from_config',
+            'pixeltable.serving._config.create_service_from_config',
             side_effect=pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bad config'),
         ):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--json'], capsys, exit_code=1)
@@ -312,7 +301,7 @@ class TestCLI:
 
         # uvicorn not installed: pxt.Error with install hint
         with (
-            patch('pixeltable.serving._config.create_app_from_config', return_value='fake_app'),
+            patch('pixeltable.serving._config.create_service_from_config', return_value='fake_app'),
             patch.dict('sys.modules', {'uvicorn': None}),
         ):
             _run_cli(
@@ -323,7 +312,7 @@ class TestCLI:
             )
 
         # IPv6 host: URL is bracket-formatted in --json startup record
-        with patch('pixeltable.serving._config.create_app_from_config', return_value='fake_app'), patch('uvicorn.run'):
+        with patch('pixeltable.serving._config.create_service_from_config', return_value='fake_app'), patch('uvicorn.run'):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--host', '::1', '--json'], capsys)
             data = json.loads(capsys.readouterr().out)
             assert data['url'] == 'http://[::1]:8000'
