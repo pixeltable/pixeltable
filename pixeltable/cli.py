@@ -30,7 +30,8 @@ _SERVE_SUBCOMMANDS = ('insert', 'query', 'update', 'delete')
 
 _EPILOG_SERVE = """\
 To start a configured service:
-  pxt serve <service-name>"""
+  pxt serve <service-name>
+  pxt serve <service-name> --port 9000"""
 
 _EPILOG_INSERT = """\
 Examples:
