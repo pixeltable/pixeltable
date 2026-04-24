@@ -408,71 +408,36 @@ class Planner:
 
         query_col_names = set(query.schema.keys())
 
-        # Build a substitution dict that maps destination column references to source expressions.
-        # This lets us rewrite computed column expressions in terms of what the source query provides.
-        # Order matters:
-        #   1. columns provided by the source query are mapped to their source expressions
-        #   2. stored columns missing from the source query are mapped to None
-        #      (must come before step 3, so unstored computed columns that depend on them get None)
-        #   3. unstored computed columns are inlined using their value expressions
-        #   4. stored computed columns not in the source query are added so chained dependencies
-        #      (e.g. c5 = c4 + 1 where c4 is also missing) can be resolved in the next step
-
-        # map each destination column covered by the query to its corresponding src expression
+        # map each destination column covered by the query to its corresponding source expression
         substitution: dict[exprs.Expr, exprs.Expr] = {
             exprs.ColumnRef(tbl.cols_by_name[col_name]): expr
             for col_name, expr in zip(query.schema.keys(), query._select_list_exprs)
             if col_name in tbl.cols_by_name
         }
 
-        # stored non-computed columns which are not provided by the source query have no value — map them to None
+        # stored non-computed columns not provided by the source query have no value — map them to None
         # so their dependents (e.g. index val cols) evaluate to None rather than leaking into source table SQL scans
         for col in tbl.cols_by_id.values():
             if not col.is_stored or col.name is None or col.name in query_col_names or col.is_computed:
                 continue
-            # non-nullable or primary key cols must be provided by the query
             if not col.col_type.nullable or col.is_pk:
                 raise excs.Error(f'Column {col.name!r} is required but not present in the source query')
             substitution[exprs.ColumnRef(col)] = exprs.Literal(None, col_type=col.col_type)
 
-        # add unstored computed columns to substitution
-        for col in tbl.cols_by_id.values():
-            if col.is_stored or not col.is_computed or col.value_expr is None:
-                continue
-            substitution[exprs.ColumnRef(col)] = col.value_expr.copy().substitute(substitution)
+        # stored computed columns in destination not covered by the query
+        missing_computed_cols = [
+            col
+            for col in tbl.cols_by_id.values()
+            if col.is_stored and col.name not in query_col_names and col.is_computed
+        ]
 
-        # stored computed columns in destination and not covered by the query
-        missing_computed_cols: list[catalog.Column] = []
-        missing_col_exprs_raw: list[exprs.Expr] = []
-        for col in tbl.cols_by_id.values():
-            if not col.is_stored or col.name in query_col_names or not col.is_computed:
-                continue
-            missing_computed_cols.append(col)
-            missing_col_exprs_raw.append(col.value_expr.copy())
-
-        # extend substitution with missing computed columns, e.g. so that c5 = c4 + 1
-        # can resolve c4 -> c4.value_expr where c4 is also a missing computed column
-        for col, expr in zip(missing_computed_cols, missing_col_exprs_raw):
-            substitution[exprs.ColumnRef(col)] = expr
-
-        # apply full substitution to all missing column exprs
-        missing_col_exprs = [expr.substitute(substitution) for expr in missing_col_exprs_raw]
-
-        # only evaluate computed columns whose dependencies are fully resolved by the source query.
-        filtered_cols: list[catalog.Column] = []
-        filtered_exprs: list[exprs.Expr] = []
-        for col, expr in zip(missing_computed_cols, missing_col_exprs):
-            col_refs = exprs.Expr.list_subexprs([expr], expr_class=exprs.ColumnRef)
-            unresolved = [
-                ref for ref in col_refs if ref.col.get_tbl().id == tbl.id and ref.col.name not in query_col_names
-            ]
-            if len(unresolved) > 0:
-                continue
-            filtered_cols.append(col)
-            filtered_exprs.append(expr)
-
-        missing_computed_cols = filtered_cols
-        missing_col_exprs = filtered_exprs
+        # resolve missing computed col exprs using the same pattern as create_update_plan:
+        missing_col_exprs = [
+            col.value_expr.copy().resolve_computed_cols(resolve_cols=set(missing_computed_cols))
+            for col in missing_computed_cols
+        ]
+        # apply substitutions
+        exprs.Expr.list_substitute(missing_col_exprs, substitution)
 
         # augment query with missing computed exprs so they get evaluated during planning
         augmented_query = query.add_columns(
@@ -481,19 +446,16 @@ class Planner:
         plan = augmented_query._create_query_plan()
         needs_cell_materialization = False
 
-        # register destination cols by looking up their name in the augmented query schema
-        select_exprs_by_name = dict(zip(augmented_query.schema.keys(), augmented_query._select_list_exprs))
-        for col_name, dst_col in tbl.cols_by_name.items():
-            expr = select_exprs_by_name.get(col_name)
-            if expr is None:
-                continue
-            plan.row_builder.add_table_column(dst_col, expr.slot_idx)
-            needs_cell_materialization = needs_cell_materialization or dst_col.col_type.supports_file_offloading()
-
-        # register missing computed cols (including index val cols) via unique_exprs lookup by expr.id
-        for col, expr in zip(missing_computed_cols, missing_col_exprs):
+        # register all destination columns via unique_exprs lookup by expr.id
+        # add_columns deep copies exprs but expr.id remains same as before
+        all_dst_cols = [
+            (tbl.cols_by_name[name], expr)
+            for name, expr in zip(query.schema.keys(), query._select_list_exprs)
+            if name in tbl.cols_by_name
+        ] + list(zip(missing_computed_cols, missing_col_exprs))
+        for col, expr in all_dst_cols:
             matched = plan.row_builder.unique_exprs[expr]
-            assert matched is not None, f'missing expr not found in row builder {expr} for column {col.name}'
+            assert matched is not None, f'expr not found in row builder for column {col.name!r}: {expr}'
             plan.row_builder.add_table_column(col, matched.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
 

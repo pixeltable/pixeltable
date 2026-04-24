@@ -1489,17 +1489,17 @@ class Query:
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)
 
-    def add_columns(self, additional_columns: list[tuple[exprs.Expr, str | None]]) -> 'Query':
+    def add_columns(self, columns: list[tuple[exprs.Expr, str | None]]) -> 'Query':
         """Add expressions to the existing select list.
 
         Args:
-            additional_columns: list of (expression, name) pairs to append to the select list.
+            columns: list of (expression, name) pairs to append to the select list.
             If name is None, the expression's default column name is used.
 
         Returns:
             A new Query with the additional expressions appended to the select list.
         """
-        for _expr, name in additional_columns:
+        for _expr, name in columns:
             if name is not None and not is_valid_identifier(name):
                 raise excs.Error(f'add_columns(): {name!r} is not a valid column name.')
             if name is not None and name in self._schema:
@@ -1517,7 +1517,7 @@ class Query:
 
         return Query(
             from_clause=self._from_clause,
-            select_list=existing_select_list + additional_columns,
+            select_list=existing_select_list + columns,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
             grouping_tbl=self.grouping_tbl,
