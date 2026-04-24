@@ -10,6 +10,8 @@ from __future__ import annotations
 import errno
 import json
 import pathlib
+import textwrap
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -31,12 +33,25 @@ def _run_cli(
 ) -> None:
     """Invoke cli_main, assert exit code, and optionally assert stdout/stderr substrings."""
     actual_exit_code: int | str | None = 0
-    with patch('sys.argv', argv):
+
+    def init_with_reinit(additional_config_files: list[str] | None) -> None:
+        config.Config.init({}, additional_config_files, reinit=True)
+
+    with patch('sys.argv', argv), patch('pixeltable.init', init_with_reinit):
         try:
             cli_main()
         except SystemExit as e:
             actual_exit_code = e.code
-    assert actual_exit_code == exit_code
+
+    if actual_exit_code != exit_code:
+        captured = capsys.readouterr()
+        print(
+            f'======= stdout from command: {" ".join(argv)} ======='
+            f'\n{captured.out}\n'
+            f'======= stderr from command: {" ".join(argv)} ======='
+            f'\n{captured.err}\n'
+        )
+        raise AssertionError(f'Expected exit code {exit_code} but got {actual_exit_code}.\n')
     if stdout is not None or stderr is not None:
         captured = capsys.readouterr()
         if stdout is not None:
@@ -111,28 +126,37 @@ class TestCLI:
         )
 
         # config plain and --json (from TOML file)
-        config_path = tmp_path / 'service.toml'
-        config_path.write_text(
-            toml.dumps(
-                {
-                    'service': {'title': 'Dry Run Svc', 'port': 9999},
-                    'routes': [{'type': 'insert', 'table': 'd.t', 'path': '/ins'}],
-                }
-            )
+        config_file_contents = textwrap.dedent(
+            """
+            [[service]]
+            name = "dry-run-service"
+            port = 9999
+
+            [[service.routes]]
+            type = "insert"
+            table = "d.items"
+            path = "/ins"
+            """.strip()
         )
 
-        _run_cli(['pxt', 'serve', 'config', str(config_path), '--dry-run'], capsys, stdout=['Dry Run Svc', '[insert]'])
+        config_path = tmp_path / 'service.toml'
+        config_path.write_text(config_file_contents)
 
-        _run_cli(['pxt', 'serve', 'config', str(config_path), '--dry-run', '--json'], capsys)
+        _run_cli(
+            ['pxt', 'serve', 'dry-run-service', '--config', str(config_path), '--dry-run'],
+            capsys,
+            stdout=['dry-run-service', '[insert]'],
+        )
+
+        _run_cli(['pxt', 'serve', 'dry-run-service', '--config', str(config_path), '--dry-run', '--json'], capsys)
         data = json.loads(capsys.readouterr().out)
-        assert data['service']['title'] == 'Dry Run Svc'
-        assert data['service']['port'] == 9999
+        assert data['name'] == 'dry-run-service'
+        assert data['port'] == 9999
         assert data['routes'][0]['type'] == 'insert'
 
     def test_serve_routes(self, tmp_path: pathlib.Path) -> None:
         """CLI args are correctly wired into AppConfig and RouteConfig objects."""
-        skip_test_if_not_installed('fastapi')
-        skip_test_if_not_installed('uvicorn')
+        skip_test_if_not_installed('fastapi', 'uvicorn')
 
         with (
             patch('pixeltable.serving._config.lookup_service_config') as mock_load,
@@ -236,8 +260,7 @@ class TestCLI:
 
     def test_serve_output(self, capsys: pytest.CaptureFixture) -> None:
         """--json startup record and EADDRINUSE error output (plain and JSON)."""
-        skip_test_if_not_installed('fastapi')
-        skip_test_if_not_installed('uvicorn')
+        skip_test_if_not_installed('fastapi', 'uvicorn')
 
         with patch('pixeltable.serving._config.create_service_from_config') as mock_create, patch('uvicorn.run'):
             mock_create.return_value = 'fake_app'
@@ -312,7 +335,10 @@ class TestCLI:
             )
 
         # IPv6 host: URL is bracket-formatted in --json startup record
-        with patch('pixeltable.serving._config.create_service_from_config', return_value='fake_app'), patch('uvicorn.run'):
+        with (
+            patch('pixeltable.serving._config.create_service_from_config', return_value='fake_app'),
+            patch('uvicorn.run'),
+        ):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--host', '::1', '--json'], capsys)
             data = json.loads(capsys.readouterr().out)
             assert data['url'] == 'http://[::1]:8000'

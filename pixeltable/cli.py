@@ -71,6 +71,7 @@ def main() -> None:
     argv = sys.argv[1:]
     if len(argv) >= 2 and argv[0] == 'serve' and argv[1] not in _SERVE_SUBCOMMANDS and not argv[1].startswith('-'):
         serve_parser.add_argument('service', help='Name of the configured service to start')
+        serve_parser.add_argument('--config', type=str, default=None, help='Path to an additional TOML config file')
         _add_service_args(serve_parser)
         _add_output_args(serve_parser)
     else:
@@ -222,6 +223,8 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
 
 def _serve(args: argparse.Namespace) -> None:
     if hasattr(args, 'service'):
+        additional_config_files = [args.config] if args.config is not None else None
+        pxt.init(additional_config_files=additional_config_files)
         cfg = lookup_service_config(args.service)
     else:
         try:
