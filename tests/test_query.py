@@ -574,6 +574,24 @@ class TestQuery:
         distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
         assert cnt == distinct_c1_filtered
 
+    def test_count_join(self, uses_db: None) -> None:
+        """Tests for join...count queries"""
+        # TODO(PXT-1108): when the join+where bug is fixed, add some queries with where().
+        num_rows = 100
+        t1, t2, t3 = self.create_join_tbls(num_rows)
+
+        # Inner join + count. Note: t1 and t2 have matching ids.
+        cnt = t1.join(t2, on=(t1.id == t2.id), how='inner').count()
+        assert cnt == num_rows
+
+        # Inner join + count with a different table. Note: only 10% of t3's ids are present in t1.
+        cnt = t1.join(t3, on=(t1.id == t3.id), how='inner').count()
+        assert cnt == num_rows // 10
+
+        # Left join + count. Since it's left join, all t1 rows should be present.
+        cnt = t1.join(t3, on=(t1.id == t3.id), how='left').count()
+        assert cnt == num_rows
+
     def test_select_literal(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.select(1.0).where(t.c2 < 10).collect()
@@ -615,7 +633,6 @@ class TestQuery:
         PIL.Image.open(opurl_img)
 
     def test_update_delete_where(self, test_tbl: pxt.Table) -> None:
-        # TODO: also capture recompute_columns()
         t = test_tbl
         old: list[int] = t.select(t.c3).collect()['c3']
 
@@ -633,13 +650,14 @@ class TestQuery:
         # Delete with where
         validate_update_status(t.where((t.c2 >= 50) & (t.c2 < 75)).delete())
         assert t.count() == 75
-
         # Delete without where
         validate_update_status(t.select().delete())
         assert t.count() == 0
 
-        # select_list
+    def test_mutation_op_restrictions(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
 
+        # select_list
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.select(t.c2).update({'c3': 0.0})
         assert 'Cannot use `update` after `select`' in str(exc_info.value)
@@ -705,6 +723,33 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             snap.where(t.c2 < 10).delete()
         assert 'Cannot use `delete` on a snapshot.' in str(exc_info.value)
+
+        # join+update
+        with pytest.raises(pxt.Error, match='Cannot use `update` after `join`'):
+            t.join(t2, how='cross').update({'c3': 0.0})
+
+        # join+delete
+        with pytest.raises(pxt.Error, match='Cannot use `delete` after `join`'):
+            t.join(t2, how='cross').delete()
+
+        # recompute_columns: op-sequence restrictions
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `select`'):
+            t.select(t.c2).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `group_by`'):
+            t.group_by(t.c2).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `order_by`'):
+            t.order_by(t.c2).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `limit`'):
+            t.limit(10).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `join`'):
+            t.join(t2, how='cross').recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` on a snapshot'):
+            snap.where(t.c2 < 10).recompute_columns(t.c8)
 
     def __check_constant_query(self, query: pxt.Query, v: Any) -> None:
         r = query.limit(5).collect()

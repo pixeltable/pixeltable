@@ -735,9 +735,15 @@ class Planner:
         # - RowUpdateNode to update the retrieved rows
         # - ExprEvalNode to evaluate the remaining output exprs
         analyzer = Analyzer(FromClause(tbls=[tbl]), select_list)
-        sql_exprs = list(
+        all_sql_exprs = list(
             exprs.Expr.list_subexprs(analyzer.all_exprs, filter=analyzer.sql_elements.contains, traverse_matches=False)
         )
+        # Exclude recomputed-column expressions from sql_exprs: they must be re-evaluated by
+        # ExprEvalNode in Python after RowUpdateNode writes the new column values into the slots,
+        # not by SQL against the old row values that SqlLookupNode reads.
+        # Undo-col remapping expressions (eval_cols not in recomputed_cols) stay in sql_exprs.
+        recomputed_expr_ids = {expr.id for col, expr in zip(eval_cols, eval_exprs) if col in recomputed_cols}
+        sql_exprs = [e for e in all_sql_exprs if e.id not in recomputed_expr_ids]
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs, target)
         analyzer.finalize(row_builder)
 
