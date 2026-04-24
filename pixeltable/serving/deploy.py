@@ -13,7 +13,7 @@ from pixeltable.serving._config import lookup_deployment_config
 _logger = logging.getLogger('pixeltable')
 
 
-def deploy(deployment_name: str) -> None:
+def build_deploy_bundle(deployment_name: str) -> Path:
     cfg = lookup_deployment_config(deployment_name)
     Env.get().console_logger.info(f'Deploying {deployment_name!r} ...')
     conda_export = _export_conda_env()
@@ -30,6 +30,7 @@ def deploy(deployment_name: str) -> None:
         )
     bundle_path = package(cfg, conda_export=conda_export)
     Env.get().console_logger.info(f'Built project bundle: {bundle_path}')
+    return bundle_path
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
