@@ -6,12 +6,16 @@ import argparse
 import errno
 import json as json_mod
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pydantic
 
 import pixeltable as pxt
 from pixeltable import config, exceptions as excs
+from pixeltable.serving._config import create_service_from_config, lookup_service_config
+
+if TYPE_CHECKING:
+    from pixeltable.config import RouteConfig, ServiceConfig
 
 
 class _Parser(argparse.ArgumentParser):
@@ -25,12 +29,11 @@ class _Parser(argparse.ArgumentParser):
         sys.exit(2)
 
 
-# Examples mirror the "Quickstart (single-endpoint CLI)" section of
-# docs/release/howto/deployment/serving.mdx. Keep in sync if examples change.
-_EPILOG_CONFIG = """\
-Examples:
-  pxt serve config service.toml
-  pxt serve config service.toml --port 9000"""
+_SERVE_SUBCOMMANDS = ('insert', 'query', 'update', 'delete')
+
+_EPILOG_SERVE = """\
+To start a configured service:
+  pxt serve <service-name>"""
 
 _EPILOG_INSERT = """\
 Examples:
@@ -61,8 +64,21 @@ def main() -> None:
     parser.add_argument('--version', action='version', version=f'pxt {pxt.__version__}')
     subparsers = parser.add_subparsers(dest='command', required=False)
 
-    serve_parser = subparsers.add_parser('serve', help='Start an HTTP service')
-    _add_serve_subparsers(serve_parser)
+    serve_parser = subparsers.add_parser(
+        'serve', help='Start an HTTP service', formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    # Detect whether this is `pxt serve <service-name>` or `pxt serve <subcommand>`.
+    # If the first arg after `serve` is not a known subcommand and not a flag,
+    # set up the parser for named-service mode; otherwise set up subcommand parsers.
+    argv = sys.argv[1:]
+    if len(argv) >= 2 and argv[0] == 'serve' and argv[1] not in _SERVE_SUBCOMMANDS and not argv[1].startswith('-'):
+        serve_parser.add_argument('service', help='Name of the configured service to start')
+        _add_service_args(serve_parser)
+        _add_output_args(serve_parser)
+    else:
+        serve_parser.epilog = _EPILOG_SERVE
+        _add_serve_subparsers(serve_parser)
 
     args = parser.parse_args()
 
@@ -88,7 +104,6 @@ def _emit_error(message: str, json_output: bool) -> None:
 def _add_service_args(p: argparse.ArgumentParser) -> None:
     p.add_argument('--host', type=str, default=None, help='Bind address (overrides config default)')
     p.add_argument('--port', type=int, default=None, help='Bind port (overrides config default)')
-    p.add_argument('--title', type=str, default=None, help='Service title (overrides config default)')
     p.add_argument('--prefix', type=str, default=None, help='URL prefix (overrides config default)')
 
 
@@ -101,17 +116,6 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
 
 def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     serve_sub = serve_parser.add_subparsers(dest='mode', required=True)
-
-    # pxt serve config <path>
-    config_parser = serve_sub.add_parser(
-        'config',
-        help='Load service from a TOML config file',
-        epilog=_EPILOG_CONFIG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    config_parser.add_argument('config', type=str, help='Path to the service TOML file')
-    _add_service_args(config_parser)
-    _add_output_args(config_parser)
 
     # pxt serve insert
     insert_parser = serve_sub.add_parser(
@@ -220,54 +224,49 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
 
 
 def _serve(args: argparse.Namespace) -> None:
-    from pixeltable.serving._config import AppConfig, ServiceConfig, create_service_from_config, lookup_service_config
-
-    if args.mode == 'config':
-        config = lookup_service_config(args.config)
+    if hasattr(args, 'service'):
+        cfg = lookup_service_config(args.service)
     else:
         try:
             route = _build_route_from_args(args)
-            config = AppConfig(service=ServiceConfig(), routes=[route])
+            cfg = config.ServiceConfig(name='pxt-serve', routes=[route])
         except pydantic.ValidationError as e:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, str(e)) from e
 
-    overrides = {
-        k: v
-        for k, v in (('host', args.host), ('port', args.port), ('title', args.title), ('prefix', args.prefix))
-        if v is not None
-    }
+    overrides = {k: v for k, v in (('host', args.host), ('port', args.port), ('prefix', args.prefix)) if v is not None}
     if overrides:
         try:
-            new_service = ServiceConfig.model_validate(config.service.model_dump() | overrides)
+            cfg = config.ServiceConfig.model_validate(cfg.model_dump() | overrides)
         except pydantic.ValidationError as e:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, str(e)) from e
-        config = config.model_copy(update={'service': new_service})
 
     if args.dry_run:
-        _print_dry_run(config, args.json)
+        _print_dry_run(cfg, args.json)
         return
 
-    _run(config, create_service_from_config(config), args.json)
+    _run(cfg, create_service_from_config(cfg), args.json)
 
 
-def _print_dry_run(svc: config.ServiceConfig, json_output: bool) -> None:
+def _print_dry_run(config: 'ServiceConfig', json_output: bool) -> None:
     if json_output:
-        print(svc.model_dump_json(indent=2))
+        print(config.model_dump_json(indent=2))
     else:
-        print(f'Service:  {svc.title}')
-        print(f'  Host:   {svc.host}')
-        print(f'  Port:   {svc.port}')
-        if svc.prefix:
-            print(f'  Prefix: {svc.prefix}')
-        print(f'Routes ({len(svc.routes)}):')
-        for route in svc.routes:
+        print(f'Service:  {config.name}')
+        print(f'  Host:   {config.host}')
+        print(f'  Port:   {config.port}')
+        if config.prefix:
+            print(f'  Prefix: {config.prefix}')
+        print(f'Routes ({len(config.routes)}):')
+        for route in config.routes:
             d = route.model_dump()
             print(f'  [{d["type"]}] {d["path"]}')
 
 
-def _build_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
+def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
+    from pixeltable.config import DeleteRouteConfig, InsertRouteConfig, QueryRouteConfig
+
     if args.mode == 'insert':
-        return config.InsertRouteConfig(
+        return InsertRouteConfig(
             type='insert',
             table=args.table,
             path=args.path,
@@ -277,18 +276,8 @@ def _build_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
             return_fileresponse=args.return_fileresponse,
             background=args.background,
         )
-    if args.mode == 'update':
-        return config.UpdateRouteConfig(
-            type='update',
-            table=args.table,
-            path=args.path,
-            inputs=args.inputs,
-            outputs=args.outputs,
-            return_fileresponse=args.return_fileresponse,
-            background=args.background,
-        )
     if args.mode == 'delete':
-        return config.DeleteRouteConfig(
+        return DeleteRouteConfig(
             type='delete',
             table=args.table,
             path=args.path,
@@ -296,7 +285,7 @@ def _build_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
             background=args.background,
         )
     if args.mode == 'query':
-        return config.QueryRouteConfig(
+        return QueryRouteConfig(
             type='query',
             path=args.path,
             query=args.query,
@@ -310,7 +299,7 @@ def _build_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
     raise AssertionError(f'unknown serve mode: {args.mode}')
 
 
-def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None:
+def _run(config: 'ServiceConfig', app: Any, json_output: bool = False) -> None:
     try:
         import uvicorn
     except ImportError as e:
@@ -319,7 +308,7 @@ def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None
             "uvicorn is required for `pxt serve`; install it with `pip install 'fastapi[standard]'`",
         ) from e
 
-    host, port = cfg.host, cfg.port
+    host, port = config.host, config.port
     # wildcard bind addresses aren't navigable; print localhost for the URL hints
     display_host = 'localhost' if host in ('0.0.0.0', '::', '') else host
     if ':' in display_host:
@@ -336,16 +325,16 @@ def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None
                     'port': port,
                     'url': url,
                     'docs_url': docs_url,
-                    'routes': len(cfg.routes),
+                    'routes': len(config.routes),
                 }
             )
         )
     else:
-        print(f'Starting Pixeltable service: {cfg.name}')
+        print(f'Starting Pixeltable service: {config.name}')
         print(f'  Bound to {host}:{port}')
         print(f'  Listening on {url}')
         print(f'  API docs at {docs_url}')
-        print(f'  Routes: {len(cfg.routes)}')
+        print(f'  Routes: {len(config.routes)}')
 
     try:
         uvicorn.run(app, host=host, port=port)

@@ -47,7 +47,7 @@ T = TypeVar('T', bound='pydantic.BaseModel')
 
 
 def _lookup_config(cfg_block: str, name: str, cfg_type: type[T]) -> T:
-    items = config.Config.get().get_value(cfg_block, list[cfg_type])
+    items = config.Config.get().get_value(cfg_block, list)
     if len(items) == 0:
         raise excs.NotFoundError(
             excs.ErrorCode.SERVICE_NOT_FOUND, f'No {cfg_block}s found in Pixeltable configuration.'
