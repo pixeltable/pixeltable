@@ -129,7 +129,9 @@ class TestOpenai:
                 msgs,
                 model='gpt-4o-mini',
                 model_kwargs={
-                    'instructions': 'You are an elementary school teacher explaining the answers to a group of students.',
+                    'instructions': (
+                        'You are an elementary school teacher explaining the answers to a group of students.'
+                    ),
                     'temperature': 0.7,
                     'max_output_tokens': 300,
                     'store': False,
