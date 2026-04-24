@@ -138,8 +138,8 @@ class TestOpenai:
         )
         validate_update_status(t.insert(input='What are atoms made of?'), 1)
         result = t.collect()
-        assert 'proton' in result['resp_output'][0]['output_text'].lower()
-        assert 'proton' in result['resp_output_2'][0]['output_text'].lower()
+        assert 'proton' in result['resp_output'][0]['output'][0]['content'][0]['text'].lower()
+        assert 'proton' in result['resp_output_2'][0]['output'][0]['content'][0]['text'].lower()
 
     @rerun(reruns=6, reruns_delay=8)
     def test_responses_tool_invocations(self, uses_db: None) -> None:

@@ -678,11 +678,7 @@ async def responses(
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
-    response_dict = json.loads(result.text)
-    # output_text is an SDK @property, not a wire-format field;
-    # delegate to the SDK rather than reimplementing the aggregation logic
-    response_dict['output_text'] = result.parse().output_text
-    return response_dict
+    return json.loads(result.text)
 
 
 @responses.resource_estimator
