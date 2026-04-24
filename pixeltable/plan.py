@@ -1172,7 +1172,10 @@ class Planner:
         plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, plan)
 
         if analyzer.filter is not None:
-            plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan)
+            # is_terminal=False: this ExprEvalNode is followed by a FilterNode and typically another
+            # ExprEvalNode for the select list. Its GC must not evict slots that downstream stages
+            # need as inputs -- see ExprEvalCtx.__init__ for the reasoning.
+            plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan, is_terminal=False)
             plan = exec.FilterNode(row_builder, analyzer.filter, input=plan)
             sql_exprs = exprs.ExprSet(sql_exprs)
             sql_exprs.add(analyzer.filter)
