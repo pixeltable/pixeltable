@@ -23,6 +23,10 @@ from pixeltable.cli import main as cli_main
 from tests.utils import skip_test_if_not_installed
 
 
+def _init_with_reinit(additional_config_files: list[str] | None) -> None:
+    config.Config.init({}, additional_config_files, reinit=True)
+
+
 def _run_cli(
     argv: list[str],
     capsys: pytest.CaptureFixture,
@@ -34,10 +38,7 @@ def _run_cli(
     """Invoke cli_main, assert exit code, and optionally assert stdout/stderr substrings."""
     actual_exit_code: int | str | None = 0
 
-    def init_with_reinit(additional_config_files: list[str] | None) -> None:
-        config.Config.init({}, additional_config_files, reinit=True)
-
-    with patch('sys.argv', argv), patch('pixeltable.init', init_with_reinit):
+    with patch('sys.argv', argv), patch('pixeltable.init', _init_with_reinit):
         try:
             cli_main()
         except SystemExit as e:
@@ -126,8 +127,9 @@ class TestCLI:
         )
 
         # config plain and --json (from TOML file)
+
         config_file_contents = textwrap.dedent(
-            """
+            """\
             [[service]]
             name = "dry-run-service"
             port = 9999
@@ -136,7 +138,7 @@ class TestCLI:
             type = "insert"
             table = "d.items"
             path = "/ins"
-            """.strip()
+            """
         )
 
         config_path = tmp_path / 'service.toml'
@@ -159,25 +161,35 @@ class TestCLI:
         skip_test_if_not_installed('fastapi', 'uvicorn')
 
         with (
-            patch('pixeltable.serving._config.lookup_service_config') as mock_load,
-            patch('pixeltable.serving._config.create_service_from_config') as mock_create,
+            patch('pixeltable.cli.lookup_service_config') as mock_load,
+            patch('pixeltable.cli.create_service_from_config') as mock_create,
             patch('uvicorn.run') as mock_run,
         ):
             mock_create.return_value = 'fake_app'
 
+            config_file_contents = textwrap.dedent(
+                """\
+                [[service]]
+                name = "test-service"
+                host = "127.0.0.1"
+                port = 7777
+                """
+            )
+
             # config: TOML load + --port override
             config_path = tmp_path / 'service.toml'
-            config_path.write_text(
-                toml.dumps({'service': {'title': 'CLI Test', 'host': '127.0.0.1', 'port': 7777}, 'routes': []})
-            )
-            mock_load.return_value = config.ServiceConfig(title='CLI Test', host='127.0.0.1', port=7777, routes=[])
-            with patch('sys.argv', ['pxt', 'serve', 'config', str(config_path), '--port', '9999']):
+            config_path.write_text(config_file_contents)
+            mock_load.return_value = config.ServiceConfig(name='test-service', host='127.0.0.1', port=7777, routes=[])
+            with (
+                patch('sys.argv', ['pxt', 'serve', 'test-service', '--config', str(config_path), '--port', '9999']),
+                patch('pixeltable.init', _init_with_reinit),
+            ):
                 cli_main()
-            mock_load.assert_called_once_with(str(config_path))
+            mock_load.assert_called_once_with('test-service')
             cfg = mock_create.call_args.args[0]
-            assert cfg.service.port == 9999
-            assert cfg.service.host == '127.0.0.1'
-            assert cfg.service.title == 'CLI Test'
+            assert cfg.port == 9999
+            assert cfg.host == '127.0.0.1'
+            assert cfg.name == 'test-service'
             mock_run.assert_called_once_with('fake_app', host='127.0.0.1', port=9999)
 
             mock_create.reset_mock()
@@ -256,7 +268,7 @@ class TestCLI:
             assert route.inputs == ['min_id']
             assert route.method == 'get'
             assert route.one_row is True
-            assert cfg.service.host == '127.0.0.1'
+            assert cfg.host == '127.0.0.1'
 
     def test_serve_output(self, capsys: pytest.CaptureFixture) -> None:
         """--json startup record and EADDRINUSE error output (plain and JSON)."""
