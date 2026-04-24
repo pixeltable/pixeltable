@@ -78,11 +78,9 @@ class ExprEvalNode(ExecNode):
         input_exprs: Iterable[exprs.Expr],
         input: ExecNode,
         maintain_input_order: bool = True,
-        is_terminal: bool = True,
     ):
         super().__init__(row_builder, output_exprs, input_exprs, input)
         self.maintain_input_order = maintain_input_order
-        self._is_terminal = is_terminal
         self.outputs = np.zeros(row_builder.num_materialized, dtype=bool)
         output_slot_idxs = [e.slot_idx for e in output_exprs]
         self.outputs[output_slot_idxs] = True
@@ -106,13 +104,16 @@ class ExprEvalNode(ExecNode):
         # self.slot_evaluators = {}
         self.schedulers = {}
         # self._init_slot_evaluators()
-        self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs, is_terminal=is_terminal)
+        self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
 
     def _open(self) -> None:
         self.progress_reporter = self.ctx.add_progress_reporter('Cell computations', 'cells')
 
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
+
+    def set_gc(self, gc: bool) -> None:
+        self.eval_ctx.set_gc(gc)
 
     async def _fetch_input_batch(self) -> None:
         """

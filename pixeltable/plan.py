@@ -1178,10 +1178,8 @@ class Planner:
         plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, plan)
 
         if analyzer.filter is not None:
-            # is_terminal=False: this ExprEvalNode is followed by a FilterNode and typically another
-            # ExprEvalNode for the select list. Its GC must not evict slots that downstream stages
-            # need as inputs -- see ExprEvalCtx.__init__ for the reasoning.
-            plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan, is_terminal=False)
+            plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan)
+            plan.set_gc(False)
             plan = exec.FilterNode(row_builder, analyzer.filter, input=plan)
             sql_exprs = exprs.ExprSet(sql_exprs)
             sql_exprs.add(analyzer.filter)
@@ -1195,6 +1193,7 @@ class Planner:
             if not sql_exprs.issuperset(agg_input):
                 # we need an ExprEvalNode
                 plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
+                plan.set_gc(False)
 
             # batch size for aggregation input: this could be the entire table, so we need to divide it into
             # smaller batches; at the same time, we need to make the batches large enough to amortize the
@@ -1227,14 +1226,21 @@ class Planner:
                 if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                     # we need an ExprEvalNode to evaluate the remaining output exprs
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
+                    plan.set_gc(False)
                 plan = cls._add_save_node(plan)
         else:
             if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
                 plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
+                plan.set_gc(False)
             # we're returning everything to the user, so we might as well do it in a single batch
             # TODO: return smaller batches in order to increase inter-ExecNode parallelism
             ctx.batch_size = 0
+
+        expr_eval_node = plan.get_node(exec.ExprEvalNode)
+        if expr_eval_node is not None:
+            # we defer GC of intermediate slots until the last ExprEvalNode in the plan
+            expr_eval_node.set_gc(True)
 
         sql_node = plan.get_node(exec.SqlNode)
         if len(analyzer.order_by_clause) > 0:
