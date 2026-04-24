@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import logging
 from typing import AsyncIterator
 
 from pixeltable import exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
-
-_logger = logging.getLogger('pixeltable')
 
 
 class FilterNode(ExecNode):
