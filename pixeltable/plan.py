@@ -431,7 +431,7 @@ class Planner:
             if col.is_stored and col.name not in query_col_names and col.is_computed
         ]
 
-        # resolve missing computed col exprs using the same pattern as create_update_plan:
+        # resolve missing computed col exprs
         missing_col_exprs = [
             col.value_expr.copy().resolve_computed_cols(resolve_cols=set(missing_computed_cols))
             for col in missing_computed_cols
