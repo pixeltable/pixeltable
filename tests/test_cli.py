@@ -23,8 +23,16 @@ from pixeltable.cli import main as cli_main
 from tests.utils import skip_test_if_not_installed
 
 
-def _init_with_reinit(additional_config_files: list[str] | None) -> None:
-    config.Config.init({}, additional_config_files, reinit=True)
+# Mock Config.init to allow re-initialization for in-process cli_main() calls.
+
+_ORIG_CONFIG_INIT = config.Config.init.__func__
+
+
+def _init_with_reinit(
+    config_overrides: dict[str, Any],
+    additional_config_files: list[str] | None = None,
+) -> None:
+    _ORIG_CONFIG_INIT(config.Config, config_overrides, additional_config_files, reinit=True)
 
 
 def _run_cli(
@@ -38,7 +46,7 @@ def _run_cli(
     """Invoke cli_main, assert exit code, and optionally assert stdout/stderr substrings."""
     actual_exit_code: int | str | None = 0
 
-    with patch('sys.argv', argv), patch('pixeltable.init', _init_with_reinit):
+    with patch('sys.argv', argv), patch('pixeltable.cli.config.Config.init', _init_with_reinit):
         try:
             cli_main()
         except SystemExit as e:
@@ -182,7 +190,7 @@ class TestCLI:
             mock_load.return_value = config.ServiceConfig(name='test-service', host='127.0.0.1', port=7777, routes=[])
             with (
                 patch('sys.argv', ['pxt', 'serve', 'test-service', '--config', str(config_path), '--port', '9999']),
-                patch('pixeltable.init', _init_with_reinit),
+                patch('pixeltable.cli.config.Config.init', _init_with_reinit),
             ):
                 cli_main()
             mock_load.assert_called_once_with('test-service')
@@ -274,7 +282,7 @@ class TestCLI:
         """--json startup record and EADDRINUSE error output (plain and JSON)."""
         skip_test_if_not_installed('fastapi', 'uvicorn')
 
-        with patch('pixeltable.serving._config.create_service_from_config') as mock_create, patch('uvicorn.run'):
+        with patch('pixeltable.cli.create_service_from_config') as mock_create, patch('uvicorn.run'):
             mock_create.return_value = 'fake_app'
 
             # --json startup record
@@ -288,7 +296,7 @@ class TestCLI:
         eaddrinuse = OSError(errno.EADDRINUSE, 'Address already in use')
 
         with (
-            patch('pixeltable.serving._config.create_service_from_config') as mock_create,
+            patch('pixeltable.cli.create_service_from_config') as mock_create,
             patch('uvicorn.run', side_effect=eaddrinuse),
         ):
             mock_create.return_value = 'fake_app'
@@ -314,7 +322,7 @@ class TestCLI:
 
         # pxt.Error plain: _emit_error writes 'pxt: error: ...' to stderr
         with patch(
-            'pixeltable.serving._config.create_service_from_config',
+            'pixeltable.cli.create_service_from_config',
             side_effect=pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bad config'),
         ):
             _run_cli(
@@ -326,7 +334,7 @@ class TestCLI:
 
         # pxt.Error --json: _emit_error writes a JSON error record to stderr
         with patch(
-            'pixeltable.serving._config.create_service_from_config',
+            'pixeltable.cli.create_service_from_config',
             side_effect=pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bad config'),
         ):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--json'], capsys, exit_code=1)
@@ -336,7 +344,7 @@ class TestCLI:
 
         # uvicorn not installed: pxt.Error with install hint
         with (
-            patch('pixeltable.serving._config.create_service_from_config', return_value='fake_app'),
+            patch('pixeltable.cli.create_service_from_config', return_value='fake_app'),
             patch.dict('sys.modules', {'uvicorn': None}),
         ):
             _run_cli(
@@ -348,7 +356,7 @@ class TestCLI:
 
         # IPv6 host: URL is bracket-formatted in --json startup record
         with (
-            patch('pixeltable.serving._config.create_service_from_config', return_value='fake_app'),
+            patch('pixeltable.cli.create_service_from_config', return_value='fake_app'),
             patch('uvicorn.run'),
         ):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--host', '::1', '--json'], capsys)

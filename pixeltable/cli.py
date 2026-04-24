@@ -223,8 +223,8 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
 
 def _serve(args: argparse.Namespace) -> None:
     if hasattr(args, 'service'):
-        additional_config_files = [args.config] if args.config is not None else None
-        pxt.init(additional_config_files=additional_config_files)
+        if args.config is not None:
+            config.Config.init({}, additional_config_files=[args.config])
         cfg = lookup_service_config(args.service)
     else:
         try:
