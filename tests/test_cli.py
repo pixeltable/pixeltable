@@ -15,23 +15,18 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-import toml
 
 import pixeltable as pxt
 from pixeltable import config
 from pixeltable.cli import main as cli_main
 from tests.utils import skip_test_if_not_installed
 
-
 # Mock Config.init to allow re-initialization for in-process cli_main() calls.
 
-_ORIG_CONFIG_INIT = config.Config.init.__func__
+_ORIG_CONFIG_INIT = config.Config.init.__func__  # type: ignore[attr-defined]
 
 
-def _init_with_reinit(
-    config_overrides: dict[str, Any],
-    additional_config_files: list[str] | None = None,
-) -> None:
+def _init_with_reinit(config_overrides: dict[str, Any], additional_config_files: list[str] | None = None) -> None:
     _ORIG_CONFIG_INIT(config.Config, config_overrides, additional_config_files, reinit=True)
 
 
@@ -355,10 +350,7 @@ class TestCLI:
             )
 
         # IPv6 host: URL is bracket-formatted in --json startup record
-        with (
-            patch('pixeltable.cli.create_service_from_config', return_value='fake_app'),
-            patch('uvicorn.run'),
-        ):
+        with patch('pixeltable.cli.create_service_from_config', return_value='fake_app'), patch('uvicorn.run'):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--host', '::1', '--json'], capsys)
             data = json.loads(capsys.readouterr().out)
             assert data['url'] == 'http://[::1]:8000'

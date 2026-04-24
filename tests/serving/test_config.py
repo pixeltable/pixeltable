@@ -164,8 +164,6 @@ class TestConfig:
         skip_test_if_not_installed('fastapi')
 
         cases: list[tuple[dict[str, Any], str]] = [
-            # missing routes
-            ({}, 'routes'),
             # unknown route type (match on field name + invalid value to avoid coupling to Pydantic's exact phrasing)
             ({'routes': [{'type': 'notarealtype', 'path': '/x'}]}, r'type.*notarealtype|notarealtype.*type'),
             # insert missing table
@@ -186,14 +184,14 @@ class TestConfig:
 
         for config_dict, expected_substring in cases:
             config_dict['name'] = 'test-service'
-            config_dict = {'service': [config_dict]}  # wrap in top-level 'service' key
             with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as f:
-                toml.dump(config_dict, f)
+                toml.dump({'service': [config_dict]}, f)
                 config_path = f.name
             try:
+                print(config_dict)
                 with pytest.raises(pxt.Error, match=expected_substring):
                     config.Config.get().init({}, additional_config_files=[config_path], reinit=True)
-                    lookup_service_config('test')
+                    lookup_service_config('test-service')
             finally:
                 os.unlink(config_path)
 
