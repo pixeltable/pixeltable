@@ -783,6 +783,10 @@ def mix_audio(
     audio_volume: float = 1.0,
     original_volume: float = 1.0,
     audio_start_time: float = 0.0,
+    mix_duration: Literal['first', 'longest', 'shortest'] = 'longest',
+    normalize: bool = False,
+    dropout_transition: float = 2.0,
+    align_to_video: Literal['none', 'trim', 'pad'] = 'trim',
     video_encoder: str | None = None,
     video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
@@ -791,7 +795,6 @@ def mix_audio(
     be controlled independently.
 
     __Requirements:__
-
     - `ffmpeg` needs to be installed and in PATH
 
     Args:
@@ -800,6 +803,29 @@ def mix_audio(
         audio_volume: Volume multiplier for the added audio track. 1.0 is original volume.
         original_volume: Volume multiplier for the video's existing audio track. 1.0 is original volume.
         audio_start_time: Time in seconds at which the added audio begins playing in the output.
+        mix_duration: Controls which input determines the length of the mixed audio stream.
+
+            - ``"longest"`` *(default)*: the mix runs until the longer of the two audio inputs ends. Use
+              this when the added audio (e.g. a music bed) is longer than the video's original audio.
+            - ``"first"``: the mix ends when the video's original audio track ends. Useful when the
+              original audio and video streams are the same length.
+            - ``"shortest"``: the mix ends when the shorter input ends, truncating whichever track is longer.
+        normalize: If ``True``, ffmpeg scales the mixed output to prevent clipping by dividing each track's
+            contribution by the number of inputs. Defaults to ``False`` so that ``audio_volume`` and
+            ``original_volume`` mean what they say; flip on if you are not setting volumes explicitly and
+            want automatic clip protection.
+        dropout_transition: Duration in seconds over which a track's contribution fades to zero after
+            it ends, preventing audible clicks at hard boundaries. Defaults to ``2.0`` seconds, matching
+            ffmpeg's own default. Set to ``0.0`` to disable. Only meaningful with
+            ``mix_duration="longest"`` or ``"shortest"``.
+        align_to_video: Post-mix adjustment to align the output audio stream with the video stream duration.
+            Applied after ``amix``, so it is independent of ``mix_duration``.
+
+            - ``"trim"`` *(default)*: if the mixed audio is longer than the video stream, truncate it to
+              match. Pairs naturally with ``mix_duration="longest"`` for music-bed workflows.
+            - ``"none"``: no adjustment; output audio duration is whatever ``amix`` produces.
+            - ``"pad"``: if the mixed audio is shorter than the video stream, extend it with silence. Also
+              trims to the video duration if the mix runs long.
         video_encoder: Video encoder to use. If not specified, uses the default encoder.
         video_encoder_args: Additional arguments to pass to the video encoder.
 
@@ -807,7 +833,10 @@ def mix_audio(
         A new video with both audio tracks mixed together.
 
     Examples:
-        Add background music at 30% volume:
+        Add background music at 30% volume. With the defaults, this lays the music as a bed under the
+        video: ``mix_duration="longest"`` keeps the music playing past the end of the original audio,
+        ``align_to_video="trim"`` caps the result at the video stream duration, and ``normalize=False``
+        means the ``audio_volume=0.3`` setting is taken at face value rather than halved by ``amix``:
 
         >>> tbl.select(tbl.video.mix_audio(tbl.music, audio_volume=0.3)).collect()
 
@@ -819,6 +848,14 @@ def mix_audio(
         ...         audio_volume=0.5,
         ...         original_volume=0.7,
         ...         audio_start_time=5.0,
+        ...     )
+        ... ).collect()
+
+        Pad a short ambient track with silence so the audio stream matches the full video length:
+
+        >>> tbl.select(
+        ...     tbl.video.mix_audio(
+        ...         tbl.ambient, audio_volume=0.6, align_to_video='pad'
         ...     )
         ... ).collect()
     """
@@ -833,8 +870,26 @@ def mix_audio(
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT, f'audio_start_time must be non-negative, got {audio_start_time}'
         )
+    if dropout_transition < 0:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'dropout_transition must be non-negative, got {dropout_transition}'
+        )
     if not av_utils.has_audio_stream(str(video)):
         raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, 'mix_audio() requires a video with an audio stream')
+
+    align_label = '[aout]'
+    if align_to_video != 'none':
+        video_duration = av_utils.get_video_duration(str(video))
+        if video_duration is None:
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                f'align_to_video={align_to_video!r} requires a video with a known duration',
+            )
+        align_op = 'apad,atrim' if align_to_video == 'pad' else 'atrim'
+        align_chain = f';[aout]{align_op}=duration={video_duration},asetpts=N/SR/TB[aligned]'
+        align_label = '[aligned]'
+    else:
+        align_chain = ''
 
     output_path = str(TempStore.create_path(extension='.mp4'))
 
@@ -842,12 +897,18 @@ def mix_audio(
     if audio_start_time > 0:
         delay_ms = int(audio_start_time * 1000)
         delay_filter = f'adelay={delay_ms}|{delay_ms},'
+    amix = (
+        f'amix=inputs=2:duration={mix_duration}'
+        f':dropout_transition={dropout_transition}'
+        f':normalize={1 if normalize else 0}'
+    )
     filter_complex = (
         f'[0:a]volume={original_volume}[a0];'
         f'[1:a]{delay_filter}volume={audio_volume}[a1];'
-        f'[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]'
+        f'[a0][a1]{amix}[aout]'
+        f'{align_chain}'
     )
-    cmd = ['-i', str(video), '-i', str(audio), '-filter_complex', filter_complex, '-map', '0:v:0', '-map', '[aout]']
+    cmd = ['-i', str(video), '-i', str(audio), '-filter_complex', filter_complex, '-map', '0:v:0', '-map', align_label]
     return av_utils.run_ffmpeg_cmdline(
         cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
     )
@@ -860,6 +921,7 @@ def overlay_text(
     *,
     font: str | None = None,
     font_size: int = 24,
+    line_spacing: int = 0,
     color: str = 'white',
     opacity: float = 1.0,
     horizontal_align: Literal['left', 'center', 'right'] = 'center',
@@ -887,6 +949,9 @@ def overlay_text(
         text: The text string to overlay on the video.
         font: Font family or path to font file. If None, uses the system default.
         font_size: Size of the text in points.
+        line_spacing: Pixels of vertical space added between lines of multi-line text (text containing
+            `\n`). Defaults to 0. Negative values pull lines closer together for tighter packing.
+            Ignored for single-line text.
         color: Text color (e.g., `'white'`, `'red'`, `'#FF0000'`).
         opacity: Text opacity from 0.0 (transparent) to 1.0 (opaque).
         horizontal_align: Horizontal text alignment (`'left'`, `'center'`, `'right'`).
@@ -992,6 +1057,7 @@ def overlay_text(
         text,
         font,
         font_size,
+        line_spacing,
         color,
         opacity,
         horizontal_align,
@@ -1026,6 +1092,7 @@ def _create_drawtext_params(
     text: str,
     font: str | None,
     font_size: int,
+    line_spacing: int,
     color: str,
     opacity: float,
     horizontal_align: str,
@@ -1052,6 +1119,9 @@ def _create_drawtext_params(
         drawtext_params.append(f'fontcolor={color}@{opacity}')
     else:
         drawtext_params.append(f'fontcolor={color}')
+
+    if line_spacing != 0:
+        drawtext_params.append(f'line_spacing={line_spacing}')
 
     if horizontal_align == 'left':
         x_expr = str(horizontal_margin)
