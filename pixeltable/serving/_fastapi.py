@@ -16,16 +16,19 @@ from typing import Annotated, Any, Callable, Literal, Optional, TypeVar, get_typ
 import fastapi
 import PIL.Image
 import pydantic
+import sqlalchemy as sql
 from fastapi import Body, File, Form, HTTPException, Query as QueryParam, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic.fields import FieldInfo
 
 import pixeltable as pxt
 import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.func as func
 import pixeltable.type_system as ts
 import pixeltable.utils.image as image_utils
+import pixeltable.utils.sql as sql_utils
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore, TempStore
@@ -64,6 +67,53 @@ class SqlExport(pydantic.BaseModel):
     target_table: str
     target_schema: str | None
     method: Literal['insert', 'merge']
+
+
+class SqlExporter:
+    """Per-route SQL export state.
+
+    Validates the spec and resolves the target table at construction time (called once per route at
+    registration); used per request via write_row().
+    """
+
+    engine: sql.Engine
+    table: sql.Table
+
+    def __init__(
+        self, spec: SqlExport, *, engine: sql.Engine, output_schema: dict[str, ts.ColumnType], error_prefix: str
+    ) -> None:
+        if spec.method == 'merge':
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f"{error_prefix}: 'merge' is not yet supported"
+            )
+        # response-body form: media columns are URL strings on the wire
+        src_schema = {
+            name: ts.StringType(nullable=ct.nullable) if ct.is_media_type() else ct
+            for name, ct in output_schema.items()
+        }
+        self.engine = engine
+        self.table = sql_utils.resolve_table(
+            engine=engine,
+            table_name=spec.target_table,
+            schema_name=spec.target_schema,
+            source_schema=src_schema,
+            if_exists='insert',
+            if_not_exists='error',
+            error_prefix=error_prefix,
+        )
+
+    def write_row(self, row: pydantic.BaseModel) -> None:
+        """Insert one response-body row.
+
+        Raises HTTPException(500) on SQL failure; the pxt insert has already committed by
+        the time this runs.
+        """
+        try:
+            with self.engine.connect() as conn:
+                conn.execute(self.table.insert(), [row.model_dump(mode='python')])
+                conn.commit()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f'export_sql write failed: {e}') from e
 
 
 # Name used to register the /media/{path:path} route. Insert routes use this name with
@@ -111,6 +161,7 @@ class FastAPIRouter(fastapi.APIRouter):
     _jobs_lock: threading.Lock
     _home_dir: Path
     _allowed_media_dirs: list[Path]
+    _engine_cache: dict[str, sql.Engine]  # keyed by SqlExport.db_connect; shared across routes
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -119,6 +170,7 @@ class FastAPIRouter(fastapi.APIRouter):
         self._jobs_lock = threading.Lock()
         self._home_dir = Config.get().home.resolve()
         self._allowed_media_dirs = [Env.get().media_dir.resolve(), Env.get().tmp_dir.resolve()]
+        self._engine_cache = {}
         self._register_media_route()
         self._register_jobs_route()
         # Shut down the worker pool when the parent app's lifespan ends. include_router()
@@ -127,6 +179,16 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _shutdown(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
+        for eng in self._engine_cache.values():
+            eng.dispose()
+        self._engine_cache.clear()
+
+    def _get_sql_engine(self, db_connect: str) -> sql.Engine:
+        eng = self._engine_cache.get(db_connect)
+        if eng is None:
+            eng = sql.create_engine(db_connect)
+            self._engine_cache[db_connect] = eng
+        return eng
 
     def add_insert_route(
         self,
@@ -172,14 +234,17 @@ class FastAPIRouter(fastapi.APIRouter):
                 - `target_schema`: optional database schema qualifier for the target table.
                 - `method`: how to write the row into the target table.
 
-                    - `'insert'`: append the row via `INSERT ... VALUES`. Duplicates are possible
-                      if the same request is replayed.
+                    - `'insert'`: insert the row via `INSERT ... VALUES`.
                     - `'merge'`: merge (upsert) the row using the target table's primary key (or unique
                       constraint). Requires that the target table has such a key defined on
                       columns present in the response body. **Currently not supported.**
 
                 If the external write fails, the request fails with an HTTP 500 after the
                 Pixeltable insert has already succeeded; no rollback is performed.
+
+                Mutually exclusive with `return_fileresponse`. Compatible with `background=True`
+                (the SQL write runs in the worker thread). Schema compatibility is validated once
+                at registration time; the target table must already exist or registration fails.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the insert in a background thread. Poll `job_url` for the result. Mutually
                 exclusive with `return_fileresponse`.
@@ -230,7 +295,7 @@ class FastAPIRouter(fastapi.APIRouter):
             )
             ```
 
-            Each successful POST inserts a row into the Pixeltable table and then appends the
+            Each successful POST inserts a row into the Pixeltable table and then inserts the
             same row (columns: `prompt`, `result`) to `public.generations` in the target database.
 
             Background processing:
@@ -262,6 +327,21 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs = uploadfile_inputs or []
         output_cols = [cols_by_name[name] for name in output_col_names]
 
+        if export_sql is not None and return_fileresponse:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                'add_insert_route(): export_sql and return_fileresponse are mutually exclusive',
+            )
+
+        sql_exporter: SqlExporter | None = None
+        if export_sql is not None:
+            sql_exporter = SqlExporter(
+                export_sql,
+                engine=self._get_sql_engine(export_sql.db_connect),
+                output_schema={name: cols_by_name[name].col_type for name in output_col_names},
+                error_prefix='add_insert_route()',
+            )
+
         # response model derived from output columns, named after the path
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
         insert_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
@@ -270,7 +350,11 @@ class FastAPIRouter(fastapi.APIRouter):
             output = self._create_output(
                 [row], output_col_names, insert_response_model, return_fileresponse, url_for_media
             )
-            return output[0] if isinstance(output, list) else output
+            result = output[0] if isinstance(output, list) else output
+            if sql_exporter is not None:
+                assert isinstance(result, pydantic.BaseModel)
+                sql_exporter.write_row(result)
+            return result
 
         self._add_dml_route(
             t,

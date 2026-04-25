@@ -53,7 +53,7 @@ def export_sql(
         source_schema=query.schema,
         if_exists=if_exists,
         if_not_exists=if_not_exists,
-        error_prefix='',
+        error_prefix='export_sql()',
     )
 
     batch_size = 16 * 1024

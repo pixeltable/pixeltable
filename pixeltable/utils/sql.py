@@ -139,7 +139,7 @@ def _check_schema_compatible(
     for col_name, source_type in source_schema.items():
         if col_name not in table.c:
             raise excs.NotFoundError(
-                excs.ErrorCode.COLUMN_NOT_FOUND, f'{error_prefix}Column {col_name!r} not in table {table.name!r}'
+                excs.ErrorCode.COLUMN_NOT_FOUND, f'{error_prefix}: column {col_name!r} not in table {table.name!r}'
             )
 
         target_type = table.c[col_name].type
@@ -154,8 +154,8 @@ def _check_schema_compatible(
             except Exception:
                 raise excs.RequestError(
                     excs.ErrorCode.TYPE_MISMATCH,
-                    f'{error_prefix}Table {table.name!r}: column {col_name!r} of type {target_type} is not compatible '
-                    f'with the source type ({source_type})',
+                    f'{error_prefix}: in table {table.name!r}, column {col_name!r} of type {target_type} '
+                    f'is not compatible with the source type ({source_type})',
                 ) from None
 
 
@@ -194,7 +194,7 @@ def resolve_table(
         if if_exists == 'error':
             raise excs.AlreadyExistsError(
                 excs.ErrorCode.PATH_ALREADY_EXISTS,
-                f'{error_prefix}Table {table_name!r} already exists in:\n{engine.url}',
+                f'{error_prefix}: table {table_name!r} already exists in:\n{engine.url}',
             )
         metadata = sql.MetaData()
         table = sql.Table(table_name, metadata, schema=schema_name, autoload_with=engine)
@@ -206,6 +206,6 @@ def resolve_table(
 
     if if_not_exists == 'error':
         raise excs.NotFoundError(
-            excs.ErrorCode.PATH_NOT_FOUND, f'{error_prefix}Table {table_name!r} does not exist in:\n{engine.url}'
+            excs.ErrorCode.PATH_NOT_FOUND, f'{error_prefix}: table {table_name!r} does not exist in:\n{engine.url}'
         )
     return _create_table(engine, table_name, schema_name, source_schema)
