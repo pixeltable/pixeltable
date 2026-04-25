@@ -167,38 +167,25 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse: If True, return the single media-typed output column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
                 Requires exactly one media-typed output column.
-            export_sql: If set, insert/merge the newly inserted row to an external RDBMS table after the
-                insert succeeds. The `SqlExport` specification contains:
+            export_sql: If set, export each inserted row into an external RDBMS table after the
+                Pixeltable insert succeeds. See [`SqlExport`][pixeltable.serving.SqlExport] for
+                the target specification and supported `method` values.
 
-                - `db_connect`: SQLAlchemy connection string for the target database (e.g.
-                  `'postgresql+psycopg://user:pw@host/db'`).
-                - `target_table`: name of the target table. It must already exist and its schema must be
-                  compatible with the columns included in the response body (same columns as
-                  `outputs`, with compatible types).
-                - `target_schema`: optional database schema qualifier for the target table.
-                - `method`: how to write the row into the target table.
+                The row written is the response body: same columns as `outputs`, with media-typed
+                columns rendered as URL strings (so the corresponding target columns must be
+                string-typed).
 
-                    - `'insert'`: insert the row via `INSERT ... VALUES`.
-                    - `'update'`: update the row in the target table by primary-key match
-                      (`UPDATE ... SET ... WHERE pk=...`). The response columns must include all
-                      primary-key columns of the target plus at least one non-PK column to set.
-                      This is a strict update, **not** an upsert: if the WHERE clause matches zero
-                      rows, the request fails with HTTP 500. Useful when the source table is
-                      append-only but the target is a deduplicated current-state view.
-                    - `'merge'`: merge (upsert) the row using the target table's primary key (or unique
-                      constraint). Requires that the target table has such a key defined on
-                      columns present in the response body. **Currently not supported.**
-
-                Note: when `add_insert_route` is paired with `method='update'`, a Pixeltable insert
-                triggers a target-side update -- this is intentional, supporting the
-                append-only-source / current-state-mirror pattern.
-
-                If the external write fails, the request fails with an HTTP 500 after the
-                Pixeltable insert has already succeeded; no rollback is performed.
-
+                Schema compatibility against the response columns is validated once at
+                registration time; the target table must already exist or registration fails.
                 Mutually exclusive with `return_fileresponse`. Compatible with `background=True`
-                (the SQL write runs in the worker thread). Schema compatibility is validated once
-                at registration time; the target table must already exist or registration fails.
+                (the SQL write runs in the worker thread).
+
+                Note: when paired with `method='update'`, a Pixeltable insert triggers a
+                target-side update -- this is intentional, supporting the append-only-source /
+                current-state-view pattern.
+
+                If the external write fails after the Pixeltable insert has already succeeded,
+                the request fails with HTTP 500; no rollback is performed.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the insert in a background thread. Poll `job_url` for the result. Mutually
                 exclusive with `return_fileresponse`.
@@ -233,7 +220,7 @@ class FastAPIRouter(fastapi.APIRouter):
             # saves the resized image to resized.jpg
             ```
 
-            Mirror each inserted row into an external RDBMS table:
+            Export each inserted row into an external RDBMS table:
 
             ```python
             router.add_insert_route(
@@ -357,36 +344,21 @@ class FastAPIRouter(fastapi.APIRouter):
                 become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
             outputs: Columns from the inserted row to pass to the decorated function as keyword
                 arguments. Defaults to all columns.
-            export_sql: If set, insert the decorated function's return value into an external RDBMS
-                table after the Pixeltable insert succeeds. The row written to the target is the
-                pydantic response model returned by the user function (its fields, not the source
-                columns) -- the target table schema must match those fields, with media-typed
-                fields modeled as strings (URL form). The `SqlExport` specification contains:
+            export_sql: If set, export the decorated function's return value into an external
+                RDBMS table after the Pixeltable insert succeeds. See
+                [`SqlExport`][pixeltable.serving.SqlExport] for the target specification and
+                supported `method` values.
 
-                - `db_connect`: SQLAlchemy connection string for the target database (e.g.
-                  `'postgresql+psycopg://user:pw@host/db'`).
-                - `target_table`: name of the target table. It must already exist and its schema
-                  must be compatible with the response model's fields.
-                - `target_schema`: optional database schema qualifier for the target table.
-                - `method`: how to write the row into the target table.
+                The row written is the user function's pydantic return value (its fields, not the
+                source columns), so the target table schema must match those fields. Media-typed
+                fields are modeled as strings (URL form).
 
-                    - `'insert'`: append the row via `INSERT ... VALUES`. Duplicates are possible
-                      if the same request is replayed.
-                    - `'update'`: update the row in the target table by primary-key match
-                      (`UPDATE ... SET ... WHERE pk=...`). The response model fields must include
-                      all primary-key columns of the target plus at least one non-PK field to
-                      set. This is a strict update, **not** an upsert: if the WHERE clause
-                      matches zero rows, the request fails with HTTP 500.
-                    - `'merge'`: merge (upsert) the row using the target table's primary key (or
-                      unique constraint). Requires that the target table has such a key defined
-                      on fields present in the response model. **Currently not supported.**
-
-                If the external write fails, the request fails with an HTTP 500 after the
-                Pixeltable insert has already succeeded; no rollback is performed.
-
-                Compatible with `background=True` (the SQL write runs in the worker thread).
                 Schema compatibility is validated once at registration time; the target table
-                must already exist or registration fails.
+                must already exist or registration fails. Compatible with `background=True` (the
+                SQL write runs in the worker thread).
+
+                If the external write fails after the Pixeltable insert has already succeeded,
+                the request fails with HTTP 500; no rollback is performed.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the insert plus post-processing in a background thread. Poll `job_url` for the
                 result; the decorated function's return value is delivered as the job result.
@@ -411,7 +383,7 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"caption": "orange sky above calm water", "score": 0.932}
             ```
 
-            Mirror the post-processed response into an external RDBMS table:
+            Export the post-processed response into an external RDBMS table:
 
             ```python
             @router.insert_route(
@@ -528,16 +500,25 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse: If True, return the single media-typed output column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
                 Requires exactly one media-typed output column.
-            export_sql: If set, insert the updated row into an external RDBMS table after the
-                Pixeltable update succeeds. The row written is the response body (same columns as
-                `outputs`, with media columns as URL strings). See
-                [`add_insert_route`][pixeltable.serving.FastAPIRouter.add_insert_route] for the
-                full description of the `SqlExport` specification (including `method='update'`
-                and the `'merge'` restriction) and the failure semantics. Mutually exclusive with
-                `return_fileresponse`. Compatible with `background=True`. Schema compatibility is
-                validated once at registration time; the target table must already exist or
-                registration fails. Note: every update appends a new row to the target table; the
-                target is treated as an audit log, not a mirror.
+            export_sql: If set, export each updated row into an external RDBMS table after the
+                Pixeltable update succeeds. See [`SqlExport`][pixeltable.serving.SqlExport] for
+                the target specification and supported `method` values.
+
+                The row written is the response body: same columns as `outputs`, with media-typed
+                columns rendered as URL strings (so the corresponding target columns must be
+                string-typed).
+
+                Schema compatibility is validated once at registration time; the target table
+                must already exist or registration fails. Mutually exclusive with
+                `return_fileresponse`. Compatible with `background=True`.
+
+                Note: with `method='insert'` (the default), every update appends a new row to the
+                target table -- the target acts as an audit log, not a current-state view. Use
+                `method='update'` to keep the target as a current-state view keyed on the
+                target's primary key.
+
+                If the external write fails after the Pixeltable update has already succeeded,
+                the request fails with HTTP 500; no rollback is performed.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the update in a background thread. Poll `job_url` for the result. Mutually
                 exclusive with `return_fileresponse`.
@@ -659,18 +640,25 @@ class FastAPIRouter(fastapi.APIRouter):
                 non-media columns.
             outputs: Columns from the updated row to pass to the decorated function as keyword
                 arguments. Defaults to all columns.
-            export_sql: If set, insert the decorated function's return value into an external RDBMS
-                table after the Pixeltable update succeeds. The row written to the target is the
-                pydantic response model returned by the user function (its fields, not the source
-                columns) -- the target table schema must match those fields, with media-typed
-                fields modeled as strings (URL form). See
-                [`add_insert_route`][pixeltable.serving.FastAPIRouter.add_insert_route] for the
-                full description of the `SqlExport` specification (including `method='update'`
-                and the `'merge'` restriction) and the failure semantics. Compatible with
-                `background=True`. Schema compatibility is validated once at registration time;
-                the target table must already exist or registration fails. Note: every update
-                appends a new row to the target table; the target is treated as an audit log,
-                not a mirror.
+            export_sql: If set, export the decorated function's return value into an external
+                RDBMS table after the Pixeltable update succeeds. See
+                [`SqlExport`][pixeltable.serving.SqlExport] for the target specification and
+                supported `method` values.
+
+                The row written is the user function's pydantic return value (its fields, not the
+                source columns), so the target table schema must match those fields. Media-typed
+                fields are modeled as strings (URL form).
+
+                Schema compatibility is validated once at registration time; the target table
+                must already exist or registration fails. Compatible with `background=True`.
+
+                Note: with `method='insert'` (the default), every update appends a new row to the
+                target table -- the target acts as an audit log, not a current-state view. Use
+                `method='update'` to keep the target as a current-state view keyed on the
+                target's primary key.
+
+                If the external write fails after the Pixeltable update has already succeeded,
+                the request fails with HTTP 500; no rollback is performed.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run the
                 update plus post-processing in a background thread. Poll `job_url` for the result;
                 the decorated function's return value is delivered as the job result.
