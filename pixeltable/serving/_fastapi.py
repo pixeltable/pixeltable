@@ -432,9 +432,31 @@ class FastAPIRouter(fastapi.APIRouter):
                 error_prefix='insert_route()',
             )
 
+            sql_exporter: SqlExporter | None = None
+            if export_sql is not None:
+                sql_output_schema: dict[str, ts.ColumnType] = {}
+                for field_name, field_info in response_model.model_fields.items():
+                    ct = ts.ColumnType.from_python_type(field_info.annotation)
+                    if ct is None:
+                        raise excs.RequestError(
+                            excs.ErrorCode.INVALID_TYPE,
+                            f'insert_route(): cannot interpret response field {field_name!r} annotation '
+                            f'{field_info.annotation!r} as a Pixeltable type for export_sql',
+                        )
+                    sql_output_schema[field_name] = ct
+                sql_exporter = SqlExporter(
+                    export_sql,
+                    engine=self._get_sql_engine(export_sql.db_connect),
+                    output_schema=sql_output_schema,
+                    error_prefix='insert_route()',
+                )
+
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
-                return user_fn(**kwargs)
+                result = user_fn(**kwargs)
+                if sql_exporter is not None:
+                    sql_exporter.write_row(result)
+                return result
 
             self._add_dml_route(
                 t,

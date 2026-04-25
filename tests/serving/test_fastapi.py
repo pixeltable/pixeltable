@@ -1142,17 +1142,20 @@ class TestFastAPI:
                 t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, target_table='out_missing')
             )
 
-    def test_insert_route(self, uses_db: None) -> None:
+    def test_insert_route(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """`insert_route()` as a decorator: user fn consumes inserted outputs and shapes the response."""
         skip_test_if_not_installed('fastapi')
         import pydantic
 
-        from pixeltable.serving import FastAPIRouter
+        from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir('test_serve')
         t = pxt.create_table('test_serve.decorated', {'id': pxt.Int, 'prompt': pxt.String})
         t.add_computed_column(greeting='hello, ' + t.prompt)
         t.add_computed_column(length=t.prompt.len())
+
+        # sqlite target whose columns match the user pydantic response model fields
+        db_connect = make_sqlite_target(tmp_path / 'export.db', 'gen_out', {'tag': sql.VARCHAR, 'size': sql.Integer})
 
         router = FastAPIRouter()
 
@@ -1160,7 +1163,13 @@ class TestFastAPI:
             tag: str
             size: int
 
-        @router.insert_route(t, path='/generate', inputs=['id', 'prompt'], outputs=['greeting', 'length'])
+        @router.insert_route(
+            t,
+            path='/generate',
+            inputs=['id', 'prompt'],
+            outputs=['greeting', 'length'],
+            export_sql=SqlExport(db_connect=db_connect, target_table='gen_out'),
+        )
         def format_response(*, greeting: str | None, length: int | None) -> GenResponse:
             assert greeting is not None and length is not None
             return GenResponse(tag=greeting.upper(), size=length * 2)
@@ -1172,17 +1181,19 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'tag': 'HELLO, WORLD', 'size': 10}
         assert t.where(t.id == 1).count() == 1
+        # the decorator's response model fields landed in sqlite
+        assert_sqlite_row(db_connect, 'gen_out', {'tag': 'HELLO, WORLD'}, {'tag': 'HELLO, WORLD', 'size': 10})
 
         # decorator should return the function unchanged (callable for unit tests)
         direct = format_response(greeting='hi', length=2)
         assert isinstance(direct, GenResponse) and direct.tag == 'HI' and direct.size == 4
 
-    def test_insert_route_type_validation(self, uses_db: None) -> None:
+    def test_insert_route_type_validation(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Parameter annotations are validated against the column types (strict nullability)."""
         skip_test_if_not_installed('fastapi')
         import pydantic
 
-        from pixeltable.serving import FastAPIRouter
+        from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir('test_serve')
         t = pxt.create_table('test_serve.types', {'id': pxt.Required[pxt.Int], 'prompt': pxt.String})
@@ -1229,6 +1240,24 @@ class TestFastAPI:
         @router.insert_route(t, path='/ok2', outputs=['length'])
         def _ok2(*, length: int | None) -> R:
             return R(x=length or 0)
+
+        # export_sql + response model field with an annotation from_python_type can't interpret
+        class CustomClass:
+            pass
+
+        class BadResponse(pydantic.BaseModel):
+            model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+            x: int
+            weird: CustomClass | None = None
+
+        db_connect = make_sqlite_target(tmp_path / 'export.db', 'bad', {'x': sql.Integer, 'weird': sql.VARCHAR})
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match="cannot interpret response field 'weird'"):
+
+            @router.insert_route(
+                t, path='/e_export', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, target_table='bad')
+            )
+            def _bad(*, id: int) -> BadResponse:
+                return BadResponse(x=id)
 
     def test_update_route_type_validation(self, uses_db: None) -> None:
         """Update-route parameter annotations are validated against column types (strict nullability)."""
