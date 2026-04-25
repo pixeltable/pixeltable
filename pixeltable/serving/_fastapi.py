@@ -268,20 +268,12 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs = uploadfile_inputs or []
         output_cols = [cols_by_name[name] for name in output_col_names]
 
-        if export_sql is not None and return_fileresponse:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                'add_insert_route(): export_sql and return_fileresponse are mutually exclusive',
-            )
-
-        sql_exporter: SqlExporter | None = None
-        if export_sql is not None:
-            sql_exporter = SqlExporter(
-                export_sql,
-                engine=self._get_sql_engine(export_sql.db_connect),
-                output_schema={name: cols_by_name[name].col_type for name in output_col_names},
-                error_prefix='add_insert_route()',
-            )
+        sql_exporter = self._make_schema_sql_exporter(
+            export_sql,
+            return_fileresponse=return_fileresponse,
+            schema={name: cols_by_name[name].col_type for name in output_col_names},
+            error_prefix='add_insert_route()',
+        )
 
         # response model derived from output columns, named after the path
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
@@ -419,24 +411,9 @@ class FastAPIRouter(fastapi.APIRouter):
                 error_prefix='insert_route()',
             )
 
-            sql_exporter: SqlExporter | None = None
-            if export_sql is not None:
-                sql_output_schema: dict[str, ts.ColumnType] = {}
-                for field_name, field_info in response_model.model_fields.items():
-                    ct = ts.ColumnType.from_python_type(field_info.annotation)
-                    if ct is None:
-                        raise excs.RequestError(
-                            excs.ErrorCode.INVALID_TYPE,
-                            f'insert_route(): cannot interpret response field {field_name!r} annotation '
-                            f'{field_info.annotation!r} as a Pixeltable type for export_sql',
-                        )
-                    sql_output_schema[field_name] = ct
-                sql_exporter = SqlExporter(
-                    export_sql,
-                    engine=self._get_sql_engine(export_sql.db_connect),
-                    output_schema=sql_output_schema,
-                    error_prefix='insert_route()',
-                )
+            sql_exporter = self._make_model_sql_exporter(
+                export_sql, response_model=response_model, error_prefix='insert_route()'
+            )
 
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
@@ -579,6 +556,13 @@ class FastAPIRouter(fastapi.APIRouter):
         )
         output_cols = [cols_by_name[name] for name in output_col_names]
 
+        sql_exporter = self._make_schema_sql_exporter(
+            export_sql,
+            return_fileresponse=return_fileresponse,
+            schema={name: cols_by_name[name].col_type for name in output_col_names},
+            error_prefix='add_update_route()',
+        )
+
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
         update_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
@@ -586,7 +570,11 @@ class FastAPIRouter(fastapi.APIRouter):
             output = self._create_output(
                 [row], output_col_names, update_response_model, return_fileresponse, url_for_media
             )
-            return output[0] if isinstance(output, list) else output
+            result = output[0] if isinstance(output, list) else output
+            if sql_exporter is not None:
+                assert isinstance(result, pydantic.BaseModel)
+                sql_exporter.export_row(result)
+            return result
 
         self._add_dml_route(
             t,
@@ -736,9 +724,16 @@ class FastAPIRouter(fastapi.APIRouter):
                 error_prefix='update_route()',
             )
 
+            sql_exporter = self._make_model_sql_exporter(
+                export_sql, response_model=response_model, error_prefix='update_route()'
+            )
+
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
-                return user_fn(**kwargs)
+                result = user_fn(**kwargs)
+                if sql_exporter is not None:
+                    sql_exporter.export_row(result)
+                return result
 
             self._add_dml_route(
                 t,
@@ -1095,6 +1090,50 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_class'] = FileResponse
         self.add_api_route(path, endpoint, **api_kwargs)
 
+    def _make_schema_sql_exporter(
+        self,
+        export_sql: SqlExport | None,
+        *,
+        return_fileresponse: bool,
+        schema: dict[str, ts.ColumnType],
+        error_prefix: str,
+    ) -> SqlExporter | None:
+        if export_sql is None:
+            return None
+        if return_fileresponse:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{error_prefix}: export_sql and return_fileresponse are mutually exclusive',
+            )
+        return SqlExporter(
+            export_sql,
+            engine=self._get_sql_engine(export_sql.db_connect),
+            output_schema=schema,
+            error_prefix=error_prefix,
+        )
+
+    def _make_model_sql_exporter(
+        self, export_sql: SqlExport | None, *, response_model: type[pydantic.BaseModel], error_prefix: str
+    ) -> SqlExporter | None:
+        if export_sql is None:
+            return None
+        sql_output_schema: dict[str, ts.ColumnType] = {}
+        for fname, finfo in response_model.model_fields.items():
+            ct = ts.ColumnType.from_python_type(finfo.annotation)
+            if ct is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_TYPE,
+                    f'{error_prefix}: cannot interpret response field {fname!r} annotation '
+                    f'{finfo.annotation!r} as a Pixeltable type for export_sql',
+                )
+            sql_output_schema[fname] = ct
+        return SqlExporter(
+            export_sql,
+            engine=self._get_sql_engine(export_sql.db_connect),
+            output_schema=sql_output_schema,
+            error_prefix=error_prefix,
+        )
+
     def _add_dml_route(
         self,
         t: pxt.Table,
@@ -1110,12 +1149,12 @@ class FastAPIRouter(fastapi.APIRouter):
         row_processor_model: type[pydantic.BaseModel] | None,
         is_update: bool,
     ) -> None:
-        """Shared wiring for insert/update routes.
+        """Create endpoint for insert/update.
 
         The endpoint signature is the PK columns (for row identification, update only) followed by
-        the input columns. `row_processor` is called with the single inserted/updated row dict and
-        `url_for_media`. For insert routes, `pk_col_names` must be []; for update routes,
-        `uploadfile_inputs` must be [].
+        the input columns. row_processor is called with the single inserted/updated row dict and
+        url_for_media. For insert routes, pk_col_names must be []; for update routes,
+        uploadfile_inputs must be [].
         """
         md = t.get_metadata()
         tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
