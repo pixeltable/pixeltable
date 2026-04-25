@@ -37,6 +37,8 @@ class SqlExport(pydantic.BaseModel):
               **Currently not supported.**
     """
 
+    model_config = pydantic.ConfigDict(extra='forbid')
+
     db_connect: str
     target_table: str
     target_schema: str | None = None
@@ -53,9 +55,11 @@ class SqlExporter:
     engine: sql.Engine
     table: sql.Table
     method: Literal['insert', 'update']
+
     # cached SQLAlchemy construct: the engine's compiled-SQL cache hits on every reuse, so per-request
     # cost is bind + send, no recompile.
     _stmt: sql.sql.expression.Executable
+
     # primary-key column names for method='update'; used to translate row dict to WHERE bindparams
     _pk_names: list[str]
 
