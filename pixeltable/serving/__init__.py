@@ -5,7 +5,8 @@ Adapters for web serving frameworks.
 from typing import Any
 
 try:
-    from ._fastapi import FastAPIRouter, SqlExport
+    from ._fastapi import FastAPIRouter
+    from .globals import SqlExport
 except ImportError:
     # fastapi is an optional dependency; provide a stub that raises a helpful error on use
     class FastAPIRouter:  # type: ignore[no-redef]

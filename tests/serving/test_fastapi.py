@@ -5,6 +5,7 @@ import time
 from typing import Any, Callable
 
 import pytest
+import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
@@ -97,11 +98,38 @@ def assert_fileresponse_ok(resp: Any, local_path: str, mime_prefix: str) -> None
         assert resp.content == f.read()
 
 
+def make_sqlite_target(db_path: pathlib.Path, table_name: str, columns: dict[str, type[sql.types.TypeEngine]]) -> str:
+    """Pre-create a sqlite table; return the SQLAlchemy connect string."""
+    connect = f'sqlite:///{db_path}'
+    eng = sql.create_engine(connect)
+    sql.Table(table_name, sql.MetaData(), *[sql.Column(name, sa_type()) for name, sa_type in columns.items()]).create(
+        eng
+    )
+    eng.dispose()
+    return connect
+
+
+def assert_sqlite_row(connect: str, table_name: str, where: dict[str, Any], expected: dict[str, Any]) -> None:
+    """SELECT a row matching `where` and assert each `expected` column equals.
+    JSON columns store as text in sqlite; decode dict/list values lazily."""
+    eng = sql.create_engine(connect)
+    try:
+        clause = ' AND '.join(f'{c} = :{c}' for c in where)
+        with eng.connect() as conn:
+            row = conn.execute(sql.text(f'SELECT * FROM {table_name} WHERE {clause}'), where).mappings().fetchone()
+    finally:
+        eng.dispose()
+    assert row is not None, f'no row in {table_name} matching {where}'
+    for k, v in expected.items():
+        actual = json.loads(row[k]) if isinstance(v, (dict, list)) else row[k]
+        assert actual == v, (k, actual, v)
+
+
 class TestFastAPI:
-    def test_add_insert_route_scalars(self, uses_db: None) -> None:
+    def test_add_insert_route_scalars(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Test insert routes with all scalar types and various input/output combinations."""
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serving import FastAPIRouter
+        from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir('test_serve')
         t = pxt.create_table(
@@ -120,15 +148,41 @@ class TestFastAPI:
         t.add_computed_column(float_abs=t.float_col.abs())
         t.add_computed_column(json_str=pxt_json.dumps(t.json_col))
 
+        # sqlite targets for export_sql coverage
+        db_path = tmp_path / 'export.db'
+        all_cols: dict[str, type[sql.types.TypeEngine]] = {
+            'id': sql.Integer,
+            'str_col': sql.VARCHAR,
+            'int_col': sql.Integer,
+            'float_col': sql.Float,
+            'bool_col': sql.Boolean,
+            'json_col': sql.JSON,
+            'str_upper': sql.VARCHAR,
+            'int_plus1': sql.Integer,
+            'float_abs': sql.Float,
+            'json_str': sql.VARCHAR,
+        }
+        db_connect = make_sqlite_target(db_path, 'out_all', all_cols)
+        make_sqlite_target(db_path, 'out_minimal', {'int_plus1': sql.Integer})
+
         router = FastAPIRouter()
-        # default inputs and outputs
-        router.add_insert_route(t, path='/all')
+        # default inputs and outputs; with export_sql to out_all
+        router.add_insert_route(t, path='/all', export_sql=SqlExport(db_connect=db_connect, target_table='out_all'))
         # subset of inputs, all outputs
         router.add_insert_route(t, path='/partial-in', inputs=['id', 'str_col', 'int_col'])
         # all inputs, subset of outputs
         router.add_insert_route(t, path='/partial-out', outputs=['id', 'str_upper', 'int_plus1'])
-        # minimal inputs and outputs
-        router.add_insert_route(t, path='/minimal', inputs=['id', 'int_col'], outputs=['int_plus1'])
+        # minimal inputs and outputs; with export_sql to out_minimal (same db_connect)
+        router.add_insert_route(
+            t,
+            path='/minimal',
+            inputs=['id', 'int_col'],
+            outputs=['int_plus1'],
+            export_sql=SqlExport(db_connect=db_connect, target_table='out_minimal'),
+        )
+        # engine cache reuse: two export_sql routes against the same db_connect share one engine
+        assert len(router._engine_cache) == 1
+
         client = make_test_client(router)
 
         all_input = {
@@ -156,6 +210,7 @@ class TestFastAPI:
         assert resp.json() == expected
         row = t.where(t.id == 1).collect()[0]
         assert row == expected
+        assert_sqlite_row(db_connect, 'out_all', {'id': 1}, expected)
 
         resp = client.post('/partial-in', json={'id': 2, 'str_col': 'world', 'int_col': 10})
         assert resp.status_code == 200, resp.text
@@ -189,6 +244,11 @@ class TestFastAPI:
         assert resp.json() == expected
         row = t.where(t.id == 4).select(t.int_plus1).collect()[0]
         assert row == expected
+        assert_sqlite_row(db_connect, 'out_minimal', {'int_plus1': 100}, expected)
+
+        # shutdown disposes the engine cache
+        router._shutdown()
+        assert router._engine_cache == {}
 
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video(self, uses_db: None, use_uploadfile: bool) -> None:
@@ -267,11 +327,11 @@ class TestFastAPI:
         assert_fileresponse_ok(resp, thumbnail_path, 'image/')
 
     @pytest.mark.parametrize('use_uploadfile', [True, False])
-    def test_add_insert_route_image(self, uses_db: None, use_uploadfile: bool) -> None:
+    def test_add_insert_route_image(self, uses_db: None, use_uploadfile: bool, tmp_path: pathlib.Path) -> None:
         """Image counterpart of test_add_insert_route_video. Structurally parallel so the two
         tests can later be generalized over a media-kind fixture."""
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serving import FastAPIRouter
+        from pixeltable.serving import FastAPIRouter, SqlExport
 
         image_path = get_image_files()[0]
         pxt.create_dir('test_serve')
@@ -287,13 +347,33 @@ class TestFastAPI:
         # rotated: uses neither scalar input (mirrors video.extract_frame(timestamp=0.0))
         t.add_computed_column(rotated=t.image.rotate(angle=90))
 
+        # sqlite target with media columns as VARCHAR; exercises SqlExporter media->String coercion
+        db_connect = make_sqlite_target(
+            tmp_path / 'export.db',
+            'img_out',
+            {
+                'id': sql.Integer,
+                'image': sql.VARCHAR,
+                'width': sql.Integer,
+                'height': sql.Integer,
+                'resized': sql.VARCHAR,
+                'rotated': sql.VARCHAR,
+            },
+        )
+
         router = FastAPIRouter()
         # When uploading, 'image' moves from inputs into uploadfile_inputs. Other inputs
         # (defaulted for /all, explicit for /resize and /rotate) become Form fields
         # automatically once any upload is present.
         uploadfile_inputs = ['image'] if use_uploadfile else None
-        # /all: defaults for inputs/outputs (uploadfile_inputs still moves `image` into File)
-        router.add_insert_route(t, path='/all', uploadfile_inputs=uploadfile_inputs)
+        # /all: defaults for inputs/outputs (uploadfile_inputs still moves `image` into File);
+        # exports to sqlite to exercise the media->String coercion for both raw and computed media
+        router.add_insert_route(
+            t,
+            path='/all',
+            uploadfile_inputs=uploadfile_inputs,
+            export_sql=SqlExport(db_connect=db_connect, target_table='img_out'),
+        )
         # /resize: id + image + width + height, only resized image output
         router.add_insert_route(
             t,
@@ -340,6 +420,20 @@ class TestFastAPI:
         # verify persisted row
         row = t.where(t.id == 1).select(t.id, t.width, t.height).collect()[0]
         assert row == {'id': 1, 'width': 128, 'height': 96}
+        # verify the row landed in the sqlite target with the same media URLs as the response body
+        assert_sqlite_row(
+            db_connect,
+            'img_out',
+            {'id': 1},
+            {
+                'id': 1,
+                'image': result['image'],
+                'width': 128,
+                'height': 96,
+                'resized': result['resized'],
+                'rotated': result['rotated'],
+            },
+        )
 
         # route /resize: FileResponse with resized image; response bytes must match the stored file
         resp = post('/resize', 2, width=64, height=48)
@@ -440,11 +534,11 @@ class TestFastAPI:
         assert_fileresponse_ok(resp, normalized_path, 'audio/')
 
     @pytest.mark.parametrize('use_uploadfile', [True, False])
-    def test_add_insert_route_video_bg(self, uses_db: None, use_uploadfile: bool) -> None:
+    def test_add_insert_route_video_bg(self, uses_db: None, use_uploadfile: bool, tmp_path: pathlib.Path) -> None:
         """Background variant of test_add_insert_route_video: POST returns a job id/url, the
         work runs in FastAPIRouter._executor, and the result is fetched via /jobs/{id}."""
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serving import FastAPIRouter
+        from pixeltable.serving import FastAPIRouter, SqlExport
 
         video_path = get_video_files()[0]
         pxt.create_dir('test_serve')
@@ -458,11 +552,16 @@ class TestFastAPI:
         # between the POST and the first GET and we wouldn't exercise the polling path.
         t.add_computed_column(delay=sleep(1.0))
 
+        # sqlite target for the /resize route: confirms background + export_sql works end-to-end
+        # (the SQL write happens in the worker thread after the pxt insert commits).
+        db_connect = make_sqlite_target(tmp_path / 'export.db', 'bg_resize', {'resized': sql.VARCHAR})
+
         router = FastAPIRouter()
         uploadfile_inputs = ['video'] if use_uploadfile else None
         # /all: defaults for inputs/outputs, all columns in the response
         router.add_insert_route(t, path='/all', uploadfile_inputs=uploadfile_inputs, background=True)
-        # /resize: single-output JSON response (no FileResponse - mutually exclusive with background)
+        # /resize: single-output JSON response (no FileResponse - mutually exclusive with background);
+        # also exports to sqlite to cover the background + export_sql combination
         router.add_insert_route(
             t,
             path='/resize',
@@ -470,6 +569,7 @@ class TestFastAPI:
             uploadfile_inputs=uploadfile_inputs,
             outputs=['resized'],
             background=True,
+            export_sql=SqlExport(db_connect=db_connect, target_table='bg_resize'),
         )
         client = make_test_client(router)
         media_dir = str(Env.get().media_dir)
@@ -506,6 +606,8 @@ class TestFastAPI:
         assert set(result.keys()) == {'resized'}, result
         resize_local = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
         assert_media_fetchable(client, result['resized'], resize_local)
+        # SQL write happened in the worker thread; the URL string in sqlite matches the response
+        assert_sqlite_row(db_connect, 'bg_resize', {'resized': result['resized']}, {'resized': result['resized']})
 
     def test_openapi(self, uses_db: None) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
@@ -1013,10 +1115,10 @@ class TestFastAPI:
                 t,
                 path='/e',
                 outputs=['id'],
-                export_sql=SqlExport(db_connect=db_connect, target_table='out', target_schema=None, method='merge'),
+                export_sql=SqlExport(db_connect=db_connect, target_table='out', method='merge'),
             )
 
-        spec_insert = SqlExport(db_connect=db_connect, target_table='out', target_schema=None, method='insert')
+        spec_insert = SqlExport(db_connect=db_connect, target_table='out')
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT, match='export_sql and return_fileresponse are mutually exclusive'
         ):
@@ -1032,22 +1134,12 @@ class TestFastAPI:
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="column 'id'"):
             router.add_insert_route(
-                t,
-                path='/e',
-                outputs=['id'],
-                export_sql=SqlExport(
-                    db_connect=db_connect, target_table='out_bad', target_schema=None, method='insert'
-                ),
+                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, target_table='out_bad')
             )
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="column 'id' not in table"):
             router.add_insert_route(
-                t,
-                path='/e',
-                outputs=['id'],
-                export_sql=SqlExport(
-                    db_connect=db_connect, target_table='out_missing', target_schema=None, method='insert'
-                ),
+                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, target_table='out_missing')
             )
 
     def test_insert_route(self, uses_db: None) -> None:
