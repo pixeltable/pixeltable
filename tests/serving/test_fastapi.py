@@ -98,13 +98,21 @@ def assert_fileresponse_ok(resp: Any, local_path: str, mime_prefix: str) -> None
         assert resp.content == f.read()
 
 
-def make_sqlite_target(db_path: pathlib.Path, table_name: str, columns: dict[str, type[sql.types.TypeEngine]]) -> str:
+def make_sqlite_target(
+    db_path: pathlib.Path,
+    table_name: str,
+    columns: dict[str, type[sql.types.TypeEngine]],
+    pk_cols: list[str] | None = None,
+) -> str:
     """Pre-create a sqlite table; return the SQLAlchemy connect string."""
     connect = f'sqlite:///{db_path}'
     eng = sql.create_engine(connect)
-    sql.Table(table_name, sql.MetaData(), *[sql.Column(name, sa_type()) for name, sa_type in columns.items()]).create(
-        eng
-    )
+    pk_set = set(pk_cols or [])
+    sql.Table(
+        table_name,
+        sql.MetaData(),
+        *[sql.Column(name, sa_type(), primary_key=name in pk_set) for name, sa_type in columns.items()],
+    ).create(eng)
     eng.dispose()
     return connect
 
@@ -164,6 +172,18 @@ class TestFastAPI:
         }
         db_connect = make_sqlite_target(db_path, 'out_all', all_cols)
         make_sqlite_target(db_path, 'out_minimal', {'int_plus1': sql.Integer})
+        # update-mode target: PK on id, pre-populated with a baseline row keyed on id=42
+        make_sqlite_target(
+            db_path,
+            'out_update',
+            {'id': sql.Integer, 'str_upper': sql.VARCHAR, 'int_plus1': sql.Integer},
+            pk_cols=['id'],
+        )
+        eng = sql.create_engine(db_connect)
+        with eng.connect() as conn:
+            conn.execute(sql.text("INSERT INTO out_update (id, str_upper, int_plus1) VALUES (42, 'OLD', 0)"))
+            conn.commit()
+        eng.dispose()
 
         router = FastAPIRouter()
         # default inputs and outputs; with export_sql to out_all
@@ -180,7 +200,15 @@ class TestFastAPI:
             outputs=['int_plus1'],
             export_sql=SqlExport(db_connect=db_connect, target_table='out_minimal'),
         )
-        # engine cache reuse: two export_sql routes against the same db_connect share one engine
+        # update-mode export: pxt insert triggers a UPDATE on the target keyed on id
+        router.add_insert_route(
+            t,
+            path='/update',
+            inputs=['id', 'str_col', 'int_col'],
+            outputs=['id', 'str_upper', 'int_plus1'],
+            export_sql=SqlExport(db_connect=db_connect, target_table='out_update', method='update'),
+        )
+        # engine cache reuse: three export_sql routes against the same db_connect share one engine
         assert len(router._engine_cache) == 1
 
         client = make_test_client(router)
@@ -245,6 +273,19 @@ class TestFastAPI:
         row = t.where(t.id == 4).select(t.int_plus1).collect()[0]
         assert row == expected
         assert_sqlite_row(db_connect, 'out_minimal', {'int_plus1': 100}, expected)
+
+        # method='update': pxt insert triggers UPDATE of the existing target row keyed on id=42
+        resp = client.post('/update', json={'id': 42, 'str_col': 'fresh', 'int_col': 7})
+        assert resp.status_code == 200, resp.text
+        expected = {'id': 42, 'str_upper': 'FRESH', 'int_plus1': 8}
+        assert resp.json() == expected
+        # the baseline ('OLD', 0) was replaced by the new values
+        assert_sqlite_row(db_connect, 'out_update', {'id': 42}, expected)
+
+        # method='update' against an id that doesn't exist in the target -> HTTP 500 (zero rowcount)
+        resp = client.post('/update', json={'id': 999, 'str_col': 'ghost', 'int_col': 0})
+        assert resp.status_code == 500, resp.text
+        assert 'expected 1' in resp.json()['detail']
 
         # shutdown disposes the engine cache
         router._shutdown()
@@ -1140,6 +1181,37 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="column 'id' not in table"):
             router.add_insert_route(
                 t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, target_table='out_missing')
+            )
+
+        # method='update' validation: target needs a PK
+        make_sqlite_target(tmp_path / 'export.db', 'no_pk', {'id': sql.Integer, 'text_upper': sql.VARCHAR})
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='has no primary key'):
+            router.add_insert_route(
+                t,
+                path='/e',
+                outputs=['id', 'text_upper'],
+                export_sql=SqlExport(db_connect=db_connect, target_table='no_pk', method='update'),
+            )
+
+        # method='update' validation: response columns must include the PK
+        make_sqlite_target(
+            tmp_path / 'export.db', 'with_pk', {'id': sql.Integer, 'text_upper': sql.VARCHAR}, pk_cols=['id']
+        )
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r"missing: \['id'\]"):
+            router.add_insert_route(
+                t,
+                path='/e',
+                outputs=['text_upper'],
+                export_sql=SqlExport(db_connect=db_connect, target_table='with_pk', method='update'),
+            )
+
+        # method='update' validation: at least one non-PK column must be present
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='at least one non-primary-key column'):
+            router.add_insert_route(
+                t,
+                path='/e',
+                outputs=['id'],
+                export_sql=SqlExport(db_connect=db_connect, target_table='with_pk', method='update'),
             )
 
     def test_insert_route(self, uses_db: None, tmp_path: pathlib.Path) -> None:

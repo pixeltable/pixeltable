@@ -179,9 +179,19 @@ class FastAPIRouter(fastapi.APIRouter):
                 - `method`: how to write the row into the target table.
 
                     - `'insert'`: insert the row via `INSERT ... VALUES`.
+                    - `'update'`: update the row in the target table by primary-key match
+                      (`UPDATE ... SET ... WHERE pk=...`). The response columns must include all
+                      primary-key columns of the target plus at least one non-PK column to set.
+                      This is a strict update, **not** an upsert: if the WHERE clause matches zero
+                      rows, the request fails with HTTP 500. Useful when the source table is
+                      append-only but the target is a deduplicated current-state view.
                     - `'merge'`: merge (upsert) the row using the target table's primary key (or unique
                       constraint). Requires that the target table has such a key defined on
                       columns present in the response body. **Currently not supported.**
+
+                Note: when `add_insert_route` is paired with `method='update'`, a Pixeltable insert
+                triggers a target-side update -- this is intentional, supporting the
+                append-only-source / current-state-mirror pattern.
 
                 If the external write fails, the request fails with an HTTP 500 after the
                 Pixeltable insert has already succeeded; no rollback is performed.
@@ -297,7 +307,7 @@ class FastAPIRouter(fastapi.APIRouter):
             result = output[0] if isinstance(output, list) else output
             if sql_exporter is not None:
                 assert isinstance(result, pydantic.BaseModel)
-                sql_exporter.write_row(result)
+                sql_exporter.export_row(result)
             return result
 
         self._add_dml_route(
@@ -362,6 +372,11 @@ class FastAPIRouter(fastapi.APIRouter):
 
                     - `'insert'`: append the row via `INSERT ... VALUES`. Duplicates are possible
                       if the same request is replayed.
+                    - `'update'`: update the row in the target table by primary-key match
+                      (`UPDATE ... SET ... WHERE pk=...`). The response model fields must include
+                      all primary-key columns of the target plus at least one non-PK field to
+                      set. This is a strict update, **not** an upsert: if the WHERE clause
+                      matches zero rows, the request fails with HTTP 500.
                     - `'merge'`: merge (upsert) the row using the target table's primary key (or
                       unique constraint). Requires that the target table has such a key defined
                       on fields present in the response model. **Currently not supported.**
@@ -455,7 +470,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 result = user_fn(**kwargs)
                 if sql_exporter is not None:
-                    sql_exporter.write_row(result)
+                    sql_exporter.export_row(result)
                 return result
 
             self._add_dml_route(
@@ -517,12 +532,12 @@ class FastAPIRouter(fastapi.APIRouter):
                 Pixeltable update succeeds. The row written is the response body (same columns as
                 `outputs`, with media columns as URL strings). See
                 [`add_insert_route`][pixeltable.serving.FastAPIRouter.add_insert_route] for the
-                full description of the `SqlExport` specification, the `'merge'` restriction, and
-                the failure semantics. Mutually exclusive with `return_fileresponse`. Compatible
-                with `background=True`. Schema compatibility is validated once at registration
-                time; the target table must already exist or registration fails. Note: every
-                update appends a new row to the target table; the target is treated as an audit
-                log, not a mirror.
+                full description of the `SqlExport` specification (including `method='update'`
+                and the `'merge'` restriction) and the failure semantics. Mutually exclusive with
+                `return_fileresponse`. Compatible with `background=True`. Schema compatibility is
+                validated once at registration time; the target table must already exist or
+                registration fails. Note: every update appends a new row to the target table; the
+                target is treated as an audit log, not a mirror.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the update in a background thread. Poll `job_url` for the result. Mutually
                 exclusive with `return_fileresponse`.
@@ -650,11 +665,12 @@ class FastAPIRouter(fastapi.APIRouter):
                 columns) -- the target table schema must match those fields, with media-typed
                 fields modeled as strings (URL form). See
                 [`add_insert_route`][pixeltable.serving.FastAPIRouter.add_insert_route] for the
-                full description of the `SqlExport` specification, the `'merge'` restriction, and
-                the failure semantics. Compatible with `background=True`. Schema compatibility is
-                validated once at registration time; the target table must already exist or
-                registration fails. Note: every update appends a new row to the target table; the
-                target is treated as an audit log, not a mirror.
+                full description of the `SqlExport` specification (including `method='update'`
+                and the `'merge'` restriction) and the failure semantics. Compatible with
+                `background=True`. Schema compatibility is validated once at registration time;
+                the target table must already exist or registration fails. Note: every update
+                appends a new row to the target table; the target is treated as an audit log,
+                not a mirror.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run the
                 update plus post-processing in a background thread. Poll `job_url` for the result;
                 the decorated function's return value is delivered as the job result.
