@@ -1271,6 +1271,7 @@ class Planner:
 
         plan.ctx.batch_size = 16
         plan.ctx.ignore_errors = True
+        plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
 
         return plan
