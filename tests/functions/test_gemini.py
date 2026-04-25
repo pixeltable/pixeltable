@@ -94,6 +94,7 @@ class TestGemini:
         assert 'French horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text']
 
+    @pytest.mark.expensive
     def test_generate_content_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -142,6 +143,7 @@ class TestGemini:
 
         run_tool_invocations_test(make_table)
 
+    @pytest.mark.expensive
     def test_generate_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -161,8 +163,7 @@ class TestGemini:
         assert results['output'][0].size == (1024, 1024)
         assert results['output2'][0].size == (1280, 896)
 
-    @pytest.mark.skip('Very expensive')
-    @pytest.mark.expensive
+    @pytest.mark.very_expensive
     @rerun(reruns=3, reruns_delay=30)  # longer delay between reruns
     def test_generate_videos(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -203,6 +204,88 @@ class TestGemini:
             assert video_stream['height'] == 720, metadata
             assert video_stream['duration_seconds'] == duration, metadata
             assert audio_stream['duration_seconds'] == duration, metadata
+
+    @pytest.mark.very_expensive
+    @rerun(reruns=3, reruns_delay=30)
+    def test_generate_videos_reference_images(self, uses_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_videos
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'ref1': pxt.Image, 'ref2': pxt.Image})
+        t.add_computed_column(
+            output=generate_videos(
+                t.prompt,
+                images=[t.ref1, t.ref2],
+                reference_types=['asset', 'asset'],
+                model='veo-3.1-generate-preview',
+                config={'duration_seconds': 8},
+            )
+        )
+        validate_update_status(
+            t.insert(
+                [
+                    {
+                        'prompt': 'A woman wearing the dress walks confidently through a sun-drenched lagoon',
+                        'ref1': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
+                        'ref2': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
+                    }
+                ]
+            ),
+            expected_rows=1,
+        )
+        results = t.collect()
+        file_path = results['output'][0]
+        assert Path(file_path).exists()
+
+    @pytest.mark.expensive
+    def test_generate_speech(self, uses_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_speech
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t.add_computed_column(audio=generate_speech(t.text, model='gemini-2.5-flash-preview-tts', voice='Kore'))
+        validate_update_status(t.insert(text='Hello, this is a test of Gemini text to speech.'), expected_rows=1)
+        results = t.collect()
+        audio_path = results['audio'][0]
+        assert Path(audio_path).exists()
+        assert audio_path.endswith('.wav')
+
+    @pytest.mark.expensive
+    def test_generate_speech_multispeaker(self, uses_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_speech
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t.add_computed_column(
+            audio=generate_speech(t.text, model='gemini-2.5-flash-preview-tts', voices={'Alice': 'Kore', 'Bob': 'Puck'})
+        )
+        validate_update_status(
+            t.insert(text='Alice: Hello, how are you today? Bob: I am doing great, thanks for asking!'), expected_rows=1
+        )
+        results = t.collect()
+        audio_path = results['audio'][0]
+        assert Path(audio_path).exists()
+        assert audio_path.endswith('.wav')
+
+    @pytest.mark.expensive
+    def test_transcribe(self, uses_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import transcribe
+
+        audio_files = get_audio_files()
+        t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
+        t.add_computed_column(
+            transcript=transcribe(t.audio, model='gemini-2.5-flash', prompt='Transcribe this audio recording.')
+        )
+        validate_update_status(t.insert(audio=audio_files[0]), expected_rows=1)
+        results = t.collect()
+        transcript = results['transcript'][0]
+        assert isinstance(transcript, str)
+        assert len(transcript) > 0
 
     def test_embed_content(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -245,9 +328,7 @@ class TestGemini:
         t.add_embedding_index(
             t.text,
             idx_name='embed_idx1',
-            embedding=embed_content.using(
-                model='gemini-embedding-001', config={'output_dimensionality': 768}, use_batch_api=False
-            ),
+            embedding=embed_content.using(model='gemini-embedding-001', config={'output_dimensionality': 768}),
         )
 
         sim = t.text.similarity(string='Coordinating AI tasks can be achieved with Pixeltable.', idx='embed_idx0')
@@ -255,34 +336,6 @@ class TestGemini:
         assert res[0]['rowid'] == 1
 
         sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.', idx='embed_idx1')
-        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
-        assert res[0]['rowid'] == 3
-
-    @pytest.mark.skip('Very slow')
-    def test_embed_content_batch_api(self, uses_db: None) -> None:
-        skip_test_if_not_installed('google.genai')
-        skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import embed_content
-
-        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
-        validate_update_status(
-            t.insert(
-                [
-                    {'rowid': 1, 'text': 'Pixeltable is a great tool for AI workload orchestration and storage'},
-                    {'rowid': 2, 'text': 'The quick brown fox jumps over the lazy dog.'},
-                    {'rowid': 3, 'text': 'The five boxing wizards jump quickly.'},
-                ]
-            ),
-            expected_rows=3,
-        )
-
-        t.add_embedding_index(t.text, embedding=embed_content.using(model='gemini-embedding-001', use_batch_api=True))
-
-        sim = t.text.similarity(string='Coordinating AI tasks can be achieved with Pixeltable.')
-        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
-        assert res[0]['rowid'] == 1
-
-        sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
 

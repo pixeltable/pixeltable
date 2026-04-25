@@ -19,9 +19,10 @@ import io
 import logging
 import mimetypes
 import os
+import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Sequence
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence, TypeVar
 
 import numpy as np
 import PIL.Image
@@ -46,6 +47,9 @@ GEMINI_INLINE_LIMIT_BYTES = 4 * 2**20
 # Placeholder key used in first pass for large file uploads.
 _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 
+# Used to generalize polling logic for long-running Gemini operations (e.g. video generation).
+T = TypeVar('T', bound='genai.types.Operation')
+
 
 @env.register_client('gemini')
 def _(api_key: str | None = None) -> 'genai.client.Client':
@@ -58,12 +62,13 @@ def _(api_key: str | None = None) -> 'genai.client.Client':
         # (GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
         return genai.client.Client()
     except Exception as e:
-        raise excs.Error(
+        raise excs.AuthorizationError(
+            excs.ErrorCode.MISSING_CREDENTIALS,
             'Gemini client not initialized. '
             'For the Gemini Developer API set GOOGLE_API_KEY or GEMINI_API_KEY, '
             'or set api_key in the [gemini] section of $PIXELTABLE_HOME/config.toml. '
             'For Vertex AI set GOOGLE_GENAI_USE_VERTEXAI=true and GOOGLE_CLOUD_PROJECT, '
-            'then authenticate via: gcloud auth application-default login'
+            'then authenticate via: gcloud auth application-default login',
         ) from e
 
 
@@ -72,13 +77,7 @@ def _genai_client() -> 'genai.client.Client':
 
 
 class GeminiRateLimitsInfo(env.RateLimitsInfo):
-    def __init__(self) -> None:
-        super().__init__(self._get_request_resources)
-
-    def _get_request_resources(self) -> dict[str, int]:
-        # TODO(PXT-996): Improve resource tracking for Gemini UDFs
-        return {}
-
+    # TODO(PXT-996): Improve resource tracking for Gemini UDFs
     def is_initialized(self) -> bool:
         return True
 
@@ -173,7 +172,9 @@ async def _gemini_file_uploads(files: list[str]) -> AsyncIterator[list['genai.ty
             for file in files:
                 mime_type, _ = mimetypes.guess_type(file, strict=False)
                 if mime_type is None:
-                    raise excs.Error(f'Could not identify mime type of file: {file}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_DATA_FORMAT, f'Could not identify mime type of file: {file}'
+                    )
                 tasks.append(client.aio.files.upload(file=file, config={'mime_type': mime_type}))
             uploaded = await asyncio.gather(*tasks)
             # poll till server finished uploading files (state is ACTIVE)
@@ -271,6 +272,52 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
+def _pil_to_gemini_image(image: PIL.Image.Image) -> 'genai.types.Image':
+    """Convert a PIL image to a Gemini API Image object."""
+    from google.genai import types
+
+    with io.BytesIO() as buffer:
+        image.save(buffer, format='webp')
+        return types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
+
+
+async def _poll_gemini_operation(operation: T) -> T:
+    while not operation.done:
+        await asyncio.sleep(3)
+        operation = await _genai_client().aio.operations.get(operation)
+    return operation
+
+
+async def _generate_videos_impl(
+    model: str, prompt: str | None, image: 'genai.types.Image | None', config: 'genai.types.GenerateVideosConfig | None'
+) -> str:
+    """Shared implementation for video generation: submit request, poll for completion, download result."""
+    operation = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, image=image, config=config)
+
+    try:
+        operation = await asyncio.wait_for(_poll_gemini_operation(operation), timeout=300)
+    except asyncio.TimeoutError as exc:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_TIMEOUT,
+            f'Video generation timed out after 300 seconds for Gemini model {model!r}.',
+            provider='gemini',
+        ) from exc
+
+    if operation.error:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR, f'Video generation failed: {operation.error}', provider='gemini'
+        )
+
+    video = operation.response.generated_videos[0]
+
+    video_bytes = await _genai_client().aio.files.download(file=video.video)  # type: ignore[arg-type]  # async overload missing Video type (sync version accepts it)
+    assert video_bytes is not None
+
+    output_path = TempStore.create_path(extension='.mp4')
+    Path(output_path).write_bytes(video_bytes)
+    return str(output_path)
+
+
 @pxt.udf(is_deterministic=False)
 async def generate_videos(
     prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
@@ -279,7 +326,9 @@ async def generate_videos(
     Generates videos based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/video>
 
-    At least one of `prompt` or `image` must be provided.
+    At least one of `prompt` or `image` must be provided. When `image` is a single image, it is used as the first
+    frame of the generated video. When `image` is a list of images, they are used as reference images to guide the
+    style or asset appearance throughout the video (Veo 3.1+). See the overloaded signature for details.
 
     Request throttling:
     Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
@@ -291,7 +340,8 @@ async def generate_videos(
 
     Args:
         prompt: A text description of the videos to generate.
-        image: An image to use as the first frame of the video.
+        image: A single image to use as the first frame of the video, or as `images` a list of up to 3 reference images
+            for Veo 3.1 (see overloaded signature).
         model: The model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateVideosConfig`. For details on the parameters, see:
@@ -307,6 +357,17 @@ async def generate_videos(
         >>> tbl.add_computed_column(
         ...     response=generate_videos(tbl.prompt, model='veo-3.0-generate-001')
         ... )
+
+        Use reference images with Veo 3.1 to guide video generation:
+
+        >>> tbl.add_computed_column(
+        ...     response=generate_videos(
+        ...         tbl.prompt,
+        ...         images=[tbl.ref_img1, tbl.ref_img2],
+        ...         reference_types=['asset', 'asset'],
+        ...         model='veo-3.1-generate-preview',
+        ...     )
+        ... )
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -315,35 +376,72 @@ async def generate_videos(
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
     if prompt is None and image is None:
-        raise excs.Error('At least one of `prompt` or `image` must be provided.')
+        raise excs.RequestError(
+            excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `image` must be provided.'
+        )
 
-    image_: types.Image | None = None
-    if image is not None:
-        with io.BytesIO() as buffer:
-            image.save(buffer, format='webp')
-            image_ = types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
-
+    image_: types.Image | None = _pil_to_gemini_image(image) if image is not None else None
     config_ = types.GenerateVideosConfig(**config) if config else None
 
-    operation = await _genai_client().aio.models.generate_videos(
-        model=model, prompt=prompt, image=image_, config=config_
-    )
-    while not operation.done:
-        await asyncio.sleep(3)
-        operation = await _genai_client().aio.operations.get(operation)
+    return await _generate_videos_impl(model, prompt, image_, config_)
 
-    if operation.error:
-        raise Exception(f'Video generation failed: {operation.error}')
 
-    video = operation.response.generated_videos[0]
+@generate_videos.overload
+async def _(
+    prompt: str | None = None,
+    images: list[PIL.Image.Image] | None = None,
+    *,
+    model: str,
+    config: dict | None = None,
+    reference_types: list[Literal['style', 'asset']] | None = None,
+) -> pxt.Video:
+    """Overload that accepts a list of reference images for Veo 3.1+.
 
-    video_bytes = await _genai_client().aio.files.download(file=video.video)  # type: ignore[arg-type]
-    assert video_bytes is not None
+    Args:
+        prompt: A text description of the videos to generate.
+        images: A list of up to 3 reference images to guide style or asset appearance.
+        model: The model to use.
+        config: Configuration for generation.
+        reference_types: A list of reference types corresponding to each image. Each must be one of
+            `'style'` or `'asset'`. `'style'` is only supported on Vertex AI. If not provided, defaults to
+            `'asset'` for all images.
+    """
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
 
-    # Create a temporary file to store the video bytes
-    output_path = TempStore.create_path(extension='.mp4')
-    Path(output_path).write_bytes(video_bytes)
-    return str(output_path)
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
+    if images is None:
+        images = []
+
+    if not images and prompt is None:
+        raise excs.RequestError(
+            excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `images` must be provided.'
+        )
+    if len(images) > 3:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'At most 3 reference images are allowed, but {len(images)} were provided.',
+        )
+
+    if reference_types is None:
+        reference_types = ['asset'] * len(images)
+    elif len(reference_types) != len(images):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'`reference_types` length ({len(reference_types)}) must match `images` length ({len(images)}).',
+        )
+
+    reference_images = [
+        types.VideoGenerationReferenceImage(image=_pil_to_gemini_image(img), reference_type=ref_type)
+        for img, ref_type in zip(images, reference_types)
+    ]
+
+    config_ = types.GenerateVideosConfig(**config) if config else types.GenerateVideosConfig()
+    config_.reference_images = reference_images
+
+    return await _generate_videos_impl(model, prompt, None, config_)
 
 
 @generate_videos.resource_pool
@@ -351,9 +449,237 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
+@pxt.udf(is_deterministic=False)
+async def generate_speech(text: str, *, model: str, voice: str, config: dict | None = None) -> pxt.Audio:
+    """
+    Generates speech audio from text using Gemini's text-to-speech capability. For additional details, see:
+    <https://ai.google.dev/gemini-api/docs/speech-generation>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install google-genai`
+
+    Args:
+        text: The text to synthesize into speech.
+        model: The model to use (e.g. `'gemini-2.5-flash-preview-tts'`).
+        voice: The voice profile to use. Supported voices include `'Kore'`, `'Puck'`, `'Charon'`,
+            `'Fenrir'`, `'Aoede'`, `'Leda'`, `'Orus'`, `'Zephyr'`, and others. See the
+            [speech generation docs](https://ai.google.dev/gemini-api/docs/speech-generation) for the full list.
+            Mutually exclusive with `voices`.
+        voices: A mapping from speaker alias (as used in the text) to voice name. For example,
+            `{'Alice': 'Kore', 'Bob': 'Puck'}`. Mutually exclusive with `voice`.
+        config: Additional configuration, corresponding to keyword arguments of
+            `genai.types.GenerateContentConfig`. Keys such as `response_modalities` and `speech_config`
+            are set automatically and should not be included.
+
+    Returns:
+        An audio file (WAV, 24 kHz mono 16-bit) containing the synthesized speech.
+
+    Examples:
+        Add a computed column that generates speech from text:
+
+        >>> tbl.add_computed_column(
+        ...     audio=generate_speech(
+        ...         tbl.text, model='gemini-2.5-flash-preview-tts', voice='Kore'
+        ...     )
+        ... )
+    """
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
+
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
+    config_ = types.GenerateContentConfig(**(config or {}))
+    config_.response_modalities = ['AUDIO']
+    config_.speech_config = types.SpeechConfig(
+        voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice))
+    )
+
+    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    try:
+        data = response.candidates[0].content.parts[0].inline_data.data
+    except (IndexError, AttributeError) as exc:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Gemini TTS returned unexpected response structure for model {model}.',
+            provider='gemini',
+        ) from exc
+    if isinstance(data, str):
+        data = base64.b64decode(data)
+
+    output_path = str(TempStore.create_path(extension='.wav'))
+    with wave.open(output_path, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)
+        wf.writeframes(data)
+    return output_path
+
+
+@generate_speech.overload
+async def _(text: str, *, model: str, voices: dict[str, str], config: dict | None = None) -> pxt.Audio:
+    """
+    Multi-speaker variant: `voices` is a dict mapping speaker aliases to voice names.
+    The input text should contain speaker labels matching the dict keys, e.g.
+    `"Alice: Hello! Bob: Hi there!"`.
+
+    Args:
+        text: The text to synthesize, with speaker labels matching the keys of `voices`.
+        model: The model to use (e.g. `'gemini-2.5-flash-preview-tts'`).
+        voices: A mapping from speaker alias (as used in the text) to voice name. For example,
+            `{'Alice': 'Kore', 'Bob': 'Puck'}`.
+        config: Additional configuration, corresponding to keyword arguments of
+            `genai.types.GenerateContentConfig`. Keys such as `response_modalities` and `speech_config`
+            are set automatically and should not be included.
+
+    Returns:
+        An audio file (WAV, 24 kHz mono 16-bit) containing the synthesized multi-speaker speech.
+
+    Examples:
+        >>> tbl.add_computed_column(
+        ...     audio=generate_speech(
+        ...         tbl.dialogue,
+        ...         model='gemini-2.5-flash-preview-tts',
+        ...         voices={'Alice': 'Kore', 'Bob': 'Puck'},
+        ...     )
+        ... )
+    """
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
+
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
+    config_ = types.GenerateContentConfig(**(config or {}))
+    config_.response_modalities = ['AUDIO']
+    config_.speech_config = types.SpeechConfig(
+        multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+            speaker_voice_configs=[
+                types.SpeakerVoiceConfig(
+                    speaker=alias,
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+                    ),
+                )
+                for alias, voice_name in voices.items()
+            ]
+        )
+    )
+
+    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    try:
+        data = response.candidates[0].content.parts[0].inline_data.data
+    except (IndexError, AttributeError) as exc:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.',
+            provider='gemini',
+        ) from exc
+    if isinstance(data, str):
+        data = base64.b64decode(data)
+
+    output_path = str(TempStore.create_path(extension='.wav'))
+    with wave.open(output_path, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)
+        wf.writeframes(data)
+    return output_path
+
+
+@generate_speech.resource_pool
+def _(model: str) -> str:
+    return f'rate-limits:gemini:{model}'
+
+
+@pxt.udf(is_deterministic=False)
+async def transcribe(audio: pxt.Audio, *, model: str, prompt: str, config: dict | None = None) -> str:
+    """
+    Transcribes audio to text using Gemini's audio understanding capability. For additional details, see:
+    <https://ai.google.dev/gemini-api/docs/audio>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install google-genai`
+
+    Args:
+        audio: The audio file to transcribe.
+        model: The model to use (e.g. `'gemini-2.5-flash'`).
+        prompt: The instruction prompt sent alongside the audio. For example,
+            `'Generate a transcript of the speech.'` or `'Summarize the audio content.'`.
+        config: Additional configuration, corresponding to keyword arguments of
+            `genai.types.GenerateContentConfig`.
+
+    Returns:
+        The transcribed text.
+
+    Examples:
+        Add a computed column that transcribes audio:
+
+        >>> tbl.add_computed_column(
+        ...     transcript=transcribe(tbl.audio, model='gemini-2.5-flash')
+        ... )
+    """
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
+
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
+    config_ = types.GenerateContentConfig(**config) if config else None
+    client = _genai_client()
+
+    try:
+        size_bytes = os.stat(audio).st_size
+    except OSError as exc:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_DATA_FORMAT, f"Error accessing audio file '{audio}': {exc.strerror or exc}"
+        ) from exc
+    if size_bytes > GEMINI_INLINE_LIMIT_BYTES:
+        async with _gemini_file_uploads([audio]) as uploaded:
+            audio_part = types.Part.from_uri(file_uri=uploaded[0].uri, mime_type=uploaded[0].mime_type)
+            response = await client.aio.models.generate_content(
+                model=model,
+                contents=[audio_part, prompt],  # type: ignore[arg-type]
+                config=config_,
+            )
+    else:
+        mime_type, _ = mimetypes.guess_type(audio, strict=False)
+        if mime_type is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_DATA_FORMAT, f'Could not identify mime type of file: {audio}'
+            )
+        try:
+            audio_data = Path(audio).read_bytes()
+        except (OSError, ValueError) as exc:
+            raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Failed to read audio file: {audio}') from exc
+        audio_part = types.Part.from_bytes(data=audio_data, mime_type=mime_type)
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=[audio_part, prompt],  # type: ignore[arg-type]
+            config=config_,
+        )
+
+    return response.text
+
+
+@transcribe.resource_pool
+def _(model: str) -> str:
+    return f'rate-limits:gemini:{model}'
+
+
 @pxt.udf(batch_size=4)
 async def embed_content(
-    contents: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+    contents: Batch[str], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     """
     Generate embeddings for text, images, video, and other content. For more information on Gemini embeddings API, see:
@@ -369,8 +695,6 @@ async def embed_content(
         config: Configuration for embedding generation, corresponding to keyword arguments of
             `genai.types.EmbedContentConfig`. For details on the parameters, see:
             <https://googleapis.github.io/python-genai/genai.html#genai.types.EmbedContentConfig>
-        use_batch_api: If True, use [Gemini's Batch API](https://ai.google.dev/gemini-api/docs/batch-api) that provides
-            a higher throughput at a lower cost at the expense of higher latency.
 
     Returns:
         The corresponding embedding vector.
@@ -388,39 +712,39 @@ async def embed_content(
         ...     t.text, embedding=embed_content.using(model='gemini-embedding-001')
         ... )
     """
-    return await _embed_content(contents, model, config, use_batch_api)
+    return await _embed_content(contents, model, config)
 
 
 @embed_content.overload
 async def _(
     contents: Batch[PIL.Image.Image], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_content(contents, model, config, use_batch_api=False)
+    return await _embed_content(contents, model, config)
 
 
 @embed_content.overload
 async def _(
     contents: Batch[pxt.Audio], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(contents, model, config, use_batch_api=False)
+    return await _embed_file_content(contents, model, config)
 
 
 @embed_content.overload
 async def _(
     contents: Batch[pxt.Video], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(contents, model, config, use_batch_api=False)
+    return await _embed_file_content(contents, model, config)
 
 
 @embed_content.overload
 async def _(
     contents: Batch[pxt.Document], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(contents, model, config, use_batch_api=False)
+    return await _embed_file_content(contents, model, config)
 
 
 async def _embed_file_content(
-    contents: list[str], model: str, config: dict[str, Any] | None, use_batch_api: bool
+    contents: list[str], model: str, config: dict[str, Any] | None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -440,24 +764,27 @@ async def _embed_file_content(
             else:
                 mime_type, _ = mimetypes.guess_type(item, strict=False)
                 if mime_type is None:
-                    raise excs.Error(f'Could not identify mime type of file: {item}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_DATA_FORMAT, f'Could not identify mime type of file: {item}'
+                    )
 
                 try:
                     # TODO: Do this on a background thread.
                     data = Path(item).read_bytes()
                 except (OSError, ValueError) as exc:
-                    raise excs.Error(f'Error reading file for embedding: {item}') from exc
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_DATA_FORMAT, f'Error reading file for embedding: {item}'
+                    ) from exc
 
                 contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
 
-        return await _embed_content(contents_, model, config, use_batch_api)
+        return await _embed_content(contents_, model, config)
 
 
 async def _embed_content(
-    contents: Sequence['genai.types.ContentUnion'], model: str, config: dict[str, Any] | None, use_batch_api: bool
+    contents: Sequence['genai.types.ContentUnion'], model: str, config: dict[str, Any] | None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     env.Env.get().require_package('google.genai')
-    from google.genai import types
 
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
@@ -465,45 +792,56 @@ async def _embed_content(
     client = _genai_client()
     config_ = _embedding_config(config)
 
-    if not use_batch_api:
-        result = await client.aio.models.embed_content(model=model, contents=list(contents), config=config_)
-        assert len(result.embeddings) == len(contents)
-        return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
+    result = await client.aio.models.embed_content(model=model, contents=list(contents), config=config_)
+    if len(result.embeddings) != len(contents):
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Unexpected response from Gemini server: number of embeddings returned ({len(result.embeddings)}) '
+            f'does not match request batch size ({len(contents)}).',
+            provider='gemini',
+        )
+    return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
     # Batch API
-    batch_job = client.batches.create_embeddings(
-        model=model,
-        src=types.EmbeddingsBatchJobSource(inlined_requests=types.EmbedContentBatch(contents=contents, config=config_)),
-    )
+    # batch_job = client.batches.create_embeddings(
+    #     model=model,
+    #     src=types.EmbeddingsBatchJobSource(
+    #         inlined_requests=types.EmbedContentBatch(contents=contents, config=config_)
+    #     ),
+    # )
 
-    await asyncio.sleep(3)
-    i = 0
-    while True:
-        batch_job = client.batches.get(name=batch_job.name)
-        if batch_job.state in (
-            types.JobState.JOB_STATE_SUCCEEDED,
-            types.JobState.JOB_STATE_FAILED,
-            types.JobState.JOB_STATE_CANCELLED,
-            types.JobState.JOB_STATE_EXPIRED,
-        ):
-            break
-        delay = min(10 + i * 2, 30)
-        _logger.debug(
-            f'Waiting for embedding batch job {batch_job.name} to complete. Latest state: {batch_job.state}. Sleeping'
-            f' for {delay}s before the next attempt.'
-        )
-        await asyncio.sleep(delay)
-        i += 1
+    # await asyncio.sleep(3)
+    # i = 0
+    # while True:
+    #     batch_job = client.batches.get(name=batch_job.name)
+    #     if batch_job.state in (
+    #         types.JobState.JOB_STATE_SUCCEEDED,
+    #         types.JobState.JOB_STATE_FAILED,
+    #         types.JobState.JOB_STATE_CANCELLED,
+    #         types.JobState.JOB_STATE_EXPIRED,
+    #     ):
+    #         break
+    #     delay = min(10 + i * 2, 30)
+    #     _logger.debug(
+    #         f'Waiting for embedding batch job {batch_job.name} to complete. Latest state: {batch_job.state}. Sleeping'
+    #         f' for {delay}s before the next attempt.'
+    #     )
+    #     await asyncio.sleep(delay)
+    #     i += 1
 
-    if batch_job.state != types.JobState.JOB_STATE_SUCCEEDED:
-        raise excs.Error(f'Embedding batch job did not succeed: {batch_job.state}. Error: {batch_job.error}')
+    # if batch_job.state != types.JobState.JOB_STATE_SUCCEEDED:
+    #     raise excs.ExternalServiceError(
+    #         excs.ErrorCode.PROVIDER_ERROR,
+    #         f'Embedding batch job did not succeed: {batch_job.state}. Error: {batch_job.error}',
+    #         provider='gemini',
+    #     )
 
-    assert batch_job.error is None
-    results = []
-    for resp in batch_job.dest.inlined_embed_content_responses:
-        assert resp.error is None
-        results.append(np.array(resp.response.embedding.values, dtype=np.float32))
-    return results
+    # assert batch_job.error is None
+    # results = []
+    # for resp in batch_job.dest.inlined_embed_content_responses:
+    #     assert resp.error is None
+    #     results.append(np.array(resp.response.embedding.values, dtype=np.float32))
+    # return results
 
 
 _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {
@@ -553,7 +891,11 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
             stuck_details.append(f'{local_path} (ID: {file.name}, State: {file.state.name})')
 
     detail_str = '\n- '.join(stuck_details)
-    raise excs.Error(f'Timeout: failed to upload {len(stuck_details)}/{len(remote_files)} file(s):\n- {detail_str}')
+    raise excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_TIMEOUT,
+        f'Timeout: failed to upload {len(stuck_details)}/{len(remote_files)} file(s):\n- {detail_str}',
+        provider='gemini',
+    )
 
 
 @retry(
@@ -572,7 +914,11 @@ async def _poll_until_active(
     for i, file in enumerate(remote_files):
         if file.state == types.FileState.FAILED:
             # Fail immediately
-            raise excs.Error(f'Server processing failed for {files[i]} ({file.name})')
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Server processing failed for {files[i]} ({file.name})',
+                provider='gemini',
+            )
     return remote_files
 
 

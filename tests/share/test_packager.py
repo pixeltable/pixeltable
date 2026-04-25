@@ -36,6 +36,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
+    pxt_raises,
     reload_catalog,
     skip_test_if_not_installed,
 )
@@ -640,36 +641,52 @@ class TestPackager:
 
         for s, name in ((t, 'tbl_replica'), (v, 'view_replica')):
             display_str = f'replica {name!r}'
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot insert into a replica.'):
                 s.insert({'icol': 10, 'scol': 'string 10'})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot delete from a replica.'):
                 s.delete()
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a replica.'
+            ):
                 s.add_column(new_col=pxt.Bool)
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a replica.'
+            ):
                 s.add_columns({'new_col': pxt.Bool})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a replica.'
+            ):
                 s.add_computed_column(new_col=(t.icol + 1))
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop columns from a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot drop columns from a replica.'
+            ):
                 s.drop_column('scol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add an index to a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add an index to a replica.'
+            ):
                 s.add_embedding_index('icol', embedding=clip_embed)
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop an index from a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot drop an index from a replica.'
+            ):
                 s.drop_embedding_index(column='icol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot update a replica.'):
                 s.update({'icol': 11})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot recompute columns of a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot recompute columns of a replica.'
+            ):
                 s.recompute_columns('icol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot revert a replica.'):
                 s.revert()
 
             # TODO: Align these Query error messages with Table error messages
-            with pytest.raises(pxt.Error, match=r'Cannot use `update` on a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot use `update` on a replica.'):
                 s.where(s.icol < 5).update({'icol': 100})
-            with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot use `delete` on a replica.'):
                 s.where(s.icol < 5).delete()
 
-            with pytest.raises(pxt.Error, match='Cannot create a view or snapshot on top of a replica'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot create a view or snapshot on top of a replica'
+            ):
                 _ = pxt.create_view(f'subview_of_{name}', s)
 
     def test_drop_replica(self, uses_db: None) -> None:
@@ -889,8 +906,8 @@ class TestPackager:
         # Drop just `v` without purging the DB
         pxt.drop_table(v)
 
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.PATH_ALREADY_EXISTS,
             match=(
                 r'(?s)An attempt was made to replicate a view whose base table already exists'
                 r".*pxt.drop_table\('base_tbl'\)"

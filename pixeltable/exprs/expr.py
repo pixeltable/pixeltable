@@ -46,12 +46,17 @@ _GLOBAL_SCOPE = ExprScope(None)
 
 class Expr(abc.ABC):
     """
-    Rules for using state in subclasses:
-    - all state except for components and slot_idx is shared between copies of an Expr
-    - slot_idx is set during analysis (Query.show())
-    - during eval(), components can only be accessed via self.components; any Exprs outside of that won't
-      have slot_idx set
+    A Pixeltable expression.
+
+    All Pixeltable expressions, including [column references][pixeltable.exprs.ColumnRef] (such as `t.col`),
+    UDF calls (`t.my_string.lower()`), and compound expressions (`t.col + 5`) are instances of this class.
     """
+
+    # Rules for using state in subclasses:
+    # - all state except for components and slot_idx is shared between copies of an Expr
+    # - slot_idx is set during analysis (Query.show())
+    # - during eval(), components can only be accessed via self.components; any Exprs outside of that won't
+    #   have slot_idx set
 
     col_type: ts.ColumnType
 
@@ -125,17 +130,6 @@ class Expr(abc.ABC):
             None if this expression lacks a default name,
             or a valid identifier (according to catalog.is_valid_identifer) otherwise.
         """
-        return None
-
-    def get_first_udf(self) -> func.Function | None:
-        """
-        Returns the topmost UDF in the expression tree, or None if there is no UDF call.
-        """
-        for expr in self.components:
-            fn = expr.get_first_udf()
-            if fn is not None:
-                return fn
-
         return None
 
     @property
@@ -390,11 +384,13 @@ class Expr(abc.ABC):
         expr_class: type[Expr] | None = None,
         filter: Callable[[Expr], bool] | None = None,
     ) -> bool:
-        return any(e._contains(expr_class, filter) for e in expr_list)
+        return any(e.contains_(expr_class, filter) for e in expr_list)
 
-    def _contains(self, cls: type[Expr] | None = None, filter: Callable[[Expr], bool] | None = None) -> bool:
+    def contains_(self, cls: type[Expr] | None = None, filter: Callable[[Expr], bool] | None = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls and/or matches filter.
+
+        This is named 'contains_' to avoid a name conflict with the contains(s: str, ...) udf.
         """
         assert cls is not None or filter is not None
         try:
@@ -581,6 +577,26 @@ class Expr(abc.ABC):
         raise AssertionError(f'not implemented: {cls.__name__}')
 
     def isin(self, value_set: Any) -> 'exprs.InPredicate':
+        """
+        Return a new, boolean-valued expression that is `True` whenever this expression is in `value_set`.
+
+        Args:
+            value_set: Either another expression that evaluates to a set of values, or a constant collection of
+                values. If the latter, can be any `Iterable`.
+
+        Examples:
+            These examples assume that `t` is a table with a column `int_col` of type `pxt.Int`, and another column
+            `list_col` of type `pxt.Json`, containing lists of integers.
+
+            Select all rows where `int_col` is in the constant set `{1, 3, 22}`:
+
+            >>> t.where(t.int_col.isin({1, 3, 22})).select()
+
+            Select all rows where `int_col` is in the set of values in that row's `list_col`:
+
+            >>> t.where(t.int_col.isin(t.list_col)).select()
+        """
+
         from .in_predicate import InPredicate
 
         if isinstance(value_set, Expr):
@@ -589,6 +605,25 @@ class Expr(abc.ABC):
             return InPredicate(self, value_set_literal=value_set)
 
     def astype(self, new_type: ts.ColumnType | type | _AnnotatedAlias) -> 'exprs.TypeCast':
+        """
+        Return a new expression that casts this expression to a different type.
+
+        This represents a type _cast_, not a type _coercion_, so it will not mutate the underlying data; it simply
+        changes the static type given by the expression.
+
+        Args:
+            new_type: The type to cast to.
+
+        Examples:
+            Given an existing column `t.json_col` of type `pxt.Json`, cast that column to type `pxt.String`:
+
+            >>> t.json_col.astype(pxt.String)
+
+            This will assume that all values in `t.json_col` are _actually_ strings, and it will result in an error
+            at runtime if there are values in `t.json_col` that are not strings. It will _not_ convert those values to
+            a string representation. (For that, use the [`dumps()`][pixeltable.functions.json.dumps] UDF instead.)
+        """
+
         from pixeltable.exprs import TypeCast
 
         # Interpret the type argument the same way we would if given in a schema
@@ -865,9 +900,10 @@ class Expr(abc.ABC):
             fn_type = None
 
         if fn_type is None:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column type of `{fn.__name__}` cannot be inferred. '
-                f'Use `.apply({fn.__name__}, col_type=...)` to specify.'
+                f'Use `.apply({fn.__name__}, col_type=...)` to specify.',
             )
 
         # TODO(aaron-siegel) Currently we assume that `fn` has exactly one required parameter
@@ -888,7 +924,9 @@ class Expr(abc.ABC):
             second_param = next(params_iter) if len(params) >= 2 else None
             # Check that fn has at least one positional parameter
             if len(params) == 0 or first_param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD):
-                raise excs.Error(f'Function `{fn.__name__}` has no positional parameters.')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Function `{fn.__name__}` has no positional parameters.'
+                )
             # Check that fn has at most one required parameter, i.e., its second parameter
             # has no default and is not a varargs
             if (
@@ -896,7 +934,9 @@ class Expr(abc.ABC):
                 and second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
                 and second_param.default is inspect.Parameter.empty
             ):
-                raise excs.Error(f'Function `{fn.__name__}` has multiple required parameters.')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Function `{fn.__name__}` has multiple required parameters.'
+                )
         except ValueError:
             # inspect.signature(fn) will raise a `ValueError` if `fn` is a builtin; I don't
             # know of any way to get the signature of a builtin, nor to check for this in

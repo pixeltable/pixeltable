@@ -457,5 +457,5 @@ class TestTypes:
             ),
         )
         for subscript, message in invalid_type_args:
-            with pytest.raises((excs.Error, ValueError), match=message):
+            with pytest.raises((excs.RequestError, ValueError), match=message):
                 Json[subscript]

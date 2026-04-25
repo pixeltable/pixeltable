@@ -106,8 +106,9 @@ class FunctionCall(Expr):
         # we want to make sure that order_by_clause get assigned slot_idxs, even though we won't need to evaluate them
         # (that's done in SQL)
         if len(order_by_clause) > 0 and not isinstance(order_by_clause[0], Expr):
-            raise excs.Error(
-                f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}'
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}',
             )
         self.order_by_start_idx = len(self.components)
         self.components.extend(order_by_clause)
@@ -151,9 +152,6 @@ class FunctionCall(Expr):
 
     def default_column_name(self) -> str | None:
         return self.fn.name
-
-    def get_first_udf(self) -> func.Function | None:
-        return self.fn
 
     def _equals(self, other: FunctionCall) -> bool:
         return (
@@ -548,7 +546,7 @@ class FunctionCall(Expr):
                 # way to infer it during DB migration, so we might encounter a stored return_type of None. If the
                 # resolution of call_return_type also fails, then we're out of luck; we have no choice but to
                 # fail-fast.
-                raise excs.Error(validation_error)
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, validation_error)
 
             if call_return_type is not None:
                 # call_return_type resolution succeeded.

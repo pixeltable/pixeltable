@@ -332,6 +332,21 @@ class Dumper:
             iterator=pxtf.video.video_splitter(t.c10, segment_times=[3.0, 6.0], mode='accurate'),
         )
 
+        self._create_pk_test_tables()
+
+    def _create_pk_test_tables(self) -> None:
+        pk_good = pxt.create_table(
+            'pk_test_good', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]}, primary_key='id'
+        )
+        pk_good.insert([{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}, {'id': 3, 'name': 'Charlie'}])
+
+        # Used to create table with invalid PK to test 49 -> 50 migration. This table can't be created on versions > 49
+        # as it will raise an error.
+        # pk_bad = pxt.create_table(
+        #     'pk_test_bad', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]}, primary_key='id'
+        # )
+        # pk_bad.insert([{'id': 1, 'name': 'Alice'}, {'id': 1, 'name': 'Bob'}, {'id': 1, 'name': 'Charlie'}])
+
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
         def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
             t.add_computed_column(**{f'{col_prefix}_{col_name}': col_expr}, stored=stored)
@@ -441,6 +456,13 @@ class Dumper:
             return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
 
         add_computed_column('sim_output', q2(t.c1))
+
+        # query() with return_scalar=True
+        @pxt.query(return_scalar=True)
+        def q3(i: int) -> pxt.Query:
+            return t.where(t.c2 < i).select(t.c1).limit(3)
+
+        add_computed_column('query_scalar_output', q3(t.c2))
 
         add_computed_column('expr_with_array_literals', test_array_udf(t.c12, np.zeros(10, dtype=np.float64)))
         add_computed_column(

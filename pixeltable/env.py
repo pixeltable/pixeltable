@@ -5,6 +5,7 @@ import datetime
 import glob
 import http.server
 import importlib
+import importlib.metadata
 import importlib.util
 import inspect
 import logging
@@ -364,10 +365,11 @@ class Env:
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
                 'pixeltable/file_cache_size_g is missing from configuration\n'
                 f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n'
-                'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
+                'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)',
             )
 
         self._default_input_media_dest = config.get_string_value('input_media_dest')
@@ -377,7 +379,9 @@ class Env:
                 try:
                     _ = ObjectPath.parse_object_storage_addr(uri, False)
                 except Exception as e:
-                    raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid {mode} media destination URI: {uri}'
+                    ) from e
 
         # Disable spurious warnings:
         # Suppress tqdm's ipywidgets warning in Jupyter environments
@@ -447,8 +451,9 @@ class Env:
         self._init_db(config)
 
         if reinit_db and not self.is_local:
-            raise excs.Error(
-                'Reinitializing pixeltable database is not supported when running in non-local environment'
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Reinitializing pixeltable database is not supported when running in non-local environment',
             )
 
         if reinit_db and self._store_db_exists():
@@ -484,19 +489,19 @@ class Env:
             except sql.exc.ArgumentError as e:
                 error = f'Invalid db connection string {db_connect_str}: {e}'
                 self._logger.error(error)
-                raise excs.Error(error) from e
+                raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error) from e
             self._db_url = db_url.render_as_string(hide_password=False)
             self._db_name = db_url.database  # use the dbname given in connect string
             dialect = db_url.get_dialect().name
             if dialect == 'cockroachdb':
                 self._dbms = CockroachDbms(db_url)
             else:
-                raise excs.Error(f'Unsupported DBMS {dialect}')
+                raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
             # Check if database exists
             if not self._store_db_exists():
                 error = f'Database {self._db_name!r} does not exist'
                 self._logger.error(error)
-                raise excs.Error(error)
+                raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
             self._logger.info(f'Using database at: {self.db_url}')
         else:
             self._db_name = config.get_string_value('db') or 'pixeltable'
@@ -644,10 +649,11 @@ class Env:
             if arg is not None:
                 init_kwargs[pname] = arg
             elif param.default is inspect.Parameter.empty:
-                raise excs.Error(
+                raise excs.AuthorizationError(
+                    excs.ErrorCode.MISSING_CREDENTIALS,
                     f'`{name}` client not initialized: parameter `{pname}` is not configured.\n'
                     f'To fix this, specify the `{name.upper()}_{pname.upper()}` environment variable, '
-                    f'or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
+                    f'or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.',
                 )
 
         client = client_factory.init_fn(**init_kwargs)
@@ -733,6 +739,7 @@ class Env:
         self.__register_package('datasets')
         self.__register_package('diffusers')
         self.__register_package('fal_client', library_name='fal-client')
+        self.__register_package('fastapi')
         self.__register_package('fiftyone')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
@@ -766,9 +773,11 @@ class Env:
         self.__register_package('together')
         self.__register_package('torch')
         self.__register_package('torchaudio')
+        self.__register_package('torchcodec')
         self.__register_package('torchvision')
         self.__register_package('transformers')
         self.__register_package('twelvelabs')
+        self.__register_package('uvicorn')
         self.__register_package('voyageai')
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
@@ -788,7 +797,10 @@ class Env:
 
     def require_binary(self, binary_name: str) -> None:
         if not shutil.which(binary_name):
-            raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{binary_name} is not installed or not in PATH. Please install it to use this feature.',
+            )
 
     def require_package(
         self, package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None
@@ -810,8 +822,9 @@ class Env:
                 # Still not found.
                 if not_installed_msg is None:
                     not_installed_msg = f'This feature requires the `{package_name}` package'
-                raise excs.Error(
-                    f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`',
                 )
 
         if min_version is None:
@@ -820,14 +833,18 @@ class Env:
         # check whether we have a version >= the required one
         if package_info.version is None:
             module = importlib.import_module(package_name)
-            package_info.version = [int(x) for x in module.__version__.split('.')]
+            version_str: str | None = getattr(module, '__version__', None)
+            if version_str is None:
+                version_str = importlib.metadata.version(package_info.library_name)
+            package_info.version = [int(x) for x in version_str.split('.')]
 
         if min_version > package_info.version:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'The installed version of package `{package_name}` is '
                 f'{".".join(str(v) for v in package_info.version)}, '
                 f'but version >={".".join(str(v) for v in min_version)} is required. '
-                f'To fix this, run: `pip install -U {package_info.library_name}`'
+                f'To fix this, run: `pip install -U {package_info.library_name}`',
             )
 
     def clear_tmp_dir(self) -> None:
@@ -999,17 +1016,10 @@ class RateLimitsInfo:
 
     Subclasses provide operational customization via:
     - get_retry_delay()
-    - get_request_resources(self, ...) -> dict[str, int]
-    with parameters that are a subset of those of the udf that creates the subclass's instance
+    - record_exc()
 
     All mutable state is protected by _lock (a reentrant lock, since subclass record_exc() may call self.record()).
     """
-
-    # get_request_resources:
-    # - Returns estimated resources needed for a specific request (ie, a single udf call) as a dict (key: resource name)
-    # - parameters are a subset of those of the udf
-    # - this is not a class method because the signature depends on the instantiating udf
-    get_request_resources: Callable[..., dict[str, int]]
 
     resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
     has_exc: bool = False

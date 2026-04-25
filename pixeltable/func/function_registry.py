@@ -65,14 +65,18 @@ class FunctionRegistry:
 
     def register_function(self, fqn: str, fn: Function) -> None:
         if fqn in self.module_fns:
-            raise excs.Error(f'A UDF with that name already exists: {fqn}')
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.FUNCTION_ALREADY_EXISTS, f'A UDF with that name already exists: {fqn}'
+            )
         self.module_fns[fqn] = fn
         if fn.is_method or fn.is_property:
             base_type = fn.signatures[0].parameters_by_pos[0].col_type.type_enum
             if base_type not in self.type_methods:
                 self.type_methods[base_type] = {}
             if fn.name in self.type_methods[base_type]:
-                raise excs.Error(f'Duplicate method name for type {base_type}: {fn.name}')
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.FUNCTION_ALREADY_EXISTS, f'Duplicate method name for type {base_type}: {fn.name}'
+                )
             self.type_methods[base_type][fn.name] = fn
 
     def list_functions(self) -> list[Function]:
@@ -174,7 +178,7 @@ class FunctionRegistry:
         with env.Env.get().engine.begin() as conn:
             row = conn.execute(stmt).fetchone()
             if row is None:
-                raise excs.Error(f'Function with id {id} not found')
+                raise excs.NotFoundError(excs.ErrorCode.FUNCTION_NOT_FOUND, f'Function with id {id} not found')
             # create instance of the referenced class
             md = schema.md_from_dict(schema.FunctionMd, row[0])
             func_module = importlib.import_module(self.__module__.rsplit('.', 1)[0])

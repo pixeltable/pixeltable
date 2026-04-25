@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from typing import Any, Literal, TypedDict
 
 
@@ -16,11 +17,15 @@ class ColumnMetadata(TypedDict):
     is_primary_key: bool
     """`True` if this column is part of the table's primary key."""
     media_validation: Literal['on_read', 'on_write'] | None
-    """The media validation policy for this column."""
+    """The media validation policy for this column. `None` if the type of this column is not a media type."""
     is_computed: bool
     """`True` if this column is a computed column."""
     computed_with: str | None
     """Expression used to compute this column; `None` if this is not a computed column."""
+    is_builtin: bool | None
+    """If False, this computed column makes calls to custom UDFs; `None` if this is not a computed column."""
+    depends_on: list[tuple[str, str]] | None
+    """List of dependencies (table name, column name) if this is a computed column, else `None`."""
     defined_in: str | None
     """Name of the table where this column was originally defined.
 
@@ -60,6 +65,8 @@ class IndexMetadata(TypedDict):
 class TableMetadata(TypedDict):
     """Metadata for a Pixeltable table."""
 
+    id: uuid.UUID
+    """The stable UUID of the table. Useful for detecting drop-and-recreate across time."""
     name: str
     """The name of the table (ex: `'my_table'`)."""
     path: str
@@ -72,12 +79,14 @@ class TableMetadata(TypedDict):
     """Index metadata for all of the indices of the table."""
     is_replica: bool
     """`True` if this table is a replica of another (shared) table."""
+    is_versioned: bool
+    """`True` if this is a versioned table."""
     is_view: bool
     """`True` if this table is a view."""
     is_snapshot: bool
     """`True` if this table is a snapshot."""
-    version: int
-    """The current version of the table."""
+    version: int | None
+    """The current version of the table or None if it's not versioned."""
     version_created: datetime.datetime
     """The timestamp when this table version was created."""
     schema_version: int
@@ -88,6 +97,8 @@ class TableMetadata(TypedDict):
     """User-defined JSON metadata for this table, if any."""
     media_validation: Literal['on_read', 'on_write']
     """The media validation policy for this table."""
+    primary_key: list[str] | None
+    """List of primary key column names, or `None` if this table has no primary key."""
     base: str | None
     """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
     iterator_call: str | None
