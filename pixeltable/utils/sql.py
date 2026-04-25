@@ -1,8 +1,14 @@
+import datetime
 import logging
+import uuid
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import sqlalchemy as sql
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import URL
+
+if TYPE_CHECKING:
+    import pixeltable.type_system as ts
 
 
 def log_stmt(logger: logging.Logger, stmt: sql.sql.ClauseElement) -> None:
@@ -43,3 +49,161 @@ def add_option_to_db_url(url: str | URL, option: str) -> URL:
 
     # Create new URL with updated options
     return db_url.set(query={**(dict(db_url.query) if db_url.query else {}), 'options': options_str})
+
+
+def _default_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
+    """Default mapping of ColumnType to SQLAlchemy type (matches sqlite, mysql)."""
+    import pixeltable as pxt
+
+    if col_type.is_int_type():
+        return sql.Integer()
+    elif col_type.is_string_type():
+        return sql.String()
+    elif col_type.is_float_type():
+        return sql.Float()
+    elif col_type.is_bool_type():
+        return sql.Boolean()
+    elif col_type.is_timestamp_type():
+        return sql.TIMESTAMP()
+    elif col_type.is_date_type():
+        return sql.Date()
+    elif col_type.is_uuid_type():
+        return sql.UUID()
+    elif col_type.is_binary_type():
+        return sql.LargeBinary()
+    elif col_type.is_json_type():
+        return sql.JSON()
+    raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot export column of type {col_type}')
+
+
+def _postgresql_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
+    """Type mapping for dialect 'postgresql'."""
+    if col_type.is_json_type():
+        return sql.dialects.postgresql.JSONB()
+    return _default_sa_type(col_type)
+
+
+def _snowflake_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
+    """Type mapping for dialect 'snowflake'."""
+    from pixeltable.env import Env
+
+    if col_type.is_json_type():
+        Env.get().require_package(
+            'snowflake.sqlalchemy',
+            not_installed_msg='Exporting json data to Snowflake requires the snowflake-sqlalchemy package',
+        )
+        from snowflake.sqlalchemy import VARIANT  # type: ignore[import-untyped]
+
+        return VARIANT()
+    return _default_sa_type(col_type)
+
+
+_DIALECT_TYPE: dict[str, Callable[['ts.ColumnType'], sql.types.TypeEngine]] = {
+    'postgresql': _postgresql_sa_type,
+    'snowflake': _snowflake_sa_type,
+}
+
+
+def get_sa_type(col_type: 'ts.ColumnType', engine: sql.Engine) -> sql.types.TypeEngine:
+    """Resolve a Pixeltable ColumnType to an SQLAlchemy type appropriate for the engine's dialect."""
+    return _DIALECT_TYPE.get(engine.dialect.name, _default_sa_type)(col_type)
+
+
+def table_exists(engine: sql.Engine, table_name: str, schema_name: str | None = None) -> bool:
+    """Check if a table exists in the database."""
+    inspector = sql.inspect(engine)
+    return table_name in inspector.get_table_names(schema=schema_name)
+
+
+def _sample_literals() -> dict[Any, Any]:
+    import pixeltable.type_system as ts
+
+    return {
+        ts.ColumnType.Type.STRING: 'test',
+        ts.ColumnType.Type.INT: 1,
+        ts.ColumnType.Type.FLOAT: 1.0,
+        ts.ColumnType.Type.BOOL: True,
+        # don't reference Env.default_time_zone here, Env may not be initialized yet
+        ts.ColumnType.Type.TIMESTAMP: datetime.datetime.now(tz=datetime.timezone.utc),
+        ts.ColumnType.Type.DATE: datetime.date.today(),
+        ts.ColumnType.Type.UUID: uuid.uuid4(),
+        ts.ColumnType.Type.BINARY: b'test',
+        ts.ColumnType.Type.JSON: {'a': 1, 'b': [2, 3], 'c': {'d': 4}},
+    }
+
+
+def _check_schema_compatible(
+    table: sql.Table, source_schema: dict[str, 'ts.ColumnType'], engine: sql.Engine, error_prefix: str
+) -> None:
+    import pixeltable as pxt
+
+    sample_literals = _sample_literals()
+    for col_name, source_type in source_schema.items():
+        if col_name not in table.c:
+            raise pxt.NotFoundError(
+                pxt.ErrorCode.COLUMN_NOT_FOUND, f'{error_prefix}Column {col_name!r} not in table {table.name!r}'
+            )
+
+        target_type = table.c[col_name].type
+        # CAST(<literal> AS target_type)
+        cast_expr = sql.cast(sample_literals[source_type._type], target_type).label(col_name)
+        # 1 = 0: we only want to check whether the casts are legal, not run anything
+        query = sql.select(cast_expr).where(sql.literal(1) == sql.literal(0))
+
+        with engine.connect() as conn:
+            try:
+                conn.execute(query)
+            except Exception:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.TYPE_MISMATCH,
+                    f'{error_prefix}Table {table.name!r}: column {col_name!r} of type {target_type} is not compatible '
+                    f'with the source type ({source_type})',
+                ) from None
+
+
+def _create_table(
+    engine: sql.Engine, table_name: str, schema_name: str | None, source_schema: dict[str, 'ts.ColumnType']
+) -> sql.Table:
+    columns = [sql.Column(col_name, get_sa_type(col_type, engine)) for col_name, col_type in source_schema.items()]
+    metadata = sql.MetaData()
+    table = sql.Table(table_name, metadata, *columns, schema=schema_name)
+    table.create(engine, checkfirst=True)
+    return table
+
+
+def resolve_table(
+    *,
+    engine: sql.Engine,
+    table_name: str,
+    schema_name: str | None,
+    source_schema: dict[str, 'ts.ColumnType'],
+    if_exists: Literal['error', 'replace', 'insert'],
+    if_not_exists: Literal['error', 'create'],
+    error_prefix: str,
+) -> sql.Table:
+    """
+    Resolve a target SQLAlchemy table for writes from a Pixeltable source schema.
+
+    - missing                   -> create from source_schema
+    - exists, if_exists=error   -> raise pxt.AlreadyExistsError
+    - exists, if_exists=replace -> drop, then create from source_schema
+    - exists, if_exists=insert  -> autoload and validate compatibility against source_schema
+
+    error_prefix is prepended to raised messages so callers can attribute errors.
+    """
+    import pixeltable as pxt
+
+    if table_exists(engine, table_name, schema_name):
+        if if_exists == 'error':
+            raise pxt.AlreadyExistsError(
+                pxt.ErrorCode.PATH_ALREADY_EXISTS,
+                f'{error_prefix}Table {table_name!r} already exists in:\n{engine.url}',
+            )
+        metadata = sql.MetaData()
+        table = sql.Table(table_name, metadata, schema=schema_name, autoload_with=engine)
+        if if_exists == 'replace':
+            table.drop(engine)
+            return _create_table(engine, table_name, schema_name, source_schema)
+        _check_schema_compatible(table, source_schema, engine, error_prefix)
+        return table
+    return _create_table(engine, table_name, schema_name, source_schema)
