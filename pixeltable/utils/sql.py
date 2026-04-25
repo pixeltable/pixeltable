@@ -7,6 +7,8 @@ import sqlalchemy as sql
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import URL
 
+import pixeltable.exceptions as excs
+
 if TYPE_CHECKING:
     import pixeltable.type_system as ts
 
@@ -53,8 +55,6 @@ def add_option_to_db_url(url: str | URL, option: str) -> URL:
 
 def _default_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
     """Default mapping of ColumnType to SQLAlchemy type (matches sqlite, mysql)."""
-    import pixeltable as pxt
-
     if col_type.is_int_type():
         return sql.Integer()
     elif col_type.is_string_type():
@@ -73,7 +73,7 @@ def _default_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
         return sql.LargeBinary()
     elif col_type.is_json_type():
         return sql.JSON()
-    raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot export column of type {col_type}')
+    raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot export column of type {col_type}')
 
 
 def _postgresql_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
@@ -135,13 +135,11 @@ def _sample_literals() -> dict[Any, Any]:
 def _check_schema_compatible(
     table: sql.Table, source_schema: dict[str, 'ts.ColumnType'], engine: sql.Engine, error_prefix: str
 ) -> None:
-    import pixeltable as pxt
-
     sample_literals = _sample_literals()
     for col_name, source_type in source_schema.items():
         if col_name not in table.c:
-            raise pxt.NotFoundError(
-                pxt.ErrorCode.COLUMN_NOT_FOUND, f'{error_prefix}Column {col_name!r} not in table {table.name!r}'
+            raise excs.NotFoundError(
+                excs.ErrorCode.COLUMN_NOT_FOUND, f'{error_prefix}Column {col_name!r} not in table {table.name!r}'
             )
 
         target_type = table.c[col_name].type
@@ -154,8 +152,8 @@ def _check_schema_compatible(
             try:
                 conn.execute(query)
             except Exception:
-                raise pxt.RequestError(
-                    pxt.ErrorCode.TYPE_MISMATCH,
+                raise excs.RequestError(
+                    excs.ErrorCode.TYPE_MISMATCH,
                     f'{error_prefix}Table {table.name!r}: column {col_name!r} of type {target_type} is not compatible '
                     f'with the source type ({source_type})',
                 ) from None
@@ -184,19 +182,18 @@ def resolve_table(
     """
     Resolve a target SQLAlchemy table for writes from a Pixeltable source schema.
 
-    - missing                   -> create from source_schema
-    - exists, if_exists=error   -> raise pxt.AlreadyExistsError
-    - exists, if_exists=replace -> drop, then create from source_schema
-    - exists, if_exists=insert  -> autoload and validate compatibility against source_schema
+    - exists, if_exists=error: raise AlreadyExistsError
+    - exists, if_exists=replace: drop, then create from source_schema
+    - exists, if_exists=insert: autoload and validate compatibility against source_schema
+    - missing, if_not_exists=create: create from source_schema
+    - missing, if_not_exists=error: raise NotFoundError
 
     error_prefix is prepended to raised messages so callers can attribute errors.
     """
-    import pixeltable as pxt
-
     if table_exists(engine, table_name, schema_name):
         if if_exists == 'error':
-            raise pxt.AlreadyExistsError(
-                pxt.ErrorCode.PATH_ALREADY_EXISTS,
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.PATH_ALREADY_EXISTS,
                 f'{error_prefix}Table {table_name!r} already exists in:\n{engine.url}',
             )
         metadata = sql.MetaData()
@@ -206,4 +203,9 @@ def resolve_table(
             return _create_table(engine, table_name, schema_name, source_schema)
         _check_schema_compatible(table, source_schema, engine, error_prefix)
         return table
+
+    if if_not_exists == 'error':
+        raise excs.NotFoundError(
+            excs.ErrorCode.PATH_NOT_FOUND, f'{error_prefix}Table {table_name!r} does not exist in:\n{engine.url}'
+        )
     return _create_table(engine, table_name, schema_name, source_schema)
