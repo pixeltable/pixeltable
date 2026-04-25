@@ -98,6 +98,13 @@ override-dependencies = [
     "ruff>=0.14",  # Required because 'fireworks-ai' hard-codes 'ruff<10'
     "protobuf>=5.29.6",  # Required because 'fireworks-ai' hard-codes 'protobuf==5.29.4'
     "huggingface-hub>=1",  # Required due to 'whisperx'
+    # scipy floor for Python 3.14: 1.17 is the first release with cp314 wheels; older versions (e.g. 1.15.3,
+    # pulled in transitively by imagehash) have no 3.14 wheel and try to build from source on CI, which fails
+    # because the runner doesn't have OpenBLAS installed. scipy 1.17 dropped Python 3.10, so the floor only
+    # applies on 3.14; the unconditional entry below preserves the old resolution for older Python versions
+    # (and is required because override-dependencies replaces, rather than narrows, an existing dep spec).
+    "scipy ; python_version < '3.14'",
+    "scipy>=1.17 ; python_version >= '3.14'",
 ]
 
 [tool.uv-dynamic-versioning]
