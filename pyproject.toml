@@ -192,6 +192,7 @@ dev = [
     "nbqa>=1.9.1",
     "snowflake-sqlalchemy>=1.7.0",
     "fastapi[standard]>=0.120.0",
+    "imagehash>=4.3",
 ]
 test = [
     "pytest>=9.0.3",
