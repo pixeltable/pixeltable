@@ -180,11 +180,15 @@ class TestSql:
         # missing column in target table
         t2 = pxt.create_table('test2', {'c_int': pxt.Int, 'c_string': pxt.String, 'extra': pxt.Int})
         t2.insert([{'c_int': 1, 'c_string': 'a', 'extra': 100}])
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="Column 'extra' not in table"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="column 'extra' not in table"):
             export_sql(t2, 'existing_table', db_connect_str=connection_string, if_exists='insert')
 
         # incompatible schema
         t3 = pxt.create_table('test3', {'c_int': pxt.Json})
         t3.insert([{'c_int': {'key': 'value'}}])
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"column 'c_int' of type INTEGER is not compatible"):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"column 'c_int' of type INTEGER"):
             export_sql(t3, 'existing_table', db_connect_str=connection_string, if_exists='insert')
+
+        # missing target with if_not_exists='error'
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"table 'never_existed' does not exist"):
+            export_sql(t, 'never_existed', db_connect_str=connection_string, if_not_exists='error')

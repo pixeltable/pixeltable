@@ -1,5 +1,6 @@
 import json
 import os
+import pathlib
 import time
 from typing import Any, Callable
 
@@ -957,9 +958,11 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 
-    def test_add_insert_route_errors(self, uses_db: None) -> None:
+    def test_add_insert_route_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serving import FastAPIRouter
+        import sqlalchemy as sql
+
+        from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir('test_serve')
         t = pxt.create_table(
@@ -1001,6 +1004,51 @@ class TestFastAPI:
             router.add_insert_route(t, path='/e', outputs=['id', 'frame'], return_fileresponse=True)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly one media-typed output column'):
             router.add_insert_route(t, path='/e', outputs=['text_upper'], return_fileresponse=True)
+
+        # export_sql validation
+        db_connect = f'sqlite:///{tmp_path / "export.db"}'
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'merge' is not yet supported"):
+            router.add_insert_route(
+                t,
+                path='/e',
+                outputs=['id'],
+                export_sql=SqlExport(db_connect=db_connect, target_table='out', target_schema=None, method='merge'),
+            )
+
+        spec_insert = SqlExport(db_connect=db_connect, target_table='out', target_schema=None, method='insert')
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='export_sql and return_fileresponse are mutually exclusive'
+        ):
+            router.add_insert_route(t, path='/e', outputs=['frame'], return_fileresponse=True, export_sql=spec_insert)
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match="table 'out' does not exist"):
+            router.add_insert_route(t, path='/e', outputs=['id'], export_sql=spec_insert)
+
+        # pre-create incompatible target tables for the remaining cases
+        eng = sql.create_engine(db_connect)
+        sql.Table('out_bad', sql.MetaData(), sql.Column('id', sql.Date())).create(eng)
+        sql.Table('out_missing', sql.MetaData(), sql.Column('other', sql.Integer())).create(eng)
+        eng.dispose()
+
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="column 'id'"):
+            router.add_insert_route(
+                t,
+                path='/e',
+                outputs=['id'],
+                export_sql=SqlExport(
+                    db_connect=db_connect, target_table='out_bad', target_schema=None, method='insert'
+                ),
+            )
+
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="column 'id' not in table"):
+            router.add_insert_route(
+                t,
+                path='/e',
+                outputs=['id'],
+                export_sql=SqlExport(
+                    db_connect=db_connect, target_table='out_missing', target_schema=None, method='insert'
+                ),
+            )
 
     def test_insert_route(self, uses_db: None) -> None:
         """`insert_route()` as a decorator: user fn consumes inserted outputs and shapes the response."""
