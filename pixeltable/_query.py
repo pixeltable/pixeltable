@@ -1741,11 +1741,14 @@ class Query:
         """
         for _expr, name in columns:
             if name is not None and not is_valid_identifier(name):
-                raise excs.Error(f'add_columns(): {name!r} is not a valid column name.')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_COLUMN_NAME, f'add_columns(): {name!r} is not a valid column name.'
+                )
             if name is not None and name in self._schema:
-                raise excs.Error(
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.COLUMN_ALREADY_EXISTS,
                     f'add_columns(): column {name!r} already exists in the query. '
-                    f'Existing columns are: {list(self._schema.keys())}.'
+                    f'Existing columns are: {list(self._schema.keys())}.',
                 )
 
         # if no explicit select list, expand to all columns

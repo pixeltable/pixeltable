@@ -441,7 +441,10 @@ class Planner:
             if not col.is_stored or col.name is None or col.name in query_col_names or col.is_computed:
                 continue
             if not col.col_type.nullable or col.is_pk:
-                raise excs.Error(f'Column {col.name!r} is required but not present in the source query')
+                raise excs.RequestError(
+                    excs.ErrorCode.MISSING_REQUIRED,
+                    f'Column {col.name!r} is required but not present in the source query',
+                )
             substitution[exprs.ColumnRef(col)] = exprs.Literal(None, col_type=col.col_type)
 
         # stored computed columns in destination not covered by the query
