@@ -1119,7 +1119,7 @@ class FastAPIRouter(fastapi.APIRouter):
             return None
         sql_output_schema: dict[str, ts.ColumnType] = {}
         for fname, finfo in response_model.model_fields.items():
-            ct = ts.ColumnType.from_python_type(finfo.annotation)
+            ct = ts.ColumnType.from_python_type(finfo.annotation, infer_pydantic_json=True)
             if ct is None:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_TYPE,

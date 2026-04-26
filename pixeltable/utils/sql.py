@@ -142,6 +142,12 @@ def _check_schema_compatible(
                 raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND, f'{error_prefix}: column {col_name!r} not in table {table.name!r}'
                 )
+            if source_type._type not in sample_literals:
+                # mirrors the rejection in get_sa_type() for non-scalar source types
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{error_prefix}: column {col_name!r} of source type {source_type} cannot be exported',
+                )
 
             target_type = table.c[col_name].type
             # CAST(<literal> AS target_type)

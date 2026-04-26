@@ -200,3 +200,11 @@ class TestSql:
         t3.insert([{'c_int': {'key': 'value'}}])
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"column 'c_int' of type INTEGER"):
             export_sql(t3, 'existing_table', db_connect_str=connection_string, if_exists='insert')
+
+        # non-scalar source type into an existing target column
+        t_str = pxt.create_table('img_target_seed', {'img': pxt.String})
+        t_str.insert([{'img': 'placeholder'}])
+        export_sql(t_str, 'img_target', db_connect_str=connection_string)
+        t_img2 = pxt.create_table('test_img2', {'img': pxt.Image})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"column 'img' of source type Image"):
+            export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
