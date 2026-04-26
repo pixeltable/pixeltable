@@ -71,6 +71,7 @@ dependencies = [
     "aiohttp>=3.10",
     "deprecated>=1.2.15",
     "pypdfium2>=4.30.0",
+    "pathspec>=0.10.2",
 ]
 
 [project.urls]
