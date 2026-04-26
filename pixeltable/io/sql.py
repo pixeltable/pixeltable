@@ -11,7 +11,7 @@ def export_sql(
     table_or_query: pxt.Table | pxt.Query,
     target_table_name: str,
     *,
-    db_connect_str: str | None,
+    db_connect_str: str,
     target_schema_name: str | None = None,
     if_exists: Literal['error', 'replace', 'insert'] = 'error',
     if_not_exists: Literal['error', 'create'] = 'create',

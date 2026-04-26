@@ -122,7 +122,8 @@ class FastAPIRouter(fastapi.APIRouter):
         self.add_event_handler('shutdown', self._shutdown)
 
     def _shutdown(self) -> None:
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        # wait until in-flight requests are done and won't access _engine_cache
+        self._executor.shutdown(wait=True, cancel_futures=True)
         for eng in self._engine_cache.values():
             eng.dispose()
         self._engine_cache.clear()
