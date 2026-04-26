@@ -816,8 +816,8 @@ def mix_audio(
             want automatic clip protection.
         dropout_transition: Duration in seconds over which a track's contribution fades to zero after
             it ends, preventing audible clicks at hard boundaries. Defaults to ``2.0`` seconds, matching
-            ffmpeg's own default. Set to ``0.0`` to disable. Only meaningful with
-            ``mix_duration="longest"`` or ``"shortest"``.
+            ffmpeg's own default. Set to ``0.0`` to disable. Relevant whenever one input ends before
+            the mixed output ends, regardless of which ``mix_duration`` mode is selected.
         align_to_video: Post-mix adjustment to align the output audio stream with the video stream duration.
             Applied after ``amix``, so it is independent of ``mix_duration``.
 
