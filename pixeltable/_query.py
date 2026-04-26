@@ -529,6 +529,8 @@ class Query:
         """Run the query and return rows as a generator.
         This function must not modify the state of the Query, otherwise it breaks dataset caching.
         """
+        if self.limit_val is not None and self.limit_val.val == 0:
+            return
         plan = self._create_query_plan()
 
         def exec_plan() -> Iterator[exprs.DataRow]:
@@ -544,6 +546,8 @@ class Query:
         """Run the query and return rows as a generator.
         This function must not modify the state of the Query, otherwise it breaks dataset caching.
         """
+        if self.limit_val is not None and self.limit_val.val == 0:
+            return
         plan = self._create_query_plan()
         with plan:
             async for row_batch in plan:
@@ -821,6 +825,8 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
+        if self.limit_val is not None and self.limit_val.val == 0:
+            return 0
         with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()) as conn:
             count_stmt = Planner.create_count_stmt(self)
             result: int = conn.execute(count_stmt).scalar_one()
@@ -1386,6 +1392,14 @@ class Query:
         """
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'limit() cannot be used with sample()')
+
+        # Reject negative int constants here. Non-int types fall through to _convert_param_to_typed_expr,
+        # which raises TYPE_MISMATCH. Expression-valued limits (from @pxt.query bodies) aren't validated
+        # here; users constructing queries directly always pass a Python int.
+        if isinstance(n, int) and not isinstance(n, bool) and n < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'limit()' parameter must be >= 0")
+        if offset is not None and isinstance(offset, int) and not isinstance(offset, bool) and offset < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'offset' parameter must be >= 0")
 
         limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
         offset_expr = None
