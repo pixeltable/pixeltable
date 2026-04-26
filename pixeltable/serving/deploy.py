@@ -53,6 +53,8 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
         files = _resolve_patterns(project_dir, include)
     else:
         files = {p for p in project_dir.rglob('*') if p.is_file()}
+
+    # Automatically exclude everything in the project's .gitignore
     files -= _resolve_patterns(project_dir, _read_gitignore(project_dir))
     if exclude is not None:
         files -= _resolve_patterns(project_dir, exclude)

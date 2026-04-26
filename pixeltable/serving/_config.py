@@ -48,7 +48,7 @@ T = TypeVar('T', bound='pydantic.BaseModel')
 
 def _lookup_config(cfg_block: str, name: str, cfg_type: type[T]) -> T:
     items = config.Config.get().get_value(cfg_block, list)
-    if len(items) == 0:
+    if not items:
         raise excs.NotFoundError(
             excs.ErrorCode.SERVICE_NOT_FOUND, f'No {cfg_block}s found in Pixeltable configuration.'
         )
@@ -75,7 +75,7 @@ def lookup_deployment_config(name: str) -> config.DeploymentConfig:
 
 
 def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
-    """Build a FastAPI instance from an AppConfig"""
+    """Build a FastAPI instance from a ServiceConfig"""
     Env.get().require_package('fastapi')
     import fastapi
 

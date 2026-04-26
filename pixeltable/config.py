@@ -135,9 +135,10 @@ class Config:
         self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
 
         # Load configuration from (in order of precedence, highest to lowest):
-        #   1. ./pixeltable.toml, if present
-        #   2. The `[tool.pixeltable]` section of ./pyproject.toml, if present
-        #   3. The user's config file (~/.pixeltable/config.toml by default)
+        #   1. additional_config_files
+        #   2. ./pixeltable.toml, if present
+        #   3. The `[tool.pixeltable]` section of ./pyproject.toml, if present
+        #   4. The user's config file (~/.pixeltable/config.toml by default)
 
         project_config = self.__load_project_config(Path.cwd() / 'pixeltable.toml')
         pyproject_config = self.__load_pyproject_config(Path.cwd() / 'pyproject.toml')
@@ -147,7 +148,7 @@ class Config:
         self.__config_dict = {}
 
         # Load lowest precedence first
-        for source in (*additional_configs, user_config, pyproject_config, project_config):
+        for source in (user_config, pyproject_config, project_config, *additional_configs[::-1]):
             self.__merge_config(self.__config_dict, source)
 
     @property

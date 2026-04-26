@@ -480,9 +480,9 @@ Load a TOML service file and start the server.
 
 | Flag | Type | Description |
 |---|---|---|
-| `--host` | string | Bind address (overrides `[service].host`) |
-| `--port` | integer | Bind port (overrides `[service].port`) |
-| `--prefix` | string | URL prefix (overrides `[service].prefix`; must be empty or start with `/`) |
+| `--host` | string | Bind address (overrides `[[service]].host`) |
+| `--port` | integer | Bind port (overrides `[[service]].port`) |
+| `--prefix` | string | URL prefix (overrides `[[service]].prefix`; must be empty or start with `/`) |
 | `--config` | string | Path to an additional TOML config file (will be merged into existing config) |
 
 ### `pxt serve insert`
