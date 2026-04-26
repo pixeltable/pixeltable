@@ -66,12 +66,13 @@ def _export_conda_env() -> bytes | None:
 
     Returns the environment.yml content as bytes, or None if not running in a conda environment.
     """
-    if 'CONDA_DEFAULT_ENV' not in os.environ:
+    conda_exe = os.environ.get('CONDA_EXE')
+    if conda_exe is None or 'CONDA_DEFAULT_ENV' not in os.environ:
         return None
 
     Env.get().console_logger.info(f'Found a conda environment: {os.environ["CONDA_DEFAULT_ENV"]}')
     try:
-        result = subprocess.run(('conda', 'env', 'export', '--no-builds'), capture_output=True, check=True)
+        result = subprocess.run((conda_exe, 'env', 'export', '--no-builds'), capture_output=True, check=True)
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         Env.get().console_logger.warning(f'Failed to export conda environment: {exc}')
         return None
