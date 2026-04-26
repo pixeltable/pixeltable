@@ -6,6 +6,8 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+from pathspec import PathSpec
+
 from pixeltable import config
 from pixeltable.env import Env
 from pixeltable.serving._config import lookup_deployment_config
@@ -34,25 +36,16 @@ def build_deploy_bundle(deployment_name: str) -> Path:
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
-    """Resolve include/exclude patterns against a project directory, returning matching file paths.
+    """Resolve gitignore-style patterns against a project directory, returning matching file paths."""
+    spec = PathSpec.from_lines('gitignore', patterns)
+    return {p for p in project_dir.rglob('*') if p.is_file() and spec.match_file(p.relative_to(project_dir))}
 
-    Pattern semantics (like pypi wheel specifications):
-    - 'dist' matches any path component named 'dist' (and contents of matching directories)
-    - '/dist' matches only 'dist' at the project root
-    - Glob characters (*, ?, [...]) are supported
-    """
-    matched: set[Path] = set()
-    for pattern in patterns:
-        if pattern.startswith('/'):
-            glob_pattern = pattern[1:]
-        else:
-            glob_pattern = f'**/{pattern}'
-        for path in project_dir.glob(glob_pattern):
-            if path.is_file():
-                matched.add(path)
-            elif path.is_dir():
-                matched.update(p for p in path.rglob('*') if p.is_file())
-    return matched
+
+def _read_gitignore(project_dir: Path) -> list[str]:
+    gitignore = project_dir / '.gitignore'
+    if not gitignore.is_file():
+        return []
+    return gitignore.read_text().splitlines()
 
 
 def _collect_project_files(project_dir: Path, include: list[str] | None, exclude: list[str] | None) -> list[Path]:
@@ -60,6 +53,7 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
         files = _resolve_patterns(project_dir, include)
     else:
         files = {p for p in project_dir.rglob('*') if p.is_file()}
+    files -= _resolve_patterns(project_dir, _read_gitignore(project_dir))
     if exclude is not None:
         files -= _resolve_patterns(project_dir, exclude)
     return sorted(files)
