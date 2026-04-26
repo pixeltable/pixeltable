@@ -1815,6 +1815,10 @@ class TestVideo:
             t.select(t.video.mix_audio(t.audio, audio_start_time=-1.0)).collect()
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'dropout_transition must be non-negative'):
             t.select(t.video.mix_audio(t.audio, dropout_transition=-0.1)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'mix_duration must be one of'):
+            t.select(t.video.mix_audio(t.audio, mix_duration='bogus')).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'align_to_video must be one of'):
+            t.select(t.video.mix_audio(t.audio, align_to_video='bogus')).collect()
 
         # silent video should raise a clear error
         silent_video = generate_test_video(tmp_path, duration=2.0, has_audio=False)

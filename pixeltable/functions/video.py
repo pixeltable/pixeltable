@@ -874,6 +874,16 @@ def mix_audio(
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT, f'dropout_transition must be non-negative, got {dropout_transition}'
         )
+    if mix_duration not in ('first', 'longest', 'shortest'):
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f"mix_duration must be one of 'first', 'longest', 'shortest', got {mix_duration!r}",
+        )
+    if align_to_video not in ('none', 'trim', 'pad'):
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f"align_to_video must be one of 'none', 'trim', 'pad', got {align_to_video!r}",
+        )
     if not av_utils.has_audio_stream(str(video)):
         raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, 'mix_audio() requires a video with an audio stream')
 
