@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 import pydantic
 import sqlalchemy as sql
-from fastapi import HTTPException
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 import pixeltable.utils.sql as sql_utils
+
+_logger = logging.getLogger('pixeltable')
 
 
 class SqlExport(pydantic.BaseModel):
@@ -128,6 +130,8 @@ class SqlExporter:
         Raises HTTPException(500) on SQL failure.
         For method='update', also raises HTTPException(500) if the WHERE clause matched zero rows
         """
+        from fastapi import HTTPException
+
         params = row.model_dump(mode='python')
         if self.method == 'update':
             # add prefixed copies of PK values for the WHERE bindparams
@@ -143,4 +147,7 @@ class SqlExporter:
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f'export_sql write failed: {e}') from e
+            # log full diagnostics server-side; client gets a generic message so we don't leak SQL
+            # text, parameter values, or driver internals carried by DBAPI/SQLAlchemy exceptions
+            _logger.exception('export_sql write to %s failed', self.table.name)
+            raise HTTPException(status_code=500, detail='export_sql write failed') from e

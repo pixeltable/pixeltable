@@ -136,19 +136,19 @@ def _check_schema_compatible(
     table: sql.Table, source_schema: dict[str, 'ts.ColumnType'], engine: sql.Engine, error_prefix: str
 ) -> None:
     sample_literals = _sample_literals()
-    for col_name, source_type in source_schema.items():
-        if col_name not in table.c:
-            raise excs.NotFoundError(
-                excs.ErrorCode.COLUMN_NOT_FOUND, f'{error_prefix}: column {col_name!r} not in table {table.name!r}'
-            )
+    with engine.connect() as conn:
+        for col_name, source_type in source_schema.items():
+            if col_name not in table.c:
+                raise excs.NotFoundError(
+                    excs.ErrorCode.COLUMN_NOT_FOUND, f'{error_prefix}: column {col_name!r} not in table {table.name!r}'
+                )
 
-        target_type = table.c[col_name].type
-        # CAST(<literal> AS target_type)
-        cast_expr = sql.cast(sample_literals[source_type._type], target_type).label(col_name)
-        # 1 = 0: we only want to check whether the casts are legal, not run anything
-        query = sql.select(cast_expr).where(sql.literal(1) == sql.literal(0))
+            target_type = table.c[col_name].type
+            # CAST(<literal> AS target_type)
+            cast_expr = sql.cast(sample_literals[source_type._type], target_type).label(col_name)
+            # 1 = 0: we only want to check whether the casts are legal, not run anything
+            query = sql.select(cast_expr).where(sql.literal(1) == sql.literal(0))
 
-        with engine.connect() as conn:
             try:
                 conn.execute(query)
             except Exception:

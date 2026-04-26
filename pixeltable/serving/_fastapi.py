@@ -230,8 +230,8 @@ class FastAPIRouter(fastapi.APIRouter):
                 outputs=['prompt', 'result'],
                 export_sql=SqlExport(
                     db_connect='postgresql+psycopg://user:pw@host/analytics',
-                    table='generations',
-                    schema='public',
+                    target_table='generations',
+                    target_schema='public',
                 ),
             )
             ```
