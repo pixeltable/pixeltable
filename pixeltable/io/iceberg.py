@@ -77,6 +77,26 @@ def export_iceberg(
     if first_batch is None:
         return
 
+    # Iceberg's pyarrow visitor only handles canonical Arrow types. Fixed-shape tensor columns
+    # have no Iceberg analogue (the shape can't be persisted), so we reject them rather than
+    # silently dropping shape information.
+    unsupported = [f.name for f in first_batch.schema if isinstance(f.type, pa.FixedShapeTensorType)]
+    if unsupported:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'export_iceberg(): cannot export fixed-shape tensor column(s) {unsupported}. '
+            f'Iceberg has no fixed-shape tensor type; project the column to a list before exporting.',
+        )
+
+    # `pa.json_()` (the fallback `to_record_batches` uses for heterogeneously-shaped JSON) is also an
+    # extension type Iceberg doesn't recognize, but its storage is already a JSON-encoded string, so
+    # we unwrap each JSON column in-place. `json_idxs` is reused below for subsequent batches.
+    json_idxs = [i for i, f in enumerate(first_batch.schema) if f.type == pa.json_()]
+    for i in json_idxs:
+        first_batch = first_batch.set_column(
+            i, pa.field(first_batch.schema[i].name, pa.string()), first_batch.column(i).storage
+        )
+
     if iceberg_tbl is None:
         if '.' in table_name:
             catalog.create_namespace_if_not_exists(table_name.rsplit('.', 1)[0])
@@ -98,4 +118,6 @@ def export_iceberg(
     with iceberg_tbl.transaction() as tx:
         tx.append(pa.Table.from_batches([first_batch]))
         for batch in batch_iter:
+            for i in json_idxs:
+                batch = batch.set_column(i, pa.field(batch.schema[i].name, pa.string()), batch.column(i).storage)
             tx.append(pa.Table.from_batches([batch]))
