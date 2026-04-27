@@ -30,6 +30,11 @@ from .utils import (
 
 
 class TestQuery:
+    @staticmethod
+    @pxt.udf
+    def is_even_py(x: int) -> bool:
+        return x % 2 == 0
+
     def create_join_tbls(self, num_rows: int) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
         t1 = pxt.create_table(f't1_{num_rows}', {'id': pxt.Int, 'i': pxt.Int, 'a': pxt.Array})
         validate_update_status(
@@ -306,127 +311,186 @@ class TestQuery:
         print(res)
         assert len(res) == 4
 
-    def test_limit(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
-        t = test_tbl
-        nrows = 3
-        res = t.select(t.c4).limit(nrows).collect()
-        assert len(res) == nrows
-
-        @pxt.query(return_scalar=True)
-        def get_lim(n: int) -> pxt.Query:
-            return t.select(t.c4).limit(n)
-
-        res = t.select(t.c4, get_lim(2)).collect()
-        print(res)
-        print(res[0]['get_lim'])
-        assert res[0]['get_lim'] == [False, True]
-
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`'):
-            _ = t.limit(5.3).collect()  # type: ignore[arg-type]
-
-        v = pxt.create_view('view1', t, additional_columns={'get_lim': get_lim(3)})
-
-        results = reload_tester.run_query(v.select(v.c4, v.get_lim).limit(3))
-        print(results)
-        reload_tester.run_reload_test()
-
-    def test_limit2(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
-        nrows = 3
-        res = t.select(t.c4).limit(nrows).collect()
-        assert len(res) == nrows
-
-        @pxt.query
-        def get_lim(n: int) -> pxt.Query:
-            return t.select(t.c4, folded_flt=(5.7 * n) - 4).limit((3 * (n + 1) // 2) - 1)
-
-        res = t.select(t.c4, get_lim(1)).collect()
-        assert res[0]['get_lim'] == [
-            {'c4': False, 'folded_flt': 1.7000000000000002},
-            {'c4': True, 'folded_flt': 1.7000000000000002},
-        ]
-
-    def test_limit4(self, test_tbl: pxt.Table) -> None:
+    def test_limit_basic(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
-        @pxt.query(return_scalar=True)
-        def get_lim(n: float) -> pxt.Query:
-            return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
+        # Basic return shape: length and schema preserved
+        res = t.select(t.c1, t.c2).limit(3).collect()
+        assert len(res) == 3
+        assert list(res.schema.keys()) == ['c1', 'c2']
 
-        res = t.select(t.c4, get_lim(2.2)).collect()
-        assert res[0]['get_lim'] == [False, True]
+        # Array-valued select column
+        res = t.select(t.c4, arr=[2, 3, 4]).limit(2).collect()
+        assert len(res) == 2
+        assert res[0]['arr'] == [2, 3, 4]
 
-    def test_limit5(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
-        res = t.select(t.c4, foo=[2, 3, 4]).limit(2).collect()
-        print(res)
-        assert res[0]['foo'] == [2, 3, 4]
+        # Computed-expression select column
+        res = t.select(t.c2, doubled=t.c2 * 2).order_by(t.c2).limit(4).collect()
+        assert [row['doubled'] for row in res] == [0, 2, 4, 6]
 
-        @pxt.query(return_scalar=True)
-        def get_val(n: int) -> pxt.Query:
-            return t.select(foo=[2, 3, n]).limit(2)
+        # limit > table size returns all rows
+        res = t.select(t.c2).limit(1000).collect()
+        assert len(res) == 100
 
-        res = t.select(t.c4, get_val(4)).limit(2).collect()
-        print(res)
-        assert res[0]['get_val'][0] == [2, 3, 4]
+        # offset=None is equivalent to no offset
+        res_none = t.select(t.c2).order_by(t.c2).limit(5, offset=None).collect()
+        res_no = t.select(t.c2).order_by(t.c2).limit(5).collect()
+        assert [r['c2'] for r in res_none] == [r['c2'] for r in res_no]
 
-    def test_pagination(self, uses_db: None) -> None:
-        """Test limit with offset for pagination"""
-        # Create a simple table without computed columns to avoid versioning issues
-        t = pxt.create_table('pagination_test', {'id': pxt.Int, 'value': pxt.String})
-        rows = [{'id': i, 'value': f'row_{i}'} for i in range(50)]
-        t.insert(rows)
+        # Pagination: basic offsets
+        res = t.select(t.c2).order_by(t.c2).limit(5, offset=0).collect()
+        assert [row['c2'] for row in res] == [0, 1, 2, 3, 4]
+        res = t.select(t.c2).order_by(t.c2).limit(5, offset=5).collect()
+        assert [row['c2'] for row in res] == [5, 6, 7, 8, 9]
 
-        # Test basic offset - first page
-        res = t.select(t.id).order_by(t.id).limit(5, offset=0).collect()
-        assert len(res) == 5
-        assert [row['id'] for row in res] == list(range(5))
+        # offset=0 equivalent to no offset
+        res_zero = t.select(t.c2).order_by(t.c2).limit(5, offset=0).collect()
+        assert [r['c2'] for r in res_no] == [r['c2'] for r in res_zero]
 
-        # Test pagination: skip first 5, get next 5
-        res = t.select(t.id).order_by(t.id).limit(5, offset=5).collect()
-        assert len(res) == 5
-        assert [row['id'] for row in res] == list(range(5, 10))
-
-        # Test pagination: skip first 10, get next 5
-        res = t.select(t.id).order_by(t.id).limit(5, offset=10).collect()
-        assert len(res) == 5
-        assert [row['id'] for row in res] == list(range(10, 15))
-
-        # Test offset larger than result set
-        res = t.select(t.id).limit(10, offset=50).collect()
+        # offset larger than result set
+        res = t.select(t.c2).limit(10, offset=200).collect()
         assert len(res) == 0
 
-        # Test offset with where clause
-        res = t.where(t.id >= 10).select(t.id).order_by(t.id).limit(5, offset=5).collect()
+        # offset with where clause
+        res = t.where(t.c2 >= 10).select(t.c2).order_by(t.c2).limit(5, offset=5).collect()
+        assert [row['c2'] for row in res] == [15, 16, 17, 18, 19]
+
+        # offset near end of results: fewer rows than limit requested
+        res = t.select(t.c2).order_by(t.c2).limit(10, offset=95).collect()
         assert len(res) == 5
-        assert [row['id'] for row in res] == list(range(15, 20))
+        assert [row['c2'] for row in res] == [95, 96, 97, 98, 99]
 
-        # Test that offset=0 is equivalent to no offset
-        res_no_offset = t.select(t.id).order_by(t.id).limit(5).collect()
-        res_with_zero_offset = t.select(t.id).order_by(t.id).limit(5, offset=0).collect()
-        assert res_no_offset == res_with_zero_offset
+        # Python-side filter path (FilterNode): a Python UDF can't be translated to SQL,
+        # so limit/offset are applied by Python instead of LIMIT/OFFSET in the SQL query.
+        # (_force_stored is orthogonal — it just lets us define the UDF locally inside this
+        # test method; pxt otherwise rejects nested functions.)
 
-        # Test offset near end of results
-        res = t.select(t.id).order_by(t.id).limit(10, offset=45).collect()
-        assert len(res) == 5  # Only 5 rows left
-        assert [row['id'] for row in res] == list(range(45, 50))
+        res = t.where(self.is_even_py(t.c2)).select(t.c2).order_by(t.c2).limit(5, offset=5).collect()
+        assert [row['c2'] for row in res] == [10, 12, 14, 16, 18]
 
-        # Test pagination with Python filter (forces Python-side offset handling)
-        # Using a UDF that can't be converted to SQL
+        # Python-filter path, offset near end: fewer rows than limit
+        res = t.where(self.is_even_py(t.c2)).select(t.c2).order_by(t.c2).limit(10, offset=45).collect()
+        assert len(res) == 5
+        assert [row['c2'] for row in res] == [90, 92, 94, 96, 98]
+
+        # Python-filter path, offset beyond result: empty
+        res = t.where(self.is_even_py(t.c2)).select(t.c2).order_by(t.c2).limit(5, offset=60).collect()
+        assert len(res) == 0
+
+    def test_limit_errors(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`'):
+            _ = t.limit(5.3)  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`'):
+            _ = t.limit('5')  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='must be present'):
+            _ = t.limit(None)
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`'):
+            _ = t.limit(5, offset='bad')  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >= 0'):
+            _ = t.limit(-1)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >= 0'):
+            _ = t.limit(5, offset=-1)
+        # limit() after sample() is rejected
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with sample'):
+            _ = t.sample(n=10).limit(5)
+
+    def test_limit_joins(self, uses_db: None) -> None:
+        num_rows = 100
+        t1, t2, _ = self.create_join_tbls(num_rows)
+
+        # inner join + limit: only n rows returned, ordering preserved
+        res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f).order_by(t1.i).limit(10).collect()
+        assert len(res) == 10
+        assert [row['i'] for row in res] == list(range(10))
+
+        # inner join + limit + offset: paging across a join
+        res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f).order_by(t1.i).limit(5, offset=10).collect()
+        assert len(res) == 5
+        assert [row['i'] for row in res] == list(range(10, 15))
+
+        # cross join + limit: caps total output (10 * 10 = 100 → 25)
+        small1, small2, _ = self.create_join_tbls(10)
+        res = small1.join(small2, how='cross').select(small1.i, small2.f).limit(25).collect()
+        assert len(res) == 25
+
+        # limit greater than join cardinality: returns all rows
+        res = small1.join(small2, on=small1.id, how='inner').select(small1.i).limit(1000).collect()
+        assert len(res) == 10
+
+    def test_limit_iterator_views(self, uses_db: None) -> None:
+        base_t = pxt.create_table('lim_base', {'video': pxt.Video})
+        view_t = pxt.create_view('lim_frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
+        base_t.insert(video=get_video_files()[0])
+
+        total = view_t.count()
+        assert total > 10, f'expected > 10 frames, got {total}'
+
+        # basic limit on iterator view
+        res = view_t.select(view_t.pos).order_by(view_t.pos).limit(5).collect()
+        assert len(res) == 5
+        assert [row['pos'] for row in res] == [0, 1, 2, 3, 4]
+
+        # limit + offset on iterator view
+        res = view_t.select(view_t.pos).order_by(view_t.pos).limit(5, offset=3).collect()
+        assert len(res) == 5
+        assert [row['pos'] for row in res] == [3, 4, 5, 6, 7]
+
+        # limit larger than frame count: returns all
+        res = view_t.select(view_t.pos).limit(total + 100).collect()
+        assert len(res) == total
+
+    @pxt.uda
+    class py_agg(pxt.Aggregator):
+        def __init__(self) -> None:
+            pass
+
+        def update(self, val: int) -> None:
+            pass
+
+        def value(self) -> int:
+            return 0
+
+    def test_limit_0(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+
+        def check(query: pxt.Query, expected_cols: list[str]) -> None:
+            assert list(query.schema.keys()) == expected_cols
+            res = query.collect()
+            assert len(res) == 0
+            assert list(res.schema.keys()) == expected_cols
+
+        # plain SQL scan
+        check(t.select(t.c1, t.c2).order_by(t.c2).limit(0), ['c1', 'c2'])
+
+        # SQL scan with offset
+        check(t.select(t.c1, t.c2).order_by(t.c2).limit(0, offset=5), ['c1', 'c2'])
+
+        # SQL aggregation (SqlAggregationNode): all exprs translatable to SQL
+        check(t.group_by(t.c1).select(t.c1, cnt=pxt.functions.count(t.c2)).limit(0), ['c1', 'cnt'])
+
+        # Python filter (FilterNode path): UDF forces Python-side filter
         @pxt.udf(_force_stored=True)
-        def is_even_py(x: int) -> bool:
-            return x % 2 == 0
+        def is_positive(x: int) -> bool:
+            return x > 0
 
-        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=5).collect()
-        assert len(res) == 5
-        assert [row['id'] for row in res] == [10, 12, 14, 16, 18]
+        check(t.where(is_positive(t.c2)).select(t.c1, t.c2).order_by(t.c2).limit(0), ['c1', 'c2'])
 
-        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(10, offset=20).collect()
-        assert len(res) == 5  # Only 5 left
-        assert [row['id'] for row in res] == [40, 42, 44, 46, 48]
+        # Python filter with offset
+        check(t.where(is_positive(t.c2)).select(t.c1, t.c2).order_by(t.c2).limit(0, offset=3), ['c1', 'c2'])
 
-        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=25).collect()
-        assert len(res) == 0  # No more rows
+        # in-memory aggregation (AggregationNode): Python UDA cannot be pushed to SQL
+        check(t.group_by(t.c1).select(t.c1, s=self.py_agg(t.c2)).limit(0), ['c1', 's'])
+
+        # cursor: schema accessible before and after iteration, no rows yielded
+        query = t.select(t.c1, t.c2).order_by(t.c2).limit(0)
+        cur = query.cursor()
+        # TODO: add ResultCursor.keys(), analogously to Sqlalchemy's CursorResult.keys()?
+        assert list(cur._schema.keys()) == ['c1', 'c2']
+        rows = list(cur)
+        assert rows == []
+        assert list(cur._schema.keys()) == ['c1', 'c2']
 
     def test_head_tail(self, test_tbl: pxt.Table) -> None:
         t = test_tbl

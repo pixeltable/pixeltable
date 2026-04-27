@@ -355,6 +355,7 @@ class TestPackager:
         self.__restore_and_check_table(bundle2, 'replica')
 
     def test_media_round_trip(self, img_tbl: pxt.Table) -> None:
+        skip_test_if_not_installed('imagehash')
         self.__do_round_trip(img_tbl)
 
     def test_array_round_trip(self, uses_db: None) -> None:
@@ -393,6 +394,7 @@ class TestPackager:
         self.__do_round_trip(v)
 
     def test_iterator_view_round_trip(self, uses_db: None) -> None:
+        skip_test_if_not_installed('imagehash')
         t = pxt.create_table('base_tbl', {'video': pxt.Video})
         t.insert({'video': video} for video in get_video_files()[:2])
 
@@ -487,6 +489,7 @@ class TestPackager:
         Snapshots that involve all the different column types. Two snapshots of the same base table will be created;
         they will snapshot either the same or different versions of the table, depending on `different_versions`.
         """
+        skip_test_if_not_installed('imagehash')
         t = all_datatypes_tbl
         snap1 = pxt.create_snapshot('snap1', t.where(t.row_id % 2 != 0))
         bundle1 = self.__package_table(snap1)

@@ -62,6 +62,7 @@ t = pxt.get_table('my_dir.my_table')
 app = fastapi.FastAPI()
 router = FastAPIRouter()
 router.add_insert_route(t, path='/insert', inputs=['prompt'], outputs=['prompt', 'result'])
+router.add_update_route(t, path='/update', inputs=['prompt'], outputs=['id', 'prompt', 'result'])
 app.include_router(router)
 
 uvicorn.run(app, host='0.0.0.0', port=8000)
@@ -77,6 +78,10 @@ configure a single route directly on the command line:
 pxt serve insert --table my_dir.my_table --path /generate \
   --inputs prompt --outputs prompt result --port 8000
 
+# one update endpoint
+pxt serve update --table my_dir.my_table --path /update \
+  --inputs prompt --outputs id prompt result
+
 # one delete endpoint
 pxt serve delete --table my_dir.my_table --path /delete
 
@@ -88,6 +93,51 @@ Single-endpoint mode accepts the same fields as the equivalent `[[routes]]`
 TOML entry. It is meant for development and ad-hoc serving; for anything
 beyond that use the TOML file (it is the only way to expose more than one
 endpoint).
+
+## Decorator-style routes
+
+`add_insert_route()` / `add_update_route()` build a response model automatically
+from the column schema. When you need a *different* response shape -- e.g. a
+richer API envelope, derived fields, or a stripped-down payload -- use the
+`@router.insert_route` / `@router.update_route` decorators. The decorated
+function receives the requested output columns as keyword arguments and returns
+a `pydantic.BaseModel` subclass that defines the HTTP response body.
+
+```python
+import pydantic
+from pixeltable.serving import FastAPIRouter
+
+router = FastAPIRouter()
+
+class GenerateResponse(pydantic.BaseModel):
+    caption: str
+    score: float
+
+@router.insert_route(t, path='/generate', inputs=['prompt'], outputs=['caption', 'score'])
+def format_insert(*, caption: str, score: float) -> GenerateResponse:
+    return GenerateResponse(caption=caption.strip(), score=round(score, 3))
+
+@router.update_route(t, path='/update', inputs=['prompt'], outputs=['id', 'caption', 'score'])
+def format_update(*, id: int, caption: str, score: float) -> GenerateResponse:
+    return GenerateResponse(caption=caption.strip(), score=round(score, 3))
+```
+
+Rules the framework enforces at registration time:
+
+- Every parameter must be keyword-only and have a type annotation.
+- Every parameter name must appear in `outputs`, and every `outputs` entry must
+  be a parameter.
+- Parameter annotations must match the column types (strict nullability: a
+  nullable column requires `T | None`). Media columns are delivered as URL
+  strings, so annotate them as `str`.
+- The return annotation must be a `pydantic.BaseModel` subclass.
+
+Decorator routes support the same `background=True` flag as the non-decorator
+forms; when enabled, the decorated function's return value is delivered as the
+background-job result.
+
+The decorator forms are Python-only -- there is no equivalent in the TOML
+service file.
 
 ## TOML Service File Reference
 
@@ -123,7 +173,7 @@ the route kind and which additional fields are valid.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | `"insert"` / `"delete"` / `"query"` | yes | -- | Route kind |
+| `type` | `"insert"` / `"update"` / `"delete"` / `"query"` | yes | -- | Route kind |
 | `path` | string | yes | -- | URL path (e.g., `"/generate"`) |
 | `background` | bool | no | `false` | Run the operation in a background thread and return a job handle |
 
@@ -177,6 +227,48 @@ curl -X POST http://localhost:8000/resize \
   -F image=@photo.jpg -F width=640 -F height=480 \
   --output resized.jpg
 ```
+
+---
+
+### Update routes
+
+Update a single row identified by its primary key values, and return the updated
+columns (including any computed columns that depend on them).
+
+```toml
+[[routes]]
+type = "update"
+table = "my_dir.my_table"
+path = "/update"
+inputs = ["prompt"]
+outputs = ["id", "prompt", "result"]
+```
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `table` | string | yes | -- | Pixeltable table path (must have a primary key) |
+| `inputs` | list of strings | no | all non-PK, non-computed, non-media columns | Columns to update (PK columns are always in the request body but cannot appear here) |
+| `outputs` | list of strings | no | all columns | Columns to include in the response |
+| `return_fileresponse` | bool | no | `false` | Return the single media-typed output as a raw file download |
+
+The request body carries the primary key values (to identify the row) plus the
+values to update, as JSON fields:
+
+```bash
+curl -X POST http://localhost:8000/update \
+  -H 'Content-Type: application/json' \
+  -d '{"id": 42, "prompt": "updated text"}'
+# {"id": 42, "prompt": "updated text", "result": "..."}
+```
+
+If the identified row does not exist, the endpoint returns HTTP 404. Computed
+columns that depend on any updated column are automatically recomputed and
+appear in the response.
+
+<Note>
+Media-typed columns (image, video, audio, document) cannot currently be
+updated. To replace a media value, delete the row and insert a new one.
+</Note>
 
 ---
 
@@ -290,6 +382,14 @@ table = "myapp.videos"
 path = "/ingest"
 background = true
 
+# Update a row by primary key (returns the updated columns incl. computed ones)
+[[routes]]
+type = "update"
+table = "myapp.images"
+path = "/images/update"
+inputs = ["tag"]
+outputs = ["id", "tag", "thumbnail"]
+
 # Delete by primary key
 [[routes]]
 type = "delete"
@@ -399,6 +499,21 @@ Start a service exposing exactly one insert route.
 | `--outputs` | strings | no | Columns returned in the response |
 | `--return-fileresponse` | flag | no | Return the single media output as a raw file |
 | `--background` | flag | no | Run the insert in a background thread |
+
+Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
+
+### `pxt serve update`
+
+Start a service exposing exactly one update route.
+
+| Flag | Type | Required | Description |
+|---|---|---|---|
+| `--table` | string | yes | Pixeltable table path (must have a primary key) |
+| `--path` | string | yes | URL path |
+| `--inputs` | strings | no | Non-PK columns accepted from the request body (PK columns are always accepted) |
+| `--outputs` | strings | no | Columns returned in the response |
+| `--return-fileresponse` | flag | no | Return the single media output as a raw file |
+| `--background` | flag | no | Run the update in a background thread |
 
 Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
 
