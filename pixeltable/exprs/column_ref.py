@@ -58,7 +58,7 @@ class ColumnRef(Expr):
     col: catalog.Column  # TODO: merge with col_handle
     col_handle: catalog.ColumnHandle
     reference_tbl: catalog.TableVersionPath | None
-    is_unstored_iter_col: bool
+    needs_iterator_evaluation: bool
     perform_validation: bool  # if True, performs media validation
     iter_arg_ctx: RowBuilder.EvalCtx | None
     iter_outputs: list[ColumnRef] | None
@@ -81,7 +81,7 @@ class ColumnRef(Expr):
         self.col_handle = col.handle
 
         # pos (id=0) is an unstored iterator column, but its value comes from the PK, not the iterator output dict
-        self.is_unstored_iter_col = col.is_iterator_col and not col.is_stored and col.id != 0
+        self.needs_iterator_evaluation = col.is_iterator_col and not col.is_stored and col.id != 0
         self.iter_arg_ctx = None
         self.iter_outputs = None
         self.base_rowid_len = 0
@@ -541,7 +541,7 @@ class ColumnRef(Expr):
     def prepare(self) -> None:
         from pixeltable import store
 
-        if not self.is_unstored_iter_col:
+        if not self.needs_iterator_evaluation:
             return
         col = self.col_handle.get()
         self.base_rowid_len = col.get_tbl().base.get().num_rowid_columns()
@@ -585,7 +585,7 @@ class ColumnRef(Expr):
                 row_builder.set_exc(data_row, self.slot_idx, exc)
                 return
 
-        if not self.is_unstored_iter_col:
+        if not self.needs_iterator_evaluation:
             # supply default
             data_row[self.slot_idx] = None
             return
