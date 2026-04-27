@@ -367,10 +367,11 @@ class Planner:
     def create_count_stmt(cls, query: 'pxt.Query') -> sql.Select:
         """Creates a SQL SELECT COUNT(*) statement for counting rows in a Query."""
         # Create the query plan
+        assert query.limit_val is None or query.limit_val.val > 0
         plan = query._create_query_plan()
         sql_node = plan.get_node(exec.SqlNode)
         assert sql_node is not None
-        if sql_node.py_filter is not None:
+        if plan.get_node(exec.FilterNode) is not None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'count() cannot be used with Python-only filters. Use collect() instead.',
@@ -880,6 +881,7 @@ class Planner:
         base_analyzer = Analyzer(
             from_clause, list(base_output_exprs), where_clause=target.predicate, sample_clause=target.sample_clause
         )
+        base_analyzer.finalize(row_builder)
         base_eval_ctx = row_builder.create_eval_ctx(base_analyzer.all_exprs)
         plan = cls._create_query_plan(
             row_builder=row_builder,
@@ -1159,8 +1161,6 @@ class Planner:
 
         if analyzer.sql_where_clause is not None:
             plan.set_where(analyzer.sql_where_clause)
-        if analyzer.filter is not None:
-            plan.set_py_filter(analyzer.filter)
         if len(analyzer.window_fn_calls) > 0:
             # we need to order the input for window functions
             plan.set_order_by(analyzer.get_window_fn_ob_clause())
@@ -1177,6 +1177,13 @@ class Planner:
         plan = cls._add_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
         plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, plan)
 
+        if analyzer.filter is not None:
+            plan = exec.ExprEvalNode(row_builder, [analyzer.filter], sql_exprs, input=plan)
+            plan.set_gc(False)
+            plan = exec.FilterNode(row_builder, analyzer.filter, input=plan)
+            sql_exprs = exprs.ExprSet(sql_exprs)
+            sql_exprs.add(analyzer.filter)
+
         if analyzer.group_by_clause is not None:
             # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the
             # args of the agg fn calls
@@ -1186,6 +1193,7 @@ class Planner:
             if not sql_exprs.issuperset(agg_input):
                 # we need an ExprEvalNode
                 plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
+                plan.set_gc(False)
 
             # batch size for aggregation input: this could be the entire table, so we need to divide it into
             # smaller batches; at the same time, we need to make the batches large enough to amortize the
@@ -1197,7 +1205,6 @@ class Planner:
                 sql_elements.contains_all(analyzer.select_list)
                 and sql_elements.contains_all(analyzer.grouping_exprs)
                 and isinstance(plan, exec.SqlNode)
-                and plan.to_cte() is not None
             ):
                 plan = exec.SqlAggregationNode(
                     row_builder, input=plan, select_list=analyzer.select_list, group_by_items=analyzer.group_by_clause
@@ -1219,14 +1226,21 @@ class Planner:
                 if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                     # we need an ExprEvalNode to evaluate the remaining output exprs
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
+                    plan.set_gc(False)
                 plan = cls._add_save_node(plan)
         else:
             if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
                 plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
+                plan.set_gc(False)
             # we're returning everything to the user, so we might as well do it in a single batch
             # TODO: return smaller batches in order to increase inter-ExecNode parallelism
             ctx.batch_size = 0
+
+        expr_eval_node = plan.get_node(exec.ExprEvalNode)
+        if expr_eval_node is not None:
+            # we defer GC of intermediate slots until the last ExprEvalNode in the plan
+            expr_eval_node.set_gc(True)
 
         sql_node = plan.get_node(exec.SqlNode)
         if len(analyzer.order_by_clause) > 0:
@@ -1265,6 +1279,7 @@ class Planner:
         assert isinstance(tbl, catalog.TableVersionPath)
         row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[], tbl=tbl.tbl_version.get())
         analyzer = Analyzer(FromClause(tbls=[tbl]), row_builder.default_eval_ctx.target_exprs)
+        analyzer.finalize(row_builder)
         plan = cls._create_query_plan(
             row_builder=row_builder, analyzer=analyzer, eval_ctx=row_builder.default_eval_ctx, with_pk=True
         )

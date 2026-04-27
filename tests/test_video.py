@@ -1,4 +1,5 @@
 import math
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Literal
@@ -14,7 +15,6 @@ from pixeltable.utils import av as av_utils
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
-    IN_CI,
     generate_test_video,
     get_audio_files,
     get_image_files,
@@ -300,6 +300,16 @@ class TestVideo:
                 },
             ],
         }
+
+        # get_metadata() can also be used in a where() clause
+        inline_res = (
+            base_t.where(base_t.video.get_metadata().size == 2234371)
+            .select(md=base_t.video.get_metadata())
+            .collect()['md']
+        )
+        assert len(inline_res) == 1
+        assert inline_res[0]['size'] == 2234371
+        assert inline_res[0]['streams'][0]['width'] == 640
 
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
@@ -851,8 +861,7 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
 
-    @pytest.mark.skipif(IN_CI, reason='[PXT-1118] Bug involving media reference in where clause')
-    # @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
+    @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
     def test_overlay_text(self, uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.add_computed_column(clip_5s=t.video.clip(start_time=0, duration=5))
