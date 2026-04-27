@@ -209,9 +209,42 @@ class TestCLI:
             assert route.outputs == ['id', 'name', 'name_upper']
             assert route.return_fileresponse is True
             assert route.background is False
+            assert route.export_sql is None
 
             mock_create.reset_mock()
             mock_run.reset_mock()
+
+            # insert with --export-sql-* flags wires up SqlExport
+            argv = [
+                'pxt', 'serve', 'insert',
+                '--table', 'd.items', '--path', '/insert',
+                '--inputs', 'id', 'name',
+                '--outputs', 'id', 'name', 'name_upper',
+                '--export-sql-db-connect', 'sqlite:///x.db',
+                '--export-sql-target-table', 'items_out',
+                '--export-sql-method', 'update',
+            ]  # fmt: skip
+            with patch('sys.argv', argv):
+                cli_main()
+            route = mock_create.call_args.args[0].routes[0]
+            assert isinstance(route, InsertRouteConfig)
+            assert route.export_sql is not None
+            assert route.export_sql.db_connect == 'sqlite:///x.db'
+            assert route.export_sql.target_table == 'items_out'
+            assert route.export_sql.method == 'update'
+
+            mock_create.reset_mock()
+            mock_run.reset_mock()
+
+            # --export-sql-target-table without --export-sql-db-connect: argument error
+            argv = [
+                'pxt', 'serve', 'insert',
+                '--table', 'd.items', '--path', '/insert',
+                '--inputs', 'id',
+                '--export-sql-target-table', 'items_out',
+            ]  # fmt: skip
+            with patch('sys.argv', argv), pytest.raises(SystemExit):
+                cli_main()
 
             # delete
             with patch(

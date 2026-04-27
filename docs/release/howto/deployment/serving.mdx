@@ -139,6 +139,102 @@ background-job result.
 The decorator forms are Python-only -- there is no equivalent in the TOML
 service file.
 
+## Exporting rows to an external database
+
+Insert and update routes can export each successful request as a row in an
+external SQL database. Configure it via the Python API, the TOML service file,
+or the CLI; all three forms route through the same `SqlExport` specification.
+Each request performs the Pixeltable insert/update first; only if it succeeds
+does the row get written to the external table.
+
+**Python API.** Pass an `export_sql=SqlExport(...)` argument to
+`add_insert_route`, `add_update_route`, or the decorator forms.
+
+```python
+from pixeltable.serving import FastAPIRouter, SqlExport
+
+router = FastAPIRouter()
+router.add_insert_route(
+    t,
+    path='/generate',
+    inputs=['prompt'],
+    outputs=['prompt', 'result'],
+    export_sql=SqlExport(
+        db_connect='postgresql+psycopg://user:pw@host/analytics',
+        target_table='generations',
+    ),
+)
+```
+
+**TOML.** Add a nested `[routes.export_sql]` table under any insert or update
+route. The same fields apply.
+
+```toml
+[[routes]]
+type = "insert"
+table = "my_dir.my_table"
+path = "/generate"
+inputs = ["prompt"]
+outputs = ["prompt", "result"]
+
+[routes.export_sql]
+db_connect = "postgresql+psycopg://user:pw@host/analytics"
+target_table = "generations"
+# target_schema = "public"  # optional
+# method = "insert"         # default; alternatives: "update", "merge" (not yet supported)
+```
+
+**CLI.** Single-endpoint mode supports the same fields via `--export-sql-*`
+flags on `pxt serve insert` and `pxt serve update`.
+
+```bash
+pxt serve insert --table my_dir.my_table --path /generate \
+  --inputs prompt --outputs prompt result \
+  --export-sql-db-connect 'postgresql+psycopg://user:pw@host/analytics' \
+  --export-sql-target-table generations
+```
+
+The row written to the target is the response body: the same columns as
+`outputs`, with media-typed columns rendered as URL strings (so the
+corresponding target columns must be string-typed). Schema compatibility is
+validated once at registration; the target table must already exist or
+registration fails. The engine and connection pool are cached per
+`db_connect`, so multiple routes pointing at the same database share one pool.
+
+`SqlExport.method` controls how each row is written:
+
+- `'insert'` (default): append the row via `INSERT ... VALUES`. The target
+  acts as an audit log -- replaying the same request produces a duplicate.
+- `'update'`: update the row by primary-key match. The target is treated as a
+  current-state view keyed on its primary key. The response columns must
+  include all primary-key columns of the target plus at least one non-PK
+  column to set; the target table itself must declare a primary key. This is a
+  strict update, not an upsert -- if no row matches, the request fails with
+  HTTP 500.
+- `'merge'` (upsert): not yet supported.
+
+When paired with `add_insert_route` and `method='update'`, a Pixeltable insert
+triggers a target-side update. This is intentional: it supports the pattern
+where the Pixeltable table is append-only (e.g. an event log) but the target
+is a deduplicated, current-state view.
+
+If the external write fails after the Pixeltable insert/update has already
+committed, the request returns HTTP 500; no rollback is performed.
+
+`export_sql=` is mutually exclusive with `return_fileresponse=True` and is
+compatible with `background=True` (the SQL write runs in the worker thread).
+
+See [`SqlExport`](https://docs.pixeltable.com/sdk/latest/pixeltable/serving/SqlExport)
+for the full target specification.
+
+<Warning>
+Connection strings with embedded passwords land in plaintext on disk (TOML)
+or in process listings (CLI). Don't commit `service.toml`; consider a
+connection string that pulls credentials from the environment or a
+`.pgpass`-style file. Env-var substitution within the TOML is not yet
+supported.
+</Warning>
+
 ## TOML Service File Reference
 
 ### `[service]` (optional)
@@ -207,6 +303,7 @@ outputs = ["prompt", "result"]
 | `uploadfile_inputs` | list of strings | no | -- | Columns to accept as file uploads (multipart) |
 | `outputs` | list of strings | no | all columns | Columns to include in the response |
 | `return_fileresponse` | bool | no | `false` | Return the single media-typed output as a raw file download |
+| `export_sql` | nested table | no | -- | Export each request as a row into an external SQL database. See [Exporting rows to an external database](#exporting-rows-to-an-external-database). |
 
 **File uploads:** when `uploadfile_inputs` is set, the request uses `multipart/form-data`
 instead of JSON. All other inputs become form fields.
@@ -250,6 +347,7 @@ outputs = ["id", "prompt", "result"]
 | `inputs` | list of strings | no | all non-PK, non-computed, non-media columns | Columns to update (PK columns are always in the request body but cannot appear here) |
 | `outputs` | list of strings | no | all columns | Columns to include in the response |
 | `return_fileresponse` | bool | no | `false` | Return the single media-typed output as a raw file download |
+| `export_sql` | nested table | no | -- | Export each request as a row into an external SQL database. See [Exporting rows to an external database](#exporting-rows-to-an-external-database). |
 
 The request body carries the primary key values (to identify the row) plus the
 values to update, as JSON fields:
