@@ -805,26 +805,26 @@ def mix_audio(
         audio_start_time: Time in seconds at which the added audio begins playing in the output.
         mix_duration: Controls which input determines the length of the mixed audio stream.
 
-            - ``"longest"`` *(default)*: the mix runs until the longer of the two audio inputs ends. Use
+            - `"longest"`: the mix runs until the longer of the two audio inputs ends. Use
               this when the added audio (e.g. a music bed) is longer than the video's original audio.
-            - ``"first"``: the mix ends when the video's original audio track ends. Useful when the
+            - `"first"`: the mix ends when the video's original audio track ends. Useful when the
               original audio and video streams are the same length.
-            - ``"shortest"``: the mix ends when the shorter input ends, truncating whichever track is longer.
-        normalize: If ``True``, ffmpeg scales the mixed output to prevent clipping by dividing each track's
-            contribution by the number of inputs. Defaults to ``False`` so that ``audio_volume`` and
-            ``original_volume`` mean what they say; flip on if you are not setting volumes explicitly and
+            - `"shortest"`: the mix ends when the shorter input ends, truncating whichever track is longer.
+        normalize: If `True`, ffmpeg scales the mixed output to prevent clipping by dividing each track's
+            contribution by the number of inputs. Defaults to `False` so that `audio_volume` and
+            `original_volume` mean what they say; flip on if you are not setting volumes explicitly and
             want automatic clip protection.
         dropout_transition: Duration in seconds over which a track's contribution fades to zero after
-            it ends, preventing audible clicks at hard boundaries. Defaults to ``2.0`` seconds, matching
-            ffmpeg's own default. Set to ``0.0`` to disable. Relevant whenever one input ends before
-            the mixed output ends, regardless of which ``mix_duration`` mode is selected.
+            it ends, preventing audible clicks at hard boundaries. Defaults to 2.0 seconds, matching
+            ffmpeg's own default. Set to 0.0 to disable. Relevant whenever one input ends before
+            the mixed output ends, regardless of which `mix_duration` mode is selected.
         align_to_video: Post-mix adjustment to align the output audio stream with the video stream duration.
-            Applied after ``amix``, so it is independent of ``mix_duration``.
+            Applied after `amix`, so it is independent of `mix_duration`.
 
-            - ``"trim"`` *(default)*: if the mixed audio is longer than the video stream, truncate it to
-              match. Pairs naturally with ``mix_duration="longest"`` for music-bed workflows.
-            - ``"none"``: no adjustment; output audio duration is whatever ``amix`` produces.
-            - ``"pad"``: if the mixed audio is shorter than the video stream, extend it with silence. Also
+            - `"trim"`: if the mixed audio is longer than the video stream, truncate it to
+              match. Pairs naturally with `mix_duration="longest"` for music-bed workflows.
+            - `"none"`: no adjustment; output audio duration is whatever `amix` produces.
+            - `"pad"`: if the mixed audio is shorter than the video stream, extend it with silence. Also
               trims to the video duration if the mix runs long.
         video_encoder: Video encoder to use. If not specified, uses the default encoder.
         video_encoder_args: Additional arguments to pass to the video encoder.
@@ -834,9 +834,9 @@ def mix_audio(
 
     Examples:
         Add background music at 30% volume. With the defaults, this lays the music as a bed under the
-        video: ``mix_duration="longest"`` keeps the music playing past the end of the original audio,
-        ``align_to_video="trim"`` caps the result at the video stream duration, and ``normalize=False``
-        means the ``audio_volume=0.3`` setting is taken at face value rather than halved by ``amix``:
+        video: `mix_duration="longest"` keeps the music playing past the end of the original audio,
+        `align_to_video="trim"` caps the result at the video stream duration, and `normalize=False`
+        means the `audio_volume=0.3` setting is taken at face value rather than halved by `amix`:
 
         >>> tbl.select(tbl.video.mix_audio(tbl.music, audio_volume=0.3)).collect()
 
