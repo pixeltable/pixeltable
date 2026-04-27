@@ -1,4 +1,5 @@
 import abc
+import platform
 
 import sqlalchemy as sql
 
@@ -46,7 +47,12 @@ class PostgresqlDbms(Dbms):
         return f'DROP DATABASE {database}'
 
     def create_db_stmt(self, database: str) -> str:
-        return f"CREATE DATABASE {database} ENCODING 'utf-8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0"
+        # LOCALE_PROVIDER icu so upper()/lower() and collation follow full Unicode rules
+        # (e.g. upper('ß') = 'SS') regardless of the cluster's initdb-time locale provider.
+        return (
+            f"CREATE DATABASE {database} TEMPLATE template0 "
+            f"ENCODING 'UTF8' LOCALE_PROVIDER icu ICU_LOCALE 'und' LOCALE 'C'"
+        )
 
     def default_system_db_url(self) -> str:
         a = self.db_url.set(database='postgres').render_as_string(hide_password=False)

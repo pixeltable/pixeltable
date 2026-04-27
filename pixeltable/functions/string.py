@@ -37,7 +37,7 @@ def capitalize(self: str) -> str:
 
 @capitalize.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.concat(sql.func.upper(sql.func.left(self, 1)), sql.func.lower(sql.func.right(self, -1)))
+    return sql.func.concat(sql.func.initcap(sql.func.left(self, 1)), sql.func.lower(sql.func.right(self, -1)))
 
 
 @pxt.udf(is_method=True)
