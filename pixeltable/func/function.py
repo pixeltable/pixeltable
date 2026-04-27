@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import itertools
 import typing
 from abc import ABC, abstractmethod
 from copy import copy
@@ -197,7 +198,11 @@ class Function(ABC):
         if len(self.signatures) == 1:
             # Only one signature: call _bind_to_signature() and surface any errors directly
             result = 0
-            bound_args = self._bind_to_signature(0, args, kwargs)
+            try:
+                bound_args = self._bind_to_signature(0, args, kwargs)
+            except TypeError as e:
+                msg = self._bind_error_msg(self.signatures[0], args, kwargs, e)
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, msg) from e
         else:
             # Multiple signatures: try each signature in declaration order and trap any errors.
             # If none of them succeed, raise a generic error message.
@@ -216,6 +221,22 @@ class Function(ABC):
         assert result >= 0
         assert bound_args is not None
         return self._resolved_fns[result], bound_args
+
+    @staticmethod
+    def _bind_error_msg(signature: Signature, args: Sequence[Any], kwargs: dict[str, Any], cause: TypeError) -> str:
+        from pixeltable.exprs import Expr, Literal
+
+        def _arg_desc(v: Any) -> str:
+            if isinstance(v, Literal) and v.val is None:
+                return 'None'
+            if isinstance(v, Expr):
+                return str(v.col_type)
+            return type(v).__name__
+
+        arg_descs = (_arg_desc(a) for a in args)
+        kwarg_descs = (f'{k}={_arg_desc(v)}' for k, v in kwargs.items())
+        provided = ', '.join(itertools.chain(arg_descs, kwarg_descs))
+        return f'{cause}; expected ({signature.params_str()}), got ({provided})'
 
     def _bind_to_signature(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
         from pixeltable import exprs
