@@ -83,13 +83,17 @@ def export_iceberg(
         iceberg_tbl = catalog.create_table(table_name, schema=first_batch.schema)
     else:
         target_schema = iceberg_tbl.schema().as_arrow()
-        if not first_batch.schema.equals(target_schema):
+        try:
+            # Cast a zero-row slice to the target schema: pyarrow validates field names match
+            # exactly and that source types can be promoted to target types (e.g. string -> large_string).
+            pa.Table.from_batches([first_batch.slice(0, 0)]).cast(target_schema)
+        except (pa.ArrowInvalid, ValueError) as e:
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH,
-                f'export_iceberg(): source schema is not compatible with existing table {table_name!r}.\n'
+                f'export_iceberg(): source schema is not compatible with existing table {table_name!r}: {e}\n'
                 f'Source schema:\n{first_batch.schema}\n'
                 f'Target schema:\n{target_schema}',
-            )
+            ) from e
 
     with iceberg_tbl.transaction() as tx:
         tx.append(pa.Table.from_batches([first_batch]))
