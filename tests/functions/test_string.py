@@ -1,7 +1,7 @@
 import re
 import textwrap
 import unicodedata
-from typing import Callable
+from typing import Any, Callable, ClassVar
 
 import pixeltable as pxt
 from pixeltable import exprs
@@ -9,10 +9,12 @@ from pixeltable.functions.string import (
     capitalize,
     casefold,
     center,
+    contains_re,
     count,
     endswith,
     find,
     format,
+    fullmatch,
     isalnum,
     isalpha,
     isascii,
@@ -27,6 +29,8 @@ from pixeltable.functions.string import (
     ljust,
     lower,
     lstrip,
+    match,
+    replace_re,
     reverse,
     rfind,
     rjust,
@@ -72,6 +76,65 @@ class TestString:
         ' ',
         '',
     )
+
+    PUSHDOWN_STRS: ClassVar[list[str]] = [
+        # Plain words
+        'cat',
+        'dog',
+        'catdog',
+        'cat dog',
+        'dog food',
+        # Casing variants
+        'Cat',
+        'CAT',
+        'Hello World',
+        # Digits and mixed
+        'abc123',
+        '123abc',
+        '123',
+        # Regex-special characters in the *input*
+        'hello.world',
+        'price $9.99',
+        '1+2=3',
+        # Vowel-rich strings
+        'hello',
+        'aeiou',
+        # Repeated characters (tests non-overlapping count behaviour)
+        'aaa',
+        'aaaa',
+        # Padding / justification edge cases
+        '',
+        ' ',
+        'ab',
+        'abcdef',
+        '  spaced  ',
+        # Signed numbers (zfill)
+        '-42',
+        '+42',
+        '42',
+        '-',
+        '+',
+        '--5',
+        # UTF-8: CJK, emoji, accented
+        '你好',
+        '😀',
+        'café',
+        'hello 🌍 world',
+        '😀😀',
+        '-😀',
+        '+éè',
+        # Strings with newlines (validates '.' exclusion from PG pushdown)
+        'cat\ndog',
+        'hello\nworld',
+        'a\nb',
+        # Unicode decimals / whitespace (isascii, isdecimal, isspace edge cases)
+        '٠',  # noqa: RUF001  # Arabic-Indic zero
+        '०',  # noqa: RUF001  # Devanagari zero
+        '０',  # noqa: RUF001  # Fullwidth zero
+        '\xa0',  # Non-breaking space
+        '\u2002',  # En space
+        '\u3000',  # Ideographic space
+    ]
 
     def test_all(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
@@ -325,6 +388,161 @@ class TestString:
         assert status.num_excs == 0
         row = t.head()[1]
         assert row == {'input': 'PQR', 's1': 'ABC PQR', 's2': 'DEF PQR', 's3': 'GHI PQR JKL PQR'}
+
+    def _assert_pushdown(
+        self,
+        t: Any,
+        s: Any,
+        s_py: Any,
+        pxt_fn: pxt.Function,
+        *args: Any,
+        expected: list[Any],
+        label: str,
+        **kwargs: Any,
+    ) -> None:
+        """Assert SQL pushdown and Python fallback paths produce identical expected results."""
+        res_sql = t.select(out=pxt_fn(s, *args, **kwargs)).collect()['out']
+        res_py = t.select(out=pxt_fn(s_py, *args, **kwargs)).collect()['out']
+        assert res_sql == expected, f'{label} SQL'
+        assert res_py == expected, f'{label} Python'
+
+    def test_sql_pushdown(self, uses_db: None) -> None:
+        """Test all to_sql pushdown implementations for SQL/Python equivalence.
+
+        For each function the test runs two queries:
+          1. Normal query -- Pixeltable uses the SQL implementation when possible.
+          2. Forced-Python query -- the identity .apply() wrapper prevents SQL pushdown.
+        Both must produce the same result as the equivalent Python expression.
+        """
+        strs = self.PUSHDOWN_STRS
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        validate_update_status(t.insert({'s': s} for s in strs), expected_rows=len(strs))
+
+        s = t.s
+        s_py = t.s.apply(lambda x: x, col_type=pxt.String)  # forces Python fallback
+
+        def chk(fn: pxt.Function, *a: Any, expected: list[Any], label: str, **kw: Any) -> None:
+            self._assert_pushdown(t, s, s_py, fn, *a, expected=expected, label=label, **kw)
+
+        # ── isascii / isdecimal / isspace ─────────────────────────────────────
+        # isascii has SQL pushdown; isdecimal and isspace do not (PG LC_CTYPE='C' is ASCII-only)
+        for pxt_fn, str_fn in [(isascii, str.isascii), (isdecimal, str.isdecimal), (isspace, str.isspace)]:
+            res = t.select(out=pxt_fn(s)).collect()['out']
+            expected: list[Any] = [str_fn(x) for x in strs]
+            assert res == expected, f'{pxt_fn.name} mismatch'
+
+        # ── ljust / rjust ─────────────────────────────────────────────────────
+        for w in [0, 3, 6, 10]:
+            chk(ljust, w, expected=[x.ljust(w) for x in strs], label=f'ljust w={w}')
+            chk(rjust, w, expected=[x.rjust(w) for x in strs], label=f'rjust w={w}')
+        chk(ljust, 8, '*', expected=[x.ljust(8, '*') for x in strs], label='ljust fill=*')
+        chk(rjust, 8, '.', expected=[x.rjust(8, '.') for x in strs], label='rjust fill=.')
+
+        # ── zfill ─────────────────────────────────────────────────────────────
+        for w in [0, 1, 3, 6, 10]:
+            chk(zfill, w, expected=[x.zfill(w) for x in strs], label=f'zfill w={w}')
+
+        # ── contains_re ───────────────────────────────────────────────────────
+        for pat in ['cat', 'dog', 'hello', '^cat', '[0-9]+', 'cat|dog']:
+            chk(contains_re, pat, expected=[bool(re.search(pat, x)) for x in strs], label=f'contains_re {pat!r}')
+
+        # flags parameter causes Python fallback
+        res_flags = t.select(out=contains_re(s, 'cat', flags=re.IGNORECASE)).collect()['out']
+        assert res_flags == [bool(re.search(r'cat', x, re.IGNORECASE)) for x in strs]
+
+        # ── count ─────────────────────────────────────────────────────────────
+        for pat in ['[aeiou]', 'a', 'cat', 'zzz', 'aa']:
+            chk(count, pat, expected=[len(re.findall(pat, x)) for x in strs], label=f'count {pat!r}')
+
+        # ── match ─────────────────────────────────────────────────────────────
+        for pat in ['cat', 'dog', 'hello', '[0-9]+']:
+            chk(match, pat, expected=[bool(re.match(pat, x)) for x in strs], label=f'match {pat!r}')
+
+        # match anchors at start only
+        matched_dog = t.where(match(s, 'dog')).select(s).collect()['s']
+        assert 'dog food' in matched_dog
+        assert 'cat dog' not in matched_dog
+
+        # Alternation anchoring: 'cat|dog' must be wrapped as '^(?:cat|dog)'
+        chk(match, 'cat|dog', expected=[bool(re.match(r'cat|dog', x)) for x in strs], label='match alternation')
+
+        # case=False (ASCII pattern)
+        chk(
+            match,
+            'cat',
+            case=False,
+            expected=[bool(re.match(r'cat', x, re.IGNORECASE)) for x in strs],
+            label='match case=False',
+        )
+
+        # ── fullmatch ─────────────────────────────────────────────────────────
+        for pat in ['cat', 'dog', r'[a-z]+']:
+            chk(fullmatch, pat, expected=[bool(re.fullmatch(pat, x)) for x in strs], label=f'fullmatch {pat!r}')
+
+        # fullmatch must match the *entire* string
+        assert 'catdog' not in t.where(fullmatch(s, 'cat')).select(s).collect()['s']
+
+        # Alternation anchoring: '^(?:cat|dog)$' not '^cat|dog$'
+        fullmatch_alt = set(t.where(fullmatch(s, 'cat|dog')).select(s).collect()['s'])
+        assert fullmatch_alt == {'cat', 'dog'}, f'fullmatch alternation: {fullmatch_alt}'
+
+        # case=False (ASCII pattern)
+        chk(
+            fullmatch,
+            'cat',
+            case=False,
+            expected=[bool(re.fullmatch(r'cat', x, re.IGNORECASE)) for x in strs],
+            label='fullmatch case=False',
+        )
+
+        # ── replace_re ────────────────────────────────────────────────────────
+        for pat, repl in [('[aeiou]', '*'), ('cat', 'feline'), ('zzz', 'XXX')]:
+            chk(replace_re, pat, repl, expected=[re.sub(pat, repl, x) for x in strs], label=f'replace_re {pat!r}')
+
+        # n=1 falls back to Python
+        res_n1 = t.select(out=replace_re(s, '[aeiou]', '*', n=1)).collect()['out']
+        assert res_n1 == [re.sub(r'[aeiou]', '*', x, count=1) for x in strs]
+
+        # ── Patterns that must fall back to Python ────────────────────────────
+        # All of these use constructs that PG handles differently. The whitelist
+        # rejects them, so both SQL and Python paths run through Python and
+        # produce identical, correct results.
+        fallback_patterns = [
+            # Non-POSIX: \b \B \A \Z \0 (?P<name>...)
+            r'\bcat\b',
+            r'cat\B',
+            r'(?P<name>cat)',
+            r'\Acat',
+            r'cat\Z',
+            r'\0',
+            # CATEGORY: \d \w \s (PG LC_CTYPE='C' is ASCII-only)
+            r'\w+',
+            r'\d+',
+            r'\s+',
+            # ANY: '.' (PG matches \n, Python does not)
+            'hel.o',
+            r'a.*b',
+            # Inline flags: (?i) (?s) (?m) (PG interprets differently)
+            '(?i)cat',
+            '(?s)cat',
+            '(?m)^cat',
+        ]
+        for pat in fallback_patterns:
+            chk(contains_re, pat, expected=[bool(re.search(pat, x)) for x in strs], label=f'fallback {pat!r}')
+
+        # Verify '.' patterns produce correct results with newline-containing strings
+        assert t.select(out=contains_re(s, 'a.b')).collect()['out'] == [bool(re.search(r'a.b', x)) for x in strs], (
+            'dot must not match newline (a.b vs a\\nb)'
+        )
+
+        # Non-ASCII pattern with case=False must fall back to Python
+        chk(
+            match,
+            'é',
+            case=False,
+            expected=[bool(re.match(r'é', x, re.IGNORECASE)) for x in strs],
+            label='match non-ASCII case=False',
+        )
 
     def test_string_splitter(self, uses_db: None) -> None:
         skip_test_if_not_installed('spacy')
