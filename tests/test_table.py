@@ -3925,3 +3925,58 @@ class TestTable:
         # check that raw object JSON comments are rejected for columns
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'comment' must be a string"):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[dict-item]
+
+    def test_insert_query_computed_cols(self, uses_db: None, e5_embed: pxt.Function) -> None:
+        """Query insert correctly evaluates computed cols and embedding index val cols."""
+        skip_test_if_not_installed('sentence_transformers')
+
+        src = pxt.create_table('src', {'c1': pxt.String, 'c2': pxt.Int})
+        src.insert([{'c1': 'a dog in the park', 'c2': 10}, {'c1': 'a cat on a mat', 'c2': 20}])
+
+        dst = pxt.create_table('dst', {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.String})
+        dst.add_computed_column(c4=dst.c2 * 2)
+        dst.add_computed_column(c5=dst.c4 + 1)
+        dst.add_embedding_index('c1', string_embed=e5_embed)
+        dst.add_computed_column(unstored_col=dst.c2 + 100, stored=False)
+        dst.add_computed_column(c6=dst.unstored_col * 2)
+        # c3 is missing from source so will always be none
+        dst.add_computed_column(unstored_from_missing=dst.c3 + '_suffix', stored=False)
+        dst.add_computed_column(c7=dst.unstored_from_missing + '_more')
+
+        dst.insert(src.select(src.c1, src.c2))
+
+        result = dst.order_by(dst.c2).collect()
+        assert len(result) == 2
+        assert result[0]['c4'] == 20
+        assert result[1]['c4'] == 40
+        assert result[0]['c5'] == 21
+        assert result[1]['c5'] == 41
+        assert result[0]['c3'] is None
+        assert result[1]['c3'] is None
+        assert result[0]['c6'] == 220
+        assert result[1]['c6'] == 240
+        assert result[0]['c7'] is None  # unstored_from_missing depends on missing c3, so c7 is None
+        assert result[1]['c7'] is None
+
+        sim_result = dst.order_by(dst.c1.similarity(string='cat'), asc=False).limit(1).collect()
+        assert sim_result[0]['c1'] == 'a cat on a mat'
+
+        # verify btree index val cols on c1 and c2 are correctly populated
+        btree_result = dst.where(dst.c2 == 10).collect()
+        assert len(btree_result) == 1
+        assert btree_result[0]['c1'] == 'a dog in the park'
+
+        btree_result2 = dst.where(dst.c1 == 'a cat on a mat').collect()
+        assert len(btree_result2) == 1
+        assert btree_result2[0]['c2'] == 20
+
+        # verify substitution works with arbitrary source expressions mapped to destination column names
+        dst2 = pxt.create_table('dst2', {'x': pxt.String, 'y': pxt.Int})
+        dst2.add_computed_column(z=dst2.y * 2)
+        dst2.insert(src.select(x=src.c1, y=src.c2 + 5))
+
+        result2 = dst2.order_by(dst2.y).collect()
+        assert result2[0]['y'] == 15
+        assert result2[0]['z'] == 30
+        assert result2[1]['y'] == 25
+        assert result2[1]['z'] == 50
