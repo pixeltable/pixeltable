@@ -1782,7 +1782,7 @@ class Catalog:
         Locking protocol:
         - X-lock base before X-locking any view
         - deadlock-free wrt to TableVersion.insert() (insert propagation also proceeds top-down)
-        - X-locks parent dir prior to calling TableVersion.drop(): prevent concurrent creation of another SchemaObject
+        - X-locks parent dir: prevent concurrent creation of another SchemaObject
           in the same directory with the same name (which could lead to duplicate names if we get aborted)
         """
         is_pure_snapshot: bool
