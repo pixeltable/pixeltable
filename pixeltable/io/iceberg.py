@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -90,11 +90,12 @@ def export_iceberg(
 
     # `pa.json_()` (the fallback `to_record_batches` uses for heterogeneously-shaped JSON) is also an
     # extension type Iceberg doesn't recognize, but its storage is already a JSON-encoded string, so
-    # we unwrap each JSON column in-place. `json_idxs` is reused below for subsequent batches.
-    json_idxs = [i for i, f in enumerate(first_batch.schema) if f.type == pa.json_()]
-    for i in json_idxs:
+    # we unwrap each JSON column in-place. `json_names` is reused below for subsequent batches.
+    json_names = [f.name for f in first_batch.schema if f.type == pa.json_()]
+    for name in json_names:
+        i = first_batch.schema.get_field_index(name)
         first_batch = first_batch.set_column(
-            i, pa.field(first_batch.schema[i].name, pa.string()), first_batch.column(i).storage
+            i, pa.field(name, pa.string()), cast(pa.ExtensionArray, first_batch.column(name)).storage
         )
 
     if iceberg_tbl is None:
@@ -118,6 +119,10 @@ def export_iceberg(
     with iceberg_tbl.transaction() as tx:
         tx.append(pa.Table.from_batches([first_batch]))
         for batch in batch_iter:
-            for i in json_idxs:
-                batch = batch.set_column(i, pa.field(batch.schema[i].name, pa.string()), batch.column(i).storage)
-            tx.append(pa.Table.from_batches([batch]))
+            unwrapped = batch
+            for name in json_names:
+                i = unwrapped.schema.get_field_index(name)
+                unwrapped = unwrapped.set_column(
+                    i, pa.field(name, pa.string()), cast(pa.ExtensionArray, unwrapped.column(name)).storage
+                )
+            tx.append(pa.Table.from_batches([unwrapped]))

@@ -11,7 +11,7 @@ from ..utils import create_all_datatypes_tbl, pxt_raises, skip_test_if_not_insta
 
 
 @pxt.udf
-def array_to_list(arr: pxt.Array[(10,), pxt.Float]) -> pxt.Json:  # type: ignore[misc]
+def array_to_list(arr: pxt.Array[(10,), pxt.Float]) -> pxt.Json:
     return arr.tolist()
 
 
