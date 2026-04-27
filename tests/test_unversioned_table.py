@@ -57,6 +57,12 @@ class TestUnversionedTable:
                 ).scalar()
                 assert row_count == 1, (system_tbl, row_count)
 
+        pxt.drop_table(tbl)
+
+        with get_runtime().begin_xact() as conn:
+            inspector = sql.inspect(conn)
+            assert not inspector.has_table(store_name)
+
     def test_select_where(self, uses_db: None) -> None:
         schema = {'c_int': pxt.Int, 'c_str': pxt.String, 'c_float': pxt.Float, 'c_bool': pxt.Bool}
         tbl = pxt.create_table('test', schema, _is_versioned=False)

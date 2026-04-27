@@ -212,9 +212,31 @@ class View(Table):
             key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = [
-                CreateTableMdOp(tbl_id=tbl_id, op_sn=0, num_ops=3, status=OpStatus.PENDING),
-                CreateStoreTableOp(tbl_id=tbl_id, op_sn=1, num_ops=3, status=OpStatus.PENDING),
-                LoadViewOp(tbl_id=tbl_id, op_sn=2, num_ops=3, status=OpStatus.PENDING, view_path=view_path.as_dict()),
+                CreateTableMdOp(
+                    tbl_id=tbl_id,
+                    op_sn=0,
+                    num_ops=3,
+                    status=OpStatus.PENDING,
+                    tbl_version=md.tbl_md.current_version,
+                    tbl_schema_version=md.tbl_md.current_schema_version,
+                ),
+                CreateStoreTableOp(
+                    tbl_id=tbl_id,
+                    op_sn=1,
+                    num_ops=3,
+                    status=OpStatus.PENDING,
+                    tbl_version=md.tbl_md.current_version,
+                    tbl_schema_version=md.tbl_md.current_schema_version,
+                ),
+                LoadViewOp(
+                    tbl_id=tbl_id,
+                    op_sn=2,
+                    num_ops=3,
+                    status=OpStatus.PENDING,
+                    view_path=view_path.as_dict(),
+                    tbl_version=md.tbl_md.current_version,
+                    tbl_schema_version=md.tbl_md.current_schema_version,
+                ),
             ]
             return md, ops
 
