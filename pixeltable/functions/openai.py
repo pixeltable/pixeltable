@@ -583,10 +583,6 @@ async def responses(
     Equivalent to the OpenAI `responses` API endpoint.
     For additional details, see: <https://developers.openai.com/api/docs/guides/migrate-to-responses>
 
-    The Responses API is OpenAI's recommended API for new projects, offering built-in tools
-    (web search, file search, code interpreter), improved reasoning model performance, lower costs,
-    and cleaner semantics compared to Chat Completions.
-
     Request throttling:
     Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
     request and token capacity. No configuration is necessary.
