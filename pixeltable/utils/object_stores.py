@@ -34,7 +34,7 @@ class StorageTarget(enum.Enum):
 
 
 # S3-compatible targets that use boto3
-S3_COMPATIBLE_TARGETS: frozenset[StorageTarget] = frozenset(
+S3_COMPATIBLE_TARGETS = frozenset(
     {StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}
 )
 

@@ -26,5 +26,5 @@ class PixeltableStoreOperationType(str, Enum):
     GET_PRESIGNED_URL = 'get_presigned_url'
 
 
-REPLICA_OPERATIONS: frozenset[ReplicaOperationType] = frozenset(ReplicaOperationType)
-PIXELTABLE_STORE_OPERATIONS: frozenset[PixeltableStoreOperationType] = frozenset(PixeltableStoreOperationType)
+REPLICA_OPERATIONS = frozenset(ReplicaOperationType)
+PIXELTABLE_STORE_OPERATIONS = frozenset(PixeltableStoreOperationType)
