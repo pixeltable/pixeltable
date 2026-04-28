@@ -19,8 +19,7 @@ def export_iceberg(
     Exports a query result or table to an Apache Iceberg table.
 
     Data is streamed into the Iceberg table via pyarrow `RecordBatches`, the size of which can be controlled with
-    the `batch_size_bytes` parameter. The destination Iceberg `Catalog` is supplied by the caller; for a local
-    sqlite-backed catalog, see [`pixeltable.utils.iceberg.sqlite_catalog`][pixeltable.utils.iceberg.sqlite_catalog].
+    the `batch_size_bytes` parameter. The destination Iceberg `Catalog` is supplied by the caller.
 
     __Requirements:__
 
