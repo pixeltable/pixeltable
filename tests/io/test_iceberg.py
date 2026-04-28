@@ -25,7 +25,6 @@ class TestIceberg:
         """Export a table with every supported type and verify the Iceberg output."""
         skip_test_if_not_installed('pyiceberg')
         t = create_all_datatypes_tbl()
-        rows = list(t.collect())
 
         # Iceberg has no fixed-shape tensor type; the caller is expected to project the
         # column to a list before exporting.
@@ -47,11 +46,12 @@ class TestIceberg:
             c_array=array_to_list(t.c_array),
         )
 
+        rows = query.collect()
         catalog = self._catalog(tmp_path)
         pxt.io.export_iceberg(query, catalog, 'pxt.all_types')
 
         iceberg_tbl = catalog.load_table('pxt.all_types')
-        exported = iceberg_tbl.scan().to_arrow().sort_by('row_id').to_pylist()
+        exported = iceberg_tbl.scan().to_arrow().to_pylist()
 
         assert len(exported) == len(rows)
 
@@ -67,7 +67,7 @@ class TestIceberg:
             # JSON columns are unwrapped to their underlying string storage on export.
             assert json.loads(exp_row['c_json']) == orig_row['c_json']
 
-            assert exp_row['c_array'] == orig_row['c_array'].tolist()
+            assert exp_row['c_array'] == orig_row['c_array']
 
             for col in ['c_video', 'c_audio', 'c_document']:
                 assert isinstance(exp_row[col], str), f'{col} should be a string'
