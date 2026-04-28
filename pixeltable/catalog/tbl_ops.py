@@ -16,6 +16,7 @@ import sqlalchemy as sql
 
 import pixeltable.metadata.schema as schema
 from pixeltable.runtime import get_runtime
+from pixeltable.utils.fault_injection import FaultLocation, process_fault
 
 from .update_status import UpdateStatus
 
@@ -130,6 +131,7 @@ class LoadViewOp(TableOp):
         from pixeltable.catalog.table_version_path import TableVersionPath
         from pixeltable.plan import Planner
 
+        process_fault(FaultLocation.CATALOG_LOAD_VIEW_OP_EXEC)
         assert get_runtime().in_xact
         view_path = TableVersionPath.from_dict(self.view_path)
         plan, _ = Planner.create_view_load_plan(view_path)

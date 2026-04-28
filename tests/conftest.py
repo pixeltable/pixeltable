@@ -158,6 +158,13 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
             _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
 
 
+@pytest.fixture(autouse=True)
+def clear_armed_faults() -> Iterator[None]:
+    """Disarm any faults that the previous test left behind"""
+    get_runtime().fault_manager.clear_faults()
+    yield
+
+
 @pytest.fixture(scope='function')
 def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     """Fixture for tests that interact with the underlying store (PosgreSQL or CockroachDB).

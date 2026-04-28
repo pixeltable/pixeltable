@@ -22,6 +22,7 @@ from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.exception_handler import run_cleanup
+from pixeltable.utils.fault_injection import FaultLocation, process_fault
 
 from .column import Column
 from .dir import Dir
@@ -852,6 +853,7 @@ class Catalog:
                         continue
 
                 # this op runs outside of a transaction
+                process_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT)
                 if is_rollback:
                     op.undo(tv)
                 else:
