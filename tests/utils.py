@@ -27,6 +27,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
+from pixeltable.catalog import retry_loop
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.types import ColumnSpec
@@ -103,38 +104,57 @@ def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Tabl
     return pxt.create_table(name, schema)  # type: ignore[arg-type]
 
 
-def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10) -> list[dict[str, Any]]:
+def create_table_data(
+    t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10, non_serializable_json: bool = False
+) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
     data: dict[str, Any] = {}
 
-    # avoid fields with empty dicts, they cannot be serialized as a struct in Parquet
-    sample_dict = {
-        'detections': [
-            {
-                'id': '637e8e073b28441a453564cf',
-                'tags': [],
-                'label': 'potted plant',
-                'bounding_box': [0.37028125, 0.3345305164319249, 0.038593749999999996, 0.16314553990610328],
-                'mask': None,
-                'confidence': None,
-                'index': None,
-                'supercategory': 'furniture',
-                'iscrowd': 0,
-            },
-            {
-                'id': '637e8e073b28441a453564cf',
-                'tags': [],
-                'label': 'potted plant',
-                'bounding_box': [0.37028125, 0.3345305164319249, 0.038593749999999996, 0.16314553990610328],
-                'mask': None,
-                'confidence': None,
-                'index': None,
-                'supercategory': 'furniture',
-                'iscrowd': 0,
-            },
-        ]
-    }
+    # JSON-serializable samples: pure dicts/lists of strings, ints, floats, bools, None.
+    serializable_json_values: list[Any] = [
+        {
+            'detections': [
+                {
+                    'id': '637e8e073b28441a453564cf',
+                    'tags': ['a', 'b'],
+                    'label': 'potted plant',
+                    'bounding_box': [0.370, 0.335, 0.039, 0.163],
+                    'mask': None,
+                    'confidence': 0.95,
+                    'iscrowd': 0,
+                    'verified': True,
+                }
+            ]
+        },
+        {'level1': {'level2': {'level3': [1, 2.0, 'three', False, None]}}},
+        [{'key': 'val1', 'n': 1}, {'key': 'val2', 'n': 2}],
+        {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False, 'n': None},
+    ]
+
+    # Non-serializable samples: contain PIL images, numpy arrays, or bytes.
+    non_serializable_json_values: list[Any] = [
+        {'label': 'synthetic', 'thumbnail': PIL.Image.new('RGB', (4, 4), color=(255, 0, 0))},
+        {'label': 'embedding', 'vector': np.zeros(8, dtype=np.float64)},
+        {'label': 'binary_payload', 'raw': b'\xde\xad\xbe\xef'},
+        {
+            'label': 'mixed_list',
+            'items': [
+                'text_item',
+                42,
+                3.14,
+                True,
+                None,
+                PIL.Image.new('L', (2, 2)),
+                np.ones(3, dtype=np.float32),
+                b'\x00\x01',
+            ],
+        },
+    ]
+
+    sample_json_values = (
+        serializable_json_values + non_serializable_json_values if non_serializable_json else serializable_json_values
+    )
 
     if len(col_names) == 0:
         col_names = [c.name for c in t._tbl_version_path.columns() if not c.is_computed]
@@ -161,7 +181,7 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
         if col_type.is_binary_type():
             col_data = [b'1$\x03\xfe'] * num_rows
         if col_type.is_json_type():
-            col_data = [sample_dict] * num_rows
+            col_data = [sample_json_values[i % len(sample_json_values)] for i in range(num_rows)]
         if col_type.is_array_type():
             assert isinstance(col_type, ts.ArrayType)
             col_data = [np.ones(col_type.shape, dtype=col_type.dtype)] * num_rows
@@ -174,6 +194,13 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
         if col_type.is_audio_type():
             audio_path = get_audio_files()[0]
             col_data = [audio_path] * num_rows
+        if col_type.is_document_type():
+            docs = get_documents()
+            if not Env.get().is_installed_package('mistune') or not Env.get().is_installed_package('markitdown'):
+                skip_exts = {'.md', '.pptx', '.docx', '.xlsx'}
+                docs = [d for d in docs if Path(d).suffix.lower() not in skip_exts]
+            col_data = [docs[i % len(docs)] for i in range(num_rows)]
+
         data[col_name] = col_data
     rows = [{col_name: data[col_name][i] for col_name in col_names} for i in range(num_rows)]
     return rows
@@ -253,7 +280,7 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     return tbl
 
 
-def create_all_datatypes_tbl() -> pxt.Table:
+def create_all_datatypes_tbl(non_serializable_json: bool = False) -> pxt.Table:
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
@@ -270,9 +297,10 @@ def create_all_datatypes_tbl() -> pxt.Table:
         'c_uuid': pxt.UUID,
         'c_binary': pxt.Binary,
         'c_video': pxt.Video,
+        'c_document': pxt.Document,
     }
     tbl = pxt.create_table('all_datatype_tbl', schema)
-    example_rows = create_table_data(tbl, num_rows=11)
+    example_rows = create_table_data(tbl, num_rows=11, non_serializable_json=non_serializable_json)
 
     for i, r in enumerate(example_rows):
         r['row_id'] = i  # row_id
@@ -478,6 +506,30 @@ def get_documents() -> list[str]:
     return glob.glob(f'{docs_dir}/*', recursive=True)
 
 
+def get_csv_files() -> list[str]:
+    csv_dir = TESTS_DIR / 'data' / 'csv'
+    return glob.glob(f'{csv_dir}/*', recursive=True)
+
+
+def get_csv_file(name: str) -> str | None:
+    csv_dir = TESTS_DIR / 'data' / 'csv'
+    file_path = csv_dir / name
+    glob_result = glob.glob(f'{file_path}', recursive=True)
+    return glob_result.pop(0) if len(glob_result) > 0 else None
+
+
+def get_json_files() -> list[str]:
+    json_dir = TESTS_DIR / 'data' / 'json'
+    return glob.glob(f'{json_dir}/*', recursive=True)
+
+
+def get_json_file(name: str) -> str | None:
+    json_dir = TESTS_DIR / 'data' / 'json'
+    file_path = json_dir / name
+    glob_result = glob.glob(f'{file_path}', recursive=True)
+    return glob_result.pop(0) if len(glob_result) > 0 else None
+
+
 def get_sentences(n: int = 100) -> list[str]:
     path = glob.glob(f'{TESTS_DIR}/**/jeopardy.json', recursive=True)[0]
     with open(path, 'r', encoding='utf8') as f:
@@ -533,6 +585,22 @@ def __equality_comparer(x: Any, y: Any) -> bool:
     return x == y
 
 
+# Hamming distance threshold (out of 64 bits) below which two perceptual hashes are considered the same image.
+# A round-trip through lossy JPEG re-encoding usually leaves the pHash unchanged; a few bits of drift covers
+# multi-generation re-encoding without admitting genuinely different images.
+__IMAGE_PHASH_TOLERANCE = 4
+
+
+def __image_comparer(x: PIL.Image.Image, y: PIL.Image.Image) -> bool:
+    """Perceptual-hash comparison: tolerates lossy re-encoding (e.g. PIL images that have been round-tripped
+    through JPEG inlining and back) while still rejecting visually distinct images."""
+    import imagehash
+
+    if x.size != y.size or x.mode != y.mode:
+        return False
+    return (imagehash.phash(x) - imagehash.phash(y)) <= __IMAGE_PHASH_TOLERANCE
+
+
 def __json_comparer(x: Any, y: Any) -> bool:
     if type(x) is not type(y):
         return False
@@ -544,6 +612,8 @@ def __json_comparer(x: Any, y: Any) -> bool:
         return __float_comparer(x, y)
     if isinstance(x, np.ndarray):
         return __array_comparer(x, y)
+    if isinstance(x, PIL.Image.Image):
+        return __image_comparer(x, y)
     return x == y
 
 
@@ -551,6 +621,7 @@ __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
     ts.ColumnType.Type.FLOAT: __float_comparer,
     ts.ColumnType.Type.ARRAY: __array_comparer,
     ts.ColumnType.Type.JSON: __json_comparer,
+    ts.ColumnType.Type.IMAGE: __image_comparer,
     ts.ColumnType.Type.VIDEO: __file_comparer,
     ts.ColumnType.Type.AUDIO: __file_comparer,
     ts.ColumnType.Type.DOCUMENT: __file_comparer,
@@ -799,7 +870,13 @@ class ReloadTester:
         assert len(self.query_info) > 0, 'No queries in ReloadTester!'
         # enumerate(): the list index is useful for debugging
         for _idx, (query_dict, result_set) in enumerate(self.query_info):
-            query = pxt.Query.from_dict(query_dict)
+
+            @retry_loop()
+            def query_from_dict() -> pxt.Query:
+                return pxt.Query.from_dict(query_dict)
+
+            query = query_from_dict()
+
             new_result_set = query.collect()
             try:
                 assert_resultset_eq(result_set, new_result_set, compare_col_names=True)

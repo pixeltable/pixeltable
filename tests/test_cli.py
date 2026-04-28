@@ -53,6 +53,7 @@ class TestCLI:
         _run_cli(['pxt'], capsys, stdout='usage:')
         _run_cli(['pxt', '--version'], capsys, stdout=pxt.__version__)
         _run_cli(['pxt', 'serve', 'insert'], capsys, exit_code=2, stderr=['Examples:', '--table'])
+        _run_cli(['pxt', 'serve', 'update'], capsys, exit_code=2, stderr=['Examples:', '--table'])
         _run_cli(['pxt', 'serve', 'delete'], capsys, exit_code=2, stderr='Examples:')
         _run_cli(['pxt', 'serve', 'query'], capsys, exit_code=2, stderr='Examples:')
         _run_cli(['pxt', 'serve', 'config'], capsys, exit_code=2, stderr='Examples:')
@@ -79,6 +80,20 @@ class TestCLI:
         data = json.loads(capsys.readouterr().out)
         assert data['routes'][0]['type'] == 'insert'
         assert data['routes'][0]['path'] == '/ins'
+        assert data['routes'][0]['table'] == 'd.items'
+
+        # update plain
+        _run_cli(
+            ['pxt', 'serve', 'update', '--table', 'd.items', '--path', '/upd', '--dry-run'],
+            capsys,
+            stdout=['[update]', '/upd'],
+        )
+
+        # update --json
+        _run_cli(['pxt', 'serve', 'update', '--table', 'd.items', '--path', '/upd', '--dry-run', '--json'], capsys)
+        data = json.loads(capsys.readouterr().out)
+        assert data['routes'][0]['type'] == 'update'
+        assert data['routes'][0]['path'] == '/upd'
         assert data['routes'][0]['table'] == 'd.items'
 
         # delete plain
@@ -125,6 +140,7 @@ class TestCLI:
             InsertRouteConfig,
             QueryRouteConfig,
             ServiceConfig,
+            UpdateRouteConfig,
         )
 
         with (
@@ -172,6 +188,27 @@ class TestCLI:
             assert route.background is True
             assert route.return_fileresponse is False
             mock_run.assert_called_once_with('fake_app', host='0.0.0.0', port=9000)
+
+            mock_create.reset_mock()
+            mock_run.reset_mock()
+
+            # update
+            argv = [
+                'pxt', 'serve', 'update',
+                '--table', 'd.items', '--path', '/update',
+                '--inputs', 'name',
+                '--outputs', 'id', 'name', 'name_upper',
+                '--return-fileresponse',
+            ]  # fmt: skip
+            with patch('sys.argv', argv):
+                cli_main()
+            route = mock_create.call_args.args[0].routes[0]
+            assert isinstance(route, UpdateRouteConfig)
+            assert route.table == 'd.items'
+            assert route.inputs == ['name']
+            assert route.outputs == ['id', 'name', 'name_upper']
+            assert route.return_fileresponse is True
+            assert route.background is False
 
             mock_create.reset_mock()
             mock_run.reset_mock()

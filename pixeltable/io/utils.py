@@ -1,9 +1,20 @@
+from __future__ import annotations
+
+import copy
+import os
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from keyword import iskeyword as is_python_keyword
-from typing import Any
+from pathlib import Path
+from typing import IO, Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.catalog.globals import is_system_column_name
+from pixeltable.exprs.column_property_ref import ColumnPropertyRef
+from pixeltable.exprs.column_ref import ColumnRef
+from pixeltable.exprs.expr import Expr
 
 
 def normalize_pxt_col_name(name: str) -> str:
@@ -107,3 +118,45 @@ def normalize_schema_names(
     pxt_pk = [col_mapping[pk] for pk in primary_key] if col_mapping is not None else primary_key
 
     return schema, pxt_pk, col_mapping
+
+
+def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> list[Expr]:
+    """Return a new select list where media ColumnRefs are replaced with their .fileurl property.
+
+    This avoids Pixeltable's file caching pipeline and instead returns the authoritative
+    URL stored in the database for each media column. Media-typed expressions that are not
+    bare ColumnRefs (e.g. `.resize(...)` or other transformations) have no stable URL and
+    are rejected.
+    """
+    result: list[Expr] = []
+    for expr in copy.deepcopy(select_list_exprs):
+        if isinstance(expr, ColumnRef) and expr.col_type.is_media_type():
+            result.append(ColumnPropertyRef(expr, ColumnPropertyRef.Property.FILEURL))
+        elif expr.col_type.is_media_type():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot export media expression {expr!r}: only stored media columns can be serialized. '
+                f'Materialize it as a computed column, or select its underlying '
+                f'column via `.fileurl` instead.',
+            )
+        else:
+            result.append(expr)
+    return result
+
+
+@contextmanager
+def atomic_write(file_path: Path, **open_kwargs: Any) -> Iterator[IO[str]]:
+    """Open a tempfile alongside `file_path`; rename it onto `file_path` on clean exit, delete on error.
+
+    `open_kwargs` are forwarded to `os.fdopen` (e.g. `mode`, `encoding`, `newline`).
+    """
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(file_path.parent), prefix=f'.{file_path.name}.', suffix='.tmp')
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, **open_kwargs) as f:
+            yield f
+        os.replace(tmp_path, file_path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise

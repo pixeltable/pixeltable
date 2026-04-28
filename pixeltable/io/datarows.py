@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import typing
 from typing import Any, Iterable
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable import exceptions as excs
+
+if typing.TYPE_CHECKING:
+    import pixeltable as pxt
 
 
 def _infer_schema_from_rows(
@@ -96,40 +100,4 @@ def import_rows(
     """
     return pxt.create_table(
         tbl_path, source=rows, schema_overrides=schema_overrides, primary_key=primary_key, comment=comment
-    )
-
-
-def import_json(
-    tbl_path: str,
-    filepath_or_url: str,
-    *,
-    schema_overrides: dict[str, Any] | None = None,
-    primary_key: str | list[str] | None = None,
-    comment: str = '',
-    **kwargs: Any,
-) -> pxt.Table:
-    """
-    Creates a new base table from a JSON file. This is a convenience method and is
-    equivalent to calling `import_data(table_path, json.loads(file_contents, **kwargs), ...)`, where `file_contents`
-    is the contents of the specified `filepath_or_url`.
-
-    Args:
-        tbl_path: The name of the table to create.
-        filepath_or_url: The path or URL of the JSON file.
-        schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
-            (see [`import_rows()`][pixeltable.io.import_rows]).
-        primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
-        comment: A comment to attach to the table (see [`create_table()`][pixeltable.create_table]).
-        kwargs: Additional keyword arguments to pass to `json.loads`.
-
-    Returns:
-        A handle to the newly created [`Table`][pixeltable.Table].
-    """
-    return pxt.create_table(
-        tbl_path,
-        source=filepath_or_url,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        comment=comment,
-        extra_args=kwargs,
     )
