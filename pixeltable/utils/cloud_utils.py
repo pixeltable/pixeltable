@@ -25,17 +25,18 @@ def _api_headers() -> dict[str, str]:
     headers = {'Content-Type': 'application/json'}
     api_key = Env.get().pxt_api_key
     if api_key is None:
-        raise excs.Error(
+        raise excs.AuthorizationError(
+            excs.ErrorCode.MISSING_CREDENTIALS,
             'A Pixeltable API key is required for home bucket access. '
             'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
             f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
-            'For details, see https://docs.pixeltable.com/platform/configuration'
+            'For details, see https://docs.pixeltable.com/platform/configuration',
         )
     headers['X-api-key'] = api_key
     return headers
 
 
-def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str) -> GetBucketCredentialsResponse:
+def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = None) -> GetBucketCredentialsResponse:
     """
     Fetch temporary R2 credentials for a home bucket from the cloud control plane.
 
@@ -52,11 +53,20 @@ def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str) -> GetBu
     try:
         response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=15)
         if response.status_code != 200:
-            raise excs.Error(f'Failed to get bucket credentials: {response.text}')
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Failed to get bucket credentials: {response.text}',
+                provider='pixeltable_cloud',
+                status_code=response.status_code,
+            )
         data = response.json()
         return GetBucketCredentialsResponse.model_validate(data)
     except requests.exceptions.RequestException as e:
-        raise excs.Error(f'Failed to connect to Pixeltable Cloud for bucket credentials: {e}') from e
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Failed to connect to Pixeltable Cloud for bucket credentials: {e}',
+            provider='pixeltable_cloud',
+        ) from e
 
 
 def get_presigned_url_from_cloud(
@@ -72,8 +82,17 @@ def get_presigned_url_from_cloud(
     try:
         response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)
         if response.status_code != 200:
-            raise excs.Error(f'Failed to get presigned URL from Pixeltable Cloud: {response.text}')
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Failed to get presigned URL from Pixeltable Cloud: {response.text}',
+                provider='pixeltable_cloud',
+                status_code=response.status_code,
+            )
         data = response.json()
         return GetPresignedUrlResponse.model_validate(data).url
     except requests.exceptions.RequestException as e:
-        raise excs.Error(f'Failed to get presigned URL from Pixeltable Cloud: {e}') from e
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Failed to get presigned URL from Pixeltable Cloud: {e}',
+            provider='pixeltable_cloud',
+        ) from e

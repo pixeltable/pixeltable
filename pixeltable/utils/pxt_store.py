@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import uuid
 import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -17,16 +19,18 @@ from botocore.client import BaseClient
 from botocore.credentials import CredentialResolver, RefreshableCredentials
 from botocore.session import get_session as get_botocore_session
 
-from pixeltable import env, exceptions as excs
+from pixeltable import ErrorCode, env, exceptions as excs
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.cloud_utils import get_bucket_credentials, get_presigned_url_from_cloud
-from pixeltable.utils.object_stores import StorageObjectAddress, StorageTarget
+from pixeltable.utils.object_stores import S3_COMPATIBLE_TARGETS, ObjectStoreBase, StorageObjectAddress, StorageTarget
 from pixeltable.utils.s3_store import S3CompatClientDict, S3Store
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
+
+_PXTFS_URI_PATTERN = re.compile(r'^pxtfs://[^/]+/([^/?#]+)(.*)$')
 
 
 @dataclass
@@ -35,8 +39,9 @@ class _PxtStoreCacheEntry:
 
     client: BaseClient | None  # populated after boto3 session is built
     resource: ServiceResource | None  # populated after boto3 session is built
-    bucket_name: str
+    physical_bucket_name: str
     endpoint_url: str
+    storage_provider: str
     no_space_left: bool = False
     no_space_warned: bool = False  # tracks whether warning has been issued for no space left in pixeltable store
 
@@ -82,7 +87,7 @@ def _refresh_credentials(org: str, db: str, bucket: str, prefix: str, entry: _Px
 
     entry.no_space_left = creds.no_space_left
     if creds.resolved_bucket_name:
-        entry.bucket_name = creds.resolved_bucket_name
+        entry.physical_bucket_name = creds.resolved_bucket_name
 
     _handle_no_space_warning(creds.no_space_left, entry, org, db, bucket)
 
@@ -108,9 +113,10 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtS
     entry = _PxtStoreCacheEntry(
         client=None,
         resource=None,
-        bucket_name=creds.resolved_bucket_name,
+        physical_bucket_name=creds.resolved_bucket_name,
         endpoint_url=creds.endpoint_url,
         no_space_left=creds.no_space_left,
+        storage_provider=creds.storage_provider,
     )
 
     _handle_no_space_warning(creds.no_space_left, entry, org, db, bucket)
@@ -176,34 +182,83 @@ def _get_or_create_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) 
 class PxtStore(ObjectStoreBase):
     """Wraps a provider-specific store with control-plane credential refresh."""
 
+    soa: StorageObjectAddress
     _pxt_store_entry: _PxtStoreCacheEntry
     _store: ObjectStoreBase  # underlying provider store (S3Store, AzureBlobStore, GCSStore, etc.)
 
     def __init__(self, soa: StorageObjectAddress) -> None:
-        if soa.storage_target != StorageTarget.PIXELTABLE_STORE:
-            raise excs.Error(
-                f'Invalid storage target for PxtStore: expected PIXELTABLE_STORE, got {soa.storage_target!s}.'
-            )
+        assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+
+        self.soa = soa
         org, db, bucket, path = soa.account, soa.account_extension, soa.container, soa.prefix
         self._pxt_store_entry = _get_or_create_pxt_store_entry(org, db, bucket, path)
-        # Replace logical container with physical bucket name, then build the appropriate store
-        resolved_soa = soa._replace(container=self._pxt_store_entry.bucket_name)
-        self._store = self._build_store(resolved_soa)
+        physical_soa = soa._replace(container=self._pxt_store_entry.physical_bucket_name)
+        self._store = self._build_store(physical_soa)
 
     def _build_store(self, soa: StorageObjectAddress) -> ObjectStoreBase:
         """Instantiate the correct underlying store based on the resolved provider."""
         assert self._pxt_store_entry.client is not None
-        assert self._pxt_store_entry.resource is not Non
-        return S3Store(soa, self._pxt_store_entry.client, self._pxt_store_entry.resource)
+        assert self._pxt_store_entry.resource is not None
+        assert self._pxt_store_entry.storage_provider is not None
+
+        storage_target = StorageTarget(self._pxt_store_entry.storage_provider)
+        if storage_target in S3_COMPATIBLE_TARGETS:
+            return S3Store(soa, client=self._pxt_store_entry.client, resource=self._pxt_store_entry.resource)
+        else:
+            supported = ', '.join(t.name for t in S3_COMPATIBLE_TARGETS)
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Storage target {storage_target.value!r} is not supported. Supported targets: {supported}',
+            )
+
+    def _to_logical_uri(self, physical_uri: str) -> str:
+        """Create object uri with logical bucket name"""
+        if not physical_uri.startswith('pxtfs://'):
+            return physical_uri
+
+        physical, logical = self._pxt_store_entry.physical_bucket_name, self.soa.container
+
+        matched = _PXTFS_URI_PATTERN.match(physical_uri)
+        assert matched, f'Unexpected pxtfs URI shape in {physical_uri!r}'
+
+        bucket, path = matched.group(1), matched.group(2)
+        if bucket == logical:
+            return physical_uri
+        assert bucket == physical, (
+            f'Unexpected pxtfs bucket segment {bucket!r} in {physical_uri!r} (expected {physical!r} or {logical!r})'
+        )
+        org_db = physical_uri.split('/')[2]
+        return f'pxtfs://{org_db}/{logical}{path}'
 
     def validate(self, error_col_name: str) -> str | None:
-        """Skip bucket-level validation; temp credentials are prefix-scoped."""
-        return self._store.validate(error_col_name)  # or skip entirely
+        """Probe the temp-credential-scoped prefix and return the logical base URI on success."""
+        assert isinstance(self._store, S3Store)
+
+        try:
+            _ = self._store.list_objects(return_uri=False, n_max=1)
+            return self._to_logical_uri(self._store.base_uri)
+        except excs.ExternalServiceError:
+            # Re-raise bucket specific errors (connection issues, permission denied, etc.)
+            raise
+        except excs.NotFoundError:
+            # Handle not found gracefully
+            _logger.warning(f'Bucket not found during validation for {error_col_name}')
+            return None
+        except Exception as e:
+            # Catch any unexpected errors
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Unexpected error validating storage for {error_col_name}: {e}',
+                provider=self._pxt_store_entry.storage_provider,
+            ) from e
 
     def copy_local_file(self, col: Column, src_path: Path) -> str:
         if self._pxt_store_entry.no_space_left:
-            raise excs.Error('No space left in Pixeltable store. Only read and delete operations are allowed.')
-        return self._store.copy_local_file(col, src_path)
+            raise excs.ServiceUnavailableError(
+                ErrorCode.STORE_UNAVAILABLE,
+                message='No space left in Pixeltable store. Only read and delete operations are allowed.',
+            )
+        return self._to_logical_uri(self._store.copy_local_file(col, src_path))
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         return self._store.copy_object_to_local_file(src_path, dest_path)
@@ -215,12 +270,17 @@ class PxtStore(ObjectStoreBase):
         return self._store.delete(tbl_id, tbl_version)
 
     def list_objects(self, return_uri: bool, n_max: int = 10) -> list[str]:
-        return self._store.list_objects(return_uri, n_max)
+        results = self._store.list_objects(return_uri, n_max)
+        if return_uri:
+            return [self._to_logical_uri(r) for r in results]
+        return results
 
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
         """Request a presigned GET URL from the control plane."""
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'StorageObjectAddress does not contain an object name: {soa}'
+            )
         return get_presigned_url_from_cloud(
             org_slug=soa.account,
             db_slug=soa.account_extension or '',

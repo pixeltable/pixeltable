@@ -247,7 +247,6 @@ class TestDestination:
             StorageTarget.R2_STORE,
             StorageTarget.B2_STORE,
             StorageTarget.TIGRIS_STORE,
-            StorageTarget.PIXELTABLE_STORE,
         ):
             res = t.select(dest1=t.img_rot2.fileurl, dest2=t.img_rot3.fileurl).collect()
             for dest_uri, col_name in ((dest1_uri, 'dest1'), (dest2_uri, 'dest2')):

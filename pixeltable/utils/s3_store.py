@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, Iterator, NamedTuple
 import boto3
 import botocore
 import puremagic
+from boto3.resources.base import ServiceResource
+from botocore.client import BaseClient
 from botocore.exceptions import ClientError, ConnectionError
 
 from pixeltable import env, exceptions as excs
@@ -16,8 +18,6 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
 
 if TYPE_CHECKING:
-    from botocore.exceptions import ClientError
-
     from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
@@ -94,10 +94,10 @@ class S3Store(ObjectStoreBase):
     soa: StorageObjectAddress
 
     # client to use when using pixeltable store running on top of S3 compatible object store
-    _client: BaseClient
+    _client: BaseClient | None
 
     # resource to use when using pixeltable store running on top of S3 compatible object store
-    _resource: ServiceResource
+    _resource: ServiceResource | None
 
     def __init__(
         self, soa: StorageObjectAddress, *, client: BaseClient | None = None, resource: ServiceResource | None = None

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 import pixeltable as pxt
 from pixeltable.utils import pxt_store
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath
+from pixeltable.utils.s3_store import S3Store
 
 from .utils import skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status
 
@@ -79,40 +80,37 @@ class TestPxtStore:
         assert ObjectOps.count(save_id, dest=dest_uri) == 0
 
     def test_no_space_left(self, uses_db: None) -> None:
-        """Verify that writes are blocked and reads/deletes still work when no_space_left is set."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
         dest_uri = f'{PXT_DEST_URI}/quota_test'
-
         t = pxt.create_table('test_pxt_quota', schema={'img': pxt.Image})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
 
-        validate_update_status(
-            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
-        )
-        assert ObjectOps.count(t._id, dest=dest_uri) == 1
+        img = 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'
+        validate_update_status(t.insert([{'img': img}]), expected_rows=1)
 
-        # Simulate quota exhaustion by injecting an entry with no_space_left=True.
-        # We patch _get_or_create_pxt_store_entry so every thread (including insert's
-        # worker pool) gets the controlled entry regardless of its local cache state.
-        quota_entry = MagicMock()
-        quota_entry.no_space_left = True
-        quota_entry.bucket_name = 'mock-bucket'
+        soa = ObjectPath.parse_object_storage_addr(dest_uri, allow_obj_name=False)
+        real_entry = pxt_store._get_or_create_pxt_store_entry(
+            soa.account, soa.account_extension, soa.container, soa.prefix
+        )
+        quota_entry = pxt_store._PxtStoreCacheEntry(
+            client=real_entry.client,
+            resource=real_entry.resource,
+            physical_bucket_name=real_entry.physical_bucket_name,
+            endpoint_url=real_entry.endpoint_url,
+            storage_provider=real_entry.storage_provider,
+            no_space_left=True,
+        )
 
         with patch.object(pxt_store, '_get_or_create_pxt_store_entry', return_value=quota_entry):
             with pytest.raises(pxt.Error, match='No space left'):
-                t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+                t.insert([{'img': img}])
 
-            # Reads go through copy_object_to_local_file (download), not copy_local_file,
-            # so they are unaffected by no_space_left.
             result = t.select(t.img_rot.fileurl).collect()
             assert len(result) == 1
 
-        # Outside the patch, the real entry is used again and writes succeed.
-        validate_update_status(
-            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
-        )
+        validate_update_status(t.insert([{'img': img}]), expected_rows=1)
         assert ObjectOps.count(t._id, dest=dest_uri) == 2
 
     def test_separate_prefixes_get_separate_credentials(self, uses_db: None) -> None:
@@ -127,7 +125,9 @@ class TestPxtStore:
         store1 = PxtStore(soa1)
         store2 = PxtStore(soa2)
         assert store1._pxt_store_entry is not store2._pxt_store_entry
-        assert store1.client() is not store2.client()
+        assert isinstance(store1._store, S3Store)
+        assert isinstance(store2._store, S3Store)
+        assert store1._store.client() is not store2._store.client()
 
     def test_same_prefix_shares_credentials(self, uses_db: None) -> None:
         """Verify that two columns with the same pxtfs:// destination share a single cached credential entry."""
@@ -140,7 +140,9 @@ class TestPxtStore:
         store1 = PxtStore(soa)
         store2 = PxtStore(soa)
         assert store1._pxt_store_entry is store2._pxt_store_entry
-        assert store1.client() is store2.client()
+        assert isinstance(store1._store, S3Store)
+        assert isinstance(store2._store, S3Store)
+        assert store1._store.client() is store2._store.client()
 
     def test_credentials_refresh(self, uses_db: None) -> None:
         """Verify that botocore automatically refreshes credentials when they expire."""
@@ -150,7 +152,7 @@ class TestPxtStore:
 
         soa = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/refresh_test', allow_obj_name=False)
         store = PxtStore(soa)
-        refreshable_creds = store.client()._get_credentials()  # type: ignore[attr-defined]
+        refreshable_creds = store._store.client()._get_credentials()  # type: ignore[attr-defined]
         initial_access_key = refreshable_creds.access_key
         initial_token = refreshable_creds.token
 

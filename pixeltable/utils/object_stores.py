@@ -33,6 +33,12 @@ class StorageTarget(enum.Enum):
         return self.value
 
 
+# S3-compatible targets that use boto3
+S3_COMPATIBLE_TARGETS: frozenset[StorageTarget] = frozenset(
+    {StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}
+)
+
+
 class StorageObjectAddress(NamedTuple):
     """Contains components of an object address.
     Unused components are empty strings.
@@ -78,7 +84,7 @@ class StorageObjectAddress(NamedTuple):
     def prefix_free_uri(self) -> str:
         """Return the URI without any prefixes."""
         if self.storage_target == StorageTarget.PIXELTABLE_STORE:
-            return f'{self.scheme}://{self.account}:{self.account_extension}/home/'
+            return f'{self.scheme}://{self.account}:{self.account_extension}/{self.container}/'
         if self.is_azure_scheme:
             return f'{self.scheme}://{self.container}@{self.account}.{self.account_extension}/'
         if self.account and self.account_extension:
@@ -280,7 +286,8 @@ class ObjectPath:
                 )
             if container != 'home':
                 raise ValueError(
-                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': only 'home' bucket is supported, got '{container}'"
+                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': only 'home' bucket is supported, "
+                    f"got '{container}'"
                 )
             key = path_parts[1] if len(path_parts) > 1 else ''
         else:
