@@ -23,6 +23,7 @@ class TestDestination:
         StorageTarget.B2_STORE,
         StorageTarget.GCS_STORE,
         StorageTarget.LOCAL_STORE,
+        StorageTarget.PIXELTABLE_STORE,
         StorageTarget.R2_STORE,
         StorageTarget.S3_STORE,
         StorageTarget.TIGRIS_STORE,
@@ -52,6 +53,8 @@ class TestDestination:
                 uri = 's3://pxt-test/pytest'
             case StorageTarget.R2_STORE:
                 uri = 'https://ae60fad96d33636287c3b2e76b88241f.r2.cloudflarestorage.com/pxt-test/pytest'
+            case StorageTarget.PIXELTABLE_STORE:
+                uri = 'pxtfs://pixeltable:main/home/pytest'
             case StorageTarget.TIGRIS_STORE:
                 uri = 'https://t3.storage.dev/pxt-test/pytest'
 
@@ -158,6 +161,42 @@ class TestDestination:
         ObjectPath.parse_object_storage_addr('file://dir1/dir2/dir3', allow_obj_name=False)
         ObjectPath.parse_object_storage_addr(f'file://dir1/dir2/dir3/{o_name}', allow_obj_name=True)
         ObjectPath.parse_object_storage_addr(f'dir2/dir3/{o_name}', allow_obj_name=True)
+
+        # pxtfs:// home bucket URIs
+        soa = ObjectPath.parse_object_storage_addr('pxtfs://myorg:mydb/home', allow_obj_name=False)
+        assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+        assert soa.account == 'myorg'
+        assert soa.account_extension == 'mydb'
+        assert soa.container == 'home'
+
+        soa = ObjectPath.parse_object_storage_addr('pxtfs://myorg:mydb/home/media/images', allow_obj_name=False)
+        assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+        assert soa.container == 'home'
+
+        soa = ObjectPath.parse_object_storage_addr(f'pxtfs://org:db/home/{p_name2}/{o_name}', allow_obj_name=True)
+        assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+        assert soa.container == 'home'
+        assert soa.has_object
+        assert soa.object_name == o_name
+        assert soa.prefix == f'{p_name2}/'
+        assert soa.account == 'org'
+        assert soa.account_extension == 'db'
+
+        # Negative cases for pxtfs:// uris
+        with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxtfs://orgonly/home', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxtfs://:db/home', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxtfs://org:/home', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxtfs://org:db/notbucket', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
 
     @rerun(reruns=3, reruns_delay=15)
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
