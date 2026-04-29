@@ -430,9 +430,11 @@ def _messages_resource_estimate(
             elif isinstance(value, list):
                 for part in value:
                     if isinstance(part, dict):
-                        if part.get('type') == text_type and isinstance(part.get('text'), str):
+                        if part.get('type') == text_type:
+                            assert isinstance(part.get('text'), str)
                             num_tokens += len(part['text']) / 4
-                        elif part.get('type') == image_type and isinstance(part.get('image_url'), PIL.Image.Image):
+                        elif part.get('type') == image_type:
+                            assert isinstance(part.get('image_url'), PIL.Image.Image)
                             num_tokens += _token_count_for_image(part['image_url'])
             if key == 'name':  # if there's a name, the role is omitted
                 num_tokens -= 1  # role is always required and always 1 token
@@ -1169,6 +1171,9 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 @pxt.udf
 def _openai_response_to_pxt_tool_calls(response: dict) -> dict | None:
     # Auto-detect: Responses API has 'output', Chat Completions has 'choices'
+    assert 'output' in response or 'choices' in response, (
+        "Unexpected OpenAI response format: missing 'output' or 'choices'"
+    )
     if 'output' in response:
         return _responses_output_to_pxt_tool_calls(response)
     return _chat_completions_to_pxt_tool_calls(response)
