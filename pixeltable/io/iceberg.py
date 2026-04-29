@@ -1,10 +1,24 @@
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
+from pathlib import Path
+
+if TYPE_CHECKING:
+    from pyiceberg.catalog.sql import SqlCatalog
+
+
+def sqlite_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> SqlCatalog:
+    """
+    Instantiate a sqlite Iceberg catalog at the specified path. If no catalog exists, one will be created.
+    """
+    if isinstance(warehouse_path, str):
+        warehouse_path = Path(warehouse_path)
+    warehouse_path.mkdir(exist_ok=True)
+    return SqlCatalog(name, uri=f'sqlite:///{warehouse_path}/catalog.db', warehouse=f'file://{warehouse_path}')
 
 
 def export_iceberg(
@@ -19,14 +33,14 @@ def export_iceberg(
     Exports a query result or table to an Apache Iceberg table.
 
     Data is streamed into the Iceberg table via pyarrow `RecordBatches`, the size of which can be controlled with
-    the `batch_size_bytes` parameter. The destination Iceberg `Catalog` is supplied by the caller.
+    the `batch_size_bytes` parameter.
 
     __Requirements:__
 
     - `pip install pyiceberg`
 
     Args:
-        table_or_query: Table or Query to export.
+        table_or_query: Pixeltable `Table` or `Query` to export.
         catalog: An Iceberg `Catalog` instance to write the table into.
         table_name: Fully-qualified Iceberg table identifier (e.g. `'pxt.my_table'`). If the namespace does not
             exist, it will be created.
