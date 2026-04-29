@@ -744,7 +744,7 @@ class TestOpenai:
         # Insert 2 rows: first initializes the pool synchronously, second goes through _get_request_resources
         with pytest.warns(
             pxt.exceptions.PixeltableDeprecationWarning,
-            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) instead',
+            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) or responses\(\) instead',
         ):
             validate_update_status(t.insert([{'img': SAMPLE_IMAGE_URL}, {'img': SAMPLE_IMAGE_URL}]), expected_rows=2)
         result = t.collect()
