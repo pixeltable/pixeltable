@@ -130,6 +130,9 @@ class ColumnMd:
     # TODO rename to col_type or something
     data_type: ColumnType.Type
 
+    # If present, the URI for the destination for column values
+    destination: str | None = None
+
     def is_live_in_version(self, schema_version: int) -> bool:
         """Returns True if the column is live in the given schema version."""
         return self.schema_version_add <= schema_version and (
@@ -350,9 +353,6 @@ class SchemaColumn:
     comment: str | None = None
     # user-defined metadata - must be a valid JSON-serializable object
     custom_metadata: Any = None
-
-    # If present, the URI for the destination for column values
-    destination: str | None = None
 
     def __post_init__(self) -> None:
         assert (self.pos is None) == (self.name is None), (

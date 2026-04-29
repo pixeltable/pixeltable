@@ -364,6 +364,7 @@ class Column:
             stored=self.stored,
             stores_cellmd=self.stores_cellmd,
             data_type=self.col_type.type_enum,
+            destination=self._explicit_destination,
         )
         sch_md = schema.SchemaColumn(
             name=self.name,
@@ -372,7 +373,6 @@ class Column:
             is_pk=self.is_pk,
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
-            destination=self._explicit_destination,
             custom_metadata=self._custom_metadata,
             comment=self._comment,
         )

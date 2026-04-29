@@ -573,7 +573,7 @@ class TableVersion:
                 stores_cellmd=col_md.stores_cellmd,
                 value_expr_dict=schema_col_md.value_expr,
                 tbl_handle=self.handle,
-                destination=schema_col_md.destination,
+                destination=col_md.destination,
                 custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
                 comment=schema_col_md.comment if schema_col_md is not None else '',
             )
