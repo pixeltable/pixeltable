@@ -3,6 +3,8 @@
 # the unit tests when new versions are added.
 VERSION_NOTES = {
     51: 'Various column metadata moved from ColumnMd to SchemaColumn for versioning',
+    50: 'Primary key index enforcement via migration',
+    49: 'SimilarityExpr: migrate from indexed_col to table_version_key',
     48: 'Adds stores_cellmd property to ColumnMd',
     47: 'New iterator structure',
     46: 'Literal type serialization updates',

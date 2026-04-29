@@ -126,7 +126,7 @@ class LoadViewOp(TableOp):
         plan, _ = Planner.create_view_load_plan(view_path)
         with get_runtime().report_progress():
             plan.ctx.title = tv.display_str()
-            _, row_counts = tv.store_tbl.insert_rows(plan, v_min=tv.version)
+            _, row_counts, _ = tv.store_tbl.insert_rows(plan, v_min=tv.version)
         status = UpdateStatus(row_count_stats=row_counts)
         get_runtime().catalog.store_update_status(tv.id, tv.version, status)
         _logger.debug(f'Loaded view {tv.name} with {row_counts.num_rows} rows')

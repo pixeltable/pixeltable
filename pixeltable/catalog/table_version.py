@@ -9,7 +9,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 from uuid import UUID
 
-import jsonschema.exceptions
 import sqlalchemy as sql
 from sqlalchemy import exc as sql_exc
 
@@ -273,10 +272,13 @@ class TableVersion:
             return f'{self.name}:{self.effective_version}'
 
     def __repr__(self) -> str:
-        return (
-            f'TableVersion(id={self.id!r}, name={self.name!r}, effective_version={self.effective_version}, '
-            f'anchor_tbl_id={self.anchor_tbl_id}; version={self.version})'
-        )
+        version_info = ''
+        if self.is_versioned:
+            version_info = (
+                f', effective_version={self.effective_version}, '
+                f'anchor_tbl_id={self.anchor_tbl_id}, version={self.version}'
+            )
+        return f'TableVersion(id={self.id!r}, name={self.name!r}, is_versioned={self.is_versioned}{version_info})'
 
     @property
     def handle(self) -> 'TableVersionHandle':
@@ -289,12 +291,12 @@ class TableVersion:
         cls,
         name: str,
         cols: list[Column],
-        num_retained_versions: int,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
-        view_md: schema.ViewMd | None = None,
+        view_md: schema.ViewMd | None,
+        is_versioned: bool,
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
@@ -370,6 +372,7 @@ class TableVersion:
             external_stores=[],
             view_md=view_md,
             additional_md={},
+            is_versioned=is_versioned,
         )
 
         table_version_md = schema.VersionMd(
@@ -387,7 +390,6 @@ class TableVersion:
             schema_version=0,
             preceding_schema_version=None,
             columns=schema_col_md,
-            num_retained_versions=num_retained_versions,
             comment=comment,
             custom_metadata=custom_metadata,
             media_validation=media_validation.name.lower(),
@@ -401,6 +403,7 @@ class TableVersion:
 
         assert get_runtime().in_xact
         assert md.tbl_md.is_replica
+        assert md.tbl_md.is_versioned
         tbl_id = UUID(md.tbl_md.tbl_id)
         _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
         view_md = md.tbl_md.view_md
@@ -585,7 +588,7 @@ class TableVersion:
         This will search through *all* known columns, including columns that are not visible in this TableVersion.
         """
         if qid.tbl_id == self.id:
-            return next(col for col in self.cols if col.id == qid.col_id)
+            return next((col for col in self.cols if col.id == qid.col_id), None)
         elif self.base is not None:
             return self.base.get()._lookup_column(qid)
         else:
@@ -605,6 +608,7 @@ class TableVersion:
         return f'idx_{self.id.hex}_{idx_id}'
 
     def add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         status = self._add_index(col, idx_name, idx)
@@ -691,6 +695,7 @@ class TableVersion:
     def drop_index(self, idx_id: int) -> None:
         assert self.is_mutable
         assert idx_id in self._tbl_md.index_md
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -717,6 +722,7 @@ class TableVersion:
 
     def add_columns_ops(self, cols: Iterable[Column]) -> tuple[TableVersionMd, list[TableOp]]:
         """Adds columns to the table."""
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
@@ -725,8 +731,9 @@ class TableVersion:
         for col in cols:
             # TODO: check this elsewhere?
             if not col.col_type.nullable and not col.is_computed and row_count > 0:
-                raise excs.Error(
-                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows',
                 )
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
@@ -783,6 +790,7 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Adds columns to the table."""
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
@@ -838,8 +846,9 @@ class TableVersion:
         for col in cols_to_add:
             assert col.tbl_handle.id == self.id
             if not col.col_type.nullable and not col.is_computed and row_count > 0:
-                raise excs.Error(
-                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows',
                 )
 
         num_excs = 0
@@ -879,7 +888,8 @@ class TableVersion:
                     # If it wasn't converted, re-raise as a generic Pixeltable error
                     # (this means it's not a known concurrency error; it's something else)
                     raise excs.Error(
-                        f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
+                        excs.ErrorCode.INTERNAL_ERROR,
+                        f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}',
                     ) from exc
             if excs_per_col > 0:
                 cols_with_excs.append(col)
@@ -901,6 +911,7 @@ class TableVersion:
         """Drop a column from the table."""
 
         assert self.is_mutable
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -955,17 +966,22 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         if not self.is_mutable:
-            raise excs.Error(f'Cannot rename column for immutable table {self.name!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename column for immutable table {self.name!r}'
+            )
         col = self.path.get_column(old_name)
         if col is None:
-            raise excs.Error(f'Unknown column: {old_name}')
+            raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {old_name}')
         if col.get_tbl().id != self.id:
-            raise excs.Error(f'Cannot rename base table column {col.name!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename base table column {col.name!r}'
+            )
         if not is_valid_identifier(new_name):
-            raise excs.Error(f'Invalid column name: {new_name}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {new_name}')
         if new_name in self.cols_by_name:
-            raise excs.Error(f'Column {new_name!r} already exists')
+            raise excs.AlreadyExistsError(excs.ErrorCode.COLUMN_ALREADY_EXISTS, f'Column {new_name!r} already exists')
         del self.cols_by_name[old_name]
         col.name = new_name
         self.cols_by_name[new_name] = col
@@ -982,15 +998,8 @@ class TableVersion:
         self.comment = new_comment
         self._create_schema_version()
 
-    def set_num_retained_versions(self, new_num_retained_versions: int) -> None:
-        _logger.info(
-            f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} '
-            f'(was {self.num_retained_versions})'
-        )
-        self.num_retained_versions = new_num_retained_versions
-        self._create_schema_version()
-
     def _create_schema_version(self) -> None:
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
@@ -1002,6 +1011,7 @@ class TableVersion:
         query: Query | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
+        return_rows: bool = False,
     ) -> UpdateStatus:
         """
         Insert rows into this table, either from an explicit list of dicts or from a `Query`.
@@ -1016,16 +1026,27 @@ class TableVersion:
         else:
             plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
 
-        # this is a base table; we generate rowids during the insert
-        def rowids() -> Iterator[int]:
-            while True:
-                rowid = self.next_row_id
-                self.next_row_id += 1
-                yield rowid
+        rowid_gen: Iterator[int] | None = None
+        # For versioned tables, generate rowids from the table's sequence.
+        # For unversioned tables, row ids are generated by StoreBase itself.
+        if self.is_versioned:
+
+            def rowids() -> Iterator[int]:
+                while True:
+                    rowid = self.next_row_id
+                    self.next_row_id += 1
+                    yield rowid
+
+            rowid_gen = rowids()
 
         with get_runtime().report_progress():
             result = self._insert(
-                plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
+                plan,
+                time.time(),
+                print_stats=print_stats,
+                rowids=rowid_gen,
+                abort_on_exc=fail_on_exception,
+                return_rows=return_rows,
             )
             return result
 
@@ -1037,16 +1058,19 @@ class TableVersion:
         rowids: Iterator[int] | None = None,
         print_stats: bool = False,
         abort_on_exc: bool = False,
+        return_rows: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
-        # we're creating a new version
-        self.bump_version(timestamp, bump_schema_version=False)
+        if self.is_versioned:
+            # we're creating a new version
+            self.bump_version(timestamp, bump_schema_version=False)
         exec_plan.ctx.title = self.display_str()
-        cols_with_excs, row_counts = self.store_tbl.insert_rows(
-            exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
+        cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
+            exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
         )
         result = UpdateStatus(
             cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
+            rows=rows,
             row_count_stats=row_counts,
         )
 
@@ -1059,36 +1083,50 @@ class TableVersion:
             result += status.to_cascade()
 
         # Use the net status after all propagations
-        self.update_status = result
-        self._write_md(new_version=True, new_schema_version=False)
+        if self.is_versioned:
+            self.update_status = result
+            self._write_md(new_version=True, new_schema_version=False)
+            _logger.info(f'TableVersion {self.name}: new version {self.version}')
         if print_stats:
             exec_plan.ctx.profile.print(num_rows=result.num_rows)
-        _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
-    def update(self, value_spec: dict[str, Any], where: exprs.Expr | None = None, cascade: bool = True) -> UpdateStatus:
+    def update(
+        self,
+        value_spec: dict[str, Any],
+        where: exprs.Expr | None = None,
+        cascade: bool = True,
+        return_rows: bool = False,
+    ) -> UpdateStatus:
         """Update rows in this TableVersionPath.
         Args:
             value_spec: a list of (column, value) pairs specifying the columns to update and their new values.
             where: a predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
+            return_rows: if True, capture the post-update row state in UpdateStatus.rows.
         """
         from pixeltable.exprs import SqlElementCache
         from pixeltable.plan import Planner
 
         assert self.is_mutable
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
             if not isinstance(where, exprs.Expr):
-                raise excs.Error(f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION,
+                    f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
+                )
             analysis_info = Planner.analyze(self.path, where)
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
-                raise excs.Error(f'Filter not expressible in SQL: {analysis_info.filter}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
+                )
 
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
+        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
 
         result = self.propagate_update(
             plan,
@@ -1097,6 +1135,7 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
+            return_rows=return_rows,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1108,31 +1147,44 @@ class TableVersion:
         insert_if_not_exists: bool,
         error_if_not_exists: bool,
         cascade: bool = True,
+        return_rows: bool = False,
     ) -> UpdateStatus:
         """Update rows in batch.
         Args:
             batch: one dict per row, each mapping Columns to LiteralExprs representing the new values
             rowids: if not empty, one tuple per row, each containing the rowid values for the corresponding row in batch
+            return_rows: if True, returns all newly-inserted/updated rows in UpdateStatus.rows.
         """
         from pixeltable.plan import Planner
 
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
             self.path, batch, rowids, cascade=cascade
         )
         result = self.propagate_update(
-            plan, delete_where_clause, recomputed_cols, base_versions=[], timestamp=time.time(), cascade=cascade
+            plan,
+            delete_where_clause,
+            recomputed_cols,
+            base_versions=[],
+            timestamp=time.time(),
+            cascade=cascade,
+            return_rows=return_rows,
         )
         result += UpdateStatus(updated_cols=[c.qualified_name for c in updated_cols])
 
         unmatched_rows = row_update_node.unmatched_rows()
         if len(unmatched_rows) > 0:
             if error_if_not_exists:
-                raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
+                raise excs.NotFoundError(
+                    excs.ErrorCode.ROW_NOT_FOUND, f'batch_update(): {len(unmatched_rows)} row(s) not found'
+                )
             if insert_if_not_exists:
-                insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
+                insert_status = self.insert(
+                    unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
+                )
                 result += insert_status.to_cascade()
         return result
 
@@ -1142,7 +1194,10 @@ class TableVersion:
         update_targets: dict[Column, exprs.Expr] = {}
         for col_name, val in value_spec.items():
             if not isinstance(col_name, str):
-                raise excs.Error(f'Update specification: dict key must be column name; got {col_name!r}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'Update specification: dict key must be column name; got {col_name!r}',
+                )
             if col_name == _ROWID_COLUMN_NAME:
                 # a valid rowid is a list of ints, one per rowid column
                 assert len(val) == len(self.store_tbl.rowid_columns())
@@ -1151,37 +1206,50 @@ class TableVersion:
                 continue
             col = self.path.get_column(col_name)
             if col is None:
-                raise excs.Error(f'Unknown column: {col_name}')
+                raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col_name}')
             if col.get_tbl().id != self.id:
-                raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col.name!r} is a base table column and cannot be updated',
+                )
             if col.is_computed:
-                raise excs.Error(f'Column {col_name!r} is computed and cannot be updated')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is computed and cannot be updated'
+                )
             if col.is_pk and not allow_pk:
-                raise excs.Error(f'Column {col_name!r} is a primary key column and cannot be updated')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col_name!r} is a primary key column and cannot be updated',
+                )
             if col.col_type.is_media_type() and not allow_media:
-                raise excs.Error(f'Column {col_name!r} is a media column and cannot be updated')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is a media column and cannot be updated'
+                )
 
             # make sure that the value is compatible with the column type
             value_expr: exprs.Expr
             try:
                 # check if this is a literal
                 value_expr = exprs.Literal(val, col_type=col.col_type)
-            except (TypeError, jsonschema.exceptions.ValidationError) as exc:
+            except TypeError as exc:
                 if not allow_exprs:
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Column {col_name!r}: value is not a valid literal for this column '
-                        f'(expected `{col.col_type}`): {val!r}'
+                        f'(expected `{col.col_type}`): {val!r}',
                     ) from exc
                 # it's not a literal, let's try to create an expr from it
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
-                    raise excs.Error(
-                        f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
                     ) from exc
                 if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
-                    raise excs.Error(
-                        f'Type `{value_expr.col_type}` of value {val!r} is not compatible with the type '
-                        f'`{col.col_type}` of column {col_name!r}'
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'The literal value {val!r} is not compatible with the type '
+                        f'`{col.col_type}` of column {col_name!r}',
                     ) from exc
             update_targets[col] = value_expr
 
@@ -1194,6 +1262,7 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         assert self.is_mutable
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         assert all(name in self.cols_by_name for name in col_names)
         assert len(col_names) > 0
         assert len(col_names) == 1 or not errors_only
@@ -1210,7 +1279,7 @@ class TableVersion:
             )
             where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(
-            self.path, update_targets={}, recompute_targets=target_columns, where_clause=where_clause, cascade=cascade
+            self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
         )
 
         result = self.propagate_update(
@@ -1232,21 +1301,28 @@ class TableVersion:
         base_versions: list[int | None],
         timestamp: float,
         cascade: bool,
+        return_rows: bool = False,
     ) -> UpdateStatus:
         from pixeltable.plan import Planner
 
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         get_runtime().catalog.mark_modified_tvs(self.handle)
         result = UpdateStatus()
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.bump_version(timestamp, bump_schema_version=False)
-            cols_with_excs, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
+            # soft delete must be done before insert, otherwise we would have duplicate primary key values
+            # upon insert since the rows would be duplicated until the soft delete occurs
+            self.store_tbl.soft_delete_rows(
+                self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
+            )
+            cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
+                plan, v_min=self.version, return_rows=return_rows
+            )
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
-            )
-            self.store_tbl.delete_rows(
-                self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
+                rows=rows,
             )
 
         if cascade:
@@ -1273,11 +1349,16 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         if not isinstance(pred, Expr):
-            raise excs.Error(f'{error_prefix} must be a valid Pixeltable expression; got `{type(pred)}`')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'{error_prefix} must be a valid Pixeltable expression; got `{type(pred)}`',
+            )
         analysis_info = Planner.analyze(self.path, pred)
         # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
         if analysis_info.filter is not None:
-            raise excs.Error(f'Filter not expressible in SQL: {analysis_info.filter}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
+            )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
         assert self.is_insertable
@@ -1292,21 +1373,16 @@ class TableVersion:
         """Delete rows in this table and propagate to views"""
         get_runtime().catalog.mark_modified_tvs(self.handle)
 
-        # print(f'calling sql_expr()')
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
-        # #print(f'sql_where_clause={str(sql_where_clause) if sql_where_clause is not None else None}')
-        # sql_cols: list[sql.Column] = []
-        # def collect_cols(col) -> None:
-        #     sql_cols.append(col)
-        # sql.sql.visitors.traverse(sql_where_clause, {}, {'column': collect_cols})
-        # x = [f'{str(c)}:{hash(c)}:{id(c.table)}' for c in sql_cols]
-        # print(f'where_clause cols: {x}')
-        del_rows = self.store_tbl.delete_rows(
-            self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
-        )
+        if self.is_versioned:
+            del_rows = self.store_tbl.soft_delete_rows(
+                self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
+            )
+        else:
+            del_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
         row_counts = RowCountStats(del_rows=del_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
-        if del_rows > 0:
+        if del_rows > 0 and self.is_versioned:
             # we're creating a new version
             self.bump_version(timestamp, bump_schema_version=False)
         for view in self.mutable_views:
@@ -1314,17 +1390,18 @@ class TableVersion:
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
             result += status.to_cascade()
-        self.update_status = result
 
-        if del_rows > 0:
+        if del_rows > 0 and self.is_versioned:
+            self.update_status = result
             self._write_md(new_version=True, new_schema_version=False)
         return result
 
     def revert(self) -> None:
         """Reverts the table to the previous version."""
         assert self.is_mutable
+        assert self.is_versioned
         if self.version == 0:
-            raise excs.Error('Cannot revert version 0')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot revert version 0')
         self._revert()
 
     def _revert(self) -> None:
@@ -1346,11 +1423,10 @@ class TableVersion:
         result = list(conn.execute(sql.text(query)))
         if len(result) > 0:
             names = [row[1] for row in result]
-            raise excs.Error(
-                (
-                    f'Current version is needed for {len(result)} snapshot{"s" if len(result) > 1 else ""}: '
-                    f'({", ".join(names)})'
-                )
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Current version is needed for {len(result)} snapshot{"s" if len(result) > 1 else ""}: '
+                f'({", ".join(names)})',
             )
 
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
@@ -1444,6 +1520,7 @@ class TableVersion:
             self.external_stores[store.name] = store
 
     def link_external_store(self, store: ExternalStore) -> None:
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         self.bump_version(bump_schema_version=True)
 
         self.external_stores[store.name] = store
@@ -1453,6 +1530,7 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
 
     def unlink_external_store(self, store: ExternalStore) -> None:
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         del self.external_stores[store.name]
         self.bump_version(bump_schema_version=True)
         idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
@@ -1465,6 +1543,8 @@ class TableVersion:
 
     @property
     def effective_version(self) -> int | None:
+        if not self.is_versioned:
+            assert self.key.effective_version is None
         return self.key.effective_version
 
     @property
@@ -1509,16 +1589,9 @@ class TableVersion:
         return self._schema_version_md.custom_metadata
 
     @property
-    def num_retained_versions(self) -> int:
-        return self._schema_version_md.num_retained_versions
-
-    @num_retained_versions.setter
-    def num_retained_versions(self, n: int) -> None:
-        assert self.effective_version is None
-        self._schema_version_md.num_retained_versions = n
-
-    @property
-    def version(self) -> int:
+    def version(self) -> int | None:
+        if not self.is_versioned:
+            return None
         return self._version_md.version
 
     @property
@@ -1528,6 +1601,10 @@ class TableVersion:
     @property
     def schema_version(self) -> int:
         return self._schema_version_md.schema_version
+
+    @property
+    def is_versioned(self) -> bool:
+        return self._tbl_md.is_versioned
 
     def bump_version(self, timestamp: float | None = None, *, bump_schema_version: bool) -> None:
         """
@@ -1540,6 +1617,7 @@ class TableVersion:
             bump_schema_version: if True, also adjusts the schema version (setting it equal to the new version)
                 and associated metadata.
         """
+        assert self.is_versioned
         assert self.effective_version is None
 
         if timestamp is None:
@@ -1573,7 +1651,11 @@ class TableVersion:
 
     @update_status.setter
     def update_status(self, status: UpdateStatus) -> None:
+        assert self.is_versioned
         assert self.effective_version is None
+        # we need to strip out UpdateStatus.rows, if set
+        if status.rows is not None:
+            status = dataclasses.replace(status, rows=None)
         self._version_md.update_status = status
 
     @property
@@ -1596,10 +1678,12 @@ class TableVersion:
 
     @property
     def next_row_id(self) -> int:
+        assert self.is_versioned
         return self._tbl_md.next_row_id
 
     @next_row_id.setter
     def next_row_id(self, id: int) -> None:
+        assert self.is_versioned
         assert self.effective_version is None
         self._tbl_md.next_row_id = id
 
@@ -1673,18 +1757,25 @@ class TableVersion:
 
     def get_idx(self, col: Column, idx_name: str | None, idx_cls: type[index.IndexBase]) -> TableVersion.IndexInfo:
         if not self.supports_idxs:
-            raise excs.Error('Snapshot does not support indices')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Snapshot does not support indices')
         if col.qid not in self.idxs_by_col:
-            raise excs.Error(f'Column {col.name!r} does not have a {idx_cls.display_name()} index')
+            raise excs.NotFoundError(
+                excs.ErrorCode.INDEX_NOT_FOUND, f'Column {col.name!r} does not have a {idx_cls.display_name()} index'
+            )
         candidates = [info for info in self.idxs_by_col[col.qid] if isinstance(info.idx, idx_cls)]
         if len(candidates) == 0:
-            raise excs.Error(f'No {idx_cls.display_name()} index found for column {col.name!r}')
+            raise excs.NotFoundError(
+                excs.ErrorCode.INDEX_NOT_FOUND, f'No {idx_cls.display_name()} index found for column {col.name!r}'
+            )
         if len(candidates) > 1 and idx_name is None:
-            raise excs.Error(
-                f'Column {col.name!r} has multiple {idx_cls.display_name()} indices; specify `idx_name` instead'
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {col.name!r} has multiple {idx_cls.display_name()} indices; specify `idx_name` instead',
             )
         if idx_name is not None and idx_name not in [info.name for info in candidates]:
-            raise excs.Error(f'Index {idx_name!r} not found for column {col.name!r}')
+            raise excs.NotFoundError(
+                excs.ErrorCode.COLUMN_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
+            )
         return candidates[0] if idx_name is None else next(info for info in candidates if info.name == idx_name)
 
     def get_dependent_columns(self, cols: Iterable[Column]) -> set[Column]:

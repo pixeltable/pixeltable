@@ -36,16 +36,128 @@ class JsonPath(Expr):
     ) -> None:
         if path_elements is None:
             path_elements = []
-        super().__init__(ts.JsonType(nullable=True))  # JsonPath expressions are always nullable
-        if anchor is not None:
-            self.components = [anchor]
+
+        super().__init__(
+            self.__resolve_type(anchor.col_type, path_elements) if anchor is not None else ts.JsonType(nullable=True)
+        )
         self.path_elements = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
+        if anchor is not None:
+            self.components = [anchor]
         self.scope_idx = scope_idx
         # NOTE: the _create_id() result will change if set_anchor() gets called;
         # this is not a problem, because _create_id() shouldn't be called after init()
         self.id = self._create_id()
         self.file_handles = {}
+
+    @classmethod
+    def __errstr(cls, el: str | int | slice) -> str:
+        if isinstance(el, str):
+            return repr(el)
+        elif isinstance(el, int):
+            return f'[{el}]'
+        elif isinstance(el, slice):
+            start_str = '' if el.start is None else str(el.start)
+            stop_str = '' if el.stop is None else str(el.stop)
+            step_str = '' if el.step is None else f':{el.step}'
+            return f'[{start_str}:{stop_str}{step_str}]'
+        else:
+            raise AssertionError(f'Invalid JsonPath element: {el}')
+
+    @classmethod
+    def __resolve_type(cls, col_type: ts.ColumnType, path_elements: list[str | int | slice]) -> ts.ColumnType:
+        if len(path_elements) == 0:
+            # JsonPath expressions always have `nullable=True`, regardless of the schema. This is because
+            # schema validation is optional in some runtime contexts, so it's possible to encounter data
+            # at runtime that doesn't match the schema.
+            return col_type.copy(nullable=True)
+
+        el = path_elements[0]
+
+        if not isinstance(col_type, ts.JsonType):
+            # There are more path elements, but we've arrived at something other than JsonType;
+            # fall back on general JsonType.
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Invalid JsonPath: cannot resolve {cls.__errstr(el)} on primitive type `{col_type}`',
+            )
+
+        schema = col_type.type_schema
+        if schema is None:
+            # There are more path elements, but the JsonType has no schema; fall back on general JsonType.
+            return ts.JsonType(nullable=True)
+
+        # We're still a JsonType, and we have a schema, and there are more path elements to resolve.
+        # Try various ways of resolving the next path element based on the schema.
+
+        if el == '*' and isinstance(schema.type_spec, list):
+            # '*' is a no-op for type resolution purposes; it simply confirms that the type schema is a list and
+            # selects all elements.
+            return cls.__resolve_type(col_type, path_elements[1:])
+
+        if isinstance(el, str) and isinstance(schema.type_spec, dict) and el in schema.type_spec:
+            # Dict key resolution.
+            return cls.__resolve_type(schema.type_spec[el], path_elements[1:])
+
+        if isinstance(el, str) and isinstance(schema.type_spec, list):
+            # Key resolution on a list: acts transitively on all elements of the list. This corresponds to
+            # expressions like `col.f1[0:3].f2` where f1 is a list of dicts, extracting `f2` from each dict in the
+            # list.
+            type_spec = [cls.__resolve_type(t, path_elements) for t in schema.type_spec]
+            variadic_type = (
+                cls.__resolve_type(schema.variadic_type, path_elements) if schema.variadic_type is not None else None
+            )
+            return ts.JsonType(ts.JsonType.TypeSchema(type_spec, variadic_type=variadic_type), nullable=True)
+
+        if isinstance(el, int) and isinstance(schema.type_spec, list):
+            if el >= 0:
+                # Positive index on tuple
+                if el < len(schema.type_spec):
+                    return cls.__resolve_type(schema.type_spec[el], path_elements[1:])
+                elif schema.variadic_type is not None:
+                    return cls.__resolve_type(schema.variadic_type, path_elements[1:])
+            elif schema.variadic_type is None:
+                # Negative index on fixed-length tuple
+                if -el <= len(schema.type_spec):
+                    return cls.__resolve_type(schema.type_spec[el], path_elements[1:])
+            else:
+                # Negative index on variadic tuple: we don't know which element it will reference, so we need to
+                # find the supertype of all possible types it could reference
+                relevant_types = [*schema.type_spec[el:], schema.variadic_type]
+                supertype = ts.ColumnType.common_supertype(relevant_types)
+                if supertype is not None:
+                    return cls.__resolve_type(supertype, path_elements[1:])
+
+        if isinstance(el, slice) and isinstance(schema.type_spec, list):
+            if schema.variadic_type is None:
+                # Slice on fixed-length tuple
+                new_type = ts.JsonType(ts.JsonType.TypeSchema(type_spec=schema.type_spec[el]), nullable=True)
+                return cls.__resolve_type(new_type, path_elements[1:])
+            elif (el.start is None or el.start >= 0) and (el.stop is None or el.stop >= 0):
+                # Slice with positive indices on variadic tuple.
+                type_spec = schema.type_spec[el]
+                variadic_type = (
+                    None if el.stop is not None and el.stop <= len(schema.type_spec) else schema.variadic_type
+                )
+                new_type = ts.JsonType(
+                    ts.JsonType.TypeSchema(type_spec=type_spec, variadic_type=variadic_type), nullable=True
+                )
+                return cls.__resolve_type(new_type, path_elements[1:])
+            else:
+                # Slice with negative indices on variadic tuple: just make this a variadic tuple of the supertype.
+                # We could try to do something more clever in certain cases, but it's such an edge case that it's
+                # not clear the added complexity is worth it. This simple logic will handle the vast majority of
+                # common cases correctly (including all lists / pure varidic tuples).
+                supertype = ts.ColumnType.common_supertype([*schema.type_spec, schema.variadic_type])
+                if supertype is not None:
+                    new_type = ts.JsonType(ts.JsonType.TypeSchema([], variadic_type=supertype), nullable=True)
+                    return cls.__resolve_type(new_type, path_elements[1:])
+
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'Invalid JsonPath: cannot resolve {cls.__errstr(el)}, '
+            f'because it does not match the expected type schema:\n{col_type}',
+        )
 
     def release(self) -> None:
         for fh in self.file_handles.values():
@@ -106,9 +218,9 @@ class JsonPath(Expr):
         Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
         """
         if not self.is_relative_path():
-            raise excs.Error('() for an absolute path is invalid')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, '() for an absolute path is invalid')
         if len(args) != 1 or not isinstance(args[0], int) or args[0] >= 0:
-            raise excs.Error('R() requires a negative index')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'R() requires a negative index')
         return JsonPath(None, [], args[0])
 
     def __getattr__(self, name: str) -> 'JsonPath':
@@ -118,7 +230,7 @@ class JsonPath(Expr):
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, (int, slice, str)):
             return JsonPath(self.anchor, [*self.path_elements, index])
-        raise excs.Error(f'Invalid json list index: {index}')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid json list index: {index}')
 
     def default_column_name(self) -> str | None:
         anchor_name = self.anchor.default_column_name() if self.anchor is not None else ''

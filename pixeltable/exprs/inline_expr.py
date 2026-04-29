@@ -34,9 +34,10 @@ class InlineArray(Expr):
         for i, expr in enumerate(exprs):
             supertype = inferred_element_type.supertype(expr.col_type, for_inference=True)
             if supertype is None:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_TYPE,
                     f'Could not infer element type of array: element of type `{expr.col_type}` at index {i} '
-                    f'is not compatible with type `{inferred_element_type}` of preceding elements'
+                    f'is not compatible with type `{inferred_element_type}` of preceding elements',
                 )
             inferred_element_type = supertype
 
@@ -51,7 +52,9 @@ class InlineArray(Expr):
             else:
                 col_type = ts.ArrayType(shape=None, dtype=dtype)
         else:
-            raise excs.Error(f'Element type is not a valid dtype for an array: {inferred_element_type}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_TYPE, f'Element type is not a valid dtype for an array: {inferred_element_type}'
+            )
 
         super().__init__(col_type)
         self.components.extend(exprs)
@@ -101,7 +104,8 @@ class InlineList(Expr):
     def __init__(self, elements: Iterable):
         exprs = [Expr.from_object(el) for el in elements]
 
-        super().__init__(ts.JsonType())
+        type_schema = ts.JsonType.TypeSchema(type_spec=[expr.col_type for expr in exprs])
+        super().__init__(ts.JsonType(type_schema))
         self.components.extend(exprs)
         self.id = self._create_id()
 
@@ -143,11 +147,14 @@ class InlineDict(Expr):
         exprs: list[Expr] = []
         for key, val in d.items():
             if not isinstance(key, str):
-                raise excs.Error(f'Dictionary requires string keys; {key} has type {type(key)}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Dictionary requires string keys; {key} has type {type(key)}'
+                )
             self.keys.append(key)
             exprs.append(Expr.from_object(val))
 
-        super().__init__(ts.JsonType())
+        type_schema = ts.JsonType.TypeSchema(type_spec={key: expr.col_type for key, expr in zip(self.keys, exprs)})
+        super().__init__(ts.JsonType(type_schema))
         self.components.extend(exprs)
         self.id = self._create_id()
 

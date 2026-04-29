@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from tests.utils import ReloadTester, validate_update_status
+from tests.utils import ReloadTester, pxt_raises, validate_update_status
 
 
 class TestUUID:
@@ -97,7 +97,7 @@ class TestUUID:
         validate_update_status(t5.insert([{'uuid_col': uuid.uuid4()}]), expected_rows=1)
 
         # Should raise error for None
-        with pytest.raises(pxt.Error):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             t5.insert([{'uuid_col': None}])
 
         # Verify queries work after reload

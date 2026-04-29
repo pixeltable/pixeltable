@@ -112,6 +112,9 @@ class ExprEvalNode(ExecNode):
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
 
+    def set_gc(self, gc: bool) -> None:
+        self.eval_ctx.set_gc(gc)
+
     async def _fetch_input_batch(self) -> None:
         """
         Fetches another batch from our input or sets input_complete to True if there are no more batches.
@@ -205,7 +208,7 @@ class ExprEvalNode(ExecNode):
                     self.schedulers[pool_name] = scheduler(pool_name, self)
                     break
             if pool_name not in self.schedulers:
-                raise RuntimeError(f'No scheduler found for resource pool {pool_name}')
+                raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No scheduler found for resource pool {pool_name}')
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         """
@@ -419,11 +422,11 @@ class ExprEvalNode(ExecNode):
 
         # GC computation
         # Compute new_missing_dependents for all rows
-        # new_missing_dependents[i, slot] = for row i, count of exprs that depend on 'slot' and don't have a value
+        # new_missing_dependents[i, slot] = for row i, count of unevaluated exprs that depend on 'slot'
         # dependencies[i, j] means expr i depends on expr j
-        # For each slot j, we count how many slots i (that don't have values) depend on j
+        # For each slot j, we count how many unevaluated slots i depend on j
         # bool -> int16: bool @ bool does boolean ops (True + True = True), not arithmetic
-        new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
+        new_missing_dependents = missing_slots.astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
 
         # gc_targets[i, j] = Boolean mask where slot j can be garbage collected for row i if True
         gc_targets = (
@@ -489,5 +492,6 @@ class ExprEvalNode(ExecNode):
             pass
         except Exception as exc:
             stack_trace = traceback.format_exc()
-            self.error = excs.Error(f'Exception in task: {exc}\n{stack_trace}')
+            # TODO: find a better error class
+            self.error = excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, f'Exception in task: {exc}\n{stack_trace}')
             self.exc_event.set()

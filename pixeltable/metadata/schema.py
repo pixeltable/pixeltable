@@ -140,7 +140,7 @@ class ColumnMd:
 @dataclasses.dataclass
 class IndexMd:
     """
-    Metadata needed to instantiate an EmbeddingIndex
+    Metadata needed to instantiate an index
     """
 
     id: int
@@ -214,7 +214,8 @@ class TableMd:
 
     user: str | None
 
-    # monotonically increasing w/in Table for both data and schema changes, starting at 0
+    # for versioned tables, current_version monotonically increases for both data and schema changes, starting at 0
+    # not used for unversioned tables
     current_version: int
     # each version has a corresponding schema version (current_version >= current_schema_version)
     current_schema_version: int
@@ -248,6 +249,10 @@ class TableMd:
 
     tbl_state: TableState = TableState.LIVE
     pending_stmt: TableStatement | None = None
+
+    # Versioned tables keep their full schema and row history, and support time travel and rollback.
+    # TODO when the catalog migration happens, let's backfill and get rid of the default.
+    is_versioned: bool = True
 
     @property
     def is_snapshot(self) -> bool:
@@ -319,7 +324,7 @@ class TableVersion(Base):
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
     version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
-    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # VersionMd
     additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
@@ -370,7 +375,6 @@ class SchemaVersionMd:
     preceding_schema_version: int | None
     # User and system columns visible in this schema version
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
-    num_retained_versions: int
     # TODO: Before next release, add migration to preexisting empty strings to None
     comment: str | None
 
@@ -380,6 +384,8 @@ class SchemaVersionMd:
     additional_md: dict[str, Any]  # deprecated
     # user-defined metadata - must be a valid JSON-serializable object
     custom_metadata: Any = None
+    # num_retained_versions is deprecated but kept here to avoid migration
+    num_retained_versions: int | None = None
 
 
 # versioning: each table schema change results in a new record

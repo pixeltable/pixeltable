@@ -10,6 +10,7 @@ from .utils import (
     assert_resultset_eq,
     create_img_tbl,
     create_test_tbl,
+    pxt_raises,
     reload_catalog,
     validate_update_status,
 )
@@ -43,8 +44,13 @@ class TestSnapshot:
         snap_query = snap.select(*snap_select_list).order_by(snap.c2)
         assert_resultset_eq(snap_query.collect(), orig_resultset)
 
+        # verify head()
+        assert_resultset_eq(snap.select(*snap_select_list).head(), tbl.select(*tbl_select_list).head())
+
         # adding data to a base table doesn't change the snapshot
         rows = list(tbl.select(tbl.c1, tbl.c1n, tbl.c2, tbl.c3, tbl.c4, tbl.c5, tbl.c6, tbl.c7).collect())
+        for row in rows:
+            row['c2'] += 100
         status = tbl.insert(rows)
         assert status.num_rows == len(rows)
         assert_resultset_eq(snap_query.collect(), orig_resultset)
@@ -64,12 +70,12 @@ class TestSnapshot:
         tbl.revert()  # undo update()
         tbl.revert()  # undo insert()
         # can't revert a version referenced by a snapshot
-        with pytest.raises(pxt.Error) as excinfo:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
             tbl.revert()
         assert 'version is needed' in str(excinfo.value)
 
         # can't drop a table with snapshots
-        with pytest.raises(pxt.Error, match='has dependents'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='has dependents'):
             pxt.drop_table(tbl_path)
 
         pxt.drop_table(snap_path)
@@ -104,7 +110,7 @@ class TestSnapshot:
         # the time of creating a snapshot will raise an error now.
         tbl = create_test_tbl(name=tbl_path)
         assert 'c1' in tbl.columns()
-        with pytest.raises(pxt.Error, match="Column 'c1' already exists in the base table"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match="Column 'c1' already exists in the base table"):
             pxt.create_snapshot('snap2', tbl, additional_columns={'c1': pxt.Int})
 
     def __test_create_if_exists(self, sname: str, t: pxt.Table, s: pxt.Table) -> None:
@@ -117,12 +123,13 @@ class TestSnapshot:
         """
         id_before = s._id
         # invalid if_exists value is rejected
-        with pytest.raises(
-            pxt.Error, match=r"if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=r"if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]",
         ):
             pxt.create_snapshot(sname, t, if_exists='invalid')  # type: ignore[arg-type]
         # scenario 1: a snapshot exists at the path already
-        with pytest.raises(pxt.Error, match='is an existing'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing'):
             pxt.create_snapshot(sname, t)
         # if_exists='ignore' should return the existing snapshot
         s12 = pxt.create_snapshot(sname, t, if_exists='ignore')
@@ -139,7 +146,7 @@ class TestSnapshot:
         # dependent of the snapshot iff the snapshot has additional columns
         # not present in the base table/view of that snapshot.
         _v_on_s1 = pxt.create_view('test_view_on_snapshot1', s12)
-        with pytest.raises(pxt.Error, match='is an existing'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing'):
             pxt.create_snapshot(sname, t)
         # if_exists='ignore' should return the existing snapshot
         s13 = pxt.create_snapshot(sname, t, if_exists='ignore')
@@ -148,7 +155,7 @@ class TestSnapshot:
         assert 'test_view_on_snapshot1' in pxt.list_tables()
         # if_exists='replace' cannot drop a snapshot with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(pxt.Error, match='already exists'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='already exists'):
             pxt.create_snapshot(sname, t, if_exists='replace')
         assert 'test_view_on_snapshot1' in pxt.list_tables()
         # if_exists='replace_force' should drop the existing snapshot and
@@ -160,10 +167,10 @@ class TestSnapshot:
 
         # scenario 3: path exists but is not a snapshot
         _ = pxt.create_table('not_snapshot', {'c1': pxt.String}, if_exists='replace')
-        with pytest.raises(pxt.Error, match='is an existing'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing'):
             pxt.create_snapshot('not_snapshot', t)
         # if_exists='ignore' should error when existing object is not a snapshot
-        with pytest.raises(pxt.Error, match='already exists'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             pxt.create_snapshot('not_snapshot', t, if_exists='ignore')
         assert 'not_snapshot' in pxt.list_tables()
         # if_exists='replace' and 'replace_force' should replace the table with a snapshot
@@ -174,7 +181,7 @@ class TestSnapshot:
         # scenario 4: snapshot exists but with a different base table
         other_base = pxt.create_table('other_base', {'c1': pxt.String}, if_exists='replace_force')
         _ = pxt.create_snapshot('snap_with_base', t, if_exists='replace')
-        with pytest.raises(pxt.Error, match='different base table'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='different base table'):
             _ = pxt.create_snapshot('snap_with_base', other_base, if_exists='ignore')
 
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
@@ -207,34 +214,36 @@ class TestSnapshot:
         snap = pxt.create_snapshot('snap', tbl)
         display_str = "snapshot 'snap'"
 
-        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a snapshot.'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot insert into a snapshot.'):
             _ = snap.insert([{'c3': 1.0}])
 
-        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a snapshot.'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot insert into a snapshot.'):
             _ = snap.insert(c3=1.0)
 
         # adding column is not supported for snapshots
-        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a snapshot.'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a snapshot.'):
             snap.add_column(non_existing_col1=pxt.String)
-        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a snapshot.'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a snapshot.'):
             snap.add_computed_column(on_existing_col1=tbl.c2 + tbl.c3)
-        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a snapshot.'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a snapshot.'):
             snap.add_columns({'non_existing_col1': pxt.String, 'non_existing_col2': pxt.String})
-        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a snapshot.'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot delete from a snapshot.'):
             _ = snap.delete()
-        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a snapshot.'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot update a snapshot.'):
             _ = snap.update({'c3': snap.c3 + 1.0})
-        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a snapshot.'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot update a snapshot.'):
             _ = snap.batch_update([{'c3': 1.0, 'c2': 1}])
-        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a snapshot.'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot revert a snapshot.'):
             snap.revert()
 
-        with pytest.raises(pxt.Error, match=r"snapshot 'img_snap': Cannot add an index to a snapshot."):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"snapshot 'img_snap': Cannot add an index to a snapshot."
+        ):
             img_tbl = create_img_tbl()
             snap = pxt.create_snapshot('img_snap', img_tbl)
             snap.add_embedding_index('img', image_embed=clip_embed)
 
-        with pytest.raises(pxt.Error, match='Cannot create default indexes on a snapshot'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot create default indexes on a snapshot'):
             _ = pxt.create_view('default_snap', tbl, is_snapshot=True, create_default_idxs=True)
 
     @pytest.mark.parametrize('anonymous', [True, False])
@@ -364,21 +373,30 @@ class TestSnapshot:
         _ = pxt.create_view('view_snap2', v2s.where(v2s.c2 % 4 == 0))
 
         # Delete first column, only mutable tables will show up in error
-        with pytest.raises(pxt.Error, match="Cannot drop column 'c1' because the following views depend on it") as e:
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop column 'c1' because the following views depend on it",
+        ) as e:
             t.drop_column('c1')
         assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
         assert 'v2_snap' not in str(e.value).lower()  # v2_snap uses c1
         assert 'view_snap1' not in str(e.value).lower()
 
         # Delete 2nd column
-        with pytest.raises(pxt.Error, match="Cannot drop column 'c2' because the following views depend on it") as e:
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop column 'c2' because the following views depend on it",
+        ) as e:
             t.drop_column('c2')
         assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'v1_snap' not in str(e.value).lower()  # v1_snap uses c2
         assert 'view_snap2' not in str(e.value).lower()
 
         # Delete view's column
-        with pytest.raises(pxt.Error, match="Cannot drop column 'vc1' because the following views depend on it") as e:
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop column 'vc1' because the following views depend on it",
+        ) as e:
             v1.drop_column('vc1')
         assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'v2_snap' not in str(e.value).lower()
@@ -403,16 +421,20 @@ class TestSnapshot:
         v2 = pxt.create_view('view', t, additional_columns={'v2': pxt.Int})
         s2 = pxt.create_snapshot('snap_view', v2, additional_columns={'s2': pxt.Int})
 
-        with pytest.raises(pxt.Error, match=r"Cannot rename column for immutable table 'base_snap'"):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot rename column for immutable table 'base_snap'"
+        ):
             s1.rename_column('s1', 'new_s1')
 
-        with pytest.raises(pxt.Error, match=r"Cannot rename column for immutable table 'snap_view'"):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot rename column for immutable table 'snap_view'"
+        ):
             s2.rename_column('v2', 'new_v2')
 
-        with pytest.raises(pxt.Error, match=r"Cannot rename base table column 'c1'"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot rename base table column 'c1'"):
             v1.rename_column('c1', 'new_c1')
 
-        with pytest.raises(pxt.Error, match=r"Cannot rename base table column 's1'"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot rename base table column 's1'"):
             v1.rename_column('s1', 'new_s1')
 
         # should work
@@ -433,7 +455,7 @@ class TestSnapshot:
         assert s1.get_metadata()['comment'] == 'This is a test snapshot.'
 
         # check that raw object JSON comments are rejected
-        with pytest.raises(pxt.Error, match='`comment` must be a string'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`comment` must be a string'):
             pxt.create_snapshot(
                 'tbl_snapshot_invalid',
                 t,
@@ -453,7 +475,7 @@ class TestSnapshot:
         assert s1.get_metadata()['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected
-        with pytest.raises(pxt.Error):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT):
             pxt.create_snapshot(
                 'tbl_snapshot_invalid', t, additional_columns={'d': pxt.Int}, custom_metadata={'key': set}
             )
@@ -472,7 +494,7 @@ class TestSnapshot:
         assert s.get_metadata()['columns']['d']['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected for columns
-        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_snapshot(
                 'tbl_snapshot_invalid', t, additional_columns={'d': {'type': pxt.Int, 'custom_metadata': {'key': set}}}
             )
@@ -490,7 +512,7 @@ class TestSnapshot:
         assert s.get_metadata()['columns']['d']['comment'] == 'This is a test column.'
 
         # check that raw object JSON comments are rejected for columns
-        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'comment' must be a string"):
             pxt.create_snapshot(
                 'tbl_snapshot_invalid',
                 t,

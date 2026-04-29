@@ -5,12 +5,13 @@ import pixeltable as pxt
 
 from ..utils import TESTS_DIR, rerun, skip_test_if_no_client, validate_update_status
 
-# Test image path - using a simple HEIC image available in the test data
-TEST_IMAGE_PATH = TESTS_DIR / 'data' / 'images' / 'sewing-threads.heic'
+# Test image path - using an image available in the test data
+TEST_IMAGE_PATH = TESTS_DIR / 'data' / 'images' / 'sewing-threads-smaller.jpg'
 
 
 @pytest.mark.remote_api
-@pytest.mark.expensive
+@pytest.mark.very_expensive
+@pytest.mark.skip(reason='[PXT-1111] Out of credits')
 @rerun(reruns=3, reruns_delay=8)
 class TestBfl:
     def test_generate(self, uses_db: None) -> None:

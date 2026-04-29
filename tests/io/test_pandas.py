@@ -11,7 +11,27 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 
-from ..utils import ensure_s3_pytest_resources_access, skip_test_if_not_installed
+from ..utils import ensure_s3_pytest_resources_access, pxt_raises, skip_test_if_not_installed
+
+EXPECTED_SCHEMA = {
+    'int_col': ts.IntType(nullable=True),
+    'float_col': ts.FloatType(nullable=True),
+    'bool_col': ts.BoolType(nullable=True),
+    'str_col': ts.StringType(nullable=True),
+    'dt_col': ts.TimestampType(nullable=True),
+    'aware_dt_col': ts.TimestampType(nullable=True),
+    'date_col': ts.DateType(nullable=True),
+    'uuid_col': ts.UUIDType(nullable=True),
+    'json_col_1': ts.JsonType(ts.JsonType.TypeSchema([ts.IntType(), ts.IntType()]), nullable=True),
+    'json_col_2': ts.JsonType(
+        ts.JsonType.TypeSchema({'a': ts.IntType(), 'b': ts.IntType()}, optional_keys=frozenset(('a', 'b'))),
+        nullable=True,
+    ),
+    'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
+    'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
+    'array_col_3': ts.ArrayType(shape=(None, None), dtype=np.dtype('float32'), nullable=True),
+    'image_col': ts.ImageType(width=100, nullable=True),
+}
 
 
 class TestPandas:
@@ -44,22 +64,7 @@ class TestPandas:
         df = pd.DataFrame(src_data)
 
         t = pxt.io.import_pandas('test_types', df)
-        assert t._get_schema() == {
-            'int_col': ts.IntType(nullable=True),
-            'float_col': ts.FloatType(nullable=True),
-            'bool_col': ts.BoolType(nullable=True),
-            'str_col': ts.StringType(nullable=True),
-            'dt_col': ts.TimestampType(nullable=True),
-            'aware_dt_col': ts.TimestampType(nullable=True),
-            'date_col': ts.DateType(nullable=True),
-            'uuid_col': ts.UUIDType(nullable=True),
-            'json_col_1': ts.JsonType(nullable=True),
-            'json_col_2': ts.JsonType(nullable=True),
-            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
-            'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
-            'array_col_3': ts.ArrayType(shape=(None, None), dtype=np.dtype('float32'), nullable=True),
-            'image_col': ts.ImageType(width=100, nullable=True),
-        }
+        assert t._get_schema() == EXPECTED_SCHEMA
         res = t.select().order_by(t.int_col).collect()
         assert res['int_col'] == src_data['int_col']
         assert res['float_col'] == src_data['float_col']
@@ -83,22 +88,8 @@ class TestPandas:
         src_data = self.make_src_data()
         df = pd.DataFrame(src_data)
         t = pxt.io.import_pandas('test_types', df)
-        assert t._get_schema() == {
-            'int_col': ts.IntType(nullable=True),
-            'float_col': ts.FloatType(nullable=True),
-            'bool_col': ts.BoolType(nullable=True),
-            'str_col': ts.StringType(nullable=True),
-            'dt_col': ts.TimestampType(nullable=True),
-            'aware_dt_col': ts.TimestampType(nullable=True),
-            'date_col': ts.DateType(nullable=True),
-            'uuid_col': ts.UUIDType(nullable=True),
-            'json_col_1': ts.JsonType(nullable=True),
-            'json_col_2': ts.JsonType(nullable=True),
-            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
-            'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
-            'array_col_3': ts.ArrayType(shape=(None, None), dtype=np.dtype('float32'), nullable=True),
-            'image_col': ts.ImageType(width=100, nullable=True),
-        }
+        assert t._get_schema() == EXPECTED_SCHEMA
+
         assert t.count() == len(df)
         t.insert(df)
         assert t.count() == 2 * len(df)
@@ -197,8 +188,9 @@ class TestPandas:
 
         t2 = import_csv('ibm', 'tests/data/datasets/classeurIBM.csv', primary_key='Date')
         assert t2.count() == 4263
-        t2.insert('tests/data/datasets/classeurIBM.csv')
-        assert t2.count() == 2 * 4263
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
+            t2.insert('tests/data/datasets/classeurIBM.csv')
+        assert t2.count() == 4263
 
         t3 = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', parse_dates=['ts', 'ts_n'])
         assert t3.count() == 4
@@ -207,7 +199,7 @@ class TestPandas:
 
     def test_pandas_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
-        from pixeltable.io.pandas import import_csv
+        from pixeltable.io import import_csv
 
         # Test overriding string type to images
         t4 = import_csv('images', 'tests/data/datasets/images.csv', schema_overrides={'image': pxt.Image})
@@ -276,17 +268,17 @@ class TestPandas:
     def test_pandas_errors(self, uses_db: None) -> None:
         from pixeltable.io import import_csv
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = import_csv(
                 'online_foods', 'tests/data/datasets/onlinefoods.csv', schema_overrides={'Non-Column': pxt.String}
             )
         assert 'Some column(s) specified in `schema_overrides` are not present' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             _ = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key=['!!int', 'Non-Column'])
         assert 'Primary key column(s) are not found in the source:' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = import_csv(
                 # String with null values
                 'edge_cases',
@@ -295,7 +287,7 @@ class TestPandas:
             )
         assert 'Primary key column `string#n` cannot contain null values.' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = import_csv(
                 # Timestamp with null values
                 'edge_cases',

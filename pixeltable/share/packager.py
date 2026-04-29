@@ -88,7 +88,7 @@ class TablePackager:
             json.dump(self.bundle_md, fp)
         self.tables_dir = self.tmp_dir / 'tables'
         self.tables_dir.mkdir()
-        with get_runtime().catalog.begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=[self.table._tbl_version_path]):
             for tv in self.table._tbl_version_path.get_tbl_versions():
                 _logger.info(f'Exporting table {tv.get().versioned_name!r}.')
                 self.__export_table(tv.get())
@@ -109,6 +109,7 @@ class TablePackager:
         """
         Exports the data from `t` into a Parquet table.
         """
+        assert tv.is_versioned
         # `tv` must be an ancestor of the primary table
         assert any(tv.id == base.id for base in self.table._tbl_version_path.get_tbl_versions())
         sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
@@ -410,6 +411,8 @@ class TableRestorer:
         self.media_files = {}
 
     def restore(self, bundle_path: Path, pxt_uri: str | None = None, explicit_version: int | None = None) -> pxt.Table:
+        from pixeltable.catalog import retry_loop
+
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
@@ -424,9 +427,10 @@ class TableRestorer:
         assert isinstance(pxt_md_version, int)
 
         if pxt_md_version != metadata.VERSION:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
                 f'Pixeltable metadata version mismatch: {pxt_md_version} != {metadata.VERSION}.\n'
-                'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
+                'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable',
             )
         # Convert tables metadata from dict to list of TableVersionMd
         tbl_md = [schema.md_from_dict(TableVersionMd, t) for t in self.bundle_md['md']]
@@ -438,7 +442,8 @@ class TableRestorer:
 
         cat = get_runtime().catalog
 
-        with cat.begin_xact(for_write=True):
+        @retry_loop(for_write=True)
+        def do_restore() -> pxt.Table:
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
             # versions that have not been seen before.
             cat.create_replica(catalog.Path.parse(self.tbl_path), tbl_md)
@@ -462,10 +467,13 @@ class TableRestorer:
             tbl._tbl_version_path.clear_cached_md()  # TODO: Clear cached md for ancestors too?
             return tbl
 
+        return do_restore()
+
     def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionMd) -> None:
         """
         Import the Parquet table into the Pixeltable catalog.
         """
+        assert tv.is_versioned
         tbl_id = UUID(tbl_md.tbl_md.tbl_id)
         parquet_dir = bundle_path / 'tables' / f'tbl_{tbl_id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))
@@ -591,8 +599,9 @@ class TableRestorer:
                 _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
                 _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
                 raise excs.Error(
+                    excs.ErrorCode.INTERNAL_ERROR,
                     'Data corruption error: '
-                    'the replica data are inconsistent with data retrieved from a previous replica.'
+                    'the replica data are inconsistent with data retrieved from a previous replica.',
                 )
 
         _logger.debug(f'Verified data integrity between {store_sa_tbl_name!r} and {temp_sa_tbl_name!r}.')

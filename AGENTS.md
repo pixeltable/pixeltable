@@ -111,7 +111,6 @@ pytest -m "remote_api" tests/functions/test_openai.py
 **Test markers:**
 - `@pytest.mark.expensive` - Long-running tests
 - `@pytest.mark.remote_api` - Tests calling external APIs
-- `@pytest.mark.corrupts_db` - Tests that modify database state destructively
 
 ### Creating a Pull Request
 
@@ -320,9 +319,11 @@ def safe_process(value: Optional[str]) -> str:
 | `pixeltable/__init__.py` | Public API exports |
 | `pixeltable/catalog/table.py` | Table class implementation |
 | `pixeltable/catalog/view.py` | View class implementation |
+| `pixeltable/dashboard/` | Local web UI backend (server, bridge) |
 | `pixeltable/func/udf.py` | UDF decorator implementation |
 | `pixeltable/functions/` | AI provider integrations |
 | `pixeltable/io/` | Import/export functionality |
+| `dashboard/` | Local web UI frontend (React/Vite) |
 | `pyproject.toml` | Dependencies and tool config |
 | `Makefile` | Build and test commands |
 

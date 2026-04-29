@@ -38,19 +38,19 @@ class Column:
 
     Args:
         name: column name; None for system columns (eg, index columns)
-        col_type: column type; can be None if the type can be derived from ``computed_with``
+        col_type: column type; can be None if the type can be derived from `computed_with`
         computed_with: an Expr that computes the column value
         is_pk: if True, this column is part of the primary key
         stored: determines whether a computed column is present in the stored table or recomputed on demand
         destination: An object store reference for persisting computed files
         col_id: column ID (only used internally)
 
-    Computed columns: those have a non-None ``computed_with`` argument
-    - when constructed by the user: ``computed_with`` was constructed explicitly and is passed in;
+    Computed columns: those have a non-None `computed_with` argument
+    - when constructed by the user: `computed_with` was constructed explicitly and is passed in;
         col_type is None
-    - when loaded from md store: ``computed_with`` is set and col_type is set
+    - when loaded from md store: `computed_with` is set and col_type is set
 
-    ``stored`` (only valid for computed columns):
+    `stored` (only valid for computed columns):
     - if True: the column is present in the stored table
     - if False: the column is not present in the stored table and recomputed during a query
     - if None: the system chooses for you (at present, this is always False, but this may change in the future)
@@ -98,11 +98,14 @@ class Column:
         custom_metadata: Any = None,
     ):
         if name is not None and not is_valid_identifier(name):
-            raise excs.Error(f'Invalid column name: {name}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {name}')
         self.name = name
         self.tbl_handle = tbl_handle
         if col_type is None and computed_with is None:
-            raise excs.Error(f'Column {name!r}: `col_type` is required if `computed_with` is not specified')
+            raise excs.Error(
+                excs.ErrorCode.INTERNAL_ERROR,
+                f'Column {name!r}: `col_type` is required if `computed_with` is not specified',
+            )
 
         self._value_expr = None
         self.value_expr_dict = value_expr_dict
@@ -110,9 +113,10 @@ class Column:
             value_expr = exprs.Expr.from_object(computed_with)
             if value_expr is None:
                 # TODO: this shouldn't be a user-facing error
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Column {name!r}: `computed_with` needs to be a valid Pixeltable expression, '
-                    f'but it is a {type(computed_with)}'
+                    f'but it is a {type(computed_with)}',
                 )
             else:
                 self._value_expr = value_expr.copy()
@@ -129,6 +133,7 @@ class Column:
         self.id = col_id
         self.is_pk = is_pk
         self.is_iterator_col = is_iterator_col
+        assert media_validation is None or self.col_type.is_media_type()
         self._media_validation = media_validation
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
@@ -236,7 +241,7 @@ class Column:
             if comment == '':
                 comment = None
         else:
-            raise excs.Error(f'Invalid spec for column {name!r}: {type(spec)}')
+            raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid spec for column {name!r}: {type(spec)}')
 
         stores_cellmd = cls.should_store_cellmd(col_type=col_type, is_stored=stored, is_computed=value_expr is not None)
         column = cls(
@@ -262,41 +267,56 @@ class Column:
         valid_keys = ColumnSpec.__annotations__.keys()
         for k in spec:
             if k not in valid_keys:
-                raise excs.Error(f'Column {name!r}: invalid key {k!r}')
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Column {name!r}: invalid key {k!r}')
 
         if 'type' not in spec and 'value' not in spec:
-            raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, f"Column {name!r}: 'type' or 'value' must be specified"
+            )
 
         if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
-            raise excs.Error(f"Column {name!r}: 'type' must be a type; got {spec['type']}")
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f"Column {name!r}: 'type' must be a type; got {spec['type']}"
+            )
 
         if 'value' in spec:
             value_expr = exprs.Expr.from_object(spec['value'])
             if value_expr is None:
-                raise excs.Error(f"Column {name!r}: 'value' must be a Pixeltable expression.")
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION, f"Column {name!r}: 'value' must be a Pixeltable expression."
+                )
             if 'type' in spec:
-                raise excs.Error(f"Column {name!r}: 'type' is redundant if 'value' is specified")
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, f"Column {name!r}: 'type' is redundant if 'value' is specified"
+                )
 
         if 'media_validation' in spec:
             _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name!r}: media_validation')
 
         if 'stored' in spec and not isinstance(spec['stored'], bool):
-            raise excs.Error(f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}")
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH, f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}"
+            )
 
         if 'comment' in spec and not isinstance(spec['comment'], str):
-            raise excs.Error(f"Column {name!r}: 'comment' must be a string; got {spec['comment']}")
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH, f"Column {name!r}: 'comment' must be a string; got {spec['comment']}"
+            )
 
         d = spec.get('destination')
         if d is not None and not isinstance(d, (str, Path)):
-            raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH, f'Column {name!r}: `destination` must be a string or path; got {d}'
+            )
 
         if 'custom_metadata' in spec:
             # we require custom_metadata to be JSON-serializable
             try:
                 json.dumps(spec['custom_metadata'])
             except (TypeError, ValueError) as err:
-                raise excs.Error(
-                    f'Column {name!r}: `custom_metadata` must be JSON-serializable; got Error: {err}'
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'Column {name!r}: `custom_metadata` must be JSON-serializable; got Error: {err}',
                 ) from err
 
     @classmethod
@@ -321,9 +341,12 @@ class Column:
     def validate_name(cls, name: str) -> None:
         """Check that a name is usable as a pixeltable column name"""
         if is_system_column_name(name) or is_python_keyword(name):
-            raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_COLUMN_NAME,
+                f'{name!r} is a reserved name in Pixeltable; please choose a different column name.',
+            )
         if not is_valid_identifier(name):
-            raise excs.Error(f'Invalid column name: {name}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {name}')
 
     def to_md(self, pos: int | None) -> tuple[schema.ColumnMd, schema.SchemaColumn]:
         """Returns this column's ColumnMd, which is ts table-level metadata, and SchemaColumn, which is versioned column
@@ -367,14 +390,21 @@ class Column:
             return
         Column.validate_name(self.name)
         if self.stored is False and not self.is_computed:
-            raise excs.Error(f'Column {self.name!r}: `stored={self.stored}` only applies to computed columns')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {self.name!r}: `stored={self.stored}` only applies to computed columns',
+            )
         if self.stored is False and self.has_window_fn_call():
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {self.name!r}: `stored={self.stored}` is not valid for image columns computed with a'
-                f' streaming function'
+                f' streaming function',
             )
         if self._explicit_destination is not None and not (self.stored and self.is_computed):
-            raise excs.Error(f'Column {self.name!r}: `destination` property only applies to stored computed columns')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {self.name!r}: `destination` property only applies to stored computed columns',
+            )
 
     def init_value_expr(self, tvp: 'TableVersionPath' | None) -> None:
         """
@@ -459,9 +489,10 @@ class Column:
     def check_value_expr(self) -> None:
         assert self._value_expr is not None
         if not self.stored and self.is_computed and self.has_window_fn_call():
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {self.name!r}: `stored={self.stored}` not supported for columns '
-                f'computed with window functions:\n{self.value_expr}'
+                f'computed with window functions:\n{self.value_expr}',
             )
 
     def has_window_fn_call(self) -> bool:
@@ -488,6 +519,13 @@ class Column:
         return self._value_expr is not None or self.value_expr_dict is not None
 
     @property
+    def calls_custom_udf(self) -> bool:
+        value_expr = self.value_expr
+        if value_expr is None:
+            return False
+        return value_expr.contains_(cls=exprs.FunctionCall, filter=lambda e: not e.fn.is_builtin)
+
+    @property
     def is_stored(self) -> bool:
         """Returns True if column is materialized in the stored table."""
         assert self.stored is not None
@@ -499,7 +537,9 @@ class Column:
         return f'{self.get_tbl().name}.{self.name}'
 
     @property
-    def media_validation(self) -> MediaValidation:
+    def media_validation(self) -> MediaValidation | None:
+        if not self.col_type.is_media_type():
+            return None
         if self._media_validation is not None:
             return self._media_validation
         assert self.get_tbl() is not None

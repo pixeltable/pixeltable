@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 import copy
-import logging
 from typing import Any
 from uuid import UUID
 
 from pixeltable.metadata import schema
 
 from .column import Column
-from .globals import MediaValidation
+from .globals import MediaValidation, QColumnId
 from .table_version import TableVersion, TableVersionKey
 from .table_version_handle import TableVersionHandle
-
-_logger = logging.getLogger('pixeltable')
 
 
 class TableVersionPath:
@@ -80,7 +77,7 @@ class TableVersionPath:
         elif self._cached_tbl_version is not None:
             return
 
-        with get_runtime().catalog.begin_xact(tbl_id=self.tbl_version.id, for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=[self.tbl_version.id]):
             self._cached_tbl_version = self.tbl_version.get()
 
     def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
@@ -106,8 +103,10 @@ class TableVersionPath:
         """Return the id of the table/view that this path represents"""
         return self.tbl_version.id
 
-    def version(self) -> int:
+    def version(self) -> int | None:
         """Return the version of the table/view that this path represents"""
+        if not self.is_versioned():
+            return None
         self.refresh_cached_md()
         return self._cached_tbl_version.version
 
@@ -115,6 +114,10 @@ class TableVersionPath:
         """Return the version of the table/view that this path represents"""
         self.refresh_cached_md()
         return self._cached_tbl_version.schema_version
+
+    def is_versioned(self) -> bool:
+        self.refresh_cached_md()
+        return self._cached_tbl_version.is_versioned
 
     def tbl_name(self) -> str:
         """Return the name of the table/view that this path represents"""
@@ -157,10 +160,6 @@ class TableVersionPath:
         self.refresh_cached_md()
         return copy.deepcopy(self._cached_tbl_version.custom_metadata)
 
-    def num_retained_versions(self) -> int:
-        self.refresh_cached_md()
-        return self._cached_tbl_version.num_retained_versions
-
     def media_validation(self) -> MediaValidation:
         self.refresh_cached_md()
         return self._cached_tbl_version.media_validation
@@ -195,15 +194,10 @@ class TableVersionPath:
             result.extend(c for c in base_cols if c.name not in self._cached_tbl_version.cols_by_name)
         return result
 
-    def cols_by_name(self) -> dict[str, Column]:
-        """Return a dict of all user columns visible in this tbl version path, including columns from bases"""
-        cols = self.columns()
-        return {col.name: col for col in cols}
-
-    def cols_by_id(self) -> dict[int, Column]:
-        """Return a dict of all user columns visible in this tbl version path, including columns from bases"""
-        cols = self.columns()
-        return {col.id: col for col in cols}
+    def get_column_by_qid(self, qcol_id: QColumnId) -> Column | None:
+        return next(
+            (col for col in self.columns() if col.id == qcol_id.col_id and col.tbl_handle.id == qcol_id.tbl_id), None
+        )
 
     def get_column(self, name: str) -> Column | None:
         """Return the column with the given name, or None if not found"""

@@ -4,7 +4,7 @@ from typing import Any, Callable, Literal
 import pytest
 
 import pixeltable as pxt
-from tests.utils import assert_version_metadata_eq
+from tests.utils import assert_version_metadata_eq, pxt_raises
 
 
 class TestHistory:
@@ -98,9 +98,9 @@ class TestHistory:
         r = fn(t)
         print(r)
 
-        with pytest.raises(pxt.Error, match='Invalid value for'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid value for'):
             fn(t, n=0)
-        with pytest.raises(pxt.Error, match='Invalid value for'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid value for'):
             fn(t, n=1.5)  # type: ignore[arg-type]
 
         r = fn(t, n=3)
