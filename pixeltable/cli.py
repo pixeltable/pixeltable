@@ -104,6 +104,7 @@ def _add_service_args(p: argparse.ArgumentParser) -> None:
     p.add_argument('--host', type=str, default=None, help='Bind address (overrides config default)')
     p.add_argument('--port', type=int, default=None, help='Bind port (overrides config default)')
     p.add_argument('--prefix', type=str, default=None, help='URL prefix (overrides config default)')
+    p.add_argument('--config', type=str, default=None, help='Path to an additional TOML config file')
 
 
 def _add_output_args(p: argparse.ArgumentParser) -> None:
@@ -223,9 +224,9 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
 
 
 def _serve(args: argparse.Namespace) -> None:
+    if args.config is not None:
+        config.Config.init({}, additional_config_files=[args.config])
     if hasattr(args, 'service'):
-        if args.config is not None:
-            config.Config.init({}, additional_config_files=[args.config])
         cfg = lookup_service_config(args.service)
     else:
         try:

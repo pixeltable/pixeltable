@@ -293,11 +293,23 @@ class Config:
         assert subscript is not None and len(subscript) == 1 and issubclass(subscript[0], pydantic.BaseModel)
         model_type = subscript[0]
         try:
-            return [model_type.model_validate(entry) for entry in item]
+            validated_config = [model_type.model_validate(entry) for entry in item]
         except pydantic.ValidationError as e:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid `{subscript[0].__name__}` in config file: {source}\n{e}'
             ) from e
+        if 'name' in model_type.model_fields:
+            # Convention: if the model has a 'name' field, it must be unique among entries.
+            names: set[str] = set()
+            for entry in validated_config:
+                name = entry.name
+                if name in names:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
+                        f"Duplicate `{model_type.__name__}` name '{entry.name}' in config file: {source}",
+                    )
+                names.add(name)
+        return validated_config
 
     @classmethod
     def __merge_config(cls, base: dict[str, Any], overlay: dict[str, Any]) -> None:

@@ -53,7 +53,7 @@ def _lookup_config(cfg_block: str, name: str, cfg_type: type[T]) -> T:
             excs.ErrorCode.SERVICE_NOT_FOUND, f'No {cfg_block}s found in Pixeltable configuration.'
         )
 
-    cfg = next((cfg for cfg in items if cfg.name == name), None)
+    cfg = next((c for c in items if c.name == name), None)
     if cfg is None:
         raise excs.NotFoundError(
             excs.ErrorCode.SERVICE_NOT_FOUND,

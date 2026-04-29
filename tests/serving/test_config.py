@@ -163,7 +163,7 @@ class TestConfig:
         """Invalid TOML configs produce clear pxt.Error messages."""
         skip_test_if_not_installed('fastapi')
 
-        cases: list[tuple[dict[str, Any], str]] = [
+        basic_cases: list[tuple[dict[str, Any], str]] = [
             # unknown route type (match on field name + invalid value to avoid coupling to Pydantic's exact phrasing)
             ({'routes': [{'type': 'notarealtype', 'path': '/x'}]}, r'type.*notarealtype|notarealtype.*type'),
             # insert missing table
@@ -182,10 +182,19 @@ class TestConfig:
             ({'prefix': 'api', 'routes': [{'type': 'insert', 'table': 'd.t', 'path': '/x'}]}, 'prefix'),
         ]
 
+        # Each of the basic_cases is wrapped in a {'service': [...]} block and given the name 'test-service'. Other
+        # test cases that don't fit this pattern are subsequently appended.
+        cases = [
+            ({'service': [{'name': 'test-service'} | config_dict]}, expected_string)
+            for config_dict, expected_string in basic_cases
+        ]
+        cases.append(
+            ({'service': [{'name': 'test-service'}, {'name': 'test-service'}]}, 'Duplicate `ServiceConfig` name')
+        )
+
         for config_dict, expected_substring in cases:
-            config_dict['name'] = 'test-service'
             with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as f:
-                toml.dump({'service': [config_dict]}, f)
+                toml.dump(config_dict, f)
                 config_path = f.name
             try:
                 print(config_dict)
