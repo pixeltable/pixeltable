@@ -130,6 +130,7 @@ def export_iceberg(
             ) from e
 
     with iceberg_tbl.transaction() as tx:
+        # First batch already has the correct schema from the processing above, so we can write it directly.
         tx.append(pa.Table.from_batches([first_batch]))
         for batch in batch_iter:
             unwrapped = batch
