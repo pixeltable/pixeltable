@@ -248,11 +248,15 @@ class TestDestination:
             StorageTarget.R2_STORE,
             StorageTarget.B2_STORE,
             StorageTarget.TIGRIS_STORE,
+            StorageTarget.PIXELTABLE_STORE,
         ):
             res = t.select(dest1=t.img_rot2.fileurl, dest2=t.img_rot3.fileurl).collect()
             for dest_uri, col_name in ((dest1_uri, 'dest1'), (dest2_uri, 'dest2')):
                 store = ObjectOps.get_store(dest_uri, allow_obj_name=False)
-                assert isinstance(store, (S3Store, PxtStore))
+                if dest_id == StorageTarget.PIXELTABLE_STORE:
+                    assert isinstance(store, PxtStore)
+                    store = store._store
+                assert isinstance(store, S3Store)
                 for d in res[col_name]:
                     addr = ObjectPath.parse_object_storage_addr(d, allow_obj_name=True)
                     content_type = store.get_object_content_type(addr.key)

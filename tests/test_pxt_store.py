@@ -7,11 +7,10 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.utils import pxt_store
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 from pixeltable.utils.s3_store import S3Store
 
-from .utils import skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status, pxt_raises
+from .utils import pxt_raises, skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status
 
 PXT_DEST_URI = 'pxtfs://pixeltable:main/home/pytest'
 
@@ -83,6 +82,7 @@ class TestPxtStore:
     def test_no_space_left(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
+        from pixeltable.utils import pxt_store
 
         dest_uri = f'{PXT_DEST_URI}/quota_test'
         t = pxt.create_table('test_pxt_quota', schema={'img': pxt.Image})
