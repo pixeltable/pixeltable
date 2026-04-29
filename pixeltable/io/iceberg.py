@@ -27,7 +27,7 @@ def export_iceberg(
     table_name: str,
     *,
     batch_size_bytes: int = 128 * 2**20,
-    if_exists: Literal['error', 'overwrite', 'append'] = 'error',
+    if_exists: Literal['error', 'replace', 'append'] = 'error',
 ) -> None:
     """
     Exports a query result or table to an Apache Iceberg table.
@@ -48,7 +48,7 @@ def export_iceberg(
         if_exists: Determines the behavior if the table already exists. Must be one of the following:
 
             - `'error'`: raise an error
-            - `'overwrite'`: drop the existing table and create a new one
+            - `'replace'`: drop the existing table and create a new one
             - `'append'`: append to the existing table (source schema must be compatible)
     """
     Env.get().require_package('pyiceberg')
@@ -58,10 +58,10 @@ def export_iceberg(
 
     from pixeltable.utils.arrow import to_record_batches
 
-    if if_exists not in ('error', 'overwrite', 'append'):
+    if if_exists not in ('error', 'replace', 'append'):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            "export_iceberg(): 'if_exists' must be one of: ['error', 'overwrite', 'append']",
+            "export_iceberg(): 'if_exists' must be one of: ['error', 'replace', 'append']",
         )
 
     query: pxt.Query
@@ -81,7 +81,7 @@ def export_iceberg(
             raise excs.AlreadyExistsError(
                 excs.ErrorCode.PATH_ALREADY_EXISTS, f'export_iceberg(): table {table_name!r} already exists'
             )
-        if if_exists == 'overwrite':
+        if if_exists == 'replace':
             catalog.drop_table(table_name)
             iceberg_tbl = None
 
