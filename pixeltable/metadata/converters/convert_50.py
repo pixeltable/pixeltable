@@ -6,10 +6,10 @@ from pixeltable.metadata import register_converter
 from pixeltable.metadata.schema import Table, TableSchemaVersion
 
 
-@register_converter(version=48)
+@register_converter(version=50)
 def _(engine: sql.engine.Engine) -> None:
     """
-    In version 48, some column metadata moved from the table level (TableMd, ColumnMd) to SchemaVersionMd to allow for
+    In version 51, some column metadata moved from the table level (TableMd, ColumnMd) to SchemaVersionMd to allow for
     versioning of these fields in the future. This converter moves the affected fields accordingly by reading all table
     and schema version metadata to memory, then updating them and writing them back.
     """
