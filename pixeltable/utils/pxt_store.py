@@ -256,7 +256,7 @@ class PxtStore(ObjectStoreBase):
         if self._pxt_store_entry.no_space_left:
             raise excs.ServiceUnavailableError(
                 ErrorCode.STORE_UNAVAILABLE,
-                message='No space left in Pixeltable store. Only read and delete operations are allowed.',
+                'No space left in Pixeltable store. Only read and delete operations are allowed.',
             )
         return self._to_logical_uri(self._store.copy_local_file(col, src_path))
 

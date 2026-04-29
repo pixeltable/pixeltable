@@ -13,6 +13,7 @@ from pixeltable.env import Env
 from pixeltable.functions.net import presigned_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
+from pixeltable.utils.pxt_store import PxtStore
 
 from .utils import pxt_raises, rerun, skip_test_if_not_installed
 
@@ -251,7 +252,7 @@ class TestDestination:
             res = t.select(dest1=t.img_rot2.fileurl, dest2=t.img_rot3.fileurl).collect()
             for dest_uri, col_name in ((dest1_uri, 'dest1'), (dest2_uri, 'dest2')):
                 store = ObjectOps.get_store(dest_uri, allow_obj_name=False)
-                assert isinstance(store, S3Store)
+                assert isinstance(store, (S3Store, PxtStore))
                 for d in res[col_name]:
                     addr = ObjectPath.parse_object_storage_addr(d, allow_obj_name=True)
                     content_type = store.get_object_content_type(addr.key)

@@ -6,11 +6,12 @@ from unittest.mock import patch
 import pytest
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 from pixeltable.utils import pxt_store
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 from pixeltable.utils.s3_store import S3Store
 
-from .utils import skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status
+from .utils import skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status, pxt_raises
 
 PXT_DEST_URI = 'pxtfs://pixeltable:main/home/pytest'
 
@@ -104,7 +105,7 @@ class TestPxtStore:
         )
 
         with patch.object(pxt_store, '_get_or_create_pxt_store_entry', return_value=quota_entry):
-            with pytest.raises(pxt.Error, match='No space left'):
+            with pxt_raises(excs.ErrorCode.STORE_UNAVAILABLE, match='No space left'):
                 t.insert([{'img': img}])
 
             result = t.select(t.img_rot.fileurl).collect()
