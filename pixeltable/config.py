@@ -147,8 +147,8 @@ class Config:
 
         self.__config_dict = {}
 
-        # Load lowest precedence first
-        for source in (user_config, pyproject_config, project_config, *additional_configs[::-1]):
+        # Load lowest precedence first (for additional configs, last specified = highest precedence)
+        for source in (user_config, pyproject_config, project_config, *additional_configs):
             self.__merge_config(self.__config_dict, source)
 
     @property
