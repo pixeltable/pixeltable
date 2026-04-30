@@ -49,6 +49,7 @@ class AggregationNode(ExecNode):
         self.limit = None
 
     def set_limit(self, limit: int) -> None:
+        assert limit > 0
         # we can't propagate the limit to our input
         self.limit = limit
 

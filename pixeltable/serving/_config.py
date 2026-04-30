@@ -61,6 +61,14 @@ class InsertRouteConfig(RouteConfigBase):
     return_fileresponse: bool = False
 
 
+class UpdateRouteConfig(RouteConfigBase):
+    type: Literal['update']
+    table: str
+    inputs: list[str] | None = None
+    outputs: list[str] | None = None
+    return_fileresponse: bool = False
+
+
 class DeleteRouteConfig(RouteConfigBase):
     type: Literal['delete']
     table: str
@@ -77,7 +85,9 @@ class QueryRouteConfig(RouteConfigBase):
     method: Literal['get', 'post'] = 'post'
 
 
-RouteConfig = Annotated[InsertRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')]
+RouteConfig = Annotated[
+    InsertRouteConfig | UpdateRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')
+]
 
 
 class AppConfig(pydantic.BaseModel):
@@ -161,6 +171,16 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
                 path=route.path,
                 inputs=route.inputs,
                 uploadfile_inputs=route.uploadfile_inputs,
+                outputs=route.outputs,
+                return_fileresponse=route.return_fileresponse,
+                background=route.background,
+            )
+        elif isinstance(route, UpdateRouteConfig):
+            t = pxt.get_table(route.table)
+            router.add_update_route(
+                t,
+                path=route.path,
+                inputs=route.inputs,
                 outputs=route.outputs,
                 return_fileresponse=route.return_fileresponse,
                 background=route.background,

@@ -196,9 +196,10 @@ class Row(Mapping[str, Any]):
     and `items` methods.
     """
 
-    def __init__(self, data: Iterable[Any], columns: dict[str, int]):
+    def __init__(self, data: Iterable[Any], columns: dict[str, int], col_types: dict[str, ColumnType]):
         self._data = tuple(data)
         self._columns = columns
+        self._col_types = col_types
 
     def __getitem__(self, key: str) -> Any:
         if key not in self._columns:
@@ -221,6 +222,43 @@ class Row(Mapping[str, Any]):
 
     def __repr__(self) -> str:
         return 'Row({' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '})'
+
+    def to_json(self) -> dict[str, Any]:
+        """Return a JSON-serializable dict of this row's values.
+
+        - `None`: preserved as `None`
+        - Timestamp, Date: ISO 8601 string
+        - UUID: string
+        - Array: Python list (via `tolist()`)
+        - Json: validated for serializability, kept as native Python
+        - Binary: omitted (not representable in JSON)
+        - All others: unchanged
+        """
+        result: dict[str, Any] = {}
+        for col_name, col_type in self._col_types.items():
+            val = self[col_name]
+            if col_type.is_binary_type():
+                continue
+            elif val is None:
+                result[col_name] = None
+            elif col_type.is_timestamp_type() or col_type.is_date_type():
+                result[col_name] = val.isoformat()
+            elif col_type.is_uuid_type():
+                result[col_name] = str(val)
+            elif col_type.is_array_type():
+                result[col_name] = val.tolist()
+            elif col_type.is_json_type():
+                try:
+                    json.dumps(val)
+                except (TypeError, ValueError) as err:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_DATA_FORMAT,
+                        f'Column {col_name!r} contains a value that is not JSON-serializable: {err}',
+                    ) from err
+                result[col_name] = val
+            else:
+                result[col_name] = val
+        return result
 
 
 class ResultCursor(Iterable[Row]):
@@ -303,7 +341,7 @@ class ResultCursor(Iterable[Row]):
         assert self._row_iterator is not None
         try:
             for data in self._row_iterator:
-                yield Row(data, self._columns)
+                yield Row(data, self._columns, self._query.schema)
         finally:
             self.close()
 
@@ -491,6 +529,8 @@ class Query:
         """Run the query and return rows as a generator.
         This function must not modify the state of the Query, otherwise it breaks dataset caching.
         """
+        if self.limit_val is not None and self.limit_val.val == 0:
+            return
         plan = self._create_query_plan()
 
         def exec_plan() -> Iterator[exprs.DataRow]:
@@ -506,6 +546,8 @@ class Query:
         """Run the query and return rows as a generator.
         This function must not modify the state of the Query, otherwise it breaks dataset caching.
         """
+        if self.limit_val is not None and self.limit_val.val == 0:
+            return
         plan = self._create_query_plan()
         with plan:
             async for row_batch in plan:
@@ -688,6 +730,25 @@ class Query:
             offset=offset_val,
         )
 
+    def _replace_select_list(self, new_exprs: list[exprs.Expr]) -> Query:
+        """Return a new Query with the given select-list exprs.
+
+        All other clauses are cloned either here or in __init__().
+        """
+        assert len(new_exprs) == len(self._schema)
+        select_list = list(zip(new_exprs, self._schema.keys()))
+        return Query(
+            from_clause=self._from_clause,
+            select_list=select_list,
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=self.order_by_clause,
+            limit=copy.deepcopy(self.limit_val),
+            offset=copy.deepcopy(self.offset_val),
+            sample_clause=copy.deepcopy(self.sample_clause),
+        )
+
     def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
         msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{e.exc}'
         if len(e.input_vals) > 0:
@@ -748,7 +809,8 @@ class Query:
         columns = {name: i for i, name in enumerate(self.schema)}
         try:
             result = [
-                Row(tuple(row[e.slot_idx] for e in self._select_list_exprs), columns) async for row in self._aexec()
+                Row(tuple(row[e.slot_idx] for e in self._select_list_exprs), columns, self.schema)
+                async for row in self._aexec()
             ]
             return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:
@@ -763,6 +825,8 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
+        if self.limit_val is not None and self.limit_val.val == 0:
+            return 0
         with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()) as conn:
             count_stmt = Planner.create_count_stmt(self)
             result: int = conn.execute(count_stmt).scalar_one()
@@ -1328,6 +1392,14 @@ class Query:
         """
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'limit() cannot be used with sample()')
+
+        # Reject negative int constants here. Non-int types fall through to _convert_param_to_typed_expr,
+        # which raises TYPE_MISMATCH. Expression-valued limits (from @pxt.query bodies) aren't validated
+        # here; users constructing queries directly always pass a Python int.
+        if isinstance(n, int) and not isinstance(n, bool) and n < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'limit()' parameter must be >= 0")
+        if offset is not None and isinstance(offset, int) and not isinstance(offset, bool) and offset < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'offset' parameter must be >= 0")
 
         limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
         offset_expr = None
