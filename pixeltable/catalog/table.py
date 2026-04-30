@@ -1405,27 +1405,23 @@ class Table(SchemaObject):
 
         To insert multiple rows at a time:
 
-        ```python
-        insert(
-            source: TableSourceDataType,
-            /,
-            *,
-            on_error: Literal['abort', 'ignore'] = 'abort',
-            print_stats: bool = False,
-            **kwargs: Any,
-        )
-        ```
+        >>> insert(
+        ...     source: TableSourceDataType,
+        ...     /,
+        ...     *,
+        ...     on_error: Literal['abort', 'ignore'] = 'abort',
+        ...     print_stats: bool = False,
+        ...     **kwargs: Any,
+        ... )
 
         To insert just a single row, you can use the more concise syntax:
 
-        ```python
-        insert(
-            *,
-            on_error: Literal['abort', 'ignore'] = 'abort',
-            print_stats: bool = False,
-            **kwargs: Any
-        )
-        ```
+        >>> insert(
+        ...     *,
+        ...     on_error: Literal['abort', 'ignore'] = 'abort',
+        ...     print_stats: bool = False,
+        ...     **kwargs: Any
+        ... )
 
         Args:
             source: A data source from which data can be imported.
