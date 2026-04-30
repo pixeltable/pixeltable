@@ -308,27 +308,35 @@ class Config:
                 info = KNOWN_CONFIG_OPTIONS[section][key]
                 if isinstance(info, tuple):
                     _, expected_type = info
-                    section_dict[key] = cls.__validate_config_item(
+                    section_dict[key] = cls.__validate_config_value(
                         section, key, section_dict[key], expected_type, source
                     )
 
     @classmethod
-    def __validate_config_item(cls, section: str, key: str, item: Any, expected_type: type, source: Path) -> Any:
+    def __validate_config_value(cls, section: str, key: str, value: Any, expected_type: type, source: Path) -> Any:
+        """
+        A config value could be a scalar, as in `pixeltable.file_cache_size_g`, or it could be a dict or a list of
+        dicts that represents a Pydantic model. If the given key has a specified type, this method validates it
+        as the given type. If the type is a Pydantic model or a list[Pydantic model], it converts the given dict(s)
+        to the appropriate model instance(s).
+
+        non-Pydantic types are currently not supported (but we could add support for them in the future).
+        """
         origin_t = typing.get_origin(expected_type) or expected_type
         # Currently only list[PydanticModel] validation is supported.
         # TODO: Introduce fail-fast config validation for more types
         assert origin_t is list
-        if not isinstance(item, origin_t):
+        if not isinstance(value, origin_t):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f"Invalid type for option '{section}.{key}' in config file: {source}\n"
-                f'(expected `{origin_t.__name__}`, got `{type(item).__name__}`)',
+                f'(expected `{origin_t.__name__}`, got `{type(value).__name__}`)',
             )
         subscript = typing.get_args(expected_type)
         assert subscript is not None and len(subscript) == 1 and issubclass(subscript[0], pydantic.BaseModel)
         model_type = subscript[0]
         try:
-            validated_config = [model_type.model_validate(entry) for entry in item]
+            validated_config = [model_type.model_validate(entry) for entry in value]
         except pydantic.ValidationError as e:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid `{subscript[0].__name__}` in config file: {source}\n{e}'
