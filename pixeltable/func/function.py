@@ -229,9 +229,9 @@ class Function(ABC):
         def _arg_desc(v: Any) -> str:
             if isinstance(v, Literal) and v.val is None:
                 return 'None'
-            if isinstance(v, Expr):
-                return str(v.col_type)
-            return type(v).__name__
+            # At this point all arguments should have been converted to Exprs
+            assert isinstance(v, Expr)
+            return str(v.col_type)
 
         arg_descs = (_arg_desc(a) for a in args)
         kwarg_descs = (f'{k}={_arg_desc(v)}' for k, v in kwargs.items())
