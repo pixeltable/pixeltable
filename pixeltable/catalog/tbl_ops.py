@@ -271,3 +271,39 @@ class DropStoreTableOp(TableOp):
 
     def undo(self, tv: TableVersion | None) -> None:
         raise AssertionError()
+
+
+class TableOpsBuilder:
+    """Builder for a sequence of TableOps that share a subset of common attributes."""
+
+    _tbl_id: str
+    _tbl_version: int | None
+    _tbl_schema_version: int | None
+    _ops: list[TableOp]
+
+    def __init__(self, tbl_id: str, tbl_version: int | None, tbl_schema_version: int | None) -> None:
+        self._tbl_id = tbl_id
+        self._tbl_version = tbl_version
+        self._tbl_schema_version = tbl_schema_version
+        self._ops = []
+
+    def add(self, cls: type[TableOp], **kwargs: Any) -> 'TableOpsBuilder':
+        self._ops.append(
+            cls(
+                tbl_id=self._tbl_id,
+                op_sn=0,  # backfilled in build()
+                num_ops=0,  # backfilled in build()
+                status=OpStatus.PENDING,
+                tbl_version=self._tbl_version,
+                tbl_schema_version=self._tbl_schema_version,
+                **kwargs,
+            )
+        )
+        return self
+
+    def build(self) -> list[TableOp]:
+        num_ops = len(self._ops)
+        for i, op in enumerate(self._ops):
+            op.op_sn = i
+            op.num_ops = num_ops
+        return self._ops
