@@ -55,7 +55,7 @@ class TestConfig:
             outputs = ["id", "name", "name_upper"]
 
             [service.routes.export_sql]
-            db_connect = "{db_connect}"
+            db_connect = '{db_connect}'
             table = "items_out"
 
             [[service.routes]]
@@ -69,8 +69,8 @@ class TestConfig:
             type = "delete"
             table = "test_config/items"
             path = "/delete"
-            """.strip()
-        )
+            """
+        ).strip()
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as fp:
             fp.write(file_contents)
