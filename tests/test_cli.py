@@ -221,7 +221,7 @@ class TestCLI:
                 '--inputs', 'id', 'name',
                 '--outputs', 'id', 'name', 'name_upper',
                 '--export-sql-db-connect', 'sqlite:///x.db',
-                '--export-sql-target-table', 'items_out',
+                '--export-sql-table', 'items_out',
                 '--export-sql-method', 'update',
             ]  # fmt: skip
             with patch('sys.argv', argv):
@@ -230,18 +230,18 @@ class TestCLI:
             assert isinstance(route, InsertRouteConfig)
             assert route.export_sql is not None
             assert route.export_sql.db_connect == 'sqlite:///x.db'
-            assert route.export_sql.target_table == 'items_out'
+            assert route.export_sql.table == 'items_out'
             assert route.export_sql.method == 'update'
 
             mock_create.reset_mock()
             mock_run.reset_mock()
 
-            # --export-sql-target-table without --export-sql-db-connect: argument error
+            # --export-sql-table without --export-sql-db-connect: argument error
             argv = [
                 'pxt', 'serve', 'insert',
                 '--table', 'd.items', '--path', '/insert',
                 '--inputs', 'id',
-                '--export-sql-target-table', 'items_out',
+                '--export-sql-table', 'items_out',
             ]  # fmt: skip
             with patch('sys.argv', argv), pytest.raises(SystemExit):
                 cli_main()

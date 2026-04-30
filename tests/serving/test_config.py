@@ -53,7 +53,7 @@ class TestConfig:
                     'path': '/insert-export',
                     'inputs': ['id', 'name'],
                     'outputs': ['id', 'name', 'name_upper'],
-                    'export_sql': {'db_connect': db_connect, 'target_table': 'items_out'},
+                    'export_sql': {'db_connect': db_connect, 'table': 'items_out'},
                 },
                 {
                     'type': 'update',
@@ -198,7 +198,7 @@ class TestConfig:
                     'routes': [
                         {
                             'type': 'insert', 'table': 'd.t', 'path': '/x',
-                            'export_sql': {'db_connect': 'sqlite:///x', 'target_table': 'y', 'typo_key': 'z'},
+                            'export_sql': {'db_connect': 'sqlite:///x', 'table': 'y', 'typo_key': 'z'},
                         }
                     ]
                 },
@@ -210,13 +210,13 @@ class TestConfig:
                     'routes': [
                         {
                             'type': 'insert', 'table': 'd.t', 'path': '/x',
-                            'export_sql': {'db_connect': 'sqlite:///x', 'target_table': 'y', 'method': 'bogus'},
+                            'export_sql': {'db_connect': 'sqlite:///x', 'table': 'y', 'method': 'bogus'},
                         }
                     ]
                 },
                 "input_value='bogus'",
             ),
-            # export_sql: missing target_table
+            # export_sql: missing table
             (
                 {
                     'routes': [
@@ -226,7 +226,7 @@ class TestConfig:
                         }
                     ]
                 },
-                'target_table',
+                r'export_sql\.[^\s]*table',
             ),
         ]  # fmt: skip
 

@@ -88,10 +88,7 @@ def _snowflake_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
     from pixeltable.env import Env
 
     if col_type.is_json_type():
-        Env.get().require_package(
-            'snowflake.sqlalchemy',
-            not_installed_msg='Exporting json data to Snowflake requires the snowflake-sqlalchemy package',
-        )
+        Env.get().require_package('snowflake.sqlalchemy')
         from snowflake.sqlalchemy import VARIANT  # type: ignore[import-untyped]
 
         return VARIANT()

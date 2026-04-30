@@ -187,7 +187,7 @@ class TestFastAPI:
 
         router = FastAPIRouter()
         # default inputs and outputs; with export_sql to out_all
-        router.add_insert_route(t, path='/all', export_sql=SqlExport(db_connect=db_connect, target_table='out_all'))
+        router.add_insert_route(t, path='/all', export_sql=SqlExport(db_connect=db_connect, table='out_all'))
         # subset of inputs, all outputs
         router.add_insert_route(t, path='/partial-in', inputs=['id', 'str_col', 'int_col'])
         # all inputs, subset of outputs
@@ -198,7 +198,7 @@ class TestFastAPI:
             path='/minimal',
             inputs=['id', 'int_col'],
             outputs=['int_plus1'],
-            export_sql=SqlExport(db_connect=db_connect, target_table='out_minimal'),
+            export_sql=SqlExport(db_connect=db_connect, table='out_minimal'),
         )
         # update-mode export: pxt insert triggers a UPDATE on the target keyed on id
         router.add_insert_route(
@@ -206,7 +206,7 @@ class TestFastAPI:
             path='/update',
             inputs=['id', 'str_col', 'int_col'],
             outputs=['id', 'str_upper', 'int_plus1'],
-            export_sql=SqlExport(db_connect=db_connect, target_table='out_update', method='update'),
+            export_sql=SqlExport(db_connect=db_connect, table='out_update', method='update'),
         )
         # engine cache reuse: three export_sql routes against the same db_connect share one engine
         assert len(router._engine_cache) == 1
@@ -413,7 +413,7 @@ class TestFastAPI:
             t,
             path='/all',
             uploadfile_inputs=uploadfile_inputs,
-            export_sql=SqlExport(db_connect=db_connect, target_table='img_out'),
+            export_sql=SqlExport(db_connect=db_connect, table='img_out'),
         )
         # /resize: id + image + width + height, only resized image output
         router.add_insert_route(
@@ -610,7 +610,7 @@ class TestFastAPI:
             uploadfile_inputs=uploadfile_inputs,
             outputs=['resized'],
             background=True,
-            export_sql=SqlExport(db_connect=db_connect, target_table='bg_resize'),
+            export_sql=SqlExport(db_connect=db_connect, table='bg_resize'),
         )
         client = make_test_client(router)
         media_dir = str(Env.get().media_dir)
@@ -1153,13 +1153,10 @@ class TestFastAPI:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'merge' is not yet supported"):
             router.add_insert_route(
-                t,
-                path='/e',
-                outputs=['id'],
-                export_sql=SqlExport(db_connect=db_connect, target_table='out', method='merge'),
+                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out', method='merge')
             )
 
-        spec_insert = SqlExport(db_connect=db_connect, target_table='out')
+        spec_insert = SqlExport(db_connect=db_connect, table='out')
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT, match='export_sql and return_fileresponse are mutually exclusive'
         ):
@@ -1175,12 +1172,12 @@ class TestFastAPI:
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="column 'id'"):
             router.add_insert_route(
-                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, target_table='out_bad')
+                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out_bad')
             )
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="column 'id' not in table"):
             router.add_insert_route(
-                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, target_table='out_missing')
+                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out_missing')
             )
 
         # method='update' validation: target needs a PK
@@ -1190,7 +1187,7 @@ class TestFastAPI:
                 t,
                 path='/e',
                 outputs=['id', 'text_upper'],
-                export_sql=SqlExport(db_connect=db_connect, target_table='no_pk', method='update'),
+                export_sql=SqlExport(db_connect=db_connect, table='no_pk', method='update'),
             )
 
         # method='update' validation: response columns must include the PK
@@ -1202,7 +1199,7 @@ class TestFastAPI:
                 t,
                 path='/e',
                 outputs=['text_upper'],
-                export_sql=SqlExport(db_connect=db_connect, target_table='with_pk', method='update'),
+                export_sql=SqlExport(db_connect=db_connect, table='with_pk', method='update'),
             )
 
         # method='update' validation: at least one non-PK column must be present
@@ -1211,7 +1208,7 @@ class TestFastAPI:
                 t,
                 path='/e',
                 outputs=['id'],
-                export_sql=SqlExport(db_connect=db_connect, target_table='with_pk', method='update'),
+                export_sql=SqlExport(db_connect=db_connect, table='with_pk', method='update'),
             )
 
     def test_insert_route(self, uses_db: None, tmp_path: pathlib.Path) -> None:
@@ -1240,7 +1237,7 @@ class TestFastAPI:
             path='/generate',
             inputs=['id', 'prompt'],
             outputs=['greeting', 'length'],
-            export_sql=SqlExport(db_connect=db_connect, target_table='gen_out'),
+            export_sql=SqlExport(db_connect=db_connect, table='gen_out'),
         )
         def format_response(*, greeting: str | None, length: int | None) -> GenResponse:
             assert greeting is not None and length is not None
@@ -1326,7 +1323,7 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match="cannot interpret response field 'weird'"):
 
             @router.insert_route(
-                t, path='/e_export', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, target_table='bad')
+                t, path='/e_export', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='bad')
             )
             def _bad(*, id: int) -> BadResponse:
                 return BadResponse(x=id)
@@ -1396,7 +1393,7 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match="cannot interpret response field 'weird'"):
 
             @router.update_route(
-                t, path='/e_export', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, target_table='bad')
+                t, path='/e_export', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='bad')
             )
             def _bad(*, id: int) -> BadResponse:
                 return BadResponse(x=id)
@@ -1694,7 +1691,7 @@ class TestFastAPI:
             path='/export',
             inputs=['text', 'value'],
             outputs=['id', 'text', 'value', 'text_upper'],
-            export_sql=SqlExport(db_connect=db_connect, target_table='items_out', method='update'),
+            export_sql=SqlExport(db_connect=db_connect, table='items_out', method='update'),
         )
         client = make_test_client(router)
 
@@ -1786,7 +1783,7 @@ class TestFastAPI:
                 path='/e',
                 outputs=['image'],
                 return_fileresponse=True,
-                export_sql=SqlExport(db_connect=db_connect, target_table='tgt'),
+                export_sql=SqlExport(db_connect=db_connect, table='tgt'),
             )
 
     def test_update_route(self, uses_db: None, tmp_path: pathlib.Path) -> None:
@@ -1820,7 +1817,7 @@ class TestFastAPI:
             path='/update',
             inputs=['text', 'value'],
             outputs=['id', 'text_upper', 'value'],
-            export_sql=SqlExport(db_connect=db_connect, target_table='upd_out'),
+            export_sql=SqlExport(db_connect=db_connect, table='upd_out'),
         )
         def format_response(*, id: int, text_upper: str | None, value: int | None) -> UpdateResp:
             assert text_upper is not None and value is not None

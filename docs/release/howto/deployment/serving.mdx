@@ -161,7 +161,7 @@ router.add_insert_route(
     outputs=['prompt', 'result'],
     export_sql=SqlExport(
         db_connect='postgresql+psycopg://user:pw@host/analytics',
-        target_table='generations',
+        table='generations',
     ),
 )
 ```
@@ -179,8 +179,8 @@ outputs = ["prompt", "result"]
 
 [routes.export_sql]
 db_connect = "postgresql+psycopg://user:pw@host/analytics"
-target_table = "generations"
-# target_schema = "public"  # optional
+table = "generations"
+# db_schema = "public"  # optional
 # method = "insert"         # default; alternatives: "update", "merge" (not yet supported)
 ```
 
@@ -191,7 +191,7 @@ flags on `pxt serve insert` and `pxt serve update`.
 pxt serve insert --table my_dir.my_table --path /generate \
   --inputs prompt --outputs prompt result \
   --export-sql-db-connect 'postgresql+psycopg://user:pw@host/analytics' \
-  --export-sql-target-table generations
+  --export-sql-table generations
 ```
 
 The row written to the target is the response body: the same columns as

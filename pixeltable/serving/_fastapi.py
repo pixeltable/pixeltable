@@ -231,8 +231,8 @@ class FastAPIRouter(fastapi.APIRouter):
                 outputs=['prompt', 'result'],
                 export_sql=SqlExport(
                     db_connect='postgresql+psycopg://user:pw@host/analytics',
-                    target_table='generations',
-                    target_schema='public',
+                    table='generations',
+                    db_schema='public',
                 ),
             )
             ```
@@ -383,7 +383,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 t, path='/generate', inputs=['prompt'], outputs=['caption', 'score'],
                 export_sql=SqlExport(
                     db_connect='postgresql+psycopg://user:pw@host/analytics',
-                    target_table='captions',
+                    table='captions',
                 ),
             )
             def format_response(*, caption: str, score: float) -> GenerateResponse:
@@ -522,7 +522,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 t, path='/update', inputs=['prompt'], outputs=['id', 'prompt', 'result'],
                 export_sql=SqlExport(
                     db_connect='postgresql+psycopg://user:pw@host/analytics',
-                    target_table='update_log',
+                    table='update_log',
                 ),
             )
             ```
@@ -680,7 +680,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 t, path='/update', inputs=['text'], outputs=['id', 'text', 'score'],
                 export_sql=SqlExport(
                     db_connect='postgresql+psycopg://user:pw@host/analytics',
-                    target_table='item_log',
+                    table='item_log',
                 ),
             )
             def format_response(*, id: int, text: str, score: float) -> ItemResponse:

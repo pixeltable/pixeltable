@@ -22,9 +22,10 @@ class SqlExport(pydantic.BaseModel):
     Attributes:
         db_connect: SQLAlchemy connection string for the target database (e.g.
             `'postgresql+psycopg://user:pw@host/db'`, `'sqlite:///path/to.db'`).
-        target_table: Name of the target table. It must already exist; resolution fails
+        table: Name of the target table. It must already exist; resolution fails
             if the table is missing.
-        target_schema: Optional database schema qualifier for the target table.
+        db_schema: Optional database schema qualifier (e.g. `'analytics'`); leave `None` to
+            use the connection's default schema.
         method: How to write each row into the target table.
 
             - `'insert'`: append the row via `INSERT ... VALUES`.
@@ -42,8 +43,8 @@ class SqlExport(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid')
 
     db_connect: str
-    target_table: str
-    target_schema: str | None = None
+    table: str
+    db_schema: str | None = None
     method: Literal['insert', 'update', 'merge'] = 'insert'
 
 
@@ -80,8 +81,8 @@ class SqlExporter:
         self.engine = engine
         self.table = sql_utils.resolve_table(
             engine=engine,
-            table_name=spec.target_table,
-            schema_name=spec.target_schema,
+            table_name=spec.table,
+            schema_name=spec.db_schema,
             source_schema=src_schema,
             if_exists='insert',
             if_not_exists='error',
@@ -135,7 +136,7 @@ class SqlExporter:
         params = row.model_dump(mode='python')
         if self.method == 'update':
             # add prefixed copies of PK values for the WHERE bindparams
-            params = {**params, **{f'b_{n}': params[n] for n in self._pk_names}}
+            params |= {f'b_{n}': params[n] for n in self._pk_names}
         try:
             with self.engine.connect() as conn:
                 result = conn.execute(self._stmt, [params])

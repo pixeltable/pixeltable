@@ -14,8 +14,8 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 
 if TYPE_CHECKING:
+    from pixeltable.serving import SqlExport
     from pixeltable.serving._config import AppConfig, RouteConfig
-    from pixeltable.serving.globals import SqlExport
 
 
 class _Parser(argparse.ArgumentParser):
@@ -111,14 +111,14 @@ def _add_export_sql_args(p: argparse.ArgumentParser) -> None:
         help='SQLAlchemy connection string for an external SQL target (enables export_sql)',
     )
     p.add_argument(
-        '--export-sql-target-table',
-        dest='export_sql_target_table',
+        '--export-sql-table',
+        dest='export_sql_table',
         default=None,
         help='Target table name (required when --export-sql-db-connect is set)',
     )
     p.add_argument(
-        '--export-sql-target-schema',
-        dest='export_sql_target_schema',
+        '--export-sql-db-schema',
+        dest='export_sql_db_schema',
         default=None,
         help='Optional database schema qualifier for the target table',
     )
@@ -304,22 +304,18 @@ def _create_sql_export(args: argparse.Namespace) -> 'SqlExport | None':
     from pixeltable.serving.globals import SqlExport
 
     db_connect = args.export_sql_db_connect
-    target_table = args.export_sql_target_table
-    target_schema = args.export_sql_target_schema
+    table = args.export_sql_table
+    db_schema = args.export_sql_db_schema
     if db_connect is None:
-        if target_table is not None or target_schema is not None:
+        if table is not None or db_schema is not None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
-                '--export-sql-target-table / --export-sql-target-schema requires --export-sql-db-connect',
+                '--export-sql-table / --export-sql-db-schema requires --export-sql-db-connect',
             )
         return None
-    if target_table is None:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, '--export-sql-db-connect requires --export-sql-target-table'
-        )
-    return SqlExport(
-        db_connect=db_connect, target_table=target_table, target_schema=target_schema, method=args.export_sql_method
-    )
+    if table is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '--export-sql-db-connect requires --export-sql-table')
+    return SqlExport(db_connect=db_connect, table=table, db_schema=db_schema, method=args.export_sql_method)
 
 
 def _create_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
