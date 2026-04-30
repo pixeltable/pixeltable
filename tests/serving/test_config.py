@@ -1,11 +1,13 @@
 """Tests for TOML-based service configuration and app creation."""
 
 import os
+import pathlib
 import tempfile
 import textwrap
 from typing import Any
 
 import pytest
+import sqlalchemy as sql
 import toml
 
 import pixeltable as pxt
@@ -16,11 +18,12 @@ from pixeltable.serving._config import (
     create_app_from_config,
     load_app_config,
 )
+from tests.serving.test_fastapi import assert_sqlite_row, make_sqlite_target
 from tests.utils import skip_test_if_not_installed
 
 
 class TestConfig:
-    def test_load_valid_config(self, uses_db: None) -> None:
+    def test_load_valid_config(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Load a valid TOML config, create an app, and exercise the routes via TestClient."""
         skip_test_if_not_installed('fastapi')
         from fastapi.testclient import TestClient
@@ -28,6 +31,11 @@ class TestConfig:
         pxt.create_dir('test_config')
         t = pxt.create_table('test_config.items', {'id': pxt.Required[pxt.Int], 'name': pxt.String}, primary_key='id')
         t.add_computed_column(name_upper=t.name.upper())
+
+        # sqlite target for the export_sql route
+        db_connect = make_sqlite_target(
+            tmp_path / 'export.db', 'items_out', {'id': sql.Integer, 'name': sql.VARCHAR, 'name_upper': sql.VARCHAR}
+        )
 
         config_dict = {
             'service': {'title': 'Test Service', 'port': 9999},
@@ -38,6 +46,14 @@ class TestConfig:
                     'path': '/insert',
                     'inputs': ['id', 'name'],
                     'outputs': ['id', 'name', 'name_upper'],
+                },
+                {
+                    'type': 'insert',
+                    'table': 'test_config.items',
+                    'path': '/insert-export',
+                    'inputs': ['id', 'name'],
+                    'outputs': ['id', 'name', 'name_upper'],
+                    'export_sql': {'db_connect': db_connect, 'table': 'items_out'},
                 },
                 {
                     'type': 'update',
@@ -58,7 +74,7 @@ class TestConfig:
             config = load_app_config(config_path)
             assert config.service.title == 'Test Service'
             assert config.service.port == 9999
-            assert len(config.routes) == 3
+            assert len(config.routes) == 4
 
             app = create_app_from_config(config)
             client = TestClient(app)
@@ -70,6 +86,12 @@ class TestConfig:
             assert data['id'] == 1
             assert data['name'] == 'alice'
             assert data['name_upper'] == 'ALICE'
+
+            # insert with export_sql: row should also land in the sqlite target
+            resp = client.post('/insert-export', json={'id': 2, 'name': 'carol'})
+            assert resp.status_code == 200, resp.text
+            assert resp.json() == {'id': 2, 'name': 'carol', 'name_upper': 'CAROL'}
+            assert_sqlite_row(db_connect, 'items_out', {'id': 2}, {'id': 2, 'name': 'carol', 'name_upper': 'CAROL'})
 
             # update: change the name, verify cascade of name_upper
             resp = client.post('/update', json={'id': 1, 'name': 'bob'})
@@ -170,7 +192,43 @@ class TestConfig:
             ({'routes': [{'type': 'insert', 'table': 'd.t', 'path': 'no-slash'}]}, 'path'),
             # prefix missing leading slash
             ({'service': {'prefix': 'api'}, 'routes': [{'type': 'insert', 'table': 'd.t', 'path': '/x'}]}, 'prefix'),
-        ]
+            # export_sql: unknown nested key
+            (
+                {
+                    'routes': [
+                        {
+                            'type': 'insert', 'table': 'd.t', 'path': '/x',
+                            'export_sql': {'db_connect': 'sqlite:///x', 'table': 'y', 'typo_key': 'z'},
+                        }
+                    ]
+                },
+                'typo_key',
+            ),
+            # export_sql: invalid method
+            (
+                {
+                    'routes': [
+                        {
+                            'type': 'insert', 'table': 'd.t', 'path': '/x',
+                            'export_sql': {'db_connect': 'sqlite:///x', 'table': 'y', 'method': 'bogus'},
+                        }
+                    ]
+                },
+                "input_value='bogus'",
+            ),
+            # export_sql: missing table
+            (
+                {
+                    'routes': [
+                        {
+                            'type': 'insert', 'table': 'd.t', 'path': '/x',
+                            'export_sql': {'db_connect': 'sqlite:///x'},
+                        }
+                    ]
+                },
+                r'export_sql\.[^\s]*table',
+            ),
+        ]  # fmt: skip
 
         for config_dict, expected_substring in cases:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as f:

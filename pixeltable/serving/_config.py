@@ -13,6 +13,7 @@ import pixeltable as pxt
 import pixeltable.func as func
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+from pixeltable.serving.globals import SqlExport
 
 if TYPE_CHECKING:
     import fastapi
@@ -59,6 +60,7 @@ class InsertRouteConfig(RouteConfigBase):
     uploadfile_inputs: list[str] | None = None
     outputs: list[str] | None = None
     return_fileresponse: bool = False
+    export_sql: SqlExport | None = None
 
 
 class UpdateRouteConfig(RouteConfigBase):
@@ -67,6 +69,7 @@ class UpdateRouteConfig(RouteConfigBase):
     inputs: list[str] | None = None
     outputs: list[str] | None = None
     return_fileresponse: bool = False
+    export_sql: SqlExport | None = None
 
 
 class DeleteRouteConfig(RouteConfigBase):
@@ -173,6 +176,7 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
                 uploadfile_inputs=route.uploadfile_inputs,
                 outputs=route.outputs,
                 return_fileresponse=route.return_fileresponse,
+                export_sql=route.export_sql,
                 background=route.background,
             )
         elif isinstance(route, UpdateRouteConfig):
@@ -183,6 +187,7 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
                 inputs=route.inputs,
                 outputs=route.outputs,
                 return_fileresponse=route.return_fileresponse,
+                export_sql=route.export_sql,
                 background=route.background,
             )
         elif isinstance(route, DeleteRouteConfig):
