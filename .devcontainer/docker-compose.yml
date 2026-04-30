@@ -1,0 +1,100 @@
+name: pixeltable-devcontainer
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspaces/pixeltable:cached
+    command: sleep infinity
+    environment:
+      PIXELTABLE_DB_CONNECT_STR: cockroachdb://root@roach1:26257/pixeltable?sslmode=disable
+      TZ: UTC
+      CMAKE_ARGS: -DLLAVA_BUILD=OFF
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+      HF_DEACTIVATE_ASYNC_LOAD: "1"
+    depends_on:
+      roach-init:
+        condition: service_completed_successfully
+
+  roach1:
+    image: cockroachdb/cockroach:v26.1.3
+    hostname: roach1
+    ports:
+      - "26257:26257"
+      - "8080:8080"
+    volumes:
+      - roach1-data:/cockroach/cockroach-data
+    command: >
+      start --insecure
+      --advertise-addr=roach1:26357
+      --listen-addr=roach1:26357
+      --sql-addr=roach1:26257
+      --http-addr=roach1:8080
+      --join=roach1:26357,roach2:26357,roach3:26357
+      --cache=512MiB
+      --max-sql-memory=512MiB
+    restart: unless-stopped
+
+  roach2:
+    image: cockroachdb/cockroach:v26.1.3
+    hostname: roach2
+    volumes:
+      - roach2-data:/cockroach/cockroach-data
+    command: >
+      start --insecure
+      --advertise-addr=roach2:26357
+      --listen-addr=roach2:26357
+      --sql-addr=roach2:26258
+      --http-addr=roach2:8081
+      --join=roach1:26357,roach2:26357,roach3:26357
+      --cache=512MiB
+      --max-sql-memory=512MiB
+    restart: unless-stopped
+
+  roach3:
+    image: cockroachdb/cockroach:v26.1.3
+    hostname: roach3
+    volumes:
+      - roach3-data:/cockroach/cockroach-data
+    command: >
+      start --insecure
+      --advertise-addr=roach3:26357
+      --listen-addr=roach3:26357
+      --sql-addr=roach3:26259
+      --http-addr=roach3:8082
+      --join=roach1:26357,roach2:26357,roach3:26357
+      --cache=512MiB
+      --max-sql-memory=512MiB
+    restart: unless-stopped
+
+  roach-init:
+    image: cockroachdb/cockroach:v26.1.3
+    depends_on:
+      roach1:
+        condition: service_started
+      roach2:
+        condition: service_started
+      roach3:
+        condition: service_started
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        /cockroach/cockroach init --insecure --host=roach1:26357 2>/dev/null || true
+        until /cockroach/cockroach sql --insecure --host=roach1:26257 -e 'SELECT 1' >/dev/null 2>&1; do
+          echo 'waiting for cluster to be ready'
+          sleep 2
+        done
+        /cockroach/cockroach sql --insecure --host=roach1:26257 -e "
+          CREATE DATABASE IF NOT EXISTS pixeltable;
+          SET CLUSTER SETTING feature.vector_index.enabled = true;
+        "
+        echo 'cluster initialized'
+    restart: "no"
+
+volumes:
+  roach1-data:
+  roach2-data:
+  roach3-data:
