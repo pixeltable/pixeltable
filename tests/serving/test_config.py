@@ -14,13 +14,7 @@ import toml
 
 import pixeltable as pxt
 from pixeltable import config
-from pixeltable.serving._config import (
-    AppConfig,
-    QueryRouteConfig,
-    ServiceConfig,
-    create_service_from_config,
-    lookup_service_config,
-)
+from pixeltable.serving._config import create_service_from_config, lookup_service_config
 from tests.serving.test_fastapi import assert_sqlite_row, make_sqlite_target
 from tests.utils import skip_test_if_not_installed
 
