@@ -104,6 +104,7 @@ def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
                 uploadfile_inputs=route.uploadfile_inputs,
                 outputs=route.outputs,
                 return_fileresponse=route.return_fileresponse,
+                export_sql=route.export_sql,
                 background=route.background,
             )
         elif isinstance(route, config.UpdateRouteConfig):
@@ -114,6 +115,7 @@ def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
                 inputs=route.inputs,
                 outputs=route.outputs,
                 return_fileresponse=route.return_fileresponse,
+                export_sql=route.export_sql,
                 background=route.background,
             )
         elif isinstance(route, config.DeleteRouteConfig):

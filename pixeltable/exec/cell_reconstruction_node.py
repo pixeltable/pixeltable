@@ -89,9 +89,9 @@ class CellReconstructionNode(ExecNode):
     Reconstruction of stored json and array cells that were produced by CellMaterializationNode.
     """
 
-    json_refs: list[exprs.ColumnRef]
-    array_refs: list[exprs.ColumnRef]
-    binary_refs: list[exprs.ColumnRef]
+    json_refs: exprs.ExprSet[exprs.ColumnRef]
+    array_refs: exprs.ExprSet[exprs.ColumnRef]
+    binary_refs: exprs.ExprSet[exprs.ColumnRef]
     file_handles: dict[Path, io.BufferedReader]  # key: file path
 
     def __init__(
@@ -103,9 +103,9 @@ class CellReconstructionNode(ExecNode):
         input: ExecNode | None = None,
     ):
         super().__init__(row_builder, [], [], input)
-        self.json_refs = json_refs
-        self.array_refs = array_refs
-        self.binary_refs = binary_refs
+        self.json_refs = exprs.ExprSet(json_refs)
+        self.array_refs = exprs.ExprSet(array_refs)
+        self.binary_refs = exprs.ExprSet(binary_refs)
         self.file_handles = {}
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:

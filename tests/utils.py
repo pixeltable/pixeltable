@@ -585,6 +585,22 @@ def __equality_comparer(x: Any, y: Any) -> bool:
     return x == y
 
 
+# Hamming distance threshold (out of 64 bits) below which two perceptual hashes are considered the same image.
+# A round-trip through lossy JPEG re-encoding usually leaves the pHash unchanged; a few bits of drift covers
+# multi-generation re-encoding without admitting genuinely different images.
+__IMAGE_PHASH_TOLERANCE = 4
+
+
+def __image_comparer(x: PIL.Image.Image, y: PIL.Image.Image) -> bool:
+    """Perceptual-hash comparison: tolerates lossy re-encoding (e.g. PIL images that have been round-tripped
+    through JPEG inlining and back) while still rejecting visually distinct images."""
+    import imagehash
+
+    if x.size != y.size or x.mode != y.mode:
+        return False
+    return (imagehash.phash(x) - imagehash.phash(y)) <= __IMAGE_PHASH_TOLERANCE
+
+
 def __json_comparer(x: Any, y: Any) -> bool:
     if type(x) is not type(y):
         return False
@@ -596,6 +612,8 @@ def __json_comparer(x: Any, y: Any) -> bool:
         return __float_comparer(x, y)
     if isinstance(x, np.ndarray):
         return __array_comparer(x, y)
+    if isinstance(x, PIL.Image.Image):
+        return __image_comparer(x, y)
     return x == y
 
 
@@ -603,6 +621,7 @@ __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
     ts.ColumnType.Type.FLOAT: __float_comparer,
     ts.ColumnType.Type.ARRAY: __array_comparer,
     ts.ColumnType.Type.JSON: __json_comparer,
+    ts.ColumnType.Type.IMAGE: __image_comparer,
     ts.ColumnType.Type.VIDEO: __file_comparer,
     ts.ColumnType.Type.AUDIO: __file_comparer,
     ts.ColumnType.Type.DOCUMENT: __file_comparer,

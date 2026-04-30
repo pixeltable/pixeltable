@@ -475,6 +475,7 @@
             <outline text="method|pixeltable.serving.FastAPIRouter.add_delete_route" />
             <outline text="method|pixeltable.serving.FastAPIRouter.add_query_route" />
           </outline>
+          <outline text="class|pixeltable.serving.SqlExport" />
         </outline>
       </outline>
 

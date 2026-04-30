@@ -1,15 +1,30 @@
+import dataclasses
 import datetime
 import json
 import pathlib
 import uuid
+from typing import Any, Callable
 
 import sqlalchemy as sql
+import sqlalchemy.dialects.postgresql
+import sqlalchemy.dialects.sqlite  # noqa: F401
 
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.io.sql import export_sql
 
 from ..utils import pxt_raises
+
+
+@dataclasses.dataclass(frozen=True)
+class _DialectSpec:
+    name: str
+    connect: Callable[[pathlib.Path], str]  # tmp_path -> connection string
+    sa_types: dict[str, type]  # pxt col -> SA type for create-table assertions
+    decode: dict[str, Callable[[Any], Any]]  # SA value -> python value comparable to rows[i][col]
+    # if_exists='insert' requires reflecting the target schema, which roundtrips through SA types;
+    # sqlite's UUID -> NUMERIC mismatch makes the compat probe fail, so skip it there.
+    supports_insert: bool = True
 
 
 class TestSql:
@@ -52,25 +67,11 @@ class TestSql:
         t.insert(rows)
         return t, rows
 
-    def validate_schema(self, engine: sql.Engine, table_name: str, expected_columns: dict[str, type]) -> None:
-        inspector = sql.inspect(engine)
-        columns = {col['name']: col['type'] for col in inspector.get_columns(table_name)}
-        assert set(columns.keys()) == set(expected_columns.keys())
-        for col_name, col_type in expected_columns.items():
-            assert type(columns[col_name]) is col_type
-
-    def test_export_sqlite(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        t, rows = self.create_test_data(100_000)
-        db_path = tmp_path / 'test.db'
-        connection_string = f'sqlite:///{db_path}'
-        engine = sql.create_engine(connection_string)
-
-        # Export full table
-        export_sql(t, 'test_table', db_connect_str=connection_string)
-        self.validate_schema(
-            engine,
-            'test_table',
-            {
+    def _sqlite_spec(self) -> _DialectSpec:
+        return _DialectSpec(
+            name='sqlite',
+            connect=lambda tmp: f'sqlite:///{tmp / "test.db"}',
+            sa_types={
                 'c_int': sql.INTEGER,
                 'c_string': sql.VARCHAR,
                 'c_float': sql.FLOAT,
@@ -81,47 +82,20 @@ class TestSql:
                 'c_binary': sql.BLOB,
                 'c_json': sql.dialects.sqlite.JSON,
             },
+            decode={
+                'c_timestamp': datetime.datetime.fromisoformat,
+                'c_date': datetime.date.fromisoformat,
+                'c_uuid': lambda v: uuid.UUID(hex=v),
+                'c_json': json.loads,
+            },
+            supports_insert=False,
         )
 
-        with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
-            assert len(result) == len(rows)
-            for col_idx, col_name in [(0, 'c_int'), (1, 'c_string'), (2, 'c_float'), (3, 'c_bool'), (7, 'c_binary')]:
-                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result)), col_name
-
-            assert all(
-                datetime.datetime.fromisoformat(row[4]) == rows[i]['c_timestamp'] for i, row in enumerate(result)
-            )
-            assert all(row[5] == rows[i]['c_date'].isoformat() for i, row in enumerate(result))
-            assert all(row[6] == rows[i]['c_uuid'].hex for i, row in enumerate(result))
-            assert all(json.loads(row[8]) == rows[i]['c_json'] for i, row in enumerate(result))
-
-        # Export subset of columns
-        export_sql(t.select(t.c_int, t.c_string), 'test_table', db_connect_str=connection_string, if_exists='replace')
-        with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
-            assert len(result) == len(rows)
-            assert all(row[0] == rows[i]['c_int'] and row[1] == rows[i]['c_string'] for i, row in enumerate(result))
-            for col_idx, col_name in enumerate(['c_int', 'c_string']):
-                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result)), col_name
-
-        # Export subset of rows
-        export_sql(t.where(t.c_int < 10), 'test_table', db_connect_str=connection_string, if_exists='replace')
-        with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
-            assert len(result) == 10
-
-    def test_export_postgresql(self, uses_db: None) -> None:
-        t, rows = self.create_test_data(100_000)
-        connection_string = Env.get().db_url
-        engine = sql.create_engine(connection_string)
-
-        # Export full table
-        export_sql(t, 'test_table', db_connect_str=connection_string)
-        self.validate_schema(
-            engine,
-            'test_table',
-            {
+    def _postgresql_spec(self) -> _DialectSpec:
+        return _DialectSpec(
+            name='postgresql',
+            connect=lambda _: Env.get().db_url,
+            sa_types={
                 'c_int': sql.INTEGER,
                 'c_string': sql.VARCHAR,
                 'c_float': sql.dialects.postgresql.DOUBLE_PRECISION,
@@ -132,36 +106,74 @@ class TestSql:
                 'c_binary': sql.dialects.postgresql.BYTEA,
                 'c_json': sql.dialects.postgresql.JSONB,
             },
+            decode={},
         )
 
-        with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
-            assert len(result) == len(rows)
-            for col_idx, col_name in enumerate(
-                ['c_int', 'c_string', 'c_float', 'c_bool', 'c_timestamp', 'c_date', 'c_uuid', 'c_binary', 'c_json']
-            ):
-                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result)), col_name
-            # assert bytes(row[7]) == rows[i]['c_binary']
+    def _verify_export(
+        self,
+        engine: sql.Engine,
+        table_name: str,
+        spec: _DialectSpec,
+        rows: list[dict],
+        col_names: list[str] | None = None,
+    ) -> None:
+        """Schema + value verification. col_names defaults to all spec.sa_types keys."""
+        cols = col_names if col_names is not None else list(spec.sa_types.keys())
+        expected = {c: spec.sa_types[c] for c in cols}
+        inspector = sql.inspect(engine)
+        actual = {col['name']: col['type'] for col in inspector.get_columns(table_name)}
+        assert set(actual.keys()) == set(cols)
+        assert all(type(actual[c]) is expected[c] for c in cols)
 
-        # insert into the same table
-        export_sql(t, 'test_table', db_connect_str=connection_string, if_exists='insert')
+        select = ', '.join(cols)
         with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
-            assert len(result) == 2 * len(rows)
+            result = conn.execute(sql.text(f'SELECT {select} FROM {table_name} ORDER BY c_int')).fetchall()
+        assert len(result) == len(rows)
+        identity = lambda v: v  # noqa: E731
+        for i, row in enumerate(result):
+            for j, c in enumerate(cols):
+                decoded = spec.decode.get(c, identity)(row[j])
+                assert decoded == rows[i][c], (c, i, decoded, rows[i][c])
 
-        # Export subset of columns
-        export_sql(t.select(t.c_int, t.c_string), 'test_table', db_connect_str=connection_string, if_exists='replace')
+    def _row_count(self, engine: sql.Engine, table_name: str) -> int:
         with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
-            assert len(result) == len(rows)
-            for col_idx, col_name in enumerate(['c_int', 'c_string']):
-                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result)), col_name
+            return conn.execute(sql.text(f'SELECT COUNT(*) FROM {table_name}')).scalar_one()
 
-        # Export subset of rows
-        export_sql(t.where(t.c_int < 10), 'test_table', db_connect_str=connection_string, if_exists='replace')
-        with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
-            assert len(result) == 10
+    def _run_export_suite(self, spec: _DialectSpec, tmp_path: pathlib.Path) -> None:
+        t, rows = self.create_test_data(100_000)
+        connect = spec.connect(tmp_path)
+        engine = sql.create_engine(connect)
+
+        # full export (default if_not_exists='create')
+        export_sql(t, 'test_table', db_connect_str=connect)
+        self._verify_export(engine, 'test_table', spec, rows)
+
+        # if_exists='insert' appends rows
+        if spec.supports_insert:
+            export_sql(t, 'test_table', db_connect_str=connect, if_exists='insert')
+            assert self._row_count(engine, 'test_table') == 2 * len(rows)
+
+        # if_exists='replace' + subset of columns
+        export_sql(t.select(t.c_int, t.c_string), 'test_table', db_connect_str=connect, if_exists='replace')
+        self._verify_export(engine, 'test_table', spec, rows, col_names=['c_int', 'c_string'])
+
+        # if_exists='replace' + subset of rows
+        export_sql(t.where(t.c_int < 10), 'test_table', db_connect_str=connect, if_exists='replace')
+        assert self._row_count(engine, 'test_table') == 10
+
+        # if_not_exists='error' against missing target
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"table 'never' does not exist"):
+            export_sql(t, 'never', db_connect_str=connect, if_not_exists='error')
+
+        # if_not_exists='create' explicit (creates a fresh table)
+        export_sql(t.where(t.c_int < 5), 'fresh_table', db_connect_str=connect, if_not_exists='create')
+        assert self._row_count(engine, 'fresh_table') == 5
+
+    def test_export_sqlite(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        self._run_export_suite(self._sqlite_spec(), tmp_path)
+
+    def test_export_postgresql(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        self._run_export_suite(self._postgresql_spec(), tmp_path)
 
     def test_errors(self, uses_db: None) -> None:
         connection_string = Env.get().db_url
@@ -180,11 +192,19 @@ class TestSql:
         # missing column in target table
         t2 = pxt.create_table('test2', {'c_int': pxt.Int, 'c_string': pxt.String, 'extra': pxt.Int})
         t2.insert([{'c_int': 1, 'c_string': 'a', 'extra': 100}])
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="Column 'extra' not in table"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="column 'extra' not in table"):
             export_sql(t2, 'existing_table', db_connect_str=connection_string, if_exists='insert')
 
         # incompatible schema
         t3 = pxt.create_table('test3', {'c_int': pxt.Json})
         t3.insert([{'c_int': {'key': 'value'}}])
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"column 'c_int' of type INTEGER is not compatible"):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"column 'c_int' of type INTEGER"):
             export_sql(t3, 'existing_table', db_connect_str=connection_string, if_exists='insert')
+
+        # non-scalar source type into an existing target column
+        t_str = pxt.create_table('img_target_seed', {'img': pxt.String})
+        t_str.insert([{'img': 'placeholder'}])
+        export_sql(t_str, 'img_target', db_connect_str=connection_string)
+        t_img2 = pxt.create_table('test_img2', {'img': pxt.Image})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"column 'img' of source type Image"):
+            export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
