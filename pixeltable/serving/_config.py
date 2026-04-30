@@ -13,6 +13,7 @@ import pixeltable as pxt
 import pixeltable.func as func
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+from pixeltable.serving.globals import SqlExport
 
 if TYPE_CHECKING:
     import fastapi
@@ -59,6 +60,16 @@ class InsertRouteConfig(RouteConfigBase):
     uploadfile_inputs: list[str] | None = None
     outputs: list[str] | None = None
     return_fileresponse: bool = False
+    export_sql: SqlExport | None = None
+
+
+class UpdateRouteConfig(RouteConfigBase):
+    type: Literal['update']
+    table: str
+    inputs: list[str] | None = None
+    outputs: list[str] | None = None
+    return_fileresponse: bool = False
+    export_sql: SqlExport | None = None
 
 
 class DeleteRouteConfig(RouteConfigBase):
@@ -77,7 +88,9 @@ class QueryRouteConfig(RouteConfigBase):
     method: Literal['get', 'post'] = 'post'
 
 
-RouteConfig = Annotated[InsertRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')]
+RouteConfig = Annotated[
+    InsertRouteConfig | UpdateRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')
+]
 
 
 class AppConfig(pydantic.BaseModel):
@@ -163,6 +176,18 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
                 uploadfile_inputs=route.uploadfile_inputs,
                 outputs=route.outputs,
                 return_fileresponse=route.return_fileresponse,
+                export_sql=route.export_sql,
+                background=route.background,
+            )
+        elif isinstance(route, UpdateRouteConfig):
+            t = pxt.get_table(route.table)
+            router.add_update_route(
+                t,
+                path=route.path,
+                inputs=route.inputs,
+                outputs=route.outputs,
+                return_fileresponse=route.return_fileresponse,
+                export_sql=route.export_sql,
                 background=route.background,
             )
         elif isinstance(route, DeleteRouteConfig):

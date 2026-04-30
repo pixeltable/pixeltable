@@ -469,9 +469,17 @@ class TestFunction:
             pxt.Json[[{'text': pxt.String | None}]],  # type: ignore[misc]
         )
 
-        t = pxt.create_table('test/retrieval', {'n': pxt.Int})
-        t.add_computed_column(result=retrieve())
-        assert t.result.col_type == retrieve.signature.return_type
+        retrieval = pxt.create_table('test/retrieval', {'n': pxt.Int})
+        retrieval.add_computed_column(result=retrieve())
+        assert retrieval.result.col_type == retrieve.signature.return_type
+
+        # Populate t (and hence v) with more rows than the limit, then verify that limit(20)
+        # inside the query UDF is enforced when it runs as a view-column computation.
+        t.insert([{'a': f's_{i}'} for i in range(30)])
+        retrieval.insert(n=1)
+        res = retrieval.select(retrieval.result).collect()
+        assert len(res) == 1
+        assert len(res[0]['result']) == 20
 
         # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
         # to a circular initialization failure.
@@ -483,6 +491,45 @@ class TestFunction:
         # TODO: find a general solution
         # reload_catalog()
         pxt.drop_dir('test', force=True)
+
+    def test_query_with_limit(self, test_tbl: pxt.Table) -> None:
+        """@pxt.query bodies that use limit() with differently-shaped limit arguments."""
+        t = test_tbl
+
+        # limit(n) where n is a plain int parameter, return_scalar=True
+        @pxt.query(return_scalar=True)
+        def q1(n: int) -> pxt.Query:
+            return t.select(t.c4).limit(n)
+
+        res = t.select(t.c4, result=q1(2)).collect()
+        assert res[0]['result'] == [False, True]
+
+        # limit((3 * (n + 1) // 2) - 1) with no return_scalar: returns list of row-dicts
+        @pxt.query
+        def q2(n: int) -> pxt.Query:
+            return t.select(t.c4, folded_flt=(5.7 * n) - 4).limit((3 * (n + 1) // 2) - 1)
+
+        res = t.select(t.c4, result=q2(1)).collect()
+        assert res[0]['result'] == [
+            {'c4': False, 'folded_flt': 1.7000000000000002},
+            {'c4': True, 'folded_flt': 1.7000000000000002},
+        ]
+
+        # limit(n.astype(Int)) where n is a float parameter
+        @pxt.query(return_scalar=True)
+        def q3(n: float) -> pxt.Query:
+            return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
+
+        res = t.select(t.c4, result=q3(2.2)).collect()
+        assert res[0]['result'] == [False, True]
+
+        # return_scalar=True returning array-valued rows
+        @pxt.query(return_scalar=True)
+        def q4(n: int) -> pxt.Query:
+            return t.select(foo=[2, 3, n]).limit(2)
+
+        res = t.select(t.c4, result=q4(4)).limit(2).collect()
+        assert res[0]['result'][0] == [2, 3, 4]
 
     def test_query_json_mapper(self, uses_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})

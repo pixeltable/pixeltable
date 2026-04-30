@@ -14,6 +14,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 
 if TYPE_CHECKING:
+    from pixeltable.serving import SqlExport
     from pixeltable.serving._config import AppConfig, RouteConfig
 
 
@@ -39,6 +40,11 @@ _EPILOG_INSERT = """\
 Examples:
   pxt serve insert --table my_dir.my_table --path /generate \\
     --inputs prompt --outputs prompt result --port 8000"""
+
+_EPILOG_UPDATE = """\
+Examples:
+  pxt serve update --table my_dir.my_table --path /update \\
+    --inputs prompt --outputs id result --port 8000"""
 
 _EPILOG_DELETE = """\
 Examples:
@@ -97,6 +103,34 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
     p.add_argument('--json', action='store_true', dest='json', help='Emit machine-readable JSON output')
 
 
+def _add_export_sql_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        '--export-sql-db-connect',
+        dest='export_sql_db_connect',
+        default=None,
+        help='SQLAlchemy connection string for an external SQL target (enables export_sql)',
+    )
+    p.add_argument(
+        '--export-sql-table',
+        dest='export_sql_table',
+        default=None,
+        help='Target table name (required when --export-sql-db-connect is set)',
+    )
+    p.add_argument(
+        '--export-sql-db-schema',
+        dest='export_sql_db_schema',
+        default=None,
+        help='Optional database schema qualifier for the target table',
+    )
+    p.add_argument(
+        '--export-sql-method',
+        dest='export_sql_method',
+        choices=('insert', 'update', 'merge'),
+        default='insert',
+        help="How to write each row into the target table (default: 'insert')",
+    )
+
+
 def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     serve_sub = serve_parser.add_subparsers(dest='mode', required=True)
 
@@ -136,8 +170,36 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
         help='Stream the output as a file response',
     )
     insert_parser.add_argument('--background', action='store_true', help='Run the insert in the background')
+    _add_export_sql_args(insert_parser)
     _add_service_args(insert_parser)
     _add_output_args(insert_parser)
+
+    # pxt serve update
+    update_parser = serve_sub.add_parser(
+        'update',
+        help='Single update endpoint',
+        epilog=_EPILOG_UPDATE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    update_parser.add_argument('--table', required=True, help='Fully-qualified table path')
+    update_parser.add_argument('--path', required=True, help='HTTP path for the endpoint')
+    update_parser.add_argument(
+        '--inputs',
+        nargs='+',
+        default=None,
+        help='Non-PK column names accepted from the JSON body (PK columns are always accepted)',
+    )
+    update_parser.add_argument('--outputs', nargs='+', default=None, help='Column names returned in the response')
+    update_parser.add_argument(
+        '--return-fileresponse',
+        action='store_true',
+        dest='return_fileresponse',
+        help='Stream the output as a file response',
+    )
+    update_parser.add_argument('--background', action='store_true', help='Run the update in the background')
+    _add_export_sql_args(update_parser)
+    _add_service_args(update_parser)
+    _add_output_args(update_parser)
 
     # pxt serve delete
     delete_parser = serve_sub.add_parser(
@@ -198,7 +260,7 @@ def _serve(args: argparse.Namespace) -> None:
         config = load_app_config(args.config)
     else:
         try:
-            route = _build_route_from_args(args)
+            route = _create_route_from_args(args)
             config = AppConfig(service=ServiceConfig(), routes=[route])
         except pydantic.ValidationError as e:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, str(e)) from e
@@ -238,8 +300,26 @@ def _print_dry_run(config: 'AppConfig', json_output: bool) -> None:
             print(f'  [{d["type"]}] {d["path"]}')
 
 
-def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
-    from pixeltable.serving._config import DeleteRouteConfig, InsertRouteConfig, QueryRouteConfig
+def _create_sql_export(args: argparse.Namespace) -> 'SqlExport | None':
+    from pixeltable.serving.globals import SqlExport
+
+    db_connect = args.export_sql_db_connect
+    table = args.export_sql_table
+    db_schema = args.export_sql_db_schema
+    if db_connect is None:
+        if table is not None or db_schema is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                '--export-sql-table / --export-sql-db-schema requires --export-sql-db-connect',
+            )
+        return None
+    if table is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '--export-sql-db-connect requires --export-sql-table')
+    return SqlExport(db_connect=db_connect, table=table, db_schema=db_schema, method=args.export_sql_method)
+
+
+def _create_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
+    from pixeltable.serving._config import DeleteRouteConfig, InsertRouteConfig, QueryRouteConfig, UpdateRouteConfig
 
     if args.mode == 'insert':
         return InsertRouteConfig(
@@ -250,6 +330,18 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
             uploadfile_inputs=args.uploadfile_inputs,
             outputs=args.outputs,
             return_fileresponse=args.return_fileresponse,
+            export_sql=_create_sql_export(args),
+            background=args.background,
+        )
+    if args.mode == 'update':
+        return UpdateRouteConfig(
+            type='update',
+            table=args.table,
+            path=args.path,
+            inputs=args.inputs,
+            outputs=args.outputs,
+            return_fileresponse=args.return_fileresponse,
+            export_sql=_create_sql_export(args),
             background=args.background,
         )
     if args.mode == 'delete':

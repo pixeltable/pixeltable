@@ -62,6 +62,7 @@ t = pxt.get_table('my_dir.my_table')
 app = fastapi.FastAPI()
 router = FastAPIRouter()
 router.add_insert_route(t, path='/insert', inputs=['prompt'], outputs=['prompt', 'result'])
+router.add_update_route(t, path='/update', inputs=['prompt'], outputs=['id', 'prompt', 'result'])
 app.include_router(router)
 
 uvicorn.run(app, host='0.0.0.0', port=8000)
@@ -77,6 +78,10 @@ configure a single route directly on the command line:
 pxt serve insert --table my_dir.my_table --path /generate \
   --inputs prompt --outputs prompt result --port 8000
 
+# one update endpoint
+pxt serve update --table my_dir.my_table --path /update \
+  --inputs prompt --outputs id prompt result
+
 # one delete endpoint
 pxt serve delete --table my_dir.my_table --path /delete
 
@@ -88,6 +93,147 @@ Single-endpoint mode accepts the same fields as the equivalent `[[routes]]`
 TOML entry. It is meant for development and ad-hoc serving; for anything
 beyond that use the TOML file (it is the only way to expose more than one
 endpoint).
+
+## Decorator-style routes
+
+`add_insert_route()` / `add_update_route()` build a response model automatically
+from the column schema. When you need a *different* response shape -- e.g. a
+richer API envelope, derived fields, or a stripped-down payload -- use the
+`@router.insert_route` / `@router.update_route` decorators. The decorated
+function receives the requested output columns as keyword arguments and returns
+a `pydantic.BaseModel` subclass that defines the HTTP response body.
+
+```python
+import pydantic
+from pixeltable.serving import FastAPIRouter
+
+router = FastAPIRouter()
+
+class GenerateResponse(pydantic.BaseModel):
+    caption: str
+    score: float
+
+@router.insert_route(t, path='/generate', inputs=['prompt'], outputs=['caption', 'score'])
+def format_insert(*, caption: str, score: float) -> GenerateResponse:
+    return GenerateResponse(caption=caption.strip(), score=round(score, 3))
+
+@router.update_route(t, path='/update', inputs=['prompt'], outputs=['id', 'caption', 'score'])
+def format_update(*, id: int, caption: str, score: float) -> GenerateResponse:
+    return GenerateResponse(caption=caption.strip(), score=round(score, 3))
+```
+
+Rules the framework enforces at registration time:
+
+- Every parameter must be keyword-only and have a type annotation.
+- Every parameter name must appear in `outputs`, and every `outputs` entry must
+  be a parameter.
+- Parameter annotations must match the column types (strict nullability: a
+  nullable column requires `T | None`). Media columns are delivered as URL
+  strings, so annotate them as `str`.
+- The return annotation must be a `pydantic.BaseModel` subclass.
+
+Decorator routes support the same `background=True` flag as the non-decorator
+forms; when enabled, the decorated function's return value is delivered as the
+background-job result.
+
+The decorator forms are Python-only -- there is no equivalent in the TOML
+service file.
+
+## Exporting rows to an external database
+
+Insert and update routes can export each successful request as a row in an
+external SQL database. Configure it via the Python API, the TOML service file,
+or the CLI; all three forms route through the same `SqlExport` specification.
+Each request performs the Pixeltable insert/update first; only if it succeeds
+does the row get written to the external table.
+
+**Python API.** Pass an `export_sql=SqlExport(...)` argument to
+`add_insert_route`, `add_update_route`, or the decorator forms.
+
+```python
+from pixeltable.serving import FastAPIRouter, SqlExport
+
+router = FastAPIRouter()
+router.add_insert_route(
+    t,
+    path='/generate',
+    inputs=['prompt'],
+    outputs=['prompt', 'result'],
+    export_sql=SqlExport(
+        db_connect='postgresql+psycopg://user:pw@host/analytics',
+        table='generations',
+    ),
+)
+```
+
+**TOML.** Add a nested `[routes.export_sql]` table under any insert or update
+route. The same fields apply.
+
+```toml
+[[routes]]
+type = "insert"
+table = "my_dir.my_table"
+path = "/generate"
+inputs = ["prompt"]
+outputs = ["prompt", "result"]
+
+[routes.export_sql]
+db_connect = "postgresql+psycopg://user:pw@host/analytics"
+table = "generations"
+# db_schema = "public"  # optional
+# method = "insert"         # default; alternatives: "update", "merge" (not yet supported)
+```
+
+**CLI.** Single-endpoint mode supports the same fields via `--export-sql-*`
+flags on `pxt serve insert` and `pxt serve update`.
+
+```bash
+pxt serve insert --table my_dir.my_table --path /generate \
+  --inputs prompt --outputs prompt result \
+  --export-sql-db-connect 'postgresql+psycopg://user:pw@host/analytics' \
+  --export-sql-table generations
+```
+
+The row written to the target is the response body: the same columns as
+`outputs`, with media-typed columns rendered as URL strings (so the
+corresponding target columns must be string-typed). Schema compatibility is
+validated once at registration; the target table must already exist or
+registration fails. The engine and connection pool are cached per
+`db_connect`, so multiple routes pointing at the same database share one pool.
+
+`SqlExport.method` controls how each row is written:
+
+- `'insert'` (default): append the row via `INSERT ... VALUES`. The target
+  acts as an audit log -- replaying the same request produces a duplicate.
+- `'update'`: update the row by primary-key match. The target is treated as a
+  current-state view keyed on its primary key. The response columns must
+  include all primary-key columns of the target plus at least one non-PK
+  column to set; the target table itself must declare a primary key. This is a
+  strict update, not an upsert -- if no row matches, the request fails with
+  HTTP 500.
+- `'merge'` (upsert): not yet supported.
+
+When paired with `add_insert_route` and `method='update'`, a Pixeltable insert
+triggers a target-side update. This is intentional: it supports the pattern
+where the Pixeltable table is append-only (e.g. an event log) but the target
+is a deduplicated, current-state view.
+
+If the external write fails after the Pixeltable insert/update has already
+committed, the request returns HTTP 500; no rollback is performed.
+
+`export_sql=` is mutually exclusive with `return_fileresponse=True` and is
+compatible with `background=True` (the SQL write runs in the worker thread).
+
+See [`SqlExport`](https://docs.pixeltable.com/sdk/latest/pixeltable/serving/SqlExport)
+for the full target specification.
+
+<Warning>
+Connection strings with embedded passwords land in plaintext on disk (TOML)
+or in process listings (CLI). Don't commit `service.toml`; consider a
+connection string that pulls credentials from the environment or a
+`.pgpass`-style file. Env-var substitution within the TOML is not yet
+supported.
+</Warning>
 
 ## TOML Service File Reference
 
@@ -123,7 +269,7 @@ the route kind and which additional fields are valid.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | `"insert"` / `"delete"` / `"query"` | yes | -- | Route kind |
+| `type` | `"insert"` / `"update"` / `"delete"` / `"query"` | yes | -- | Route kind |
 | `path` | string | yes | -- | URL path (e.g., `"/generate"`) |
 | `background` | bool | no | `false` | Run the operation in a background thread and return a job handle |
 
@@ -157,6 +303,7 @@ outputs = ["prompt", "result"]
 | `uploadfile_inputs` | list of strings | no | -- | Columns to accept as file uploads (multipart) |
 | `outputs` | list of strings | no | all columns | Columns to include in the response |
 | `return_fileresponse` | bool | no | `false` | Return the single media-typed output as a raw file download |
+| `export_sql` | nested table | no | -- | Export each request as a row into an external SQL database. See [Exporting rows to an external database](#exporting-rows-to-an-external-database). |
 
 **File uploads:** when `uploadfile_inputs` is set, the request uses `multipart/form-data`
 instead of JSON. All other inputs become form fields.
@@ -177,6 +324,49 @@ curl -X POST http://localhost:8000/resize \
   -F image=@photo.jpg -F width=640 -F height=480 \
   --output resized.jpg
 ```
+
+---
+
+### Update routes
+
+Update a single row identified by its primary key values, and return the updated
+columns (including any computed columns that depend on them).
+
+```toml
+[[routes]]
+type = "update"
+table = "my_dir.my_table"
+path = "/update"
+inputs = ["prompt"]
+outputs = ["id", "prompt", "result"]
+```
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `table` | string | yes | -- | Pixeltable table path (must have a primary key) |
+| `inputs` | list of strings | no | all non-PK, non-computed, non-media columns | Columns to update (PK columns are always in the request body but cannot appear here) |
+| `outputs` | list of strings | no | all columns | Columns to include in the response |
+| `return_fileresponse` | bool | no | `false` | Return the single media-typed output as a raw file download |
+| `export_sql` | nested table | no | -- | Export each request as a row into an external SQL database. See [Exporting rows to an external database](#exporting-rows-to-an-external-database). |
+
+The request body carries the primary key values (to identify the row) plus the
+values to update, as JSON fields:
+
+```bash
+curl -X POST http://localhost:8000/update \
+  -H 'Content-Type: application/json' \
+  -d '{"id": 42, "prompt": "updated text"}'
+# {"id": 42, "prompt": "updated text", "result": "..."}
+```
+
+If the identified row does not exist, the endpoint returns HTTP 404. Computed
+columns that depend on any updated column are automatically recomputed and
+appear in the response.
+
+<Note>
+Media-typed columns (image, video, audio, document) cannot currently be
+updated. To replace a media value, delete the row and insert a new one.
+</Note>
 
 ---
 
@@ -290,6 +480,14 @@ table = "myapp.videos"
 path = "/ingest"
 background = true
 
+# Update a row by primary key (returns the updated columns incl. computed ones)
+[[routes]]
+type = "update"
+table = "myapp.images"
+path = "/images/update"
+inputs = ["tag"]
+outputs = ["id", "tag", "thumbnail"]
+
 # Delete by primary key
 [[routes]]
 type = "delete"
@@ -399,6 +597,21 @@ Start a service exposing exactly one insert route.
 | `--outputs` | strings | no | Columns returned in the response |
 | `--return-fileresponse` | flag | no | Return the single media output as a raw file |
 | `--background` | flag | no | Run the insert in a background thread |
+
+Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
+
+### `pxt serve update`
+
+Start a service exposing exactly one update route.
+
+| Flag | Type | Required | Description |
+|---|---|---|---|
+| `--table` | string | yes | Pixeltable table path (must have a primary key) |
+| `--path` | string | yes | URL path |
+| `--inputs` | strings | no | Non-PK columns accepted from the request body (PK columns are always accepted) |
+| `--outputs` | strings | no | Columns returned in the response |
+| `--return-fileresponse` | flag | no | Return the single media output as a raw file |
+| `--background` | flag | no | Run the update in a background thread |
 
 Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
 

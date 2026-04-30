@@ -1,4 +1,5 @@
 import math
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Literal
@@ -14,7 +15,6 @@ from pixeltable.utils import av as av_utils
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
-    IN_CI,
     generate_test_video,
     get_audio_files,
     get_image_files,
@@ -300,6 +300,16 @@ class TestVideo:
                 },
             ],
         }
+
+        # get_metadata() can also be used in a where() clause
+        inline_res = (
+            base_t.where(base_t.video.get_metadata().size == 2234371)
+            .select(md=base_t.video.get_metadata())
+            .collect()['md']
+        )
+        assert len(inline_res) == 1
+        assert inline_res[0]['size'] == 2234371
+        assert inline_res[0]['streams'][0]['width'] == 640
 
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
@@ -851,8 +861,7 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
 
-    @pytest.mark.skipif(IN_CI, reason='[PXT-1118] Bug involving media reference in where clause')
-    # @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
+    @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
     def test_overlay_text(self, uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.add_computed_column(clip_5s=t.video.clip(start_time=0, duration=5))
@@ -874,6 +883,7 @@ class TestVideo:
                 text,
                 color='red',
                 opacity=0.8,
+                line_spacing=8,
                 horizontal_align='center',
                 vertical_margin=10,
                 vertical_align='bottom',
@@ -888,6 +898,7 @@ class TestVideo:
                 text,
                 color='yellow',
                 opacity=1.0,
+                line_spacing=-2,
                 horizontal_align='right',
                 vertical_margin=10,
                 vertical_align='center',
@@ -954,6 +965,7 @@ class TestVideo:
             text,
             font=None,
             font_size=24,
+            line_spacing=0,
             color='black',
             opacity=0.5,
             horizontal_align='left',
@@ -969,6 +981,7 @@ class TestVideo:
             text,
             font=None,
             font_size=24,
+            line_spacing=8,
             color='red',
             opacity=0.8,
             horizontal_align='center',
@@ -983,6 +996,7 @@ class TestVideo:
             "text='Line 1\nLine2\\: \\'quoted text\\''",
             'fontsize=24',
             'fontcolor=red@0.8',
+            'line_spacing=8',
             'x=(w-text_w)/2',
             'y=h-text_h-10',
             'box=1',
@@ -993,6 +1007,7 @@ class TestVideo:
             text,
             font=None,
             font_size=24,
+            line_spacing=-2,
             color='yellow',
             opacity=1.0,
             horizontal_align='right',
@@ -1007,6 +1022,7 @@ class TestVideo:
             "text='Line 1\nLine2\\: \\'quoted text\\''",
             'fontsize=24',
             'fontcolor=yellow',
+            'line_spacing=-2',
             'x=w-text_w',
             'y=(h-text_h)/2',
             'box=1',
@@ -1017,6 +1033,7 @@ class TestVideo:
             text,
             font=None,
             font_size=24,
+            line_spacing=0,
             color='red',
             opacity=0.8,
             horizontal_align='center',
@@ -1041,6 +1058,7 @@ class TestVideo:
             text,
             font=None,
             font_size=24,
+            line_spacing=0,
             color='yellow',
             opacity=1.0,
             horizontal_align='right',
@@ -1804,6 +1822,12 @@ class TestVideo:
             t.select(t.video.mix_audio(t.audio, original_volume=-0.5)).collect()
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'audio_start_time must be non-negative'):
             t.select(t.video.mix_audio(t.audio, audio_start_time=-1.0)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'dropout_transition must be non-negative'):
+            t.select(t.video.mix_audio(t.audio, dropout_transition=-0.1)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'mix_duration must be one of'):
+            t.select(t.video.mix_audio(t.audio, mix_duration='bogus')).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'align_to_video must be one of'):
+            t.select(t.video.mix_audio(t.audio, align_to_video='bogus')).collect()
 
         # silent video should raise a clear error
         silent_video = generate_test_video(tmp_path, duration=2.0, has_audio=False)
@@ -1811,6 +1835,92 @@ class TestVideo:
         validate_update_status(t2.insert([{'video': silent_video, 'audio': audio_filepaths[0]}]), expected_rows=1)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'requires a video with an audio stream'):
             t2.select(t2.video.mix_audio(t2.audio)).collect()
+
+    def test_mix_audio_duration_modes(self, uses_db: None, tmp_path: Path) -> None:
+        def make_audio(duration: float, name: str) -> str:
+            out = tmp_path / f'{name}.m4a'
+            subprocess.run(
+                [
+                    'ffmpeg',
+                    '-f',
+                    'lavfi',
+                    '-i',
+                    f'sine=frequency=220:duration={duration}',
+                    '-c:a',
+                    'aac',
+                    '-y',
+                    str(out),
+                ],
+                capture_output=True,
+                check=True,
+            )
+            return str(out)
+
+        video_duration = 3.0
+        video = generate_test_video(tmp_path, duration=video_duration, has_audio=True)
+        long_audio = make_audio(5.0, 'long')
+        short_audio = make_audio(1.0, 'short')
+
+        t = pxt.create_table(
+            'mix_audio_durations', {'video': pxt.Video, 'long_audio': pxt.Audio, 'short_audio': pxt.Audio}
+        )
+        validate_update_status(
+            t.insert([{'video': video, 'long_audio': long_audio, 'short_audio': short_audio}]), expected_rows=1
+        )
+
+        # mix_duration='longest' with align_to_video='none': mixed audio runs to the longer track (5s)
+        t.add_computed_column(longest=t.video.mix_audio(t.long_audio, mix_duration='longest', align_to_video='none'))
+        # mix_duration='shortest' with align_to_video='none': cut to the shorter track (3s, the original audio)
+        t.add_computed_column(shortest=t.video.mix_audio(t.long_audio, mix_duration='shortest', align_to_video='none'))
+        # align_to_video='trim' caps a long mix at the video stream duration
+        t.add_computed_column(trimmed=t.video.mix_audio(t.long_audio, mix_duration='longest', align_to_video='trim'))
+        # align_to_video='pad' extends a short mix up to the video stream duration
+        t.add_computed_column(padded=t.video.mix_audio(t.short_audio, mix_duration='shortest', align_to_video='pad'))
+        # dropout_transition=0 should produce a valid mix
+        t.add_computed_column(
+            no_dropout=t.video.mix_audio(t.long_audio, mix_duration='longest', dropout_transition=0.0)
+        )
+        # normalize=False keeps audio_volume=1.0 + original_volume=1.0 at full level;
+        t.add_computed_column(no_norm=t.video.mix_audio(t.long_audio, normalize=False, align_to_video='none'))
+        # normalize=True halves each contribution by the input count, so peak is ~6 dB lower.
+        t.add_computed_column(normed=t.video.mix_audio(t.long_audio, normalize=True, align_to_video='none'))
+
+        rows = t.select(t.longest, t.shortest, t.trimmed, t.padded, t.no_dropout, t.no_norm, t.normed).collect()
+        assert len(rows) == 1
+        row = rows[0]
+
+        assert all(row[col] is not None for col in ('longest', 'shortest', 'trimmed', 'padded', 'no_dropout'))
+
+        longest_dur = av_utils.get_audio_duration(row['longest'])
+        shortest_dur = av_utils.get_audio_duration(row['shortest'])
+        trimmed_dur = av_utils.get_audio_duration(row['trimmed'])
+        padded_dur = av_utils.get_audio_duration(row['padded'])
+        assert longest_dur is not None
+        assert shortest_dur is not None
+        assert trimmed_dur is not None
+        assert padded_dur is not None
+
+        # 'longest' runs to the end of the longer added-audio track (5s), past the video duration.
+        assert longest_dur == pytest.approx(5.0, abs=0.2)
+        assert longest_dur > video_duration + 1.0
+        # 'shortest' truncates to the end of the shorter input. ffmpeg's amix has an idiosyncrasy
+        # that lands the muxed audio stream measurably below the nominal shorter duration, so
+        # assert the semantic ordering rather than an exact value.
+        assert shortest_dur < longest_dur
+        assert shortest_dur <= video_duration + 0.2
+        # 'trim' caps a long mix at the video stream duration; 'pad' extends a short mix up to it.
+        assert trimmed_dur == pytest.approx(video_duration, abs=0.2)
+        assert padded_dur == pytest.approx(video_duration, abs=0.2)
+
+        # normalize=False should be measurably louder than normalize=True (~6 dB delta in theory).
+        # Use a conservative 3 dB threshold to absorb encoder variation.
+        peak_no_norm = av_utils.get_max_volume_db(row['no_norm'])
+        peak_normed = av_utils.get_max_volume_db(row['normed'])
+        assert peak_no_norm is not None
+        assert peak_normed is not None
+        assert peak_no_norm - peak_normed > 3.0
+
+        self._validate_videos([row[col] for col in ('longest', 'shortest', 'trimmed', 'padded', 'no_dropout')])
 
     def test_overlay_image(self, uses_db: None, tmp_path: Path) -> None:
         video_filepaths = get_video_files()

@@ -469,9 +469,13 @@
         <outline text="module|pixeltable.serving">
           <outline text="class|pixeltable.serving.FastAPIRouter">
             <outline text="method|pixeltable.serving.FastAPIRouter.add_insert_route" />
+            <outline text="method|pixeltable.serving.FastAPIRouter.insert_route" />
+            <outline text="method|pixeltable.serving.FastAPIRouter.add_update_route" />
+            <outline text="method|pixeltable.serving.FastAPIRouter.update_route" />
             <outline text="method|pixeltable.serving.FastAPIRouter.add_delete_route" />
             <outline text="method|pixeltable.serving.FastAPIRouter.add_query_route" />
           </outline>
+          <outline text="class|pixeltable.serving.SqlExport" />
         </outline>
       </outline>
 
