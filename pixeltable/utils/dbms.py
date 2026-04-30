@@ -47,12 +47,8 @@ class PostgresqlDbms(Dbms):
         return f'DROP DATABASE {database}'
 
     def create_db_stmt(self, database: str) -> str:
-        # LOCALE_PROVIDER icu so upper()/lower() and collation follow full Unicode rules
-        # (e.g. upper('ß') = 'SS') regardless of the cluster's initdb-time locale provider.
-        return (
-            f"CREATE DATABASE {database} TEMPLATE template0 "
-            f"ENCODING 'UTF8' LOCALE_PROVIDER icu ICU_LOCALE 'und' LOCALE 'C'"
-        )
+        locale = '.UTF-8' if platform.system() == 'Windows' else 'C.UTF-8'
+        return f"CREATE DATABASE {database} TEMPLATE template0 ENCODING 'UTF8' LOCALE '{locale}'"
 
     def default_system_db_url(self) -> str:
         a = self.db_url.set(database='postgres').render_as_string(hide_password=False)
