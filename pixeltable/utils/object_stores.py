@@ -13,7 +13,7 @@ from uuid import UUID
 from pixeltable import env, exceptions as excs
 
 if TYPE_CHECKING:
-    from pixeltable.catalog import Column
+    import pixeltable.metadata.schema as schema
 
 
 class StorageTarget(enum.Enum):
@@ -295,7 +295,7 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
-    def copy_local_file(self, col: Column, src_path: Path) -> str:
+    def copy_local_file(self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str:
         """Copy a file associated with a Column to the store, returning the file's URL within the destination.
 
         Args:
@@ -307,7 +307,7 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
-    def move_local_file(self, col: Column, src_path: Path) -> str | None:
+    def move_local_file(self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str | None:
         """Move a file associated with a Column to the store, returning the file's URL within the destination.
 
         Args:
@@ -457,7 +457,9 @@ class ObjectOps:
         store.copy_object_to_local_file(soa.object_name, dest_path)
 
     @classmethod
-    def put_file(cls, col: Column, src_path: Path, relocate_or_delete: bool) -> str:
+    def put_file(
+        cls, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path, relocate_or_delete: bool
+    ) -> str:
         """Move or copy a file to the destination, returning the file's URL within the destination.
         If relocate_or_delete is True and the file is in the TempStore, the file will be deleted after the operation.
         """
@@ -466,29 +468,29 @@ class ObjectOps:
         if relocate_or_delete:
             # File is temporary, used only once, so we can delete it after copy if it can't be moved
             assert TempStore.contains_path(src_path)
-        dest = col.destination
-        store = cls.get_store(dest, False, col.name)
+        dest = col_md.destination
+        store = cls.get_store(dest, False)
         # Attempt to move
         if relocate_or_delete:
-            moved_file_url = store.move_local_file(col, src_path)
+            moved_file_url = store.move_local_file(tbl_id, tbl_version, col_md, src_path)
             if moved_file_url is not None:
                 return moved_file_url
-        new_file_url = store.copy_local_file(col, src_path)
+        new_file_url = store.copy_local_file(tbl_id, tbl_version, col_md, src_path)
         if relocate_or_delete:
             TempStore.delete_media_file(src_path)
         return new_file_url
 
     @classmethod
-    def move_local_file(cls, col: Column, src_path: Path) -> str:
+    def move_local_file(cls, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str:
         """Move a file to the destination specified by the Column, returning the file's URL within the destination."""
-        store = cls.get_store(col.destination, False, col.name)
-        return store.move_local_file(col, src_path)
+        store = cls.get_store(col_md.destination, False)
+        return store.move_local_file(tbl_id, tbl_version, col_md, src_path)
 
     @classmethod
-    def copy_local_file(cls, col: Column, src_path: Path) -> str:
+    def copy_local_file(cls, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str:
         """Copy a file to the destination specified by the Column, returning the file's URL within the destination."""
-        store = cls.get_store(col.destination, False, col.name)
-        return store.copy_local_file(col, src_path)
+        store = cls.get_store(col_md.destination, False)
+        return store.copy_local_file(tbl_id, tbl_version, col_md, src_path)
 
     @classmethod
     def delete(cls, dest: str | None, tbl_id: UUID, tbl_version: int | None = None) -> int | None:

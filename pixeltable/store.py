@@ -171,6 +171,8 @@ class StoreBase:
         system_cols = self._create_system_columns()
         all_cols = system_cols.copy()
         # we captured all columns, including dropped ones: they're still part of the physical table
+        # TODO the problem here is that tbl_version.cols is only visible columns, yet we want to see all
+        # instead of .cols, we should be looking at ColumnMds in tbl_md.
         for col in [c for c in tbl_version.cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused

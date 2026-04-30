@@ -306,8 +306,12 @@ class ObjectStoreSaveNode(ExecNode):
         src_path = work_item.src_path
         col = work_item.info.col
         assert col.destination == work_item.destination
+        tbl_id = col.get_tbl().id
+        tbl_version = col.get_tbl().version
+        # TODO this is a hack, to_md needs to be split (back) in two functions. ColumnMd doesn't need pos
+        col_md = col.to_md(None if col.name is None else 0)[0]
         try:
-            new_file_url = ObjectOps.put_file(col, src_path, work_item.destination_count == 1)
+            new_file_url = ObjectOps.put_file(tbl_id, tbl_version, col_md, src_path, work_item.destination_count == 1)
             return new_file_url, None
         except Exception as e:
             _logger.debug(f'Failed to move/copy {src_path}: {e}', exc_info=e)

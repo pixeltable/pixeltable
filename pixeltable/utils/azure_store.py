@@ -19,7 +19,7 @@ from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageO
 if TYPE_CHECKING:
     from azure.storage.blob import BlobProperties, BlobServiceClient
 
-    from pixeltable.catalog import Column
+    import pixeltable.metadata.schema as schema
 
 
 _logger = logging.getLogger('pixeltable')
@@ -134,12 +134,9 @@ class AzureBlobStore(ObjectStoreBase):
             self.handle_azure_error(e, self.container_name, f'download file {src_path}')
             raise
 
-    # TODO: utils package should not include back-references to `Column`
-    def copy_local_file(self, col: 'Column', src_path: Path) -> str:
+    def copy_local_file(self, tbl_id: uuid.UUID, tbl_version: int, col_md: 'schema.ColumnMd', src_path: Path) -> str:
         """Copy a local file to Azure Blob Storage, and return its new URL"""
-        prefix, filename = ObjectPath.create_prefix_raw(
-            col.get_tbl().id, col.id, col.get_tbl().version, ext=src_path.suffix
-        )
+        prefix, filename = ObjectPath.create_prefix_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
         blob_name = f'{self.prefix}{prefix}/{filename}'
         new_file_uri = f'{self.__base_uri}{prefix}/{filename}'
 

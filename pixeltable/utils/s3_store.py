@@ -19,6 +19,7 @@ from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageO
 if TYPE_CHECKING:
     from botocore.exceptions import ClientError
 
+    import pixeltable.metadata.schema as schema
     from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
@@ -295,9 +296,9 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, f'downloading file {src_path!r}')
             raise
 
-    def copy_local_file(self, col: 'Column', src_path: Path) -> str:
+    def copy_local_file(self, tbl_id: uuid.UUID, tbl_version: int, col_md: 'schema.ColumnMd', src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
-        new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
+        new_file_uri = self._prepare_uri_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         key = parsed.path.lstrip('/')
         if self.soa.storage_target in {StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}:

@@ -759,8 +759,9 @@ class TableRestorer:
             assert col_md is None or is_cellmd_col or col_name == f'col_{col_md.id}'
 
             for i, val in enumerate(col_vals):
-                # TODO __from_pa_value needs a Column instance
-                rows[i][col_name] = self.__from_pa_value(val, sql_types[col_name], None, is_media_col, is_cellmd_col)
+                rows[i][col_name] = self.__from_pa_value(
+                    val, sql_types[col_name], tv.id, tv.version, col_md, is_media_col, is_cellmd_col
+                )
 
         return rows
 
@@ -768,7 +769,9 @@ class TableRestorer:
         self,
         val: Any,
         sql_type: sql.types.TypeEngine[Any],
-        col: catalog.Column | None,
+        tbl_id: UUID,
+        tbl_version: int,
+        col_md: schema.ColumnMd | None,
         is_media_col: bool,
         is_cellmd_col: bool,
     ) -> Any:
@@ -780,17 +783,17 @@ class TableRestorer:
             assert isinstance(val, np.ndarray) and val.dtype == np.float32 and val.ndim == 1
             return val
         if is_cellmd_col:
-            assert col is not None
+            assert col_md is not None
             assert isinstance(val, str)
-            return self.__restore_cellmd(col, json.loads(val))
+            return self.__restore_cellmd(tbl_id, tbl_version, col_md, json.loads(val))
         if isinstance(sql_type, sql.JSON):
             return json.loads(val)
         if is_media_col:
-            assert col is not None
-            return self.__relocate_media_file(col, val)
+            assert col_md is not None
+            return self.__relocate_media_file(tbl_id, tbl_version, col_md, val)
         return val
 
-    def __relocate_media_file(self, media_col: catalog.Column, url: str) -> str:
+    def __relocate_media_file(self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, url: str) -> str:
         # If this is a pxtmedia:// URL, relocate it
         assert isinstance(url, str)
         parsed_url = urllib.parse.urlparse(url)
@@ -801,18 +804,22 @@ class TableRestorer:
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
-                self.media_files[url] = ObjectOps.put_file(media_col, src_path, relocate_or_delete=True)
+                self.media_files[url] = ObjectOps.put_file(
+                    tbl_id, tbl_version, col_md, src_path, relocate_or_delete=True
+                )
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url
 
-    def __restore_cellmd(self, col: catalog.Column, cellmd: dict[str, Any]) -> dict[str, Any]:
+    def __restore_cellmd(
+        self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, cellmd: dict[str, Any]
+    ) -> dict[str, Any]:
         cellmd_ = CellMd.from_dict(cellmd)
         if cellmd_.file_urls is None:
             return cellmd  # No changes
 
         updated_urls: list[str] = []
         for url in cellmd_.file_urls:
-            updated_urls.append(self.__relocate_media_file(col, url))
+            updated_urls.append(self.__relocate_media_file(tbl_id, tbl_version, col_md, url))
         cellmd_.file_urls = updated_urls
         return cellmd_.as_dict()
