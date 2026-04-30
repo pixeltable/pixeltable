@@ -504,9 +504,6 @@ async def chat_completions(
         ...     response=chat_completions(messages, model='gpt-4o-mini')
         ... )
     """
-    # Copy to avoid mutating the Literal's internal dict (which would corrupt the stored expression)
-    model_kwargs = dict(model_kwargs) if model_kwargs is not None else {}
-
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
 
@@ -632,9 +629,6 @@ async def responses(
         ... ]
         ... tbl.add_computed_column(response=responses(messages, model='gpt-4o-mini'))
     """
-    # Copy to avoid mutating the input dict, in case it came here through a Literal
-    model_kwargs = dict(model_kwargs) if model_kwargs is not None else {}
-
     # In Responses API, functions use internally-tagged polymorphism (flat structure)
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', **tool} for tool in tools]

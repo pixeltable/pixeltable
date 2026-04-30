@@ -341,7 +341,7 @@ class TestOpenai:
         t.add_computed_column(response_2=chat_completions(msgs, model='gpt-4o-mini', model_kwargs={'max_tokens': 300}))
         with pytest.warns(
             pxt.exceptions.PixeltableDeprecationWarning,
-            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) instead',
+            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) or responses\(\) instead',
         ):
             validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()
