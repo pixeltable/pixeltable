@@ -22,15 +22,12 @@ from fastapi.responses import FileResponse
 from pydantic.fields import FieldInfo
 
 import pixeltable as pxt
-import pixeltable.catalog as catalog
-import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
-import pixeltable.func as func
-import pixeltable.type_system as ts
-import pixeltable.utils.image as image_utils
+from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.serving.globals import SqlExport, SqlExporter
+from pixeltable.serving import SqlExport
+from pixeltable.serving.globals import SqlExporter
+from pixeltable.utils import image as image_utils
 from pixeltable.utils.local_store import LocalStore, TempStore
 
 _logger = logging.getLogger('pixeltable')
