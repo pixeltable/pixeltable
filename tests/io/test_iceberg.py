@@ -17,7 +17,7 @@ def array_to_list(arr: pxt.Array[(10,), pxt.Float]) -> pxt.Json:
 
 class TestIceberg:
     def _catalog(self, tmp_path: pathlib.Path) -> Any:
-        from pixeltable.utils.iceberg import sqlite_catalog
+        from pixeltable.io.iceberg import sqlite_catalog
 
         return sqlite_catalog(tmp_path / 'warehouse')
 
@@ -160,7 +160,7 @@ class TestIceberg:
             pxt.io.export_iceberg(t, catalog, 'pxt.if_exists')
 
         # Overwrite: drops + recreates, ends with same row count
-        pxt.io.export_iceberg(t.where(t.c_int < 3), catalog, 'pxt.if_exists', if_exists='overwrite')
+        pxt.io.export_iceberg(t.where(t.c_int < 3), catalog, 'pxt.if_exists', if_exists='replace')
         assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 3
 
         # Append: doubles the row count
