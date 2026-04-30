@@ -186,10 +186,11 @@ class TestFunction:
 
     def test_invalid_call(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
-        missing_a = r"missing a required argument: 'a'"
-        missing_b = r"missing a required argument: 'b'"
-        pos_only_a = r"'a' parameter is positional only, but was passed as a keyword"
-        pos_only_b = r"'b' parameter is positional only, but was passed as a keyword"
+        # Note: the wording is different across Python versions
+        missing_a = r"missing.+'a'"
+        missing_b = r"missing.+'b'"
+        pos_only_a = r"(?:'a'.+positional.only.+|.+positional.only.+'a')"
+        pos_only_b = r"(?:'b'.+positional.only.+|.+positional.only.+'b')"
         multi_a = r"multiple values for argument 'a'"
         too_many_pos = r'too many positional arguments'
         exp_ab = r'expected \(a: pxt\.Int, b: pxt\.Int\)'
