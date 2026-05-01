@@ -16,7 +16,7 @@ TQDM_MININTERVAL := $(NB_CELL_TIMEOUT)
 ULIMIT_CMD := ulimit -n 4000;
 
 # necessary for onnx to compile
-CMAKE_POLICY_VERSION_MINIMUM=3.5
+CMAKE_POLICY_VERSION_MINIMUM := 3.5
 
 # Dev dependency versions not handled by pyproject.toml
 UV_VERSION := 0.9.3
