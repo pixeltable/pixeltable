@@ -203,8 +203,8 @@ class TestDestination:
     def test_destination(self, uses_db: None, dest_id: StorageTarget) -> None:
         """Test various media destinations."""
         skip_test_if_not_installed('boto3')
-        from pixeltable.utils.s3_store import S3Store
         from pixeltable.utils.pxt_store import PxtStore
+        from pixeltable.utils.s3_store import S3Store
 
         dest_uri = self.resolve_destination_uri(dest_id)
 
