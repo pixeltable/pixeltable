@@ -13,7 +13,6 @@ from pixeltable.env import Env
 from pixeltable.functions.net import presigned_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
-from pixeltable.utils.pxt_store import PxtStore
 
 from .utils import pxt_raises, rerun, skip_test_if_not_installed
 
@@ -205,6 +204,7 @@ class TestDestination:
         """Test various media destinations."""
         skip_test_if_not_installed('boto3')
         from pixeltable.utils.s3_store import S3Store
+        from pixeltable.utils.pxt_store import PxtStore
 
         dest_uri = self.resolve_destination_uri(dest_id)
 
