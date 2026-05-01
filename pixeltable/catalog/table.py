@@ -1428,7 +1428,7 @@ class Table(SchemaObject):
 
         For inserting just a single row, there is a convenient shorthand key/value syntax:
 
-        >>> insert(col1=1, col2='egg')
+        >>> tbl.insert(col1=1, col2='egg')
 
         Args:
             source: A data source from which data can be imported. Can be any of the following:
@@ -1453,6 +1453,8 @@ class Table(SchemaObject):
                     with errors will have a `None` value for that cell, with information about the error stored in the
                     corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
             print_stats: If `True`, print statistics about the cost of computed columns.
+            return_rows: If `True`, populate `UpdateStatus.rows` with one dict per inserted row, mapping column names
+                to their stored or computed values. If `False` (default), `UpdateStatus.rows` is `None`.
 
         Returns:
             An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
