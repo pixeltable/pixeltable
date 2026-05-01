@@ -63,7 +63,8 @@ Flag any `is None` or `not` in expression contexts.
 ## Documentation
 
 - Docstrings deploy as Mintlify MDX.
-- Check: code fences on own lines, paired backticks, self-closing HTML, all code in fenced blocks. Notebooks need Raw cell with YAML frontmatter, no H1 headers.
+- Always use >>> prompts for code blocks in docstrings. Never use python fences. (Other fences such as bash or json are fine.)
+- Check: fenced blocks on own lines, paired backticks, self-closing HTML. Notebooks need Raw cell with YAML frontmatter, no H1 headers.
 
 ## Co-Changes (Flag if Missing)
 
