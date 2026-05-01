@@ -148,10 +148,12 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
             if col_type.is_json_type():
                 try:
                     pa_type = pa.infer_type(batch_columns[col_name], mask=None)
-                except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError):
-                    # for mixed lists e.g. json including both lists and dicts
-                    # we need to fall back to json strings
-                    pa_type = pa.json_()
+                except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError) as e:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'JSON column {col_name!r} contains mixed types (e.g. both lists and dicts), which is not '
+                        f'supported when exporting to Arrow.',
+                    ) from e
                 pa_column_types[col_name] = pa_type
             else:
                 pa_column_types[col_name] = to_arrow_type(col_type)

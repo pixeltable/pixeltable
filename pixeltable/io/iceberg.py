@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
-from pathlib import Path
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -18,9 +18,7 @@ def _unwrap_json_columns(batch: pa.RecordBatch, json_names: list[str]) -> pa.Rec
 
     for name in json_names:
         i = batch.schema.get_field_index(name)
-        batch = batch.set_column(
-            i, pa.field(name, pa.string()), cast(pa.ExtensionArray, batch.column(name)).storage
-        )
+        batch = batch.set_column(i, pa.field(name, pa.string()), cast(pa.ExtensionArray, batch.column(name)).storage)
     return batch
 
 
@@ -97,7 +95,7 @@ def export_iceberg(
             f'export_iceberg(): cannot export fixed-shape tensor column(s) {unsupported}. '
             f'Iceberg has no fixed-shape tensor type; project the column to a list before exporting.',
         )
-    
+
     if iceberg_tbl is not None:
         if if_exists == 'error':
             raise excs.AlreadyExistsError(
@@ -111,8 +109,6 @@ def export_iceberg(
     first_batch = next(batch_iter, None)
     if first_batch is None:
         return
-
-   
 
     # `pa.json_()` (the fallback `to_record_batches` uses for heterogeneously-shaped JSON) is also an
     # extension type Iceberg doesn't recognize, but its storage is already a JSON-encoded string, so
