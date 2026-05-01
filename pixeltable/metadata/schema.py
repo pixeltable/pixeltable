@@ -129,6 +129,8 @@ class ColumnMd:
     # TODO this requires a migration
     # TODO rename to col_type or something
     data_type: ColumnType.Type
+    # cannot be done because sql.types.TypeEngine is not serializable out of the box
+    # sa_col_type: sql.types.TypeEngine
 
     # If present, the URI for the destination for column values
     destination: str | None = None

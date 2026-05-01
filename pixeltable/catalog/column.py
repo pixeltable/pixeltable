@@ -584,6 +584,10 @@ class Column:
             assert self.sa_cellmd_col is None
         return (self.sa_col, self.sa_cellmd_col)
 
+    # def set_sa_cols(self, sa_col: sql.Column, sa_cellmd_col: sql.Column | None) -> None:
+    #     self.sa_col = sa_col
+    #     self.sa_cellmd_col = sa_cellmd_col
+
     @classmethod
     def cellmd_type(cls) -> ts.ColumnType:
         return ts.JsonType(nullable=True)
@@ -592,10 +596,14 @@ class Column:
     def sa_cellmd_type(cls) -> sql.types.TypeEngine:
         return cls.cellmd_type().to_sa_type()
 
+    @classmethod
+    def store_name_from_id(cls, col_id: int) -> str:
+        return f'col_{col_id}'
+
     def store_name(self) -> str:
         assert self.id is not None
         assert self.is_stored
-        return f'col_{self.id}'
+        return Column.store_name_from_id(self.id)
 
     def cellmd_store_name(self) -> str:
         return f'{self.store_name()}_cellmd'

@@ -180,6 +180,11 @@ class StoreBase:
             all_cols.append(col.sa_col)
             if col.stores_cellmd:
                 all_cols.append(col.sa_cellmd_col)
+        # Use tbl md columns to recreate sa columns instead of tbl_version.cols
+        # for col_md in tbl_version.tbl_md.column_md.values():
+        #     _ = col_md
+        #     # create sa columns (incl. cellmd) and add to all_cols
+        # # then go over tbl_version.cols and set sa cols on them
 
         if self.sa_tbl is not None:
             # if we're called in response to a schema change, we need to remove the old table first
@@ -227,6 +232,11 @@ class StoreBase:
             extra_constraints.append(sql.PrimaryKeyConstraint(*[col.name for col in self._pk_cols]))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs, *extra_constraints)
+
+    # def _create_sa_cols(self, col_md: schema.ColumnMd) -> tuple[sql.schema.Column, sql.schema.Column | None]:
+    #     sa_col = sql.Column(catalog.Column.store_name_from_id(col_md.id), self.sa_col_type, nullable=True)
+    #     # TODO
+    #     return sa_col, None
 
     @abc.abstractmethod
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
