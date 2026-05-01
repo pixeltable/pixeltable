@@ -33,7 +33,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import OpStatus, TableOp
+from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
 from .update_status import UpdateStatus
 from .view import View
 
@@ -924,8 +924,6 @@ class Catalog:
 
         Returns True if all pending ops have been resolved, False otherwise.
         """
-        from .tbl_ops import DeleteTableMdOp
-
         conn = get_runtime().conn
         pending_ops_stmt: sql.UpdateBase
         if is_final_op:
