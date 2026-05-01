@@ -1420,7 +1420,11 @@ class Table(SchemaObject):
 
         The `source` can also be another table or a [`Query`][pixeltable.Query]:
 
-        >>> tbl.insert(other_tbl.select(col1=other_tbl.other_col, col2=other_tbl.yet_another_col))
+        >>> tbl.insert(
+        ...     other_tbl.select(
+        ...         col1=other_tbl.other_col, col2=other_tbl.yet_another_col
+        ...     )
+        ... )
 
         For inserting just a single row, there is a convenient shorthand key/value syntax:
 
