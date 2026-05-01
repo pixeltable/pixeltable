@@ -750,6 +750,10 @@ class Catalog:
         op: TableOp | None = None
         exc: Exception | None = None
         assert not get_runtime().in_xact, 'Cannot finalize pending ops inside a transaction'
+        # If set, a pending table op update rolled over from the previous loop iteration. It saves us 1 transaction per
+        # non-transactional table op.
+        # Contains: (op, new_op_status, is_final_op)
+        rollover_op_update: tuple[TableOp, OpStatus, bool] | None = None
 
         while True:
             try:
@@ -771,6 +775,17 @@ class Catalog:
                         return None
                     assert tbl_md.tbl_state in (schema.TableState.ROLLFORWARD, schema.TableState.ROLLBACK)
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
+
+                    if rollover_op_update is not None:
+                        if self._set_pending_op_status(
+                            tbl_id,
+                            op=rollover_op_update[0],
+                            new_status=rollover_op_update[1],
+                            is_final_op=rollover_op_update[2],
+                        ):
+                            return exc
+
+                        rollover_op_update = None
 
                     ops = self._read_pending_table_ops(tbl_id)
                     assert len(ops) > 0
@@ -834,16 +849,7 @@ class Catalog:
                     op.exec(tv)
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
                 # inside a transaction and therefore wouldn't end up here
-
-                with self.begin_xact(
-                    for_write=True, write_tbl_ids=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
-                ) as conn:
-                    _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
-                    if not self._select_tbl_for_update(tbl_id):
-                        _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
-                        return exc
-                    if self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op):
-                        return exc
+                rollover_op_update = (op, new_op_status, is_final_op)
 
             except AssertionError as e:
                 _logger.error(f'Finalize pending ops({tbl_id}): assertion error: {e}', exc_info=True)
