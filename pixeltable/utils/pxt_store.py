@@ -201,15 +201,23 @@ class PxtStore(ObjectStoreBase):
         assert self._pxt_store_entry.resource is not None
         assert self._pxt_store_entry.storage_provider is not None
 
-        storage_target = StorageTarget(self._pxt_store_entry.storage_provider)
-        if storage_target in S3_COMPATIBLE_TARGETS:
-            return S3Store(soa, client=self._pxt_store_entry.client, resource=self._pxt_store_entry.resource)
-        else:
+        try:
+            storage_target = StorageTarget(self._pxt_store_entry.storage_provider)
+        except ValueError:
+            supported = ', '.join(t.name for t in StorageTarget)
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Invalid storage provider {self._pxt_store_entry.storage_provider!r}. Supported: {supported}',
+            ) from None
+
+        if storage_target not in S3_COMPATIBLE_TARGETS:
             supported = ', '.join(t.name for t in S3_COMPATIBLE_TARGETS)
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Storage target {storage_target.value!r} is not supported. Supported targets: {supported}',
+                f'Storage target {storage_target.value!r} not supported. Supported: {supported}',
             )
+
+        return S3Store(soa, client=self._pxt_store_entry.client, resource=self._pxt_store_entry.resource)
 
     def _to_logical_uri(self, physical_uri: str) -> str:
         """Create object uri with logical bucket name"""
