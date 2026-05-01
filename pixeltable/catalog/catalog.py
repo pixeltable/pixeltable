@@ -755,6 +755,8 @@ class Catalog:
         # Contains: (op, new_op_status, is_final_op)
         rollover_op_update: tuple[TableOp, OpStatus, bool] | None = None
 
+        tbl_q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
+
         while True:
             try:
                 with (
@@ -764,7 +766,7 @@ class Catalog:
                     self._allow_tbl_md_read(),
                 ):
                     # determine table status
-                    row = self._select_tbl_for_update(tbl_id)
+                    row = conn.execute(tbl_q).one_or_none()
                     if row is None:
                         _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
                         return None
@@ -919,18 +921,14 @@ class Catalog:
 
             num_retries = 0
 
-    def _set_pending_op_status(self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool) -> bool:
+    def _pending_table_ops_update_stmt(
+        self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool
+    ) -> sql.UpdateBase:
         """
-        Updates the pending op status in the store. If is_final_op, sets table status to LIVE after additional checks.
+        Generates a PendingTableOp (pendingtableops) update statement for the given op.
 
-        Note: is_final_op is a hint that this may have been the last pending table op. Due to possible concurrent schema
-        changes, only the store can be the final authority on the state of the table.
-
-        This function must be called inside a transaction with an exclusive table lock held.
-
-        Returns True if all pending ops have been resolved, False otherwise.
+        If this op is the final, deletes the ops. Otherwise simply updates the op's status.
         """
-        conn = get_runtime().conn
         pending_ops_stmt: sql.UpdateBase
         if is_final_op:
             _logger.info(
@@ -974,7 +972,22 @@ class Catalog:
             pending_ops_stmt = pending_ops_stmt.where(
                 schema.PendingTableOp.op['tbl_schema_version'].cast(sql.Integer) == op.tbl_schema_version
             )
+        return pending_ops_stmt
 
+    def _set_pending_op_status(self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool) -> bool:
+        """
+        Updates the pending op status in the store. If is_final_op, sets table status to LIVE after additional checks.
+
+        Note: is_final_op is a hint that this may have been the last pending table op. Due to possible concurrent schema
+        changes, only the store can be the final authority on the state of the table.
+
+        This function must be called inside a transaction with an exclusive table lock held.
+
+        Returns True if all pending ops have been resolved, False otherwise.
+        """
+        pending_ops_stmt = self._pending_table_ops_update_stmt(tbl_id, op, new_status, is_final_op=is_final_op)
+
+        conn = get_runtime().conn
         rowcount = conn.execute(pending_ops_stmt).rowcount
         # Log a message if no pendingtableops rows were matched. DeleteTableMdOp is a special case because it
         # deletes all pendingtableops.
@@ -1024,14 +1037,6 @@ class Catalog:
         )
         rows = conn.execute(q).fetchall()
         return [TableOp.from_dict(dict(row.op)) for row in rows]
-
-    def _select_tbl_for_update(self, tbl_id: UUID) -> sql.Row | None:
-        """Obtains an exclusive table lock.
-
-        Must be run inside a transaction"""
-        conn = get_runtime().conn
-        q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
-        return conn.execute(q).one_or_none()
 
     def _debug_str(self) -> str:
         tv_str = '\n'.join(str(k) for k in self._tbl_versions)
@@ -2480,6 +2485,7 @@ class Catalog:
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
         assert self._in_write_xact
+        # TODO consider asserting that tbl lock is being held
         assert version_md is None or version_md.created_at > 0.0
         assert pending_ops is None or len(pending_ops) > 0
         assert pending_ops is None or tbl_md is not None  # if we write pending ops, we must also write new tbl_md
