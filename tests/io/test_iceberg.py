@@ -79,8 +79,8 @@ class TestIceberg:
             assert isinstance(exp_row['c_image'], bytes)
             assert len(exp_row['c_image']) > 0
 
-    def test_export_array_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        """Both fixed-shape and variable-shape array columns should raise; Iceberg has no analogous type."""
+    def test_export_fixed_shape_tensor_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Fixed-shape array columns should raise; Iceberg has no analogous type."""
         skip_test_if_not_installed('pyiceberg')
         catalog = self._catalog(tmp_path)
 
@@ -89,10 +89,22 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
             pxt.io.export_iceberg(fixed, catalog, 'pxt.tensor_fixed')
 
+    def test_export_variable_shape_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Variable-shape arrays map to pa.list_(...) and are exported as Iceberg lists."""
+        skip_test_if_not_installed('pyiceberg')
         variable = pxt.create_table('test_iceberg_tensor_var', {'c_array': pxt.Array[(None,), pxt.Float]})  # type: ignore[misc]
-        variable.insert([{'c_array': np.array([1.0, 2.0, 3.0], dtype=np.float32)}])
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
-            pxt.io.export_iceberg(variable, catalog, 'pxt.tensor_var')
+        variable.insert(
+            [
+                {'c_array': np.array([1.0, 2.0, 3.0], dtype=np.float32)},
+                {'c_array': np.array([4.0, 5.0], dtype=np.float32)},
+            ]
+        )
+
+        catalog = self._catalog(tmp_path)
+        pxt.io.export_iceberg(variable, catalog, 'pxt.tensor_var')
+
+        exported = catalog.load_table('pxt.tensor_var').scan().to_arrow().to_pylist()
+        assert sorted(r['c_array'] for r in exported) == [[1.0, 2.0, 3.0], [4.0, 5.0]]
 
     def test_export_with_nulls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Verify null handling across multiple types."""
