@@ -9,7 +9,7 @@ services:
       - ..:/workspaces/pixeltable:cached
     command: sleep infinity
     environment:
-      PIXELTABLE_DB_CONNECT_STR: cockroachdb://root@roach1:26257/pixeltable?sslmode=disable
+      PIXELTABLE_DB_CONNECT_STR: cockroachdb+psycopg://root@roach1:26257/pixeltable?sslmode=disable
       TZ: UTC
       CMAKE_ARGS: -DLLAVA_BUILD=OFF
       CMAKE_POLICY_VERSION_MINIMUM: "3.5"
@@ -90,6 +90,9 @@ services:
         /cockroach/cockroach sql --insecure --host=roach1:26257 -e "
           CREATE DATABASE IF NOT EXISTS pixeltable;
           SET CLUSTER SETTING feature.vector_index.enabled = true;
+          SET CLUSTER SETTING sql.defaults.experimental_temporary_tables.enabled = true;
+          ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 60;
+          ALTER DATABASE pixeltable CONFIGURE ZONE USING gc.ttlseconds = 60;
         "
         echo 'cluster initialized'
     restart: "no"
