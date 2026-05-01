@@ -2,12 +2,10 @@
 Pixeltable UDFs for `DateType`.
 
 Usage example:
-```python
-import pixeltable as pxt
 
-t = pxt.get_table(...)
-t.select(t.date_col.year, t.date_col.weekday()).collect()
-```
+>>> import pixeltable as pxt
+>>> t = pxt.get_table(...)
+>>> t.select(t.date_col.year, t.date_col.weekday()).collect()
 """
 
 from datetime import date, timedelta
