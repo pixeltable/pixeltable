@@ -141,6 +141,18 @@ def _to_record_batch(
         elif field.type == pa.json_():
             serialized = [json.dumps(v) if v is not None else None for v in column_vals[field.name]]
             pa_arrays.append(pa.array(serialized, type=pa.json_()))
+        elif pxt_type.is_json_type():
+            # JSON columns are typed by `pa.infer_type` against the first batch's values; that can
+            # succeed (e.g. `list<int64>` inferred from `[1, 'a', 2]`) but still fail when pyarrow
+            # actually coerces the values. Catch that here and surface a clear error.
+            try:
+                pa_arrays.append(pa.array(column_vals[field.name], type=field.type))
+            except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'JSON column {field.name!r} contains values that cannot be coerced to a single '
+                    f'arrow type {field.type} (e.g. a list with mixed element types).',
+                ) from e
         else:
             pa_array = cast(pa.Array, pa.array(column_vals[field.name]))
             pa_arrays.append(pa_array)
