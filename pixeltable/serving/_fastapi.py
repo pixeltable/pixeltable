@@ -16,18 +16,18 @@ from typing import Annotated, Any, Callable, Literal, Optional, TypeVar, get_typ
 import fastapi
 import PIL.Image
 import pydantic
+import sqlalchemy as sql
 from fastapi import Body, File, Form, HTTPException, Query as QueryParam, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic.fields import FieldInfo
 
 import pixeltable as pxt
-import pixeltable.catalog as catalog
-import pixeltable.exprs as exprs
-import pixeltable.func as func
-import pixeltable.type_system as ts
-import pixeltable.utils.image as image_utils
+from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.serving import SqlExport
+from pixeltable.serving.globals import SqlExporter
+from pixeltable.utils import image as image_utils
 from pixeltable.utils.local_store import LocalStore, TempStore
 
 _logger = logging.getLogger('pixeltable')
@@ -57,14 +57,14 @@ class JobStatusResponse(pydantic.BaseModel):
     result: Optional[Any] = None
 
 
-# Name used to register the `/media/{path:path}` route. Insert routes use this name with
-# `request.url_for(_MEDIA_ROUTE_NAME, path=...)` to build absolute media URLs at request time.
+# Name used to register the /media/{path:path} route. Insert routes use this name with
+# request.url_for(_MEDIA_ROUTE_NAME, path=...) to build absolute media URLs at request time.
 _MEDIA_ROUTE_NAME = 'pxt_serve_media'
 _JOB_STATUS_ROUTE_NAME = 'pxt_serve_job_status'
 
 
 # ColumnType.Type -> JSON-Schema contentMediaType
-# `.../*`: tell OpenAPI tooling to render the URL as a media link without committing to a specific subtype
+# .../*: tell OpenAPI tooling to render the URL as a media link without committing to a specific subtype
 _MEDIA_CONTENT_TYPES: dict[ts.ColumnType.Type, str] = {
     ts.ColumnType.Type.IMAGE: 'image/*',
     ts.ColumnType.Type.VIDEO: 'video/*',
@@ -102,6 +102,7 @@ class FastAPIRouter(fastapi.APIRouter):
     _jobs_lock: threading.Lock
     _home_dir: Path
     _allowed_media_dirs: list[Path]
+    _engine_cache: dict[str, sql.Engine]  # keyed by SqlExport.db_connect; shared across routes
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -110,6 +111,7 @@ class FastAPIRouter(fastapi.APIRouter):
         self._jobs_lock = threading.Lock()
         self._home_dir = Config.get().home.resolve()
         self._allowed_media_dirs = [Env.get().media_dir.resolve(), Env.get().tmp_dir.resolve()]
+        self._engine_cache = {}
         self._register_media_route()
         self._register_jobs_route()
         # Shut down the worker pool when the parent app's lifespan ends. include_router()
@@ -117,7 +119,18 @@ class FastAPIRouter(fastapi.APIRouter):
         self.add_event_handler('shutdown', self._shutdown)
 
     def _shutdown(self) -> None:
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        # wait until in-flight requests are done and won't access _engine_cache
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        for eng in self._engine_cache.values():
+            eng.dispose()
+        self._engine_cache.clear()
+
+    def _get_sql_engine(self, db_connect: str) -> sql.Engine:
+        eng = self._engine_cache.get(db_connect)
+        if eng is None:
+            eng = sql.create_engine(db_connect)
+            self._engine_cache[db_connect] = eng
+        return eng
 
     def add_insert_route(
         self,
@@ -128,6 +141,7 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs: list[str] | None = None,
         outputs: list[str] | None = None,
         return_fileresponse: bool = False,
+        export_sql: SqlExport | None = None,
         background: bool = False,
     ) -> None:
         """
@@ -151,6 +165,25 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse: If True, return the single media-typed output column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
                 Requires exactly one media-typed output column.
+            export_sql: If set, export each inserted row into an external RDBMS table after the
+                Pixeltable insert succeeds. See [`SqlExport`][pixeltable.serving.SqlExport] for
+                the target specification and supported `method` values.
+
+                The row written is the response body: same columns as `outputs`, with media-typed
+                columns rendered as URL strings (so the corresponding target columns must be
+                string-typed).
+
+                Schema compatibility against the response columns is validated once at
+                registration time; the target table must already exist or registration fails.
+                Mutually exclusive with `return_fileresponse`. Compatible with `background=True`
+                (the SQL write runs in the worker thread).
+
+                Note: when paired with `method='update'`, a Pixeltable insert triggers a
+                target-side update -- this is intentional, supporting the append-only-source /
+                current-state-view pattern.
+
+                If the external write fails after the Pixeltable insert has already succeeded,
+                the request fails with HTTP 500; no rollback is performed.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the insert in a background thread. Poll `job_url` for the result. Mutually
                 exclusive with `return_fileresponse`.
@@ -185,6 +218,25 @@ class FastAPIRouter(fastapi.APIRouter):
             # saves the resized image to resized.jpg
             ```
 
+            Export each inserted row into an external RDBMS table:
+
+            ```python
+            router.add_insert_route(
+                t,
+                path='/generate',
+                inputs=['prompt'],
+                outputs=['prompt', 'result'],
+                export_sql=SqlExport(
+                    db_connect='postgresql+psycopg://user:pw@host/analytics',
+                    table='generations',
+                    db_schema='public',
+                ),
+            )
+            ```
+
+            Each successful POST inserts a row into the Pixeltable table and then inserts the
+            same row (columns: `prompt`, `result`) to `public.generations` in the target database.
+
             Background processing:
 
             ```python
@@ -214,6 +266,13 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs = uploadfile_inputs or []
         output_cols = [cols_by_name[name] for name in output_col_names]
 
+        sql_exporter = self._make_schema_sql_exporter(
+            export_sql,
+            return_fileresponse=return_fileresponse,
+            schema={name: cols_by_name[name].col_type for name in output_col_names},
+            error_prefix='add_insert_route()',
+        )
+
         # response model derived from output columns, named after the path
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
         insert_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
@@ -222,7 +281,11 @@ class FastAPIRouter(fastapi.APIRouter):
             output = self._create_output(
                 [row], output_col_names, insert_response_model, return_fileresponse, url_for_media
             )
-            return output[0] if isinstance(output, list) else output
+            result = output[0] if isinstance(output, list) else output
+            if sql_exporter is not None:
+                assert isinstance(result, pydantic.BaseModel)
+                sql_exporter.export_row(result)
+            return result
 
         self._add_dml_route(
             t,
@@ -246,6 +309,7 @@ class FastAPIRouter(fastapi.APIRouter):
         inputs: list[str] | None = None,
         uploadfile_inputs: list[str] | None = None,
         outputs: list[str] | None = None,
+        export_sql: SqlExport | None = None,
         background: bool = False,
     ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
         """
@@ -270,6 +334,21 @@ class FastAPIRouter(fastapi.APIRouter):
                 become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
             outputs: Columns from the inserted row to pass to the decorated function as keyword
                 arguments. Defaults to all columns.
+            export_sql: If set, export the decorated function's return value into an external
+                RDBMS table after the Pixeltable insert succeeds. See
+                [`SqlExport`][pixeltable.serving.SqlExport] for the target specification and
+                supported `method` values.
+
+                The row written is the user function's pydantic return value (its fields, not the
+                source columns), so the target table schema must match those fields. Media-typed
+                fields are modeled as strings (URL form).
+
+                Schema compatibility is validated once at registration time; the target table
+                must already exist or registration fails. Compatible with `background=True` (the
+                SQL write runs in the worker thread).
+
+                If the external write fails after the Pixeltable insert has already succeeded,
+                the request fails with HTTP 500; no rollback is performed.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the insert plus post-processing in a background thread. Poll `job_url` for the
                 result; the decorated function's return value is delivered as the job result.
@@ -293,6 +372,23 @@ class FastAPIRouter(fastapi.APIRouter):
               -d '{"prompt": "a sunset over the ocean"}'
             # {"caption": "orange sky above calm water", "score": 0.932}
             ```
+
+            Export the post-processed response into an external RDBMS table:
+
+            ```python
+            @router.insert_route(
+                t, path='/generate', inputs=['prompt'], outputs=['caption', 'score'],
+                export_sql=SqlExport(
+                    db_connect='postgresql+psycopg://user:pw@host/analytics',
+                    table='captions',
+                ),
+            )
+            def format_response(*, caption: str, score: float) -> GenerateResponse:
+                return GenerateResponse(caption=caption.strip(), score=round(score, 3))
+            ```
+
+            Each successful POST inserts a row into the Pixeltable table and then appends a row
+            with columns `caption`, `score` (the response model fields) to `captions`.
         """
         _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             t,
@@ -313,9 +409,16 @@ class FastAPIRouter(fastapi.APIRouter):
                 error_prefix='insert_route()',
             )
 
+            sql_exporter = self._make_model_sql_exporter(
+                export_sql, response_model=response_model, error_prefix='insert_route()'
+            )
+
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
-                return user_fn(**kwargs)
+                result = user_fn(**kwargs)
+                if sql_exporter is not None:
+                    sql_exporter.export_row(result)
+                return result
 
             self._add_dml_route(
                 t,
@@ -342,6 +445,7 @@ class FastAPIRouter(fastapi.APIRouter):
         inputs: list[str] | None = None,
         outputs: list[str] | None = None,
         return_fileresponse: bool = False,
+        export_sql: SqlExport | None = None,
         background: bool = False,
     ) -> None:
         """
@@ -371,6 +475,25 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse: If True, return the single media-typed output column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
                 Requires exactly one media-typed output column.
+            export_sql: If set, export each updated row into an external RDBMS table after the
+                Pixeltable update succeeds. See [`SqlExport`][pixeltable.serving.SqlExport] for
+                the target specification and supported `method` values.
+
+                The row written is the response body: same columns as `outputs`, with media-typed
+                columns rendered as URL strings (so the corresponding target columns must be
+                string-typed).
+
+                Schema compatibility is validated once at registration time; the target table
+                must already exist or registration fails. Mutually exclusive with
+                `return_fileresponse`. Compatible with `background=True`.
+
+                Note: with `method='insert'` (the default), every update appends a new row to the
+                target table -- the target acts as an audit log, not a current-state view. Use
+                `method='update'` to keep the target as a current-state view keyed on the
+                target's primary key.
+
+                If the external write fails after the Pixeltable update has already succeeded,
+                the request fails with HTTP 500; no rollback is performed.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the update in a background thread. Poll `job_url` for the result. Mutually
                 exclusive with `return_fileresponse`.
@@ -387,6 +510,18 @@ class FastAPIRouter(fastapi.APIRouter):
               -H 'Content-Type: application/json' \
               -d '{"id": 1, "prompt": "a sunset over the ocean"}'
             # {"prompt": "a sunset over the ocean", "result": "..."}
+            ```
+
+            Append every update to an external audit table:
+
+            ```python
+            router.add_update_route(
+                t, path='/update', inputs=['prompt'], outputs=['id', 'prompt', 'result'],
+                export_sql=SqlExport(
+                    db_connect='postgresql+psycopg://user:pw@host/analytics',
+                    table='update_log',
+                ),
+            )
             ```
 
             Background processing:
@@ -419,6 +554,13 @@ class FastAPIRouter(fastapi.APIRouter):
         )
         output_cols = [cols_by_name[name] for name in output_col_names]
 
+        sql_exporter = self._make_schema_sql_exporter(
+            export_sql,
+            return_fileresponse=return_fileresponse,
+            schema={name: cols_by_name[name].col_type for name in output_col_names},
+            error_prefix='add_update_route()',
+        )
+
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
         update_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
@@ -426,7 +568,11 @@ class FastAPIRouter(fastapi.APIRouter):
             output = self._create_output(
                 [row], output_col_names, update_response_model, return_fileresponse, url_for_media
             )
-            return output[0] if isinstance(output, list) else output
+            result = output[0] if isinstance(output, list) else output
+            if sql_exporter is not None:
+                assert isinstance(result, pydantic.BaseModel)
+                sql_exporter.export_row(result)
+            return result
 
         self._add_dml_route(
             t,
@@ -449,6 +595,7 @@ class FastAPIRouter(fastapi.APIRouter):
         path: str,
         inputs: list[str] | None = None,
         outputs: list[str] | None = None,
+        export_sql: SqlExport | None = None,
         background: bool = False,
     ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
         """
@@ -479,6 +626,25 @@ class FastAPIRouter(fastapi.APIRouter):
                 non-media columns.
             outputs: Columns from the updated row to pass to the decorated function as keyword
                 arguments. Defaults to all columns.
+            export_sql: If set, export the decorated function's return value into an external
+                RDBMS table after the Pixeltable update succeeds. See
+                [`SqlExport`][pixeltable.serving.SqlExport] for the target specification and
+                supported `method` values.
+
+                The row written is the user function's pydantic return value (its fields, not the
+                source columns), so the target table schema must match those fields. Media-typed
+                fields are modeled as strings (URL form).
+
+                Schema compatibility is validated once at registration time; the target table
+                must already exist or registration fails. Compatible with `background=True`.
+
+                Note: with `method='insert'` (the default), every update appends a new row to the
+                target table -- the target acts as an audit log, not a current-state view. Use
+                `method='update'` to keep the target as a current-state view keyed on the
+                target's primary key.
+
+                If the external write fails after the Pixeltable update has already succeeded,
+                the request fails with HTTP 500; no rollback is performed.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run the
                 update plus post-processing in a background thread. Poll `job_url` for the result;
                 the decorated function's return value is delivered as the job result.
@@ -502,6 +668,20 @@ class FastAPIRouter(fastapi.APIRouter):
               -H 'Content-Type: application/json' \\
               -d '{"id": 42, "text": "new content"}'
             # {"id": 42, "summary": "new content", "score": 0.871}
+            ```
+
+            Append every post-processed update into an external audit table:
+
+            ```python
+            @router.update_route(
+                t, path='/update', inputs=['text'], outputs=['id', 'text', 'score'],
+                export_sql=SqlExport(
+                    db_connect='postgresql+psycopg://user:pw@host/analytics',
+                    table='item_log',
+                ),
+            )
+            def format_response(*, id: int, text: str, score: float) -> ItemResponse:
+                return ItemResponse(id=id, summary=text[:100], score=round(score, 3))
             ```
 
             Background processing:
@@ -542,9 +722,16 @@ class FastAPIRouter(fastapi.APIRouter):
                 error_prefix='update_route()',
             )
 
+            sql_exporter = self._make_model_sql_exporter(
+                export_sql, response_model=response_model, error_prefix='update_route()'
+            )
+
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
-                return user_fn(**kwargs)
+                result = user_fn(**kwargs)
+                if sql_exporter is not None:
+                    sql_exporter.export_row(result)
+                return result
 
             self._add_dml_route(
                 t,
@@ -794,7 +981,7 @@ class FastAPIRouter(fastapi.APIRouter):
             if one_row:
                 output_model = query_result_model
             else:
-                # Multi-row: wrap per-row models in a response with a `rows` field.
+                # Multi-row: wrap per-row models in a response with a rows field.
                 output_model = pydantic.create_model(
                     f'{path_str}Response',
                     rows=(list[query_result_model], pydantic.Field(description='Query result rows')),  # type: ignore[valid-type]
@@ -901,6 +1088,50 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_class'] = FileResponse
         self.add_api_route(path, endpoint, **api_kwargs)
 
+    def _make_schema_sql_exporter(
+        self,
+        export_sql: SqlExport | None,
+        *,
+        return_fileresponse: bool,
+        schema: dict[str, ts.ColumnType],
+        error_prefix: str,
+    ) -> SqlExporter | None:
+        if export_sql is None:
+            return None
+        if return_fileresponse:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{error_prefix}: export_sql and return_fileresponse are mutually exclusive',
+            )
+        return SqlExporter(
+            export_sql,
+            engine=self._get_sql_engine(export_sql.db_connect),
+            output_schema=schema,
+            error_prefix=error_prefix,
+        )
+
+    def _make_model_sql_exporter(
+        self, export_sql: SqlExport | None, *, response_model: type[pydantic.BaseModel], error_prefix: str
+    ) -> SqlExporter | None:
+        if export_sql is None:
+            return None
+        sql_output_schema: dict[str, ts.ColumnType] = {}
+        for fname, finfo in response_model.model_fields.items():
+            ct = ts.ColumnType.from_python_type(finfo.annotation, infer_pydantic_json=True)
+            if ct is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_TYPE,
+                    f'{error_prefix}: cannot interpret response field {fname!r} annotation '
+                    f'{finfo.annotation!r} as a Pixeltable type for export_sql',
+                )
+            sql_output_schema[fname] = ct
+        return SqlExporter(
+            export_sql,
+            engine=self._get_sql_engine(export_sql.db_connect),
+            output_schema=sql_output_schema,
+            error_prefix=error_prefix,
+        )
+
     def _add_dml_route(
         self,
         t: pxt.Table,
@@ -916,12 +1147,12 @@ class FastAPIRouter(fastapi.APIRouter):
         row_processor_model: type[pydantic.BaseModel] | None,
         is_update: bool,
     ) -> None:
-        """Shared wiring for insert/update routes.
+        """Create endpoint for insert/update.
 
         The endpoint signature is the PK columns (for row identification, update only) followed by
-        the input columns. `row_processor` is called with the single inserted/updated row dict and
-        `url_for_media`. For insert routes, `pk_col_names` must be []; for update routes,
-        `uploadfile_inputs` must be [].
+        the input columns. row_processor is called with the single inserted/updated row dict and
+        url_for_media. For insert routes, pk_col_names must be []; for update routes,
+        uploadfile_inputs must be [].
         """
         md = t.get_metadata()
         tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']

@@ -1,4 +1,6 @@
 .DS_Store
+.benchmarks
+.claude
 .coverage
 .idea
 .ipynb_checkpoints
@@ -6,7 +8,6 @@
 .mypy_cache
 .venv
 .vscode
-.benchmarks
 __pycache__
 *.iml
 
