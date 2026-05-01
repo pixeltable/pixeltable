@@ -79,15 +79,20 @@ class TestIceberg:
             assert isinstance(exp_row['c_image'], bytes)
             assert len(exp_row['c_image']) > 0
 
-    def test_export_fixed_shape_tensor_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        """Exporting a fixed-shape tensor column should raise; Iceberg has no analogous type."""
+    def test_export_array_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Both fixed-shape and variable-shape array columns should raise; Iceberg has no analogous type."""
         skip_test_if_not_installed('pyiceberg')
-        t = pxt.create_table('test_iceberg_tensor', {'c_array': pxt.Array[(4,), pxt.Float]})  # type: ignore[misc]
-        t.insert([{'c_array': np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)}])
-
         catalog = self._catalog(tmp_path)
+
+        fixed = pxt.create_table('test_iceberg_tensor', {'c_array': pxt.Array[(4,), pxt.Float]})  # type: ignore[misc]
+        fixed.insert([{'c_array': np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
-            pxt.io.export_iceberg(t, catalog, 'pxt.tensor')
+            pxt.io.export_iceberg(fixed, catalog, 'pxt.tensor_fixed')
+
+        variable = pxt.create_table('test_iceberg_tensor_var', {'c_array': pxt.Array[(None,), pxt.Float]})  # type: ignore[misc]
+        variable.insert([{'c_array': np.array([1.0, 2.0, 3.0], dtype=np.float32)}])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
+            pxt.io.export_iceberg(variable, catalog, 'pxt.tensor_var')
 
     def test_export_with_nulls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Verify null handling across multiple types."""
@@ -172,6 +177,13 @@ class TestIceberg:
         # Invalid if_exists value
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be one of'):
             pxt.io.export_iceberg(t, catalog, 'pxt.if_exists', if_exists='badval')  # type: ignore[arg-type]
+
+        # Replace + preflight failure: existing table must be preserved.
+        bad = pxt.create_table('test_iceberg_replace_bad', {'c_array': pxt.Array[(4,), pxt.Float]})  # type: ignore[misc]
+        bad.insert([{'c_array': np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)}])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
+            pxt.io.export_iceberg(bad, catalog, 'pxt.if_exists', if_exists='replace')
+        assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 6
 
     def test_append_schema_mismatch(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Appending a query whose schema doesn't match the existing Iceberg table should raise."""

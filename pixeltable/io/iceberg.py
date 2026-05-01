@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from itertools import chain
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Iterable, Literal
+
+import pyarrow as pa
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
 
 if TYPE_CHECKING:
+    from pyiceberg.catalog import Catalog
     from pyiceberg.catalog.sql import SqlCatalog
 
 
@@ -25,7 +29,7 @@ def sqlite_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> SqlC
 
 def export_iceberg(
     table_or_query: pxt.Table | pxt.Query,
-    catalog: 'pyiceberg.catalog.Catalog',  # type: ignore[name-defined]  # noqa: F821
+    catalog: Catalog,
     table_name: str,
     *,
     batch_size_bytes: int = 128 * 2**20,
@@ -34,8 +38,9 @@ def export_iceberg(
     """
     Exports a query result or table to an Apache Iceberg table.
 
-    Data is streamed into the Iceberg table via pyarrow `RecordBatches`, the size of which can be controlled with
-    the `batch_size_bytes` parameter.
+    Data is streamed into the Iceberg table via pyarrow
+    [`RecordBatches`](https://arrow.apache.org/docs/python/generated/pyarrow.RecordBatch.html), the size of
+    which can be controlled with the `batch_size_bytes` parameter.
 
     __Requirements:__
 
@@ -55,7 +60,6 @@ def export_iceberg(
     """
     Env.get().require_package('pyiceberg')
 
-    import pyarrow as pa
     from pyiceberg.exceptions import NoSuchTableError
 
     from pixeltable.utils.arrow import to_arrow_schema, to_record_batches
@@ -63,7 +67,7 @@ def export_iceberg(
     if if_exists not in ('error', 'replace', 'append'):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            "export_iceberg(): 'if_exists' must be one of: ['error', 'replace', 'append']",
+            "export_iceberg(): `if_exists` must be one of: ['error', 'replace', 'append']",
         )
 
     query: pxt.Query
@@ -72,9 +76,9 @@ def export_iceberg(
     else:
         query = table_or_query
 
-    iceberg_tbl = None
+    existing_tbl = None
     try:
-        iceberg_tbl = catalog.load_table(table_name)
+        existing_tbl = catalog.load_table(table_name)
     except NoSuchTableError:
         pass
 
@@ -87,14 +91,10 @@ def export_iceberg(
             f'Iceberg has no fixed-shape tensor type; project the column to a list before exporting.',
         )
 
-    if iceberg_tbl is not None:
-        if if_exists == 'error':
-            raise excs.AlreadyExistsError(
-                excs.ErrorCode.PATH_ALREADY_EXISTS, f'export_iceberg(): table {table_name!r} already exists'
-            )
-        if if_exists == 'replace':
-            catalog.drop_table(table_name)
-            iceberg_tbl = None
+    if existing_tbl is not None and if_exists == 'error':
+        raise excs.AlreadyExistsError(
+            excs.ErrorCode.PATH_ALREADY_EXISTS, f'export_iceberg(): table {table_name!r} already exists'
+        )
 
     batch_iter = to_record_batches(query, batch_size_bytes)
     first_batch = next(batch_iter, None)
@@ -115,12 +115,8 @@ def export_iceberg(
             f'or omit it from the data.',
         )
 
-    if iceberg_tbl is None:
-        if '.' in table_name:
-            catalog.create_namespace_if_not_exists(table_name.rsplit('.', 1)[0])
-        iceberg_tbl = catalog.create_table(table_name, schema=arrow_schema)
-    else:
-        target_schema = iceberg_tbl.schema().as_arrow()
+    if existing_tbl is not None and if_exists == 'append':
+        target_schema = existing_tbl.schema().as_arrow()
         try:
             # Cast a zero-row slice to the target schema: pyarrow validates field names match
             # exactly and that source types can be promoted to target types (e.g. string -> large_string).
@@ -137,18 +133,24 @@ def export_iceberg(
                 f'Source schema:\n{arrow_schema}\n'
                 f'Target schema:\n{target_schema}',
             ) from e
+        iceberg_tbl = existing_tbl
+    else:
+        # All preflight checks have passed; safe to drop the existing table now.
+        if existing_tbl is not None:
+            assert if_exists == 'replace'
+            catalog.drop_table(table_name)
+        if '.' in table_name:
+            catalog.create_namespace_if_not_exists(table_name.rsplit('.', 1)[0])
+        iceberg_tbl = catalog.create_table(table_name, schema=arrow_schema)
 
+    batches: Iterable[pa.RecordBatch] = chain([first_batch], batch_iter) if first_batch is not None else batch_iter
     with iceberg_tbl.transaction() as tx:
-        if first_batch is not None:
-            tx.append(pa.Table.from_batches([first_batch]))
-        for batch in batch_iter:
+        for batch in batches:
             tx.append(pa.Table.from_batches([batch]))
 
 
-def _find_null_fields(schema: 'pa.Schema') -> list[str]:  # type: ignore[name-defined]  # noqa: F821
+def _find_null_fields(schema: pa.Schema) -> list[str]:
     """Return dotted paths of every `pa.null()`-typed field nested inside `schema`."""
-    import pyarrow as pa
-
     paths: list[str] = []
 
     def walk(arrow_type: pa.DataType, path: str) -> None:
