@@ -7,17 +7,27 @@ app creation, HTTP semantics) belong in tests/serving/.
 
 from __future__ import annotations
 
-import errno as errno_mod
+import errno
 import json
 import pathlib
+import textwrap
+from typing import Any
 from unittest.mock import patch
 
 import pytest
-import toml
 
 import pixeltable as pxt
+from pixeltable import config
 from pixeltable.cli import main as cli_main
 from tests.utils import skip_test_if_not_installed
+
+# Mock Config.init to allow re-initialization for in-process cli_main() calls.
+
+_ORIG_CONFIG_INIT = config.Config.init.__func__  # type: ignore[attr-defined]
+
+
+def _init_with_reinit(config_overrides: dict[str, Any], additional_config_files: list[str] | None = None) -> None:
+    _ORIG_CONFIG_INIT(config.Config, config_overrides, additional_config_files, reinit=True)
 
 
 def _run_cli(
@@ -30,12 +40,22 @@ def _run_cli(
 ) -> None:
     """Invoke cli_main, assert exit code, and optionally assert stdout/stderr substrings."""
     actual_exit_code: int | str | None = 0
-    with patch('sys.argv', argv):
+
+    with patch('sys.argv', argv), patch('pixeltable.cli.config.Config.init', _init_with_reinit):
         try:
             cli_main()
         except SystemExit as e:
             actual_exit_code = e.code
-    assert actual_exit_code == exit_code
+
+    if actual_exit_code != exit_code:
+        captured = capsys.readouterr()
+        print(
+            f'======= stdout from command: {" ".join(argv)} ======='
+            f'\n{captured.out}\n'
+            f'======= stderr from command: {" ".join(argv)} ======='
+            f'\n{captured.err}\n'
+        )
+        raise AssertionError(f'Expected exit code {exit_code} but got {actual_exit_code}.\n')
     if stdout is not None or stderr is not None:
         captured = capsys.readouterr()
         if stdout is not None:
@@ -56,7 +76,6 @@ class TestCLI:
         _run_cli(['pxt', 'serve', 'update'], capsys, exit_code=2, stderr=['Examples:', '--table'])
         _run_cli(['pxt', 'serve', 'delete'], capsys, exit_code=2, stderr='Examples:')
         _run_cli(['pxt', 'serve', 'query'], capsys, exit_code=2, stderr='Examples:')
-        _run_cli(['pxt', 'serve', 'config'], capsys, exit_code=2, stderr='Examples:')
 
     def test_dry_run(self, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('fastapi')
@@ -111,60 +130,69 @@ class TestCLI:
         )
 
         # config plain and --json (from TOML file)
-        config_path = tmp_path / 'service.toml'
-        config_path.write_text(
-            toml.dumps(
-                {
-                    'service': {'title': 'Dry Run Svc', 'port': 9999},
-                    'routes': [{'type': 'insert', 'table': 'd.t', 'path': '/ins'}],
-                }
-            )
+
+        config_file_contents = textwrap.dedent(
+            """\
+            [[service]]
+            name = "dry-run-service"
+            port = 9999
+
+            [[service.routes]]
+            type = "insert"
+            table = "d.items"
+            path = "/ins"
+            """
         )
 
-        _run_cli(['pxt', 'serve', 'config', str(config_path), '--dry-run'], capsys, stdout=['Dry Run Svc', '[insert]'])
+        config_path = tmp_path / 'service.toml'
+        config_path.write_text(config_file_contents)
 
-        _run_cli(['pxt', 'serve', 'config', str(config_path), '--dry-run', '--json'], capsys)
+        _run_cli(
+            ['pxt', 'serve', 'dry-run-service', '--config', str(config_path), '--dry-run'],
+            capsys,
+            stdout=['dry-run-service', '[insert]'],
+        )
+
+        _run_cli(['pxt', 'serve', 'dry-run-service', '--config', str(config_path), '--dry-run', '--json'], capsys)
         data = json.loads(capsys.readouterr().out)
-        assert data['service']['title'] == 'Dry Run Svc'
-        assert data['service']['port'] == 9999
+        assert data['name'] == 'dry-run-service'
+        assert data['port'] == 9999
         assert data['routes'][0]['type'] == 'insert'
 
     def test_serve_routes(self, tmp_path: pathlib.Path) -> None:
         """CLI args are correctly wired into AppConfig and RouteConfig objects."""
-        skip_test_if_not_installed('fastapi')
-        skip_test_if_not_installed('uvicorn')
-
-        from pixeltable.serving._config import (
-            AppConfig,
-            DeleteRouteConfig,
-            InsertRouteConfig,
-            QueryRouteConfig,
-            ServiceConfig,
-            UpdateRouteConfig,
-        )
+        skip_test_if_not_installed('fastapi', 'uvicorn')
 
         with (
-            patch('pixeltable.serving._config.load_app_config') as mock_load,
-            patch('pixeltable.serving._config.create_app_from_config') as mock_create,
+            patch('pixeltable.cli.lookup_service_config') as mock_load,
+            patch('pixeltable.cli.create_service_from_config') as mock_create,
             patch('uvicorn.run') as mock_run,
         ):
             mock_create.return_value = 'fake_app'
 
+            config_file_contents = textwrap.dedent(
+                """\
+                [[service]]
+                name = "test-service"
+                host = "127.0.0.1"
+                port = 7777
+                """
+            )
+
             # config: TOML load + --port override
             config_path = tmp_path / 'service.toml'
-            config_path.write_text(
-                toml.dumps({'service': {'title': 'CLI Test', 'host': '127.0.0.1', 'port': 7777}, 'routes': []})
-            )
-            mock_load.return_value = AppConfig(
-                service=ServiceConfig(title='CLI Test', host='127.0.0.1', port=7777), routes=[]
-            )
-            with patch('sys.argv', ['pxt', 'serve', 'config', str(config_path), '--port', '9999']):
+            config_path.write_text(config_file_contents)
+            mock_load.return_value = config.ServiceConfig(name='test-service', host='127.0.0.1', port=7777, routes=[])
+            with (
+                patch('sys.argv', ['pxt', 'serve', 'test-service', '--config', str(config_path), '--port', '9999']),
+                patch('pixeltable.cli.config.Config.init', _init_with_reinit),
+            ):
                 cli_main()
-            mock_load.assert_called_once_with(str(config_path))
+            mock_load.assert_called_once_with('test-service')
             cfg = mock_create.call_args.args[0]
-            assert cfg.service.port == 9999
-            assert cfg.service.host == '127.0.0.1'
-            assert cfg.service.title == 'CLI Test'
+            assert cfg.port == 9999
+            assert cfg.host == '127.0.0.1'
+            assert cfg.name == 'test-service'
             mock_run.assert_called_once_with('fake_app', host='127.0.0.1', port=9999)
 
             mock_create.reset_mock()
@@ -181,7 +209,7 @@ class TestCLI:
             with patch('sys.argv', argv):
                 cli_main()
             route = mock_create.call_args.args[0].routes[0]
-            assert isinstance(route, InsertRouteConfig)
+            assert isinstance(route, config.InsertRouteConfig)
             assert route.table == 'd.items'
             assert route.inputs == ['id', 'name']
             assert route.outputs == ['id', 'name', 'name_upper']
@@ -203,7 +231,7 @@ class TestCLI:
             with patch('sys.argv', argv):
                 cli_main()
             route = mock_create.call_args.args[0].routes[0]
-            assert isinstance(route, UpdateRouteConfig)
+            assert isinstance(route, config.UpdateRouteConfig)
             assert route.table == 'd.items'
             assert route.inputs == ['name']
             assert route.outputs == ['id', 'name', 'name_upper']
@@ -227,7 +255,7 @@ class TestCLI:
             with patch('sys.argv', argv):
                 cli_main()
             route = mock_create.call_args.args[0].routes[0]
-            assert isinstance(route, InsertRouteConfig)
+            assert isinstance(route, config.InsertRouteConfig)
             assert route.export_sql is not None
             assert route.export_sql.db_connect == 'sqlite:///x.db'
             assert route.export_sql.table == 'items_out'
@@ -253,7 +281,7 @@ class TestCLI:
             ):
                 cli_main()
             route = mock_create.call_args.args[0].routes[0]
-            assert isinstance(route, DeleteRouteConfig)
+            assert isinstance(route, config.DeleteRouteConfig)
             assert route.table == 'd.items'
             assert route.match_columns == ['id']
             assert route.background is False
@@ -271,19 +299,18 @@ class TestCLI:
                 cli_main()
             cfg = mock_create.call_args.args[0]
             route = cfg.routes[0]
-            assert isinstance(route, QueryRouteConfig)
+            assert isinstance(route, config.QueryRouteConfig)
             assert route.query == 'mymod.search'
             assert route.inputs == ['min_id']
             assert route.method == 'get'
             assert route.one_row is True
-            assert cfg.service.host == '127.0.0.1'
+            assert cfg.host == '127.0.0.1'
 
     def test_serve_output(self, capsys: pytest.CaptureFixture) -> None:
         """--json startup record and EADDRINUSE error output (plain and JSON)."""
-        skip_test_if_not_installed('fastapi')
-        skip_test_if_not_installed('uvicorn')
+        skip_test_if_not_installed('fastapi', 'uvicorn')
 
-        with patch('pixeltable.serving._config.create_app_from_config') as mock_create, patch('uvicorn.run'):
+        with patch('pixeltable.cli.create_service_from_config') as mock_create, patch('uvicorn.run'):
             mock_create.return_value = 'fake_app'
 
             # --json startup record
@@ -294,10 +321,10 @@ class TestCLI:
             assert 'url' in data and 'docs_url' in data
             assert data['routes'] == 1
 
-        eaddrinuse = OSError(errno_mod.EADDRINUSE, 'Address already in use')
+        eaddrinuse = OSError(errno.EADDRINUSE, 'Address already in use')
 
         with (
-            patch('pixeltable.serving._config.create_app_from_config') as mock_create,
+            patch('pixeltable.cli.create_service_from_config') as mock_create,
             patch('uvicorn.run', side_effect=eaddrinuse),
         ):
             mock_create.return_value = 'fake_app'
@@ -323,7 +350,7 @@ class TestCLI:
 
         # pxt.Error plain: _emit_error writes 'pxt: error: ...' to stderr
         with patch(
-            'pixeltable.serving._config.create_app_from_config',
+            'pixeltable.cli.create_service_from_config',
             side_effect=pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bad config'),
         ):
             _run_cli(
@@ -335,7 +362,7 @@ class TestCLI:
 
         # pxt.Error --json: _emit_error writes a JSON error record to stderr
         with patch(
-            'pixeltable.serving._config.create_app_from_config',
+            'pixeltable.cli.create_service_from_config',
             side_effect=pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bad config'),
         ):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--json'], capsys, exit_code=1)
@@ -345,7 +372,7 @@ class TestCLI:
 
         # uvicorn not installed: pxt.Error with install hint
         with (
-            patch('pixeltable.serving._config.create_app_from_config', return_value='fake_app'),
+            patch('pixeltable.cli.create_service_from_config', return_value='fake_app'),
             patch.dict('sys.modules', {'uvicorn': None}),
         ):
             _run_cli(
@@ -356,7 +383,7 @@ class TestCLI:
             )
 
         # IPv6 host: URL is bracket-formatted in --json startup record
-        with patch('pixeltable.serving._config.create_app_from_config', return_value='fake_app'), patch('uvicorn.run'):
+        with patch('pixeltable.cli.create_service_from_config', return_value='fake_app'), patch('uvicorn.run'):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--host', '::1', '--json'], capsys)
             data = json.loads(capsys.readouterr().out)
             assert data['url'] == 'http://[::1]:8000'

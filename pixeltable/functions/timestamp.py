@@ -2,12 +2,10 @@
 Pixeltable UDFs for `TimestampType`.
 
 Usage example:
-```python
-import pixeltable as pxt
 
-t = pxt.get_table(...)
-t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
-```
+>>> import pixeltable as pxt
+>>> t = pxt.get_table(...)
+>>> t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 """
 
 from datetime import datetime

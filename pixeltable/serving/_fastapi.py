@@ -22,15 +22,12 @@ from fastapi.responses import FileResponse
 from pydantic.fields import FieldInfo
 
 import pixeltable as pxt
-import pixeltable.catalog as catalog
-import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
-import pixeltable.func as func
-import pixeltable.type_system as ts
-import pixeltable.utils.image as image_utils
+from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.serving.globals import SqlExport, SqlExporter
+from pixeltable.serving import SqlExport
+from pixeltable.serving.globals import SqlExporter
+from pixeltable.utils import image as image_utils
 from pixeltable.utils.local_store import LocalStore, TempStore
 
 _logger = logging.getLogger('pixeltable')
@@ -194,63 +191,57 @@ class FastAPIRouter(fastapi.APIRouter):
         Examples:
             JSON request/response:
 
-            ```python
-            router.add_insert_route(t, path='/generate', inputs=['prompt'], outputs=['result'])
-            ```
+            >>> router.add_insert_route(t, path='/generate', inputs=['prompt'], outputs=['result'])
 
             ```bash
-            curl -X POST http://localhost:8000/generate \
-              -H 'Content-Type: application/json' \
+            curl -X POST http://localhost:8000/generate \\
+              -H 'Content-Type: application/json' \\
               -d '{"prompt": "a sunset over the ocean"}'
             # {"prompt": "a sunset over the ocean", "result": "..."}
             ```
 
             File upload with `FileResponse`:
 
-            ```python
-            router.add_insert_route(
-                t, path='/resize', inputs=['width', 'height'],
-                uploadfile_inputs=['image'], outputs=['resized'], return_fileresponse=True,
-            )
-            ```
+            >>> router.add_insert_route(
+            ...     t, path='/resize', inputs=['width', 'height'],
+            ...     uploadfile_inputs=['image'], outputs=['resized'], return_fileresponse=True,
+            ... )
 
             ```bash
-            curl -X POST http://localhost:8000/resize \
-              -F image=@photo.jpg -F width=640 -F height=480 \
+            curl -X POST http://localhost:8000/resize \\
+              -F image=@photo.jpg -F width=640 -F height=480 \\
               --output resized.jpg
             # saves the resized image to resized.jpg
             ```
 
             Export each inserted row into an external RDBMS table:
 
-            ```python
-            router.add_insert_route(
-                t,
-                path='/generate',
-                inputs=['prompt'],
-                outputs=['prompt', 'result'],
-                export_sql=SqlExport(
-                    db_connect='postgresql+psycopg://user:pw@host/analytics',
-                    table='generations',
-                    db_schema='public',
-                ),
-            )
-            ```
+            >>> router.add_insert_route(
+            ...     t,
+            ...     path='/generate',
+            ...     inputs=['prompt'],
+            ...     outputs=['prompt', 'result'],
+            ...     export_sql=SqlExport(
+            ...         db_connect='postgresql+psycopg://user:pw@host/analytics',
+            ...         table='generations',
+            ...         db_schema='public',
+            ...     ),
+            ... )
 
             Each successful POST inserts a row into the Pixeltable table and then inserts the
             same row (columns: `prompt`, `result`) to `public.generations` in the target database.
 
             Background processing:
 
-            ```python
-            router.add_insert_route(t, path='/slow', background=True)
-            ```
+            >>> router.add_insert_route(t, path='/slow', background=True)
 
             ```bash
             # submit
             curl -X POST http://localhost:8000/slow -d '{"prompt": "hello"}'
             # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
+            ```
 
+            ```bash
             # poll
             curl http://localhost:8000/jobs/abc123
             # {"status": "done", "result": {...}}
@@ -357,17 +348,15 @@ class FastAPIRouter(fastapi.APIRouter):
                 result; the decorated function's return value is delivered as the job result.
 
         Examples:
-            ```python
-            class GenerateResponse(pydantic.BaseModel):
-                caption: str
-                score: float
-
-            @router.insert_route(
-                t, path='/generate', inputs=['prompt'], outputs=['caption', 'score'], background=False
-            )
-            def format_response(*, caption: str, score: float) -> GenerateResponse:
-                return GenerateResponse(caption=caption.strip(), score=round(score, 3))
-            ```
+            >>> class GenerateResponse(pydantic.BaseModel):
+            ...     caption: str
+            ...     score: float
+            ...
+            ... @router.insert_route(
+            ...     t, path='/generate', inputs=['prompt'], outputs=['caption', 'score'], background=False
+            ... )
+            ... def format_response(*, caption: str, score: float) -> GenerateResponse:
+            ...     return GenerateResponse(caption=caption.strip(), score=round(score, 3))
 
             ```bash
             curl -X POST http://localhost:8000/generate \\
@@ -378,17 +367,15 @@ class FastAPIRouter(fastapi.APIRouter):
 
             Export the post-processed response into an external RDBMS table:
 
-            ```python
-            @router.insert_route(
-                t, path='/generate', inputs=['prompt'], outputs=['caption', 'score'],
-                export_sql=SqlExport(
-                    db_connect='postgresql+psycopg://user:pw@host/analytics',
-                    table='captions',
-                ),
-            )
-            def format_response(*, caption: str, score: float) -> GenerateResponse:
-                return GenerateResponse(caption=caption.strip(), score=round(score, 3))
-            ```
+            >>> @router.insert_route(
+            ...     t, path='/generate', inputs=['prompt'], outputs=['caption', 'score'],
+            ...     export_sql=SqlExport(
+            ...         db_connect='postgresql+psycopg://user:pw@host/analytics',
+            ...         table='captions',
+            ...     ),
+            ... )
+            ... def format_response(*, caption: str, score: float) -> GenerateResponse:
+            ...     return GenerateResponse(caption=caption.strip(), score=round(score, 3))
 
             Each successful POST inserts a row into the Pixeltable table and then appends a row
             with columns `caption`, `score` (the response model fields) to `captions`.
@@ -504,39 +491,33 @@ class FastAPIRouter(fastapi.APIRouter):
         Examples:
             JSON request/response (table has primary key `id`):
 
-            ```python
-            router.add_update_route(t, path='/update', inputs=['prompt'], outputs=['prompt', 'result'])
-            ```
+            >>> router.add_update_route(t, path='/update', inputs=['prompt'], outputs=['prompt', 'result'])
 
             ```bash
-            curl -X POST http://localhost:8000/update \
-              -H 'Content-Type: application/json' \
+            curl -X POST http://localhost:8000/update \\
+              -H 'Content-Type: application/json' \\
               -d '{"id": 1, "prompt": "a sunset over the ocean"}'
             # {"prompt": "a sunset over the ocean", "result": "..."}
             ```
 
             Append every update to an external audit table:
 
-            ```python
-            router.add_update_route(
-                t, path='/update', inputs=['prompt'], outputs=['id', 'prompt', 'result'],
-                export_sql=SqlExport(
-                    db_connect='postgresql+psycopg://user:pw@host/analytics',
-                    table='update_log',
-                ),
-            )
-            ```
+            >>> router.add_update_route(
+            ...     t, path='/update', inputs=['prompt'], outputs=['id', 'prompt', 'result'],
+            ...     export_sql=SqlExport(
+            ...         db_connect='postgresql+psycopg://user:pw@host/analytics',
+            ...         table='update_log',
+            ...     ),
+            ... )
 
             Background processing:
 
-            ```python
-            router.add_update_route(t, path='/slow-update', background=True)
-            ```
+            >>> router.add_update_route(t, path='/slow-update', background=True)
 
             ```bash
             # submit
-            curl -X POST http://localhost:8000/slow-update \
-              -H 'Content-Type: application/json' \
+            curl -X POST http://localhost:8000/slow-update \\
+              -H 'Content-Type: application/json' \\
               -d '{"id": 1, "prompt": "hello"}'
             # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
 
@@ -653,18 +634,16 @@ class FastAPIRouter(fastapi.APIRouter):
                 the decorated function's return value is delivered as the job result.
 
         Examples:
-            ```python
-            class ItemResponse(pydantic.BaseModel):
-                id: int
-                summary: str
-                score: float
-
-            @router.update_route(
-                t, path='/update', inputs=['text'], outputs=['id', 'text', 'score']
-            )
-            def format_response(*, id: int, text: str, score: float) -> ItemResponse:
-                return ItemResponse(id=id, summary=text[:100], score=round(score, 3))
-            ```
+            >>> class ItemResponse(pydantic.BaseModel):
+            ...     id: int
+            ...     summary: str
+            ...     score: float
+            ...
+            ... @router.update_route(
+            ...     t, path='/update', inputs=['text'], outputs=['id', 'text', 'score']
+            ... )
+            ... def format_response(*, id: int, text: str, score: float) -> ItemResponse:
+            ...     return ItemResponse(id=id, summary=text[:100], score=round(score, 3))
 
             ```bash
             curl -X POST http://localhost:8000/update \\
@@ -675,25 +654,21 @@ class FastAPIRouter(fastapi.APIRouter):
 
             Append every post-processed update into an external audit table:
 
-            ```python
-            @router.update_route(
-                t, path='/update', inputs=['text'], outputs=['id', 'text', 'score'],
-                export_sql=SqlExport(
-                    db_connect='postgresql+psycopg://user:pw@host/analytics',
-                    table='item_log',
-                ),
-            )
-            def format_response(*, id: int, text: str, score: float) -> ItemResponse:
-                return ItemResponse(id=id, summary=text[:100], score=round(score, 3))
-            ```
+            >>> @router.update_route(
+            ...     t, path='/update', inputs=['text'], outputs=['id', 'text', 'score'],
+            ...     export_sql=SqlExport(
+            ...         db_connect='postgresql+psycopg://user:pw@host/analytics',
+            ...         table='item_log',
+            ...     ),
+            ... )
+            ... def format_response(*, id: int, text: str, score: float) -> ItemResponse:
+            ...     return ItemResponse(id=id, summary=text[:100], score=round(score, 3))
 
             Background processing:
 
-            ```python
-            @router.update_route(t, path='/slow-update', background=True)
-            def format_response(*, id: int, result: str) -> MyResponse:
-                return MyResponse(id=id, result=result.strip())
-            ```
+            >>> @router.update_route(t, path='/slow-update', background=True)
+            ... def format_response(*, id: int, result: str) -> MyResponse:
+            ...     return MyResponse(id=id, result=result.strip())
 
             ```bash
             # submit
@@ -771,12 +746,11 @@ class FastAPIRouter(fastapi.APIRouter):
                 operation in a background thread. Poll `job_url` for the result.
 
         Examples:
-            ```python
-            router.add_delete_route(t, path='/delete')
-            ```
+            >>> router.add_delete_route(t, path='/delete')
 
             ```bash
-            curl -X POST http://localhost:8000/delete -H 'Content-Type: application/json' \\
+            curl -X POST http://localhost:8000/delete \\
+              -H 'Content-Type: application/json' \\
               -d '{"id": 42}'
             # {"num_rows": 1}
             ```
@@ -883,22 +857,18 @@ class FastAPIRouter(fastapi.APIRouter):
         Examples:
             Multi-row JSON response:
 
-            ```python
-            router.add_query_route(path='/search', query=search_docs)
-            ```
+            >>> router.add_query_route(path='/search', query=search_docs)
 
             ```bash
-            curl -X POST http://localhost:8000/search \
-              -H 'Content-Type: application/json' \
+            curl -X POST http://localhost:8000/search \\
+              -H 'Content-Type: application/json' \\
               -d '{"query_text": "hello"}'
             # {"rows": [{"id": 1, "text": "hello world", "score": 0.95}, ...]}
             ```
 
             Single-row lookup:
 
-            ```python
-            router.add_query_route(path='/lookup', query=lookup_by_id, one_row=True)
-            ```
+            >>> router.add_query_route(path='/lookup', query=lookup_by_id, one_row=True)
 
             ```bash
             curl -X POST http://localhost:8000/lookup -d '{"id": 42}'
@@ -907,9 +877,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
             GET with query-string parameters:
 
-            ```python
-            router.add_query_route(path='/lookup', query=lookup_by_id, method='get')
-            ```
+            >>> router.add_query_route(path='/lookup', query=lookup_by_id, method='get')
 
             ```bash
             curl 'http://localhost:8000/lookup?id=42'
@@ -918,11 +886,9 @@ class FastAPIRouter(fastapi.APIRouter):
 
             `FileResponse`:
 
-            ```python
-            router.add_query_route(
-                path='/thumbnail', query=get_thumbnail, return_fileresponse=True,
-            )
-            ```
+            >>> router.add_query_route(
+            ...     path='/thumbnail', query=get_thumbnail, return_fileresponse=True,
+            ... )
 
             ```bash
             curl -X POST http://localhost:8000/thumbnail -d '{"id": 1}' --output thumb.jpg

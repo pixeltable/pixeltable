@@ -8,44 +8,10 @@ from typing import Literal
 import pydantic
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 import pixeltable.utils.sql as sql_utils
+from pixeltable import config, exceptions as excs, type_system as ts
 
 _logger = logging.getLogger('pixeltable')
-
-
-class SqlExport(pydantic.BaseModel):
-    """
-    Specification of an external RDBMS target for SQL export.
-
-    Attributes:
-        db_connect: SQLAlchemy connection string for the target database (e.g.
-            `'postgresql+psycopg://user:pw@host/db'`, `'sqlite:///path/to.db'`).
-        table: Name of the target table. It must already exist; resolution fails
-            if the table is missing.
-        db_schema: Optional database schema qualifier (e.g. `'analytics'`); leave `None` to
-            use the connection's default schema.
-        method: How to write each row into the target table.
-
-            - `'insert'`: append the row via `INSERT ... VALUES`.
-            - `'update'`: update the row by primary-key match
-              (`UPDATE ... SET ... WHERE pk=...`). Requires that the target table has a
-              primary key whose metadata is exposed by the dialect. The exported columns
-              must include all primary-key columns of the target plus at least one non-PK
-              column to set. This is a strict update, **not** an upsert: if the WHERE
-              clause matches zero rows, the export fails. Useful when the source is
-              append-only but the target is a deduplicated current-state view.
-            - `'merge'`: upsert via the target table's primary key.
-              **Currently not supported.**
-    """
-
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    db_connect: str
-    table: str
-    db_schema: str | None = None
-    method: Literal['insert', 'update', 'merge'] = 'insert'
 
 
 class SqlExporter:
@@ -67,7 +33,7 @@ class SqlExporter:
     _pk_names: list[str]
 
     def __init__(
-        self, spec: SqlExport, *, engine: sql.Engine, output_schema: dict[str, ts.ColumnType], error_prefix: str
+        self, spec: config.SqlExport, *, engine: sql.Engine, output_schema: dict[str, ts.ColumnType], error_prefix: str
     ) -> None:
         if spec.method == 'merge':
             raise excs.RequestError(
