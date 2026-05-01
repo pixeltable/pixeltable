@@ -1,4 +1,3 @@
-import json
 import pathlib
 from typing import Any
 
@@ -64,8 +63,11 @@ class TestIceberg:
             assert exp_row['c_uuid'] == orig_row['c_uuid']
             assert exp_row['c_binary'] == orig_row['c_binary']
 
-            # JSON columns are unwrapped to their underlying string storage on export.
-            assert json.loads(exp_row['c_json']) == orig_row['c_json']
+            # JSON columns map to a unified struct in Iceberg; keys absent from a given source row
+            # are filled with None (or [] for list-typed fields), so compare only the keys actually
+            # present in the original row.
+            for k, v in orig_row['c_json'].items():
+                assert exp_row['c_json'][k] == v, k
 
             assert exp_row['c_array'] == orig_row['c_array']
 

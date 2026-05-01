@@ -93,6 +93,22 @@ def to_arrow_type(pxt_type: ts.ColumnType) -> pa.DataType | None:
         return None
 
 
+def to_arrow_schema(pxt_schema: dict[str, ts.ColumnType]) -> pa.Schema:
+    """Build a deterministic `pa.Schema` from a pixeltable schema.
+
+    Mirrors the per-column type logic that `to_record_batches` uses, but does not require any
+    data: JSON columns are mapped to an empty `pa.struct([])` instead of being inferred from
+    values.
+    """
+    pa_column_types: dict[str, pa.DataType] = {}
+    for col_name, col_type in pxt_schema.items():
+        if col_type.is_json_type():
+            pa_column_types[col_name] = pa.struct([])
+        else:
+            pa_column_types[col_name] = to_arrow_type(col_type)
+    return pa.schema(pa_column_types.items())
+
+
 def to_pxt_schema(
     arrow_schema: pa.Schema, schema_overrides: dict[str, Any], primary_key: list[str]
 ) -> dict[str, ts.ColumnType]:

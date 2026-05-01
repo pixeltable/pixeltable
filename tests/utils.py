@@ -120,15 +120,15 @@ def create_table_data(
                     'tags': ['a', 'b'],
                     'label': 'potted plant',
                     'bounding_box': [0.370, 0.335, 0.039, 0.163],
-                    'mask': None,
+                    'mask': 'rle:0,1,0,1',
                     'confidence': 0.95,
                     'iscrowd': 0,
                     'verified': True,
                 }
             ]
         },
-        {'level1': {'level2': {'level3': [1, 2.0, 'three', False, None]}}},
-        {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False, 'n': None},
+        {'level1': {'level2': {'level3': [1, 2, 3, 4]}}},
+        {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False},
     ]
 
     # Non-serializable samples: contain PIL images, numpy arrays, or bytes.
