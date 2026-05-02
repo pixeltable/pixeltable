@@ -219,23 +219,21 @@ class PxtStore(ObjectStoreBase):
 
         return S3Store(soa, client=self._pxt_store_entry.client, resource=self._pxt_store_entry.resource)
 
-    def _to_logical_uri(self, physical_uri: str) -> str:
-        """Create object uri with logical bucket name"""
-        if not physical_uri.startswith('pxtfs://'):
-            return physical_uri
-
+    def _to_logical_uri(self, store_object_uri: str) -> str:
+        """Create object uri with logical bucket name, store_object_uri is a pxtfs:// uri with physical bucket name."""
+        assert store_object_uri.startswith('pxtfs://')
         physical, logical = self._pxt_store_entry.physical_bucket_name, self.soa.container
 
-        matched = _PXTFS_URI_PATTERN.match(physical_uri)
-        assert matched, f'Unexpected pxtfs URI shape in {physical_uri!r}'
+        matched = _PXTFS_URI_PATTERN.match(store_object_uri)
+        assert matched, f'Unexpected pxtfs URI shape in {store_object_uri!r}'
 
         bucket, path = matched.group(1), matched.group(2)
         if bucket == logical:
-            return physical_uri
+            return store_object_uri
         assert bucket == physical, (
-            f'Unexpected pxtfs bucket segment {bucket!r} in {physical_uri!r} (expected {physical!r} or {logical!r})'
+            f'Unexpected bucket segment {bucket!r} in {store_object_uri!r} (expected {physical!r} or {logical!r})'
         )
-        org_db = physical_uri.split('/')[2]
+        org_db = store_object_uri.split('/')[2]
         return f'pxtfs://{org_db}/{logical}{path}'
 
     def validate(self, error_col_name: str) -> str | None:
