@@ -1041,18 +1041,44 @@ class Catalog:
             dir_id = dir.parent_id
         return Path.parse('/'.join(names), allow_empty_path=True, allow_system_path=True)
 
+    def _table_error_counts(self) -> dict[UUID, int]:
+        """Returns map from table id to the sum of tableversions.num_excs"""
+
+        # JSONB path mirrors UpdateStatus.row_count_stats / cascade_row_count_stats -> RowCountStats.num_excs
+        # (see pixeltable/catalog/update_status.py). If those dataclass fields are renamed, this query
+        # silently returns 0.
+        stmt = sql.text("""
+            SELECT tbl_id, COALESCE(SUM(
+                COALESCE((md -> 'update_status' -> 'row_count_stats' ->> 'num_excs')::int, 0)
+              + COALESCE((md -> 'update_status' -> 'cascade_row_count_stats' ->> 'num_excs')::int, 0)
+            ), 0) AS errors
+            FROM tableversions
+            GROUP BY tbl_id
+        """)
+        rows = get_runtime().conn.execute(stmt).all()
+        return {r.tbl_id: r.errors for r in rows}
+
     @dataclasses.dataclass
     class DirEntry:
         dir: schema.Dir | None
         dir_entries: dict[str, Catalog.DirEntry]
         table: schema.Table | None
 
-    @retry_loop(for_write=False)
-    def get_dir_contents(self, dir_path: Path, recursive: bool = False) -> dict[str, DirEntry]:
-        dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
-        return self._get_dir_contents(dir._id, recursive=recursive)
+        # Only populated for table entries when get_dir_contents() was called with error_counts=True;
+        # None otherwise (including for directory entries).
+        table_error_count: int | None = None
 
-    def _get_dir_contents(self, dir_id: UUID, recursive: bool = False) -> dict[str, DirEntry]:
+    @retry_loop(for_write=False)
+    def get_dir_contents(
+        self, dir_path: Path, recursive: bool = False, error_counts: bool = False
+    ) -> dict[str, DirEntry]:
+        dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
+        error_counts = self._table_error_counts() if error_counts else None
+        return self._get_dir_contents(dir._id, recursive=recursive, error_counts=error_counts)
+
+    def _get_dir_contents(
+        self, dir_id: UUID, recursive: bool = False, *, error_counts: dict[UUID, int] | None = None
+    ) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
         conn = get_runtime().conn
         result: dict[str, Catalog.DirEntry] = {}
@@ -1063,14 +1089,15 @@ class Catalog:
             dir = schema.Dir(**row._mapping)
             dir_contents: dict[str, Catalog.DirEntry] = {}
             if recursive:
-                dir_contents = self._get_dir_contents(dir.id, recursive=True)
+                dir_contents = self._get_dir_contents(dir.id, recursive=True, error_counts=error_counts)
             result[dir.md['name']] = self.DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(self._active_tbl_clause(dir_id=dir_id))
         rows = conn.execute(q).all()
         for row in rows:
             tbl = schema.Table(**row._mapping)
-            result[tbl.md['name']] = self.DirEntry(dir=None, dir_entries={}, table=tbl)
+            err_count = error_counts.get(tbl.id, 0) if error_counts is not None else None
+            result[tbl.md['name']] = self.DirEntry(dir=None, dir_entries={}, table=tbl, table_error_count=err_count)
 
         return result
 

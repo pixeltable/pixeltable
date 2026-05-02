@@ -115,7 +115,6 @@ interface TableNodeData extends PipelineNodeType {
 }
 
 function PipelineTableNode({ data }: { data: TableNodeData }) {
-  const hasErrors = data.total_errors > 0
   const iteratorCols = data.columns.filter((c) => c.is_iterator_col)
   const computedCols = data.columns.filter((c) => c.is_computed && !c.is_iterator_col)
   const insertableCols = data.columns.filter((c) => !c.is_computed && !c.is_iterator_col)
@@ -123,8 +122,7 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
   return (
     <div
       className={cn(
-        'rounded-lg border bg-card shadow-sm min-w-[200px] max-w-[240px] cursor-pointer transition-all',
-        hasErrors ? 'border-destructive/30' : 'border-border/60',
+        'rounded-lg border bg-card shadow-sm min-w-[200px] max-w-[240px] cursor-pointer transition-all border-border/60',
         data.isSelected && 'ring-1 ring-k-yellow/50 border-k-yellow/30',
       )}
       onClick={() => data.onSelect(data.path)}
@@ -149,11 +147,6 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
           {data.indices.length > 0 && (
             <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
               <SearchIcon className="h-2.5 w-2.5" />{data.indices.length}
-            </span>
-          )}
-          {hasErrors && (
-            <span className="text-[10px] text-destructive flex items-center gap-0.5">
-              <AlertTriangle className="h-2.5 w-2.5" />{data.total_errors}
             </span>
           )}
           {data.iterator_type && (
@@ -198,16 +191,8 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
               const ft = col.func_type ? FUNC_STYLES[col.func_type] : null
               return (
                 <div key={col.name} className="flex items-center gap-1">
-                  <Zap className={cn(
-                    'h-2 w-2 shrink-0',
-                    col.error_count > 0 ? 'text-destructive' : 'text-k-yellow/50',
-                  )} />
-                  <span className={cn(
-                    'text-[10px] truncate',
-                    col.error_count > 0 ? 'text-destructive' : 'text-foreground/80',
-                  )}>
-                    {col.name}
-                  </span>
+                  <Zap className="h-2 w-2 shrink-0 text-k-yellow/50" />
+                  <span className="text-[10px] truncate text-foreground/80">{col.name}</span>
                   {col.func_name && ft && (
                     <span className={cn('text-[9px] shrink-0 font-mono', ft.text)}>
                       {col.func_name}
@@ -289,20 +274,14 @@ function DetailPanel({
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 px-5 py-3 border-b border-border">
+      <div className="grid grid-cols-3 px-5 py-3 border-b border-border">
         {[
-          { label: 'Rows', value: node.row_count.toLocaleString(), isError: false },
-          { label: 'Version', value: `v${node.version}`, isError: false },
-          { label: 'Computed', value: String(node.computed_count), isError: false },
-          { label: 'Errors', value: String(node.total_errors), isError: node.total_errors > 0 },
+          { label: 'Rows', value: node.row_count.toLocaleString() },
+          { label: 'Version', value: `v${node.version}` },
+          { label: 'Computed', value: String(node.computed_count) },
         ].map((s) => (
           <div key={s.label} className="text-center">
-            <div className={cn(
-              'text-sm font-semibold tabular-nums',
-              s.isError ? 'text-destructive' : 'text-foreground',
-            )}>
-              {s.value}
-            </div>
+            <div className="text-sm font-semibold tabular-nums text-foreground">{s.value}</div>
             <div className="text-[11px] text-muted-foreground mt-0.5">{s.label}</div>
           </div>
         ))}
@@ -464,12 +443,7 @@ function ComputedColumnRow({ col, step }: { col: PipelineColumn; step: number })
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <span className="text-[11px] text-muted-foreground w-5 shrink-0 tabular-nums">#{step}</span>
-        <span className={cn(
-          'text-xs font-medium truncate',
-          col.error_count > 0 ? 'text-destructive' : 'text-foreground',
-        )}>
-          {col.name}
-        </span>
+        <span className="text-xs font-medium truncate text-foreground">{col.name}</span>
         {ft && (
           <span className={cn('text-[11px] px-1.5 py-0.5 rounded bg-accent font-mono shrink-0', ft.text)}>
             {ft.label}
@@ -500,12 +474,6 @@ function ComputedColumnRow({ col, step }: { col: PipelineColumn; step: number })
               {col.depends_on.map((d) => (
                 <span key={d} className="text-[11px] bg-accent text-muted-foreground px-1.5 py-0.5 rounded">{d}</span>
               ))}
-            </div>
-          )}
-          {col.error_count > 0 && (
-            <div className="text-xs text-destructive flex items-center gap-1.5">
-              <AlertTriangle className="h-3 w-3" />
-              {col.error_count} errors in sampled rows
             </div>
           )}
         </div>
@@ -680,9 +648,6 @@ function NodeFinder({
                   <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
                     {n.row_count.toLocaleString()}
                   </span>
-                  {n.total_errors > 0 && (
-                    <AlertTriangle className="h-2.5 w-2.5 text-destructive shrink-0" />
-                  )}
                 </button>
               ))
             )}
@@ -794,9 +759,8 @@ function PipelineInspectorInner() {
     const views = pipeline.nodes.filter((n) => n.is_view).length
     const totalRows = pipeline.nodes.reduce((s, n) => s + n.row_count, 0)
     const totalComputed = pipeline.nodes.reduce((s, n) => s + n.computed_count, 0)
-    const totalErrors = pipeline.nodes.reduce((s, n) => s + n.total_errors, 0)
     const totalIndices = pipeline.nodes.reduce((s, n) => s + n.indices.length, 0)
-    return { tables, views, totalRows, totalComputed, totalErrors, totalIndices }
+    return { tables, views, totalRows, totalComputed, totalIndices }
   }, [pipeline])
 
   if (isLoading) {
@@ -870,13 +834,6 @@ function PipelineInspectorInner() {
               <span className="text-muted-foreground/80">{s.label}</span>
             </div>
           ))}
-          {stats.totalErrors > 0 && (
-            <div className="flex items-center gap-1.5 text-[11px] text-destructive">
-              <AlertTriangle className="h-3 w-3" />
-              <span>{stats.totalErrors} errors</span>
-            </div>
-          )}
-
           {/* Auto-refresh + manual refresh */}
           <div className="ml-auto flex items-center gap-2">
             {lastRefreshed && (

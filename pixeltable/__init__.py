@@ -46,6 +46,10 @@ from .func import (
 )
 from .globals import (
     DirContents,
+    DirectoryNode,
+    TableKind,
+    TableNode,
+    TreeNode,
     array,
     configure_logging,
     create_dir,
@@ -55,6 +59,7 @@ from .globals import (
     drop_dir,
     drop_table,
     get_dir_contents,
+    get_dir_tree,
     get_table,
     home,
     init,

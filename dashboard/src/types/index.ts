@@ -1,13 +1,23 @@
 // API response types
 
-export interface TreeNode {
+export type TableKind = 'table' | 'view' | 'snapshot' | 'replica';
+
+export interface DirectoryNode {
   name: string;
   path: string;
-  kind: 'directory' | 'table' | 'view' | 'snapshot' | 'replica';
-  version?: number | null;
-  error_count?: number;
-  children?: TreeNode[];
+  kind: 'directory';
+  entries: TreeNode[];
 }
+
+export interface TableNode {
+  name: string;
+  path: string;
+  kind: TableKind;
+  version: number | null;
+  error_count: number;
+}
+
+export type TreeNode = DirectoryNode | TableNode;
 
 // Matches Python ColumnMetadata TypedDict
 export interface ColumnInfo {
@@ -37,12 +47,13 @@ export interface EmbeddingIndexParams {
 export interface IndexInfo {
   name: string;
   columns: string[];
-  index_type: string;
-  parameters: EmbeddingIndexParams;
+  index_type: 'embedding' | 'btree';
+  parameters: EmbeddingIndexParams | null;
 }
 
 // Matches Python TableMetadata TypedDict
 export interface TableMetadata {
+  id: string;
   name: string;
   path: string;
   columns: Record<string, ColumnInfo>;
@@ -66,6 +77,8 @@ export interface DataColumn {
   type: string;
   is_media: boolean;
   is_computed: boolean;
+  is_stored: boolean;
+  is_sorted: boolean;
 }
 
 export interface CellError {
@@ -105,7 +118,6 @@ export interface PipelineColumn {
   defined_in_self: boolean;
   func_name: string | null;
   func_type: 'builtin' | 'custom_udf' | 'query' | 'iterator' | 'unknown' | null;
-  error_count: number;
   depends_on?: string[];
   comment?: string;
 }
@@ -134,7 +146,6 @@ export interface PipelineNode extends Record<string, unknown> {
   base: string | null;
   row_count: number;
   version: number;
-  total_errors: number;
   columns: PipelineColumn[];
   indices: PipelineIndex[];
   versions: PipelineVersion[];
