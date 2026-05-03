@@ -15,6 +15,7 @@ export interface TableNode {
   kind: TableKind;
   version: number | null;
   error_count: number;
+  base: string | null;
 }
 
 export type TreeNode = DirectoryNode | TableNode;

@@ -1042,7 +1042,11 @@ class Catalog:
         return Path.parse('/'.join(names), allow_empty_path=True, allow_system_path=True)
 
     def _table_error_counts(self) -> dict[UUID, int]:
-        """Returns map from table id to the sum of tableversions.num_excs"""
+        """Returns map from table id to the sum of num_excs across that table's versions.
+
+        Sums tableversions.md -> update_status -> row_count_stats / cascade_row_count_stats -> num_excs
+        for each row, grouped by tbl_id.
+        """
 
         # JSONB path mirrors UpdateStatus.row_count_stats / cascade_row_count_stats -> RowCountStats.num_excs
         # (see pixeltable/catalog/update_status.py). If those dataclass fields are renamed, this query
@@ -1070,10 +1074,10 @@ class Catalog:
 
     @retry_loop(for_write=False)
     def get_dir_contents(
-        self, dir_path: Path, recursive: bool = False, error_counts: bool = False
+        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
     ) -> dict[str, DirEntry]:
         dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
-        error_counts = self._table_error_counts() if error_counts else None
+        error_counts = self._table_error_counts() if with_error_counts else None
         return self._get_dir_contents(dir._id, recursive=recursive, error_counts=error_counts)
 
     def _get_dir_contents(

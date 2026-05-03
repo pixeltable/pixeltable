@@ -90,7 +90,7 @@ class TestDirs:
             'kind': 'snapshot',
             'version': None,
             'error_count': 0,
-            'base': 'dir1/t1',
+            'base': 'dir1/t1:0',
         }
         dir1 = {'name': 'dir1', 'path': 'dir1', 'kind': 'directory', 'entries': [snap, sub1, t1, v]}
         t2 = {'name': 't2', 'path': 't2', 'kind': 'table', 'version': 0, 'error_count': 0, 'base': None}

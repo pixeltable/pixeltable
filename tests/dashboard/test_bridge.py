@@ -250,6 +250,31 @@ class TestBridge:
             'plus_one': ('my_udf', 'custom_udf'),
         }
 
+    def test_pipeline_snapshot_edge(self, uses_db: None) -> None:
+        # Snapshot of an iterator view: validates snapshot edge wiring + version metadata.
+        video_path = get_test_video_files()[0]
+        video_t = pxt.create_table('videos', {'video': pxt.Video})
+        video_t.insert([{'video': video_path}])
+        view = pxt.create_view('frames', video_t, iterator=frame_iterator(video_t.video, fps=1))
+        pxt.create_view('frames_snap', view, is_snapshot=True)
+
+        pipeline = bridge.get_pipeline()
+        snap_node = next(n for n in pipeline['nodes'] if n['path'] == 'frames_snap')
+        snap_edges = [e for e in pipeline['edges'] if e['target'] == 'frames_snap']
+
+        assert len(snap_edges) == 1
+        assert (snap_edges[0]['source'], snap_edges[0]['type'], snap_edges[0]['base_version']) == (
+            'frames',
+            'snapshot',
+            0,
+        )
+        # Snapshot inherits its base view's iterator_call, so iterator_type is populated.
+        # is_view is False (gate is kind == 'view'), even though iterator_type is set — surface
+        # this so any future change to the gating logic is caught.
+        assert snap_node['iterator_type'] == 'frame_iterator'
+        assert snap_node['is_view'] is False
+        assert snap_node['base'] == 'frames:0'
+
     def test_status(self, uses_db: None) -> None:
         result = bridge.get_status()
         assert (result['version'], result['environment']) == (pxt.__version__, 'local')

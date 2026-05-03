@@ -761,7 +761,7 @@ def get_dir_tree() -> list['TreeNode']:
         A list of [`TreeNode`][pixeltable.TreeNode] dicts. Each node is either a `DirectoryNode` or a `TableNode`.
     """
     path_obj = catalog.Path.parse('', allow_empty_path=True)
-    catalog_entries = get_runtime().catalog.get_dir_contents(path_obj, recursive=True, error_counts=True)
+    catalog_entries = get_runtime().catalog.get_dir_contents(path_obj, recursive=True, with_error_counts=True)
     path_by_id: dict[UUID, str] = {}
     _create_path_map('', catalog_entries, path_by_id)
     return _get_subtree('', catalog_entries, path_by_id)
@@ -824,7 +824,10 @@ def _get_subtree(
                 base_versions = view_md['base_versions']
                 assert len(base_versions) > 0
                 base_id = UUID(base_versions[0][0])
-                base = path_by_id.get(base_id)
+                base_path = path_by_id.get(base_id)
+                base_version = base_versions[0][1]
+                if base_path is not None:
+                    base = f'{base_path}:{base_version}' if base_version is not None else base_path
 
             assert entry.table_error_count is not None
             nodes.append(

@@ -1932,7 +1932,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
                             'text-left px-3.5 py-2 font-medium text-muted-foreground transition-colors group whitespace-nowrap font-mono',
                             sortable ? 'cursor-pointer hover:text-foreground' : 'cursor-default text-muted-foreground/60',
                           )}
-                          title={sortable ? undefined : 'Unstored — cannot sort'}
+                          title={sortable ? undefined : (col.is_stored ? 'Not indexed - cannot sort' : 'Unstored - cannot sort')}
                         >
                         <div className="flex items-center gap-1">
                           <ColumnTypeIcon type={col.type} className="h-3 w-3" />

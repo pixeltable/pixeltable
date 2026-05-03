@@ -185,7 +185,8 @@ def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
     tbl = pxt.get_table(table_path)
     http_address = Env.get().http_address
     columns, select_dict, media_url_cols, _ = _build_select(tbl)
-    col_names = [c['name'] for c in columns]
+    # Unstored columns have no value to export; their cells would be empty anyway.
+    col_names = [c['name'] for c in columns if c['is_stored']]
 
     results = list(tbl.select(**select_dict).limit(limit).collect())
 
@@ -280,26 +281,38 @@ def _collect_tbl_nodes(nodes: list[pxt.TreeNode], out: list[pxt.TableNode]) -> N
             out.append(n)
 
 
+def _split_tbl_path(tbl_path: str) -> tuple[str, int | None]:
+    """Split a Pixeltable path of the form 'p' or 'p:N' into (path, version)."""
+    head, sep, tail = tbl_path.rpartition(':')
+    if sep is not None and tail.isdigit():
+        return head, int(tail)
+    return tbl_path, None
+
+
 def _collect_pipeline_paths(table_nodes: list[pxt.TableNode], tbl_path: str) -> set[str] | None:
-    """Return paths of all tables/views that are transitively connected to tbl_path"""
+    """Return the version-free paths of all tables/views transitively connected to tbl_path."""
     by_path = {n['path']: n for n in table_nodes}
     if tbl_path not in by_path:
         return None
-    view_map: dict[str, list[str]] = {}  # base path -> list[view path]
+    view_map: dict[str, list[str]] = {}  # unpinned base path -> list[view path]
     for n in table_nodes:
         if n['base'] is not None:
-            view_map.setdefault(n['base'], []).append(n['path'])
+            # make sure we record the base path w/o the version suffix
+            base, _ = _split_tbl_path(n['base'])
+            view_map.setdefault(base, []).append(n['path'])
 
     connected: set[str] = {tbl_path}
-    # collect ancestors
-    current: str | None = tbl_path
+    # ancestors
+    current = tbl_path
     while True:
         base = by_path[current]['base']
         if base is None:
             break
-        connected.add(base)
-        current = base
+        # make sure we record the base path w/o the version suffix
+        current, _ = _split_tbl_path(base)
+        connected.add(current)
 
+    # descendants
     stack = [tbl_path]
     while stack:
         p = stack.pop()
@@ -432,11 +445,18 @@ def get_pipeline(tbl_path: str | None = None) -> dict[str, Any]:
             )
 
             if base_path is not None:
-                assert base_path in pipeline_paths
+                source, base_version = _split_tbl_path(base_path)
+                assert source in pipeline_paths
                 edge_type = md['kind']
-                edges.append(
-                    {'source': base_path, 'target': path, 'type': edge_type, 'label': iterator_name or edge_type}
-                )
+                edge: dict[str, Any] = {
+                    'source': source,
+                    'target': path,
+                    'type': edge_type,
+                    'label': iterator_name or edge_type,
+                }
+                if base_version is not None:
+                    edge['base_version'] = base_version
+                edges.append(edge)
 
         except Exception as e:
             _logger.warning(f'Pipeline: could not inspect {path}: {e}')
@@ -470,16 +490,16 @@ def get_status() -> dict[str, Any]:
     total_tables = 0
     total_errors = 0
 
-    def walk(nodes: list[pxt.TreeNode]) -> None:
+    def collect_totals(nodes: list[pxt.TreeNode]) -> None:
         nonlocal total_tables, total_errors
         for n in nodes:
             if n['kind'] == 'directory':
-                walk(n['entries'])
+                collect_totals(n['entries'])
             else:
                 total_tables += 1
                 total_errors += n['error_count']
 
-    walk(pxt.get_dir_tree())
+    collect_totals(pxt.get_dir_tree())
 
     config_info: dict[str, Any] = {}
     try:
