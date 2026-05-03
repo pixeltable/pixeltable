@@ -62,7 +62,7 @@ export interface TableMetadata {
   is_replica: boolean;
   is_view: boolean;
   is_snapshot: boolean;
-  version: number;
+  version: number | null;
   version_created: string;
   schema_version: number;
   comment: string | null;
@@ -146,7 +146,7 @@ export interface PipelineNode extends Record<string, unknown> {
   is_view: boolean;
   base: string | null;
   row_count: number;
-  version: number;
+  version: number | null;
   columns: PipelineColumn[];
   indices: PipelineIndex[];
   versions: PipelineVersion[];

@@ -143,7 +143,7 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
         </div>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           <span className="text-[10px] text-muted-foreground tabular-nums">{data.row_count.toLocaleString()} rows</span>
-          <span className="text-[10px] text-muted-foreground/80">v{data.version}</span>
+          {data.version !== null && <span className="text-[10px] text-muted-foreground/80">v{data.version}</span>}
           {data.indices.length > 0 && (
             <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
               <SearchIcon className="h-2.5 w-2.5" />{data.indices.length}
@@ -277,7 +277,7 @@ function DetailPanel({
       <div className="grid grid-cols-3 px-5 py-3 border-b border-border">
         {[
           { label: 'Rows', value: node.row_count.toLocaleString() },
-          { label: 'Version', value: `v${node.version}` },
+          { label: 'Version', value: node.version !== null ? `v${node.version}` : '—' },
           { label: 'Computed', value: String(node.computed_count) },
         ].map((s) => (
           <div key={s.label} className="text-center">

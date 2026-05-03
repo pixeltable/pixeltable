@@ -1153,7 +1153,9 @@ function TableHeader({ metadata, onTableClick }: { metadata: TableMetadata; onTa
         )}>
           {kind}
         </span>
-        <span className="text-xs text-muted-foreground tabular-nums">v{metadata.version}</span>
+        {metadata.version !== null && (
+          <span className="text-xs text-muted-foreground tabular-nums">v{metadata.version}</span>
+        )}
         {(() => {
           const embeddingIdxCount = Object.values(metadata.indices).filter(i => i.index_type === 'embedding').length
           return embeddingIdxCount > 0 && (
@@ -1261,7 +1263,7 @@ function LineagePanel({ tablePath, pipelineData, pipelineColumns, onTableClick, 
         </div>
         <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
           <span className="tabular-nums">{node.row_count.toLocaleString()} rows</span>
-          <span>v{node.version}</span>
+          {node.version !== null && <span>v{node.version}</span>}
         </div>
         <div className="flex items-center gap-1 mt-1 text-[11px] text-muted-foreground">
           <span>{node.insertable_count} stored</span>
