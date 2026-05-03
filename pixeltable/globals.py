@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
 from uuid import UUID
@@ -777,7 +776,7 @@ def _create_path_map(dir_path: str, catalog_entries: dict[str, Catalog.DirEntry]
             _create_path_map(path, entry.dir_entries or {}, path_map)
         else:
             assert entry.table is not None
-            path_map[uuid.UUID(entry.table.md['tbl_id'])] = path
+            path_map[entry.table.id] = path
 
 
 def _get_subtree(

@@ -113,7 +113,8 @@ def get_table_data(
     columns, select_dict, media_url_cols, error_cols = _build_select(tbl, include_errors=True)
     query = tbl.select(**select_dict)
 
-    if errors_only and error_cols:
+    error_predicate: exprs.Expr | None = None
+    if errors_only:
         error_predicates = []
         for col_name in error_cols:
             try:
@@ -121,11 +122,14 @@ def get_table_data(
                 error_predicates.append(col_ref.errortype != None)
             except Exception:
                 pass
-        if len(error_predicates) > 0:
-            combined = error_predicates[0]
-            for pred in error_predicates[1:]:
-                combined |= pred
-            query = query.where(combined)
+        if len(error_predicates) == 0:
+            # 'errors only' was requested but the table has no columns that can carry errors.
+            # Short-circuit: nothing to return.
+            return {'columns': columns, 'rows': [], 'total_count': 0, 'offset': offset, 'limit': limit}
+        error_predicate = error_predicates[0]
+        for pred in error_predicates[1:]:
+            error_predicate |= pred
+        query = query.where(error_predicate)
 
     if order_by is not None:
         # only sort by columns with a B-tree index; other columns would force a full sort
@@ -134,8 +138,11 @@ def get_table_data(
             col = getattr(tbl, order_by)
             query = query.order_by(col, asc=not order_desc)
 
-    total_count = tbl.count() if not errors_only else None
-    results = list(query.limit(limit, offset=offset if offset else None).collect())
+    if error_predicate is not None:
+        total_count = tbl.where(error_predicate).count()
+    else:
+        total_count = tbl.count()
+    results = list(query.limit(limit, offset=offset if offset != 0 else None).collect())
 
     rows: list[dict[str, Any]] = []
     for row in results:
@@ -171,13 +178,7 @@ def get_table_data(
             row_data['_errors'] = cell_errors
         rows.append(row_data)
 
-    return {
-        'columns': columns,
-        'rows': rows,
-        'total_count': total_count if total_count is not None else len(rows),
-        'offset': offset,
-        'limit': limit,
-    }
+    return {'columns': columns, 'rows': rows, 'total_count': total_count, 'offset': offset, 'limit': limit}
 
 
 def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
@@ -199,7 +200,7 @@ def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
         for col_name in col_names:
             if col_name in media_url_cols:
                 fileurl = row.get(media_url_cols[col_name])
-                csv_row.append(_resolve_fileurl(fileurl, http_address) if fileurl else '')
+                csv_row.append(_resolve_fileurl(fileurl, http_address) if fileurl is not None else '')
             else:
                 val = row.get(col_name)
                 if val is None:
@@ -284,7 +285,7 @@ def _collect_tbl_nodes(nodes: list[pxt.TreeNode], out: list[pxt.TableNode]) -> N
 def _split_tbl_path(tbl_path: str) -> tuple[str, int | None]:
     """Split a Pixeltable path of the form 'p' or 'p:N' into (path, version)."""
     head, sep, tail = tbl_path.rpartition(':')
-    if sep is not None and tail.isdigit():
+    if sep != '' and tail.isdigit():
         return head, int(tail)
     return tbl_path, None
 
@@ -354,7 +355,7 @@ def get_pipeline(tbl_path: str | None = None) -> dict[str, Any]:
             iterator_name: str | None = None
             if md['is_view'] and md['iterator_call'] is not None:
                 m = _FIRST_FUNC_RE.search(md['iterator_call'])
-                iterator_name = m.group(1) if m else md['iterator_call']
+                iterator_name = m.group(1) if m is not None else md['iterator_call']
 
             columns: list[dict[str, Any]] = []
             computed_cols: list[str] = []

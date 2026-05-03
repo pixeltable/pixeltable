@@ -63,8 +63,6 @@ def _(_path: str, _query: dict) -> dict:
 
 @_api_route('/api/dirs')
 def _(_path: str, _query: dict) -> list:
-    import pixeltable as pxt
-
     return pxt.get_dir_tree()
 
 
