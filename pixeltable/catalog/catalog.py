@@ -1068,7 +1068,7 @@ class Catalog:
         dir_entries: dict[str, Catalog.DirEntry]
         table: schema.Table | None
 
-        # Only populated for table entries when get_dir_contents() was called with error_counts=True;
+        # Only populated for table entries when get_dir_contents() was called with with_error_counts=True;
         # None otherwise (including for directory entries).
         table_error_count: int | None = None
 

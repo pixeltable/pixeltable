@@ -161,6 +161,7 @@ export interface PipelineEdge {
   target: string;
   type: string;
   label: string;
+  base_version?: number;
 }
 
 export interface PipelineResponse {

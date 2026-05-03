@@ -796,16 +796,20 @@ function ColResizeHandle({ atMin, getStartWidth, onResize, onReset }: {
         e.preventDefault()
         e.stopPropagation()
         const el = e.currentTarget
-        el.setPointerCapture(e.pointerId)
+        const pointerId = e.pointerId
+        el.setPointerCapture(pointerId)
         const startX = e.clientX
         const startW = getStartWidth()
         const onMove = (m: PointerEvent) => onResize(startW + (m.clientX - startX))
-        const onUp = () => {
+        const cleanup = () => {
           el.removeEventListener('pointermove', onMove)
-          el.removeEventListener('pointerup', onUp)
+          el.removeEventListener('pointerup', cleanup)
+          el.removeEventListener('pointercancel', cleanup)
+          if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId)
         }
         el.addEventListener('pointermove', onMove)
-        el.addEventListener('pointerup', onUp)
+        el.addEventListener('pointerup', cleanup)
+        el.addEventListener('pointercancel', cleanup)
       }}
       onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation(); onReset() }}
       className="group absolute right-0 top-0 h-full w-2 cursor-col-resize select-none flex items-center justify-end"
