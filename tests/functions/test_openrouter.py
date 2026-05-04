@@ -55,7 +55,7 @@ class TestOpenRouter:
             t.add_computed_column(
                 response=chat_completions(
                     messages=[{'role': 'user', 'content': t.prompt}],
-                    model='openai/gpt-4-turbo',
+                    model='openai/gpt-4.1',
                     tools=tools,
                     tool_choice=tool_choice,
                 )
