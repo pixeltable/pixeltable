@@ -424,7 +424,7 @@ class TestOpenai:
         from pixeltable.functions.openai import image_generations
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(img=image_generations(t.input, model='gpt5-image-2'))
+        t.add_computed_column(img=image_generations(t.input, model='gpt-image-2'))
         t.add_computed_column(
             img_2=image_generations(t.input, model='gpt-image-2', model_kwargs={'quality': 'low', 'size': '1024x1024'})
         )
