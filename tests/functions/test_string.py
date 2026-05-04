@@ -437,17 +437,6 @@ class TestString:
             expected: list[Any] = [str_fn(x) for x in strs]
             assert res == expected, f'{pxt_fn.name} mismatch'
 
-        # ── ljust / rjust ─────────────────────────────────────────────────────
-        for w in [0, 3, 6, 10]:
-            chk(ljust, w, expected=[x.ljust(w) for x in strs], label=f'ljust w={w}')
-            chk(rjust, w, expected=[x.rjust(w) for x in strs], label=f'rjust w={w}')
-        chk(ljust, 8, '*', expected=[x.ljust(8, '*') for x in strs], label='ljust fill=*')
-        chk(rjust, 8, '.', expected=[x.rjust(8, '.') for x in strs], label='rjust fill=.')
-
-        # ── zfill ─────────────────────────────────────────────────────────────
-        for w in [0, 1, 3, 6, 10]:
-            chk(zfill, w, expected=[x.zfill(w) for x in strs], label=f'zfill w={w}')
-
         # ── contains_re ───────────────────────────────────────────────────────
         for pat in ['cat', 'dog', 'hello', '^cat', '[0-9]+', 'cat|dog']:
             chk(contains_re, pat, expected=[bool(re.search(pat, x)) for x in strs], label=f'contains_re {pat!r}')

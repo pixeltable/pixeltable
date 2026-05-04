@@ -128,21 +128,6 @@ def _regex_match_sql(
     return sql.case((case, self.op('~')(anchored)), else_=self.op('~*')(anchored))
 
 
-def _justify_sql(
-    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None, pad_fn: Any
-) -> sql.ColumnElement | None:
-    """Shared SQL pushdown for ljust() and rjust()."""
-    # Python requires fillchar to be exactly 1 char; PG rpad/lpad silently accepts multi-char
-    if fillchar is not None:
-        val = _literal_value(fillchar)
-        if val is None or builtins.len(val) != 1:
-            return None
-    fill = fillchar if fillchar is not None else ' '
-    w = width.cast(sql.types.INT)
-    # Python doesn't truncate strings already at or exceeding width
-    return sql.case((sql.func.char_length(self) >= w, self), else_=pad_fn(self, w, fill))
-
-
 @pxt.udf(is_method=True)
 def capitalize(self: str) -> str:
     """
@@ -546,13 +531,6 @@ def ljust(self: str, width: int, fillchar: str = ' ') -> str:
     return self.ljust(width, fillchar)
 
 
-@ljust.to_sql
-def _(
-    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
-) -> sql.ColumnElement:
-    return _justify_sql(self, width, fillchar, sql.func.rpad)
-
-
 @pxt.udf(is_method=True)
 def lower(self: str) -> str:
     """
@@ -811,13 +789,6 @@ def rjust(self: str, width: int, fillchar: str = ' ') -> str:
     return self.rjust(width, fillchar)
 
 
-@rjust.to_sql
-def _(
-    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
-) -> sql.ColumnElement:
-    return _justify_sql(self, width, fillchar, sql.func.lpad)
-
-
 @pxt.udf(is_method=True)
 def rpartition(self: str, sep: str = ' ') -> list:
     """
@@ -1009,21 +980,6 @@ def zfill(self: str, width: int) -> str:
         width: Minimum width of resulting string.
     """
     return self.zfill(width)
-
-
-@zfill.to_sql
-def _(self: sql.ColumnElement, width: sql.ColumnElement) -> sql.ColumnElement:
-    w = width.cast(sql.types.INT)
-    str_len = sql.func.char_length(self)
-    first_char = sql.func.left(self, 1)
-    rest = sql.func.right(self, -1)
-    has_sign = first_char.in_(['-', '+'])
-    # Return self unchanged if already at or exceeding width
-    return sql.case(
-        (str_len >= w, self),
-        (has_sign, sql.func.concat(first_char, sql.func.lpad(rest, w - 1, '0'))),
-        else_=sql.func.lpad(self, w, '0'),
-    )
 
 
 class StringChunk(TypedDict):
