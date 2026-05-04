@@ -14,6 +14,8 @@ import uuid
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
+import pgvector.sqlalchemy as sql_vector  # type: ignore[import-untyped]
+
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import av
@@ -1971,3 +1973,46 @@ ALL_PIXELTABLE_TYPES = (
 
 def is_media_type(col_type: ColumnType.Type) -> bool:
     return col_type in {ColumnType.Type.IMAGE, ColumnType.Type.VIDEO, ColumnType.Type.AUDIO, ColumnType.Type.DOCUMENT}
+
+
+_SA_TYPE_NAMES: dict[type, str] = {
+    sql.types.String: 'String',
+    sql.types.BigInteger: 'BigInteger',
+    sql.types.Float: 'Float',
+    sql.types.Boolean: 'Boolean',
+    sql.types.TIMESTAMP: 'Timestamp',
+    sql.types.LargeBinary: 'LargeBinary',
+    sql.types.Date: 'Date',
+    sql.types.UUID: 'UUID',
+    sql.dialects.postgresql.json.JSONB: 'JSONB',
+    sql_vector.HALFVEC: 'HalfVec',
+    sql_vector.VECTOR: 'Vector',
+}
+
+_SA_TYPE_BY_NAME: dict[str, sql.types.TypeEngine] = {name: t() for t, name in _SA_TYPE_NAMES.items()}
+
+
+def sa_type_as_dict(t: sql.types.TypeEngine) -> dict:
+    d = {}
+    if isinstance(t, sql.types.String):
+        assert t.length is None
+    if isinstance(t, sql.types.TIMESTAMP):
+        assert t.timezone
+    if isinstance(t, sql.types.LargeBinary):
+        assert t.length is None
+    if isinstance(t, (sql_vector.HALFVEC, sql_vector.VECTOR)):
+        assert t.dim is not None
+        d['dim'] = t.dim
+    type_str = _SA_TYPE_NAMES.get(type(t))
+    if type_str is None:
+        raise AssertionError(t)
+    d['type'] = type_str
+    return d
+
+
+def sa_type_from_dict(d: dict) -> sql.types.TypeEngine:
+    type_str = d['type']
+    t = _SA_TYPE_BY_NAME.get(type_str)
+    if t is None:
+        raise AssertionError(type_str)
+    return t
