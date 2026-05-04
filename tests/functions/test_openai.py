@@ -424,9 +424,9 @@ class TestOpenai:
         from pixeltable.functions.openai import image_generations
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(img=image_generations(t.input, model='gpt-image-1'))
+        t.add_computed_column(img=image_generations(t.input, model='gpt5-image-2'))
         t.add_computed_column(
-            img_2=image_generations(t.input, model='gpt-image-1', model_kwargs={'quality': 'low', 'size': '1024x1024'})
+            img_2=image_generations(t.input, model='gpt-image-2', model_kwargs={'quality': 'low', 'size': '1024x1024'})
         )
 
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
@@ -445,7 +445,7 @@ class TestOpenai:
             edited=image_edits(
                 t.img,
                 prompt='Add a party hat on top',
-                model='gpt-image-1',
+                model='gpt-image-2',
                 model_kwargs={'quality': 'low', 'size': '1024x1024'},
             )
         )
@@ -459,7 +459,7 @@ class TestOpenai:
         """Test image_edits with a mask image specifying the edit region.
 
         The mask must have the same dimensions as the input image. Both are created
-        programmatically at 1024x1024 (a valid gpt-image-1 input size) to guarantee this.
+        programmatically at 1024x1024 (a valid gpt-image-2 input size) to guarantee this.
         """
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
@@ -467,7 +467,7 @@ class TestOpenai:
 
         from pixeltable.functions.openai import image_edits
 
-        # Source image: 1024x1024 solid color (valid gpt-image-1 input size)
+        # Source image: 1024x1024 solid color (valid gpt-image-2 input size)
         src_arr = np.full((1024, 1024, 3), fill_value=[70, 130, 180], dtype=np.uint8)  # steel blue
         src_img = PIL.Image.fromarray(src_arr, mode='RGB')
 
@@ -484,7 +484,7 @@ class TestOpenai:
                 t.img,
                 mask=t.mask,
                 prompt='Fill the top-left corner with a bright red apple',
-                model='gpt-image-1',
+                model='gpt-image-2',
                 model_kwargs={'quality': 'low', 'size': '1024x1024'},
             )
         )
