@@ -21,13 +21,13 @@ pip install 'fastapi[standard]'
 Create a file `service.toml`:
 
 ```toml
-[service]
-title = "My Service"
+[[service]]
+name = "my-service"
 port = 8000
 
-[[routes]]
+[[service.routes]]
 type = "insert"
-table = "my_dir.my_table"
+table = "my_dir/my_table"
 path = "/insert"
 inputs = ["prompt"]
 outputs = ["prompt", "result"]
@@ -36,7 +36,7 @@ outputs = ["prompt", "result"]
 Start the service:
 
 ```bash
-pxt serve config service.toml
+pxt serve my-service --config service.toml
 ```
 
 The service is now running at `http://localhost:8000` with auto-generated
@@ -89,7 +89,7 @@ pxt serve delete --table my_dir.my_table --path /delete
 pxt serve query --query myapp.queries.search_docs --path /search
 ```
 
-Single-endpoint mode accepts the same fields as the equivalent `[[routes]]`
+Single-endpoint mode accepts the same fields as the equivalent `[[service.routes]]`
 TOML entry. It is meant for development and ad-hoc serving; for anything
 beyond that use the TOML file (it is the only way to expose more than one
 endpoint).
@@ -260,9 +260,9 @@ otherwise be loaded.
 modules = ["myapp.queries", "myapp.udfs"]
 ```
 
-### `[[routes]]`
+### `[[service.routes]]`
 
-Each `[[routes]]` entry defines one HTTP endpoint. The `type` field determines
+Each `[[service.routes]]` entry defines one HTTP endpoint. The `type` field determines
 the route kind and which additional fields are valid.
 
 #### Common fields
@@ -288,9 +288,9 @@ Poll `job_url` until `status` is `"done"` or `"error"`.
 Insert a single row into a table and return the resulting column values.
 
 ```toml
-[[routes]]
+[[service.routes]]
 type = "insert"
-table = "my_dir.my_table"
+table = "my_dir/my_table"
 path = "/generate"
 inputs = ["prompt"]
 outputs = ["prompt", "result"]
@@ -309,9 +309,9 @@ outputs = ["prompt", "result"]
 instead of JSON. All other inputs become form fields.
 
 ```toml
-[[routes]]
+[[service.routes]]
 type = "insert"
-table = "my_dir.images"
+table = "my_dir/images"
 path = "/resize"
 inputs = ["width", "height"]
 uploadfile_inputs = ["image"]
@@ -333,9 +333,9 @@ Update a single row identified by its primary key values, and return the updated
 columns (including any computed columns that depend on them).
 
 ```toml
-[[routes]]
+[[service.routes]]
 type = "update"
-table = "my_dir.my_table"
+table = "my_dir/my_table"
 path = "/update"
 inputs = ["prompt"]
 outputs = ["id", "prompt", "result"]
@@ -375,9 +375,9 @@ updated. To replace a media value, delete the row and insert a new one.
 Delete rows matching the given column values and return the count of rows affected.
 
 ```toml
-[[routes]]
+[[service.routes]]
 type = "delete"
-table = "my_dir.my_table"
+table = "my_dir/my_table"
 path = "/delete"
 ```
 
@@ -396,9 +396,9 @@ curl -X POST http://localhost:8000/delete \
 To delete by a non-primary-key column:
 
 ```toml
-[[routes]]
+[[service.routes]]
 type = "delete"
-table = "my_dir.my_table"
+table = "my_dir/my_table"
 path = "/delete-by-tag"
 match_columns = ["tag"]
 ```
@@ -410,7 +410,7 @@ match_columns = ["tag"]
 Execute a `@pxt.query` or `retrieval_udf` function and return the results.
 
 ```toml
-[[routes]]
+[[service.routes]]
 type = "query"
 path = "/search"
 query = "myapp.queries.search_docs"
@@ -440,7 +440,7 @@ curl -X POST http://localhost:8000/search \
 **Single-row lookup** (`one_row = true`):
 
 ```toml
-[[routes]]
+[[service.routes]]
 type = "query"
 path = "/lookup"
 query = "myapp.queries.lookup_by_id"
@@ -458,57 +458,57 @@ curl 'http://localhost:8000/lookup?id=42'
 ## Full example
 
 ```toml
-[service]
-title = "Image Processing Service"
+[[service]]
+name = "image-processing-service"
 port = 8080
 
 modules = ["myapp.queries"]
 
 # Insert an image and get back processed outputs
-[[routes]]
+[[service.routes]]
 type = "insert"
-table = "myapp.images"
+table = "myapp/images"
 path = "/process"
 inputs = ["width", "height"]
 uploadfile_inputs = ["image"]
 outputs = ["thumbnail", "embedding"]
 
 # Insert with background processing for slow pipelines
-[[routes]]
+[[service.routes]]
 type = "insert"
-table = "myapp.videos"
+table = "myapp/videos"
 path = "/ingest"
 background = true
 
 # Update a row by primary key (returns the updated columns incl. computed ones)
-[[routes]]
+[[service.routes]]
 type = "update"
-table = "myapp.images"
+table = "myapp/images"
 path = "/images/update"
 inputs = ["tag"]
 outputs = ["id", "tag", "thumbnail"]
 
 # Delete by primary key
-[[routes]]
+[[service.routes]]
 type = "delete"
-table = "myapp.images"
+table = "myapp/images"
 path = "/images/delete"
 
 # Delete by a non-PK column
-[[routes]]
+[[service.routes]]
 type = "delete"
-table = "myapp.images"
+table = "myapp/images"
 path = "/images/delete-by-tag"
 match_columns = ["tag"]
 
 # Search via a @pxt.query function
-[[routes]]
+[[service.routes]]
 type = "query"
 path = "/search"
 query = "myapp.queries.search_images"
 
 # Single-row lookup via GET
-[[routes]]
+[[service.routes]]
 type = "query"
 path = "/lookup"
 query = "myapp.queries.lookup_by_id"
@@ -516,7 +516,7 @@ one_row = true
 method = "get"
 
 # Return a raw image file from a query
-[[routes]]
+[[service.routes]]
 type = "query"
 path = "/thumbnail"
 query = "myapp.queries.get_thumbnail"
@@ -572,17 +572,16 @@ Errors (including port conflicts) emit to stderr:
 {"status": "error", "code": "EADDRINUSE", "port": 8000, "message": "port 8000 is already in use"}
 ```
 
-### `pxt serve config <path>`
+### `pxt serve <service-name>`
 
 Load a TOML service file and start the server.
 
 | Flag | Type | Description |
 |---|---|---|
-| `<path>` | string (positional) | Path to the TOML file |
-| `--host` | string | Bind address (overrides `[service].host`) |
-| `--port` | integer | Bind port (overrides `[service].port`) |
-| `--title` | string | Service title (overrides `[service].title`) |
-| `--prefix` | string | URL prefix (overrides `[service].prefix`; must be empty or start with `/`) |
+| `--host` | string | Bind address (overrides `[[service]].host`) |
+| `--port` | integer | Bind port (overrides `[[service]].port`) |
+| `--prefix` | string | URL prefix (overrides `[[service]].prefix`; must be empty or start with `/`) |
+| `--config` | string | Path to an additional TOML config file (will be merged into existing config) |
 
 ### `pxt serve insert`
 

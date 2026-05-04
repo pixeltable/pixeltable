@@ -5840,6 +5840,7 @@ dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "pandas" },
+    { name = "pathspec" },
     { name = "pgvector" },
     { name = "pillow" },
     { name = "pillow-heif" },
@@ -5984,6 +5985,7 @@ requires-dist = [
     { name = "more-itertools", specifier = ">=10.2" },
     { name = "numpy", specifier = ">=1.25" },
     { name = "pandas", specifier = ">=2.0" },
+    { name = "pathspec", specifier = ">=0.10.2" },
     { name = "pgvector", specifier = ">=0.4.0" },
     { name = "pillow", specifier = ">=9.3.0" },
     { name = "pillow-heif", specifier = ">=0.15.0" },
@@ -6106,7 +6108,7 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools#ae5b3a0226c7847cd0c1ed634c3020e9a949fb2f" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#869124b498ba427cb4e05432ddc7363a44553155" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "griffe" },

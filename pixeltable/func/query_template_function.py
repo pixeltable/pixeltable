@@ -183,9 +183,7 @@ def retrieval_udf(
     """
     Constructs a retrieval UDF for the given table. The retrieval UDF is a UDF whose parameters are
     columns of the table and whose return value is a list of rows from the table. The return value of
-    ```python
-    f(col1=x, col2=y, ...)
-    ```
+    >>> f(col1=x, col2=y, ...)
     will be a list of all rows from the table that match the specified arguments.
 
     Args:
