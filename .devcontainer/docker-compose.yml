@@ -33,8 +33,8 @@ services:
       --sql-addr=roach1:26257
       --http-addr=roach1:8080
       --join=roach1:26357,roach2:26357,roach3:26357
-      --cache=512MiB
-      --max-sql-memory=512MiB
+      --cache=2GiB
+      --max-sql-memory=2GiB
     restart: unless-stopped
 
   roach2:
@@ -49,8 +49,8 @@ services:
       --sql-addr=roach2:26258
       --http-addr=roach2:8081
       --join=roach1:26357,roach2:26357,roach3:26357
-      --cache=512MiB
-      --max-sql-memory=512MiB
+      --cache=2GiB
+      --max-sql-memory=2GiB
     restart: unless-stopped
 
   roach3:
@@ -65,8 +65,8 @@ services:
       --sql-addr=roach3:26259
       --http-addr=roach3:8082
       --join=roach1:26357,roach2:26357,roach3:26357
-      --cache=512MiB
-      --max-sql-memory=512MiB
+      --cache=2GiB
+      --max-sql-memory=2GiB
     restart: unless-stopped
 
   roach-init:
