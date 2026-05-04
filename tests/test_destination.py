@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import ClassVar
 
 import pytest
@@ -13,7 +14,7 @@ from pixeltable.functions.net import presigned_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
-from .utils import rerun, skip_test_if_not_installed
+from .utils import pxt_raises, rerun, skip_test_if_not_installed
 
 
 class TestDestination:
@@ -22,6 +23,7 @@ class TestDestination:
         StorageTarget.B2_STORE,
         StorageTarget.GCS_STORE,
         StorageTarget.LOCAL_STORE,
+        StorageTarget.PIXELTABLE_STORE,
         StorageTarget.R2_STORE,
         StorageTarget.S3_STORE,
         StorageTarget.TIGRIS_STORE,
@@ -51,6 +53,8 @@ class TestDestination:
                 uri = 's3://pxt-test/pytest'
             case StorageTarget.R2_STORE:
                 uri = 'https://ae60fad96d33636287c3b2e76b88241f.r2.cloudflarestorage.com/pxt-test/pytest'
+            case StorageTarget.PIXELTABLE_STORE:
+                uri = 'pxtfs://pixeltable:main/home/pytest'
             case StorageTarget.TIGRIS_STORE:
                 uri = 'https://t3.storage.dev/pxt-test/pytest'
 
@@ -67,35 +71,35 @@ class TestDestination:
         valid_dest = 'tests/data/'
 
         # Basic tests of the destination parameter: types and store / computed
-        with pytest.raises(pxt.Error, match='must be a string or path'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be a string or path'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination=27)
 
-        with pytest.raises(pxt.Error, match='only applies to stored computed columns'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only applies to stored computed columns'):
             t.add_computed_column(img_rot=t.img.rotate(90), stored=False, destination=valid_dest)
 
-        with pytest.raises(pxt.Error, match='only applies to stored computed columns'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only applies to stored computed columns'):
             _ = pxt.create_table('test_dest_bad', schema={'img': {'type': pxt.Image, 'destination': f'{valid_dest}'}})
 
         # Test destination with a non-existent directory
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match='does not exist'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='non_existent_dir/img_rot')
 
         # Test destination with a file path instead of a directory
-        with pytest.raises(pxt.Error, match='must be a directory, not a file'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a directory, not a file'):
             t.add_computed_column(
                 img_rot=t.img.rotate(90), destination='tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'
             )
 
         # Test with invalid scheme
-        with pytest.raises(pxt.Error, match='must be a valid reference to a supported'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
     def test_invalid_bucket(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         t = pxt.create_table('test_invalid_dest', schema={'img': pxt.Image})
 
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.STORAGE_NOT_FOUND,
             match="Client error while validating destination for column 'img_rot': "
             "Bucket 'pxt-test-not-a-bucket' not found",
         ):
@@ -111,11 +115,17 @@ class TestDestination:
             r"Client error while validating destination for column 'img_rot': "
             r"Access denied to bucket 'pxt-test': Forbidden"
         )
-        with pytest.raises(pxt.Error, match=f'{msg1}|{msg2}'):
+        try:
             t.add_computed_column(
                 img_rot=t.img.rotate(90),
                 destination='https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest',
             )
+            pytest.fail('Exception expected')
+        except pxt.Error as e:
+            assert e.error_code in (pxt.ErrorCode.PROVIDER_ERROR, pxt.ErrorCode.INSUFFICIENT_PRIVILEGES), (
+                f'Unexpected error code: {e.error_code.name}'
+            )
+            assert re.search(f'{msg1}|{msg2}', str(e)), f'Unexpected message: {e}'
 
     def test_dest_parser(self, uses_db: None) -> None:
         a_name = 'acct-name'
@@ -152,10 +162,48 @@ class TestDestination:
         ObjectPath.parse_object_storage_addr(f'file://dir1/dir2/dir3/{o_name}', allow_obj_name=True)
         ObjectPath.parse_object_storage_addr(f'dir2/dir3/{o_name}', allow_obj_name=True)
 
+        # pxtfs:// home bucket URIs
+        soa = ObjectPath.parse_object_storage_addr('pxtfs://myorg:mydb/home', allow_obj_name=False)
+        assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+        assert soa.account == 'myorg'
+        assert soa.account_extension == 'mydb'
+        assert soa.container == 'home'
+
+        soa = ObjectPath.parse_object_storage_addr('pxtfs://myorg:mydb/home/media/images', allow_obj_name=False)
+        assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+        assert soa.container == 'home'
+
+        soa = ObjectPath.parse_object_storage_addr(f'pxtfs://org:db/home/{p_name2}/{o_name}', allow_obj_name=True)
+        assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+        assert soa.container == 'home'
+        assert soa.has_object
+        assert soa.object_name == o_name
+        assert soa.prefix == f'{p_name2}/'
+        assert soa.account == 'org'
+        assert soa.account_extension == 'db'
+
+        # Negative cases for pxtfs:// uris
+        with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxtfs://orgonly/home', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxtfs://:db/home', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxtfs://org:/home', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxtfs://org:db/notbucket', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
+
+    @rerun(reruns=3, reruns_delay=15)
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
     def test_destination(self, uses_db: None, dest_id: StorageTarget) -> None:
         """Test various media destinations."""
         skip_test_if_not_installed('boto3')
+        from pixeltable.utils.pxt_store import PxtStore
         from pixeltable.utils.s3_store import S3Store
 
         dest_uri = self.resolve_destination_uri(dest_id)
@@ -200,10 +248,14 @@ class TestDestination:
             StorageTarget.R2_STORE,
             StorageTarget.B2_STORE,
             StorageTarget.TIGRIS_STORE,
+            StorageTarget.PIXELTABLE_STORE,
         ):
             res = t.select(dest1=t.img_rot2.fileurl, dest2=t.img_rot3.fileurl).collect()
             for dest_uri, col_name in ((dest1_uri, 'dest1'), (dest2_uri, 'dest2')):
                 store = ObjectOps.get_store(dest_uri, allow_obj_name=False)
+                if dest_id == StorageTarget.PIXELTABLE_STORE:
+                    assert isinstance(store, PxtStore)
+                    store = store._store
                 assert isinstance(store, S3Store)
                 for d in res[col_name]:
                     addr = ObjectPath.parse_object_storage_addr(d, allow_obj_name=True)
@@ -336,10 +388,10 @@ class TestDestination:
                         f'{expected_soa.container} for {dest_id}'
                     )
 
-                # For local store, verify it's a file:// URL
+                # For local store, verify it's a file: URL
                 if dest_id == StorageTarget.LOCAL_STORE:
-                    assert rotated_image_destination_url.startswith('file://'), (
-                        f'Local store URL should start with file://, got {rotated_image_destination_url}'
+                    assert rotated_image_destination_url.startswith('file:'), (
+                        f'Local store URL should start with file:, got {rotated_image_destination_url}'
                     )
 
         for uri in dest_uris:
@@ -353,7 +405,7 @@ class TestDestination:
         for uri in dest_uris:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
-    @rerun(reruns=3, reruns_delay=5)
+    @rerun(reruns=3, reruns_delay=15)
     def test_presigned_url_all_destinations(self, uses_db: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
         # Exclude LOCAL_STORE as it doesn't support presigned URLs

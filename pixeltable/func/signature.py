@@ -30,12 +30,19 @@ class Parameter:
 
         if self.default is not None:
             if self.col_type is None:
-                raise excs.Error(f'Cannot have a default value for variable parameter {self.name!r}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot have a default value for variable parameter {self.name!r}',
+                )
             if not isinstance(self.default, exprs.Literal):
-                raise excs.Error(f'Default value for parameter {self.name!r} is not a constant')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Default value for parameter {self.name!r} is not a constant'
+                )
             if not self.col_type.is_supertype_of(self.default.col_type):
-                raise excs.Error(
-                    f'Default value for parameter {self.name!r} is not of type {self.col_type!r}: {self.default}'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Default value for parameter {self.name!r} has type `{self.default.col_type}`, '
+                    f'which is not of type `{self.col_type!r}`: {self.default}',
                 )
 
     def has_default(self) -> bool:
@@ -185,22 +192,25 @@ class Signature:
             assert param.col_type is not None
 
             if arg is None:
-                raise excs.Error(f'Parameter {param_name!r}{context}: invalid argument')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'Parameter {param_name!r}{context}: invalid argument'
+                )
 
             # Check that the argument is consistent with the expected parameter type, with the allowance that
             # non-nullable parameters can still accept nullable arguments (since in that event, FunctionCall.eval()
             # detects the Nones and skips evaluation).
             if not (
-                param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True)
+                param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True, strict_json=False)
                 # TODO: this is a hack to allow JSON columns to be passed to functions that accept scalar
                 # types. It's necessary to avoid littering notebooks with `apply(str)` calls or equivalent.
                 # (Previously, this wasn't necessary because `is_supertype_of()` was improperly implemented.)
                 # We need to think through the right way to handle this scenario.
                 or (arg.col_type.is_json_type() and param.col_type.is_scalar_type())
             ):
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.TYPE_MISMATCH,
                     f'Parameter {param_name!r}{context}: argument type {arg.col_type} does not'
-                    f' match parameter type {param.col_type}'
+                    f' match parameter type {param.col_type}',
                 )
 
     def __eq__(self, other: object) -> bool:
@@ -219,7 +229,8 @@ class Signature:
     def __hash__(self) -> int:
         return hash((self.return_type, self.parameters))
 
-    def __str__(self) -> str:
+    def params_str(self) -> str:
+        """Generates a user friendly string describing this signature's input parameters"""
         param_strs: list[str] = []
         for p in self.parameters.values():
             if p.kind == inspect.Parameter.VAR_POSITIONAL:
@@ -228,7 +239,10 @@ class Signature:
                 param_strs.append(f'**{p.name}')
             else:
                 param_strs.append(f'{p.name}: pxt.{p.col_type}')
-        return f'({", ".join(param_strs)}) -> pxt.{self.get_return_type()}'
+        return ', '.join(param_strs)
+
+    def __str__(self) -> str:
+        return f'({self.params_str()}) -> pxt.{self.get_return_type()}'
 
     @classmethod
     def _infer_type(cls, annotation: type | None) -> tuple[ts.ColumnType | None, bool | None]:
@@ -276,9 +290,13 @@ class Signature:
             if param.name in cls.SYSTEM_PARAM_NAMES:
                 continue  # skip system parameters
             if param.name.startswith('_'):
-                raise excs.Error(f"{param.name!r}: parameters starting with '_' are reserved")
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f"{param.name!r}: parameters starting with '_' are reserved"
+                )
             if param.name in cls.SPECIAL_PARAM_NAMES:
-                raise excs.Error(f'{param.name!r} is a reserved parameter name')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'{param.name!r} is a reserved parameter name'
+                )
             if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
                 parameters.append(Parameter(param.name, col_type=None, kind=param.kind))
                 continue
@@ -286,7 +304,9 @@ class Signature:
             # check non-var parameters for name collisions and default value compatibility
             if param_types is not None:
                 if idx >= len(param_types):
-                    raise excs.Error(f'Missing type for parameter {param.name!r}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.MISSING_REQUIRED, f'Missing type for parameter {param.name!r}'
+                    )
                 param_type = param_types[idx]
                 is_batched = False
             else:
@@ -294,11 +314,15 @@ class Signature:
                 py_type = type_substitutions.get(param.annotation, param.annotation)
                 param_type, is_batched = cls._infer_type(py_type)
                 if param_type is None:
-                    raise excs.Error(f'Cannot infer pixeltable type for parameter {param.name!r}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_TYPE, f'Cannot infer pixeltable type for parameter {param.name!r}'
+                    )
 
             default = None if param.default is inspect.Parameter.empty else exprs.Expr.from_object(param.default)
             if not (default is None or isinstance(default, exprs.Literal)):
-                raise excs.Error(f'Default value for parameter {param.name!r} must be a constant')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, f'Default value for parameter {param.name!r} must be a constant'
+                )
 
             parameters.append(
                 Parameter(param.name, col_type=param_type, kind=param.kind, is_batched=is_batched, default=default)
@@ -331,7 +355,7 @@ class Signature:
             py_type = type_substitutions.get(sig.return_annotation, sig.return_annotation)
             return_type, return_is_batched = cls._infer_type(py_type)
             if return_type is None:
-                raise excs.Error('Cannot infer pixeltable return type')
+                raise excs.RequestError(excs.ErrorCode.INVALID_TYPE, 'Cannot infer pixeltable return type')
         else:
             _, return_is_batched = cls._infer_type(sig.return_annotation)
         system_params = [param_name for param_name in sig.parameters if param_name in cls.SYSTEM_PARAM_NAMES]

@@ -5,7 +5,8 @@ WORKERS := 12
 
 # Common test args
 PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 --reruns 2 \
-	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with'
+	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with' \
+	--benchmark-disable
 
 # Needed for LLaMA build to work correctly on some Linux systems
 CMAKE_ARGS := -DLLAVA_BUILD=OFF
@@ -13,6 +14,14 @@ NB_CELL_TIMEOUT := 3600
 # We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal to the timeout
 TQDM_MININTERVAL := $(NB_CELL_TIMEOUT)
 ULIMIT_CMD := ulimit -n 4000;
+
+# necessary for onnx to compile
+CMAKE_POLICY_VERSION_MINIMUM := 3.5
+
+# Dev dependency versions not handled by pyproject.toml
+UV_VERSION := 0.9.3
+FFMPEG_VERSION := 6.1.1=gpl*
+MINTLIFY_VERSION := 4.2.506
 
 .DEFAULT_GOAL := help
 
@@ -79,12 +88,14 @@ endif
 .make-install/env:
 	@echo 'Installing uv ...'
 	@python -m pip install -qU pip
-	@python -m pip install -q uv==0.9.3
+	@python -m pip install -q uv==$(UV_VERSION)
 	@echo 'Installing conda packages ...'
 	@if ! which mamba >/dev/null 2>&1; then conda install -q -y -c conda-forge mamba; fi
-	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto nodejs lychee
+	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto nodejs lychee 'cmake>=3.22'
 	@echo 'Installing mintlify ...'
-	@if ! which mint >/dev/null 2>&1; then npm install --silent -g mint@4.2.357; fi
+	@if ! which mint >/dev/null 2>&1 || ! mint --version | grep -Fq '$(MINTLIFY_VERSION)'; then \
+		npm install --silent -g mint@$(MINTLIFY_VERSION); \
+	fi
 	@echo 'Fixing quarto conda packaging bugs ...'
 	@mkdir -p $(CONDA_PREFIX)/bin/tools/aarch64 2>/dev/null || true
 	@ln -sf $(CONDA_PREFIX)/bin/deno $(CONDA_PREFIX)/bin/tools/aarch64/deno 2>/dev/null || true
@@ -94,6 +105,13 @@ endif
 		ln -sf $$dir $(CONDA_PREFIX)/share/$$target 2>/dev/null || true; \
 	done
 	@touch .make-install/env
+
+# Get dashboard sources; exclude node_modules and build artifacts
+DASHBOARD_SOURCES := $(shell find dashboard -type f -not -path '*/node_modules/*')
+.make-install/dashboard: $(DASHBOARD_SOURCES)
+	@echo 'Building dashboard assets ...'
+	@(cd dashboard && npm install --silent && npm run build)
+	@touch .make-install/dashboard
 
 .PHONY: install-deps
 install-deps:
@@ -108,7 +126,7 @@ install-deps:
 	@touch .make-install/others
 
 .PHONY: install
-install: setup-install .make-install/env install-deps .make-install/others
+install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others
 
 .PHONY: test
 test: pytest check
@@ -139,7 +157,7 @@ fullpytest: install
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,view}.py tests/share/test_packager.py
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,unversioned_table,view}.py tests/share/test_packager.py
 
 .PHONY: nbtest
 nbtest: install
@@ -188,8 +206,11 @@ format: install
 	@./scripts/format-notebooks.sh
 
 .PHONY: release
-release: install
-	@scripts/release.sh
+release: clean install
+	@if [ ! -f 'admin/scripts/release.sh' ]; then \
+		echo 'Release script not found. You must be a Pixeltable admin and check out the admin repo to run this target.'; exit 1; \
+	fi
+	@admin/scripts/release.sh
 
 .PHONY: docs
 docs: install
@@ -213,12 +234,13 @@ endif
 # TODO: incorporate this into a new/expanded docscheck
 .PHONY: linkscheck
 linkscheck: docs
-	lychee target/docs/ --exclude-path target/docs/changelog/ --max-concurrency 3 --exclude 'file://*' --exclude-loopback -q
+	lychee target/docs/ --root-dir target/docs/ --exclude-path target/docs/changelog/ \
+		--max-concurrency 3 --exclude 'file://*' --exclude-loopback -q
 
 .PHONY: clean
 clean:
-	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
 	@rm -rf .make-install || true
+	@rm -rf pixeltable/dashboard/static || true
 	@rm -rf site || true
 	@rm -rf target || true
 	@rm -rf tests/target || true

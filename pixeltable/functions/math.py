@@ -2,12 +2,10 @@
 Pixeltable UDFs for mathematical operations.
 
 Example:
-```python
-import pixeltable as pxt
 
-t = pxt.get_table(...)
-t.select(t.float_col.floor()).collect()
-```
+>>> import pixeltable as pxt
+>>> t = pxt.get_table(...)
+>>> t.select(t.float_col.floor()).collect()
 """
 
 import builtins
@@ -160,6 +158,36 @@ def bitwise_xor(self: int, other: int) -> int:
 @bitwise_xor.to_sql
 def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
     return self.bitwise_xor(other)
+
+
+@pxt.udf(is_method=True)
+def to_int(self: float) -> int:
+    """
+    Convert a float to an integer by truncating toward zero.
+
+    Equivalent to Python [`int(self)`](https://docs.python.org/3/library/functions.html#int).
+    """
+    return builtins.int(self)
+
+
+@to_int.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.cast(self, sql.Integer)
+
+
+@pxt.udf(is_method=True)
+def to_float(self: int) -> float:
+    """
+    Convert an integer to a float.
+
+    Equivalent to Python [`float(self)`](https://docs.python.org/3/library/functions.html#float).
+    """
+    return builtins.float(self)
+
+
+@to_float.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.cast(self, sql.Float)
 
 
 __all__ = local_public_names(__name__)

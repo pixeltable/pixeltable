@@ -7,7 +7,7 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
-from typing import Any, Callable, Literal, TypeVar
+from typing import Any, Callable, Literal, TypedDict, TypeVar
 
 import av
 import numpy as np
@@ -204,10 +204,17 @@ def _(model_id: str) -> ts.ArrayType:
     return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
 
 
+class DetrForObjectDetectionResponse(TypedDict):
+    scores: list[float]
+    labels: list[int]
+    label_text: list[str]
+    boxes: list[list[float]]
+
+
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(
-    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'no_timm'
-) -> Batch[dict]:
+    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str | None = None
+) -> Batch[DetrForObjectDetectionResponse]:
     """
     Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
     [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr).
@@ -219,6 +226,9 @@ def detr_for_object_detection(
     Args:
         image: The image to embed.
         model_id: The pretrained model to use for object detection.
+        threshold: Confidence threshold for filtering detections.
+        revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not specified,
+            uses the default revision for the model (typically `'main'`).
 
     Returns:
         A dictionary containing the output of the object detection model, in the following format:
@@ -255,9 +265,13 @@ def detr_for_object_detection(
     from transformers import DetrForObjectDetection, DetrImageProcessor
 
     model = _lookup_model(
-        model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision=revision), device=device
+        model_id,
+        DetrForObjectDetection.from_pretrained,
+        device=device,
+        revision=revision,
+        cache_key=(model_id, DetrForObjectDetection.from_pretrained, device, ('revision', revision)),
     )
-    processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision=revision))
+    processor = _lookup_processor(model_id, DetrImageProcessor.from_pretrained, revision=revision)
     normalized_images = [normalize_image_mode(img) for img in image]
 
     with torch.no_grad():
@@ -268,12 +282,12 @@ def detr_for_object_detection(
         )
 
     return [
-        {
-            'scores': [score.item() for score in result['scores']],
-            'labels': [label.item() for label in result['labels']],
-            'label_text': [model.config.id2label[label.item()] for label in result['labels']],
-            'boxes': [box.tolist() for box in result['boxes']],
-        }
+        DetrForObjectDetectionResponse(
+            scores=[score.item() for score in result['scores']],
+            labels=[label.item() for label in result['labels']],
+            label_text=[model.config.id2label[label.item()] for label in result['labels']],
+            boxes=[box.tolist() for box in result['boxes']],
+        )
         for result in results
     ]
 
@@ -326,7 +340,7 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('timm')
-    device = resolve_torch_device('auto')
+    device = resolve_torch_device('auto', allow_mps=False)  # segfaults on Mac OS when allow_mps=True
     import torch
     from transformers import DetrForSegmentation, DetrImageProcessor
 
@@ -388,10 +402,17 @@ def vit_for_image_classification(
 
         ```python
         {
-            'scores': [0.325, 0.198, 0.105],  # list of probabilities of the top-k most likely classes
-            'labels': [340, 353, 386],  # list of class IDs for the top-k most likely classes
-            'label_text': ['zebra', 'gazelle', 'African elephant, Loxodonta africana'],
-                # corresponding text names of the top-k most likely classes
+            # list of probabilities of the top-k most likely classes
+            'scores': [0.325, 0.198, 0.105],
+            # list of class IDs for the top-k most likely classes
+            'labels': [340, 353, 386],
+            # corresponding text names of the top-k most likely classes
+            'label_text': [
+                'zebra',
+                'gazelle',
+                'African elephant, Loxodonta africana',
+            ],
+        }
         ```
 
     Examples:
@@ -427,7 +448,7 @@ def vit_for_image_classification(
         {
             'scores': [top_k_probs[n, k].item() for k in range(top_k_probs.shape[1])],
             'labels': [top_k_indices[n, k].item() for k in range(top_k_probs.shape[1])],
-            'label_text': [model.config.id2label[int(top_k_indices[n, k].item())] for k in range(top_k_probs.shape[1])],
+            'label_text': [model.config.id2label[int(top_k_indices[n, k].item())] for k in range(top_k_probs.shape[1])],  # type: ignore[index]
         }
         for n in range(top_k_probs.shape[0])
     ]
@@ -489,9 +510,10 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
     assert isinstance(tokenizer, Speech2TextTokenizer)
 
     if language is not None and language not in tokenizer.lang_code_to_id:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             f"Language code '{language}' is not supported by the model '{model_id}'. "
-            f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}'
+            f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}',
         )
 
     forced_bos_token_id: int | None = None if language is None else tokenizer.lang_code_to_id[language]
@@ -513,7 +535,9 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
 
     with torch.no_grad():
         inputs = processor(waveform, sampling_rate=model_sampling_rate, return_tensors='pt')
-        generated_ids = model.generate(**inputs.to(device), forced_bos_token_id=forced_bos_token_id).to('cpu')
+        generated_ids = model.generate(**inputs.to(device), forced_bos_token_id=forced_bos_token_id)  # type: ignore[misc]
+        assert isinstance(generated_ids, torch.Tensor)
+        generated_ids = generated_ids.to('cpu')
 
     transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)
     assert len(transcription) == 1
@@ -597,10 +621,11 @@ def text_generation(text: str, *, model_id: str, model_kwargs: dict[str, Any] | 
 
     with torch.no_grad():
         inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
-        outputs = model.generate(**inputs.to(device), pad_token_id=tokenizer.eos_token_id, **model_kwargs)
+        outputs = model.generate(**inputs.to(device), pad_token_id=tokenizer.eos_token_id, **model_kwargs)  # type: ignore[misc]
 
     input_length = len(inputs['input_ids'][0])
     generated_text = tokenizer.decode(outputs[0][input_length:], skip_special_tokens=True)
+    assert isinstance(generated_text, str)
     return generated_text
 
 
@@ -702,18 +727,18 @@ def image_captioning(
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import AutoModelForVision2Seq, AutoProcessor
+    from transformers import AutoModelForImageTextToText, AutoProcessor
 
     if model_kwargs is None:
         model_kwargs = {}
 
-    model = _lookup_model(model_id, AutoModelForVision2Seq.from_pretrained, device=device)
+    model = _lookup_model(model_id, AutoModelForImageTextToText.from_pretrained, device=device)
     processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
     normalized_images = [normalize_image_mode(img) for img in image]
 
     with torch.no_grad():
         inputs = processor(images=normalized_images, return_tensors='pt')
-        outputs = model.generate(**inputs.to(device), **model_kwargs)
+        outputs = model.generate(**inputs.to(device), **model_kwargs)  # type: ignore[misc]
 
     captions = processor.batch_decode(outputs, skip_special_tokens=True)
     return captions
@@ -809,8 +834,9 @@ def token_classification(
     # Validate aggregation strategy
     valid_strategies = {'simple', 'first', 'average', 'max'}
     if aggregation_strategy not in valid_strategies:
-        raise excs.Error(
-            f'Invalid aggregation_strategy {aggregation_strategy!r}. Must be one of: {", ".join(valid_strategies)}'
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'Invalid aggregation_strategy {aggregation_strategy!r}. Must be one of: {", ".join(valid_strategies)}',
         )
 
     with torch.no_grad():
@@ -978,6 +1004,7 @@ def question_answering(context: str, question: str, *, model_id: str) -> dict[st
         end_probs = torch.softmax(end_scores, dim=1)
         confidence = float(start_probs[0][start_idx] * end_probs[0][end_idx])
 
+        assert isinstance(answer, str)
         return {'answer': answer.strip(), 'score': confidence, 'start': int(start_idx), 'end': int(end_idx)}
 
 
@@ -1025,15 +1052,17 @@ def translation(
 
     # Language validation - following speech2text_for_conditional_generation pattern
     if src_lang is not None and src_lang not in lang_code_to_id:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'Source language code {src_lang!r} is not supported by the model {model_id!r}. '
-            f'Supported languages are: {list(lang_code_to_id.keys())}'
+            f'Supported languages are: {list(lang_code_to_id.keys())}',
         )
 
     if target_lang is not None and target_lang not in lang_code_to_id:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'Target language code {target_lang!r} is not supported by the model {model_id!r}. '
-            f'Supported languages are: {list(lang_code_to_id.keys())}'
+            f'Supported languages are: {list(lang_code_to_id.keys())}',
         )
 
     with torch.no_grad():
@@ -1108,21 +1137,24 @@ def text_to_image(
 
     # Parameter validation - following best practices pattern
     if height <= 0 or width <= 0:
-        raise excs.Error(f'Height ({height}) and width ({width}) must be positive integers')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'Height ({height}) and width ({width}) must be positive integers'
+        )
 
     if height % 8 != 0 or width % 8 != 0:
-        raise excs.Error(f'Height ({height}) and width ({width}) must be divisible by 8 for most diffusion models')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'Height ({height}) and width ({width}) must be divisible by 8 for most diffusion models',
+        )
 
     pipeline = _lookup_model(
         model_id,
-        lambda x: AutoPipelineForText2Image.from_pretrained(
-            x,
-            dtype=torch.float16 if device == 'cuda' else torch.float32,
-            device_map='auto' if device == 'cuda' else None,
-            safety_checker=None,  # Disable safety checker for performance
-            requires_safety_checker=False,
-        ),
+        AutoPipelineForText2Image.from_pretrained,
         device=device,
+        dtype=torch.float16 if device == 'cuda' else torch.float32,
+        device_map='auto' if device == 'cuda' else None,
+        safety_checker=None,
+        requires_safety_checker=False,
     )
 
     try:
@@ -1173,16 +1205,19 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     env.Env.get().require_package('soundfile')
     device = resolve_torch_device('auto')
     import datasets  # type: ignore[import-untyped]
-    import soundfile as sf  # type: ignore[import-untyped]
+    import soundfile  # type: ignore[import-untyped]
     import torch
     from transformers import (
         AutoModelForTextToWaveform,
         AutoProcessor,
         BarkModel,
+        PreTrainedModel,
         SpeechT5ForTextToSpeech,
         SpeechT5HifiGan,
         SpeechT5Processor,
     )
+
+    model: PreTrainedModel
 
     # Model loading with error handling - following best practices pattern
     if 'speecht5' in model_id.lower():
@@ -1219,13 +1254,13 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
         # Generate speech based on model type
         if 'speecht5' in model_id.lower():
             inputs = processor(text=text, return_tensors='pt').to(device)
-            speech = model.generate_speech(inputs['input_ids'], speaker_embeddings, vocoder=vocoder_model)
+            speech = model.generate_speech(inputs['input_ids'], speaker_embeddings, vocoder=vocoder_model)  # type: ignore[operator]
             audio_np = speech.cpu().numpy()
             sample_rate = 16000
 
         elif 'bark' in model_id.lower():
             inputs = processor(text, return_tensors='pt').to(device)
-            audio_array = model.generate(**inputs)
+            audio_array = model.generate(**inputs)  # type: ignore[operator]
             audio_np = audio_array.cpu().numpy().squeeze()
             sample_rate = getattr(model.generation_config, 'sample_rate', 24000)
 
@@ -1245,7 +1280,7 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
 
         # Create output file
         output_filename = str(TempStore.create_path(extension='.wav'))
-        sf.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
+        soundfile.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
         return output_filename
 
 
@@ -1313,14 +1348,12 @@ def image_to_image(
 
     pipeline = _lookup_model(
         model_id,
-        lambda x: AutoPipelineForImage2Image.from_pretrained(
-            x,
-            dtype=torch.float16 if device == 'cuda' else torch.float32,
-            device_map='auto' if device == 'cuda' else None,
-            safety_checker=None,  # Disable safety checker for performance
-            requires_safety_checker=False,
-        ),
+        AutoPipelineForImage2Image.from_pretrained,
         device=device,
+        dtype=torch.float16 if device == 'cuda' else torch.float32,
+        device_map='auto' if device == 'cuda' else None,
+        safety_checker=None,
+        requires_safety_checker=False,
     )
 
     try:
@@ -1359,7 +1392,7 @@ def automatic_speech_recognition(
 
     __Requirements:__
 
-    - `pip install torch transformers torchaudio`
+    - `pip install torch transformers torchaudio torchcodec`
 
     __Recommended Models:__
 
@@ -1416,9 +1449,10 @@ def automatic_speech_recognition(
             try:
                 _ = tokenizer.get_decoder_prompt_ids(language=language)
             except Exception:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f"Language code '{language}' is not supported by Whisper model '{model_id}'. "
-                    f"Try common codes like 'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh'."
+                    f"Try common codes like 'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh'.",
                 ) from None
 
     elif 'wav2vec2' in model_id.lower():
@@ -1548,25 +1582,28 @@ def image_to_video(
 
     # Parameter validation - following best practices pattern
     if num_frames < 1:
-        raise excs.Error(f'num_frames must be at least 1, got {num_frames}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'num_frames must be at least 1, got {num_frames}')
 
     if num_frames > 25:
-        raise excs.Error(f'num_frames cannot exceed 25 for most video diffusion models, got {num_frames}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'num_frames cannot exceed 25 for most video diffusion models, got {num_frames}',
+        )
 
     if fps < 1:
-        raise excs.Error(f'fps must be at least 1, got {fps}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'fps must be at least 1, got {fps}')
 
     if fps > 60:
-        raise excs.Error(f'fps should not exceed 60 for reasonable video generation, got {fps}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'fps should not exceed 60 for reasonable video generation, got {fps}'
+        )
 
     pipe = _lookup_model(
         model_id,
-        lambda x: StableVideoDiffusionPipeline.from_pretrained(
-            x,
-            torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-            variant='fp16' if device == 'cuda' else None,
-        ),
+        StableVideoDiffusionPipeline.from_pretrained,
         device=device,
+        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+        variant='fp16' if device == 'cuda' else None,
     )
 
     try:
@@ -1618,16 +1655,23 @@ def image_to_video(
 
 
 def _lookup_model(
-    model_id: str, create: Callable[..., T], device: str | None = None, pass_device_to_create: bool = False
+    model_id: str,
+    create: Callable[..., T],
+    device: str | None = None,
+    pass_device_to_create: bool = False,
+    cache_key: tuple | None = None,
+    **kwargs: Any,
 ) -> T:
     from torch import nn
 
-    key = (model_id, create, device)  # For safety, include the `create` callable in the cache key
+    # Include `create` and kwargs in key so different model classes/configs get separate entries.
+    # Callers that must pass a lambda can supply an explicit `cache_key` to avoid per-call misses.
+    key = cache_key if cache_key is not None else (model_id, create, device, tuple(sorted(kwargs.items())))
     if key not in _model_cache:
         if pass_device_to_create:
-            model = create(model_id, device=device)
+            model = create(model_id, device=device, **kwargs)
         else:
-            model = create(model_id)
+            model = create(model_id, **kwargs)
         if isinstance(model, nn.Module):
             if not pass_device_to_create and device is not None:
                 model.to(device)
@@ -1636,16 +1680,16 @@ def _lookup_model(
     return _model_cache[key]
 
 
-def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
-    key = (model_id, create)  # For safety, include the `create` callable in the cache key
+def _lookup_processor(model_id: str, create: Callable[[str], T], **kwargs: Any) -> T:
+    key = (model_id, create, tuple(sorted(kwargs.items())))
     if key not in _processor_cache:
-        _processor_cache[key] = create(model_id)
+        _processor_cache[key] = create(model_id, **kwargs)
     return _processor_cache[key]
 
 
-_model_cache: dict[tuple[str, Callable, str | None], Any] = {}
+_model_cache: dict[tuple, Any] = {}
 _speecht5_embeddings_dataset: list[Any] = []  # contains only the speecht5 embeddings loaded by text_to_speech()
-_processor_cache: dict[tuple[str, Callable], Any] = {}
+_processor_cache: dict[tuple, Any] = {}
 
 
 __all__ = local_public_names(__name__)

@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Callable, Type, cast
+from typing import TYPE_CHECKING, Any, Type, cast
 
 import httpx
 import numpy as np
@@ -185,8 +185,8 @@ def _fract_remaining(resource_info: tuple[int, int, datetime.datetime] | None) -
 class OpenAIRateLimitsInfo(env.RateLimitsInfo):
     retryable_errors: tuple[Type[Exception], ...]
 
-    def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
-        super().__init__(get_request_resources)
+    def __init__(self) -> None:
+        super().__init__()
         import openai
 
         self.retryable_errors = (
@@ -369,7 +369,7 @@ async def translations(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, 
 
 
 #####################################
-# Chat Endpoints
+# Chat/Responses Endpoints
 
 
 def _default_max_tokens(model: str) -> int:
@@ -418,18 +418,9 @@ def _token_count_for_image(image: PIL.Image.Image) -> int:
     )
 
 
-def _chat_completions_get_request_resources(
-    messages: list, model: str, model_kwargs: dict[str, Any] | None
+def _messages_resource_estimate(
+    messages: list, max_completion_tokens: int, text_type: str, image_type: str
 ) -> dict[str, int]:
-    if model_kwargs is None:
-        model_kwargs = {}
-
-    max_completion_tokens = model_kwargs.get('max_completion_tokens')
-    max_tokens = model_kwargs.get('max_tokens')
-    n = model_kwargs.get('n')
-
-    completion_tokens = (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model))
-
     num_tokens = 0.0
     for message in messages:
         num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
@@ -439,15 +430,17 @@ def _chat_completions_get_request_resources(
             elif isinstance(value, list):
                 for part in value:
                     if isinstance(part, dict):
-                        if part.get('type') == 'text' and isinstance(part.get('text'), str):
+                        if part.get('type') == text_type:
+                            assert isinstance(part.get('text'), str)
                             num_tokens += len(part['text']) / 4
-                        elif part.get('type') == 'image_url' and isinstance(part.get('image_url'), PIL.Image.Image):
+                        elif part.get('type') == image_type:
+                            assert isinstance(part.get('image_url'), PIL.Image.Image)
                             num_tokens += _token_count_for_image(part['image_url'])
             if key == 'name':  # if there's a name, the role is omitted
                 num_tokens -= 1  # role is always required and always 1 token
 
     num_tokens += 2  # every reply is primed with <im_start>assistant
-    return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
+    return {'requests': 1, 'tokens': int(num_tokens) + max_completion_tokens}
 
 
 @pxt.udf(is_deterministic=False)
@@ -545,9 +538,7 @@ async def chat_completions(
 
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
-    rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
-    )
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
 
     request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().chat.completions.with_raw_response.create(
@@ -561,9 +552,145 @@ async def chat_completions(
     return json.loads(result.text)
 
 
+@chat_completions.resource_estimator
+def _(messages: list, model: str, model_kwargs: dict[str, Any] | None = None) -> dict[str, int]:
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    max_completion_tokens = model_kwargs.get('max_completion_tokens')
+    max_tokens = model_kwargs.get('max_tokens')
+    n = model_kwargs.get('n')
+
+    return _messages_resource_estimate(
+        messages,
+        (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model)),
+        text_type='text',
+        image_type='image_url',
+    )
+
+
+@pxt.udf(is_deterministic=False)
+async def responses(
+    input: list,
+    *,
+    model: str,
+    model_kwargs: dict[str, Any] | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
+) -> dict:
+    """
+    Creates a model response for the given input.
+
+    Equivalent to the OpenAI `responses` API endpoint.
+    For additional details, see: <https://developers.openai.com/api/docs/guides/migrate-to-responses>
+
+    Request throttling:
+    Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
+    request and token capacity. No configuration is necessary.
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        input: A list of input items for the model, as described in the OpenAI API documentation.
+        model: The model to use for generating a response.
+        model_kwargs: Additional keyword args for the OpenAI `responses` API. For details on the available
+            parameters, see: <https://developers.openai.com/api/docs/api-reference/responses/create>
+            Common options include `instructions`, `temperature`, `max_output_tokens`, `reasoning`, `text`
+            (for structured outputs), `previous_response_id` (for multi-turn), and `store`.
+
+    Returns:
+        A dictionary containing the response and other metadata. The response text is accessible via
+        the `output_text` field for simple cases, or through the `output` list for structured access.
+
+    Examples:
+        Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.prompt`
+        of the table `tbl`:
+
+        >>> messages = [{'role': 'user', 'content': tbl.prompt}]
+        ... tbl.add_computed_column(
+        ...     response=responses(
+        ...         messages,
+        ...         model='gpt-4o-mini',
+        ...         model_kwargs={'instructions': 'You are a helpful assistant.'},
+        ...     )
+        ... )
+
+        You can also include images in the input list by passing image data directly, using the Responses API
+        `input_image` content type:
+
+        >>> messages = [
+        ...     {
+        ...         'role': 'user',
+        ...         'content': [
+        ...             {'type': 'input_text', 'text': "What's in this image?"},
+        ...             {'type': 'input_image', 'image_url': tbl.image},
+        ...         ],
+        ...     }
+        ... ]
+        ... tbl.add_computed_column(response=responses(messages, model='gpt-4o-mini'))
+    """
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    # In Responses API, functions use internally-tagged polymorphism (flat structure)
+    if tools is not None:
+        model_kwargs['tools'] = [{'type': 'function', **tool} for tool in tools]
+
+    if tool_choice is not None:
+        if tool_choice['auto']:
+            model_kwargs['tool_choice'] = 'auto'
+        elif tool_choice['required']:
+            model_kwargs['tool_choice'] = 'required'
+        else:
+            assert tool_choice['tool'] is not None
+            model_kwargs['tool_choice'] = {'type': 'function', 'name': tool_choice['tool']}
+
+    if tool_choice is not None and not tool_choice['parallel_tool_calls']:
+        model_kwargs['parallel_tool_calls'] = False
+
+    # Serialize any images in input items (Responses API uses 'input_image' type)
+    input = copy.deepcopy(input)
+    for item in input:
+        content = item.get('content') if isinstance(item, dict) else None
+        if isinstance(content, list):
+            for part in content:
+                if (
+                    isinstance(part, dict)
+                    and part.get('type') == 'input_image'
+                    and isinstance(part.get('image_url'), PIL.Image.Image)
+                ):
+                    b64_encoded_image = to_base64(part['image_url'], format='png')
+                    part['image_url'] = f'data:image/png;base64,{b64_encoded_image}'
+
+    resource_pool = _rate_limits_pool(model)
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
+
+    request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
+    result = await _openai_client().responses.with_raw_response.create(input=input, model=model, **model_kwargs)
+
+    requests_info, tokens_info = _get_header_info(result.headers)
+    is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
+    rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
+
+    return json.loads(result.text)
+
+
+@responses.resource_estimator
+def _(input: list, model: str, model_kwargs: dict[str, Any] | None = None) -> dict[str, int]:
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    max_output_tokens = model_kwargs.get('max_output_tokens', _default_max_tokens(model))
+
+    return _messages_resource_estimate(input, max_output_tokens, text_type='input_text', image_type='input_image')
+
+
 @pxt.udf(is_deterministic=False)
 @deprecated(
-    reason='vision() is deprecated as a separate API; use chat_completions() instead',
+    reason='vision() is deprecated as a separate API; use chat_completions() or responses() instead',
     version='0.5.18',
     category=excs.PixeltableDeprecationWarning,
 )
@@ -616,6 +743,16 @@ async def vision(
     return response['choices'][0]['message']['content']
 
 
+@vision.resource_estimator
+def _(prompt: str, image: PIL.Image.Image, model: str, model_kwargs: dict[str, Any] | None = None) -> dict[str, int]:
+    if model_kwargs is None:
+        model_kwargs = {}
+    max_tokens = model_kwargs.get('max_tokens') or _default_max_tokens(model)
+    # 4 tokens message overhead + prompt text + image tokens + 2 tokens reply priming
+    num_tokens = 4 + len(prompt) / 4 + _token_count_for_image(image) + 2
+    return {'requests': 1, 'tokens': int(num_tokens) + max_tokens}
+
+
 #####################################
 # Embeddings Endpoints
 
@@ -624,11 +761,6 @@ _embedding_dimensions_cache: dict[str, int] = {
     'text-embedding-3-small': 1536,
     'text-embedding-3-large': 3072,
 }
-
-
-def _embeddings_get_request_resources(input: list[str]) -> dict[str, int]:
-    input_len = sum(len(s) for s in input)
-    return {'requests': 1, 'tokens': int(input_len / 4)}
 
 
 @pxt.udf(batch_size=32)
@@ -681,9 +813,7 @@ async def embeddings(
 
     _logger.debug(f'embeddings: batch_size={len(input)}')
     resource_pool = _rate_limits_pool(model)
-    rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources)
-    )
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
     request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().embeddings.with_raw_response.create(
         input=input, model=model, encoding_format='float', **model_kwargs
@@ -705,6 +835,12 @@ def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
             return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
         dimensions = _embedding_dimensions_cache.get(model)
     return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
+
+
+@embeddings.resource_estimator
+def _(input: list[str]) -> dict[str, int]:
+    input_len = sum(len(s) for s in input)
+    return {'requests': 1, 'tokens': int(input_len / 4)}
 
 
 #####################################
@@ -732,7 +868,9 @@ def _decode_image_response(result: dict) -> dict:
     for i in range(len(result['data'])):
         b64_str = result['data'][i].get('b64_json')
         if b64_str is None:
-            raise excs.Error('Image content is missing in the response.')
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR, 'Image content is missing in the response.', provider='openai'
+            )
         b64_bytes = base64.b64decode(b64_str)
         img = PIL.Image.open(io.BytesIO(b64_bytes))
         img.load()
@@ -1020,6 +1158,7 @@ def _(model: str) -> str:
 @chat_completions.resource_pool
 @vision.resource_pool
 @embeddings.resource_pool
+@responses.resource_pool
 def _(model: str) -> str:
     return _rate_limits_pool(model)
 
@@ -1031,6 +1170,16 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 
 @pxt.udf
 def _openai_response_to_pxt_tool_calls(response: dict) -> dict | None:
+    # Auto-detect: Responses API has 'output', Chat Completions has 'choices'
+    assert 'output' in response or 'choices' in response, (
+        "Unexpected OpenAI response format: missing 'output' or 'choices'"
+    )
+    if 'output' in response:
+        return _responses_output_to_pxt_tool_calls(response)
+    return _chat_completions_to_pxt_tool_calls(response)
+
+
+def _chat_completions_to_pxt_tool_calls(response: dict) -> dict | None:
     if 'tool_calls' not in response['choices'][0]['message'] or response['choices'][0]['message']['tool_calls'] is None:
         return None
     openai_tool_calls = response['choices'][0]['message']['tool_calls']
@@ -1040,6 +1189,20 @@ def _openai_response_to_pxt_tool_calls(response: dict) -> dict | None:
         if tool_name not in pxt_tool_calls:
             pxt_tool_calls[tool_name] = []
         pxt_tool_calls[tool_name].append({'args': json.loads(tool_call['function']['arguments'])})
+    return pxt_tool_calls
+
+
+def _responses_output_to_pxt_tool_calls(response: dict) -> dict | None:
+    output = response.get('output', [])
+    function_calls = [item for item in output if item.get('type') == 'function_call']
+    if not function_calls:
+        return None
+    pxt_tool_calls: dict[str, list[dict[str, Any]]] = {}
+    for fc in function_calls:
+        tool_name = fc['name']
+        if tool_name not in pxt_tool_calls:
+            pxt_tool_calls[tool_name] = []
+        pxt_tool_calls[tool_name].append({'args': json.loads(fc['arguments'])})
     return pxt_tool_calls
 
 

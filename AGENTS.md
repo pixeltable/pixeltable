@@ -111,7 +111,6 @@ pytest -m "remote_api" tests/functions/test_openai.py
 **Test markers:**
 - `@pytest.mark.expensive` - Long-running tests
 - `@pytest.mark.remote_api` - Tests calling external APIs
-- `@pytest.mark.corrupts_db` - Tests that modify database state destructively
 
 ### Creating a Pull Request
 
@@ -145,9 +144,8 @@ def my_function(input_text: str, model: str = 'default-model') -> str:
         The processed output text.
 
     Example:
-        ```python
-        t.add_computed_column(result=my_function(t.text, model='advanced'))
-        ```
+
+        >>> t.add_computed_column(result=my_function(t.text, model='advanced'))
     """
     # Implementation
     pass
@@ -239,8 +237,7 @@ Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELI
 
 Follow `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md`:
 
-- Code fences must be on their own lines
-- All code examples must be in fenced code blocks
+- Code examples must use `>>>` prompts, not fenced code blocks
 - Backticks must be properly paired
 - HTML tags must be self-closing
 
@@ -320,9 +317,11 @@ def safe_process(value: Optional[str]) -> str:
 | `pixeltable/__init__.py` | Public API exports |
 | `pixeltable/catalog/table.py` | Table class implementation |
 | `pixeltable/catalog/view.py` | View class implementation |
+| `pixeltable/dashboard/` | Local web UI backend (server, bridge) |
 | `pixeltable/func/udf.py` | UDF decorator implementation |
 | `pixeltable/functions/` | AI provider integrations |
 | `pixeltable/io/` | Import/export functionality |
+| `dashboard/` | Local web UI frontend (React/Vite) |
 | `pyproject.toml` | Dependencies and tool config |
 | `Makefile` | Build and test commands |
 

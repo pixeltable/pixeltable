@@ -7,7 +7,7 @@ import logging
 import sys
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exprs, func
+from pixeltable import exceptions as excs, exprs, func
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -74,6 +74,11 @@ class FnCallEvaluator(Evaluator):
         super().__init__(dispatcher, exec_ctx)
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
+        if fn_call.resource_pool is not None and not self.fn.is_async:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{self.fn.display_name}: resource_pool requires an async function',
+            )
         if isinstance(self.fn, func.CallableFunction) and self.fn.is_batched:
             self.call_args_queue = asyncio.Queue[FnCallArgs]()
             # we're not supplying sample arguments there, they're ignored anyway

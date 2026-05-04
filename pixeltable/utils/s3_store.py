@@ -1,6 +1,5 @@
 import logging
 import re
-import threading
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -9,6 +8,8 @@ from typing import TYPE_CHECKING, Any, Iterator, NamedTuple
 import boto3
 import botocore
 import puremagic
+from boto3.resources.base import ServiceResource
+from botocore.client import BaseClient
 from botocore.exceptions import ClientError, ConnectionError
 
 from pixeltable import env, exceptions as excs
@@ -17,19 +18,13 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
 
 if TYPE_CHECKING:
-    from botocore.exceptions import ClientError
-
     from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
 
-client_lock = threading.Lock()
-
 
 class S3CompatClientDict(NamedTuple):
-    """Container for S3-compatible storage access objects (R2, B2, etc.).
-    Thread-safe via the module-level 'client_lock'.
-    """
+    """Container for S3-compatible storage access objects (R2, B2, etc.)."""
 
     profile: str | None  # AWS-style profile used to locate credentials
     clients: dict[str, Any]  # Map of endpoint URL → boto3 client instance
@@ -98,28 +93,38 @@ class S3Store(ObjectStoreBase):
 
     soa: StorageObjectAddress
 
-    def __init__(self, soa: StorageObjectAddress):
+    # client to use when using pixeltable store running on top of S3 compatible object store
+    _client: BaseClient | None
+
+    # resource to use when using pixeltable store running on top of S3 compatible object store
+    _resource: ServiceResource | None
+
+    def __init__(
+        self, soa: StorageObjectAddress, *, client: BaseClient | None = None, resource: ServiceResource | None = None
+    ):
         self.soa = soa
         self.__bucket_name = self.soa.container
         self.__prefix_name = self.soa.prefix
+        self._client = client
+        self._resource = resource
+
         assert self.soa.storage_target in {
             StorageTarget.R2_STORE,
             StorageTarget.S3_STORE,
             StorageTarget.B2_STORE,
             StorageTarget.TIGRIS_STORE,
-        }, f'Expected storage_target "s3", "r2", "b2", or "tigris", but got: {self.soa.storage_target}'
+            StorageTarget.PIXELTABLE_STORE,
+        }, f'Expected storage_target "s3", "r2", "b2", "tigris" or "pxtfs" but got: {self.soa.storage_target}'
         self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
     def _get_s3_compat_client(self, client_name: str) -> Any:
         """Helper to get S3-compatible client (R2, B2, Tigris) - caches per endpoint URI."""
         cd = get_runtime().get_client(client_name)
-        with client_lock:
-            if self.soa.container_free_uri not in cd.clients:
-                cd.clients[self.soa.container_free_uri] = S3Store.create_boto_client(
-                    profile_name=cd.profile,
-                    extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'},
-                )
-            return cd.clients[self.soa.container_free_uri]
+        if self.soa.container_free_uri not in cd.clients:
+            cd.clients[self.soa.container_free_uri] = S3Store.create_boto_client(
+                profile_name=cd.profile, extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'}
+            )
+        return cd.clients[self.soa.container_free_uri]
 
     def _get_s3_client_with_region(self) -> Any:
         """Helper to get S3 client with correct region - caches per region (not per bucket).
@@ -129,44 +134,47 @@ class S3Store(ObjectStoreBase):
         """
         cd = get_runtime().get_client('s3')
         default_key = 'default'
-        with client_lock:
-            if default_key not in cd.clients:
-                cd.clients[default_key] = S3Store.create_boto_client(profile_name=cd.profile)
+        if default_key not in cd.clients:
+            cd.clients[default_key] = S3Store.create_boto_client(profile_name=cd.profile)
 
-            default_client = cd.clients[default_key]
+        default_client = cd.clients[default_key]
 
-            # Detect bucket region
-            try:
-                bucket_location = default_client.get_bucket_location(Bucket=self.soa.container)
-                region = bucket_location.get('LocationConstraint')
-                if region is None:
-                    region = 'us-east-1'  # None means us-east-1
-            except ClientError:
-                return default_client
+        # Detect bucket region
+        try:
+            bucket_location = default_client.get_bucket_location(Bucket=self.soa.container)
+            region = bucket_location.get('LocationConstraint')
+            if region is None:
+                region = 'us-east-1'  # None means us-east-1
+        except ClientError:
+            return default_client
 
-            # Check if default already has the correct region
-            client_region = default_client._client_config.region_name
-            if region == client_region:
-                return default_client
+        # Check if default already has the correct region
+        client_region = default_client._client_config.region_name
+        if region == client_region:
+            return default_client
 
-            # Cache per region (reusable for all buckets in that region)
-            # Reuse config from default client, just change the region
-            region_key = region
-            if region_key not in cd.clients:
-                default_config = default_client._client_config
-                session = self.create_boto_session(cd.profile)
-                config = botocore.config.Config(
-                    max_pool_connections=default_config.max_pool_connections,
-                    connect_timeout=default_config.connect_timeout,
-                    read_timeout=default_config.read_timeout,
-                    retries=default_config.retries,
-                    signature_version=default_config.signature_version,
-                    s3=default_config.s3,
-                    user_agent_extra=default_config.user_agent_extra,
-                )
-                cd.clients[region_key] = session.client('s3', region_name=region, config=config)
+        # Cache per region (reusable for all buckets in that region)
+        # Reuse config from default client, just change the region
+        region_key = region
+        if region_key not in cd.clients:
+            default_config = default_client._client_config
+            session = self.create_boto_session(cd.profile)
+            config = botocore.config.Config(
+                max_pool_connections=default_config.max_pool_connections,
+                connect_timeout=default_config.connect_timeout,
+                read_timeout=default_config.read_timeout,
+                retries=default_config.retries,
+                signature_version=default_config.signature_version,
+                s3=default_config.s3,
+                user_agent_extra=default_config.user_agent_extra,
+            )
+            cd.clients[region_key] = session.client('s3', region_name=region, config=config)
 
-            return cd.clients[region_key]
+        return cd.clients[region_key]
+
+    @property
+    def base_uri(self) -> str:
+        return self.__base_uri
 
     def client(self) -> Any:
         """Return a boto3 client to access the store.
@@ -181,50 +189,53 @@ class S3Store(ObjectStoreBase):
             return self._get_s3_compat_client('tigris')
         if self.soa.storage_target == StorageTarget.S3_STORE:
             return self._get_s3_client_with_region()
+        if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            assert self._client, (
+                f'pxt_store client not found for {self.soa}; '
+                'PxtStore.__init__ must pre-populate the client before constructing S3Store'
+            )
+            return self._client
         raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
 
     def _get_s3_compat_resource(self, client_name: str) -> Any:
         """Helper to get S3-compatible resource (R2, B2, Tigris) - caches per endpoint URI."""
         cd = get_runtime().get_client(client_name)
-        with client_lock:
-            if self.soa.container_free_uri not in cd.clients:
-                cd.clients[self.soa.container_free_uri] = S3Store.create_boto_resource(
-                    profile_name=cd.profile,
-                    extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'},
-                )
-            return cd.clients[self.soa.container_free_uri]
+        if self.soa.container_free_uri not in cd.clients:
+            cd.clients[self.soa.container_free_uri] = S3Store.create_boto_resource(
+                profile_name=cd.profile, extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'}
+            )
+        return cd.clients[self.soa.container_free_uri]
 
     def _get_s3_resource_with_region(self) -> Any:
         """Helper to get S3 resource with correct region - caches per region (not per bucket)."""
         cd = get_runtime().get_client('s3_resource')
         default_key = 'default'
-        with client_lock:
-            if default_key not in cd.clients:
-                cd.clients[default_key] = S3Store.create_boto_resource(profile_name=cd.profile)
+        if default_key not in cd.clients:
+            cd.clients[default_key] = S3Store.create_boto_resource(profile_name=cd.profile)
 
-            default_resource = cd.clients[default_key]
+        default_resource = cd.clients[default_key]
 
-            # Detect bucket region using the resource's client
-            try:
-                bucket_location = default_resource.meta.client.get_bucket_location(Bucket=self.soa.container)
-                region = bucket_location.get('LocationConstraint')
-                if region is None:
-                    region = 'us-east-1'
-            except ClientError:
-                return default_resource
+        # Detect bucket region using the resource's client
+        try:
+            bucket_location = default_resource.meta.client.get_bucket_location(Bucket=self.soa.container)
+            region = bucket_location.get('LocationConstraint')
+            if region is None:
+                region = 'us-east-1'
+        except ClientError:
+            return default_resource
 
-            # Check if default resource already has the correct region
-            resource_region = default_resource.meta.client._client_config.region_name
-            if region == resource_region:
-                return default_resource
+        # Check if default resource already has the correct region
+        resource_region = default_resource.meta.client._client_config.region_name
+        if region == resource_region:
+            return default_resource
 
-            # Cache resource per region (reusable for all buckets in that region)
-            region_key = region
-            if region_key not in cd.clients:
-                session = self.create_boto_session(cd.profile)
-                cd.clients[region_key] = session.resource('s3', region_name=region)
+        # Cache resource per region (reusable for all buckets in that region)
+        region_key = region
+        if region_key not in cd.clients:
+            session = self.create_boto_session(cd.profile)
+            cd.clients[region_key] = session.resource('s3', region_name=region)
 
-            return cd.clients[region_key]
+        return cd.clients[region_key]
 
     def get_resource(self) -> Any:
         """Return a boto3 resource to access the store.
@@ -240,6 +251,12 @@ class S3Store(ObjectStoreBase):
             return self._get_s3_compat_resource('tigris_resource')
         if self.soa.storage_target == StorageTarget.S3_STORE:
             return self._get_s3_resource_with_region()
+        if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            assert self._resource, (
+                f'pxt_store resource not found for {self.soa}; '
+                'PxtStore.__init__ must pre-populate the resource before constructing S3Store'
+            )
+            return self._resource
         raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
 
     @property
@@ -257,7 +274,7 @@ class S3Store(ObjectStoreBase):
         Checks if the URI exists.
 
         Returns:
-            bool: True if the S3 URI exists and is accessible, False otherwise.
+            The base URI if the bucket is accessible, or None if not.
         """
         try:
             self.client().head_bucket(Bucket=self.bucket_name)
@@ -265,8 +282,10 @@ class S3Store(ObjectStoreBase):
         except ClientError as e:
             self.handle_s3_error(e, f'validating destination for {error_col_name}')
         except ConnectionError as e:
-            raise excs.Error(
-                f'Connection error while validating destination {self.__base_uri!r} for {error_col_name}: {e}'
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Connection error while validating destination {self.__base_uri!r} for {error_col_name}: {e}',
+                provider='s3',
             ) from e
         return None
 
@@ -298,7 +317,12 @@ class S3Store(ObjectStoreBase):
         new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         key = parsed.path.lstrip('/')
-        if self.soa.storage_target in {StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}:
+        if self.soa.storage_target in {
+            StorageTarget.R2_STORE,
+            StorageTarget.B2_STORE,
+            StorageTarget.TIGRIS_STORE,
+            StorageTarget.PIXELTABLE_STORE,
+        }:
             key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2/B2
         try:
             _logger.debug(f'Media Storage: copying {src_path} to {new_file_uri} : Key: {key}')
@@ -453,18 +477,26 @@ class S3Store(ObjectStoreBase):
         if ignore_404 and error_code == '404':
             return
         if error_code == '404':
-            raise excs.Error(f'Client error while {operation}: Bucket {self.bucket_name!r} not found') from e
+            raise excs.NotFoundError(
+                excs.ErrorCode.STORAGE_NOT_FOUND,
+                f'Client error while {operation}: Bucket {self.bucket_name!r} not found',
+            ) from e
         elif error_code == '403':
-            raise excs.Error(
-                f'Client error while {operation}: Access denied to bucket {self.bucket_name!r}: {error_message}'
+            raise excs.AuthorizationError(
+                excs.ErrorCode.INSUFFICIENT_PRIVILEGES,
+                f'Client error while {operation}: Access denied to bucket {self.bucket_name!r}: {error_message}',
             ) from e
         elif error_code == 'PreconditionFailed' or 'PreconditionFailed' in error_message:
-            raise excs.Error(
-                f'Client error while {operation}: Precondition failed for bucket {self.bucket_name!r}: {error_message}'
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Client error while {operation}: Precondition failed for bucket {self.bucket_name!r}: {error_message}',
+                provider='s3',
             ) from e
         else:
-            raise excs.Error(
-                f'Client error while {operation} in bucket {self.bucket_name!r}: {error_code} - {error_message}'
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Client error while {operation} in bucket {self.bucket_name!r}: {error_code} - {error_message}',
+                provider='s3',
             ) from e
 
     @classmethod
@@ -509,7 +541,9 @@ class S3Store(ObjectStoreBase):
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
         """Create a presigned URL for downloading an object from S3-compatible storage."""
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'StorageObjectAddress does not contain an object name: {soa}'
+            )
 
         s3_client = self.client()
 

@@ -1,9 +1,20 @@
+from __future__ import annotations
+
+import copy
+import os
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from keyword import iskeyword as is_python_keyword
-from typing import Any
+from pathlib import Path
+from typing import IO, Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.catalog.globals import is_system_column_name
+from pixeltable.exprs.column_property_ref import ColumnPropertyRef
+from pixeltable.exprs.column_ref import ColumnRef
+from pixeltable.exprs.expr import Expr
 
 
 def normalize_pxt_col_name(name: str) -> str:
@@ -27,7 +38,9 @@ def normalize_primary_key_parameter(primary_key: str | list[str] | None = None) 
     elif isinstance(primary_key, str):
         primary_key = [primary_key]
     elif not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
-        raise excs.Error('primary_key must be a single column name or a list of column names')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, 'primary_key must be a single column name or a list of column names'
+        )
     return primary_key
 
 
@@ -56,14 +69,17 @@ def normalize_schema_names(
     # Report any untyped columns as an error
     untyped_cols = [in_name for in_name, column_type in in_schema.items() if column_type is None]
     if len(untyped_cols) > 0:
-        raise excs.Error(f'Could not infer pixeltable type for column(s): {", ".join(untyped_cols)}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_TYPE, f'Could not infer pixeltable type for column(s): {", ".join(untyped_cols)}'
+        )
 
     # Report any columns in `schema_overrides` that are not in the source
     extraneous_overrides = schema_overrides.keys() - in_schema.keys()
     if len(extraneous_overrides) > 0:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'Some column(s) specified in `schema_overrides` are not present '
-            f'in the source: {", ".join(extraneous_overrides)}'
+            f'in the source: {", ".join(extraneous_overrides)}',
         )
 
     schema: dict[str, Any] = {}
@@ -84,8 +100,9 @@ def normalize_schema_names(
     non_identity_keys = [k for k, v in col_mapping.items() if k != v]
     if len(non_identity_keys) > 0:
         if require_valid_pxt_column_names:
-            raise excs.Error(
-                f'Column names must be valid pixeltable identifiers. Invalid names: {", ".join(non_identity_keys)}'
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'Column names must be valid pixeltable identifiers. Invalid names: {", ".join(non_identity_keys)}',
             )
     else:
         col_mapping = None
@@ -93,8 +110,53 @@ def normalize_schema_names(
     # Report any primary key columns that are not in the source as an error
     missing_pk = [pk for pk in primary_key if pk not in in_schema]
     if len(missing_pk) > 0:
-        raise excs.Error(f'Primary key column(s) are not found in the source: {", ".join(missing_pk)}')
+        raise excs.NotFoundError(
+            excs.ErrorCode.COLUMN_NOT_FOUND,
+            f'Primary key column(s) are not found in the source: {", ".join(missing_pk)}',
+        )
 
     pxt_pk = [col_mapping[pk] for pk in primary_key] if col_mapping is not None else primary_key
 
     return schema, pxt_pk, col_mapping
+
+
+def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> list[Expr]:
+    """Return a new select list where media ColumnRefs are replaced with their .fileurl property.
+
+    This avoids Pixeltable's file caching pipeline and instead returns the authoritative
+    URL stored in the database for each media column. Media-typed expressions that are not
+    bare ColumnRefs (e.g. `.resize(...)` or other transformations) have no stable URL and
+    are rejected.
+    """
+    result: list[Expr] = []
+    for expr in copy.deepcopy(select_list_exprs):
+        if isinstance(expr, ColumnRef) and expr.col_type.is_media_type():
+            result.append(ColumnPropertyRef(expr, ColumnPropertyRef.Property.FILEURL))
+        elif expr.col_type.is_media_type():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot export media expression {expr!r}: only stored media columns can be serialized. '
+                f'Materialize it as a computed column, or select its underlying '
+                f'column via `.fileurl` instead.',
+            )
+        else:
+            result.append(expr)
+    return result
+
+
+@contextmanager
+def atomic_write(file_path: Path, **open_kwargs: Any) -> Iterator[IO[str]]:
+    """Open a tempfile alongside `file_path`; rename it onto `file_path` on clean exit, delete on error.
+
+    `open_kwargs` are forwarded to `os.fdopen` (e.g. `mode`, `encoding`, `newline`).
+    """
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(file_path.parent), prefix=f'.{file_path.name}.', suffix='.tmp')
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, **open_kwargs) as f:
+            yield f
+        os.replace(tmp_path, file_path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise

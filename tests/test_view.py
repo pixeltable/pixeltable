@@ -16,6 +16,7 @@ from .utils import (
     assert_resultset_eq,
     assert_table_metadata_eq,
     create_test_tbl,
+    pxt_raises,
     reload_catalog,
     validate_update_status,
 )
@@ -55,14 +56,14 @@ class TestView:
     def test_errors(self, uses_db: None) -> None:
         t = self.create_tbl()
         v = pxt.create_view('test_view', t)
-        with pytest.raises(pxt.Error, match=r"view 'test_view': Cannot insert into a view."):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"view 'test_view': Cannot insert into a view."):
             _ = v.insert([{'bad_col': 1}])
-        with pytest.raises(pxt.Error, match=r"view 'test_view': Cannot insert into a view."):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"view 'test_view': Cannot insert into a view."):
             _ = v.insert(bad_col=1)
-        with pytest.raises(pxt.Error, match=r"view 'test_view': Cannot delete from a view."):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"view 'test_view': Cannot delete from a view."):
             _ = v.delete()
 
-        with pytest.raises(pxt.Error, match=r'Cannot use `create_view` after `join`.'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot use `create_view` after `join`.'):
             u = pxt.create_table('joined_tbl', {'c1': pxt.String})
             join_df = t.join(u, on=t.c1 == u.c1)
             _ = pxt.create_view('join_view', join_df)
@@ -112,44 +113,53 @@ class TestView:
         _ = v.select(v.v1).order_by(v.c2)
         _ = t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2)
 
-        # insert data: of 20 new rows, only 10 are reflected in the view
+        # insert data: new rows with unique c2 values (none match view filter c2 < 10)
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         status = t.insert(rows)
-        assert status.num_rows == 30
+        assert status.num_rows == 20
         assert t.count() == 120
         check_view(t, v)
 
         # update data: cascade to view
         status = t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
-        assert status.num_rows == 10 * 2  # *2: rows affected in both base table and view
+        assert status.num_rows == 5 * 2  # *2: rows affected in both base table and view
         assert t.count() == 120
         check_view(t, v)
 
         # base table delete is reflected in view
         status = t.delete(where=t.c2 < 5)
-        assert status.num_rows == 10 * 2  # *2: rows affected in both base table and view
-        assert t.count() == 110
+        assert status.num_rows == 5 * 2  # *2: rows affected in both base table and view
+        assert t.count() == 115
         check_view(t, v)
 
         # check alternate view creation syntax (via a Query)
         v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), additional_columns=schema)
-        validate_update_status(v2.add_computed_column(v3=v2.v1 * 2.0), expected_rows=10)
-        validate_update_status(v2.add_computed_column(v4=v2.v2[0]), expected_rows=10)
+        validate_update_status(v2.add_computed_column(v3=v2.v1 * 2.0), expected_rows=5)
+        validate_update_status(v2.add_computed_column(v4=v2.v2[0]), expected_rows=5)
         check_view(t, v2)
 
         # test delete view
         pxt.drop_table('test_view')
         reload_catalog(do_reload_catalog)
 
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
             _ = pxt.get_table('test_view')
 
         # make sure the base table doesn't see the dropped view anymore
         t = pxt.get_table('test_tbl')
-        status = t.insert(rows)
-        assert status.num_rows == 30  # 20 in the base table, 10 in test_view_alt
+        rows2 = list(
+            t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10)
+            .where((t.c2 >= 80) & (t.c2 < 100))
+            .collect()
+        )
+        for row in rows2:
+            row['c2'] += 200
+        status = t.insert(rows2)
+        assert status.num_rows == 20  # 20 in the base table, 0 match test_view_alt (c2 < 10)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})  # type: ignore[dict-item]
         assert "invalid spec for column 'v1'" in str(exc_info.value).lower()
 
@@ -160,13 +170,14 @@ class TestView:
         id_before = v._id
 
         # invalid if_exists value is rejected
-        with pytest.raises(
-            pxt.Error, match=r"if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=r"if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]",
         ):
             _ = pxt.create_view('test_view', t, if_exists='invalid')  # type: ignore[arg-type]
 
         # scenario 1: a view exists at the path already
-        with pytest.raises(pxt.Error, match='is an existing view'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing view'):
             pxt.create_view('test_view', t)
         # if_exists='ignore' should return the existing view
         v2 = pxt.create_view('test_view', t, if_exists='ignore')
@@ -180,7 +191,7 @@ class TestView:
 
         # scenario 2: a view exists at the path, but has dependency
         _v_on_v = pxt.create_view('test_view_on_view', v2)
-        with pytest.raises(pxt.Error, match='is an existing view'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing view'):
             pxt.create_view('test_view', t)
         # if_exists='ignore' should return the existing view
         v3 = pxt.create_view('test_view', t, if_exists='ignore')
@@ -189,7 +200,7 @@ class TestView:
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace' cannot drop a view with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(pxt.Error, match='has dependents'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='has dependents'):
             v3 = pxt.create_view('test_view', t, if_exists='replace')
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace_force' should drop the existing view and
@@ -201,10 +212,10 @@ class TestView:
 
         # scenario 3: path exists but is not a view
         _ = pxt.create_table('not_view', {'c1': pxt.String})
-        with pytest.raises(pxt.Error, match='is an existing table'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing table'):
             pxt.create_view('not_view', t)
         # if_exists='ignore' should fail because existing object is not a view
-        with pytest.raises(pxt.Error, match='already exists'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             _ = pxt.create_view('not_view', t, if_exists='ignore')
         assert 'not_view' in pxt.list_tables()
         # if_exists='replace' and 'replace_force' should drop the existing table and create a view
@@ -219,7 +230,7 @@ class TestView:
         pxt.drop_table('not_view')
         other_base = pxt.create_table('other_base', {'c1': pxt.String})
         _ = pxt.create_view('view_with_base', t)
-        with pytest.raises(pxt.Error, match='already exists'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             _ = pxt.create_view('view_with_base', other_base, if_exists='ignore')
 
         # sanity check persistence
@@ -234,7 +245,7 @@ class TestView:
 
         # adding column with same name as a base table column at
         # the time of creating a view will raise an error now.
-        with pytest.raises(pxt.Error, match=r"Column 'c1' already exists in the base table"):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'c1' already exists in the base table"):
             pxt.create_view('test_view', t, additional_columns={'c1': pxt.Int})
 
         # create a view and add a column with default value
@@ -266,22 +277,22 @@ class TestView:
 
         # invalid if_exists value is rejected
         expected_err = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
-        with pytest.raises(pxt.Error, match=re.escape(expected_err)):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape(expected_err)):
             v.add_column(**{col_name: pxt.Int}, if_exists='invalid')
-        with pytest.raises(pxt.Error, match=re.escape(expected_err)):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape(expected_err)):
             v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='invalid')
-        with pytest.raises(pxt.Error, match=re.escape(expected_err)):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape(expected_err)):
             v.add_columns({col_name: pxt.Int, non_existing_col1: pxt.String}, if_exists='invalid')  # type: ignore[arg-type]
         assert col_name in v.columns()
         assert v.order_by(v.c1).collect()[0][col_name] == orig_val
 
         # by default, raises an error if the column already exists
         expected_err = f'Duplicate column name: {col_name}'
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
             v.add_column(**{col_name: pxt.Int})
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
             v.add_computed_column(**{col_name: t.c2 + t.c3})
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
             v.add_columns({col_name: pxt.Int, non_existing_col2: pxt.String})
         assert col_name in v.columns()
         assert v.order_by(v.c1).collect()[0][col_name] == orig_val
@@ -302,19 +313,19 @@ class TestView:
         # if_exists='replace' will replace the column if it already exists.
         # for a column specific to view. For a base table column, it will raise an error.
         if is_base_column:
-            with pytest.raises(pxt.Error) as exc_info:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
                 v.add_column(**{col_name: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns()
             assert v.order_by(v.c1).collect()[0][col_name] == orig_val
-            with pytest.raises(pxt.Error) as exc_info:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
                 v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns()
             assert v.order_by(v.c1).collect()[0][col_name] == orig_val
-            with pytest.raises(pxt.Error) as exc_info:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
                 v.add_columns({col_name: pxt.String, non_existing_col3: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
@@ -339,21 +350,21 @@ class TestView:
             v.add_computed_column(**{non_existing_col5: col_ref + 12.3})
             assert v.order_by(v.c1).collect()[0][non_existing_col5] == row0[col_name] + 12.3
             expected_err = f'Column {col_name!r} already exists and has dependents.'
-            with pytest.raises(pxt.Error, match=expected_err):
+            with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
     def test_from_query(self, uses_db: None) -> None:
         t = self.create_tbl()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.create_view('test_view', t.group_by(t.c2))
         assert 'Cannot use `create_view` after `group_by`' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.create_view('test_view', t.order_by(t.c2))
         assert 'Cannot use `create_view` after `order_by`' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.create_view('test_view', t.limit(10))
         assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
 
@@ -374,13 +385,15 @@ class TestView:
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
-        # insert data: of 20 new rows, only 10 show up in each view
+        # insert data: new rows with unique c2 values (none match either view filter)
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         status = t.insert(rows)
-        assert status.num_rows == 40
+        assert status.num_rows == 20
         assert t.count() == 120
-        assert v1.count() == 20
-        assert v2.count() == 20
+        assert v1.count() == 10
+        assert v2.count() == 10
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
@@ -388,19 +401,19 @@ class TestView:
         status = t.update(
             {'c4': True, 'c3': t.c3 + 1, 'c10': t.c10 - 1.0}, where=(t.c2 >= 5) & (t.c2 < 15), cascade=True
         )
-        assert status.num_rows == 20 * 2  # *2: rows affected in both base table and view
+        assert status.num_rows == 10 * 2  # 10 base rows + 5 in v1 + 5 in v2
         assert t.count() == 120
-        assert v1.count() == 20
-        assert v2.count() == 20
+        assert v1.count() == 10
+        assert v2.count() == 10
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
         # base table delete is reflected in view
         status = t.delete(where=(t.c2 >= 5) & (t.c2 < 15))
-        assert status.num_rows == 20 * 2  # *2: rows affected in both base table and view
-        assert t.count() == 100
-        assert v1.count() == 10
-        assert v2.count() == 10
+        assert status.num_rows == 10 * 2  # 10 base rows + 5 in v1 + 5 in v2
+        assert t.count() == 110
+        assert v1.count() == 5
+        assert v2.count() == 5
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
@@ -443,14 +456,16 @@ class TestView:
 
         check_views()
 
-        # insert data: of 20 new rows; 10 show up in v1, 5 in v2
+        # insert data: new rows with unique c2 values (none match either view filter)
         base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         status = t.insert(rows)
-        assert status.num_rows == 20 + 10 + 5
+        assert status.num_rows == 20
         assert t.count() == 120
-        assert v1.count() == 20
-        assert v2.count() == 10
+        assert v1.count() == 10
+        assert v2.count() == 5
         # all versions were incremented
         assert t._get_version() == base_version + 1
         assert v1._get_version() == v1_version + 1
@@ -460,7 +475,7 @@ class TestView:
         # update data: cascade to both views
         base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.update({'c4': True, 'c3': t.c3 + 1}, where=t.c2 < 15, cascade=True)
-        assert status.num_rows == 30 + 20 + 10
+        assert status.num_rows == 15 + 10 + 5
         assert t.count() == 120
         # all versions were incremented
         assert t._get_version() == base_version + 1
@@ -471,7 +486,7 @@ class TestView:
         # update data: cascade only to v2
         base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.update({'c10': t.c10 - 1.0}, where=t.c2 < 15, cascade=True)
-        assert status.num_rows == 30 + 10
+        assert status.num_rows == 15 + 5
         assert t.count() == 120
         # v1 did not get updated
         assert t._get_version() == base_version + 1
@@ -482,10 +497,10 @@ class TestView:
         # base table delete is reflected in both views
         base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.delete(where=t.c2 == 0)
-        assert status.num_rows == (1 + 1 + 1) * 2
-        assert t.count() == 118
-        assert v1.count() == 18
-        assert v2.count() == 8
+        assert status.num_rows == 1 + 1 + 1
+        assert t.count() == 119
+        assert v1.count() == 9
+        assert v2.count() == 4
         # all versions were incremented
         assert t._get_version() == base_version + 1
         assert v1._get_version() == v1_version + 1
@@ -495,10 +510,10 @@ class TestView:
         # base table delete is reflected only in v1
         base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.delete(where=t.c2 == 5)
-        assert status.num_rows == (1 + 1) * 2
-        assert t.count() == 116
-        assert v1.count() == 16
-        assert v2.count() == 8
+        assert status.num_rows == 1 + 1
+        assert t.count() == 118
+        assert v1.count() == 8
+        assert v2.count() == 4
         # v2 was not updated
         assert t._get_version() == base_version + 1
         assert v1._get_version() == v1_version + 1
@@ -715,8 +730,10 @@ class TestView:
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
 
-        # insert data
+        # insert data: new rows with unique c2 values
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).collect())
+        for row in rows:
+            row['c2'] += 100
         t.insert(rows)
         assert t.count() == 200
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
@@ -728,7 +745,7 @@ class TestView:
 
         # base table delete is reflected in view
         t.delete(where=t.c2 < 5)
-        assert t.count() == 190
+        assert t.count() == 195
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
@@ -744,8 +761,10 @@ class TestView:
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
 
-        # insert data: of 20 new rows, only 10 are reflected in the view
+        # insert data: new rows with unique c2 values (none match view filter c2 < 10)
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         t.insert(rows)
         assert t.count() == 120
         assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
@@ -757,7 +776,7 @@ class TestView:
 
         # base table delete is reflected in view
         t.delete(where=t.c2 < 5)
-        assert t.count() == 110
+        assert t.count() == 115
         assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # create view with filter containing datetime
@@ -796,6 +815,8 @@ class TestView:
 
         # insert data: no changes to view
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         t.insert(rows)
         assert t.count() == 120
         check_view(snap, v)
@@ -807,7 +828,7 @@ class TestView:
 
         # base table delete: no change to view
         t.delete(where=t.c2 < 5)
-        assert t.count() == 110
+        assert t.count() == 115
         check_view(snap, v)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
@@ -817,13 +838,13 @@ class TestView:
         s = pxt.create_snapshot('test_snap', t)
         assert s.select(s.c2).order_by(s.c2).collect()['c2'] == t.select(t.c2).order_by(t.c2).collect()['c2']
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             v = pxt.create_view('test_view', s, additional_columns={'v1': t.c3 * 2.0})
         assert "Column 'v1': Value expression cannot be computed in the context of the base table 'test_tbl'" in str(
             exc_info.value
         )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             v = pxt.create_view('test_view', s.where(t.c2 < 10))
         assert "View filter cannot be computed in the context of the base table 'test_tbl'" in str(exc_info.value)
 
@@ -865,6 +886,8 @@ class TestView:
 
         # insert data: no changes to snapshot
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
+        for row in rows:
+            row['c2'] += 100
         t.insert(rows)
         assert t.count() == 120
         check(s, v, view_s)
@@ -876,7 +899,7 @@ class TestView:
 
         # base table delete: no changes to snapshot
         t.delete(where=t.c2 < 5)
-        assert t.count() == 110
+        assert t.count() == 115
         check(s, v, view_s)
 
     def test_table_time_travel(self, uses_db: None) -> None:
@@ -918,9 +941,14 @@ class TestView:
                         name: {
                             'computed_with': None,
                             'defined_in': 'test_tbl',
+                            'is_computed': False,
+                            'is_iterator_col': False,
                             'is_primary_key': False,
                             'is_stored': True,
-                            'media_validation': 'on_write',
+                            'destination': None,
+                            'media_validation': None,
+                            'is_builtin': None,
+                            'depends_on': None,
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
@@ -934,9 +962,13 @@ class TestView:
                     'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
+                    'is_versioned': True,
+                    'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_tbl:{i}',
                     'path': f'dir/test_tbl:{i}',
+                    'primary_key': None,
+                    'iterator_call': None,
                     'schema_version': expected_schema_version,
                     'custom_metadata': None,
                     'version': i,
@@ -991,37 +1023,41 @@ class TestView:
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
-            expected_schema: dict[str, tuple[str, int, str | None]]
+            expected_schema: dict[str, tuple[str, int, str | None, list[tuple[str, str]] | None]]
             if i == 0:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None)}
+                expected_schema = {'c1': ('Int', 0, None, None), 'c2': ('String', 3, None, None)}
                 expected_schema_version = 0
                 expected_base_version = 4
             elif i == 1:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
+                expected_schema = {
+                    'c1': ('Int', 0, None, None),
+                    'c2': ('String', 3, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                }
                 expected_schema_version = 1
                 expected_base_version = 4
             elif i == 2:
                 expected_schema = {
-                    'c1': ('Int', 0, None),
-                    'c2': ('String', 3, None),
-                    'c3': ('Int', 1, 'c1 // 2'),
-                    'c4': ('Int', 2, None),
+                    'c1': ('Int', 0, None, None),
+                    'c2': ('String', 3, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                    'c4': ('Int', 2, None, None),
                 }
                 expected_schema_version = 2
                 expected_base_version = 4
             elif i == 3:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
-                    'c4': ('Int', 2, None),
+                    'balloon': ('Int', 0, None, None),
+                    'c3': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
+                    'c4': ('Int', 2, None, None),
                 }
                 expected_schema_version = 2
                 expected_base_version = 7
             else:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c4': ('Int', 2, None),
-                    'hamburger': ('Int', 1, 'balloon // 2'),
+                    'balloon': ('Int', 0, None, None),
+                    'c4': ('Int', 2, None, None),
+                    'hamburger': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
                 }
                 expected_schema_version = 4
                 expected_base_version = 7
@@ -1033,25 +1069,34 @@ class TestView:
                         name: {
                             'computed_with': computed_with,
                             'defined_in': 'test_tbl' if name in ('c1', 'c2', 'balloon') else 'test_view',
+                            'is_computed': computed_with is not None,
+                            'is_iterator_col': False,
                             'is_primary_key': False,
                             'is_stored': True,
-                            'media_validation': 'on_write',
+                            'destination': None,
+                            'media_validation': None,
+                            'is_builtin': True if computed_with is not None else None,
+                            'depends_on': depends_on,
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
                             'custom_metadata': None,
                             'comment': None,
                         }
-                        for name, (type_, version_added, computed_with) in expected_schema.items()
+                        for name, (type_, version_added, computed_with, depends_on) in expected_schema.items()
                     },
                     'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
+                    'is_versioned': True,
+                    'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_view:{i}',
                     'path': f'dir/test_view:{i}',
+                    'primary_key': None,
+                    'iterator_call': None,
                     'schema_version': expected_schema_version,
                     'custom_metadata': None,
                     'version': i,
@@ -1074,33 +1119,37 @@ class TestView:
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
             if i == 0:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
+                expected_schema = {
+                    'c1': ('Int', 0, None, None),
+                    'c2': ('String', 3, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                }
                 expected_schema_version = 0
                 expected_base_version = 1
             elif i == 1:
                 expected_schema = {
-                    'c1': ('Int', 0, None),
-                    'c3': ('Int', 1, 'c1 // 2'),
-                    'c4': ('Int', 2, None),
-                    'c5': ('Float', 1, None),
+                    'c1': ('Int', 0, None, None),
+                    'c3': ('Int', 1, 'c1 // 2', [('test_tbl', 'c1')]),
+                    'c4': ('Int', 2, None, None),
+                    'c5': ('Float', 1, None, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 2
             elif i == 2:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
-                    'c4': ('Int', 2, None),
-                    'c5': ('Float', 1, None),
+                    'balloon': ('Int', 0, None, None),
+                    'c3': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
+                    'c4': ('Int', 2, None, None),
+                    'c5': ('Float', 1, None, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 3
             elif i == 3:
                 expected_schema = {
-                    'balloon': ('Int', 0, None),
-                    'c4': ('Int', 2, None),
-                    'hamburger': ('Int', 1, 'balloon // 2'),
-                    'c5': ('Float', 1, None),
+                    'balloon': ('Int', 0, None, None),
+                    'c4': ('Int', 2, None, None),
+                    'hamburger': ('Int', 1, 'balloon // 2', [('test_tbl', 'balloon')]),
+                    'c5': ('Float', 1, None, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 5
@@ -1115,25 +1164,34 @@ class TestView:
                             else 'test_view'
                             if name in ('c3', 'hamburger', 'c4')
                             else 'test_subview',
+                            'is_computed': computed_with is not None,
+                            'is_iterator_col': False,
                             'is_primary_key': False,
                             'is_stored': True,
-                            'media_validation': 'on_write',
+                            'destination': None,
+                            'media_validation': None,
+                            'is_builtin': True if computed_with is not None else None,
+                            'depends_on': depends_on,
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
                             'custom_metadata': None,
                             'comment': None,
                         }
-                        for name, (type_, version_added, computed_with) in expected_schema.items()
+                        for name, (type_, version_added, computed_with, depends_on) in expected_schema.items()
                     },
                     'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
+                    'is_versioned': True,
+                    'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_subview:{i}',
                     'path': f'dir/test_subview:{i}',
+                    'primary_key': None,
+                    'iterator_call': None,
                     'schema_version': expected_schema_version,
                     'custom_metadata': None,
                     'version': i,
@@ -1209,12 +1267,12 @@ class TestView:
         v2 = pxt.create_view('test_view2', v1)
 
         # Drop base table column using column ref
-        with pytest.raises(pxt.Error, match=r"Cannot drop base table column 'c3'"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot drop base table column 'c3'"):
             v1.drop_column(v1.c3)
         # Drop using column name
-        with pytest.raises(pxt.Error, match=r"Cannot drop base table column 'c6'"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot drop base table column 'c6'"):
             v2.drop_column('c6')
-        with pytest.raises(pxt.Error, match=r"Cannot drop base table column 'v1'"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot drop base table column 'v1'"):
             v2.drop_column(v2.v1)
         # drop view's own column - allowed
         v1.drop_column(v1.v2)
@@ -1225,10 +1283,10 @@ class TestView:
         v1 = pxt.create_view('test_view1', t, additional_columns=schema)
         v2 = pxt.create_view('test_view2', v1)
 
-        with pytest.raises(pxt.Error, match=r"Cannot rename base table column 'c3'"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot rename base table column 'c3'"):
             v1.rename_column('c3', 'new_c3')
 
-        with pytest.raises(pxt.Error, match=r"Cannot rename base table column 'v1'"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot rename base table column 'v1'"):
             v2.rename_column('v1', 'new_v1')
 
         # should work
@@ -1239,10 +1297,14 @@ class TestView:
         v1 = pxt.create_view('test_view1', t, additional_columns={'v1': pxt.Int})
         v2 = pxt.create_view('test_view2', v1, additional_columns={'v2': pxt.Int})
 
-        with pytest.raises(pxt.Error, match=r"Column 'c3' is a base table column and cannot be updated"):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Column 'c3' is a base table column and cannot be updated"
+        ):
             v1.update({'c3': 100, 'v1': 100})
 
-        with pytest.raises(pxt.Error, match=r"Column 'v1' is a base table column and cannot be updated"):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Column 'v1' is a base table column and cannot be updated"
+        ):
             v2.update({'v1': 100, 'v2': 100})
 
         # Should work
@@ -1261,8 +1323,9 @@ class TestView:
         # If this situation not detected, it will lead to permanent catalog corruption.
         t = pxt.create_table('my_tbl', {'col': pxt.Int})
         v1 = pxt.create_view('my_view', t)
-        with pytest.raises(
-            pxt.Error, match=r"Cannot use if_exists='replace' with the same name as one of the view's own ancestors."
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Cannot use if_exists='replace' with the same name as one of the view's own ancestors.",
         ):
             _ = pxt.create_view('my_view', v1, if_exists='replace')
         v1.collect()
@@ -1275,8 +1338,9 @@ class TestView:
         v1 = pxt.create_view('my_view_1', t)
         v2 = pxt.create_view('my_view_2', v1)
         v3 = pxt.create_view('my_view_3', v2)
-        with pytest.raises(
-            pxt.Error, match=r"Cannot use if_exists='replace' with the same name as one of the view's own ancestors."
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Cannot use if_exists='replace' with the same name as one of the view's own ancestors.",
         ):
             _ = pxt.create_view('my_view_1', v3, if_exists='replace')
         v1.collect()
@@ -1298,7 +1362,7 @@ class TestView:
         assert v1.get_metadata()['comment'] == 'This is a test view.'
 
         # check that raw object JSON comments are rejected
-        with pytest.raises(pxt.Error, match='`comment` must be a string'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`comment` must be a string'):
             pxt.create_view('tbl_view_invalid', t, comment={'comment': 'This is a test view.'})  # type: ignore[arg-type]
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
@@ -1313,7 +1377,7 @@ class TestView:
         assert v1.get_metadata()['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected
-        with pytest.raises(pxt.Error):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT):
             pxt.create_view('tbl_view_invalid', t, custom_metadata={'key': set})
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
@@ -1330,7 +1394,7 @@ class TestView:
         assert v.get_metadata()['columns']['v1']['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected for columns
-        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_view(
                 'tbl_view_invalid', t, additional_columns={'v1': {'type': pxt.Int, 'custom_metadata': {'key': set}}}
             )
@@ -1348,7 +1412,7 @@ class TestView:
         assert v.get_metadata()['columns']['v1']['comment'] == 'This is a test column.'
 
         # check that raw object JSON comments are rejected for columns
-        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'comment' must be a string"):
             pxt.create_view(
                 'tbl_view_invalid',
                 t,

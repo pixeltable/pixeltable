@@ -5,9 +5,11 @@ import logging
 import os
 import shutil
 import threading
+import typing
 from pathlib import Path
-from typing import Any, ClassVar, TypeVar
+from typing import Annotated, Any, ClassVar, Literal, TypeVar
 
+import pydantic
 import toml
 
 from pixeltable import exceptions as excs
@@ -15,6 +17,122 @@ from pixeltable import exceptions as excs
 _logger = logging.getLogger('pixeltable')
 
 T = TypeVar('T')
+
+
+# Pydantic models for service and deployment configuration.
+
+
+class SqlExport(pydantic.BaseModel):
+    """
+    Specification of an external RDBMS target for SQL export.
+
+    Attributes:
+        db_connect: SQLAlchemy connection string for the target database (e.g.
+            `'postgresql+psycopg://user:pw@host/db'`, `'sqlite:///path/to.db'`).
+        table: Name of the target table. It must already exist; resolution fails
+            if the table is missing.
+        db_schema: Optional database schema qualifier (e.g. `'analytics'`); leave `None` to
+            use the connection's default schema.
+        method: How to write each row into the target table.
+
+            - `'insert'`: append the row via `INSERT ... VALUES`.
+            - `'update'`: update the row by primary-key match
+              (`UPDATE ... SET ... WHERE pk=...`). Requires that the target table has a
+              primary key whose metadata is exposed by the dialect. The exported columns
+              must include all primary-key columns of the target plus at least one non-PK
+              column to set. This is a strict update, **not** an upsert: if the WHERE
+              clause matches zero rows, the export fails. Useful when the source is
+              append-only but the target is a deduplicated current-state view.
+            - `'merge'`: upsert via the target table's primary key.
+              **Currently not supported.**
+    """
+
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    db_connect: str
+    table: str
+    db_schema: str | None = None
+    method: Literal['insert', 'update', 'merge'] = 'insert'
+
+
+class RouteConfigBase(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    path: str
+    background: bool = False
+
+    @pydantic.field_validator('path')
+    @classmethod
+    def _validate_path(cls, v: str) -> str:
+        if not v.startswith('/'):
+            raise ValueError(f"path must start with '/' (got {v!r})")
+        return v
+
+
+class InsertRouteConfig(RouteConfigBase):
+    type: Literal['insert']
+    table: str
+    inputs: list[str] | None = None
+    uploadfile_inputs: list[str] | None = None
+    outputs: list[str] | None = None
+    return_fileresponse: bool = False
+    export_sql: SqlExport | None = None
+
+
+class UpdateRouteConfig(RouteConfigBase):
+    type: Literal['update']
+    table: str
+    inputs: list[str] | None = None
+    outputs: list[str] | None = None
+    return_fileresponse: bool = False
+    export_sql: SqlExport | None = None
+
+
+class DeleteRouteConfig(RouteConfigBase):
+    type: Literal['delete']
+    table: str
+    match_columns: list[str] | None = None
+
+
+class QueryRouteConfig(RouteConfigBase):
+    type: Literal['query']
+    query: str  # dotted Python path to a @pxt.query or retrieval_udf
+    inputs: list[str] | None = None
+    uploadfile_inputs: list[str] | None = None
+    one_row: bool = False
+    return_fileresponse: bool = False
+    method: Literal['get', 'post'] = 'post'
+
+
+RouteConfig = Annotated[
+    InsertRouteConfig | UpdateRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')
+]
+
+
+class ServiceConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    name: str
+    prefix: str = ''
+    host: str = '0.0.0.0'
+    port: int = 8000
+    routes: list[RouteConfig] = pydantic.Field(default_factory=list)
+    modules: list[str] = pydantic.Field(default_factory=list)  # List of user modules to import
+
+    @pydantic.field_validator('prefix')
+    @classmethod
+    def _validate_prefix(cls, v: str) -> str:
+        if v and not v.startswith('/'):
+            raise ValueError(f"prefix must be empty or start with '/' (got {v!r})")
+        return v
+
+
+class DeploymentConfig(pydantic.BaseModel):
+    name: str
+    include: list[str] | None = None
+    exclude: list[str] | None = None
+    env_dependencies: list[str] = pydantic.Field(default_factory=list)
+    python_dependencies: list[str] = pydantic.Field(default_factory=list)
 
 
 class Config:
@@ -31,45 +149,42 @@ class Config:
     __config_overrides: dict[str, Any]
     __config_dict: dict[str, Any]
 
-    def __init__(self, config_overrides: dict[str, Any]) -> None:
+    def __init__(self, config_overrides: dict[str, Any], additional_config_files: list[str]) -> None:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
 
         for var in config_overrides:
             if var not in KNOWN_CONFIG_OVERRIDES:
-                raise excs.Error(f'Unrecognized configuration variable: {var}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'Unrecognized configuration variable: {var}'
+                )
 
         self.__config_overrides = config_overrides
 
         self.__home = Path(self.lookup_env('pixeltable', 'home', str(Path.home() / '.pixeltable')))
         if self.__home.exists() and not self.__home.is_dir():
-            raise excs.Error(f'Not a directory: {self.__home}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Not a directory: {self.__home}')
         if not self.__home.exists():
             print(f'Creating a Pixeltable instance at: {self.__home}')
             self.__home.mkdir()
 
         self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
 
-        self.__config_dict: dict[str, Any]
-        if os.path.isfile(self.__config_file):
-            with open(self.__config_file, 'r', encoding='utf-8') as stream:
-                try:
-                    self.__config_dict = toml.load(stream)
-                except Exception as exc:
-                    raise excs.Error(f'Could not read config file: {self.__config_file}') from exc
-            for section, section_dict in self.__config_dict.items():
-                if section not in KNOWN_CONFIG_OPTIONS:
-                    raise excs.Error(f'Unrecognized section {section!r} in config file: {self.__config_file}')
-                for key in section_dict:
-                    if key not in KNOWN_CONFIG_OPTIONS[section]:
-                        raise excs.Error(f"Unrecognized option '{section}.{key}' in config file: {self.__config_file}")
-        else:
-            self.__config_dict = self.__create_default_config(self.__config_file)
-            with open(self.__config_file, 'w', encoding='utf-8') as stream:
-                try:
-                    toml.dump(self.__config_dict, stream)
-                except Exception as exc:
-                    raise excs.Error(f'Could not write config file: {self.__config_file}') from exc
-            _logger.info(f'Created default config file at: {self.__config_file}')
+        # Load configuration from (in order of precedence, highest to lowest):
+        #   1. additional_config_files
+        #   2. ./pixeltable.toml, if present
+        #   3. The `[tool.pixeltable]` section of ./pyproject.toml, if present
+        #   4. The user's config file (~/.pixeltable/config.toml by default)
+
+        project_config = self.__load_project_config(Path.cwd() / 'pixeltable.toml')
+        pyproject_config = self.__load_pyproject_config(Path.cwd() / 'pyproject.toml')
+        user_config = self.__load_user_config()
+        additional_configs = [self.__load_project_config(Path(f)) for f in additional_config_files]
+
+        self.__config_dict = {}
+
+        # Load lowest precedence first (for additional configs, last specified = highest precedence)
+        for source in (user_config, pyproject_config, project_config, *additional_configs):
+            self.__merge_config(self.__config_dict, source)
 
     @property
     def home(self) -> Path:
@@ -87,15 +202,20 @@ class Config:
         return cls.__instance
 
     @classmethod
-    def init(cls, config_overrides: dict[str, Any], reinit: bool = False) -> None:
+    def init(
+        cls, config_overrides: dict[str, Any], additional_config_files: list[str] | None = None, reinit: bool = False
+    ) -> None:
+        if additional_config_files is None:
+            additional_config_files = []
         with cls.__init_lock:
             if reinit:
                 cls.__instance = None
             if cls.__instance is None:
-                cls.__instance = cls(config_overrides)
-            elif len(config_overrides) > 0:
-                raise excs.Error(
-                    'Pixeltable has already been initialized; cannot specify new config values in the same session'
+                cls.__instance = cls(config_overrides, additional_config_files)
+            elif len(config_overrides) > 0 or len(additional_config_files) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_STATE,
+                    'Pixeltable has already been initialized; cannot specify new config values in the same session',
                 )
 
     @classmethod
@@ -104,6 +224,144 @@ class Config:
         # Default cache size is 1/5 of free disk space
         file_cache_size_g = free_disk_space_bytes / 5 / (1 << 30)
         return {'pixeltable': {'file_cache_size_g': round(file_cache_size_g, 1), 'hide_warnings': False}}
+
+    @classmethod
+    def __read_toml_file(cls, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+        try:
+            with open(path, 'r', encoding='utf-8') as stream:
+                return toml.load(stream)
+        except Exception as exc:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'Could not read config file: {path}'
+            ) from exc
+
+    @classmethod
+    def __load_project_config(cls, path: Path) -> dict[str, Any]:
+        """Load ./pixeltable.toml, if it exists. Same structure as the user config file."""
+        config_dict = cls.__read_toml_file(path)
+        cls.__validate_config(config_dict, path)
+        return config_dict
+
+    @classmethod
+    def __load_pyproject_config(cls, path: Path) -> dict[str, Any]:
+        """Load the `[tool.pixeltable]` table from ./pyproject.toml, if it exists.
+
+        Subsections are expressed as `[tool.pixeltable.<section>]` (e.g. `[tool.pixeltable.openai]`).
+
+        `[tool.pixeltable.pixeltable]` is shortened to `[tool.pixeltable]`.
+        """
+        pyproject = cls.__read_toml_file(path)
+        config_dict = pyproject.get('tool', {}).get('pixeltable', {})
+        if not isinstance(config_dict, dict):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f"Expected a table for '[tool.pixeltable]' in config file: {path}"
+            )
+        cls.__validate_config(config_dict, path)
+        return config_dict
+
+    def __load_user_config(self) -> dict[str, Any]:
+        """Load the user's config file, creating a default one if it does not exist."""
+        if self.__config_file.exists():
+            config_dict = self.__read_toml_file(self.__config_file)
+            self.__validate_config(config_dict, self.__config_file)
+            return config_dict
+
+        else:
+            config_dict = self.__create_default_config(self.__config_file)
+            with open(self.__config_file, 'w', encoding='utf-8') as stream:
+                try:
+                    toml.dump(config_dict, stream)
+                except Exception as exc:
+                    raise excs.Error(
+                        excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
+                    ) from exc
+            _logger.info(f'Created default config file at: {self.__config_file}')
+            return config_dict
+
+    @classmethod
+    def __validate_config(cls, config_dict: dict[str, Any], source: Path) -> None:
+        non_section_keys = [key for key in config_dict if key not in KNOWN_CONFIG_OPTIONS]
+        for key in non_section_keys:
+            # `key` does not represent a section; relocate it to 'pixeltable' subsection
+            if 'pixeltable' not in config_dict:
+                config_dict['pixeltable'] = {}
+            config_dict['pixeltable'][key] = config_dict[key]
+            del config_dict[key]
+        for section, section_dict in config_dict.items():
+            if section not in KNOWN_CONFIG_OPTIONS:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'Unrecognized section {section!r} in config file: {source}'
+                )
+            if not isinstance(section_dict, dict):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'Expected a table for section {section!r} in config file: {source}',
+                )
+            for key in section_dict:
+                if key not in KNOWN_CONFIG_OPTIONS[section]:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
+                        f"Unrecognized option '{section}.{key}' in config file: {source}",
+                    )
+                info = KNOWN_CONFIG_OPTIONS[section][key]
+                if isinstance(info, tuple):
+                    _, expected_type = info
+                    section_dict[key] = cls.__validate_config_value(
+                        section, key, section_dict[key], expected_type, source
+                    )
+
+    @classmethod
+    def __validate_config_value(cls, section: str, key: str, value: Any, expected_type: type, source: Path) -> Any:
+        """
+        A config value could be a scalar, as in `pixeltable.file_cache_size_g`, or it could be a dict or a list of
+        dicts that represents a Pydantic model. If the given key has a specified type, this method validates it
+        as the given type. If the type is a Pydantic model or a list[Pydantic model], it converts the given dict(s)
+        to the appropriate model instance(s).
+
+        non-Pydantic types are currently not supported (but we could add support for them in the future).
+        """
+        origin_t = typing.get_origin(expected_type) or expected_type
+        # Currently only list[PydanticModel] validation is supported.
+        # TODO: Introduce fail-fast config validation for more types
+        assert origin_t is list
+        if not isinstance(value, origin_t):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f"Invalid type for option '{section}.{key}' in config file: {source}\n"
+                f'(expected `{origin_t.__name__}`, got `{type(value).__name__}`)',
+            )
+        subscript = typing.get_args(expected_type)
+        assert subscript is not None and len(subscript) == 1 and issubclass(subscript[0], pydantic.BaseModel)
+        model_type = subscript[0]
+        try:
+            validated_config = [model_type.model_validate(entry) for entry in value]
+        except pydantic.ValidationError as e:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid `{subscript[0].__name__}` in config file: {source}\n{e}'
+            ) from e
+        if 'name' in model_type.model_fields:
+            # Convention: if the model has a 'name' field, it must be unique among entries.
+            names: set[str] = set()
+            for entry in validated_config:
+                name = entry.name
+                if name in names:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
+                        f"Duplicate `{model_type.__name__}` name '{entry.name}' in config file: {source}",
+                    )
+                names.add(name)
+        return validated_config
+
+    @classmethod
+    def __merge_config(cls, base: dict[str, Any], overlay: dict[str, Any]) -> None:
+        """Merge `overlay` into `base` at the section.key level; `overlay` values take precedence."""
+        for section, section_dict in overlay.items():
+            if section in base and isinstance(base[section], dict) and isinstance(section_dict, dict):
+                base[section].update(section_dict)
+            else:
+                base[section] = dict(section_dict) if isinstance(section_dict, dict) else section_dict
 
     def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
         override_var = f'{section}.{key}'
@@ -135,14 +393,20 @@ class Config:
         try:
             if expected_type is bool and isinstance(value, str):
                 if value.lower() not in ('true', 'false'):
-                    raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}")
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
+                        f"Invalid value for configuration parameter '{section}.{key}': {value}",
+                    )
                 return value.lower() == 'true'  # type: ignore[return-value]
             if (expected_type is dict or expected_type is list) and isinstance(value, str):
                 # Treat a string as a JSON-serialized dict or list
                 value = json.loads(value)
             return expected_type(value)  # type: ignore[call-arg]
         except (ValueError, TypeError) as exc:
-            raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}") from exc
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f"Invalid value for configuration parameter '{section}.{key}': {value}",
+            ) from exc
 
     def get_string_value(self, key: str, section: str = 'pixeltable') -> str | None:
         return self.get_value(key, str, section)
@@ -156,8 +420,11 @@ class Config:
     def get_bool_value(self, key: str, section: str = 'pixeltable') -> bool | None:
         return self.get_value(key, bool, section)
 
+    def get_list_value(self, key: str, section: str = 'pixeltable') -> list[Any] | None:
+        return self.get_value(key, list, section)
 
-KNOWN_CONFIG_OPTIONS = {
+
+KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'pixeltable': {
         'home': 'Path to the Pixeltable home directory',
         'config': 'Path to the Pixeltable config file',
@@ -167,17 +434,28 @@ KNOWN_CONFIG_OPTIONS = {
         'time_zone': 'Default time zone for timestamps',
         'hide_warnings': 'Hide warnings from the console',
         'verbosity': 'Verbosity level for console output',
+        'show_progress': 'Show a progress tracker for long-running operations (default: false)',
         'api_key': 'API key for Pixeltable cloud',
         'input_media_dest': 'Default destination URI for input media data',
         'output_media_dest': 'Default destination URI for output (computed) media data',
+        'start_dashboard': 'Whether to launch the dashboard server as startup (default: true)',
+        'dashboard_port': 'Port for the dashboard server (default: 22089)',
         'r2_profile': 'AWS config profile name used to access R2 storage',
         's3_profile': 'AWS config profile name used to access S3 storage',
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
+        'service': ('Service configurations', list[ServiceConfig]),
+        'deployment': ('Deployment configurations', list[DeploymentConfig]),
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},
-    'bedrock': {'api_key': 'AWS Bedrock API key', 'region_name': 'AWS region for Bedrock (default: us-east-1)'},
+    'bedrock': {
+        'api_key': 'AWS Bedrock API key',
+        'region_name': 'AWS region for Bedrock (default: us-east-1)',
+        'temp_location': 'S3 URI for temporary storage used by Bedrock async model invocations',
+        'performance_config_latency': 'Performance setting for supported models (standard or optimized)',
+        'service_tier': 'Processing tier for requests (priority, default, flex, or reserved)',
+    },
     'bfl': {'api_key': 'Black Forest Labs (BFL) API key', 'rate_limit': 'Rate limit for BFL API requests'},
     'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
     'fal': {'api_key': 'fal.ai API key', 'rate_limit': 'Rate limit for fal.ai API requests'},

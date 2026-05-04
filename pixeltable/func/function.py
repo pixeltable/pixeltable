@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import itertools
 import typing
 from abc import ABC, abstractmethod
 from copy import copy
@@ -42,14 +43,19 @@ class Function(ABC):
     __resolved_fns: list[Self]
 
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
-    # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
+    # Overridden for specific Function instances via the to_sql() decorator. The override must accept the same
     # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
     _to_sql: Callable[..., sql.ColumnElement | None]
 
     # Returns the resource pool to use for calling this function with the given arguments.
-    # Overriden for specific Function instances via the resource_pool() decorator. The override must accept a subset
+    # Overridden for specific Function instances via the resource_pool() decorator. The override must accept a subset
     # of the parameters of the original function, with the same type.
     _resource_pool: Callable[..., str | None]
+
+    # Returns estimated resources needed for a specific request as a dict (key: resource name, value: estimated cost).
+    # Overridden for specific Function instances via the resource_estimator() decorator. The override must accept a
+    # subset of the parameters of the original function.
+    _resource_estimator: Callable[..., dict[str, int]]
 
     def __init__(
         self,
@@ -71,6 +77,7 @@ class Function(ABC):
         self.__resolved_fns = []
         self._to_sql = self.__default_to_sql
         self._resource_pool = self.__default_resource_pool
+        self._resource_estimator = self.__default_resource_estimator
 
     @property
     def is_valid(self) -> bool:
@@ -93,6 +100,10 @@ class Function(ABC):
     @property
     def is_polymorphic(self) -> bool:
         return len(self.signatures) > 1
+
+    @property
+    def is_builtin(self) -> bool:
+        return self.self_path is not None and self.self_path.startswith('pixeltable.')
 
     @property
     def signature(self) -> Signature:
@@ -164,11 +175,15 @@ class Function(ABC):
 
         for i, expr in enumerate(args):
             if expr is None:
-                raise excs.Error(f'Argument {i + 1} in call to {self.self_path!r} is not a valid Pixeltable expression')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION,
+                    f'Argument {i + 1} in call to {self.self_path!r} is not a valid Pixeltable expression',
+                )
         for param_name, expr in kwargs.items():
             if expr is None:
-                raise excs.Error(
-                    f'Argument {param_name!r} in call to {self.self_path!r} is not a valid Pixeltable expression'
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION,
+                    f'Argument {param_name!r} in call to {self.self_path!r} is not a valid Pixeltable expression',
                 )
 
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
@@ -183,7 +198,11 @@ class Function(ABC):
         if len(self.signatures) == 1:
             # Only one signature: call _bind_to_signature() and surface any errors directly
             result = 0
-            bound_args = self._bind_to_signature(0, args, kwargs)
+            try:
+                bound_args = self._bind_to_signature(0, args, kwargs)
+            except TypeError as e:
+                msg = self._bind_error_msg(self.signatures[0], args, kwargs, e)
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, msg) from e
         else:
             # Multiple signatures: try each signature in declaration order and trap any errors.
             # If none of them succeed, raise a generic error message.
@@ -195,10 +214,29 @@ class Function(ABC):
                 result = i
                 break
             if result == -1:
-                raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Function {self.name!r} has no matching signature for arguments',
+                )
         assert result >= 0
         assert bound_args is not None
         return self._resolved_fns[result], bound_args
+
+    @staticmethod
+    def _bind_error_msg(signature: Signature, args: Sequence[Any], kwargs: dict[str, Any], cause: TypeError) -> str:
+        from pixeltable.exprs import Expr, Literal
+
+        def _arg_desc(v: Any) -> str:
+            if isinstance(v, Literal) and v.val is None:
+                return 'None'
+            # At this point all arguments should have been converted to Exprs
+            assert isinstance(v, Expr)
+            return str(v.col_type)
+
+        arg_descs = (_arg_desc(a) for a in args)
+        kwarg_descs = (f'{k}={_arg_desc(v)}' for k, v in kwargs.items())
+        provided = ', '.join(itertools.chain(arg_descs, kwarg_descs))
+        return f'{cause}; expected ({signature.params_str()}), got ({provided})'
 
     def _bind_to_signature(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
         from pixeltable import exprs
@@ -220,7 +258,7 @@ class Function(ABC):
         if rp_kwargs is None:
             # TODO: What to do in this case? An example where this can happen is if model_id is not a constant
             #   in a call to one of the OpenAI endpoints.
-            raise excs.Error('Could not determine resource pool')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Could not determine resource pool')
         return self._resource_pool(**rp_kwargs)
 
     def call_return_type(self, bound_args: dict[str, 'exprs.Expr']) -> ts.ColumnType:
@@ -346,7 +384,10 @@ class Function(ABC):
                 except (TypeError, excs.Error):
                     continue
             if len(templates) == 0:
-                raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Function {self.name!r} has no matching signature for arguments',
+                )
             return ExprTemplateFunction(templates)
 
     def _bind_and_create_template(self, kwargs: dict[str, Any]) -> 'ExprTemplate':
@@ -360,13 +401,19 @@ class Function(ABC):
         bindings: dict[str, exprs.Expr] = {}
         for k, v in kwargs.items():
             if k not in self.signature.parameters:
-                raise excs.Error(f'Unknown parameter: {k}')
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unknown parameter: {k}')
             param = self.signature.parameters[k]
             expr = exprs.Expr.from_object(v)
             if not isinstance(expr, exprs.Literal):
-                raise excs.Error(f'Expected a constant value for parameter {k!r} in call to .using()')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Expected a constant value for parameter {k!r} in call to .using()',
+                )
             if not param.col_type.is_supertype_of(expr.col_type):
-                raise excs.Error(f'Expected type `{param.col_type}` for parameter {k!r}; got `{expr.col_type}`')
+                raise excs.RequestError(
+                    excs.ErrorCode.TYPE_MISMATCH,
+                    f'Expected type `{param.col_type}` for parameter {k!r}; got `{expr.col_type}`',
+                )
             bindings[k] = expr
 
         residual_params = [p for p in self.signature.parameters.values() if p.name not in bindings]
@@ -428,6 +475,25 @@ class Function(ABC):
 
     def __default_resource_pool(self) -> str | None:
         return None
+
+    def resource_estimator(self, fn: Callable[..., dict[str, int]]) -> Callable[..., dict[str, int]]:
+        """Decorator for specifying the resource estimator of this function.
+
+        The decorated function accepts a subset of this function's parameters and returns a dict mapping
+        resource names to estimated costs for a single or set of requests.
+
+        Parameters are validated at runtime, requiring the resource estimator contain a subset of the
+        parameters of the resolved function type.
+
+        If the estimator declares a parameter named '_param_types', it will receive a dict mapping
+        parameter names to their Pixeltable ColumnTypes for the resolved overload. This allows a shared
+        estimator on a polymorphic function to distinguish overloads that share the same Python types.
+        """
+        self._resource_estimator = fn
+        return fn
+
+    def __default_resource_estimator(self) -> dict[str, int]:
+        return {}
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):

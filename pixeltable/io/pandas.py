@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import os
+import typing
 import uuid
 from typing import Any
 
@@ -12,6 +15,9 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 
+if typing.TYPE_CHECKING:
+    import pixeltable as pxt
+
 
 def import_pandas(
     tbl_name: str,
@@ -19,7 +25,6 @@ def import_pandas(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
     comment: str = '',
 ) -> pxt.Table:
     """Creates a new base table from a Pandas
@@ -45,41 +50,7 @@ def import_pandas(
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     return pxt.create_table(
-        tbl_name,
-        source=df,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
-    )
-
-
-def import_csv(
-    tbl_name: str,
-    filepath_or_buffer: str | os.PathLike,
-    schema_overrides: dict[str, Any] | None = None,
-    primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
-    comment: str = '',
-    **kwargs: Any,
-) -> pxt.Table:
-    """
-    Creates a new base table from a csv file. This is a convenience method and is equivalent
-    to calling `import_pandas(table_path, pd.read_csv(filepath_or_buffer, **kwargs), schema=schema)`.
-    See the Pandas documentation for [`read_csv`](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html)
-    for more details.
-
-    Returns:
-        A handle to the newly created [`Table`][pixeltable.Table].
-    """
-    return pxt.create_table(
-        tbl_name,
-        source=filepath_or_buffer,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
-        extra_args=kwargs,
+        tbl_name, source=df, schema_overrides=schema_overrides, primary_key=primary_key, comment=comment
     )
 
 
@@ -89,7 +60,6 @@ def import_excel(
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
     comment: str = '',
     **kwargs: Any,
 ) -> pxt.Table:
@@ -107,7 +77,6 @@ def import_excel(
         source=io,
         schema_overrides=schema_overrides,
         primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
         comment=comment,
         extra_args=kwargs,
     )
@@ -118,7 +87,9 @@ def _df_check_primary_key_values(df: pd.DataFrame, primary_key: list[str]) -> No
         # This can be faster for large DataFrames
         has_nulls = df[pd_name].count() < len(df)
         if has_nulls:
-            raise excs.Error(f'Primary key column `{pd_name}` cannot contain null values.')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Primary key column `{pd_name}` cannot contain null values.'
+            )
 
 
 def df_infer_schema(
@@ -191,7 +162,9 @@ def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: 
         else:
             return inferred_type.copy(nullable=nullable)
 
-    raise excs.Error(f'Could not infer Pixeltable type of column: {data_col.name} (dtype: {pd_dtype})')
+    raise excs.RequestError(
+        excs.ErrorCode.INVALID_TYPE, f'Could not infer Pixeltable type of column: {data_col.name} (dtype: {pd_dtype})'
+    )
 
 
 def _df_row_to_pxt_row(

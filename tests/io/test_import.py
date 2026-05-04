@@ -6,7 +6,26 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..utils import ensure_s3_pytest_resources_access
+from ..utils import ensure_s3_pytest_resources_access, pxt_raises
+
+EXPECTED_SCHEMA = {
+    'name': ts.StringType(nullable=True),
+    'human': ts.BoolType(nullable=True),
+    'parents': ts.JsonType(nullable=True),
+    'age': ts.FloatType(nullable=True),
+    'metadata': ts.JsonType(nullable=True),
+    'children': ts.IntType(nullable=True),
+}
+
+
+EXPECTED_SCHEMA_WITH_JSON_INFERENCE = {
+    'name': ts.StringType(nullable=True),
+    'human': ts.BoolType(nullable=True),
+    'parents': ts.JsonType(ts.JsonType.TypeSchema([ts.StringType(), ts.StringType()]), nullable=True),
+    'age': ts.FloatType(nullable=True),
+    'metadata': ts.JsonType(ts.JsonType.TypeSchema({'first_appearance': ts.StringType()}), nullable=True),
+    'children': ts.IntType(nullable=True),
+}
 
 
 class TestImport:
@@ -16,51 +35,37 @@ class TestImport:
             data = json.loads(fp.read())
         t1 = pxt.io.import_rows('example1', data)
         assert t1.count() == 4
-        assert t1._get_schema() == {
-            'name': ts.StringType(nullable=True),
-            'human': ts.BoolType(nullable=True),
-            'parents': ts.JsonType(nullable=True),
-            'age': ts.FloatType(nullable=True),
-            'metadata': ts.JsonType(nullable=True),
-            'children': ts.IntType(nullable=True),
-        }
+        assert t1._get_schema() == EXPECTED_SCHEMA
 
         t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': pxt.Float})
         assert t2.count() == 4
-        assert t2._get_schema() == {
-            'name': ts.StringType(nullable=True),
-            'human': ts.BoolType(nullable=True),
-            'parents': ts.JsonType(nullable=True),
-            'age': ts.FloatType(nullable=True),
-            'metadata': ts.JsonType(nullable=True),
-            'children': ts.FloatType(nullable=True),
-        }
+        assert t2._get_schema() == EXPECTED_SCHEMA | {'children': ts.FloatType(nullable=True)}
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.io.import_rows('example3', [{'only_none': None}])
         assert 'The following columns have no non-null values: only_none' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             pxt.io.import_rows('example4', [{'col': 1}], schema_overrides={'not_col': pxt.String})
         assert 'Some column(s) specified in `schema_overrides` are not present in the source: not_col' in str(
             exc_info.value
         )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
             pxt.io.import_rows('example5', [{'col': 1}, {'col': 'value'}])
         assert (
             'Could not infer type of column `col`; '
             "the value in row 1 does not match preceding type Int | None: 'value'" in str(exc_info.value)
         )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
             pxt.io.import_rows('example6', [{'col': str}])
         assert (
             "Could not infer type for column `col`; the value in row 0 has an unsupported type: <class 'type'>"
             in str(exc_info.value)
         )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             pxt.io.import_rows('example7', [{'__unusable_name': 'abc'}])
         assert 'Column names must be valid pixeltable identifiers' in str(exc_info.value)
 
@@ -85,14 +90,7 @@ class TestImport:
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json('example', str(example))
         assert t1.count() == 4
-        assert t1._get_schema() == {
-            'name': ts.StringType(nullable=True),
-            'human': ts.BoolType(nullable=True),
-            'parents': ts.JsonType(nullable=True),
-            'age': ts.FloatType(nullable=True),
-            'metadata': ts.JsonType(nullable=True),
-            'children': ts.IntType(nullable=True),
-        }
+        assert t1._get_schema() == EXPECTED_SCHEMA
 
         # `jeopardy.json` is a larger dataset; we try loading it as a URL to test both file and URL loading
         t2 = pxt.io.import_json('jeopardy', jeopardy)
@@ -110,14 +108,7 @@ class TestImport:
             ensure_s3_pytest_resources_access()
         tab = pxt.create_table('from_remote_json', source=source, source_format='json')
         assert tab.count() == 4
-        assert tab._get_schema() == {
-            'name': ts.StringType(nullable=True),
-            'human': ts.BoolType(nullable=True),
-            'parents': ts.JsonType(nullable=True),
-            'age': ts.FloatType(nullable=True),
-            'metadata': ts.JsonType(nullable=True),
-            'children': ts.IntType(nullable=True),
-        }
+        assert tab._get_schema() == EXPECTED_SCHEMA
 
     def test_insert_json(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'

@@ -2,18 +2,19 @@ import sys
 import sysconfig
 from typing import Any
 
+import numpy as np
 import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
 from ..utils import (
-    IN_CI,
     SAMPLE_IMAGE_URL,
     ReloadTester,
     get_audio_files,
     get_image_files,
     get_sentences,
+    pxt_raises,
     reload_catalog,
     rerun,
     skip_test_if_not_installed,
@@ -37,14 +38,14 @@ class TestHuggingface:
         assert status.num_excs == 0
 
         # verify handling of constant params
-        with pytest.raises(ValueError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='parameter model_id must be a constant value'):
             t.add_computed_column(e5_2=sentence_transformer(t.input, model_id=t.input))
-        assert ': parameter model_id must be a constant value' in str(exc_info.value)
-        with pytest.raises(ValueError) as exc_info:
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='parameter normalize_embeddings must be a constant value'
+        ):
             t.add_computed_column(
                 e5_2=sentence_transformer(t.input, model_id=model_id, normalize_embeddings=t.bool_col)
             )
-        assert ': parameter normalize_embeddings must be a constant value' in str(exc_info.value)
 
         # make sure this doesn't cause an exception
         # TODO: is there some way to capture the output?
@@ -163,6 +164,7 @@ class TestHuggingface:
         t.add_computed_column(
             detect=detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
         )
+        t.add_computed_column(featured_object=t.detect.label_text[0])
         status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
         assert status.num_excs == 0
@@ -174,11 +176,11 @@ class TestHuggingface:
         assert 'orange' in label_text
         assert 'bowl' in label_text
         assert 'broccoli' in label_text
+        # Test appropriate typing
+        assert t.get_metadata()['columns']['featured_object']['type_'] == 'String'
 
     def test_detr_for_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
-        import numpy as np
-
         from pixeltable.functions.huggingface import detr_for_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
@@ -214,7 +216,7 @@ class TestHuggingface:
 
     @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
     def test_speech2text_for_conditional_generation(self, uses_db: None) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('sentencepiece', 'transformers')
         from pixeltable.functions.huggingface import speech2text_for_conditional_generation
 
         t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
@@ -284,8 +286,7 @@ class TestHuggingface:
         assert results[0]['sentiment'][0]['label_text'] == 'positive'
         assert results[1]['sentiment'][0]['label_text'] == 'negative'
 
-    @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
-    @pytest.mark.expensive
+    @pytest.mark.very_expensive  # Large model
     def test_image_captioning(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import image_captioning
@@ -355,7 +356,7 @@ class TestHuggingface:
         assert 'paris' in result['answer']['answer'].lower()
 
     def test_translation(self, uses_db: None) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('sentencepiece', 'transformers')
         from pixeltable.functions.huggingface import translation
 
         t = pxt.create_table('test_tbl', {'text': pxt.String})
@@ -396,7 +397,7 @@ class TestHuggingface:
             assert 'word' in entity
 
     def test_automatic_speech_recognition(self, uses_db: None) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('torchcodec', 'transformers')
         from pixeltable.functions.huggingface import automatic_speech_recognition
 
         t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
@@ -433,8 +434,7 @@ class TestHuggingface:
         assert result['audio'] is not None
         # Audio should be pxt.Audio type - basic check that it's not empty
 
-    @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
-    @pytest.mark.expensive
+    @pytest.mark.very_expensive  # Large model
     def test_text_to_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
@@ -461,8 +461,7 @@ class TestHuggingface:
         # Verify we got an image
         assert result['image'] is not None
 
-    @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
-    @pytest.mark.expensive
+    @pytest.mark.very_expensive  # Large model
     def test_image_to_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
@@ -487,8 +486,7 @@ class TestHuggingface:
         # Verify we got a modified image
         assert result['modified_image'] is not None
 
-    @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
-    @pytest.mark.expensive
+    @pytest.mark.very_expensive  # Large model
     def test_image_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')

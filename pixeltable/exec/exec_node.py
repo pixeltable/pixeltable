@@ -55,8 +55,7 @@ class ExecNode(abc.ABC):
             self.input.set_ctx(ctx)
 
     @abc.abstractmethod
-    def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        pass
+    def __aiter__(self) -> AsyncIterator[DataRowBatch]: ...
 
     def __iter__(self) -> Iterator[DataRowBatch]:
         try:
@@ -162,6 +161,7 @@ class ExecNode(abc.ABC):
 
     def set_limit(self, limit: int) -> None:
         """Default implementation propagates to input"""
+        assert limit > 0
         if self.input is not None:
             self.input.set_limit(limit)
 

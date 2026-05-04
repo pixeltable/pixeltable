@@ -1,4 +1,5 @@
 import datetime
+import itertools
 import re
 import urllib.request
 from pathlib import Path
@@ -20,6 +21,7 @@ from .utils import (
     get_audio_files,
     get_documents,
     get_video_files,
+    pxt_raises,
     reload_catalog,
     skip_test_if_not_installed,
     validate_repr,
@@ -28,6 +30,11 @@ from .utils import (
 
 
 class TestQuery:
+    @staticmethod
+    @pxt.udf
+    def is_even_py(x: int) -> bool:
+        return x % 2 == 0
+
     def create_join_tbls(self, num_rows: int) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
         t1 = pxt.create_table(f't1_{num_rows}', {'id': pxt.Int, 'i': pxt.Int, 'a': pxt.Array})
         validate_update_status(
@@ -78,59 +85,59 @@ class TestQuery:
         _ = t.where(t.c2 < 10).select(t.c2, t.c2).collect()  # repeated name no error
 
         # where clause needs to be a predicate
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.where(t.c1).select(t.c2).collect()
         assert 'needs to return `Bool`' in str(exc_info.value)
 
         # where clause needs to be a predicate
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION) as exc_info:
             _ = t.where(15).select(t.c2).collect()  # type: ignore[arg-type]
         assert 'where() expects a Pixeltable expression; got: 15' in str(exc_info.value)
 
         # duplicate select list
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE) as exc_info:
             _ = t.select(t.c1).select(t.c2).collect()
         assert 'already specified' in str(exc_info.value)
 
         # invalid expr in select list: Callable is not a valid literal
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION) as exc_info:
             _ = t.select(datetime.datetime.now).collect()
         assert 'Invalid expression' in str(exc_info.value)
 
         # catch invalid name in select list from user input
         # only check stuff that's not caught by python kwargs checker
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             _ = t.select(t.c1, **{'c2-1': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             _ = t.select(t.c1, **{'': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             _ = t.select(t.c1, **{'foo.bar': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             _ = t.select(t.c1, _c3=t.c2).collect()
         assert 'Invalid name' in str(exc_info.value)
 
         # catch repeated name from user input
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.select(t.c2, c2=t.c1).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.select(t.c2 + 1, col_0=t.c2).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
         # select list contains invalid references
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t2 = pxt.create_table('t2', {'c1': pxt.Int})
             _ = t.select(t.c1, t2.c1 + t.c2).collect()
         assert 'cannot be evaluated in the context' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error, match=r'where\(\) clause already specified'):
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
     def test_join(self, uses_db: None) -> None:
@@ -196,49 +203,49 @@ class TestQuery:
     def test_join_errors(self, uses_db: None) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             _ = t1.join(t2, on=(t2.id, 17)).collect()  # type: ignore[arg-type]
         assert 'must be a sequence of column references or a boolean expression' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             _ = t1.join(t2, on=(15, 27)).collect()  # type: ignore[arg-type]
         assert 'must be a sequence of column references or a boolean expression' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t1.join(t2, how='cross', on=t2.id).collect()
         assert '`on` not allowed for cross join' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t1.join(t2).collect()
         assert "`how='inner'` requires `on`" in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             _ = t1.join(t2, on=t2.f).collect()
         assert "'f' not found in any of: t1" in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t1.join(t2, on=t3.i).collect()
         assert 'expression cannot be evaluated in the context of the joined tables: i' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
             _ = t1.join(t2, on=t2.id + 1).collect()
         assert '`on` expects an expression of type `Bool`, but got one of type `Int | None`: id + 1' in str(
             exc_info.value
         )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()
         assert 'ambiguous column reference: id' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             _ = t1.join(t2, on=t1.i).collect()
         assert "column 'i' not found in joined table" in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t1.join(t2, on=t1.id, how='inner').head()
         assert 'head() not supported for joins' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t1.join(t2, on=t1.id, how='inner').tail()
         assert 'tail() not supported for joins' in str(exc_info.value)
 
@@ -272,19 +279,19 @@ class TestQuery:
         assert res[0, 'c2'] == pd_df['c2'][0]
         assert res[0, 'c2'] == res[0, 1]
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME) as exc_info:
             _ = res['does_not_exist']
         assert 'Invalid column name' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME) as exc_info:
             _ = res[0, 'does_not_exist']
         assert 'Invalid column name' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = res[0, 0, 0]
         assert 'Bad index' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = res['c2', 0]
         assert 'Bad index' in str(exc_info.value)
 
@@ -293,7 +300,7 @@ class TestQuery:
         _ = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).collect()
 
         # invalid expr in order_by()
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION) as exc_info:
             _ = t.order_by(datetime.datetime.now()).collect()  # type: ignore[arg-type]
         assert 'Invalid expression' in str(exc_info.value)
 
@@ -304,127 +311,186 @@ class TestQuery:
         print(res)
         assert len(res) == 4
 
-    def test_limit(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
-        t = test_tbl
-        nrows = 3
-        res = t.select(t.c4).limit(nrows).collect()
-        assert len(res) == nrows
-
-        @pxt.query
-        def get_lim(n: int) -> pxt.Query:
-            return t.select(t.c4).limit(n)
-
-        res = t.select(t.c4, get_lim(2)).collect()
-        print(res)
-        print(res[0]['get_lim'])
-        assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
-
-        with pytest.raises(pxt.Error, match='must be of type `Int`'):
-            _ = t.limit(5.3).collect()  # type: ignore[arg-type]
-
-        v = pxt.create_view('view1', t, additional_columns={'get_lim': get_lim(3)})
-
-        results = reload_tester.run_query(v.select(v.c4, v.get_lim).limit(3))
-        print(results)
-        reload_tester.run_reload_test()
-
-    def test_limit2(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
-        nrows = 3
-        res = t.select(t.c4).limit(nrows).collect()
-        assert len(res) == nrows
-
-        @pxt.query
-        def get_lim(n: int) -> pxt.Query:
-            return t.select(t.c4, folded_flt=(5.7 * n) - 4).limit((3 * (n + 1) // 2) - 1)
-
-        res = t.select(t.c4, get_lim(1)).collect()
-        assert res[0]['get_lim'] == [
-            {'c4': False, 'folded_flt': 1.7000000000000002},
-            {'c4': True, 'folded_flt': 1.7000000000000002},
-        ]
-
-    def test_limit4(self, test_tbl: pxt.Table) -> None:
+    def test_limit_basic(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
-        @pxt.query
-        def get_lim(n: float) -> pxt.Query:
-            return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
+        # Basic return shape: length and schema preserved
+        res = t.select(t.c1, t.c2).limit(3).collect()
+        assert len(res) == 3
+        assert list(res.schema.keys()) == ['c1', 'c2']
 
-        res = t.select(t.c4, get_lim(2.2)).collect()
-        assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
+        # Array-valued select column
+        res = t.select(t.c4, arr=[2, 3, 4]).limit(2).collect()
+        assert len(res) == 2
+        assert res[0]['arr'] == [2, 3, 4]
 
-    def test_limit5(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
-        res = t.select(t.c4, foo=[2, 3, 4]).limit(2).collect()
-        print(res)
-        assert res[0]['foo'] == [2, 3, 4]
+        # Computed-expression select column
+        res = t.select(t.c2, doubled=t.c2 * 2).order_by(t.c2).limit(4).collect()
+        assert [row['doubled'] for row in res] == [0, 2, 4, 6]
 
-        @pxt.query
-        def get_val(n: int) -> pxt.Query:
-            return t.select(foo=[2, 3, n]).limit(2)
+        # limit > table size returns all rows
+        res = t.select(t.c2).limit(1000).collect()
+        assert len(res) == 100
 
-        res = t.select(t.c4, get_val(4)).limit(2).collect()
-        print(res)
-        assert res[0]['get_val'][0]['foo'] == [2, 3, 4]
+        # offset=None is equivalent to no offset
+        res_none = t.select(t.c2).order_by(t.c2).limit(5, offset=None).collect()
+        res_no = t.select(t.c2).order_by(t.c2).limit(5).collect()
+        assert [r['c2'] for r in res_none] == [r['c2'] for r in res_no]
 
-    def test_pagination(self, uses_db: None) -> None:
-        """Test limit with offset for pagination"""
-        # Create a simple table without computed columns to avoid versioning issues
-        t = pxt.create_table('pagination_test', {'id': pxt.Int, 'value': pxt.String})
-        rows = [{'id': i, 'value': f'row_{i}'} for i in range(50)]
-        t.insert(rows)
+        # Pagination: basic offsets
+        res = t.select(t.c2).order_by(t.c2).limit(5, offset=0).collect()
+        assert [row['c2'] for row in res] == [0, 1, 2, 3, 4]
+        res = t.select(t.c2).order_by(t.c2).limit(5, offset=5).collect()
+        assert [row['c2'] for row in res] == [5, 6, 7, 8, 9]
 
-        # Test basic offset - first page
-        res = t.select(t.id).order_by(t.id).limit(5, offset=0).collect()
-        assert len(res) == 5
-        assert [row['id'] for row in res] == list(range(5))
+        # offset=0 equivalent to no offset
+        res_zero = t.select(t.c2).order_by(t.c2).limit(5, offset=0).collect()
+        assert [r['c2'] for r in res_no] == [r['c2'] for r in res_zero]
 
-        # Test pagination: skip first 5, get next 5
-        res = t.select(t.id).order_by(t.id).limit(5, offset=5).collect()
-        assert len(res) == 5
-        assert [row['id'] for row in res] == list(range(5, 10))
-
-        # Test pagination: skip first 10, get next 5
-        res = t.select(t.id).order_by(t.id).limit(5, offset=10).collect()
-        assert len(res) == 5
-        assert [row['id'] for row in res] == list(range(10, 15))
-
-        # Test offset larger than result set
-        res = t.select(t.id).limit(10, offset=50).collect()
+        # offset larger than result set
+        res = t.select(t.c2).limit(10, offset=200).collect()
         assert len(res) == 0
 
-        # Test offset with where clause
-        res = t.where(t.id >= 10).select(t.id).order_by(t.id).limit(5, offset=5).collect()
+        # offset with where clause
+        res = t.where(t.c2 >= 10).select(t.c2).order_by(t.c2).limit(5, offset=5).collect()
+        assert [row['c2'] for row in res] == [15, 16, 17, 18, 19]
+
+        # offset near end of results: fewer rows than limit requested
+        res = t.select(t.c2).order_by(t.c2).limit(10, offset=95).collect()
         assert len(res) == 5
-        assert [row['id'] for row in res] == list(range(15, 20))
+        assert [row['c2'] for row in res] == [95, 96, 97, 98, 99]
 
-        # Test that offset=0 is equivalent to no offset
-        res_no_offset = t.select(t.id).order_by(t.id).limit(5).collect()
-        res_with_zero_offset = t.select(t.id).order_by(t.id).limit(5, offset=0).collect()
-        assert res_no_offset == res_with_zero_offset
+        # Python-side filter path (FilterNode): a Python UDF can't be translated to SQL,
+        # so limit/offset are applied by Python instead of LIMIT/OFFSET in the SQL query.
+        # (_force_stored is orthogonal — it just lets us define the UDF locally inside this
+        # test method; pxt otherwise rejects nested functions.)
 
-        # Test offset near end of results
-        res = t.select(t.id).order_by(t.id).limit(10, offset=45).collect()
-        assert len(res) == 5  # Only 5 rows left
-        assert [row['id'] for row in res] == list(range(45, 50))
+        res = t.where(self.is_even_py(t.c2)).select(t.c2).order_by(t.c2).limit(5, offset=5).collect()
+        assert [row['c2'] for row in res] == [10, 12, 14, 16, 18]
 
-        # Test pagination with Python filter (forces Python-side offset handling)
-        # Using a UDF that can't be converted to SQL
+        # Python-filter path, offset near end: fewer rows than limit
+        res = t.where(self.is_even_py(t.c2)).select(t.c2).order_by(t.c2).limit(10, offset=45).collect()
+        assert len(res) == 5
+        assert [row['c2'] for row in res] == [90, 92, 94, 96, 98]
+
+        # Python-filter path, offset beyond result: empty
+        res = t.where(self.is_even_py(t.c2)).select(t.c2).order_by(t.c2).limit(5, offset=60).collect()
+        assert len(res) == 0
+
+    def test_limit_errors(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`'):
+            _ = t.limit(5.3)  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`'):
+            _ = t.limit('5')  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='must be present'):
+            _ = t.limit(None)
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`'):
+            _ = t.limit(5, offset='bad')  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >= 0'):
+            _ = t.limit(-1)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >= 0'):
+            _ = t.limit(5, offset=-1)
+        # limit() after sample() is rejected
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with sample'):
+            _ = t.sample(n=10).limit(5)
+
+    def test_limit_joins(self, uses_db: None) -> None:
+        num_rows = 100
+        t1, t2, _ = self.create_join_tbls(num_rows)
+
+        # inner join + limit: only n rows returned, ordering preserved
+        res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f).order_by(t1.i).limit(10).collect()
+        assert len(res) == 10
+        assert [row['i'] for row in res] == list(range(10))
+
+        # inner join + limit + offset: paging across a join
+        res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f).order_by(t1.i).limit(5, offset=10).collect()
+        assert len(res) == 5
+        assert [row['i'] for row in res] == list(range(10, 15))
+
+        # cross join + limit: caps total output (10 * 10 = 100 → 25)
+        small1, small2, _ = self.create_join_tbls(10)
+        res = small1.join(small2, how='cross').select(small1.i, small2.f).limit(25).collect()
+        assert len(res) == 25
+
+        # limit greater than join cardinality: returns all rows
+        res = small1.join(small2, on=small1.id, how='inner').select(small1.i).limit(1000).collect()
+        assert len(res) == 10
+
+    def test_limit_iterator_views(self, uses_db: None) -> None:
+        base_t = pxt.create_table('lim_base', {'video': pxt.Video})
+        view_t = pxt.create_view('lim_frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
+        base_t.insert(video=get_video_files()[0])
+
+        total = view_t.count()
+        assert total > 10, f'expected > 10 frames, got {total}'
+
+        # basic limit on iterator view
+        res = view_t.select(view_t.pos).order_by(view_t.pos).limit(5).collect()
+        assert len(res) == 5
+        assert [row['pos'] for row in res] == [0, 1, 2, 3, 4]
+
+        # limit + offset on iterator view
+        res = view_t.select(view_t.pos).order_by(view_t.pos).limit(5, offset=3).collect()
+        assert len(res) == 5
+        assert [row['pos'] for row in res] == [3, 4, 5, 6, 7]
+
+        # limit larger than frame count: returns all
+        res = view_t.select(view_t.pos).limit(total + 100).collect()
+        assert len(res) == total
+
+    @pxt.uda
+    class py_agg(pxt.Aggregator):
+        def __init__(self) -> None:
+            pass
+
+        def update(self, val: int) -> None:
+            pass
+
+        def value(self) -> int:
+            return 0
+
+    def test_limit_0(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+
+        def check(query: pxt.Query, expected_cols: list[str]) -> None:
+            assert list(query.schema.keys()) == expected_cols
+            res = query.collect()
+            assert len(res) == 0
+            assert list(res.schema.keys()) == expected_cols
+
+        # plain SQL scan
+        check(t.select(t.c1, t.c2).order_by(t.c2).limit(0), ['c1', 'c2'])
+
+        # SQL scan with offset
+        check(t.select(t.c1, t.c2).order_by(t.c2).limit(0, offset=5), ['c1', 'c2'])
+
+        # SQL aggregation (SqlAggregationNode): all exprs translatable to SQL
+        check(t.group_by(t.c1).select(t.c1, cnt=pxt.functions.count(t.c2)).limit(0), ['c1', 'cnt'])
+
+        # Python filter (FilterNode path): UDF forces Python-side filter
         @pxt.udf(_force_stored=True)
-        def is_even_py(x: int) -> bool:
-            return x % 2 == 0
+        def is_positive(x: int) -> bool:
+            return x > 0
 
-        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=5).collect()
-        assert len(res) == 5
-        assert [row['id'] for row in res] == [10, 12, 14, 16, 18]
+        check(t.where(is_positive(t.c2)).select(t.c1, t.c2).order_by(t.c2).limit(0), ['c1', 'c2'])
 
-        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(10, offset=20).collect()
-        assert len(res) == 5  # Only 5 left
-        assert [row['id'] for row in res] == [40, 42, 44, 46, 48]
+        # Python filter with offset
+        check(t.where(is_positive(t.c2)).select(t.c1, t.c2).order_by(t.c2).limit(0, offset=3), ['c1', 'c2'])
 
-        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=25).collect()
-        assert len(res) == 0  # No more rows
+        # in-memory aggregation (AggregationNode): Python UDA cannot be pushed to SQL
+        check(t.group_by(t.c1).select(t.c1, s=self.py_agg(t.c2)).limit(0), ['c1', 's'])
+
+        # cursor: schema accessible before and after iteration, no rows yielded
+        query = t.select(t.c1, t.c2).order_by(t.c2).limit(0)
+        cur = query.cursor()
+        # TODO: add ResultCursor.keys(), analogously to Sqlalchemy's CursorResult.keys()?
+        assert list(cur._schema.keys()) == ['c1', 'c2']
+        rows = list(cur)
+        assert rows == []
+        assert list(cur._schema.keys()) == ['c1', 'c2']
 
     def test_head_tail(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -437,11 +503,11 @@ class TestQuery:
         res = t.where(t.c2 > 9).head(10).to_pandas()
         assert np.all(res.c2 == list(range(10, 20)))
         # order_by() is an error
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.order_by(t.c2).head(10)
         assert 'cannot be used with order_by' in str(exc_info.value)
         # group_by() is an error
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.group_by(t.c2).head(10)
         assert 'cannot be used with group_by' in str(exc_info.value)
 
@@ -450,11 +516,11 @@ class TestQuery:
         res = t.where(t.c2 < 90).tail().to_pandas()
         assert np.all(res.c2 == list(range(80, 90)))
         # order_by() is an error
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.order_by(t.c2).tail(10)
         assert 'cannot be used with order_by' in str(exc_info.value)
         # group_by() is an error
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.group_by(t.c2).tail(10)
         assert 'cannot be used with group_by' in str(exc_info.value)
 
@@ -488,7 +554,9 @@ class TestQuery:
 
         # count() does not support Python-only filters
         t = small_img_tbl
-        with pytest.raises(pxt.Error, match=re.escape('count() cannot be used with Python-only filters')):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape('count() cannot be used with Python-only filters')
+        ):
             _ = t.where(t.img.width > 100).count()
 
     def test_count_with_group_by(self, test_tbl: pxt.Table) -> None:
@@ -505,6 +573,24 @@ class TestQuery:
         # Should return the number of distinct c1 values in filtered rows
         distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
         assert cnt == distinct_c1_filtered
+
+    def test_count_join(self, uses_db: None) -> None:
+        """Tests for join...count queries"""
+        # TODO(PXT-1108): when the join+where bug is fixed, add some queries with where().
+        num_rows = 100
+        t1, t2, t3 = self.create_join_tbls(num_rows)
+
+        # Inner join + count. Note: t1 and t2 have matching ids.
+        cnt = t1.join(t2, on=(t1.id == t2.id), how='inner').count()
+        assert cnt == num_rows
+
+        # Inner join + count with a different table. Note: only 10% of t3's ids are present in t1.
+        cnt = t1.join(t3, on=(t1.id == t3.id), how='inner').count()
+        assert cnt == num_rows // 10
+
+        # Left join + count. Since it's left join, all t1 rows should be present.
+        cnt = t1.join(t3, on=(t1.id == t3.id), how='left').count()
+        assert cnt == num_rows
 
     def test_select_literal(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -547,7 +633,6 @@ class TestQuery:
         PIL.Image.open(opurl_img)
 
     def test_update_delete_where(self, test_tbl: pxt.Table) -> None:
-        # TODO: also capture recompute_columns()
         t = test_tbl
         old: list[int] = t.select(t.c3).collect()['c3']
 
@@ -565,48 +650,49 @@ class TestQuery:
         # Delete with where
         validate_update_status(t.where((t.c2 >= 50) & (t.c2 < 75)).delete())
         assert t.count() == 75
-
         # Delete without where
         validate_update_status(t.select().delete())
         assert t.count() == 0
 
-        # select_list
+    def test_mutation_op_restrictions(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
 
-        with pytest.raises(pxt.Error) as exc_info:
+        # select_list
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.select(t.c2).update({'c3': 0.0})
         assert 'Cannot use `update` after `select`' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.select(t.c2).delete()
         assert 'Cannot use `delete` after `select`' in str(exc_info.value)
 
         # group_by
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.group_by(t.c2).update({'c3': 0.0})
         assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.group_by(t.c2).delete()
         assert 'Cannot use `delete` after `group_by`' in str(exc_info.value)
 
         # order_by
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.order_by(t.c2).update({'c3': 0.0})
         assert 'Cannot use `update` after `order_by`' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.order_by(t.c2).delete()
         assert 'Cannot use `delete` after `order_by`' in str(exc_info.value)
 
         # limit
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.limit(10).update({'c3': 0.0})
         assert 'Cannot use `update` after `limit`' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.limit(10).delete()
         assert 'Cannot use `delete` after `limit`' in str(exc_info.value)
 
@@ -614,29 +700,56 @@ class TestQuery:
 
         t2 = pxt.create_table('test_tbl_2', {'name': pxt.String, 'video': pxt.Video})
         v2 = pxt.create_view('test_view_2', t2, iterator=frame_iterator(t2.video, fps=1))
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
         assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).delete()
         assert 'Cannot use `delete` after `group_by`' in str(exc_info.value)
 
         # delete from view
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             v2.where(t.c2 < 10).delete()
         assert 'Cannot use `delete` on a view.' in str(exc_info.value)
 
         # update snapshot
         snap = pxt.create_snapshot('test_snapshot', t)
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             snap.where(t.c2 < 10).update({'c3': 0.0})
         assert 'Cannot use `update` on a snapshot.' in str(exc_info.value)
 
         # delete from snapshot
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             snap.where(t.c2 < 10).delete()
         assert 'Cannot use `delete` on a snapshot.' in str(exc_info.value)
+
+        # join+update
+        with pytest.raises(pxt.Error, match='Cannot use `update` after `join`'):
+            t.join(t2, how='cross').update({'c3': 0.0})
+
+        # join+delete
+        with pytest.raises(pxt.Error, match='Cannot use `delete` after `join`'):
+            t.join(t2, how='cross').delete()
+
+        # recompute_columns: op-sequence restrictions
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `select`'):
+            t.select(t.c2).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `group_by`'):
+            t.group_by(t.c2).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `order_by`'):
+            t.order_by(t.c2).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `limit`'):
+            t.limit(10).recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` after `join`'):
+            t.join(t2, how='cross').recompute_columns(t.c8)
+
+        with pytest.raises(pxt.Error, match='Cannot use `recompute_columns` on a snapshot'):
+            snap.where(t.c2 < 10).recompute_columns(t.c8)
 
     def __check_constant_query(self, query: pxt.Query, v: Any) -> None:
         r = query.limit(5).collect()
@@ -804,11 +917,11 @@ class TestQuery:
         assert len(coco_ds.imgs) == view_t.count()
 
         # incorrect select list
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = view_t.select({'image': view_t.frame, 'annotations': view_t.detections}).to_coco_dataset()
         assert '"annotations" is not a list' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED) as exc_info:
             _ = view_t.select(view_t.detections).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
 
@@ -875,13 +988,13 @@ class TestQuery:
         assert len(results) == 5
 
         # Test head, tail, group by - which will not work
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.select(t.c1, t.c3).distinct().head(2)
         assert 'head() cannot be used with group_by' in str(exc_info.value)
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.select(t.c1, t.c3).distinct().tail(2)
         assert 'tail() cannot be used with group_by' in str(exc_info.value)
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE) as exc_info:
             t.select(t.c1, t.c3).group_by(t.c2).distinct()
         assert 'group_by() already specified' in str(exc_info.value)
 
@@ -889,7 +1002,7 @@ class TestQuery:
         cnt = t.select(t.c1, t.c3).distinct().count()
         assert cnt == len(t.select(t.c1, t.c3).distinct().collect())
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE) as exc_info:
             t.distinct().distinct()
         assert 'group_by() already specified' in str(exc_info.value)
 
@@ -943,23 +1056,94 @@ class TestQuery:
             fields_str = re.search(r'\{[^}]+\}', str(exc_info.value)).group()
             return set(re.findall(r"'([^']*)'", fields_str))
 
-        with pytest.raises(pxt.Error, match=r'Required model fields .* are missing') as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Required model fields .* are missing') as exc_info:
             _ = list(t.select(t.i).collect().to_pydantic(TestModel))
         assert extract_fields(exc_info) == {'s', 'f', 'b', 'ts', 'd'}
         # case-sensitive field names
-        with pytest.raises(pxt.Error, match=r'Required model fields .* are missing') as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Required model fields .* are missing') as exc_info:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, D=t.d).collect().to_pydantic(TestModel))
         assert extract_fields(exc_info) == {'d'}
 
         # (s?): dotall mode, needed to match the embedded \n's
-        with pytest.raises(pxt.Error, match=r'(?s)1 validation error .* Input should be a valid integer'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'(?s)1 validation error .* Input should be a valid integer'
+        ):
             _ = list(t.select(t.f, t.s, t.b, t.ts, t.d, i=t.i + 0.1).collect().to_pydantic(TestModel))
 
         # extra fields
         _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(TestModel))
-        with pytest.raises(pxt.Error, match=r'Extra fields .* are not allowed in model') as exc_info:
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Extra fields .* are not allowed in model'
+        ) as exc_info:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
+
+    def test_cursor_lifecycle(self, test_tbl: pxt.Table) -> None:
+        query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
+
+        # repr reflects state transitions
+        cur = query.cursor()
+        assert 'pending' in repr(cur)
+        cur.open()
+        assert 'open' in repr(cur)
+        # double open raises
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='Cursor is already open'):
+            cur.open()
+        cur.close()
+        assert 'closed' in repr(cur)
+        # double close is a no-op
+        cur.close()
+        # reopen after close raises
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='Cursor is closed and cannot be reopened'):
+            cur.open()
+        # iterating a closed cursor raises
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='Cursor is closed and cannot be iterated upon'):
+            list(cur)
+
+        # context manager: partial consumption cleans up
+        with query.cursor() as cur:
+            list(itertools.islice(cur, 10))
+        assert cur._closed
+
+        # auto-open and auto-close on exhaustion without context manager
+        cur = query.cursor()
+        rows = list(cur)
+        assert cur._closed
+        assert len(rows) == 100
+
+        # schema
+        cur = query.cursor()
+        assert list(cur._schema.keys()) == ['c1', 'c2', 'c3']
+
+    def test_cursor_row(self, test_tbl: pxt.Table) -> None:
+        query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
+        collected = query.collect()
+
+        with query.cursor() as cur:
+            for i, row in enumerate(cur):
+                # dict-like access
+                assert row['c1'] == collected[i]['c1']
+                assert row['c2'] == collected[i]['c2']
+                assert row['c3'] == collected[i]['c3']
+                # keys / values / items
+                assert list(row.keys()) == ['c1', 'c2', 'c3']
+                assert len(list(row.values())) == 3
+                items = list(row.items())
+                assert items[0] == ('c1', row['c1'])
+                # contains / len
+                assert 'c1' in row
+                assert 'nonexistent' not in row
+                assert len(row) == 3
+                # missing key
+                with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='does not exist'):
+                    row['nonexistent']
+
+    def test_table_cursor(self, uses_db: None) -> None:
+        tbl = pxt.create_table('cursor_tbl', {'a': pxt.Int, 'b': pxt.String})
+        tbl.insert([{'a': i, 'b': f'val_{i}'} for i in range(5)])
+        rows = list(tbl.cursor())
+        assert len(rows) == 5
+        assert all('a' in row and 'b' in row for row in rows)
 
     @pytest.mark.benchmark(group='select_inexpensive')
     def test_select_inexpensive(self, uses_db: None, benchmark: Any) -> None:

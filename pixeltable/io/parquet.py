@@ -69,9 +69,14 @@ def export_parquet(
 
     for col_name, col_type in query.schema.items():
         if col_type.is_image_type() and not inline_images:
-            raise excs.Error(f'Cannot export image column {col_name!r} with `inline_images=False`')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot export image column {col_name!r} with `inline_images=False`',
+            )
         if col_type.is_array_type() and cast(ts.ArrayType, col_type).shape is None:
-            raise excs.Error(f'Cannot export array column {col_name!r} with unknown shape')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot export array column {col_name!r} with unknown shape'
+            )
 
     # store the changes atomically
     with transactional_directory(parquet_path) as temp_path:

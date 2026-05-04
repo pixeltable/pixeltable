@@ -44,11 +44,20 @@ class ExprTemplateFunction(Function):
     templates: list[ExprTemplate]
     self_name: str
 
-    def __init__(self, templates: list[ExprTemplate], self_path: str | None = None, name: str | None = None):
+    def __init__(
+        self,
+        templates: list[ExprTemplate],
+        self_path: str | None = None,
+        name: str | None = None,
+        is_method: bool = False,
+        is_property: bool = False,
+    ):
         self.templates = templates
         self.self_name = name
 
-        super().__init__([t.signature for t in templates], self_path=self_path)
+        super().__init__(
+            [t.signature for t in templates], self_path=self_path, is_method=is_method, is_property=is_property
+        )
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         self.templates = [self.templates[signature_idx]]
@@ -74,7 +83,10 @@ class ExprTemplateFunction(Function):
                 # TODO: use the available param_expr.col_type
                 arg_expr = exprs.Expr.from_object(arg)
                 if arg_expr is None:
-                    raise excs.Error(f'{self.self_name}(): cannot convert argument {arg} to a Pixeltable expression')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{self.self_name}(): cannot convert argument {arg} to a Pixeltable expression',
+                    )
             else:
                 arg_expr = arg
             arg_exprs[param_expr] = arg_expr

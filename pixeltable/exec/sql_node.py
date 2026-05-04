@@ -89,8 +89,6 @@ class SqlNode(ExecNode):
     cell_md_refs: list[exprs.ColumnPropertyRef]  # of ColumnRefs which also need DataRow.slot_cellmd for evaluation
     set_pk: bool
     num_pk_cols: int
-    py_filter: exprs.Expr | None  # a predicate that can only be run in Python
-    py_filter_eval_ctx: exprs.RowBuilder.EvalCtx | None
     cte: sql.CTE | None
     sql_elements: exprs.SqlElementCache
     progress_reporter: ProgressReporter | None
@@ -161,16 +159,13 @@ class SqlNode(ExecNode):
             # we also need to retrieve the pk columns
             assert tbl is not None
             self.num_pk_cols = len(tbl.tbl_version.get().store_tbl.pk_columns())
-            assert self.num_pk_cols > 1
+            assert self.num_pk_cols > 0
 
         # additional state
         self.cellmd_item_idxs = exprs.ExprDict()
         self.column_item_idxs = {}
         self.column_cellmd_item_idxs = {}
         self.result_cursor = None
-        # the filter is provided by the subclass
-        self.py_filter = None
-        self.py_filter_eval_ctx = None
         self.cte = None
         self.limit = None
         self.offset = None
@@ -232,19 +227,17 @@ class SqlNode(ExecNode):
                 order_by_clause.append(self.sql_elements.get(e).desc() if asc is False else self.sql_elements.get(e))
         stmt = stmt.order_by(*order_by_clause)
 
-        if self.py_filter is None:
-            # if we don't have a Python filter, we can apply limit/offset to stmt
-            if self.limit is not None:
-                stmt = stmt.limit(self.limit)
-            if self.offset is not None:
-                stmt = stmt.offset(self.offset)
+        if self.limit is not None:
+            stmt = stmt.limit(self.limit)
+        if self.offset is not None:
+            stmt = stmt.offset(self.offset)
 
         return stmt
 
     def _ordering_tbl_ids(self) -> set[UUID]:
         return exprs.Expr.all_tbl_ids(e for e, _ in self.order_by_clause)
 
-    def to_cte(self, keep_pk: bool = False) -> tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]] | None:
+    def to_cte(self, keep_pk: bool = False) -> tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]:
         """
         Creates a CTE that materializes the output of this node plus a mapping from select list expr to output column.
         keep_pk: if True, the PK columns are included in the CTE Select statement
@@ -252,9 +245,6 @@ class SqlNode(ExecNode):
         Returns:
             (CTE, dict from Expr to output column)
         """
-        if self.py_filter is not None:
-            # the filter needs to run in Python
-            return None
         if self.cte is None:
             if not keep_pk:
                 self.set_pk = False  # we don't need the PK if we use this SqlNode as a CTE
@@ -274,26 +264,38 @@ class SqlNode(ExecNode):
         tbl: catalog.TableVersionPath,
         stmt: sql.Select,
         refd_tbl_ids: set[UUID] | None = None,
-        exact_version_only: set[UUID] | None = None,
+        created_at_current_version: set[UUID] | None = None,
+        deleted_at_current_version: set[UUID] | None = None,
     ) -> sql.Select:
         """Add From clause to stmt for tables/views referenced by materialized_exprs
         Args:
             tbl: root table of join chain
             stmt: stmt to add From clause to
             materialized_exprs: list of exprs that reference tables in the join chain; if empty, include only the root
-            exact_version_only: set of table ids for which we only want to see rows created at the current version
+            created_at_current_version: set of table ids for which we only want to see rows created at the current
+              version
+            deleted_at_current_version: set of table ids for which we only want to see rows deleted (expired) at the
+              current version
         Returns:
             augmented stmt
         """
         # we need to include at least the root
         if refd_tbl_ids is None:
             refd_tbl_ids = set()
-        if exact_version_only is None:
-            exact_version_only = set()
+        if created_at_current_version is None:
+            created_at_current_version = set()
+        if deleted_at_current_version is None:
+            deleted_at_current_version = set()
         candidates = tbl.get_tbl_versions()
         assert len(candidates) > 0
+        versioned = candidates[0].get().is_versioned
+        if not versioned:
+            assert len(created_at_current_version) == 0
+            assert len(deleted_at_current_version) == 0
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
         for t in candidates[1:]:
+            # the tables in the path must either all be versioned or not
+            assert t.get().is_versioned == versioned
             if t.id in refd_tbl_ids:
                 joined_tbls.append(t)
 
@@ -301,7 +303,6 @@ class SqlNode(ExecNode):
         prev_tv: catalog.TableVersion | None = None
         for t in joined_tbls[::-1]:
             tv = t.get()
-            # _logger.debug(f'create_from_clause: tbl_id={tv.id} {id(tv.store_tbl.sa_tbl)}')
             if first:
                 stmt = stmt.select_from(tv.store_tbl.sa_tbl)
                 first = False
@@ -314,9 +315,11 @@ class SqlNode(ExecNode):
                 ]
                 stmt = stmt.join(tv.store_tbl.sa_tbl, sql.and_(*rowid_clauses))
 
-            if t.id in exact_version_only:
+            if t.id in deleted_at_current_version:
+                stmt = stmt.where(tv.store_tbl.v_max_col == tv.version)
+            elif t.id in created_at_current_version:
                 stmt = stmt.where(tv.store_tbl.v_min_col == tv.version)
-            else:
+            elif versioned:
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
             prev_tv = tv
@@ -326,11 +329,6 @@ class SqlNode(ExecNode):
     def set_where(self, where_clause: exprs.Expr) -> None:
         assert self.where_clause_element is None
         self.where_clause = where_clause
-
-    def set_py_filter(self, py_filter: exprs.Expr) -> None:
-        assert self.py_filter is None
-        self.py_filter = py_filter
-        self.py_filter_eval_ctx = self.row_builder.create_eval_ctx([py_filter], exclude=self.select_list)
 
     def set_order_by(self, ordering: OrderByClause) -> None:
         """Add Order By clause"""
@@ -343,6 +341,7 @@ class SqlNode(ExecNode):
         self.order_by_clause = combined
 
     def set_limit(self, limit: int) -> None:
+        assert limit > 0
         self.limit = limit
 
     def set_offset(self, offset: int) -> None:
@@ -379,7 +378,6 @@ class SqlNode(ExecNode):
 
         output_batch = DataRowBatch(self.row_builder)
         output_row: exprs.DataRow | None = None
-        num_rows_read = 0
         is_using_cockroachdb = Env.get().is_using_cockroachdb
         tzinfo = Env.get().default_time_zone
 
@@ -433,36 +431,6 @@ class SqlNode(ExecNode):
                 else:
                     output_row[slot_idx] = sql_row[i]
 
-            if self.py_filter is not None:
-                # evaluate filter
-                self.row_builder.eval(output_row, self.py_filter_eval_ctx, profile=self.ctx.profile)
-                if not output_row[self.py_filter.slot_idx]:
-                    # didn't pass filter; re-use this row for the next sql row
-                    output_row = output_batch.pop_row()
-                    output_row.clear()
-                    continue
-
-            # Row passed filter (or no filter)
-            num_rows_read += 1
-
-            # if we're using a Python filter, we need to apply offset/limit logic here. (with a SQL filter
-            # that logic has already been baked into the query)
-            if self.py_filter is not None:
-                # Check if we should skip this row due to offset
-                if self.offset is not None and num_rows_read <= self.offset:
-                    # Skip this row - remove it from batch
-                    output_row = output_batch.pop_row()
-                    output_row.clear()
-                    continue
-
-                # Check if we've reached the limit (after offset)
-                if self.limit is not None:
-                    num_rows_returned = num_rows_read - (self.offset or 0)
-                    assert num_rows_returned <= self.limit
-                    if num_rows_returned == self.limit:
-                        break
-
-            # Include this row in output
             output_row = None
 
             if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:
@@ -492,10 +460,12 @@ class SqlScanNode(SqlNode):
     Args:
         select_list: output of the query
         set_pk: if True, sets the primary for each DataRow
-        exact_version_only: tables for which we only want to see rows created at the current version
     """
 
-    exact_version_only: list[catalog.TableVersionHandle]
+    # tables for which we only want to see rows created at the current version
+    created_at_current_version: list[catalog.TableVersionHandle]
+    # tables for which we only want to see rows deleted at the current version
+    deleted_at_current_version: list[catalog.TableVersionHandle]
 
     def __init__(
         self,
@@ -505,7 +475,8 @@ class SqlScanNode(SqlNode):
         columns: list[catalog.Column],
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
         set_pk: bool = False,
-        exact_version_only: list[catalog.TableVersionHandle] | None = None,
+        created_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
     ):
         sql_elements = exprs.SqlElementCache()
         super().__init__(
@@ -518,17 +489,24 @@ class SqlScanNode(SqlNode):
             cell_md_col_refs=cell_md_col_refs,
         )
         # create Select stmt
-        if exact_version_only is None:
-            exact_version_only = []
+        if created_at_current_version is None:
+            created_at_current_version = []
+        if deleted_at_current_version is None:
+            deleted_at_current_version = []
 
-        self.exact_version_only = exact_version_only
+        self.created_at_current_version = created_at_current_version
+        self.deleted_at_current_version = deleted_at_current_version
 
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
         where_clause_tbl_ids = self.where_clause.tbl_ids() if self.where_clause is not None else set()
         refd_tbl_ids = exprs.Expr.all_tbl_ids(self.select_list) | where_clause_tbl_ids | self._ordering_tbl_ids()
         stmt = self.create_from_clause(
-            self.tbl, stmt, refd_tbl_ids, exact_version_only={t.id for t in self.exact_version_only}
+            self.tbl,
+            stmt,
+            refd_tbl_ids,
+            created_at_current_version={t.id for t in self.created_at_current_version},
+            deleted_at_current_version={t.id for t in self.deleted_at_current_version},
         )
         return stmt
 
@@ -543,6 +521,9 @@ class SqlLookupNode(SqlNode):
         key_vals: list of key values to look up
     """
 
+    # tables for which we only want to see rows deleted at the current version
+    deleted_at_current_version: list[catalog.TableVersionHandle]
+
     def __init__(
         self,
         tbl: catalog.TableVersionPath,
@@ -552,6 +533,7 @@ class SqlLookupNode(SqlNode):
         sa_key_cols: list[sql.Column],
         key_vals: list[tuple],
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
+        deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
     ):
         sql_elements = exprs.SqlElementCache()
         super().__init__(
@@ -565,11 +547,16 @@ class SqlLookupNode(SqlNode):
         )
         # Where clause: (key-col-1, key-col-2, ...) IN ((val-1, val-2, ...), ...)
         self.where_clause_element = sql.tuple_(*sa_key_cols).in_(key_vals)
+        if deleted_at_current_version is None:
+            deleted_at_current_version = []
+        self.deleted_at_current_version = deleted_at_current_version
 
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
         refd_tbl_ids = exprs.Expr.all_tbl_ids(self.select_list) | self._ordering_tbl_ids()
-        stmt = self.create_from_clause(self.tbl, stmt, refd_tbl_ids)
+        stmt = self.create_from_clause(
+            self.tbl, stmt, refd_tbl_ids, deleted_at_current_version={t.id for t in self.deleted_at_current_version}
+        )
         return stmt
 
 
@@ -593,7 +580,7 @@ class SqlAggregationNode(SqlNode):
         select_list: Iterable[exprs.Expr],
         group_by_items: list[exprs.Expr] | None = None,
         limit: int | None = None,
-        exact_version_only: list[catalog.TableVersion] | None = None,
+        created_at_current_version: list[catalog.TableVersion] | None = None,
     ):
         assert len(input.cell_md_refs) == 0  # there's no aggregation over json or arrays in SQL
         self.input_cte, input_col_map = input.to_cte()

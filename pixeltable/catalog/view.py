@@ -75,7 +75,6 @@ class View(Table):
     @classmethod
     def _create(
         cls,
-        dir_id: UUID,
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
@@ -84,7 +83,6 @@ class View(Table):
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,
         create_default_idxs: bool,
-        num_retained_versions: int,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -106,7 +104,10 @@ class View(Table):
         # verify that filters can be evaluated in the context of the base
         if predicate is not None:
             if not predicate.is_bound_by([base]):
-                raise excs.Error(f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}',
+                )
             # create a copy that we can modify and store
             predicate = predicate.copy()
         if sample_clause is not None:
@@ -114,8 +115,9 @@ class View(Table):
             if sample_clause.stratify_exprs is not None and not all(
                 stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
             ):
-                raise excs.Error(
-                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
                 )
             # create a copy that we can modify and store
             sc = sample_clause
@@ -129,9 +131,10 @@ class View(Table):
                 continue
             # make sure that the value can be computed in the context of the base
             if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Column {col.name!r}: Value expression cannot be computed in the context of the '
-                    f'base table {base.tbl_name()!r}'
+                    f'base table {base.tbl_name()!r}',
                 )
 
         if iterator_call is not None:
@@ -194,12 +197,12 @@ class View(Table):
         md = TableVersion.create_initial_md(
             name,
             columns,
-            num_retained_versions,
             comment,
             custom_metadata,
             media_validation=media_validation,
             view_md=view_md,
             create_default_idxs=create_default_idxs,
+            is_versioned=base.is_versioned(),
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
@@ -233,7 +236,9 @@ class View(Table):
     def _verify_column(cls, col: Column) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
-            raise excs.Error(f'Column {col.name!r}: Non-computed columns in views must be nullable')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'Column {col.name!r}: Non-computed columns in views must be nullable'
+            )
         super()._verify_column(col)
 
     @classmethod
@@ -278,6 +283,22 @@ class View(Table):
             base_path = '<anonymous base table>' if base_tbl is None else base_tbl._path()
             base_version = self._effective_base_versions[0]
             md['base'] = base_path if base_version is None else f'{base_path}:{base_version}'
+
+        tv = self._tbl_version_path.tbl_version.get()
+        if tv.iterator_call is not None:
+            # Mark iterator-produced columns
+            columns = self._tbl_version_path.columns()
+            for col in columns:
+                if col.name in md['columns'] and tv.is_iterator_column(col):
+                    md['columns'][col.name]['is_iterator_col'] = True
+            # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)"
+            arg_strs: list[str] = []
+            for arg_expr in tv.iterator_call.args:
+                arg_strs.append(arg_expr.display_str(inline=True))
+            for arg_name, arg_expr in tv.iterator_call.kwargs.items():
+                arg_strs.append(f'{arg_name}={arg_expr.display_str(inline=True)}')
+            md['iterator_call'] = f'{tv.iterator_call.it.name}({", ".join(arg_strs)})'
+
         return md
 
     def insert(
@@ -291,10 +312,14 @@ class View(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        raise excs.Error(f'{self._display_str()}: Cannot insert into a {self._display_name()}.')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot insert into a {self._display_name()}.'
+        )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
-        raise excs.Error(f'{self._display_str()}: Cannot delete from a {self._display_name()}.')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot delete from a {self._display_name()}.'
+        )
 
     @property
     def _base_tbl_id(self) -> UUID | None:
@@ -311,7 +336,7 @@ class View(Table):
         base_tbl_id = self._base_tbl_id
         if base_tbl_id is None:
             return None
-        with get_runtime().catalog.begin_xact(tbl_id=base_tbl_id, for_write=False):
+        with get_runtime().catalog.begin_xact(read_tbl_ids=[base_tbl_id]):
             return get_runtime().catalog.get_table_by_id(base_tbl_id)
 
     @property

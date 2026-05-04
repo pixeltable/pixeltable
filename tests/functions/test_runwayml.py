@@ -84,8 +84,7 @@ class TestRunwayML:
         t.add_computed_column(output_optional=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720', seed=42))
 
     @pytest.mark.remote_api
-    @pytest.mark.expensive
-    @pytest.mark.skip('Very expensive in terms of the number of credits spent -- consider a partial enablement')
+    @pytest.mark.very_expensive
     def test_image_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
@@ -102,7 +101,7 @@ class TestRunwayML:
         assert 'output' in results['output'][0]
 
     @pytest.mark.remote_api
-    @pytest.mark.expensive
+    @pytest.mark.very_expensive
     def test_text_to_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
@@ -117,8 +116,7 @@ class TestRunwayML:
         assert 'output' in results['output'][0]
 
     @pytest.mark.remote_api
-    @pytest.mark.expensive
-    @pytest.mark.skip('Very expensive in terms of the number of credits spent -- consider a partial enablement')
+    @pytest.mark.very_expensive
     def test_text_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
@@ -132,14 +130,15 @@ class TestRunwayML:
         assert 'output' in results['output'][0]
 
     @pytest.mark.remote_api
-    @pytest.mark.expensive
-    @pytest.mark.skip('Very expensive in terms of the number of credits spent -- consider a partial enablement')
+    @pytest.mark.very_expensive
     def test_video_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
         from pixeltable.functions.runwayml import video_to_video
 
-        video_url = 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4'
+        video_url = (
+            'https://multimedia-commons.s3.amazonaws.com/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
+        )
         t = pxt.create_table('test_tbl', {'video_url': pxt.String, 'prompt': pxt.String})
         t.add_computed_column(output=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720'))
         validate_update_status(t.insert(video_url=video_url, prompt='Transform to anime style'), 1)

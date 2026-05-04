@@ -1,13 +1,12 @@
 import re
 
-import pytest
 from PIL.Image import Dither, Image, Quantize, Transpose
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.functions.image import alpha_composite, blend, composite, tile_iterator
 
-from ..utils import SAMPLE_IMAGE_URL
+from ..utils import SAMPLE_IMAGE_URL, pxt_raises
 
 
 class TestImage:
@@ -89,8 +88,8 @@ class TestImage:
 
         # Test overlap >= tile_size
         for overlap in ((0, 100), (100, 0)):
-            with pytest.raises(
-                pxt.Error,
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
                 match=re.escape(
                     rf'`overlap` dimensions {list(overlap)} are not strictly smaller than `tile_size` [100, 100]'
                 ),
@@ -99,14 +98,16 @@ class TestImage:
 
         # Test tile_size <= 0
         for tile_size in ((0, 100), (100, 0), (-1, 100), (100, -1)):
-            with pytest.raises(
-                pxt.Error, match=re.escape(f'`tile_size` dimensions must be positive; got {list(tile_size)}')
+            with pxt_raises(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                match=re.escape(f'`tile_size` dimensions must be positive; got {list(tile_size)}'),
             ):
                 _ = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, tile_size))
 
         # Test overlap < 0
         for overlap in ((-1, 0), (0, -1)):
-            with pytest.raises(
-                pxt.Error, match=re.escape(f'`overlap` dimensions must be non-negative; got {list(overlap)}')
+            with pxt_raises(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                match=re.escape(f'`overlap` dimensions must be non-negative; got {list(overlap)}'),
             ):
                 _ = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100), overlap=overlap))

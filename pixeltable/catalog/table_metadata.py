@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from typing import Any, Literal, TypedDict
 
 
@@ -16,17 +17,27 @@ class ColumnMetadata(TypedDict):
     is_primary_key: bool
     """`True` if this column is part of the table's primary key."""
     media_validation: Literal['on_read', 'on_write'] | None
-    """The media validation policy for this column."""
+    """The media validation policy for this column. `None` if the type of this column is not a media type."""
+    is_computed: bool
+    """`True` if this column is a computed column."""
     computed_with: str | None
     """Expression used to compute this column; `None` if this is not a computed column."""
+    is_builtin: bool | None
+    """If False, this computed column makes calls to custom UDFs; `None` if this is not a computed column."""
+    depends_on: list[tuple[str, str]] | None
+    """List of dependencies (table name, column name) if this is a computed column, else `None`."""
     defined_in: str | None
     """Name of the table where this column was originally defined.
 
     If the current table is a view, then `defined_in` may differ from the current table name."""
+    comment: str | None
+    """User-provided column comment."""
     custom_metadata: Any
     """User-defined JSON metadata for this column, if any."""
-    comment: str
-    """User-provided column comment."""
+    is_iterator_col: bool
+    """`True` if this column is produced by an iterator (only applicable to views)."""
+    destination: str | None
+    """An object store reference for computed files, if one is configured."""
 
 
 class EmbeddingIndexParams(TypedDict):
@@ -54,22 +65,28 @@ class IndexMetadata(TypedDict):
 class TableMetadata(TypedDict):
     """Metadata for a Pixeltable table."""
 
+    id: uuid.UUID
+    """The stable UUID of the table. Useful for detecting drop-and-recreate across time."""
     name: str
     """The name of the table (ex: `'my_table'`)."""
     path: str
     """The full path of the table (ex: `'my_dir.my_subdir.my_table'`)."""
+    kind: Literal['table', 'view', 'snapshot', 'replica']
+    """The kind of table: `'table'`, `'view'`, `'snapshot'`, or `'replica'`."""
     columns: dict[str, ColumnMetadata]
     """Column metadata for all of the visible columns of the table."""
     indices: dict[str, IndexMetadata]
     """Index metadata for all of the indices of the table."""
     is_replica: bool
     """`True` if this table is a replica of another (shared) table."""
+    is_versioned: bool
+    """`True` if this is a versioned table."""
     is_view: bool
     """`True` if this table is a view."""
     is_snapshot: bool
     """`True` if this table is a snapshot."""
-    version: int
-    """The current version of the table."""
+    version: int | None
+    """The current version of the table or None if it's not versioned."""
     version_created: datetime.datetime
     """The timestamp when this table version was created."""
     schema_version: int
@@ -80,8 +97,12 @@ class TableMetadata(TypedDict):
     """User-defined JSON metadata for this table, if any."""
     media_validation: Literal['on_read', 'on_write']
     """The media validation policy for this table."""
+    primary_key: list[str] | None
+    """List of primary key column names, or `None` if this table has no primary key."""
     base: str | None
     """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
+    iterator_call: str | None
+    """The iterator call for views that use an iterator; otherwise `None`."""
 
 
 class VersionMetadata(TypedDict):

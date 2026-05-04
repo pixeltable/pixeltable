@@ -79,8 +79,9 @@ class AzureBlobStore(ObjectStoreBase):
                 storage_account_name = Config.get().get_string_value('storage_account_name', section='azure')
                 storage_account_key = Config.get().get_string_value('storage_account_key', section='azure')
                 if (storage_account_name is None) != (storage_account_key is None):
-                    raise excs.Error(
-                        "Azure 'storage_account_name' and 'storage_account_key' must be specified together."
+                    raise excs.RequestError(
+                        excs.ErrorCode.MISSING_REQUIRED,
+                        "Azure 'storage_account_name' and 'storage_account_key' must be specified together.",
                     )
                 if storage_account_name is None or storage_account_name != self.__account_name:
                     # Attempt a connection to a public resource, with no account key
@@ -267,25 +268,47 @@ class AzureBlobStore(ObjectStoreBase):
             return
 
         if isinstance(e, ResourceNotFoundError):
-            raise excs.Error(f'Container {container_name} or blob not found during {operation}: {str(e)!r}')
+            raise excs.NotFoundError(
+                excs.ErrorCode.STORAGE_NOT_FOUND,
+                f'Container {container_name} or blob not found during {operation}: {str(e)!r}',
+            )
         elif isinstance(e, ClientAuthenticationError):
-            raise excs.Error(f'Authentication failed for container {container_name} during {operation}: {str(e)!r}')
+            raise excs.AuthorizationError(
+                excs.ErrorCode.MISSING_CREDENTIALS,
+                f'Authentication failed for container {container_name} during {operation}: {str(e)!r}',
+            )
         elif isinstance(e, HttpResponseError):
             if e.status_code == 403:
-                raise excs.Error(f'Access denied to container {container_name} during {operation}: {str(e)!r}')
+                raise excs.AuthorizationError(
+                    excs.ErrorCode.INSUFFICIENT_PRIVILEGES,
+                    f'Access denied to container {container_name} during {operation}: {str(e)!r}',
+                )
             elif e.status_code == 412:
-                raise excs.Error(f'Precondition failed for container {container_name} during {operation}: {str(e)!r}')
+                raise excs.ExternalServiceError(
+                    excs.ErrorCode.PROVIDER_ERROR,
+                    f'Precondition failed for container {container_name} during {operation}: {str(e)!r}',
+                    provider='azure',
+                )
             else:
-                raise excs.Error(
-                    f'HTTP error during {operation} in container {container_name}: {e.status_code} - {str(e)!r}'
+                raise excs.ExternalServiceError(
+                    excs.ErrorCode.PROVIDER_ERROR,
+                    f'HTTP error during {operation} in container {container_name}: {e.status_code} - {str(e)!r}',
+                    provider='azure',
+                    status_code=e.status_code,
                 )
         else:
-            raise excs.Error(f'Error during {operation} in container {container_name}: {str(e)!r}')
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Error during {operation} in container {container_name}: {str(e)!r}',
+                provider='azure',
+            )
 
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
         """Create a presigned URL for downloading an object from Azure Blob Storage."""
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'StorageObjectAddress does not contain an object name: {soa}'
+            )
 
         azure_client = self.client()
         account_name = azure_client.account_name if azure_client.account_name else self.__account_name
@@ -294,10 +317,11 @@ class AzureBlobStore(ObjectStoreBase):
         storage_account_key = Config.get().get_string_value('storage_account_key', section='azure')
 
         if not account_name or not storage_account_key:
-            raise excs.Error(
+            raise excs.AuthorizationError(
+                excs.ErrorCode.MISSING_CREDENTIALS,
                 'Azure storage_account_name and storage_account_key must be configured '
                 'to generate presigned URLs. Set them in the config under the [azure] section, '
-                'or include the account name in the Azure URL.'
+                'or include the account name in the Azure URL.',
             )
 
         # Use datetime.now(timezone.utc) + timedelta like in pixeltable cloud
@@ -344,4 +368,8 @@ class AzureBlobStore(ObjectStoreBase):
                 read_timeout=30,
             )
         except Exception as e:
-            raise excs.Error(f'Failed to create Azure Blob Storage client: {str(e)!r}') from e
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Failed to create Azure Blob Storage client: {str(e)!r}',
+                provider='azure',
+            ) from e
