@@ -129,6 +129,25 @@ class ColumnRef(Expr):
         col = target.cols_by_id[self.col.id]
         return ColumnRef(col, self.reference_tbl)
 
+    def copy(self) -> ColumnRef:
+        # Re-resolve self.col against the current thread's catalog. The Catalog is thread-local:
+        # each request thread has its own TableVersion / StoreTable / sa_tbl. Preserving the
+        # original col reference (which is what Expr.copy() does by default via __dict__.update)
+        # would bind the copied expression to the import-time sa_tbl, producing a FROM-clause
+        # mismatch (FROM tbl_xxx, tbl_xxx) when the planner uses the current thread's sa_tbl.
+        # If the table isn't cached on the current thread, fall back to the default behavior;
+        # the caller is expected to warm the catalog before relying on this re-binding.
+        from pixeltable.runtime import get_runtime
+
+        result = super().copy()
+        cat = get_runtime().catalog
+        tv = cat._tbl_versions.get(self.col.tbl_handle.key)
+        if tv is not None and self.col.id in tv.cols_by_id:
+            new_col = tv.cols_by_id[self.col.id]
+            result.col = new_col
+            result.col_handle = new_col.handle
+        return result
+
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
 

@@ -281,9 +281,7 @@ class Catalog:
                     base_tv = self._tbl_versions.get(key, None)
                     if base_tv is not None and base_tv.is_validated and tbl_version.handle not in base_tv.mutable_views:
                         mutable_view_ids = ', '.join(str(tv.id) for tv in base_tv.mutable_views)
-                        mutable_view_names = ', '.join(
-                            tv._tbl_version.name for tv in base_tv.mutable_views if tv._tbl_version is not None
-                        )
+                        mutable_view_names = ', '.join(tv.get().name for tv in base_tv.mutable_views)
                         raise AssertionError(
                             f'{tbl_version.name} ({tbl_version.id}) missing in '
                             f'{mutable_view_ids} ({mutable_view_names})'

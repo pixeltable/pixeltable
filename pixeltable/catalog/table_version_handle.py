@@ -18,9 +18,11 @@ _logger = logging.getLogger('pixeltable')
 
 class TableVersionHandle:
     """
-    Indirection mechanism for TableVersion instances, which get resolved against the catalog at runtime.
+    Indirection mechanism for TableVersion instances, which get resolved against the (thread-local) catalog at runtime.
+    Each get() call needs to resolve against the current thread's catalog in order to avoid picking up catalog
+    elements (eg, Column.sa_column) created in a different thread.
 
-    See the TableVersion docstring for details on the semantics of `effective_version` and `anchor_tbl_id`.
+    See the TableVersion docstring for details on the semantics of effective_version and anchor_tbl_id.
     """
 
     key: TableVersionKey
@@ -29,6 +31,15 @@ class TableVersionHandle:
     def __init__(self, key: TableVersionKey, *, tbl_version: TableVersion | None = None):
         self.key = key
         self._tbl_version = tbl_version
+
+    def __deepcopy__(self, memo: dict[int, object] | None = None) -> TableVersionHandle:
+        # Drop the per-instance _tbl_version cache on deepcopy: it points to whichever thread's
+        # TV was current when this handle was constructed (e.g., the importing thread for a
+        # Query template). The copy will lazily resolve via the current thread's catalog on
+        # the next get(). Without this, a worker thread executing a copied Query would render
+        # FROM via the importing thread's sa_tbl while WHERE references its own sa_tbl,
+        # producing a duplicate-FROM SQL error.
+        return TableVersionHandle(self.key)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, TableVersionHandle):

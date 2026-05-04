@@ -369,7 +369,7 @@ class SqlNode(ExecNode):
             except Exception:
                 # log something if we can't log the compiled stmt
                 _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt}')
-            self._log_explain(stmt)
+            # self._log_explain(stmt)  # disabled for benchmarking — issues a per-request EXPLAIN
 
             conn = get_runtime().conn
             result_cursor = conn.execute(stmt)

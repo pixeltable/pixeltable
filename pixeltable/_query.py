@@ -716,7 +716,11 @@ class Query:
                 )
 
         return Query(
-            from_clause=self._from_clause,
+            # Deepcopy from_clause so its TableVersionHandles get their _tbl_version cache
+            # reset (via TableVersionHandle.__deepcopy__). Without this, a worker thread
+            # executing a bound Query would render FROM via the importing thread's sa_tbl
+            # while WHERE references its own sa_tbl, producing a duplicate-FROM error.
+            from_clause=copy.deepcopy(self._from_clause),
             select_list=select_list,
             where_clause=where_clause,
             group_by_clause=group_by_clause,
