@@ -10,14 +10,14 @@ from pathspec import PathSpec
 
 from pixeltable import config
 from pixeltable.env import Env
-from pixeltable.serving._config import lookup_deployment_config
+from pixeltable.serving._config import lookup_environment_config
 
 _logger = logging.getLogger('pixeltable')
 
 
-def build_deploy_bundle(deployment_name: str) -> Path:
-    cfg = lookup_deployment_config(deployment_name)
-    Env.get().console_logger.info(f'Deploying {deployment_name!r} ...')
+def build_deploy_bundle(environment_name: str) -> Path:
+    cfg = lookup_environment_config(environment_name)
+    Env.get().console_logger.info(f'Deploying {environment_name!r} ...')
     conda_export = _export_conda_env()
     lockfile = _find_lockfile()
     if conda_export is None and len(cfg.env_dependencies) == 0:
@@ -90,12 +90,12 @@ def _find_lockfile() -> Path | None:
 
 
 def package(
-    deploy_config: config.DeploymentConfig, project_dir: Path | None = None, conda_export: bytes | None = None
+    env_config: config.EnvironmentConfig, project_dir: Path | None = None, conda_export: bytes | None = None
 ) -> Path:
     """Bundle the contents of a Pixeltable project directory into a tarball.
 
     Args:
-        deploy_config: Deployment configuration.
+        env_config: Environment configuration.
         project_dir: Path to the project directory. Defaults to the current working directory.
         conda_export: Output of ``conda env export --no-builds``, included as ``environment.yml``
             in the bundle when provided.
@@ -115,7 +115,7 @@ def package(
     os.close(fd)
     bundle_path = Path(name)
 
-    files = _collect_project_files(project_dir, deploy_config.include, deploy_config.exclude)
+    files = _collect_project_files(project_dir, env_config.include, env_config.exclude)
     with tarfile.open(bundle_path, 'w:bz2') as tf:
         if conda_export is not None:
             info = tarfile.TarInfo(name='environment.yml')

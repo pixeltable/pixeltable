@@ -127,7 +127,7 @@ class ServiceConfig(pydantic.BaseModel):
         return v
 
 
-class DeploymentConfig(pydantic.BaseModel):
+class EnvironmentConfig(pydantic.BaseModel):
     name: str
     include: list[str] | None = None
     exclude: list[str] | None = None
@@ -445,7 +445,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'service': ('Service configurations', list[ServiceConfig]),
-        'deployment': ('Deployment configurations', list[DeploymentConfig]),
+        'environment': ('Environment configurations', list[EnvironmentConfig]),
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},
