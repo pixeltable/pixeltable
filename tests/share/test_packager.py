@@ -235,8 +235,16 @@ class TestPackager:
 
         # Certain metadata properties must be identical.
         metadata = t.get_metadata()
-        for property in ('indices', 'version', 'version_created', 'schema_version', 'comment', 'media_validation'):
+        for property in ('version', 'version_created', 'schema_version', 'comment', 'media_validation'):
             assert metadata[property] == bundle_info.metadata[property]
+
+        # Compare embedding indices only: btree indices aren't surfaced in a snapshot's
+        # `idxs_by_name`, but they are in a live replica's, producing a benign asymmetry
+        # we don't want to assert on. Embedding indices, on the other hand, must round-trip.
+        def embedding_indices(md: pxt.TableMetadata) -> dict[str, Any]:
+            return {k: v for k, v in md['indices'].items() if v['index_type'] == 'embedding'}
+
+        assert embedding_indices(metadata) == embedding_indices(bundle_info.metadata)
 
         # Verify that the postgres schema subsumes the original.
         # (There may be additional columns in the restored table depending on the order in which different versions are

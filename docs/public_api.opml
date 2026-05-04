@@ -126,8 +126,11 @@
 
           <outline text="class|pixeltable.ColumnMetadata" />
           <outline text="class|pixeltable.DirContents" />
+          <outline text="class|pixeltable.DirectoryNode" />
           <outline text="class|pixeltable.IndexMetadata" />
           <outline text="class|pixeltable.TableMetadata" />
+          <outline text="class|pixeltable.TableNode" />
+          <outline text="class|pixeltable.TreeNode" />
           <outline text="class|pixeltable.UpdateStatus" />
           <outline text="class|pixeltable.VersionMetadata" />
         </outline>
