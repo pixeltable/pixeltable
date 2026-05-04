@@ -931,7 +931,7 @@ class Catalog:
         """
         Generates a PendingTableOp (pendingtableops) update statement for the given op.
 
-        If this op is the final, deletes the ops. Otherwise simply updates the op's status.
+        If this op is final, deletes the ops. Otherwise simply updates the op's status.
         """
         pending_ops_stmt: sql.UpdateBase
         if is_final_op:
@@ -949,16 +949,16 @@ class Catalog:
             )
         pending_ops_stmt = pending_ops_stmt.where(schema.PendingTableOp.tbl_id == tbl_id)
 
-        # Add table version and schema version conditions. This is necessary to avoid a scenario in which a delayed
-        # pending ops finalizer corrupts the table by updating pending ops associated with a future schema change, not
-        # the one that it was finalizing. This issue is described in more detail in PXT-1130.
-        # Note: all schema changes except create table increment schema version. Create table is not a problem because
+        # Add a table version condition. This is necessary to avoid a scenario in which a delayed pending ops finalizer
+        # corrupts the table by updating pending ops associated with a future schema change, not the one that it
+        # finalized. This issue is described in more detail in PXT-1130.
+        # Note: all schema changes except create table increment table version. Create table is not a problem because
         # no other schema change can precede it.
         # Note: the only known gap that this safeguard does not cover is table revert. The way table revert is
-        # implemented, it decrements table and/or schema versions. Which means that if we do a schema change, then
-        # revert, then a schema change again, those two schema changes will share version counters, therefore, with
-        # unlucky timing, the pendingtableops table can still get corrupted. The right fix is for that is not here, it
-        # is to reimplement revert by advancing schema/data versions, not decrementing them.
+        # implemented, it decrements table and schema versions. Which means that if we do a schema change, then revert,
+        # then a schema change again, those two schema changes will share a table version value, therefore, with unlucky
+        # timing, the pendingtableops table can still get corrupted. The right fix is for that is not here, it is to
+        # reimplement revert by advancing schema/data versions, not decrementing them.
         if op.tbl_version is None:
             # Legacy pendingtableop
             pending_ops_stmt = pending_ops_stmt.where(sql.not_(schema.PendingTableOp.op.has_key('tbl_version')))
@@ -1024,7 +1024,7 @@ class Catalog:
         """
         Selects table's pending ops for update and returns them as TableOps in order.
 
-        Must be called inside a transaction with table selected for update.
+        Must be called inside a transaction with the table selected for update.
         """
         conn = get_runtime().conn
         q = (
