@@ -440,9 +440,7 @@ class TableVersion:
             self.bump_version(bump_schema_version=True)
         id_str = str(self.id)
         ops = (
-            TableOpsBuilder(
-                id_str, tbl_version=self._tbl_md.current_version, tbl_schema_version=self._tbl_md.current_schema_version
-            )
+            TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
             .add(DeleteTableMediaFilesOp)
             .add(DropStoreTableOp, is_view=self.is_view)
             .add(DeleteTableMdOp)
@@ -801,9 +799,7 @@ class TableVersion:
         id_str = str(self.id)
         col_ids = [col.id for col in all_cols]
         tbl_ops = (
-            TableOpsBuilder(
-                id_str, tbl_version=self._tbl_md.current_version, tbl_schema_version=self._tbl_md.current_schema_version
-            )
+            TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
             .add(CreateTableVersionOp)
             .add(CreateColumnMdOp, column_ids=col_ids)
             .add(CreateStoreColumnsOp, column_ids=col_ids)

@@ -935,15 +935,12 @@ class Catalog:
         """
         pending_ops_stmt: sql.UpdateBase
         if is_final_op:
-            _logger.info(
-                f'Finalize pending ops({tbl_id}): deleting pendingtableops with tbl_version={op.tbl_version}, '
-                f'tbl_schema_version={op.tbl_schema_version}'
-            )
+            _logger.info(f'Finalize pending ops({tbl_id}): deleting pendingtableops with tbl_version={op.tbl_version}')
             pending_ops_stmt = sql.delete(schema.PendingTableOp)
         else:
             _logger.info(
                 f'Finalize pending ops({tbl_id}): updating pendingtableops with op_sn={op.op_sn}, '
-                f'tbl_version={op.tbl_version}, tbl_schema_version={op.tbl_schema_version}; new status: {new_status}'
+                f'tbl_version={op.tbl_version}; new status: {new_status}'
             )
             pending_ops_stmt = (
                 sql.update(schema.PendingTableOp)
@@ -969,13 +966,6 @@ class Catalog:
             pending_ops_stmt = pending_ops_stmt.where(
                 schema.PendingTableOp.op['tbl_version'].cast(sql.Integer) == op.tbl_version
             )
-        if op.tbl_schema_version is None:
-            # Legacy pendingtableop
-            pending_ops_stmt = pending_ops_stmt.where(sql.not_(schema.PendingTableOp.op.has_key('tbl_schema_version')))
-        else:
-            pending_ops_stmt = pending_ops_stmt.where(
-                schema.PendingTableOp.op['tbl_schema_version'].cast(sql.Integer) == op.tbl_schema_version
-            )
         return pending_ops_stmt
 
     def _set_pending_op_status(
@@ -994,7 +984,6 @@ class Catalog:
         * If pending table ops were queried and selected for update in this function, those ops will be returned as ops.
         """
         pending_ops_stmt = self._pending_table_ops_update_stmt(tbl_id, op, new_status, is_final_op=is_final_op)
-
         conn = get_runtime().conn
         rowcount = conn.execute(pending_ops_stmt).rowcount
         # Log a message if no pendingtableops rows were matched. DeleteTableMdOp is a special case because it

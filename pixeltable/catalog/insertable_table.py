@@ -104,11 +104,7 @@ class InsertableTable(Table):
         )
 
         ops = (
-            TableOpsBuilder(
-                md.tbl_md.tbl_id,
-                tbl_version=md.tbl_md.current_version,
-                tbl_schema_version=md.tbl_md.current_schema_version,
-            )
+            TableOpsBuilder(md.tbl_md.tbl_id, tbl_version=md.tbl_md.current_version)
             .add(CreateTableMdOp)
             .add(CreateStoreTableOp)
             .build()

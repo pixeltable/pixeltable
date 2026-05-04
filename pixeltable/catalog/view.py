@@ -212,9 +212,7 @@ class View(Table):
             key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = (
-                TableOpsBuilder(
-                    tbl_id, tbl_version=md.tbl_md.current_version, tbl_schema_version=md.tbl_md.current_schema_version
-                )
+                TableOpsBuilder(tbl_id, tbl_version=md.tbl_md.current_version)
                 .add(CreateTableMdOp)
                 .add(CreateStoreTableOp)
                 .add(LoadViewOp, view_path=view_path.as_dict())

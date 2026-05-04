@@ -49,12 +49,10 @@ class TableOp:
     num_ops: int  # total number of ops forming the update operation
     status: OpStatus
 
-    # New version and schema version of the table. Both are required for new table ops, but declared optional for
-    # backward compatibility.
+    # New version of the table. Required for new table ops, but declared optional for backward compatibility.
     # The chance of encountering legacy TableOps with a None value is small and diminishing over time, so this should be
     # safe enough to make required in a few months or so.
     tbl_version: int | None
-    tbl_schema_version: int | None
 
     def to_dict(self) -> dict:
         result = dataclasses.asdict(self, dict_factory=schema.md_dict_factory)
@@ -69,10 +67,8 @@ class TableOp:
         # needs_xact in their pending table ops at that point will be extremely low.
         needs_xact_legacy = data.pop('needs_xact', None)
 
-        # TableOps serialized by older Pixeltable versions won't have tbl_version and tbl_schema_version.
-        # These 2 lines can go away after awhile.
+        # TableOps serialized by older Pixeltable versions won't have tbl_version. Can go away after awhile.
         data.setdefault('tbl_version', None)
-        data.setdefault('tbl_schema_version', None)
 
         op_class = getattr(sys.modules[__name__], classname)
         op = schema.md_from_dict(op_class, data)
@@ -278,13 +274,11 @@ class TableOpsBuilder:
 
     _tbl_id: str
     _tbl_version: int | None
-    _tbl_schema_version: int | None
     _ops: list[TableOp]
 
-    def __init__(self, tbl_id: str, tbl_version: int | None, tbl_schema_version: int | None) -> None:
+    def __init__(self, tbl_id: str, tbl_version: int | None) -> None:
         self._tbl_id = tbl_id
         self._tbl_version = tbl_version
-        self._tbl_schema_version = tbl_schema_version
         self._ops = []
 
     def add(self, cls: type[TableOp], **kwargs: Any) -> 'TableOpsBuilder':
@@ -295,7 +289,6 @@ class TableOpsBuilder:
                 num_ops=0,  # backfilled in build()
                 status=OpStatus.PENDING,
                 tbl_version=self._tbl_version,
-                tbl_schema_version=self._tbl_schema_version,
                 **kwargs,
             )
         )
