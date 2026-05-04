@@ -273,10 +273,10 @@ class TableOpsBuilder:
     """Builder for a sequence of TableOps that share a subset of common attributes."""
 
     _tbl_id: str
-    _tbl_version: int | None
+    _tbl_version: int
     _ops: list[TableOp]
 
-    def __init__(self, tbl_id: str, tbl_version: int | None) -> None:
+    def __init__(self, tbl_id: str, tbl_version: int) -> None:
         self._tbl_id = tbl_id
         self._tbl_version = tbl_version
         self._ops = []

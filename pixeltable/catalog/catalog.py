@@ -791,7 +791,7 @@ class Catalog:
 
                         rollover_op_update = None
 
-                    if ops == None:
+                    if ops is None:
                         ops = self._read_pending_table_ops(tbl_id)
                     assert len(ops) > 0
 
