@@ -104,8 +104,14 @@ def to_arrow_schema(pxt_schema: dict[str, ts.ColumnType]) -> pa.Schema:
     for col_name, col_type in pxt_schema.items():
         if col_type.is_json_type():
             pa_column_types[col_name] = pa.struct([])
-        else:
-            pa_column_types[col_name] = to_arrow_type(col_type)
+            continue
+        arrow_type = to_arrow_type(col_type)
+        if arrow_type is None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot convert column {col_name!r} of type {col_type} to arrow.',
+            )
+        pa_column_types[col_name] = arrow_type
     return pa.schema(pa_column_types.items())
 
 

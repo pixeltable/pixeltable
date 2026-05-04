@@ -19,6 +19,8 @@ def sqlite_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> SqlC
     """
     Instantiate a sqlite Iceberg catalog at the specified path. If no catalog exists, one will be created.
     """
+    Env.get().require_package('pyiceberg')
+
     from pyiceberg.catalog.sql import SqlCatalog
 
     if isinstance(warehouse_path, str):
@@ -70,6 +72,15 @@ def export_iceberg(
             "export_iceberg(): `if_exists` must be one of: ['error', 'replace', 'append']",
         )
 
+    # pyiceberg requires a namespace-qualified identifier; bare names raise opaque errors deep
+    # inside catalog.load_table / create_table. Reject them up front with a clear message.
+    if '.' not in table_name:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'export_iceberg(): table_name {table_name!r} must be namespace-qualified '
+            "(e.g. 'pxt.my_table').",
+        )
+
     query: pxt.Query
     if isinstance(table_or_query, pxt.catalog.Table):
         query = table_or_query.select()
@@ -82,6 +93,11 @@ def export_iceberg(
     except NoSuchTableError:
         pass
 
+    if existing_tbl is not None and if_exists == 'error':
+        raise excs.AlreadyExistsError(
+            excs.ErrorCode.PATH_ALREADY_EXISTS, f'export_iceberg(): table {table_name!r} already exists'
+        )
+
     # Build a deterministic arrow schema up front so we can materialize the Iceberg table even
     # when the query yields no rows, and reject fixed-shape tensor columns before we run the query.
     # Variable-shape arrays are mapped to pa.list_(...) by to_arrow_type and are supported by Iceberg.
@@ -92,11 +108,6 @@ def export_iceberg(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'export_iceberg(): cannot export fixed-shape tensor column(s) {fixed_tensor_cols}. '
             f'Iceberg has no fixed-shape tensor type; project the column to a list before exporting.',
-        )
-
-    if existing_tbl is not None and if_exists == 'error':
-        raise excs.AlreadyExistsError(
-            excs.ErrorCode.PATH_ALREADY_EXISTS, f'export_iceberg(): table {table_name!r} already exists'
         )
 
     batch_iter = to_record_batches(query, batch_size_bytes)
