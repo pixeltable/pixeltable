@@ -258,6 +258,9 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
     Generates images based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/imagen>
 
+    Note: This function is for Imagen models only. For Gemini image-generation models (Nano Banana,
+    e.g. `gemini-2.5-flash-image`), use [`generate_content`][pixeltable.functions.gemini.generate_content] instead.
+
     Request throttling:
     Applies the rate limit set in the config (section `imagen.rate_limits`; use the model id as the key). If no rate
     limit is configured, uses a default of 600 RPM.

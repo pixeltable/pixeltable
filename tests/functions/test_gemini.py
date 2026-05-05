@@ -149,7 +149,7 @@ class TestGemini:
         )
 
         t.add_computed_column(image=t.response.candidates[0].content.parts[0].inline_data.data)
-        
+
         results = t.collect()
         image = results['image'][0]
         assert isinstance(image, PIL.Image.Image), f'Expected a PIL Image, got {type(image)}'
