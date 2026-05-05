@@ -110,7 +110,8 @@ async def generate_content(
 
     Args:
         contents: The input content to generate from. Can be a prompt, or a list containing images and text
-            prompts, as described in: <https://ai.google.dev/gemini-api/docs/text-generation>
+            prompts, as described in: <https://ai.google.dev/gemini-api/docs/text-generation> and
+            <https://ai.google.dev/gemini-api/docs/image-generation> for image generation.
         model: The name of the model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateContentConfig`. For details on the parameters, see:
@@ -127,6 +128,25 @@ async def generate_content(
 
         >>> tbl.add_computed_column(
         ...     response=generate_content(tbl.prompt, model='gemini-2.5-flash')
+        ... )
+
+        Generate an image with a Nano Banana model (Gemini image-generation models such as
+        `gemini-2.5-flash-image`) and extract the PIL image from the response using JSON
+        subscripting. Image bytes in `inline_data.data` are decoded into PIL images
+        automatically. Pass `response_modalities=['IMAGE']` so the response contains a
+        single image part:
+
+        >>> tbl.add_computed_column(
+        ...     response=generate_content(
+        ...         tbl.prompt,
+        ...         model='gemini-2.5-flash-image',
+        ...         config={'response_modalities': ['IMAGE']},
+        ...     )
+        ... )
+        >>> tbl.add_computed_column(
+        ...     image=tbl.response.candidates[0]
+        ...     .content.parts[0]
+        ...     .inline_data.data.astype(pxt.Image)
         ... )
     """
     env.Env.get().require_package('google.genai')
@@ -154,7 +174,17 @@ async def generate_content(
     async with _gemini_file_uploads(large_video_paths) as uploaded:
         contents = _replace_upload_placeholders(contents, uploaded)
         response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
-        return response.model_dump(mode='json')
+        result = response.model_dump(mode='json')
+        for candidate, result_candidate in zip(response.candidates or [], result.get('candidates', [])):
+            if candidate.content is None:
+                continue
+            for part, result_part in zip(
+                candidate.content.parts or [], result_candidate.get('content', {}).get('parts', [])
+            ):
+                blob = part.inline_data
+                if blob is not None and blob.mime_type and blob.mime_type.startswith('image/') and blob.data:
+                    result_part['inline_data']['data'] = PIL.Image.open(io.BytesIO(blob.data))
+        return result
 
 
 @asynccontextmanager
@@ -228,7 +258,7 @@ def _(model: str) -> str:
 async def generate_images(prompt: str, *, model: str, config: dict | None = None) -> PIL.Image.Image:
     """
     Generates images based on a text description and configuration. For additional details, see:
-    <https://ai.google.dev/gemini-api/docs/image-generation>
+    <https://ai.google.dev/gemini-api/docs/imagen>
 
     Request throttling:
     Applies the rate limit set in the config (section `imagen.rate_limits`; use the model id as the key). If no rate
@@ -256,6 +286,14 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
         ...     response=generate_images(tbl.prompt, model='imagen-4.0-generate-001')
         ... )
     """
+    if model.startswith('gemini-'):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'Model {model!r} is a Gemini image-generation model (Nano Banana) and must be used via '
+            f'`generate_content`, not `generate_images` (which is for Imagen models). See the '
+            f'`generate_content` docstring for an example.',
+        )
+
     env.Env.get().require_package('google.genai')
     from google.genai.types import GenerateImagesConfig
 
