@@ -1989,7 +1989,7 @@ _SA_TYPE_NAMES: dict[type, str] = {
     sql_vector.VECTOR: 'Vector',
 }
 
-_SA_TYPE_BY_NAME: dict[str, sql.types.TypeEngine] = {name: t() for t, name in _SA_TYPE_NAMES.items()}
+_SA_TYPE_BY_NAME: dict[str, type] = {name: t for t, name in _SA_TYPE_NAMES.items()}
 
 
 def sa_type_as_dict(t: sql.types.TypeEngine) -> dict:
@@ -2012,7 +2012,14 @@ def sa_type_as_dict(t: sql.types.TypeEngine) -> dict:
 
 def sa_type_from_dict(d: dict) -> sql.types.TypeEngine:
     type_str = d['type']
-    t = _SA_TYPE_BY_NAME.get(type_str)
-    if t is None:
-        raise AssertionError(type_str)
+    clazz = _SA_TYPE_BY_NAME.get(type_str)
+    assert clazz is not None, type_str
+    t: sql.types.TypeEngine
+    if clazz == sql.types.TIMESTAMP:
+        t = sql.types.TIMESTAMP(timezone=True)
+    elif clazz in (sql_vector.HALFVEC, sql_vector.VECTOR):
+        assert 'dim' in d
+        t = clazz(dim=d['dim'])
+    else:
+        t = clazz()
     return t

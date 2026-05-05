@@ -527,12 +527,8 @@ class TableVersion:
         else:
             self.store_tbl = StoreTable(self)
 
+    # TODO unused indexes param
     def _init_cols_from_md(self, indexes: list[tuple[schema.IndexMd, index.IndexBase]]) -> list[Column]:
-        # value column id -> index
-        val_col_idxs = {idx_md.index_val_col_id: idx for idx_md, idx in indexes}
-        # undo column id -> index
-        undo_col_idxs = {idx_md.index_val_undo_col_id: idx for idx_md, idx in indexes}
-
         # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
         # point backward.
         sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
@@ -548,14 +544,6 @@ class TableVersion:
                 else None
             )
 
-            sa_col_type: sql.types.TypeEngine | None = None
-            if col_md.id in val_col_idxs:
-                idx = val_col_idxs[col_md.id]
-                sa_col_type = idx.get_index_sa_type(col_type)
-            elif col_md.id in undo_col_idxs:
-                idx = undo_col_idxs[col_md.id]
-                sa_col_type = idx.get_index_sa_type(col_type)
-
             # Iterator columns are those produced by the component view's iterator. The special pos (id=0) column
             # is not considered an iterator column.
             is_iterator_col = self.is_component_view and col_md.id > 0 and col_md.id < self.num_iterator_cols + 1
@@ -567,7 +555,7 @@ class TableVersion:
                 is_iterator_col=is_iterator_col,
                 stored=col_md.stored,
                 media_validation=media_val,
-                sa_col_type=sa_col_type,
+                sa_col_type=ts.sa_type_from_dict(col_md.sa_col_type) if col_md.sa_col_type is not None else None,
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
                 stores_cellmd=col_md.stores_cellmd,

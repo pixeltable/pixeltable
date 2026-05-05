@@ -128,9 +128,12 @@ class ColumnMd:
     # no alter column operation can change.
     # TODO this requires a migration
     # TODO rename to col_type or something
+    # TODO this is only used to determine if it's media type or not in packager. consider storing a bool instead.
     data_type: ColumnType.Type
-    # cannot be done because sql.types.TypeEngine is not serializable out of the box
-    # sa_col_type: sql.types.TypeEngine
+
+    # For stored columns, this is a serialized sqlalchemy type of the store column. For unstored columns, it's None.
+    # TODO a migration is required
+    sa_col_type: dict | None = None
 
     # If present, the URI for the destination for column values
     destination: str | None = None
