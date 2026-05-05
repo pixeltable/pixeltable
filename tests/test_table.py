@@ -3932,16 +3932,11 @@ class TestTable:
 
         result = dst.order_by(dst.c2).collect()
         assert len(result) == 2
-        assert result[0]['c4'] == 20
-        assert result[1]['c4'] == 40
-        assert result[0]['c5'] == 21
-        assert result[1]['c5'] == 41
-        assert result[0]['c3'] is None
-        assert result[1]['c3'] is None
-        assert result[0]['c6'] == 220
-        assert result[1]['c6'] == 240
-        assert result[0]['c7'] is None  # unstored_from_missing depends on missing c3, so c7 is None
-        assert result[1]['c7'] is None
+        assert result['c4'] == [20, 40]
+        assert result['c5'] == [21, 41]
+        assert result['c3'] == [None, None]
+        assert result['c6'] == [220, 240]
+        assert result['c7'] == [None, None]  # unstored_from_missing depends on missing c3
 
         sim_result = dst.order_by(dst.c1.similarity(string='cat'), asc=False).limit(1).collect()
         assert sim_result[0]['c1'] == 'a cat on a mat'
@@ -3961,7 +3956,23 @@ class TestTable:
         dst2.insert(src.select(x=src.c1, y=src.c2 + 5))
 
         result2 = dst2.order_by(dst2.y).collect()
-        assert result2[0]['y'] == 15
-        assert result2[0]['z'] == 30
-        assert result2[1]['y'] == 25
-        assert result2[1]['z'] == 50
+        assert result2['y'] == [15, 25]
+        assert result2['z'] == [30, 50]
+
+        # non-grouping aggregate query
+        agg_tbl = pxt.create_table('agg_tbl', {'total': pxt.Int})
+        agg_tbl.add_computed_column(doubled=agg_tbl.total * 2)
+        agg_tbl.insert(src.select(total=pxtf.sum(src.c2)))
+        agg_result = agg_tbl.collect()
+        assert len(agg_result) == 1
+        assert agg_result[0]['total'] == 30
+        assert agg_result[0]['doubled'] == 60
+
+        # grouping aggregate query
+        group_tbl = pxt.create_table('group_tbl', {'c1': pxt.String, 'cnt': pxt.Int})
+        group_tbl.add_computed_column(cnt_doubled=group_tbl.cnt * 2)
+        group_tbl.insert(src.group_by(src.c1).select(src.c1, cnt=pxtf.count(src.c2)))
+        group_result = group_tbl.order_by(group_tbl.c1).collect()
+        assert len(group_result) == 2
+        assert group_result['cnt'] == [1, 1]
+        assert group_result['cnt_doubled'] == [2, 2]

@@ -428,7 +428,7 @@ class Planner:
 
         query_col_names = set(query.schema.keys())
 
-        # map each destination column covered by the query to its corresponding source expression
+        # map each output column covered by the query to its corresponding source expression
         substitution: dict[exprs.Expr, exprs.Expr] = {
             exprs.ColumnRef(tbl.cols_by_name[col_name]): expr
             for col_name, expr in zip(query.schema.keys(), query._select_list_exprs)
@@ -447,12 +447,8 @@ class Planner:
                 )
             substitution[exprs.ColumnRef(col)] = exprs.Literal(None, col_type=col.col_type)
 
-        # stored computed columns in destination not covered by the query
-        missing_computed_cols = [
-            col
-            for col in tbl.cols_by_id.values()
-            if col.is_stored and col.name not in query_col_names and col.is_computed
-        ]
+        # stored computed columns
+        missing_computed_cols = [col for col in tbl.cols_by_id.values() if col.is_stored and col.is_computed]
 
         # resolve missing computed col exprs
         missing_col_exprs = [
@@ -469,17 +465,14 @@ class Planner:
         plan = augmented_query._create_query_plan()
         needs_cell_materialization = False
 
-        # register all destination columns via unique_exprs lookup by expr.id
-        # add_columns deep copies exprs but expr.id remains same as before
-        all_dst_cols = [
-            (tbl.cols_by_name[name], expr)
-            for name, expr in zip(query.schema.keys(), query._select_list_exprs)
-            if name in tbl.cols_by_name
-        ] + list(zip(missing_computed_cols, missing_col_exprs))
-        for col, expr in all_dst_cols:
-            matched = plan.row_builder.unique_exprs[expr]
-            assert matched is not None, f'expr not found in row builder for column {col.name!r}: {expr}'
-            plan.row_builder.add_table_column(col, matched.slot_idx)
+        plan.row_builder.set_slot_idxs(list(augmented_query._select_list_exprs))
+        # Mark output columns
+        missing_col_by_id = {expr.id: col for col, expr in zip(missing_computed_cols, missing_col_exprs)}
+        for name, expr in zip(augmented_query.schema, augmented_query._select_list_exprs):
+            col = tbl.cols_by_name.get(name) or missing_col_by_id.get(expr.id)
+            if col is None:
+                continue
+            plan.row_builder.add_table_column(col, expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
 
         if needs_cell_materialization:
