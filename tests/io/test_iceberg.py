@@ -210,6 +210,30 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='not compatible'):
             pxt.io.export_iceberg(t.select(t.c_int, t.c_string), catalog, 'pxt.mismatch', if_exists='append')
 
+    def test_export_json_invalid_rejected(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """JSON columns whose values cannot be reduced to a single arrow type must be rejected."""
+        skip_test_if_not_installed('pyiceberg')
+        t = pxt.create_table('test_iceberg_bad_json', {'c_json': pxt.Json})
+        catalog = self._catalog(tmp_path)
+
+        # Mixed struct and list shapes across rows: pa.infer_type can't unify them.
+        t.insert([{'c_json': {'a': 1}}, {'c_json': [1, 2, 3]}])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='mixed types'):
+            pxt.io.export_iceberg(t, catalog, 'pxt.bad_json')
+        t.delete()
+
+        # List with incompatible element types: infer succeeds but coercion fails at batch build.
+        t.insert([{'c_json': [1, 'a', 2]}])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be coerced'):
+            pxt.io.export_iceberg(t, catalog, 'pxt.bad_json')
+        t.delete()
+
+        # Struct field with no non-None values: Iceberg has no null-only type.
+        t.insert([{'c_json': {'a': None}}, {'c_json': {'a': None}}])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='every sampled'):
+            pxt.io.export_iceberg(t, catalog, 'pxt.bad_json')
+        t.delete()
+
     def test_namespace_auto_create(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """A non-existent namespace in the table identifier should be created automatically."""
         skip_test_if_not_installed('pyiceberg')
