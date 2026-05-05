@@ -417,6 +417,9 @@ class TestComponentView:
         t = pxt.create_table('tbl', {'n': pxt.Int})
         v = pxt.create_view('view', t, iterator=simple_iterator(t.n, str_text='t'))
         t.insert([{'n': 5}])
+
+        rows = v.collect()
+        assert len(rows) == 5, f'expected 5 rows, got {len(rows)}'
         t.update({'n': 6})
 
         rows = v.order_by(v.pos).collect()
