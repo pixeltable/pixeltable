@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Literal
@@ -127,6 +128,11 @@ def export_iceberg(
             f'or omit it from the data.',
         )
 
+    namespace = table_name.rsplit('.', 1)[0]
+    catalog.create_namespace_if_not_exists(namespace)
+
+    batches: Iterable[pa.RecordBatch] = chain([first_batch], batch_iter) if first_batch is not None else batch_iter
+
     if existing_tbl is not None and if_exists == 'append':
         target_schema = existing_tbl.schema().as_arrow()
         try:
@@ -145,16 +151,37 @@ def export_iceberg(
                 f'Source schema:\n{arrow_schema}\n'
                 f'Target schema:\n{target_schema}',
             ) from e
-        iceberg_tbl = existing_tbl
-    else:
-        # All preflight checks have passed; safe to drop the existing table now.
-        if existing_tbl is not None:
-            assert if_exists == 'replace'
-            catalog.drop_table(table_name)
-        catalog.create_namespace_if_not_exists(table_name.rsplit('.', 1)[0])
-        iceberg_tbl = catalog.create_table(table_name, schema=arrow_schema)
+        try:
+            with existing_tbl.transaction() as tx:
+                for batch in batches:
+                    tx.append(pa.Table.from_batches([batch]))
+        except excs.Error:
+            raise
+        except Exception as e:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'export_iceberg(): failed to append to Iceberg table {table_name!r}: {e}',
+            ) from e
+        return
 
-    batches: Iterable[pa.RecordBatch] = chain([first_batch], batch_iter) if first_batch is not None else batch_iter
-    with iceberg_tbl.transaction() as tx:
-        for batch in batches:
-            tx.append(pa.Table.from_batches([batch]))
+    # Write to a temp table and swap on success so a mid-stream failure leaves any existing
+    # original untouched. Drop-then-rename is two catalog calls and not truly atomic; a crash
+    # between them leaves the original gone but the data preserved under the temp name.
+    temp_name = f'{table_name}__pxt_tmp_{uuid.uuid4().hex[:8]}'
+    temp_tbl = catalog.create_table(temp_name, schema=arrow_schema)
+    try:
+        with temp_tbl.transaction() as tx:
+            for batch in batches:
+                tx.append(pa.Table.from_batches([batch]))
+    except excs.Error:
+        catalog.drop_table(temp_name)
+        raise
+    except Exception as e:
+        catalog.drop_table(temp_name)
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'export_iceberg(): failed to write Iceberg table {table_name!r}: {e}'
+        ) from e
+
+    if existing_tbl is not None:
+        catalog.drop_table(table_name)
+    catalog.rename_table(temp_name, table_name)
