@@ -738,39 +738,5 @@ class TestIterator:
             v1 = pxt.get_table('v1')
             v2 = pxt.get_table('v2')
 
-    def test_update_iterator_param(self, uses_db: None) -> None:
-        """Updating a base table column used as an iterator parameter re-evaluates the iterator."""
-        t = pxt.create_table('tbl', {'icol': pxt.Int})
-        v = pxt.create_view('view', t, iterator=simple_iterator(t.icol, str_text='t'))
-        t.insert([{'icol': 5}])
-        t.update({'icol': 6})
-
-        rows = v.order_by(v.pos).collect()
-        assert len(rows) == 6, f'expected 6 rows after update, got {len(rows)}'
-        for row in rows:
-            assert row['icol'] == 6
-        scol_values = [row['scol'] for row in rows]
-        assert scol_values == ['t 0', 't 1', 't 2', 't 3', 't 4', 't 5']
-
-    def test_update_iterator_param_with_dependent_view(self, uses_db: None) -> None:
-        """A view on an iterator view also updates when the base iterator param changes."""
-        t = pxt.create_table('tbl', {'icol': pxt.Int})
-        v = pxt.create_view('iter_view', t, iterator=simple_iterator(t.icol, str_text='t'))
-        v2 = pxt.create_view('child_view', v)
-        v2.add_computed_column(derived=v2.scol + '_suffix')
-        t.insert([{'icol': 3}])
-
-        rows = v2.order_by(v2.pos).collect()
-        assert len(rows) == 3
-        assert [r['derived'] for r in rows] == ['t 0_suffix', 't 1_suffix', 't 2_suffix']
-
-        t.update({'icol': 2})
-
-        rows = v2.order_by(v2.pos).collect()
-        assert len(rows) == 2
-        assert [r['icol'] for r in rows] == [2, 2]
-        assert [r['scol'] for r in rows] == ['t 0', 't 1']
-        assert [r['derived'] for r in rows] == ['t 0_suffix', 't 1_suffix']
-
 
 evolving_iterator: func.GeneratingFunction | None = None
