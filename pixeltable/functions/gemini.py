@@ -144,9 +144,7 @@ async def generate_content(
         ...     )
         ... )
         >>> tbl.add_computed_column(
-        ...     image=tbl.response.candidates[0]
-        ...     .content.parts[0]
-        ...     .inline_data.data.astype(pxt.Image)
+        ...     image=tbl.response.candidates[0].content.parts[0].inline_data.data
         ... )
     """
     env.Env.get().require_package('google.genai')
