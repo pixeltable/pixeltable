@@ -3959,20 +3959,38 @@ class TestTable:
         assert result2['y'] == [15, 25]
         assert result2['z'] == [30, 50]
 
+        agg_src = pxt.create_table('agg_src', {'category': pxt.String, 'value': pxt.Int})
+        agg_src.insert(
+            [
+                {'category': 'a', 'value': 10},
+                {'category': 'a', 'value': 20},
+                {'category': 'b', 'value': 30},
+                {'category': 'b', 'value': 40},
+                {'category': 'b', 'value': 50},
+                {'category': 'c', 'value': 60},
+            ]
+        )
+
         # non-grouping aggregate query
         agg_tbl = pxt.create_table('agg_tbl', {'total': pxt.Int})
         agg_tbl.add_computed_column(doubled=agg_tbl.total * 2)
-        agg_tbl.insert(src.select(total=pxtf.sum(src.c2)))
+        agg_tbl.insert(agg_src.select(total=pxtf.sum(agg_src.value)))
         agg_result = agg_tbl.collect()
         assert len(agg_result) == 1
-        assert agg_result[0]['total'] == 30
-        assert agg_result[0]['doubled'] == 60
+        assert agg_result[0]['total'] == 210
+        assert agg_result[0]['doubled'] == 420
 
         # grouping aggregate query
-        group_tbl = pxt.create_table('group_tbl', {'c1': pxt.String, 'cnt': pxt.Int})
-        group_tbl.add_computed_column(cnt_doubled=group_tbl.cnt * 2)
-        group_tbl.insert(src.group_by(src.c1).select(src.c1, cnt=pxtf.count(src.c2)))
-        group_result = group_tbl.order_by(group_tbl.c1).collect()
-        assert len(group_result) == 2
-        assert group_result['cnt'] == [1, 1]
-        assert group_result['cnt_doubled'] == [2, 2]
+        group_tbl = pxt.create_table('group_tbl', {'category': pxt.String, 'cnt': pxt.Int, 'total': pxt.Int})
+        group_tbl.add_computed_column(avg=group_tbl.total / group_tbl.cnt)
+        group_tbl.insert(
+            agg_src.group_by(agg_src.category).select(
+                agg_src.category, cnt=pxtf.count(agg_src.value), total=pxtf.sum(agg_src.value)
+            )
+        )
+        group_result = group_tbl.order_by(group_tbl.category).collect()
+        assert len(group_result) == 3
+        assert group_result['category'] == ['a', 'b', 'c']
+        assert group_result['cnt'] == [2, 3, 1]
+        assert group_result['total'] == [30, 120, 60]
+        assert group_result['avg'] == [15.0, 40.0, 60.0]
