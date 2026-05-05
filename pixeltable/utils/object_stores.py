@@ -27,9 +27,16 @@ class StorageTarget(enum.Enum):
     GCS_STORE = 'gs'  # Google Cloud Storage
     AZURE_STORE = 'az'  # Azure Blob Storage
     HTTP_STORE = 'http'  # HTTP/HTTPS
+    PIXELTABLE_STORE = 'pxtfs'  # Pixeltable storage
 
     def __str__(self) -> str:
         return self.value
+
+
+# S3-compatible targets that use boto3
+S3_COMPATIBLE_TARGETS = frozenset(
+    {StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}
+)
 
 
 class StorageObjectAddress(NamedTuple):
@@ -70,11 +77,14 @@ class StorageObjectAddress(NamedTuple):
             StorageTarget.GCS_STORE,
             StorageTarget.AZURE_STORE,
             StorageTarget.HTTP_STORE,
+            StorageTarget.PIXELTABLE_STORE,
         )
 
     @property
     def prefix_free_uri(self) -> str:
         """Return the URI without any prefixes."""
+        if self.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return f'{self.scheme}://{self.account}:{self.account_extension}/{self.container}/'
         if self.is_azure_scheme:
             return f'{self.scheme}://{self.container}@{self.account}.{self.account_extension}/'
         if self.account and self.account_extension:
@@ -87,6 +97,8 @@ class StorageObjectAddress(NamedTuple):
     def container_free_uri(self) -> str:
         """Return the URI without any prefixes."""
         assert not self.is_azure_scheme, 'Azure storage requires a container name'
+        if self.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return f'{self.scheme}://{self.account}:{self.account_extension}/'
         if self.account and self.account_extension:
             return f'{self.scheme}://{self.account}.{self.account_extension}/'
         if self.account_extension:
@@ -101,6 +113,11 @@ class StorageObjectAddress(NamedTuple):
 
     def __str__(self) -> str:
         """A debug aid to override default str representation. Not to be used for any purpose."""
+        if self.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return (
+                f'{self.storage_target}..{self.scheme}://{self.account}:{self.account_extension}/'
+                f'{self.container}/{self.prefix}{self.object_name}'
+            )
         return f'{self.storage_target}..{self.scheme}://{self.account}.{self.account_extension}/{self.container}/{self.prefix}{self.object_name}'
 
     def __repr__(self) -> str:
@@ -249,6 +266,30 @@ class ObjectPath:
             else:
                 account_extension = parsed.netloc
             key = key.lstrip('/')
+        elif scheme == 'pxtfs':
+            # pxtfs://org:db/<bucket>[/optional/prefix]
+            # Currently only 'home' bucket is supported.
+            # 'home' is a logical name resolved to a physical R2 bucket name at runtime via the control plane.
+            storage_target = StorageTarget.PIXELTABLE_STORE
+            netloc_parts = parsed.netloc.split(':')
+            if len(netloc_parts) != 2 or not netloc_parts[0] or not netloc_parts[1]:
+                raise ValueError(
+                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': netloc must be 'org:db', got '{src_addr}'"
+                )
+            account_name, account_extension = netloc_parts  # org slug, db slug
+            raw_path = parsed.path.lstrip('/')
+            path_parts = raw_path.split('/', 1)
+            container = path_parts[0]
+            if not container:
+                raise ValueError(
+                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': bucket segment is required, got '{src_addr}'"
+                )
+            if container != 'home':
+                raise ValueError(
+                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': only 'home' bucket is supported, "
+                    f"got '{container}'"
+                )
+            key = path_parts[1] if len(path_parts) > 1 else ''
         else:
             raise ValueError(f'Unsupported URI scheme: {parsed.scheme}')
 
@@ -390,6 +431,11 @@ class ObjectOps:
         )
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
+        if soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            env.Env.get().require_package('boto3')
+            from pixeltable.utils.pxt_store import PxtStore
+
+            return PxtStore(soa)
         if soa.storage_target in (
             StorageTarget.S3_STORE,
             StorageTarget.R2_STORE,

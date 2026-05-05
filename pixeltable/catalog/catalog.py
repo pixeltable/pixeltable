@@ -1406,8 +1406,11 @@ class Catalog:
 
         self._roll_forward()
 
-        with self.begin_xact(for_write=True, write_tbl_ids=[view_id]):
+        @retry_loop(read_tbl_ids=[view_id])
+        def _get_tbl() -> Table:
             return self.get_table_by_id(view_id)
+
+        return _get_tbl()
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)
