@@ -47,7 +47,12 @@ class PostgresqlDbms(Dbms):
         return f'DROP DATABASE {database}'
 
     def create_db_stmt(self, database: str) -> str:
-        lc_ctype = '.UTF-8' if platform.system() == 'Windows' else 'C.UTF-8'
+        if platform.system() == 'Windows':
+            lc_ctype = '.UTF-8'
+        elif platform.system() == 'Darwin':
+            lc_ctype = 'en_US.UTF-8'
+        else:
+            lc_ctype = 'C.UTF-8'
         return f"CREATE DATABASE {database} TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE '{lc_ctype}'"
 
     def default_system_db_url(self) -> str:
