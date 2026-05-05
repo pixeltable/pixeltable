@@ -148,7 +148,8 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
         The same would work with an image column `tbl.image` in place of `tbl.text`.
     """
     env.Env.get().require_package('transformers')
-    device = resolve_torch_device('auto')
+    # MPS produces incorrect CLIP embeddings in transformers 5 due to numerical issues in the Metal backend.
+    device = resolve_torch_device('auto', allow_mps=False)
     import torch
     import transformers
     from transformers import CLIPModel, CLIPProcessor
@@ -176,7 +177,8 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
 @clip.overload
 def _(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
     env.Env.get().require_package('transformers')
-    device = resolve_torch_device('auto')
+    # MPS produces incorrect CLIP embeddings in transformers 5 due to numerical issues in the Metal backend.
+    device = resolve_torch_device('auto', allow_mps=False)
     import torch
     import transformers
     from transformers import CLIPModel, CLIPProcessor
