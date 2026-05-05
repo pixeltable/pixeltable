@@ -192,8 +192,8 @@ class RowBuilder:
         #   iterated object changes
 
         col_refs = [e for e in self.unique_exprs if isinstance(e, ColumnRef)]
-        unstored_iter_col_refs = [col_ref for col_ref in col_refs if col_ref.needs_iterator_evaluation]
-        component_views = [col_ref.col.get_tbl() for col_ref in unstored_iter_col_refs]
+        col_refs_needing_iter_eval = [col_ref for col_ref in col_refs if col_ref.needs_iterator_evaluation]
+        component_views = [col_ref.col.get_tbl() for col_ref in col_refs_needing_iter_eval]
         unstored_iter_args = {view.id: view.iterator_args_expr() for view in component_views}
 
         # the *stored* output columns of the unstored iterators
@@ -211,7 +211,7 @@ class RowBuilder:
         }
 
         unstored_iter_col_refs = [
-            self._record_unique_expr(col_ref, recursive=True) for col_ref in unstored_iter_col_refs
+            self._record_unique_expr(col_ref, recursive=True) for col_ref in col_refs_needing_iter_eval
         ]
 
         for col_ref in unstored_iter_col_refs:
