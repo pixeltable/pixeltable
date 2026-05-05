@@ -9,6 +9,7 @@ import pyarrow as pa
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
+from pixeltable.utils.arrow import find_null_fields
 
 if TYPE_CHECKING:
     from pyiceberg.catalog import Catalog
@@ -77,8 +78,7 @@ def export_iceberg(
     if '.' not in table_name:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'export_iceberg(): table_name {table_name!r} must be namespace-qualified '
-            "(e.g. 'pxt.my_table').",
+            f"export_iceberg(): table_name {table_name!r} must be namespace-qualified (e.g. 'pxt.my_table').",
         )
 
     query: pxt.Query
@@ -118,7 +118,7 @@ def export_iceberg(
     # `pa.infer_type` produces `pa.null()` for JSON keys whose value is None in every sampled row.
     # Iceberg format-version 2 cannot represent a null-only column, so reject it up front rather
     # than letting pyiceberg fail mid-write with a less actionable error.
-    null_paths = _find_null_fields(arrow_schema)
+    null_paths = find_null_fields(arrow_schema)
     if null_paths:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -151,35 +151,10 @@ def export_iceberg(
         if existing_tbl is not None:
             assert if_exists == 'replace'
             catalog.drop_table(table_name)
-        if '.' in table_name:
-            catalog.create_namespace_if_not_exists(table_name.rsplit('.', 1)[0])
+        catalog.create_namespace_if_not_exists(table_name.rsplit('.', 1)[0])
         iceberg_tbl = catalog.create_table(table_name, schema=arrow_schema)
 
     batches: Iterable[pa.RecordBatch] = chain([first_batch], batch_iter) if first_batch is not None else batch_iter
     with iceberg_tbl.transaction() as tx:
         for batch in batches:
             tx.append(pa.Table.from_batches([batch]))
-
-
-def _find_null_fields(schema: pa.Schema) -> list[str]:
-    """Return dotted paths of every `pa.null()`-typed field nested inside `schema`."""
-    paths: list[str] = []
-
-    def walk(arrow_type: pa.DataType, path: str) -> None:
-        if pa.types.is_null(arrow_type):
-            paths.append(path)
-        elif pa.types.is_struct(arrow_type):
-            for f in arrow_type:
-                walk(f.type, f'{path}.{f.name}')
-        elif (
-            pa.types.is_list(arrow_type)
-            or pa.types.is_large_list(arrow_type)
-            or pa.types.is_fixed_size_list(arrow_type)
-        ):
-            walk(arrow_type.value_type, f'{path}[]')
-        elif pa.types.is_map(arrow_type):
-            walk(arrow_type.item_type, f'{path}{{}}')
-
-    for field in schema:
-        walk(field.type, field.name)
-    return paths

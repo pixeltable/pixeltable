@@ -127,6 +127,7 @@ def create_table_data(
                 }
             ]
         },
+        # Removing json_() arrow fallback means we don't support mixed-type lists and None only fields
         {'level1': {'level2': {'level3': [1, 2, 3, 4]}}},
         {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False},
     ]
