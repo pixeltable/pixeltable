@@ -70,9 +70,17 @@ def runs_linux_with_gpu() -> bool:
 
 @pxt.udf
 def sleep(n: float) -> float:
-    """Sleep for `n` seconds, return `n`. Used in tests to deliberately delay inserts."""
+    """Sleep for n seconds, return n. Used in tests to deliberately delay inserts."""
     time.sleep(n)
     return n
+
+
+@pxt.udf
+def error(error: bool) -> bool:
+    """Raise AssertionError if error == True"""
+    if error:
+        raise AssertionError()
+    return False
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
