@@ -30,7 +30,7 @@ class S3CompatClientDict(NamedTuple):
     """Container for S3-compatible storage access objects (R2, B2, etc.)."""
 
     profile: str | None  # AWS-style profile used to locate credentials
-    clients: dict[str, Any]  # Map of endpoint URL → boto3 client instance
+    clients: dict[str, Any]  # Map of endpoint URL to boto3 client instance
 
 
 @env.register_client('r2')

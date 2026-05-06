@@ -97,7 +97,7 @@ class TableVersionPath:
         # (multiple sqlalchemy Table instances for the same underlying table create corrupted From clauses).
         # See the corresponding comment on TableVersionHandle.get() for the cross-thread / cross-runtime
         # case. Snapshot the current cache once, decide whether to refresh, and atomically replace at
-        # the end — never reset to None mid-method, so that concurrent readers (this TVP can be shared
+        # the end - never reset to None mid-method, so that concurrent readers (this TVP can be shared
         # across threads via Table._tbl_version_path) always observe a complete TableVersion.
         cat = get_runtime().catalog
         cached = self._cached_tbl_version

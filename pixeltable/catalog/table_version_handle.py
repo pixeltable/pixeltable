@@ -35,7 +35,7 @@ class TableVersionHandle:
     # get() through the catalog's is_validated machinery.
     _tbl_version: TableVersion | None
     # The Catalog instance this handle was last resolved against. Set in __init__ from
-    # `get_runtime().catalog`, re-set by __deepcopy__, and updated by get() whenever it
+    # get_runtime().catalog, re-set by __deepcopy__, and updated by get() whenever it
     # detects a mismatch with the calling thread's catalog (which can happen across worker
     # threads or after reset_runtime). On mismatch get() drops the cached TableVersion and
     # re-resolves through the current catalog, so consumers always observe metadata from the
@@ -85,7 +85,7 @@ class TableVersionHandle:
 
     def get(self) -> TableVersion:
         # Snapshot the cache once, decide whether to refresh, and atomically replace at the
-        # end — never reset to None mid-method, so that concurrent readers (this handle can
+        # end - never reset to None mid-method, so that concurrent readers (this handle can
         # be shared across threads via Table._tbl_version_path or Column.tbl_handle) always
         # observe a complete TableVersion. The mismatch case happens when the handle is used
         # in a different catalog context than it was built against (worker thread with its

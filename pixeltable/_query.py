@@ -376,7 +376,7 @@ class Query:
     # The Catalog instance this Query was constructed against. Used by _exec / _aexec to
     # defensively deepcopy when the Query is invoked under a different Catalog (e.g., a
     # global Query held by user code and called from FastAPI worker threads, or a Query
-    # held across reset_runtime). Set in __init__ from `get_runtime().catalog` and re-set
+    # held across reset_runtime). Set in __init__ from get_runtime().catalog and re-set
     # by __deepcopy__.
     _origin_catalog: 'catalog.Catalog'
 
@@ -987,7 +987,7 @@ class Query:
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
             if len(self._from_clause.tbls) == 1:
                 # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
-                # such as `snapshot.select(base_tbl.col)`
+                # such as snapshot.select(base_tbl.col)
                 # TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
                 #     multiple TableVersionPaths.
                 expr = expr.copy()

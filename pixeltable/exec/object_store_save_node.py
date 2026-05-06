@@ -262,7 +262,7 @@ class ObjectStoreSaveNode(ExecNode):
                 continue
 
             # Resolve the destination on the caller thread (catalog context). The worker thread
-            # consumes only `store` and `resolved` and never accesses catalog state.
+            # consumes only store and resolved and never accesses catalog state.
             store = ObjectOps.get_store(destination, False, col.name)
             resolved = store.prepare_destination(col.tbl_handle.id, col.id, col.get_tbl().version, ext=src_path.suffix)
             work_item = ObjectStoreSaveNode.WorkItem(

@@ -173,7 +173,7 @@ class TestCrossThreadCatalog:
     def test_iterator_view_query_cross_thread(self, uses_db: None) -> None:
         """T6: query over a component (iterator) view across threads. Iterator views
         carry both base TVH and view TVH, plus the iterator function's own catalog
-        references — the most TVH instances in a single plan."""
+        references; the most TVH instances in a single plan."""
         t = pxt.create_table('t6_base', {'n': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'n': 3}, {'n': 5}]), expected_rows=2)
         iv = pxt.create_view('t6_iter_view', t, iterator=DummyIterator(t.n))
@@ -216,22 +216,21 @@ class TestCrossXactStaleness:
         """T8: ColumnRef captured pre-change, drop+re-add the column. Accessing
         the captured ref should re-resolve through the catalog (and raise, since
         the original col_id is gone) rather than returning stale Column metadata."""
-        # `keep` exists so dropping 'a' is allowed (tables need at least one column).
-        # The new 'a' is nullable since add_column on a non-empty table can't add a
-        # required column.
+        # The "keep" column exists so dropping "a" is allowed (tables need at least one column).
+        # The new "a" is nullable since add_column on a non-empty table can't add a required column.
         t = pxt.create_table('t8', {'a': pxt.Required[pxt.Int], 'keep': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'a': 1, 'keep': 0}]), expected_rows=1)
 
         a_ref = t.a
         # The Expr's col_type is set at __init__ from col.col_type; that snapshot
-        # is fine. The bug is downstream — accessing ColumnRef.col on master
+        # is fine. The bug is downstream: accessing ColumnRef.col on master
         # returned the cached Column instance forever.
         assert a_ref.col_type.is_int_type()
 
         t.drop_column('a')
         t.add_column(a=pxt.String)
 
-        # On loadtest, .col is a property → col_handle.get() → raises NotFoundError
+        # On loadtest, .col is a property over col_handle.get(), which raises NotFoundError
         # because the captured col_id was dropped. On master, .col is a cached
         # field and silently returns the stale Column.
         with pytest.raises(excs.Error):

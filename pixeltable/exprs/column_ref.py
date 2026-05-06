@@ -48,18 +48,18 @@ class ColumnRef(Expr):
     # - the non-validating ColumnRef is used for SQL translation
 
     # A ColumnRef may have an optional reference table, which carries the context of the ColumnRef resolution. Thus
-    # if `v` is a view of `t` (for example), then `v.my_col` and `t.my_col` refer to the same underlying column, but
-    # their reference tables will be `v` and `t`, respectively. This is to ensure correct behavior of expressions such
-    # as `v.my_col.head()`.
+    # if v is a view of t (for example), then v.my_col and t.my_col refer to the same underlying column, but
+    # their reference tables will be v and t, respectively. This is to ensure correct behavior of expressions such
+    # as v.my_col.head().
 
     # TODO:
     # separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
     # insert them into the EvalCtxs as needed
 
-    # `col_handle` is the source of truth. Column metadata is owned by the catalog and resolved
-    # on every access via the catalog's `is_validated`-gated machinery, which gives us correctness
+    # col_handle is the source of truth. Column metadata is owned by the catalog and resolved
+    # on every access via the catalog's is_validated-gated machinery, which gives us correctness
     # across (a) transactions, including ones triggered by other processes, (b) threads, and
-    # (c) future cache evictions. The `col` property below derives from col_handle; we never
+    # (c) future cache evictions. The col property below derives from col_handle; we never
     # cache a Column reference on this instance.
     col_handle: catalog.ColumnHandle
     reference_tbl: catalog.TableVersionPath | None
@@ -116,7 +116,7 @@ class ColumnRef(Expr):
         # transaction (in this process or another) since this ColumnRef was constructed; the
         # handle resolves through TableVersionHandle.get(), which validates against the current
         # transaction's view of the catalog. Hot-path callers should bind to a local at the top
-        # of their function rather than reading `self.col.<attr>` repeatedly.
+        # of their function rather than reading self.col.<attr> repeatedly.
         return self.col_handle.get()
 
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
@@ -129,7 +129,7 @@ class ColumnRef(Expr):
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        # Use col_handle directly (its `tbl_version.id` and `col_id` are immutable identity)
+        # Use col_handle directly (its tbl_version.id and col_id are immutable identity)
         # rather than going through self.col.<...>; avoids a catalog lookup on every hash.
         return [
             *super()._id_attrs(),
