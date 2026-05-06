@@ -67,6 +67,7 @@ videos.add_computed_column(
 )
 
 videos.add_embedding_index('video', embedding=gemini.embed_content.using(model='gemini-embedding-2-preview'))
+videos.add_embedding_index('description', embedding=gemini.embed_content.using(model='gemini-embedding-2-preview'))
 
 base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources'
 videos.insert([
