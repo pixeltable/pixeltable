@@ -48,7 +48,8 @@
                 "pages": [
                   "migrate/from-diy-data-pipeline",
                   "migrate/from-rdbms-vectordbs",
-                  "migrate/from-agent-frameworks"
+                  "migrate/from-agent-frameworks",
+                  "migrate/from-hand-written-endpoints"
                 ]
               },
               {
@@ -159,7 +160,8 @@
                       "howto/cookbooks/video/video-scene-detection",
                       "howto/cookbooks/video/video-generate-thumbnails",
                       "howto/cookbooks/video/video-add-text-overlay",
-                      "howto/cookbooks/video/video-generate-ai"
+                      "howto/cookbooks/video/video-generate-ai",
+                      "howto/cookbooks/video/video-image-slideshow"
                     ]
                   },
                   {
@@ -299,6 +301,7 @@
             "group": "Deployment",
             "pages": [
               "howto/deployment/overview",
+              "howto/deployment/serving",
               "howto/deployment/infrastructure",
               "howto/deployment/operations",
               "howto/deployment/monitoring",

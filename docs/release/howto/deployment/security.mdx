@@ -29,7 +29,7 @@ tar -czf media_backup.tar.gz ~/.pixeltable/media/
 For orchestration-only deployments:
 - Primary data lives in your external RDBMS and blob storage
 - Pixeltable state can be rebuilt by re-running transformation pipelines
-- Back up your `setup_pixeltable.py` and UDF code in version control
+- Back up your `schema.py` and UDF code in version control
 
 ## Recovery Procedures
 
@@ -43,7 +43,7 @@ For orchestration-only deployments:
 ### Orchestration Layer Recovery
 
 1. Deploy fresh Pixeltable instance
-2. Run `setup_pixeltable.py` to recreate schema
+2. Import `schema.py` to recreate schema (idempotent with `if_exists='ignore'`)
 3. Re-process data through computed columns (incremental)
 
 ## Security Best Practices
