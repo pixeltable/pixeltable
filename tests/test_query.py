@@ -12,6 +12,7 @@ import pydantic
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
@@ -1053,15 +1054,57 @@ class TestQuery:
     def test_add_columns(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
         # add_columns appends named expressions to an existing select list
-        q = t.select(t.c1, t.c2).add_columns([(t.c2 + 1, 'c2_plus_1'), ((t.c2 + 1) * 2, 'c2_times_2')])
+        q = t.select(t.c1, t.c2).add_columns(c2_plus_1=t.c2 + 1, c2_times_2=(t.c2 + 1) * 2)
         result = reload_tester.run_query(q)
         assert {'c1', 'c2', 'c2_plus_1', 'c2_times_2'} <= set(result.schema)
         assert all(row['c2_plus_1'] == row['c2'] + 1 for row in result)
         assert all(row['c2_times_2'] == (row['c2'] + 1) * 2 for row in result)
         reload_tester.run_reload_test()
 
-        # also works on select(*) — no explicit select list
-        q2 = t.select().add_columns([(t.c2 + 1, 'c2_plus_1')])
+        # also works on select(*)
+        q2 = t.select().add_columns(c2_plus_1=t.c2 + 1)
         result2 = q2.collect()
         assert 'c2_plus_1' in result2.schema
         assert all(row['c2_plus_1'] == row['c2'] + 1 for row in result2)
+
+        # add_columns after where()
+        q_where = t.where(t.c2 < 5).add_columns(c2_times_10=t.c2 * 10)
+        result_where = q_where.collect()
+        assert 'c2_times_10' in result_where.schema
+        assert all(row['c2'] < 5 for row in result_where)
+        assert all(row['c2_times_10'] == row['c2'] * 10 for row in result_where)
+
+        # add_columns after order_by()
+        q_order = t.order_by(t.c2).add_columns(c2_plus_100=t.c2 + 100)
+        result_order = q_order.collect()
+        assert 'c2_plus_100' in result_order.schema
+        c2_vals = [row['c2'] for row in result_order]
+        assert c2_vals == sorted(c2_vals)
+        assert all(row['c2_plus_100'] == row['c2'] + 100 for row in result_order)
+
+        # add_columns after limit()
+        q_limit = t.limit(3).add_columns(c2_minus_1=t.c2 - 1)
+        result_limit = q_limit.collect()
+        assert 'c2_minus_1' in result_limit.schema
+        assert len(result_limit) == 3
+        assert all(row['c2_minus_1'] == row['c2'] - 1 for row in result_limit)
+
+        # add_columns after sample() — extra expression based on a column already produced
+        q_sample = t.sample(n=5, seed=1).add_columns(c2_doubled=t.c2 * 2)
+        result_sample = q_sample.collect()
+        assert 'c2_doubled' in result_sample.schema
+        assert len(result_sample) == 5
+        assert all(row['c2_doubled'] == row['c2'] * 2 for row in result_sample)
+
+        # add_columns after non-grouping aggregate — extra expression on top of the aggregate
+        q_agg = t.select(total=pxtf.sum(t.c2)).add_columns(total_minus_1=pxtf.sum(t.c2) - 1)
+        result_agg = q_agg.collect()
+        assert {'total', 'total_minus_1'} <= set(result_agg.schema)
+        assert len(result_agg) == 1
+        assert result_agg[0]['total_minus_1'] == result_agg[0]['total'] - 1
+
+        # add_columns after group_by + select — extra expression on top of a group aggregate
+        q_group = t.group_by(t.c4).select(t.c4, total=pxtf.sum(t.c2)).add_columns(total_doubled=pxtf.sum(t.c2) * 2)
+        result_group = q_group.collect()
+        assert {'c4', 'total', 'total_doubled'} <= set(result_group.schema)
+        assert all(row['total_doubled'] == row['total'] * 2 for row in result_group)

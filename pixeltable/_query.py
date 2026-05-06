@@ -330,6 +330,7 @@ class Query:
     _select_list_exprs: list[exprs.Expr]
     _schema: dict[str, ts.ColumnType]
     select_list: list[tuple[exprs.Expr, str | None]] | None
+    additional_select_list: list[tuple[exprs.Expr, str | None]]
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
     grouping_tbl: catalog.TableVersion | None
@@ -342,6 +343,7 @@ class Query:
         self,
         from_clause: plan.FromClause | None = None,
         select_list: list[tuple[exprs.Expr, str | None]] | None = None,
+        additional_select_list: list[tuple[exprs.Expr, str | None]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
         grouping_tbl: catalog.TableVersion | None = None,
@@ -354,13 +356,17 @@ class Query:
 
         # exprs contain execution state and therefore cannot be shared
         select_list = copy.deepcopy(select_list)
-        select_list_exprs, column_names = Query._normalize_select_list(self._from_clause.tbls, select_list)
+        additional_select_list = copy.deepcopy(additional_select_list) if additional_select_list else []
+        select_list_exprs, column_names = Query._normalize_select_list(
+            self._from_clause.tbls, select_list, additional_select_list
+        )
         # check select list after expansion to catch early
         # the following two lists are always non empty, even if select list is None.
         assert len(column_names) == len(select_list_exprs)
         self._select_list_exprs = select_list_exprs
         self._schema = {column_names[i]: select_list_exprs[i].col_type for i in range(len(column_names))}
         self.select_list = select_list
+        self.additional_select_list = additional_select_list
 
         self.where_clause = copy.deepcopy(where_clause)
         assert group_by_clause is None or grouping_tbl is None
@@ -373,15 +379,22 @@ class Query:
 
     @classmethod
     def _normalize_select_list(
-        cls, tbls: list[catalog.TableVersionPath], select_list: list[tuple[exprs.Expr, str | None]] | None
+        cls,
+        tbls: list[catalog.TableVersionPath],
+        select_list: list[tuple[exprs.Expr, str | None]] | None,
+        additional_select_list: list[tuple[exprs.Expr, str | None]] | None = None,
     ) -> tuple[list[exprs.Expr], list[str]]:
         """
-        Expand select list information with all columns and their names
+        Expand select list information with all columns and their names.
+        If `additional_select_list` is provided, it is appended after the base select list.
+
         Returns:
             a pair composed of the list of expressions and the list of corresponding names
         """
         if select_list is None:
             select_list = [(exprs.ColumnRef(col), None) for tbl in tbls for col in tbl.columns()]
+        if additional_select_list:
+            select_list += additional_select_list
 
         out_exprs: list[exprs.Expr] = []
         out_names: list[str] = []  # keep track of order
@@ -681,6 +694,7 @@ class Query:
         return Query(
             from_clause=self._from_clause,
             select_list=select_list,
+            additional_select_list=self.additional_select_list,
             where_clause=where_clause,
             group_by_clause=group_by_clause,
             grouping_tbl=self.grouping_tbl,
@@ -959,6 +973,7 @@ class Query:
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
+            additional_select_list=self.additional_select_list,
             where_clause=pred,
             group_by_clause=self.group_by_clause,
             grouping_tbl=self.grouping_tbl,
@@ -1128,6 +1143,7 @@ class Query:
         return Query(
             from_clause=from_clause,
             select_list=self.select_list,
+            additional_select_list=self.additional_select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
             grouping_tbl=self.grouping_tbl,
@@ -1212,6 +1228,7 @@ class Query:
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
+            additional_select_list=self.additional_select_list,
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
             grouping_tbl=grouping_tbl,
@@ -1287,6 +1304,7 @@ class Query:
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
+            additional_select_list=self.additional_select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
             grouping_tbl=self.grouping_tbl,
@@ -1327,6 +1345,7 @@ class Query:
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
+            additional_select_list=self.additional_select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
             grouping_tbl=self.grouping_tbl,
@@ -1454,6 +1473,7 @@ class Query:
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
+            additional_select_list=self.additional_select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
             grouping_tbl=self.grouping_tbl,
@@ -1583,6 +1603,7 @@ class Query:
             'select_list': [(e.as_dict(), name) for (e, name) in self.select_list]
             if self.select_list is not None
             else None,
+            'additional_select_list': [(e.as_dict(), name) for (e, name) in self.additional_select_list],
             'where_clause': self.where_clause.as_dict() if self.where_clause is not None else None,
             'group_by_clause': [e.as_dict() for e in self.group_by_clause]
             if self.group_by_clause is not None
@@ -1609,6 +1630,9 @@ class Query:
                 if d['select_list'] is not None
                 else None
             )
+            additional_select_list = [
+                (exprs.Expr.from_dict(e), name) for e, name in d.get('additional_select_list', [])
+            ]
             where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
             group_by_clause = (
                 [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
@@ -1626,6 +1650,7 @@ class Query:
             return Query(
                 from_clause=from_clause,
                 select_list=select_list,
+                additional_select_list=additional_select_list,
                 where_clause=where_clause,
                 group_by_clause=group_by_clause,
                 grouping_tbl=grouping_tbl,
@@ -1729,38 +1754,37 @@ class Query:
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)
 
-    def add_columns(self, columns: list[tuple[exprs.Expr, str | None]]) -> 'Query':
-        """Add expressions to the existing select list.
+    def add_columns(self, *unnamed_columns: 'exprs.Expr', **named_columns: 'exprs.Expr') -> 'Query':
+        """Append expressions to the select list.
 
         Args:
-            columns: list of (expression, name) pairs to append to the select list.
-            If name is None, the expression's default column name is used.
+            *unnamed_columns: expressions to add; column name is auto-generated.
+            **named_columns: mapping of column name to its value expression.
 
         Returns:
             A new Query with the additional expressions appended to the select list.
+
+        Examples:
+            >>> q = t.select(t.c1, t.c2).add_columns(
+            ...     c2_plus_1=t.c2 + 1, c2_doubled=t.c2 * 2
+            ... )
         """
-        for _expr, name in columns:
-            if name is not None and not is_valid_identifier(name):
+        for name in named_columns:
+            if not is_valid_identifier(name):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_COLUMN_NAME, f'add_columns(): {name!r} is not a valid column name.'
                 )
-            if name is not None and name in self._schema:
+            if name in self._schema:
                 raise excs.AlreadyExistsError(
                     excs.ErrorCode.COLUMN_ALREADY_EXISTS,
                     f'add_columns(): column {name!r} already exists in the query. '
                     f'Existing columns are: {list(self._schema.keys())}.',
                 )
-
-        # if no explicit select list, expand to all columns
-        if self.select_list is None:
-            out_exprs, out_names = Query._normalize_select_list(self._from_clause.tbls, None)
-            existing_select_list = list(zip(out_exprs, out_names))
-        else:
-            existing_select_list = self.select_list
-
+        new_items = [(expr, None) for expr in unnamed_columns] + [(expr, name) for name, expr in named_columns.items()]
         return Query(
             from_clause=self._from_clause,
-            select_list=existing_select_list + columns,
+            select_list=self.select_list,
+            additional_select_list=self.additional_select_list + new_items,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
             grouping_tbl=self.grouping_tbl,

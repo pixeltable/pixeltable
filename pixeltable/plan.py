@@ -459,9 +459,9 @@ class Planner:
         exprs.Expr.list_substitute(missing_col_exprs, substitution)
 
         # augment query with missing computed exprs so they get evaluated during planning
-        augmented_query = query.add_columns(
-            [(expr, col.name) for col, expr in zip(missing_computed_cols, missing_col_exprs)]
-        )
+        named = {col.name: expr for col, expr in zip(missing_computed_cols, missing_col_exprs) if col.name is not None}
+        unnamed = [expr for col, expr in zip(missing_computed_cols, missing_col_exprs) if col.name is None]
+        augmented_query = query.add_columns(*unnamed, **named)
         plan = augmented_query._create_query_plan()
         needs_cell_materialization = False
 
