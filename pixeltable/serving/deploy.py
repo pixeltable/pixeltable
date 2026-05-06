@@ -1,15 +1,15 @@
 import io
+import json
 import logging
 import os
 import subprocess
 import tarfile
 import tempfile
 from pathlib import Path
-
-from pathspec import PathSpec
-import toml
-import json
 from typing import Any
+
+import toml
+from pathspec import PathSpec
 
 import pixeltable as pxt
 from pixeltable import config, metadata
@@ -27,12 +27,11 @@ def build_deploy_bundle(environment_name: str) -> Path:
     if len(services_cfg) == 0:
         Env.get().console_logger.warning(f'That environment contains no services.')
     else:
-        Env.get().console_logger.info(f'The following service(s) will be deployed: {", ".join(service.name for service in services_cfg)}')
+        Env.get().console_logger.info(
+            f'The following service(s) will be deployed: {", ".join(service.name for service in services_cfg)}'
+        )
 
-    config_export = {
-        'environment': cfg.dict(),
-        'service': [service.dict() for service in services_cfg],
-    }
+    config_export = {'environment': cfg.dict(), 'service': [service.dict() for service in services_cfg]}
     md_export = _export_tables_md(services_cfg)
     conda_export = _export_conda_env()
     lockfile = _find_lockfile()
@@ -127,7 +126,11 @@ def _find_lockfile() -> Path | None:
 
 
 def package(
-    env_config: config.EnvironmentConfig, config_export: dict[str, Any], md_export: dict[str, Any], conda_export: bytes | None = None, project_dir: Path | None = None,
+    env_config: config.EnvironmentConfig,
+    config_export: dict[str, Any],
+    md_export: dict[str, Any],
+    conda_export: bytes | None = None,
+    project_dir: Path | None = None,
 ) -> Path:
     """Bundle the contents of a Pixeltable project directory into a tarball.
 
