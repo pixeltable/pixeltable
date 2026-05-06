@@ -20,6 +20,7 @@
           <outline text="func|pixeltable.create_dir" />
           <outline text="func|pixeltable.drop_dir" />
           <outline text="func|pixeltable.get_dir_contents" />
+          <outline text="func|pixeltable.get_dir_tree" />
           <outline text="func|pixeltable.home" />
           <outline text="func|pixeltable.ls" />
           <outline text="func|pixeltable.move" />
@@ -125,8 +126,11 @@
 
           <outline text="class|pixeltable.ColumnMetadata" />
           <outline text="class|pixeltable.DirContents" />
+          <outline text="class|pixeltable.DirectoryNode" />
           <outline text="class|pixeltable.IndexMetadata" />
           <outline text="class|pixeltable.TableMetadata" />
+          <outline text="class|pixeltable.TableNode" />
+          <outline text="class|pixeltable.TreeNode" />
           <outline text="class|pixeltable.UpdateStatus" />
           <outline text="class|pixeltable.VersionMetadata" />
         </outline>

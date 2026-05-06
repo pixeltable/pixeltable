@@ -50,16 +50,16 @@ class EmbeddingIndexParams(TypedDict):
 
 
 class IndexMetadata(TypedDict):
-    """Metadata for a column of a Pixeltable table."""
+    """Metadata for an index on a Pixeltable table."""
 
     name: str
     """The name of the index."""
     columns: list[str]
     """The table columns that are indexed."""
-    index_type: Literal['embedding']
-    """The type of index (currently only `'embedding'` is supported, but others will be added in the future)."""
-    parameters: EmbeddingIndexParams
-    """Parameters specific to the index type."""
+    index_type: Literal['embedding', 'btree']
+    """The type of index. New types may be added in the future."""
+    parameters: EmbeddingIndexParams | None
+    """Parameters specific to the index type. `None` for index types without parameters."""
 
 
 class TableMetadata(TypedDict):

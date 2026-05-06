@@ -148,6 +148,9 @@ class Table(SchemaObject):
         indices = tv.idxs_by_name.values()
         index_info: dict[str, IndexMetadata] = {}
         for info in indices:
+            # Only surface indexes whose underlying column is user-visible.
+            if info.col.name not in column_info:
+                continue
             if isinstance(info.idx, index.EmbeddingIndex):
                 col_ref = ColumnRef(info.col)
                 embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
@@ -160,6 +163,10 @@ class Table(SchemaObject):
                         embedding=str(embedding),
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
+                )
+            elif isinstance(info.idx, index.BtreeIndex):
+                index_info[info.name] = IndexMetadata(
+                    name=info.name, columns=[info.col.name], index_type='btree', parameters=None
                 )
 
         primary_key: list[str] | None = None
@@ -451,9 +458,7 @@ class Table(SchemaObject):
         for i, col in enumerate(cols):
             computed_with = col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
             source_tv = col.get_tbl()
-            if source_tv.is_iterator_column(col) or (source_tv.is_component_view and col.id == 0):
-                # col is an iterator column (including the special "pos" column) of an iterator view. Computed With
-                # should be the iterator class name.
+            if source_tv.is_iterator_column(col):
                 assert source_tv.iterator_call is not None
                 computed_with = source_tv.iterator_call.it.name
 
