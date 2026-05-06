@@ -14,15 +14,24 @@ from pixeltable.serving.deploy import build_deploy_bundle
 
 class TestDeploy:
     def test_deploy_bundle(self, uses_db: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Build a deployment bundle from a TOML config and verify its contents."""
+        """Build a deploy bundle from a TOML config and verify its contents."""
         config_path = tmp_path / 'pixeltable.toml'
         config_path.write_text(
             textwrap.dedent(
                 """\
-                [[deployment]]
+                [[environment]]
                 name = "test-deploy"
                 include = ["*.toml", "a*.txt"]
                 exclude = ["a_exclude.txt"]
+                services = ["myservice"]
+
+                [[service]]
+                name = "myservice"
+
+                [[service.routes]]
+                type = "insert"
+                table = "mytable"
+                path = "/insert"
                 """
             )
         )

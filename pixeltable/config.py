@@ -133,6 +133,7 @@ class EnvironmentConfig(pydantic.BaseModel):
     exclude: list[str] | None = None
     env_dependencies: list[str] = pydantic.Field(default_factory=list)
     python_dependencies: list[str] = pydantic.Field(default_factory=list)
+    services: list[str] = pydantic.Field(default_factory=list)
 
 
 class Config:
