@@ -148,6 +148,9 @@ class Table(SchemaObject):
         indices = tv.idxs_by_name.values()
         index_info: dict[str, IndexMetadata] = {}
         for info in indices:
+            # Only surface indexes whose underlying column is user-visible.
+            if info.col.name not in column_info:
+                continue
             if isinstance(info.idx, index.EmbeddingIndex):
                 col_ref = ColumnRef(info.col)
                 embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
@@ -160,6 +163,10 @@ class Table(SchemaObject):
                         embedding=str(embedding),
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
+                )
+            elif isinstance(info.idx, index.BtreeIndex):
+                index_info[info.name] = IndexMetadata(
+                    name=info.name, columns=[info.col.name], index_type='btree', parameters=None
                 )
 
         primary_key: list[str] | None = None

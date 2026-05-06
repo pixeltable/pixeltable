@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from 'react-resizable-panels'
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { DirectoryTree } from '@/components/DirectoryTree'
 import { TableDetailView } from '@/components/TableDetailView'
@@ -6,7 +7,7 @@ import { SearchPanel } from '@/components/SearchPanel'
 import { PipelineInspector } from '@/components/PipelineInspector'
 import { getDirectoryTree, getStatus } from '@/api/client'
 import type { SystemStatus } from '@/api/client'
-import type { TreeNode } from '@/types'
+import type { TableNode, TreeNode } from '@/types'
 import { cn } from '@/lib/utils'
 import {
   Search,
@@ -51,17 +52,18 @@ function TableView() {
 function findTreeNode(nodes: TreeNode[], path: string): TreeNode | null {
   for (const n of nodes) {
     if (n.path === path) return n
-    if (n.children) {
-      const found = findTreeNode(n.children, path)
+    if (n.kind === 'directory') {
+      const found = findTreeNode(n.entries, path)
       if (found) return found
     }
   }
   return null
 }
 
-function flattenTables(node: TreeNode): TreeNode[] {
-  const tables: TreeNode[] = []
-  for (const c of node.children ?? []) {
+function flattenTables(node: TreeNode): TableNode[] {
+  if (node.kind !== 'directory') return []
+  const tables: TableNode[] = []
+  for (const c of node.entries) {
     if (c.kind === 'directory') tables.push(...flattenTables(c))
     else tables.push(c)
   }
@@ -83,7 +85,7 @@ function DirectoryView({ tree }: { tree: TreeNode[] }) {
   )
 
   const tables = flattenTables(dirNode)
-  const totalErrors = tables.reduce((s, t) => s + (t.error_count ?? 0), 0)
+  const totalErrors = tables.reduce((s, t) => s + t.error_count, 0)
 
   return (
     <div className="flex flex-col h-full p-6 animate-fade-in">
@@ -124,7 +126,7 @@ function DirectoryView({ tree }: { tree: TreeNode[] }) {
                   <td className="py-2 px-3 font-mono text-xs font-medium">{t.name}</td>
                   <td className="py-2 px-3 text-xs text-muted-foreground">{t.kind}</td>
                   <td className="py-2 px-3 text-xs tabular-nums text-right">
-                    {(t.error_count ?? 0) > 0 ? (
+                    {t.error_count > 0 ? (
                       <span className="text-destructive flex items-center justify-end gap-1">
                         <AlertTriangle className="h-3 w-3" />{t.error_count}
                       </span>
@@ -230,8 +232,16 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const sidebarPanelRef = useRef<ImperativePanelHandle>(null)
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [dark, toggleTheme] = useTheme()
+
+  const toggleSidebar = () => {
+    const panel = sidebarPanelRef.current
+    if (!panel) return
+    if (panel.isCollapsed()) panel.expand()
+    else panel.collapse()
+  }
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -275,14 +285,20 @@ export default function App() {
   const isNavActive = (path: string) => location.pathname === path
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* ── Sidebar ─────────────────────────────────────────────────── */}
-      <aside
-        className={cn(
-          'flex flex-col border-r border-border/60 bg-card/40 transition-all duration-200 ease-out',
-          sidebarOpen ? 'w-[220px]' : 'w-14',
-        )}
-      >
+    <div className="h-screen overflow-hidden bg-background">
+      <PanelGroup direction="horizontal" autoSaveId="pxt-layout" className="h-full">
+        {/* ── Sidebar ─────────────────────────────────────────────────── */}
+        <Panel
+          ref={sidebarPanelRef}
+          defaultSize={18}
+          minSize={10}
+          maxSize={40}
+          collapsible
+          collapsedSize={3.5}
+          onCollapse={() => setSidebarOpen(false)}
+          onExpand={() => setSidebarOpen(true)}
+          className="flex flex-col border-r border-border/60 bg-card/40"
+        >
         {/* Header: logo + connection */}
         <div className={cn('group relative shrink-0 px-3 pt-3 pb-2', !sidebarOpen && 'flex justify-center pt-3 pb-2')}>
           <button onClick={() => navigate('/')} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
@@ -403,7 +419,7 @@ export default function App() {
               'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
               sidebarOpen ? '' : 'justify-center',
             )}
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={toggleSidebar}
           >
             {sidebarOpen ? (
               <>
@@ -416,10 +432,12 @@ export default function App() {
           </button>
 
         </div>
-      </aside>
+        </Panel>
 
-      {/* ── Main Content ────────────────────────────────────────────── */}
-      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <PanelResizeHandle className="w-px bg-border/60 hover:w-1 hover:bg-accent transition-all data-[resize-handle-state=drag]:bg-accent data-[resize-handle-state=drag]:w-1 cursor-col-resize" />
+
+        {/* ── Main Content ────────────────────────────────────────────── */}
+        <Panel className="flex flex-col min-h-0 overflow-hidden">
         <div className="flex items-center justify-end gap-1 px-4 py-1.5 border-b border-border/40 shrink-0">
           <a
             href="https://docs.pixeltable.com"
@@ -454,7 +472,8 @@ export default function App() {
           <Route path="/table/*" element={<div className="flex-1 flex flex-col h-full"><TableView /></div>} />
           <Route path="/dir/*" element={<div className="flex-1 overflow-auto h-full"><DirectoryView tree={tree} /></div>} />
         </Routes>
-      </main>
+        </Panel>
+      </PanelGroup>
 
       {/* ── Search Panel ────────────────────────────────────────────── */}
       <SearchPanel

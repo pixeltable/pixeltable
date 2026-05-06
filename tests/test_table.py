@@ -329,7 +329,9 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {},
+                    'indices': {
+                        'idx0': {'name': 'idx0', 'columns': ['col'], 'index_type': 'btree', 'parameters': None}
+                    },
                     'is_view': False,
                     'is_snapshot': False,
                     'is_replica': False,
@@ -624,7 +626,14 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': {},
+                'indices': {
+                    'idx0': {'name': 'idx0', 'columns': ['c1'], 'index_type': 'btree', 'parameters': None},
+                    'idx1': {'name': 'idx1', 'columns': ['c2'], 'index_type': 'btree', 'parameters': None},
+                    'idx2': {'name': 'idx2', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
+                    'idx3': {'name': 'idx3', 'columns': ['plus1'], 'index_type': 'btree', 'parameters': None},
+                    'idx4': {'name': 'idx4', 'columns': ['sum12'], 'index_type': 'btree', 'parameters': None},
+                    'idx5': {'name': 'idx5', 'columns': ['custom'], 'index_type': 'btree', 'parameters': None},
+                },
                 'is_view': False,
                 'is_snapshot': False,
                 'is_replica': False,
@@ -772,7 +781,9 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': {},
+                'indices': {
+                    'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
+                },
                 'is_view': True,
                 'is_snapshot': False,
                 'is_replica': False,
@@ -812,7 +823,9 @@ class TestTable:
                 'custom_metadata': None,
                 'primary_key': None,
                 'media_validation': 'on_write',
-                'indices': {},
+                'indices': {
+                    'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
+                },
                 'columns': {
                     'pos': {
                         'name': 'pos',
