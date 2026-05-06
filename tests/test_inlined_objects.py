@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 import PIL.Image
+import pytest
 
 import pixeltable as pxt
 from pixeltable.env import Env
