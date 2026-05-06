@@ -340,7 +340,7 @@ class TranslationResponse(TypedDict):
 _AudioResponseT = TypeVar('_AudioResponseT', TranscriptionResponse, TranslationResponse)
 
 
-def _assemble_audio_response(cls: type[_AudioResponseT], result: Any, response_format: str) -> _AudioResponseT:
+def _create_audio_response(cls: type[_AudioResponseT], result: Any, response_format: str) -> _AudioResponseT:
     """Build a response dict conforming to cls from either a pydantic model or a raw-string SDK result."""
     out: dict[str, Any] = dict.fromkeys(cls.__annotations__)
     if isinstance(result, str):
@@ -404,7 +404,7 @@ async def transcriptions(
     file = pathlib.Path(audio)
     transcription = await _openai_client().audio.transcriptions.create(file=file, model=model, **model_kwargs)
     rf = model_kwargs.get('response_format', 'json')
-    return _assemble_audio_response(TranscriptionResponse, transcription, rf)
+    return _create_audio_response(TranscriptionResponse, transcription, rf)
 
 
 @pxt.udf
@@ -448,7 +448,7 @@ async def translations(
     file = pathlib.Path(audio)
     translation = await _openai_client().audio.translations.create(file=file, model=model, **model_kwargs)
     rf = model_kwargs.get('response_format', 'json')
-    return _assemble_audio_response(TranslationResponse, translation, rf)
+    return _create_audio_response(TranslationResponse, translation, rf)
 
 
 #####################################
