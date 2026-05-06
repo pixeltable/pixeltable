@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -16,6 +17,7 @@ from ..utils import (
     get_image_files,
     get_test_video_files,
     get_video_files,
+    pxt_raises,
     rerun,
     skip_test_if_no_client,
     skip_test_if_not_installed,
@@ -129,6 +131,36 @@ class TestGemini:
             text = results['output'][i]['candidates'][0]['content']['parts'][0]['text'].lower()
             print(f'Video analysis result id={i}: {text}')
             assert text and not any(word in text for word in ['failed', 'unable', 'invalid'])
+
+    @pytest.mark.expensive
+    def test_generate_content_nano_banana(self, uses_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+
+        from pixeltable.functions.gemini import generate_content, generate_images
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t.add_computed_column(
+            response=generate_content(
+                t.prompt, model='gemini-2.5-flash-image', config={'response_modalities': ['IMAGE']}
+            )
+        )
+        validate_update_status(
+            t.insert(prompt='A giant pixel floating over the open ocean in a sea of data'), expected_rows=1
+        )
+
+        t.add_computed_column(image=t.response.candidates[0].content.parts[0].inline_data.data)
+
+        results = t.collect()
+        image = results['image'][0]
+        assert isinstance(image, PIL.Image.Image), f'Expected a PIL Image, got {type(image)}'
+        assert image.size[0] > 0 and image.size[1] > 0
+
+        # Passing a Gemini image-generation model to `generate_images` (which is for Imagen) must fail.
+        t2 = pxt.create_table('test_tbl_fail', {'prompt': pxt.String})
+        validate_update_status(t2.insert(prompt='anything'), expected_rows=1)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Nano Banana'):
+            t2.select(output=generate_images(t2.prompt, model='gemini-2.5-flash-image')).collect()
 
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
