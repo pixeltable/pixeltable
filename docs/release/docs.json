@@ -89,6 +89,7 @@
                   {
                     "group": "Core Operations",
                     "pages": [
+                      "howto/cookbooks/core/end-to-end-demo",
                       "howto/cookbooks/core/workflow-api-keys",
                       "howto/cookbooks/core/dev-iterative-workflow",
                       "howto/cookbooks/core/workflow-json-extraction",
