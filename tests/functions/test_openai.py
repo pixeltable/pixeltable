@@ -50,6 +50,17 @@ class TestOpenai:
                 model_kwargs={'prompt': 'Translate the recording from Spanish into English.', 'temperature': 0.05},
             )
         )
+
+        # Response schema: transcription.text / .srt / .vtt are typed as String, segments is a typed list.
+        tr_type = t.get_metadata()['columns']['transcription']['type_']
+        assert "'text': String | None" in tr_type
+        assert "'srt': String | None" in tr_type
+        assert "'vtt': String | None" in tr_type
+        assert "'segments':" in tr_type
+        tl_type = t.get_metadata()['columns']['translation']['type_']
+        assert "'text': String | None" in tl_type
+        assert "'srt': String | None" in tl_type
+
         validate_update_status(
             t.insert([{'input': 'I am a banana.'}, {'input': 'Es fácil traducir del español al inglés.'}]),
             expected_rows=2,
@@ -61,6 +72,31 @@ class TestOpenai:
         assert len(results[0]['translation_2']['text']) > 0
         assert results[1]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
         assert results[1]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
+
+        # Schema-driven projection: text is typed String, so extracting it yields a first-class String column.
+        t.add_computed_column(transcribed=t.transcription.text)
+        assert t.get_metadata()['columns']['transcribed']['type_'] == 'String'
+
+        # Raw-format responses populate the matching top-level field and leave the others None.
+        # Exercised on a one-row mini-table to bound the number of additional remote calls.
+        t2 = pxt.create_table('test_tbl_raw_formats', {'input': pxt.String})
+        t2.add_computed_column(speech=speech(t2.input, model='tts-1', voice='onyx'))
+        t2.add_computed_column(
+            transcription_srt=transcriptions(t2.speech, model='whisper-1', model_kwargs={'response_format': 'srt'})
+        )
+        t2.add_computed_column(
+            translation_vtt=translations(t2.speech, model='whisper-1', model_kwargs={'response_format': 'vtt'})
+        )
+        validate_update_status(t2.insert(input='I am a banana.'), expected_rows=1)
+        row = t2.collect()[0]
+        srt = row['transcription_srt']
+        vtt = row['translation_vtt']
+        assert len(srt['srt']) > 0
+        assert srt['text'] is None
+        assert srt['vtt'] is None
+        assert vtt['vtt'].startswith('WEBVTT')
+        assert vtt['text'] is None
+        assert vtt['srt'] is None
 
     def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -392,8 +428,19 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(moderation=moderations(input=t.input))
         t.add_computed_column(moderation_2=moderations(input=t.input, model='omni-moderation-latest'))
+
+        # Response schema: results is a typed list, each Moderation has a typed flagged Bool and nested categories.
+        mod_type = t.get_metadata()['columns']['moderation']['type_']
+        assert "'results':" in mod_type
+        assert "'flagged': Bool" in mod_type
+        assert "'categories':" in mod_type
+
         validate_update_status(t.insert(input='Say something interesting.'), 1)
         _ = t.head()
+
+        # Schema-driven projection: results[0].flagged is typed Bool.
+        t.add_computed_column(flagged=t.moderation.results[0].flagged)
+        assert t.get_metadata()['columns']['flagged']['type_'] == 'Bool'
 
     @pytest.mark.expensive
     def test_image_generations(self, uses_db: None) -> None:
@@ -410,12 +457,21 @@ class TestOpenai:
             )
         )
 
+        # The response schema is stored on the column: data[i] is typed as Image, usage is present.
+        img_type = t.get_metadata()['columns']['img']['type_']
+        assert "'data': Json[(Image, ...)]" in img_type
+        assert "'usage':" in img_type
+
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
         assert t.collect()['img'][0]['data'][0].size == (1024, 1024)
 
         # Also check that multiple images can be generated and returned in the same results dict
         assert t.collect()['img_2'][0]['data'][0].size == (512, 512)
         assert t.collect()['img_2'][0]['data'][1].size == (512, 512)
+
+        # Because data[0] is Image-typed in the schema, projecting it yields a first-class Image column.
+        t.add_computed_column(first=t.img.data[0])
+        assert t.get_metadata()['columns']['first']['type_'] == 'Image'
 
     @pytest.mark.expensive
     def test_image_generations_gpt_image(self, uses_db: None) -> None:
@@ -429,10 +485,17 @@ class TestOpenai:
             img_2=image_generations(t.input, model='gpt-image-1', model_kwargs={'quality': 'low', 'size': '1024x1024'})
         )
 
+        img_type = t.get_metadata()['columns']['img']['type_']
+        assert "'data': Json[(Image, ...)]" in img_type
+        assert "'usage':" in img_type
+
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
         result = t.collect()
         assert isinstance(result['img'][0]['data'][0], PIL.Image.Image)
         assert isinstance(result['img_2'][0]['data'][0], PIL.Image.Image)
+
+        t.add_computed_column(first=t.img.data[0])
+        assert t.get_metadata()['columns']['first']['type_'] == 'Image'
 
     @pytest.mark.expensive
     def test_image_edits_gpt_image(self, uses_db: None) -> None:
@@ -450,9 +513,16 @@ class TestOpenai:
             )
         )
 
+        edited_type = t.get_metadata()['columns']['edited']['type_']
+        assert "'data': Json[(Image, ...)]" in edited_type
+        assert "'usage':" in edited_type
+
         validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
+
+        t.add_computed_column(first=t.edited.data[0])
+        assert t.get_metadata()['columns']['first']['type_'] == 'Image'
 
     @pytest.mark.expensive
     def test_image_edits_with_mask(self, uses_db: None) -> None:
@@ -489,9 +559,16 @@ class TestOpenai:
             )
         )
 
+        edited_type = t.get_metadata()['columns']['edited']['type_']
+        assert "'data': Json[(Image, ...)]" in edited_type
+        assert "'usage':" in edited_type
+
         validate_update_status(t.insert(img=src_img, mask=mask_img), 1)
         result = t.collect()
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
+
+        t.add_computed_column(first=t.edited.data[0])
+        assert t.get_metadata()['columns']['first']['type_'] == 'Image'
 
     @pytest.mark.expensive
     def test_image_edits_dall_e_2(self, uses_db: None) -> None:
@@ -513,10 +590,17 @@ class TestOpenai:
             )
         )
 
+        edited_type = t.get_metadata()['columns']['edited']['type_']
+        assert "'data': Json[(Image, ...)]" in edited_type
+        assert "'usage':" in edited_type
+
         validate_update_status(t.insert(img=src_img), 1)
         result = t.collect()
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
         assert result['edited'][0]['data'][0].size == (512, 512)
+
+        t.add_computed_column(first=t.edited.data[0])
+        assert t.get_metadata()['columns']['first']['type_'] == 'Image'
 
     @pytest.mark.skip(
         reason='[PXT-1115] Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.'
@@ -536,10 +620,17 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
         t.add_computed_column(variation=image_variations(t.img, model='dall-e-2', model_kwargs={'size': '512x512'}))
 
+        variation_type = t.get_metadata()['columns']['variation']['type_']
+        assert "'data': Json[(Image, ...)]" in variation_type
+        assert "'usage':" in variation_type
+
         validate_update_status(t.insert(img=src_img), 1)
         result = t.collect()
         assert isinstance(result['variation'][0]['data'][0], PIL.Image.Image)
         assert result['variation'][0]['data'][0].size == (512, 512)
+
+        t.add_computed_column(first=t.variation.data[0])
+        assert t.get_metadata()['columns']['first']['type_'] == 'Image'
 
     @pytest.mark.expensive
     def test_table_udf_tools(self, uses_db: None) -> None:

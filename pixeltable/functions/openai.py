@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Type, cast
+from typing import TYPE_CHECKING, Any, Type, TypedDict, TypeVar, cast
 
 import httpx
 import numpy as np
@@ -284,8 +284,87 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, 
     return output_filename
 
 
+# Normalized superset of the audio transcription / translation response shape across response_format
+# variants. Field names match openai.types.audio.transcription / translation (and their verbose variants).
+# Values absent from the SDK's response for a given variant are surfaced as None here, so every row has
+# the same dict shape regardless of which response_format produced it.
+# usage is a discriminated union in the SDK (tokens vs duration); kept as dict to avoid committing to one variant.
+
+
+class TranscriptionWord(TypedDict):
+    word: str
+    start: float
+    end: float
+
+
+class TranscriptionSegment(TypedDict):
+    id: int
+    seek: int
+    start: float
+    end: float
+    text: str
+    tokens: list[int]
+    temperature: float
+    avg_logprob: float
+    compression_ratio: float
+    no_speech_prob: float
+
+
+class Logprob(TypedDict):
+    token: str | None
+    bytes: list[float] | None
+    logprob: float | None
+
+
+class TranscriptionResponse(TypedDict):
+    text: str | None
+    srt: str | None
+    vtt: str | None
+    duration: float | None
+    language: str | None
+    segments: list[TranscriptionSegment] | None
+    words: list[TranscriptionWord] | None
+    logprobs: list[Logprob] | None
+    usage: dict | None
+
+
+class TranslationResponse(TypedDict):
+    text: str | None
+    srt: str | None
+    vtt: str | None
+    duration: float | None
+    language: str | None
+    segments: list[TranscriptionSegment] | None
+
+
+_AudioResponseT = TypeVar('_AudioResponseT', TranscriptionResponse, TranslationResponse)
+
+
+def _create_audio_response(cls: type[_AudioResponseT], result: Any, response_format: str) -> _AudioResponseT:
+    """Build a response dict conforming to cls from either a pydantic model or a raw-string SDK result."""
+    out: dict[str, Any] = dict.fromkeys(cls.__annotations__)
+    if isinstance(result, str):
+        if response_format == 'text':
+            out['text'] = result
+        elif response_format == 'srt':
+            out['srt'] = result
+        elif response_format == 'vtt':
+            out['vtt'] = result
+        else:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Unexpected string response from audio API (response_format={response_format!r})',
+                provider='openai',
+            )
+    else:
+        out.update(result.model_dump(mode='json'))
+    return cast(_AudioResponseT, out)
+
+
 @pxt.udf
-async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
+async def transcriptions(
+    audio: pxt.Audio, *, model: str, model_kwargs: dict[str, Any] | None = None
+) -> TranscriptionResponse:
     """
     Transcribes audio into the input language.
 
@@ -324,11 +403,14 @@ async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: dict[str
 
     file = pathlib.Path(audio)
     transcription = await _openai_client().audio.transcriptions.create(file=file, model=model, **model_kwargs)
-    return transcription.dict()
+    rf = model_kwargs.get('response_format', 'json')
+    return _create_audio_response(TranscriptionResponse, transcription, rf)
 
 
 @pxt.udf
-async def translations(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
+async def translations(
+    audio: pxt.Audio, *, model: str, model_kwargs: dict[str, Any] | None = None
+) -> TranslationResponse:
     """
     Translates audio into English.
 
@@ -365,7 +447,8 @@ async def translations(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, 
 
     file = pathlib.Path(audio)
     translation = await _openai_client().audio.translations.create(file=file, model=model, **model_kwargs)
-    return translation.dict()
+    rf = model_kwargs.get('response_format', 'json')
+    return _create_audio_response(TranslationResponse, translation, rf)
 
 
 #####################################
@@ -878,8 +961,45 @@ def _decode_image_response(result: dict) -> dict:
     return result
 
 
+# TypedDict mirrors of the pydantic models in openai.types.images_response. Field names match the SDK so
+# that schema introspection lines up with the OpenAI docs. Defined locally rather than reused from the SDK
+# because openai is an optional dependency and can't be imported at module load time, and because our
+# data field holds decoded PIL images rather than the SDK's Image pydantic model.
+#
+# Fields not populated by every endpoint or model family (DALL-E vs gpt-image-*) are surfaced as None for
+# absent values, so rows have a uniform dict shape regardless of endpoint or model.
+
+
+class UsageInputTokensDetails(TypedDict):
+    image_tokens: int
+    text_tokens: int
+
+
+class UsageOutputTokensDetails(TypedDict):
+    image_tokens: int
+    text_tokens: int
+
+
+class Usage(TypedDict):
+    input_tokens: int
+    input_tokens_details: UsageInputTokensDetails
+    output_tokens: int
+    total_tokens: int
+    output_tokens_details: UsageOutputTokensDetails | None
+
+
+class ImagesResponse(TypedDict):
+    created: int
+    data: list[PIL.Image.Image]
+    usage: Usage | None
+    background: str | None
+    output_format: str | None
+    quality: str | None
+    size: str | None
+
+
 @pxt.udf(is_deterministic=False)
-async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
+async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> ImagesResponse:
     """
     Creates an image given a prompt.
 
@@ -916,17 +1036,17 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         ```
 
     Examples:
-        Add a computed column that applies the model `dall-e-2` to an existing
+        Add a computed column that applies the model `gpt-image-1.5` to an existing
         Pixeltable column `tbl.text` of the table `tbl`:
 
         >>> tbl.add_computed_column(
-        ...     gen_image=image_generations(tbl.text, model='dall-e-2')
+        ...     gen_image=image_generations(tbl.text, model='gpt-image-1.5')
         ... )
 
-        Generate an image using the `gpt-image-1` model:
+        Generate an image using the lower-cost `gpt-image-1-mini` model:
 
         >>> tbl.add_computed_column(
-        ...     gen_image=image_generations(tbl.text, model='gpt-image-1')
+        ...     gen_image=image_generations(tbl.text, model='gpt-image-1-mini')
         ... )
     """
     if model_kwargs is None:
@@ -940,7 +1060,7 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         kwargs.setdefault('response_format', 'b64_json')
 
     result_model = await _openai_client().images.generate(**kwargs)
-    return _decode_image_response(result_model.model_dump(mode='json'))
+    return cast(ImagesResponse, _decode_image_response(result_model.model_dump(mode='json')))
 
 
 @pxt.udf(is_deterministic=False)
@@ -951,7 +1071,7 @@ async def image_edits(
     model: str,
     mask: PIL.Image.Image | None = None,
     model_kwargs: dict[str, Any] | None = None,
-) -> dict:
+) -> ImagesResponse:
     """
     Creates an edited or extended image given a source image and a prompt.
 
@@ -995,7 +1115,7 @@ async def image_edits(
         ...     edited=image_edits(
         ...         tbl.source_image,
         ...         prompt='Add a sunset background',
-        ...         model='gpt-image-1',
+        ...         model='gpt-image-1.5',
         ...     )
         ... )
 
@@ -1006,7 +1126,7 @@ async def image_edits(
         ...         tbl.source_image,
         ...         mask=tbl.mask_image,
         ...         prompt='Replace with a beach scene',
-        ...         model='gpt-image-1',
+        ...         model='gpt-image-1.5',
         ...     )
         ... )
     """
@@ -1026,11 +1146,13 @@ async def image_edits(
         kwargs.setdefault('response_format', 'b64_json')
 
     result_model = await _openai_client().images.edit(**kwargs)
-    return _decode_image_response(result_model.model_dump(mode='json'))
+    return cast(ImagesResponse, _decode_image_response(result_model.model_dump(mode='json')))
 
 
 @pxt.udf(is_deterministic=False)
-async def image_variations(image: PIL.Image.Image, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
+async def image_variations(
+    image: PIL.Image.Image, *, model: str, model_kwargs: dict[str, Any] | None = None
+) -> ImagesResponse:
     """
     Creates a variation of a given image.
 
@@ -1068,7 +1190,7 @@ async def image_variations(image: PIL.Image.Image, *, model: str, model_kwargs: 
         Generate a variation of an existing image:
 
         >>> tbl.add_computed_column(
-        ...     variation=image_variations(tbl.source_image, model='dall-e-2')
+        ...     variation=image_variations(tbl.source_image, model='gpt-image-1.5')
         ... )
     """
     if model_kwargs is None:
@@ -1082,7 +1204,7 @@ async def image_variations(image: PIL.Image.Image, *, model: str, model_kwargs: 
     if not _is_gpt_image_model(model):
         kwargs.setdefault('response_format', 'b64_json')
     result_model = await _openai_client().images.create_variation(**kwargs)
-    return _decode_image_response(result_model.model_dump(mode='json'))
+    return cast(ImagesResponse, _decode_image_response(result_model.model_dump(mode='json')))
 
 
 # TODO: We can resurrect this logic once we have proper typed Json support.
@@ -1107,8 +1229,73 @@ async def image_variations(image: PIL.Image.Image, *, model: str, model_kwargs: 
 # Moderations Endpoints
 
 
+# TypedDict mirrors of openai.types.moderation and openai.types.moderation_create_response. Field names and
+# nullability match the SDK. Defined locally rather than reused because openai is an optional dependency.
+
+
+class Categories(TypedDict):
+    harassment: bool
+    harassment_threatening: bool
+    hate: bool
+    hate_threatening: bool
+    illicit: bool | None
+    illicit_violent: bool | None
+    self_harm: bool
+    self_harm_instructions: bool
+    self_harm_intent: bool
+    sexual: bool
+    sexual_minors: bool
+    violence: bool
+    violence_graphic: bool
+
+
+class CategoryScores(TypedDict):
+    harassment: float
+    harassment_threatening: float
+    hate: float
+    hate_threatening: float
+    illicit: float
+    illicit_violent: float
+    self_harm: float
+    self_harm_instructions: float
+    self_harm_intent: float
+    sexual: float
+    sexual_minors: float
+    violence: float
+    violence_graphic: float
+
+
+class CategoryAppliedInputTypes(TypedDict):
+    harassment: list[str]
+    harassment_threatening: list[str]
+    hate: list[str]
+    hate_threatening: list[str]
+    illicit: list[str]
+    illicit_violent: list[str]
+    self_harm: list[str]
+    self_harm_instructions: list[str]
+    self_harm_intent: list[str]
+    sexual: list[str]
+    sexual_minors: list[str]
+    violence: list[str]
+    violence_graphic: list[str]
+
+
+class Moderation(TypedDict):
+    categories: Categories
+    category_applied_input_types: CategoryAppliedInputTypes
+    category_scores: CategoryScores
+    flagged: bool
+
+
+class ModerationCreateResponse(TypedDict):
+    id: str
+    model: str
+    results: list[Moderation]
+
+
 @pxt.udf(is_deterministic=False)
-async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
+async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> ModerationCreateResponse:
     """
     Classifies if text is potentially harmful.
 
@@ -1141,7 +1328,7 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
         ... )
     """
     result = await _openai_client().moderations.create(input=input, model=model)
-    return result.dict()
+    return cast(ModerationCreateResponse, result.model_dump(mode='json'))
 
 
 @speech.resource_pool
