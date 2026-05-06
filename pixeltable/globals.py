@@ -18,7 +18,7 @@ from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
 from pixeltable.share.protocol import PxtUri
-from pixeltable.types import ColumnSpec
+from pixeltable.types import ColumnSpec, DirectoryNode, TableKind, TableNode, TreeNode
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -1196,34 +1196,6 @@ class DirContents(TypedDict):
     """List of directory paths contained in this directory."""
     tables: list[str]
     """List of table paths contained in this directory."""
-
-
-class DirectoryNode(TypedDict):
-    """A directory entry in a [`TreeNode`][pixeltable.TreeNode] tree."""
-
-    name: str
-    path: str
-    kind: Literal['directory']
-    entries: list['TreeNode']
-
-
-TableKind = Literal['table', 'view', 'snapshot', 'replica']
-
-
-class TableNode(TypedDict):
-    """A table/view/snapshot/replica entry in a [`TreeNode`][pixeltable.TreeNode] tree."""
-
-    name: str
-    path: str
-    kind: TableKind
-    version: int | None
-    error_count: int
-    """Cumulative error count as recorded in table's history."""
-    base: str | None
-    """Path of the immediate base table for views/snapshots; None for plain tables."""
-
-
-TreeNode = Union[DirectoryNode, TableNode]
 
 
 def _parse_pxt_uri(uri_str: str, param_name: str) -> PxtUri:

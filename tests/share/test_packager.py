@@ -238,9 +238,10 @@ class TestPackager:
         for property in ('version', 'version_created', 'schema_version', 'comment', 'media_validation'):
             assert metadata[property] == bundle_info.metadata[property]
 
-        # Compare embedding indices only: btree indices aren't surfaced in a snapshot's
-        # `idxs_by_name`, but they are in a live replica's, producing a benign asymmetry
-        # we don't want to assert on. Embedding indices, on the other hand, must round-trip.
+        # Btree indices auto-populate based on the underlying TableVersion's supports_idxs flag,
+        # which can flip across a bundle/restore boundary (e.g. a snapshot's tv has supports_idxs=False
+        # at the source, but the restored replica tv at head has supports_idxs=True). Embedding indices
+        # come from explicit user IndexMd that's preserved through the bundle, so they must round-trip.
         def embedding_indices(md: pxt.TableMetadata) -> dict[str, Any]:
             return {k: v for k, v in md['indices'].items() if v['index_type'] == 'embedding'}
 
