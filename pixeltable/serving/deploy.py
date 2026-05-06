@@ -31,7 +31,10 @@ def build_deploy_bundle(environment_name: str) -> Path:
             f'The following service(s) will be deployed: {", ".join(service.name for service in services_cfg)}'
         )
 
-    config_export = {'environment': [cfg.dict()], 'service': [service.dict() for service in services_cfg]}
+    config_export = {
+        'environment': [cfg.model_dump(mode='json')],
+        'service': [service.model_dump(mode='json') for service in services_cfg],
+    }
     md_export = _export_tables_md(services_cfg)
     conda_export = _export_conda_env()
     lockfile = _find_lockfile()

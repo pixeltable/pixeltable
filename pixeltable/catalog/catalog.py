@@ -2633,7 +2633,7 @@ class Catalog:
 
         if as_replica:
             for ancestor_md in md[1:]:
-                # Also, the table version of every proper ancestor is emphemeral; it does not represent a queryable
+                # Also, the table version of every proper ancestor is ephemeral; it does not represent a queryable
                 # table version (the data might be incomplete, since we have only retrieved one of its views, not
                 # the table itself).
                 ancestor_md.version_md.is_fragment = True

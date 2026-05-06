@@ -70,7 +70,7 @@ def lookup_service_config(name: str) -> config.ServiceConfig:
 
 
 def lookup_environment_config(name: str) -> config.EnvironmentConfig:
-    """Lookup a DeploymentConfig by name from the Pixeltable configuration."""
+    """Lookup an EnvironmentConfig by name from the Pixeltable configuration."""
     return _lookup_config('environment', name, config.EnvironmentConfig)
 
 

@@ -96,7 +96,7 @@ class TestDeploy:
                 assert len(content['tables_md']) == 2  # 2 tables referenced in services
                 assert len(content['tables_md'][0]) == 3  # TableVersionMd structure
 
-            # Verify the contents of environment.yml
+            # Verify the contents of conda-env.yml
             env_member = tar.getmember('conda-env.yml')
             with tar.extractfile(env_member) as f:
                 text = f.read().decode('utf-8')
