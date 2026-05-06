@@ -46,7 +46,7 @@ Focus on your logic, not the data plumbing.
 pip install pixeltable google-genai torch transformers scenedetect
 ```
 
-Set your Gemini API key via environment variable or `~/.pixeltable/config.toml`. See [Configuration](https://docs.pixeltable.com/platform/configuration) for all provider keys and options.
+Set your API keys via environment variables or `~/.pixeltable/config.toml`. See [Configuration](https://docs.pixeltable.com/platform/configuration) for all provider keys and options.
 
 ```python
 import pixeltable as pxt
@@ -87,6 +87,37 @@ videos.select(
 sim = videos.video.similarity(image=f'{base_url}/The-Pursuit-of-Happiness-Screenshot.png')
 videos.where(videos.description != None).order_by(sim, asc=False).limit(5).collect()
 ```
+
+Wrap any query as an HTTP endpoint and serve it:
+
+```python
+@pxt.query
+def search_videos(query_text: str, limit: int = 5):
+    sim = videos.description.similarity(string=query_text)
+    return videos.order_by(sim, asc=False).limit(limit).select(videos.title, videos.description, sim)
+```
+
+```toml
+# service.toml
+[[service.routes]]
+type = "query"
+path = "/search"
+query = "video_search_app.search_videos"
+
+[[service.routes]]
+type = "insert"
+table = "video_search"
+path = "/ingest"
+inputs = ["video", "title"]
+outputs = ["title", "description"]
+```
+
+```bash
+pxt serve my-service --config service.toml
+# curl -X POST localhost:8000/search -d '{"query_text": "street food"}'
+```
+
+Storage, orchestration, retrieval, and serving in one system. See [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving) for the full guide.
 
 ## What Pixeltable Does
 
