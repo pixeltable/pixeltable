@@ -19,6 +19,7 @@ from .utils import (
 )
 
 
+@pytest.mark.expensive  # Large data volumes involved; must run on larger instances
 class TestInlinedObjects:
     def test_null_arrays(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'i': pxt.Int, 'data': pxt.Array})
