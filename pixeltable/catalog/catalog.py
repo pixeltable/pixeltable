@@ -981,7 +981,7 @@ class Catalog:
 
     def record_column_dependencies(self, tbl_version: TableVersion) -> None:
         """Update self._column_dependencies. Only valid for mutable versions."""
-        from pixeltable.exprs import Expr
+        from pixeltable.exprs import ColumnRef, Expr
 
         assert tbl_version.is_mutable
         dependencies: dict[QColumnId, set[QColumnId]] = {}
@@ -989,6 +989,17 @@ class Catalog:
             if col.value_expr_dict is None:
                 continue
             dependencies[QColumnId(tbl_version.id, col.id)] = Expr.get_refd_column_ids(col.value_expr_dict)
+
+        if tbl_version.is_component_view:
+            iterator_arg_deps: set[QColumnId] = set()
+            iterator_args = tbl_version.iterator_args_expr()
+            if iterator_args is not None:
+                for col_ref in iterator_args.subexprs(ColumnRef):
+                    iterator_arg_deps.add(QColumnId(col_ref.col.tbl_handle.id, col_ref.col.id))
+            if len(iterator_arg_deps) > 0:
+                for col in tbl_version.iterator_columns():
+                    dependencies[QColumnId(tbl_version.id, col.id)] = iterator_arg_deps
+
         self._column_dependencies[tbl_version.id] = dependencies
 
     def get_column_dependents(self, tbl_id: UUID, col_id: int) -> set[Column]:
@@ -1041,18 +1052,40 @@ class Catalog:
             dir_id = dir.parent_id
         return Path.parse('/'.join(names), allow_empty_path=True, allow_system_path=True)
 
+    def _table_error_counts(self) -> dict[UUID, int]:
+        """Returns map from table id to the sum of num_excs across that table's versions."""
+        md = schema.TableVersion.md
+        update_status = md['update_status']
+        row_count_excs = sql.func.coalesce(update_status['row_count_stats']['num_excs'].astext.cast(sql.Integer), 0)
+        cascade_row_count_excs = sql.func.coalesce(
+            update_status['cascade_row_count_stats']['num_excs'].astext.cast(sql.Integer), 0
+        )
+        errors = sql.func.coalesce(sql.func.sum(row_count_excs + cascade_row_count_excs), 0).label('errors')
+        stmt = sql.select(schema.TableVersion.tbl_id, errors).group_by(schema.TableVersion.tbl_id)
+        rows = get_runtime().conn.execute(stmt).all()
+        return {r.tbl_id: r.errors for r in rows}
+
     @dataclasses.dataclass
     class DirEntry:
         dir: schema.Dir | None
         dir_entries: dict[str, Catalog.DirEntry]
         table: schema.Table | None
 
-    @retry_loop(for_write=False)
-    def get_dir_contents(self, dir_path: Path, recursive: bool = False) -> dict[str, DirEntry]:
-        dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
-        return self._get_dir_contents(dir._id, recursive=recursive)
+        # Only populated for table entries when get_dir_contents() was called with with_error_counts=True;
+        # None otherwise (including for directory entries).
+        table_error_count: int | None = None
 
-    def _get_dir_contents(self, dir_id: UUID, recursive: bool = False) -> dict[str, DirEntry]:
+    @retry_loop(for_write=False)
+    def get_dir_contents(
+        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
+    ) -> dict[str, DirEntry]:
+        dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
+        error_counts = self._table_error_counts() if with_error_counts else None
+        return self._get_dir_contents(dir._id, recursive=recursive, error_counts=error_counts)
+
+    def _get_dir_contents(
+        self, dir_id: UUID, recursive: bool = False, *, error_counts: dict[UUID, int] | None = None
+    ) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
         conn = get_runtime().conn
         result: dict[str, Catalog.DirEntry] = {}
@@ -1063,14 +1096,15 @@ class Catalog:
             dir = schema.Dir(**row._mapping)
             dir_contents: dict[str, Catalog.DirEntry] = {}
             if recursive:
-                dir_contents = self._get_dir_contents(dir.id, recursive=True)
+                dir_contents = self._get_dir_contents(dir.id, recursive=True, error_counts=error_counts)
             result[dir.md['name']] = self.DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(self._active_tbl_clause(dir_id=dir_id))
         rows = conn.execute(q).all()
         for row in rows:
             tbl = schema.Table(**row._mapping)
-            result[tbl.md['name']] = self.DirEntry(dir=None, dir_entries={}, table=tbl)
+            err_count = error_counts.get(tbl.id, 0) if error_counts is not None else None
+            result[tbl.md['name']] = self.DirEntry(dir=None, dir_entries={}, table=tbl, table_error_count=err_count)
 
         return result
 

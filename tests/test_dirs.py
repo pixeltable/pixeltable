@@ -5,6 +5,13 @@ import pixeltable as pxt
 from .utils import make_tbl, pxt_raises, reload_catalog
 
 
+@pxt.udf
+def _fail_on_neg(x: int) -> int:
+    if x < 0:
+        raise ValueError('negative')
+    return x
+
+
 class TestDirs:
     def test_create(self, uses_db: None) -> None:
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
@@ -63,6 +70,44 @@ class TestDirs:
         assert listing == {'dirs': ['dir1/sub1/subsub1'], 'tables': []}
         listing = pxt.get_dir_contents('dir1/sub1', recursive=False)
         assert listing == {'dirs': ['dir1/sub1/subsub1'], 'tables': []}
+
+    def test_get_dir_tree(self, uses_db: None) -> None:
+        for name in ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']:
+            pxt.create_dir(name)
+        t = make_tbl('dir1/t1')
+        make_tbl('t2')
+        pxt.create_view('dir1/v', t)
+        pxt.create_view('dir1/snap', t, is_snapshot=True)
+        reload_catalog()
+
+        subsub1 = {'name': 'subsub1', 'path': 'dir1/sub1/subsub1', 'kind': 'directory', 'entries': []}
+        sub1 = {'name': 'sub1', 'path': 'dir1/sub1', 'kind': 'directory', 'entries': [subsub1]}
+        t1 = {'name': 't1', 'path': 'dir1/t1', 'kind': 'table', 'version': 0, 'error_count': 0, 'base': None}
+        v = {'name': 'v', 'path': 'dir1/v', 'kind': 'view', 'version': 0, 'error_count': 0, 'base': 'dir1/t1'}
+        snap = {
+            'name': 'snap',
+            'path': 'dir1/snap',
+            'kind': 'snapshot',
+            'version': None,
+            'error_count': 0,
+            'base': 'dir1/t1:0',
+        }
+        dir1 = {'name': 'dir1', 'path': 'dir1', 'kind': 'directory', 'entries': [snap, sub1, t1, v]}
+        t2 = {'name': 't2', 'path': 't2', 'kind': 'table', 'version': 0, 'error_count': 0, 'base': None}
+        assert pxt.get_dir_tree() == [dir1, t2]
+
+    def test_get_dir_tree_error_count(self, uses_db: None) -> None:
+        t = pxt.create_table('errs', {'x': pxt.Int})
+        t.add_computed_column(y=_fail_on_neg(t.x))
+        t.insert([{'x': 1}, {'x': -1}, {'x': -2}, {'x': 3}], on_error='ignore')
+
+        # Two failing rows; pixeltable counts each error per affected column slot, so the reported
+        # count is 4 (= 2 rows x 2 slots: the computed column 'y' plus the row-level error slot).
+        tree = pxt.get_dir_tree()
+        assert len(tree) == 1
+        node = tree[0]
+        assert node['kind'] == 'table'
+        assert node['error_count'] == 4
 
     def test_create_if_exists(self, uses_db: None) -> None:
         """Test if_exists parameter of create_dir API"""

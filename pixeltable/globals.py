@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
+from uuid import UUID
 
 import pandas as pd
 import pydantic
@@ -17,7 +18,7 @@ from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
 from pixeltable.share.protocol import PxtUri
-from pixeltable.types import ColumnSpec
+from pixeltable.types import ColumnSpec, DirectoryNode, TableKind, TableNode, TreeNode
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -750,6 +751,91 @@ def _assemble_dir_contents(
             assert entry.table is not None
             assert not entry.dir_entries
             tables.append(path)
+
+
+def get_dir_tree() -> list['TreeNode']:
+    """Get a tree representation of the Pixeltable directory structure.
+
+    Returns:
+        A list of [`TreeNode`][pixeltable.TreeNode] dicts. Each node is either a `DirectoryNode` or a `TableNode`.
+    """
+    path_obj = catalog.Path.parse('', allow_empty_path=True)
+    catalog_entries = get_runtime().catalog.get_dir_contents(path_obj, recursive=True, with_error_counts=True)
+    path_by_id: dict[UUID, str] = {}
+    _create_path_map('', catalog_entries, path_by_id)
+    return _get_subtree('', catalog_entries, path_by_id)
+
+
+def _create_path_map(dir_path: str, catalog_entries: dict[str, Catalog.DirEntry], path_map: dict[UUID, str]) -> None:
+    """Populate path_map (table id -> table path) for every table reachable from catalog_entries."""
+    for name, entry in catalog_entries.items():
+        if name.startswith('_'):
+            continue
+        path = f'{dir_path}/{name}' if len(dir_path) > 0 else name
+        if entry.dir is not None:
+            _create_path_map(path, entry.dir_entries or {}, path_map)
+        else:
+            assert entry.table is not None
+            path_map[entry.table.id] = path
+
+
+def _get_subtree(
+    dir_path: str, catalog_entries: dict[str, Catalog.DirEntry], path_by_id: dict[UUID, str]
+) -> list['TreeNode']:
+    nodes: list[TreeNode] = []
+    for name, entry in sorted(catalog_entries.items()):
+        if name.startswith('_'):
+            continue  # Skip system paths
+        path = f'{dir_path}/{name}' if len(dir_path) > 0 else name
+
+        if entry.dir is not None:
+            nodes.append(
+                DirectoryNode(
+                    name=name,
+                    path=path,
+                    kind='directory',
+                    entries=_get_subtree(path, entry.dir_entries or {}, path_by_id),
+                )
+            )
+
+        else:
+            assert entry.table is not None
+            tbl_md = entry.table.md
+            view_md = tbl_md.get('view_md')
+            current_version = tbl_md.get('current_version')
+            kind: TableKind
+            version: int | None
+            if view_md is not None and view_md.get('is_snapshot'):
+                kind = 'snapshot'
+                version = None
+            elif view_md is not None:
+                kind = 'view'
+                version = current_version
+            elif tbl_md.get('is_replica'):
+                kind = 'replica'
+                version = current_version
+            else:
+                kind = 'table'
+                version = current_version
+
+            base: str | None = None
+            if view_md is not None:
+                base_versions = view_md['base_versions']
+                assert len(base_versions) > 0
+                base_id = UUID(base_versions[0][0])
+                base_path = path_by_id.get(base_id)
+                base_version = base_versions[0][1]
+                if base_path is not None:
+                    base = f'{base_path}:{base_version}' if base_version is not None else base_path
+
+            assert entry.table_error_count is not None
+            nodes.append(
+                TableNode(
+                    name=name, path=path, kind=kind, version=version, error_count=entry.table_error_count, base=base
+                )
+            )
+
+    return nodes
 
 
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
