@@ -113,7 +113,14 @@ class Runtime:
 
         def run(coro: Coroutine[Any, Any, _T]) -> _T:
             # this runs in the _run_coro_executor's thread, with its own Runtime instance
-            return get_runtime().event_loop.run_until_complete(coro)
+            loop = get_runtime().event_loop
+            res = loop.run_until_complete(coro)
+            while True:
+                pending = asyncio.all_tasks(loop)
+                if not pending:
+                    break
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            return res
 
         return self._run_coro_executor.submit(run, coro).result()
 
