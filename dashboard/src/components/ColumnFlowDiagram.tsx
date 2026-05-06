@@ -119,7 +119,6 @@ function ColumnNodeComponent({ data, selected }: { data: ColumnNodeData; selecte
               'bg-card',
               data.isComputed ? 'border-k-yellow/30' : 'border-border/60',
             ),
-        data.errorCount > 0 && 'border-destructive/40',
         selected && 'ring-1 ring-k-yellow/50 shadow-md border-k-yellow/50 opacity-100',
       )}>
         {/* Origin tag for inherited columns */}
@@ -266,11 +265,6 @@ function ColumnDetailPanel({
           {node.isIteratorCol && (
             <span className="text-[10px] text-violet-400 bg-violet-400/10 px-1.5 py-0.5 rounded font-medium">
               iterator
-            </span>
-          )}
-          {node.errorCount > 0 && (
-            <span className="text-[10px] text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
-              {node.errorCount} errors
             </span>
           )}
         </div>

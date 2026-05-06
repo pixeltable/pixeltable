@@ -16,7 +16,6 @@ export interface ColumnNodeData extends Record<string, unknown> {
   computeExpression: string | null
   funcName: string | null
   funcType: FuncType
-  errorCount: number
   upstreamColumns: string[]
   downstreamColumns: string[]
   comment?: string
@@ -121,7 +120,6 @@ export function buildLineageGraph(columns: PipelineColumn[]): LineageResult {
       computeExpression: col.computed_with,
       funcName: col.func_name,
       funcType: col.func_type,
-      errorCount: col.error_count,
       upstreamColumns: upstream.get(col.name) || [],
       downstreamColumns: downstream.get(col.name) || [],
       comment: col.comment,

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, NamedTuple
 from urllib.parse import parse_qs, unquote, urlparse
 
+import pixeltable as pxt
 from pixeltable.dashboard import bridge
 
 _logger = logging.getLogger('pixeltable.dashboard')
@@ -62,12 +63,12 @@ def _(_path: str, _query: dict) -> dict:
 
 @_api_route('/api/dirs')
 def _(_path: str, _query: dict) -> list:
-    return bridge.get_directory_tree()
+    return pxt.get_dir_tree()
 
 
 @_api_route('/api/pipeline')
 def _(_path: str, _query: dict) -> dict:
-    return bridge.get_pipeline()
+    return bridge.get_pipeline(tbl_path=_query.get('path'))
 
 
 @_api_route('/api/status')
@@ -98,7 +99,7 @@ def _(path: str, query: dict) -> dict:
 
 @_api_route('/api/tables/meta')
 def _(path: str, _query: dict) -> dict:
-    return dict(bridge.get_table_metadata(path))
+    return dict(pxt.get_table(path).get_metadata())
 
 
 @_api_route('/api/tables/export')
