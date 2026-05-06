@@ -273,10 +273,11 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
     t.insert(pxt.io.import_csv('data.csv'))
     t.insert(pxt.io.import_huggingface_dataset(dataset))
     
-    # Export to ML/analytics formats
+    # Export to files or ML formats
+    pxt.io.export_csv(t, 'output.csv')
+    pxt.io.export_json(t, 'output.json')
     pxt.io.export_parquet(t, 'output.parquet')
     loader = DataLoader(t.to_pytorch_dataset(), batch_size=32)
-    coco_path = t.to_coco_dataset()
     ```
 
 <CardGroup cols={2}>
@@ -284,7 +285,7 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
         CSV, JSON, Parquet, S3, HF
       </Card>
       <Card title="Data Export" icon="upload" href="/howto/cookbooks/data/data-export-pytorch">
-        PyTorch, Parquet, COCO, LanceDB
+        CSV, JSON, Parquet, PyTorch, COCO, LanceDB
   </Card>
     </CardGroup>
   </Accordion>
