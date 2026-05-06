@@ -760,6 +760,7 @@ class Env:
         self.__register_package('openpyxl')
         self.__register_package('pyarrow')
         self.__register_package('pydantic')
+        self.__register_package('pyiceberg')
         self.__register_package('replicate')
         self.__register_package('reve')
         self.__register_package('runwayml')

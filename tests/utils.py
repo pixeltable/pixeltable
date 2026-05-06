@@ -128,19 +128,20 @@ def create_table_data(
                     'tags': ['a', 'b'],
                     'label': 'potted plant',
                     'bounding_box': [0.370, 0.335, 0.039, 0.163],
-                    'mask': None,
+                    'mask': 'rle:0,1,0,1',
                     'confidence': 0.95,
                     'iscrowd': 0,
                     'verified': True,
                 }
             ]
         },
-        {'level1': {'level2': {'level3': [1, 2.0, 'three', False, None]}}},
-        [{'key': 'val1', 'n': 1}, {'key': 'val2', 'n': 2}],
-        {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False, 'n': None},
+        # Removing json_() arrow fallback means we don't support mixed-type lists and None only fields
+        {'level1': {'level2': {'level3': [1, 2, 3, 4]}}},
+        {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False},
     ]
 
     # Non-serializable samples: contain PIL images, numpy arrays, or bytes.
+    # Mixed JSON (lists with dicts are not serializable in arrow)
     non_serializable_json_values: list[Any] = [
         {'label': 'synthetic', 'thumbnail': PIL.Image.new('RGB', (4, 4), color=(255, 0, 0))},
         {'label': 'embedding', 'vector': np.zeros(8, dtype=np.float64)},
@@ -158,6 +159,7 @@ def create_table_data(
                 b'\x00\x01',
             ],
         },
+        [{'key': 'val1', 'n': 1}, {'key': 'val2', 'n': 2}],
     ]
 
     sample_json_values = (
