@@ -4,13 +4,19 @@ from typing import Any
 
 import numpy as np
 import PIL.Image
-import pytest
 
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore
 
-from .utils import ReloadTester, assert_columns_eq, inf_array_iterator, inf_image_iterator, validate_update_status
+from .utils import (
+    ReloadTester,
+    assert_columns_eq,
+    inf_array_iterator,
+    inf_image_iterator,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 class TestInlinedObjects:
