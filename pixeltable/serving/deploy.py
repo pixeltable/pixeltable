@@ -31,7 +31,7 @@ def build_deploy_bundle(environment_name: str) -> Path:
             f'The following service(s) will be deployed: {", ".join(service.name for service in services_cfg)}'
         )
 
-    config_export = {'environment': cfg.dict(), 'service': [service.dict() for service in services_cfg]}
+    config_export = {'environment': [cfg.dict()], 'service': [service.dict() for service in services_cfg]}
     md_export = _export_tables_md(services_cfg)
     conda_export = _export_conda_env()
     lockfile = _find_lockfile()
@@ -83,18 +83,20 @@ def _export_tables_md(services_cfg: list[config.ServiceConfig]) -> dict[str, Any
 
     # Get the md for all ancestors of all such tables.
     catalog = get_runtime().catalog
-    tables_md = [catalog.load_md_for_export(tbl, as_replica=False) for tbl in tables]
+    with catalog.begin_xact(for_write=False):
+        tables_md = [catalog.load_md_for_export(tbl, as_replica=False) for tbl in tables]
 
     # The ancestor md is returned as: primary table first, followed by ancestors in descending order.
     # Reverse so that ancestors come first, then flatten and de-duplicate (since some tables might have common
     # ancestors). Use a dict for deduplicating, so that we preserve ancestor order to get a topologically
     # sorted list at the end.
-    flattened_md = {md: None for md_list in tables_md for md in reversed(md_list)}
+    flattened_md = {md.tbl_md.tbl_id: md for md_list in tables_md for md in reversed(md_list)}
     bundle_md = {
         'pxt_version': pxt.__version__,
         'pxt_md_version': metadata.VERSION,
-        'tables_md': [md.as_dict() for md in flattened_md],
+        'tables_md': [md.as_dict() for md in flattened_md.values()],
     }
+    return bundle_md
 
 
 def _export_conda_env() -> bytes | None:
