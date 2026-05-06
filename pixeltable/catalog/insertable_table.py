@@ -19,7 +19,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, OpStatus, TableOp
+from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuilder
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -103,10 +103,12 @@ class InsertableTable(Table):
             is_versioned=is_versioned,
         )
 
-        ops = [
-            CreateTableMdOp(tbl_id=md.tbl_md.tbl_id, op_sn=0, num_ops=2, status=OpStatus.PENDING),
-            CreateStoreTableOp(tbl_id=md.tbl_md.tbl_id, op_sn=1, num_ops=2, status=OpStatus.PENDING),
-        ]
+        ops = (
+            TableOpsBuilder(md.tbl_md.tbl_id, tbl_version=md.tbl_md.current_version)
+            .add(CreateTableMdOp)
+            .add(CreateStoreTableOp)
+            .build()
+        )
         return md, ops
 
     @overload

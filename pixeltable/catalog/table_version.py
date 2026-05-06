@@ -34,8 +34,8 @@ from .tbl_ops import (
     DeleteTableMdOp,
     DeleteTableMediaFilesOp,
     DropStoreTableOp,
-    OpStatus,
     TableOp,
+    TableOpsBuilder,
 )
 from .update_status import RowCountStats, UpdateStatus
 
@@ -430,14 +430,21 @@ class TableVersion:
         for dest in destinations:
             ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
 
-    def drop(self) -> list[TableOp]:
+    def drop_ops(self) -> tuple[list[TableOp], bool]:
+        """Returns a tuple of drop table ops, and a boolean that indicates whether a new table and schema
+        versions were created."""
+        new_version = self.is_mutable and self.is_versioned
+        if new_version:
+            self.bump_version(bump_schema_version=True)
         id_str = str(self.id)
-        ops = [
-            DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, status=OpStatus.PENDING),
-            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, status=OpStatus.PENDING, is_view=self.is_view),
-            DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, status=OpStatus.PENDING),
-        ]
-        return ops
+        ops = (
+            TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
+            .add(DeleteTableMediaFilesOp)
+            .add(DropStoreTableOp, is_view=self.is_view)
+            .add(DeleteTableMdOp)
+            .build()
+        )
+        return ops, new_version
 
     def init(self) -> None:
         """
@@ -786,16 +793,15 @@ class TableVersion:
             idx_ids.append(self._create_index_md(col, val_col, undo_col, idx_name=None, idx=idx))
 
         id_str = str(self.id)
-        tbl_ops = [
-            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=4, status=OpStatus.PENDING),
-            CreateColumnMdOp(
-                tbl_id=id_str, op_sn=1, num_ops=4, status=OpStatus.PENDING, column_ids=[col.id for col in all_cols]
-            ),
-            CreateStoreColumnsOp(
-                tbl_id=id_str, op_sn=2, num_ops=4, status=OpStatus.PENDING, column_ids=[col.id for col in all_cols]
-            ),
-            CreateStoreIdxsOp(tbl_id=id_str, op_sn=3, num_ops=4, status=OpStatus.PENDING, idx_ids=idx_ids),
-        ]
+        col_ids = [col.id for col in all_cols]
+        tbl_ops = (
+            TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
+            .add(CreateTableVersionOp)
+            .add(CreateColumnMdOp, column_ids=col_ids)
+            .add(CreateStoreColumnsOp, column_ids=col_ids)
+            .add(CreateStoreIdxsOp, idx_ids=idx_ids)
+            .build()
+        )
         return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops
 
     def add_columns(

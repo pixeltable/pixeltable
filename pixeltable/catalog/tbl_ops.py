@@ -49,6 +49,11 @@ class TableOp:
     num_ops: int  # total number of ops forming the update operation
     status: OpStatus
 
+    # New version of the table. Required for new table ops, but declared optional for backward compatibility.
+    # The chance of encountering legacy TableOps with a None value is small and diminishing over time, so this should be
+    # safe enough to make required in a few months or so.
+    tbl_version: int | None
+
     def to_dict(self) -> dict:
         result = dataclasses.asdict(self, dict_factory=schema.md_dict_factory)
         result['_classname'] = self.__class__.__name__
@@ -61,6 +66,10 @@ class TableOp:
         # TODO: delete this line, and the assert the follows, in ~ May 2026 or later. The chance of anyone still having
         # needs_xact in their pending table ops at that point will be extremely low.
         needs_xact_legacy = data.pop('needs_xact', None)
+
+        # TableOps serialized by older Pixeltable versions won't have tbl_version. Can go away after awhile.
+        data.setdefault('tbl_version', None)
+
         op_class = getattr(sys.modules[__name__], classname)
         op = schema.md_from_dict(op_class, data)
         if needs_xact_legacy is not None:
@@ -258,3 +267,36 @@ class DropStoreTableOp(TableOp):
 
     def undo(self, tv: TableVersion | None) -> None:
         raise AssertionError()
+
+
+class TableOpsBuilder:
+    """Builder for a sequence of TableOps that share a subset of common attributes."""
+
+    _tbl_id: str
+    _tbl_version: int
+    _ops: list[TableOp]
+
+    def __init__(self, tbl_id: str, tbl_version: int) -> None:
+        self._tbl_id = tbl_id
+        self._tbl_version = tbl_version
+        self._ops = []
+
+    def add(self, cls: type[TableOp], **kwargs: Any) -> 'TableOpsBuilder':
+        self._ops.append(
+            cls(
+                tbl_id=self._tbl_id,
+                op_sn=0,  # backfilled in build()
+                num_ops=0,  # backfilled in build()
+                status=OpStatus.PENDING,
+                tbl_version=self._tbl_version,
+                **kwargs,
+            )
+        )
+        return self
+
+    def build(self) -> list[TableOp]:
+        num_ops = len(self._ops)
+        for i, op in enumerate(self._ops):
+            op.op_sn = i
+            op.num_ops = num_ops
+        return self._ops
