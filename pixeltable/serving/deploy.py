@@ -97,7 +97,7 @@ def package(
     Args:
         env_config: Environment configuration.
         project_dir: Path to the project directory. Defaults to the current working directory.
-        conda_export: Output of ``conda env export --no-builds``, included as ``environment.yml``
+        conda_export: Output of ``conda env export --no-builds``, included as ``conda-env.yml``
             in the bundle when provided.
 
     Returns:
@@ -118,7 +118,7 @@ def package(
     files = _collect_project_files(project_dir, env_config.include, env_config.exclude)
     with tarfile.open(bundle_path, 'w:bz2') as tf:
         if conda_export is not None:
-            info = tarfile.TarInfo(name='environment.yml')
+            info = tarfile.TarInfo(name='conda-env.yml')
             info.size = len(conda_export)
             tf.addfile(info, fileobj=io.BytesIO(conda_export))
         for f in files:
