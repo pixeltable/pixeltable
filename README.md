@@ -58,7 +58,7 @@ videos.add_computed_column(scenes=videos.video.scene_detect_adaptive())
 
 videos.add_computed_column(
     response=gemini.generate_content(
-        [videos.video, 'Describe this video in detail.'], model='gemini-3-flash-preview'
+        [videos.video, 'Describe this video in detail.'], model='gemini-3-flash'
     )
 )
 
