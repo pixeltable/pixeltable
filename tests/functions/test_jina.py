@@ -5,6 +5,7 @@ import pixeltable as pxt
 from ..utils import rerun, skip_test_if_no_client, validate_update_status
 
 
+@pytest.mark.expensive
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestJina:
