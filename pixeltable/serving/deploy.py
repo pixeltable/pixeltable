@@ -25,7 +25,7 @@ def build_deploy_bundle(environment_name: str) -> Path:
     Env.get().console_logger.info(f'Deploying {environment_name!r} ...')
     services_cfg = [lookup_service_config(name) for name in cfg.services]
     if len(services_cfg) == 0:
-        Env.get().console_logger.warning(f'That environment contains no services.')
+        Env.get().console_logger.warning('That environment contains no services.')
     else:
         Env.get().console_logger.info(
             f'The following service(s) will be deployed: {", ".join(service.name for service in services_cfg)}'
@@ -78,7 +78,12 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
 
 def _export_tables_md(services_cfg: list[config.ServiceConfig]) -> dict[str, Any]:
     # Get all tables mentioned by any route contained in this environment.
-    table_paths = {route.table for service in services_cfg for route in service.routes}
+    table_paths: set[str] = set()
+    for service in services_cfg:
+        for route in service.routes:
+            # Query routes are only supported for cloud-hosted tables (not implemented yet)
+            assert not isinstance(route, config.QueryRouteConfig)
+            table_paths.add(route.table)
     tables = [pxt.get_table(path) for path in table_paths]
 
     # Get the md for all ancestors of all such tables.

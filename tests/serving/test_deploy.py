@@ -73,8 +73,8 @@ class TestDeploy:
             # Verify the contents of a_include.txt
             a_include_member = tar.getmember('project/a_include.txt')
             with tar.extractfile(a_include_member) as f:
-                content = f.read().decode('utf-8')
-                assert content == "I'm a random artifact in the project folder.", content
+                text = f.read().decode('utf-8')
+                assert text == "I'm a random artifact in the project folder.", text
 
             # Verify the contents of config.toml
             config_member = tar.getmember('config.toml')
@@ -99,5 +99,5 @@ class TestDeploy:
             # Verify the contents of environment.yml
             env_member = tar.getmember('conda-env.yml')
             with tar.extractfile(env_member) as f:
-                content = f.read().decode('utf-8')
-                assert 'pixeltable==' in content, content
+                text = f.read().decode('utf-8')
+                assert 'pixeltable==' in text, text
