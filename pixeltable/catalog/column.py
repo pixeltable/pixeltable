@@ -348,27 +348,31 @@ class Column:
         if not is_valid_identifier(name):
             raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {name}')
 
-    def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
-        """Returns the Column and optional SchemaColumn metadata for this Column."""
+    def to_md(self, pos: int | None) -> tuple[schema.ColumnMd, schema.SchemaColumn]:
+        """Returns this column's ColumnMd, which is ts table-level metadata, and SchemaColumn, which is versioned column
+        metadata.
+
+        Args:
+            pos: index of this column within the table; None for system columns
+        """
         assert self.is_pk is not None
+        assert (pos is None) == (self.name is None), 'pos must be provided iff this is a user-visible column'
         col_md = schema.ColumnMd(
             id=self.id,
-            col_type=self.col_type.as_dict(),
-            is_pk=self.is_pk,
             schema_version_add=self.schema_version_add,
             schema_version_drop=self.schema_version_drop,
-            value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
             stores_cellmd=self.stores_cellmd,
-            destination=self._explicit_destination,
+            data_type=self.col_type.type_enum,
         )
-        if pos is None:
-            return col_md, None
-        assert self.name is not None, 'Column name must be set for user-facing columns'
         sch_md = schema.SchemaColumn(
             name=self.name,
             pos=pos,
+            col_type=self.col_type.as_dict(),
+            is_pk=self.is_pk,
+            value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
+            destination=self._explicit_destination,
             custom_metadata=self._custom_metadata,
             comment=self._comment,
         )
@@ -564,9 +568,11 @@ class Column:
             return
         self.value_expr.fn.source()
 
-    def create_sa_cols(self) -> None:
+    def create_sa_cols(self) -> tuple[sql.Column, sql.Column | None]:
         """
-        These need to be recreated for every sql.Table instance
+        Instantiates sql.Column(s) for this Column. These need to be recreated for every sql.Table instance.
+
+        Returns a tuple of (sa_col, sa_cellmd_col). sa_cellmd_col is None if stores_cellmd is False.
         """
         assert self.is_stored
         assert self.stores_cellmd is not None
@@ -574,6 +580,9 @@ class Column:
         self.sa_col = sql.Column(self.store_name(), self.sa_col_type, nullable=True)
         if self.stores_cellmd:
             self.sa_cellmd_col = sql.Column(self.cellmd_store_name(), self.sa_cellmd_type(), nullable=True)
+        else:
+            assert self.sa_cellmd_col is None
+        return (self.sa_col, self.sa_cellmd_col)
 
     @classmethod
     def cellmd_type(cls) -> ts.ColumnType:

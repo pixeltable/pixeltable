@@ -129,7 +129,7 @@ class TestHistory:
                 'updates': 2,
                 'deletes': 0,
                 'errors': 0,
-                'schema_change': 'Deleted: c4',
+                'schema_change': 'Dropped: c4',
             },
             {
                 'version': 12,
@@ -139,7 +139,7 @@ class TestHistory:
                 'updates': 2,
                 'deletes': 0,
                 'errors': 0,
-                'schema_change': "Renamed: 'c2' to 'c2_renamed'",
+                'schema_change': 'Altered: c2 (renamed to c2_renamed)',
             },
             {
                 'version': 11,

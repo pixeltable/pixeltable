@@ -627,11 +627,15 @@ class ColumnRef(Expr):
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
         # validate_initialized=False: this gets called as part of TableVersion.init()
         # TODO: When we have views on replicas, we will need to store anchor_tbl_id in metadata as well.
+        pass
         tbl_version = get_runtime().catalog.get_tbl_version(
             TableVersionKey(tbl_id, version, None), validate_initialized=False
         )
         # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
-        col = next(col for col in tbl_version.cols if col.id == col_id)
+        # TODO this is the problem. we are restoring a previous version of the same table, and it has a reference to
+        # a column that was dropped later, therefore is not present in tbl_version.cols
+        col = next((col for col in tbl_version.cols if col.id == col_id), None)
+        assert col is not None
         return col
 
     @classmethod

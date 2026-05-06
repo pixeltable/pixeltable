@@ -115,11 +115,11 @@ class TablePackager:
         sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
         media_cols: set[str] = set()
         cellmd_cols: set[str] = set()
-        for col in tv.cols:
-            if col.is_stored and col.col_type.is_media_type():
-                media_cols.add(col.store_name())
-            if col.stores_cellmd:
-                cellmd_cols.add(col.cellmd_store_name())
+        for col_md in tv._tbl_md.column_md.values():
+            if col_md.stored and ts.is_media_type(col_md.data_type):
+                media_cols.add(f'col_{col_md.id}')
+            if col_md.stores_cellmd:
+                cellmd_cols.add(f'col_{col_md.id}_cellmd')
 
         parquet_schema = self.__to_parquet_schema(tv.store_tbl.sa_tbl)
         # TODO: Partition larger tables into multiple parquet files. (The parquet file naming scheme anticipates
@@ -543,7 +543,11 @@ class TableRestorer:
         # previously imported replica.
 
         system_col_names = {col.name for col in tv.store_tbl.system_columns()}
-        media_col_names = {col.store_name() for col in tv.cols if col.col_type.is_media_type() and col.is_stored}
+        media_col_names = {
+            f'col_{col_md.id}'
+            for col_md in tv._tbl_md.column_md.values()
+            if col_md.stored and ts.is_media_type(col_md.data_type)
+        }
         value_store_cols = [
             store_sa_tbl.c[col_name]
             for col_name in temp_cols
@@ -738,20 +742,25 @@ class TableRestorer:
         for col_name in pydict:
             assert col_name in tv.store_tbl.sa_tbl.columns
             sql_types[col_name] = tv.store_tbl.sa_tbl.columns[col_name].type
-        stored_cols: dict[str, catalog.Column] = {col.store_name(): col for col in tv.cols if col.is_stored}
-        stored_cols |= {col.cellmd_store_name(): col for col in tv.cols if col.stores_cellmd}
+        stored_col_mds: dict[str, schema.ColumnMd] = {}
+        for col_md in tv._tbl_md.column_md.values():
+            if col_md.stored:
+                stored_col_mds[f'col_{col_md.id}'] = col_md
+            if col_md.stores_cellmd:
+                stored_col_mds[f'col_{col_md.id}_cellmd'] = col_md
 
         row_count = len(next(iter(pydict.values())))
         rows: list[dict[str, Any]] = [{} for _ in range(row_count)]
         for col_name, col_vals in pydict.items():
             assert len(col_vals) == row_count
-            col = stored_cols.get(col_name)  # Will be None for system columns
-            is_media_col = col is not None and col.is_stored and col.col_type.is_media_type()
-            is_cellmd_col = col is not None and col.stores_cellmd and col_name == col.cellmd_store_name()
-            assert col is None or is_cellmd_col or col_name == col.store_name()
+            col_md = stored_col_mds.get(col_name)  # Will be None for system columns
+            is_media_col = col_md is not None and col_md.stored and ts.is_media_type(col_md.data_type)
+            is_cellmd_col = col_md is not None and col_md.stores_cellmd and col_name == f'col_{col_md.id}_cellmd'
+            assert col_md is None or is_cellmd_col or col_name == f'col_{col_md.id}'
 
             for i, val in enumerate(col_vals):
-                rows[i][col_name] = self.__from_pa_value(val, sql_types[col_name], col, is_media_col, is_cellmd_col)
+                # TODO __from_pa_value needs a Column instance
+                rows[i][col_name] = self.__from_pa_value(val, sql_types[col_name], None, is_media_col, is_cellmd_col)
 
         return rows
 
