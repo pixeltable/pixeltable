@@ -17,6 +17,7 @@ from ..utils import (
     get_image_files,
     get_test_video_files,
     get_video_files,
+    pxt_raises,
     rerun,
     skip_test_if_no_client,
     skip_test_if_not_installed,
@@ -136,7 +137,7 @@ class TestGemini:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
 
-        from pixeltable.functions.gemini import generate_content
+        from pixeltable.functions.gemini import generate_content, generate_images
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         t.add_computed_column(
@@ -154,6 +155,12 @@ class TestGemini:
         image = results['image'][0]
         assert isinstance(image, PIL.Image.Image), f'Expected a PIL Image, got {type(image)}'
         assert image.size[0] > 0 and image.size[1] > 0
+
+        # Passing a Gemini image-generation model to `generate_images` (which is for Imagen) must fail.
+        t2 = pxt.create_table('test_tbl_fail', {'prompt': pxt.String})
+        validate_update_status(t2.insert(prompt='anything'), expected_rows=1)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Nano Banana'):
+            t2.select(output=generate_images(t2.prompt, model='gemini-2.5-flash-image')).collect()
 
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
