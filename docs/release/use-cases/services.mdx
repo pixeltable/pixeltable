@@ -52,7 +52,31 @@ Self-hosted HTTP serving is available now. Cloud deployment with managed hosting
 
 ---
 
-## 3. Live Tables 🔜 Coming Soon
+## 3. Cloud Storage ✅ Available Now
+
+Every Pixeltable Cloud account includes a free managed storage bucket for media files. No cloud provider account or bucket configuration required.
+
+| Feature | What |
+|---------|------|
+| Home bucket | Free R2-backed storage for computed and input media |
+| Auto credentials | Temporary credentials fetched and refreshed automatically |
+| Quota management | Built-in storage limits with clear error messages |
+
+```python
+# Use your free cloud bucket as a media destination
+t.add_computed_column(
+    thumbnail=t.photo.resize((256, 256)),
+    destination='pxtfs://myorg:mydb/home'
+)
+```
+
+<Card title="Cloud Storage Setup" icon="cloud" href="/integrations/cloud-storage#pixeltable-cloud-home-bucket">
+  Configuration guide for the free managed bucket
+</Card>
+
+---
+
+## 4. Live Tables 🔜 Coming Soon
 
 Multi-writer collaboration and serverless compute.
 
