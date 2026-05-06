@@ -93,6 +93,8 @@ class CustomLegacyIterator(ComponentIterator):
 
 
 class Dumper:
+    output_dir: pathlib.Path
+
     def __init__(self, output_dir: str = 'target', db_name: str = 'pxtdump') -> None:
         if sys.version_info >= (3, 11):
             raise RuntimeError(

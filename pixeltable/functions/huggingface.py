@@ -402,10 +402,17 @@ def vit_for_image_classification(
 
         ```python
         {
-            'scores': [0.325, 0.198, 0.105],  # list of probabilities of the top-k most likely classes
-            'labels': [340, 353, 386],  # list of class IDs for the top-k most likely classes
-            'label_text': ['zebra', 'gazelle', 'African elephant, Loxodonta africana'],
-                # corresponding text names of the top-k most likely classes
+            # list of probabilities of the top-k most likely classes
+            'scores': [0.325, 0.198, 0.105],
+            # list of class IDs for the top-k most likely classes
+            'labels': [340, 353, 386],
+            # corresponding text names of the top-k most likely classes
+            'label_text': [
+                'zebra',
+                'gazelle',
+                'African elephant, Loxodonta africana',
+            ],
+        }
         ```
 
     Examples:

@@ -2,15 +2,13 @@
 Pixeltable UDFs for Computer Vision.
 
 Example:
-```python
-import pixeltable as pxt
-from pixeltable.functions import vision as pxtv
 
-t = pxt.get_table(...)
-t.select(
-    pxtv.bboxes_draw(t.img, boxes=t.boxes, labels=t.labels)
-).collect()
-```
+>>> import pixeltable as pxt
+>>> from pixeltable.functions import vision as pxtv
+>>> t = pxt.get_table(...)
+>>> t.select(
+...     pxtv.bboxes_draw(t.img, boxes=t.boxes, labels=t.labels)
+... ).collect()
 """
 
 import colorsys
