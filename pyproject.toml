@@ -152,7 +152,7 @@ dev = [
     "torchvision>=0.22",
     "torchcodec<0.8 ; python_version < '3.14'",  # Pinned for compatibility with torch 2.8
     "soundfile>=0.13",
-    "openai>=2",
+    "openai>=2.33",
     "anthropic>=0.53.0",
     "together>=2.8",
     "fal-client>=0.5.6",
