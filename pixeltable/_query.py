@@ -1803,3 +1803,44 @@ class Query:
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)
+
+    def add_columns(self, columns: list[tuple[exprs.Expr, str | None]]) -> 'Query':
+        """Add expressions to the existing select list.
+
+        Args:
+            columns: list of (expression, name) pairs to append to the select list.
+            If name is None, the expression's default column name is used.
+
+        Returns:
+            A new Query with the additional expressions appended to the select list.
+        """
+        for _expr, name in columns:
+            if name is not None and not is_valid_identifier(name):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_COLUMN_NAME, f'add_columns(): {name!r} is not a valid column name.'
+                )
+            if name is not None and name in self._schema:
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+                    f'add_columns(): column {name!r} already exists in the query. '
+                    f'Existing columns are: {list(self._schema.keys())}.',
+                )
+
+        # if no explicit select list, expand to all columns
+        if self.select_list is None:
+            out_exprs, out_names = Query._normalize_select_list(self._from_clause.tbls, None)
+            existing_select_list = list(zip(out_exprs, out_names))
+        else:
+            existing_select_list = self.select_list
+
+        return Query(
+            from_clause=self._from_clause,
+            select_list=existing_select_list + columns,
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=self.order_by_clause,
+            limit=self.limit_val,
+            offset=self.offset_val,
+            sample_clause=self.sample_clause,
+        )

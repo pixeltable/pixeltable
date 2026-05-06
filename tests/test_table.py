@@ -3938,3 +3938,87 @@ class TestTable:
         # check that raw object JSON comments are rejected for columns
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'comment' must be a string"):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[dict-item]
+
+    def test_insert_query_computed_cols(self, uses_db: None, e5_embed: pxt.Function) -> None:
+        """Query insert correctly evaluates computed cols and embedding index val cols."""
+        skip_test_if_not_installed('sentence_transformers')
+
+        src = pxt.create_table('src', {'c1': pxt.String, 'c2': pxt.Int})
+        src.insert([{'c1': 'a dog in the park', 'c2': 10}, {'c1': 'a cat on a mat', 'c2': 20}])
+
+        dst = pxt.create_table('dst', {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.String})
+        dst.add_computed_column(c4=dst.c2 * 2)
+        dst.add_computed_column(c5=dst.c4 + 1)
+        dst.add_embedding_index('c1', string_embed=e5_embed)
+        dst.add_computed_column(unstored_col=dst.c2 + 100, stored=False)
+        dst.add_computed_column(c6=dst.unstored_col * 2)
+        # c3 is missing from source so will always be none
+        dst.add_computed_column(unstored_from_missing=dst.c3 + '_suffix', stored=False)
+        dst.add_computed_column(c7=dst.unstored_from_missing + '_more')
+
+        dst.insert(src.select(src.c1, src.c2))
+
+        result = dst.order_by(dst.c2).collect()
+        assert len(result) == 2
+        assert result['c4'] == [20, 40]
+        assert result['c5'] == [21, 41]
+        assert result['c3'] == [None, None]
+        assert result['c6'] == [220, 240]
+        assert result['c7'] == [None, None]  # unstored_from_missing depends on missing c3
+
+        sim_result = dst.order_by(dst.c1.similarity(string='cat'), asc=False).limit(1).collect()
+        assert sim_result[0]['c1'] == 'a cat on a mat'
+
+        # verify btree index val cols on c1 and c2 are correctly populated
+        btree_result = dst.where(dst.c2 == 10).collect()
+        assert len(btree_result) == 1
+        assert btree_result[0]['c1'] == 'a dog in the park'
+
+        btree_result2 = dst.where(dst.c1 == 'a cat on a mat').collect()
+        assert len(btree_result2) == 1
+        assert btree_result2[0]['c2'] == 20
+
+        # verify substitution works with arbitrary source expressions mapped to destination column names
+        dst2 = pxt.create_table('dst2', {'x': pxt.String, 'y': pxt.Int})
+        dst2.add_computed_column(z=dst2.y * 2)
+        dst2.insert(src.select(x=src.c1, y=src.c2 + 5))
+
+        result2 = dst2.order_by(dst2.y).collect()
+        assert result2['y'] == [15, 25]
+        assert result2['z'] == [30, 50]
+
+        agg_src = pxt.create_table('agg_src', {'category': pxt.String, 'value': pxt.Int})
+        agg_src.insert(
+            [
+                {'category': 'a', 'value': 10},
+                {'category': 'a', 'value': 20},
+                {'category': 'b', 'value': 30},
+                {'category': 'b', 'value': 40},
+                {'category': 'b', 'value': 50},
+                {'category': 'c', 'value': 60},
+            ]
+        )
+
+        # non-grouping aggregate query
+        agg_tbl = pxt.create_table('agg_tbl', {'total': pxt.Int})
+        agg_tbl.add_computed_column(doubled=agg_tbl.total * 2)
+        agg_tbl.insert(agg_src.select(total=pxtf.sum(agg_src.value)))
+        agg_result = agg_tbl.collect()
+        assert len(agg_result) == 1
+        assert agg_result[0]['total'] == 210
+        assert agg_result[0]['doubled'] == 420
+
+        # grouping aggregate query
+        group_tbl = pxt.create_table('group_tbl', {'category': pxt.String, 'cnt': pxt.Int, 'total': pxt.Int})
+        group_tbl.add_computed_column(avg=group_tbl.total / group_tbl.cnt)
+        group_tbl.insert(
+            agg_src.group_by(agg_src.category).select(
+                agg_src.category, cnt=pxtf.count(agg_src.value), total=pxtf.sum(agg_src.value)
+            )
+        )
+        group_result = group_tbl.order_by(group_tbl.category).collect()
+        assert len(group_result) == 3
+        assert group_result['category'] == ['a', 'b', 'c']
+        assert group_result['cnt'] == [2, 3, 1]
+        assert group_result['total'] == [30, 120, 60]
+        assert group_result['avg'] == [15.0, 40.0, 60.0]

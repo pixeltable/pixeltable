@@ -426,13 +426,53 @@ class Planner:
         cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool
     ) -> exec.ExecNode:
         assert not tbl.is_view
-        plan = query._create_query_plan()  # ExecNode constructed by the Query
 
-        # Modify the plan RowBuilder to register the output columns
+        query_col_names = set(query.schema.keys())
+
+        # map each output column covered by the query to its corresponding source expression
+        substitution: dict[exprs.Expr, exprs.Expr] = {
+            exprs.ColumnRef(tbl.cols_by_name[col_name]): expr
+            for col_name, expr in zip(query.schema.keys(), query._select_list_exprs)
+            if col_name in tbl.cols_by_name
+        }
+
+        # stored non-computed columns not provided by the source query have no value — map them to None
+        # so their dependents (e.g. index val cols) evaluate to None rather than leaking into source table SQL scans
+        for col in tbl.cols_by_id.values():
+            if not col.is_stored or col.name is None or col.name in query_col_names or col.is_computed:
+                continue
+            if not col.col_type.nullable or col.is_pk:
+                raise excs.RequestError(
+                    excs.ErrorCode.MISSING_REQUIRED,
+                    f'Column {col.name!r} is required but not present in the source query',
+                )
+            substitution[exprs.ColumnRef(col)] = exprs.Literal(None, col_type=col.col_type)
+
+        # stored computed columns
+        missing_computed_cols = [col for col in tbl.cols_by_id.values() if col.is_stored and col.is_computed]
+
+        # resolve missing computed col exprs
+        missing_col_exprs = [
+            col.value_expr.copy().resolve_computed_cols(resolve_cols=set(missing_computed_cols))
+            for col in missing_computed_cols
+        ]
+        # apply substitutions
+        exprs.Expr.list_substitute(missing_col_exprs, substitution)
+
+        # augment query with missing computed exprs so they get evaluated during planning
+        augmented_query = query.add_columns(
+            [(expr, col.name) for col, expr in zip(missing_computed_cols, missing_col_exprs)]
+        )
+        plan = augmented_query._create_query_plan()
         needs_cell_materialization = False
-        for col_name, expr in zip(query.schema.keys(), query._select_list_exprs):
-            assert col_name in tbl.cols_by_name
-            col = tbl.cols_by_name[col_name]
+
+        plan.row_builder.set_slot_idxs(list(augmented_query._select_list_exprs))
+        # Mark output columns
+        missing_col_by_id = {expr.id: col for col, expr in zip(missing_computed_cols, missing_col_exprs)}
+        for name, expr in zip(augmented_query.schema, augmented_query._select_list_exprs):
+            col = tbl.cols_by_name.get(name) or missing_col_by_id.get(expr.id)
+            if col is None:
+                continue
             plan.row_builder.add_table_column(col, expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
 
