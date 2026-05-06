@@ -841,7 +841,7 @@ class TestTable:
                         'defined_in': 'iter_view',
                         'comment': None,
                         'custom_metadata': None,
-                        'is_iterator_col': False,
+                        'is_iterator_col': True,
                         'destination': None,
                     },
                     'out1': {
