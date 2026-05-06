@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Type, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Type, TypedDict, TypeVar, cast
 
 import httpx
 import numpy as np
@@ -284,9 +284,10 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, 
     return output_filename
 
 
-# TypedDict mirrors of openai.types.audio.transcription / translation (and their verbose variants).
-# Field names and nullability match the SDK. The response shape varies by response_format; the schema is the
-# superset, with exactly one of text / srt / vtt populated per row when a raw-string format is requested.
+# Normalized superset of the audio transcription / translation response shape across response_format
+# variants. Field names match openai.types.audio.transcription / translation (and their verbose variants).
+# Values absent from the SDK's response for a given variant are surfaced as None here, so every row has
+# the same dict shape regardless of which response_format produced it.
 # usage is a discriminated union in the SDK (tokens vs duration); kept as dict to avoid committing to one variant.
 
 
@@ -336,7 +337,10 @@ class TranslationResponse(TypedDict):
     segments: list[TranscriptionSegment] | None
 
 
-def _assemble_audio_response(cls: type, result: Any, response_format: str) -> dict[str, Any]:
+_AudioResponseT = TypeVar('_AudioResponseT', TranscriptionResponse, TranslationResponse)
+
+
+def _assemble_audio_response(cls: type[_AudioResponseT], result: Any, response_format: str) -> _AudioResponseT:
     """Build a response dict conforming to cls from either a pydantic model or a raw-string SDK result."""
     out: dict[str, Any] = dict.fromkeys(cls.__annotations__)
     if isinstance(result, str):
@@ -354,7 +358,7 @@ def _assemble_audio_response(cls: type, result: Any, response_format: str) -> di
             )
     else:
         out.update(result.model_dump(mode='json'))
-    return out
+    return cast(_AudioResponseT, out)
 
 
 @pxt.udf
@@ -400,7 +404,7 @@ async def transcriptions(
     file = pathlib.Path(audio)
     transcription = await _openai_client().audio.transcriptions.create(file=file, model=model, **model_kwargs)
     rf = model_kwargs.get('response_format', 'json')
-    return cast(TranscriptionResponse, _assemble_audio_response(TranscriptionResponse, transcription, rf))
+    return _assemble_audio_response(TranscriptionResponse, transcription, rf)
 
 
 @pxt.udf
@@ -444,7 +448,7 @@ async def translations(
     file = pathlib.Path(audio)
     translation = await _openai_client().audio.translations.create(file=file, model=model, **model_kwargs)
     rf = model_kwargs.get('response_format', 'json')
-    return cast(TranslationResponse, _assemble_audio_response(TranslationResponse, translation, rf))
+    return _assemble_audio_response(TranslationResponse, translation, rf)
 
 
 #####################################
@@ -961,6 +965,9 @@ def _decode_image_response(result: dict) -> dict:
 # that schema introspection lines up with the OpenAI docs. Defined locally rather than reused from the SDK
 # because openai is an optional dependency and can't be imported at module load time, and because our
 # data field holds decoded PIL images rather than the SDK's Image pydantic model.
+#
+# Fields not populated by every endpoint or model family (DALL-E vs gpt-image-*) are surfaced as None for
+# absent values, so rows have a uniform dict shape regardless of endpoint or model.
 
 
 class UsageInputTokensDetails(TypedDict):
@@ -981,12 +988,9 @@ class Usage(TypedDict):
     output_tokens_details: UsageOutputTokensDetails | None
 
 
-# Nullability mirrors the SDK's pydantic model: only 'created' is always populated. The other fields are
-# populated for a subset of model families and endpoints (DALL-E vs gpt-image-*); absent values come back
-# as None rather than missing keys, so user code can navigate with explicit None checks.
 class ImagesResponse(TypedDict):
     created: int
-    data: list[PIL.Image.Image] | None
+    data: list[PIL.Image.Image]
     usage: Usage | None
     background: str | None
     output_format: str | None

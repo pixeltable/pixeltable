@@ -50,13 +50,6 @@ class TestOpenai:
                 model_kwargs={'prompt': 'Translate the recording from Spanish into English.', 'temperature': 0.05},
             )
         )
-        # Raw-format responses: srt and vtt are surfaced as top-level string fields in the TypedDict schema.
-        t.add_computed_column(
-            transcription_srt=transcriptions(t.speech, model='whisper-1', model_kwargs={'response_format': 'srt'})
-        )
-        t.add_computed_column(
-            translation_vtt=translations(t.speech, model='whisper-1', model_kwargs={'response_format': 'vtt'})
-        )
 
         # Response schema: transcription.text / .srt / .vtt are typed as String, segments is a typed list.
         tr_type = t.get_metadata()['columns']['transcription']['type_']
@@ -80,15 +73,30 @@ class TestOpenai:
         assert results[1]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
         assert results[1]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
 
-        # Raw srt/vtt responses populate the matching top-level field, leave the others None.
-        srts = [r['transcription_srt'] for r in results]
-        vtts = [r['translation_vtt'] for r in results]
-        assert all(s['srt'] and s['text'] is None and s['vtt'] is None for s in srts)
-        assert all(v['vtt'].startswith('WEBVTT') and v['text'] is None and v['srt'] is None for v in vtts)
-
         # Schema-driven projection: text is typed String, so extracting it yields a first-class String column.
         t.add_computed_column(transcribed=t.transcription.text)
         assert t.get_metadata()['columns']['transcribed']['type_'] == 'String'
+
+        # Raw-format responses populate the matching top-level field and leave the others None.
+        # Exercised on a one-row mini-table to bound the number of additional remote calls.
+        t2 = pxt.create_table('test_tbl_raw_formats', {'input': pxt.String})
+        t2.add_computed_column(speech=speech(t2.input, model='tts-1', voice='onyx'))
+        t2.add_computed_column(
+            transcription_srt=transcriptions(t2.speech, model='whisper-1', model_kwargs={'response_format': 'srt'})
+        )
+        t2.add_computed_column(
+            translation_vtt=translations(t2.speech, model='whisper-1', model_kwargs={'response_format': 'vtt'})
+        )
+        validate_update_status(t2.insert(input='I am a banana.'), expected_rows=1)
+        row = t2.collect()[0]
+        srt = row['transcription_srt']
+        vtt = row['translation_vtt']
+        assert len(srt['srt']) > 0
+        assert srt['text'] is None
+        assert srt['vtt'] is None
+        assert vtt['vtt'].startswith('WEBVTT')
+        assert vtt['text'] is None
+        assert vtt['srt'] is None
 
     def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
