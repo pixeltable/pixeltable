@@ -51,8 +51,6 @@ overrides = [
     { name = "huggingface-hub", specifier = ">=1" },
     { name = "protobuf", specifier = ">=5.29.6" },
     { name = "ruff", specifier = ">=0.14" },
-    { name = "scipy", marker = "python_full_version < '3.14'" },
-    { name = "scipy", marker = "python_full_version >= '3.14'", specifier = ">=1.17" },
 ]
 
 [[package]]
@@ -5918,6 +5916,8 @@ dev = [
     { name = "ruff" },
     { name = "runwayml" },
     { name = "scenedetect", marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "sentence-transformers", marker = "python_full_version < '3.14'" },
     { name = "sentencepiece" },
     { name = "snowflake-sqlalchemy" },
@@ -6060,6 +6060,8 @@ dev = [
     { name = "ruff", specifier = ">=0.14" },
     { name = "runwayml", specifier = ">=4.12.0" },
     { name = "scenedetect", marker = "python_full_version < '3.14' or sys_platform != 'win32'", specifier = ">=0.6.0.1" },
+    { name = "scipy", marker = "python_full_version < '3.14'" },
+    { name = "scipy", marker = "python_full_version >= '3.14'", specifier = ">=1.17" },
     { name = "sentence-transformers", marker = "python_full_version < '3.14'", specifier = ">=5" },
     { name = "sentencepiece", specifier = ">=0.2.0" },
     { name = "snowflake-sqlalchemy", specifier = ">=1.7.0" },
