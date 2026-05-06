@@ -13,6 +13,8 @@ from .table_version import TableVersion, TableVersionKey
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
 
+    from .catalog import Catalog
+
 _logger = logging.getLogger('pixeltable')
 
 
@@ -26,19 +28,29 @@ class TableVersionHandle:
     """
 
     key: TableVersionKey
+    # Per-(thread, xact) cache of the resolved TableVersion. Reset on __deepcopy__ when the
+    # handle crosses a thread/transaction boundary (e.g., a Query template captured at
+    # module-import time being executed in a worker thread, or a Query held across xacts in
+    # the face of a schema change from another process). Re-validation happens on the next
+    # get() through the catalog's is_validated machinery.
     _tbl_version: TableVersion | None
+    # The Catalog instance this handle was last resolved against. Set in __init__ from
+    # `get_runtime().catalog`, re-set by __deepcopy__, and updated by get() whenever it
+    # detects a mismatch with the calling thread's catalog (which can happen across worker
+    # threads or after reset_runtime). On mismatch get() drops the cached TableVersion and
+    # re-resolves through the current catalog, so consumers always observe metadata from the
+    # catalog they're running against.
+    _origin_catalog: Catalog
 
     def __init__(self, key: TableVersionKey, *, tbl_version: TableVersion | None = None):
         self.key = key
         self._tbl_version = tbl_version
+        self._origin_catalog = get_runtime().catalog
 
     def __deepcopy__(self, memo: dict[int, object] | None = None) -> TableVersionHandle:
-        # Drop the per-instance _tbl_version cache on deepcopy: it points to whichever thread's
-        # TV was current when this handle was constructed (e.g., the importing thread for a
-        # Query template). The copy will lazily resolve via the current thread's catalog on
-        # the next get(). Without this, a worker thread executing a copied Query would render
-        # FROM via the importing thread's sa_tbl while WHERE references its own sa_tbl,
-        # producing a duplicate-FROM SQL error.
+        # Returning a fresh handle resets _tbl_version (so the next get() re-resolves via the
+        # current thread's catalog) and re-tags _origin_catalog to the calling thread's
+        # catalog via __init__.
         return TableVersionHandle(self.key)
 
     def __eq__(self, other: object) -> bool:
@@ -72,19 +84,32 @@ class TableVersionHandle:
         return self.effective_version is not None
 
     def get(self) -> TableVersion:
-        if self._tbl_version is None or not self._tbl_version.is_validated:
-            cat = get_runtime().catalog
-            if self.effective_version is not None and self._tbl_version is not None:
-                # this is a snapshot version; we need to make sure we refer to the instance cached
-                # in Catalog, in order to avoid mixing sa_tbl instances in the same transaction
-                # (which will lead to duplicates in the From clause generated in SqlNode.create_from_clause())
-                assert self.key in cat._tbl_versions
-                self._tbl_version = cat._tbl_versions[self.key]
-                self._tbl_version.is_validated = True
-            else:
-                self._tbl_version = cat.get_tbl_version(self.key)
-                assert self._tbl_version.key == self.key
-        return self._tbl_version
+        # Snapshot the cache once, decide whether to refresh, and atomically replace at the
+        # end — never reset to None mid-method, so that concurrent readers (this handle can
+        # be shared across threads via Table._tbl_version_path or Column.tbl_handle) always
+        # observe a complete TableVersion. The mismatch case happens when the handle is used
+        # in a different catalog context than it was built against (worker thread with its
+        # own Catalog, or after reset_runtime); we re-resolve so sa_tbl etc. come from the
+        # current catalog's metadata.
+        cat = get_runtime().catalog
+        cached = self._tbl_version
+        needs_refresh = self._origin_catalog is not cat or cached is None or not cached.is_validated
+        if not needs_refresh:
+            return cached
+
+        if self.effective_version is not None and cached is not None:
+            # Snapshot version; refer to the instance cached in Catalog, in order to avoid
+            # mixing sa_tbl instances in the same transaction (which would generate
+            # duplicates in the From clause produced by SqlNode.create_from_clause()).
+            assert self.key in cat._tbl_versions
+            new_tv = cat._tbl_versions[self.key]
+            new_tv.is_validated = True
+        else:
+            new_tv = cat.get_tbl_version(self.key)
+            assert new_tv.key == self.key
+        self._tbl_version = new_tv
+        self._origin_catalog = cat
+        return new_tv
 
     def as_dict(self) -> dict:
         return self.key.as_dict()

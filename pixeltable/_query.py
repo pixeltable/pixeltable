@@ -365,11 +365,20 @@ class Query:
     select_list: list[tuple[exprs.Expr, str | None]] | None
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
-    grouping_tbl: catalog.TableVersion | None
+    # Stored as a TableVersionHandle (identity-only) rather than a TableVersion so the Query
+    # is shareable across thread/transaction boundaries: every read goes through the catalog's
+    # is_validated-gated machinery on the calling thread.
+    grouping_tbl: catalog.TableVersionHandle | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
     offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
+    # The Catalog instance this Query was constructed against. Used by _exec / _aexec to
+    # defensively deepcopy when the Query is invoked under a different Catalog (e.g., a
+    # global Query held by user code and called from FastAPI worker threads, or a Query
+    # held across reset_runtime). Set in __init__ from `get_runtime().catalog` and re-set
+    # by __deepcopy__.
+    _origin_catalog: 'catalog.Catalog'
 
     def __init__(
         self,
@@ -377,7 +386,7 @@ class Query:
         select_list: list[tuple[exprs.Expr, str | None]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
-        grouping_tbl: catalog.TableVersion | None = None,
+        grouping_tbl: catalog.TableVersionHandle | None = None,
         order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,  # list[(expr, asc)]
         limit: exprs.Expr | None = None,
         offset: exprs.Expr | None = None,
@@ -403,6 +412,20 @@ class Query:
         self.limit_val = limit
         self.offset_val = offset
         self.sample_clause = sample_clause
+        self._origin_catalog = get_runtime().catalog
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> 'Query':
+        # Default-deep traversal across all fields (which reaches into FromClause to
+        # TableVersionPath to TableVersionHandle, and into Exprs whose own copy() overrides
+        # take care of resetting the per-(thread, xact) caches), then re-tag _origin_catalog
+        # to the calling thread's catalog. See _exec / _aexec for the defensive use-site.
+        cls = type(self)
+        new = cls.__new__(cls)
+        memo[id(self)] = new
+        for k, v in self.__dict__.items():
+            new.__dict__[k] = copy.deepcopy(v, memo)
+        new._origin_catalog = get_runtime().catalog
+        return new
 
     @classmethod
     def _normalize_select_list(
@@ -564,7 +587,7 @@ class Query:
         group_by_clause: list[exprs.Expr] | None = None
         if self.grouping_tbl is not None:
             assert self.group_by_clause is None
-            num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
+            num_rowid_cols = len(self.grouping_tbl.get().store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
             assert num_rowid_cols <= len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
             group_by_clause = self.__rowid_columns(num_rowid_cols)
@@ -782,6 +805,15 @@ class Query:
         return tbl_ids
 
     def _output_row_iterator(self) -> Generator[list, None, None]:
+        # Defensive thread-local copy: if this Query was constructed under a different
+        # Catalog than the one we're now running under (e.g., a user-built global held
+        # across FastAPI worker threads, or a Query held across reset_runtime), produce a
+        # thread-local copy whose embedded TVHs/TVPs/Exprs all have their per-(thread, xact)
+        # caches reset, and run the entire iteration (including the slot_idx extraction
+        # below) against the copy.
+        if self._origin_catalog is not get_runtime().catalog:
+            yield from copy.deepcopy(self)._output_row_iterator()
+            return
         tbl_ids = self.referenced_tbl_ids()
         with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=tbl_ids):
             try:
@@ -805,6 +837,9 @@ class Query:
         return ResultCursor(self)
 
     async def _acollect(self) -> ResultSet:
+        # See _output_row_iterator for the rationale on the defensive copy.
+        if self._origin_catalog is not get_runtime().catalog:
+            return await copy.deepcopy(self)._acollect()
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         columns = {name: i for i, name in enumerate(self.schema)}
         try:
@@ -1258,7 +1293,7 @@ class Query:
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by() cannot be used with sample()')
 
-        grouping_tbl: catalog.TableVersion | None = None
+        grouping_tbl: catalog.TableVersionHandle | None = None
         group_by_clause: list[exprs.Expr] | None = None
         for item in grouping_items:
             if isinstance(item, (catalog.Table, catalog.TableVersion)):
@@ -1270,13 +1305,16 @@ class Query:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by() with Table not supported for joins'
                     )
-                grouping_tbl = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
+                # Take a handle (identity), not a TV instance: the Query may be invoked from a
+                # different thread/xact than the one that built it.
+                grouping_tv = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
+                grouping_tbl = grouping_tv.handle
                 # we need to make sure that the grouping table is a base of self.tbl
                 base = self._first_tbl.find_tbl_version(grouping_tbl.id)
                 if base is None or base.id == self._first_tbl.tbl_id:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'group_by(): {grouping_tbl.name!r} is not a base table of {self._first_tbl.tbl_name()!r}',
+                        f'group_by(): {grouping_tv.name!r} is not a base table of {self._first_tbl.tbl_name()!r}',
                     )
                 break
             if not isinstance(item, exprs.Expr):
@@ -1693,7 +1731,9 @@ class Query:
         group_by_clause = (
             [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
         )
-        grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+        grouping_tbl = (
+            catalog.TableVersionHandle.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+        )
         order_by_clause = (
             [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
             if d['order_by_clause'] is not None

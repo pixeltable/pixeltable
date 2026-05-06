@@ -237,6 +237,14 @@ class Catalog:
         self._column_dependents = None
         self._init_store()
 
+    def __deepcopy__(self, memo: dict[int, object]) -> 'Catalog':
+        # Catalog instances are owned by Runtime and never duplicated. Return self so that
+        # any deepcopy traversal that reaches a Catalog reference (e.g., the _origin_catalog
+        # field on TableVersionHandle, TableVersionPath, or Query) terminates here rather
+        # than walking the entire catalog state graph.
+        memo[id(self)] = self
+        return self
+
     def _active_tbl_clause(
         self, *, tbl_id: UUID | None = None, dir_id: UUID | None = None, tbl_name: str | None = None
     ) -> sql.ColumnElement[bool]:

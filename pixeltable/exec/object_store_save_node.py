@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import AsyncIterator, Iterator, NamedTuple
 
 from pixeltable import exprs
-from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
+from pixeltable.utils.object_stores import (
+    ObjectOps,
+    ObjectPath,
+    ObjectStoreBase,
+    ResolvedFileDestination,
+    StorageTarget,
+)
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
@@ -51,7 +57,11 @@ class ObjectStoreSaveNode(ExecNode):
     class WorkItem(NamedTuple):
         src_path: Path
         destination: str | None
-        info: exprs.ColumnSlotIdx  # column info for the file being processed
+        info: exprs.ColumnSlotIdx  # column info for the file being processed (caller-thread post-processing only)
+        # Resolved on the caller thread so that worker threads do not need catalog access
+        # to perform the file write.
+        store: ObjectStoreBase
+        resolved: ResolvedFileDestination
         destination_count: int = 1  # number of unique destinations for this file
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
@@ -251,7 +261,13 @@ class ObjectStoreSaveNode(ExecNode):
                 num_missing += 1
                 continue
 
-            work_item = ObjectStoreSaveNode.WorkItem(src_path, destination, info)
+            # Resolve the destination on the caller thread (catalog context). The worker thread
+            # consumes only `store` and `resolved` and never accesses catalog state.
+            store = ObjectOps.get_store(destination, False, col.name)
+            resolved = store.prepare_destination(col.tbl_handle.id, col.id, col.get_tbl().version, ext=src_path.suffix)
+            work_item = ObjectStoreSaveNode.WorkItem(
+                src_path=src_path, destination=destination, info=info, store=store, resolved=resolved
+            )
             row_to_do.append(work_item)
             self.in_flight_work[work_designator] = [(row, info)]
             num_missing += 1
@@ -264,13 +280,8 @@ class ObjectStoreSaveNode(ExecNode):
                 new_to_do.append(work_item)
             else:
                 new_to_do.append(
-                    ObjectStoreSaveNode.WorkItem(
-                        work_item.src_path,
-                        work_item.destination,
-                        work_item.info,
-                        destination_count=unique_destinations[work_item.src_path] + 1,
-                        # +1 for the TempStore destination
-                    )
+                    work_item._replace(destination_count=unique_destinations[work_item.src_path] + 1)
+                    # +1 for the TempStore destination
                 )
         delete_destinations = [k for k, v in unique_destinations.items() if v > 1 and TempStore.contains_path(k)]
         row_to_do = new_to_do
@@ -302,13 +313,16 @@ class ObjectStoreSaveNode(ExecNode):
             _logger.debug(f'submitted {work_item}')
 
     def __persist_media_file(self, work_item: WorkItem) -> tuple[str | None, Exception | None]:
-        """Move data from the TempStore to another location"""
-        src_path = work_item.src_path
-        col = work_item.info.col
-        assert col.destination == work_item.destination
+        """Move data from the TempStore to another location.
+
+        Runs on a worker thread of the ThreadPoolExecutor. Performs no catalog access:
+        the destination was resolved on the caller thread when the WorkItem was built.
+        """
         try:
-            new_file_url = ObjectOps.put_file(col, src_path, work_item.destination_count == 1)
+            new_file_url = ObjectOps.put_file_resolved(
+                work_item.store, work_item.src_path, work_item.resolved, work_item.destination_count == 1
+            )
             return new_file_url, None
         except Exception as e:
-            _logger.debug(f'Failed to move/copy {src_path}: {e}', exc_info=e)
+            _logger.debug(f'Failed to move/copy {work_item.src_path}: {e}', exc_info=e)
             return None, e

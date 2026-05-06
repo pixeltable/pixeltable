@@ -16,7 +16,7 @@ from uuid import UUID
 import PIL.Image
 
 from pixeltable import env, exceptions as excs
-from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress
+from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, ResolvedFileDestination, StorageObjectAddress
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
@@ -156,21 +156,24 @@ class LocalStore(ObjectStoreBase):
             return None
         return file_path
 
-    def move_local_file(self, col: Column, src_path: Path) -> str:
-        """Move a local file to this store, and return its new URL"""
-        dest_path = self._prepare_path(col, ext=src_path.suffix)
-        src_path.rename(dest_path)
+    def prepare_destination(
+        self, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None
+    ) -> ResolvedFileDestination:
+        dest_path = self._prepare_path_raw(tbl_id, col_id, tbl_version, ext)
         new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
-        _logger.debug(f'Media Storage: moved {src_path} to {new_file_url}')
-        return new_file_url
+        return ResolvedFileDestination(new_file_url=new_file_url, local_path=dest_path)
 
-    def copy_local_file(self, col: Column, src_path: Path) -> str:
-        """Copy a local file to a this store, and return its new URL"""
-        dest_path = self._prepare_path(col, ext=src_path.suffix)
-        shutil.copy2(src_path, dest_path)
-        new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
-        _logger.debug(f'Media Storage: copied {src_path} to {new_file_url}')
-        return new_file_url
+    def move_local_file_resolved(self, src_path: Path, resolved: ResolvedFileDestination) -> str | None:
+        assert resolved.local_path is not None
+        src_path.rename(resolved.local_path)
+        _logger.debug(f'Media Storage: moved {src_path} to {resolved.new_file_url}')
+        return resolved.new_file_url
+
+    def copy_local_file_resolved(self, src_path: Path, resolved: ResolvedFileDestination) -> str:
+        assert resolved.local_path is not None
+        shutil.copy2(src_path, resolved.local_path)
+        _logger.debug(f'Media Storage: copied {src_path} to {resolved.new_file_url}')
+        return resolved.new_file_url
 
     def save_media_object(self, data: bytes | PIL.Image.Image, col: Column, format: str | None) -> tuple[Path, str]:
         """Save a data object to a file in a LocalStore

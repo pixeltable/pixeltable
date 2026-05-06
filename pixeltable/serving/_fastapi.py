@@ -23,7 +23,6 @@ from pydantic.fields import FieldInfo
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
-from pixeltable.runtime import get_runtime
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.serving import SqlExport
@@ -1000,14 +999,8 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            # Warm the current thread's catalog for the tables referenced in the template,
-            # so that ColumnRef.copy() (invoked by template_query.bind() via deepcopy) can
-            # re-resolve to this thread's TableVersion / sa_tbl. Without this, the first call
-            # from each worker thread would still bind to the importing thread's sa_tbl and
-            # produce FROM-clause mismatches.
-            with get_runtime().catalog.begin_xact(read_tvps=template_query._from_clause.tbls):
-                bound_df = template_query.bind(call_kwargs)
-                result_set = bound_df.collect()
+            bound_df = template_query.bind(call_kwargs)
+            result_set = bound_df.collect()
             rows = list(result_set)
 
             # do error checking now, before converting data

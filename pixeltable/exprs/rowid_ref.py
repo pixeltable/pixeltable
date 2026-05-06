@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any, cast
 from uuid import UUID
@@ -74,6 +75,17 @@ class RowidRef(Expr):
             ('normalized_base_id', self.normalized_base_id),
             ('idx', self.rowid_component_idx),
         ]
+
+    # override
+    def copy(self) -> RowidRef:
+        # Deepcopy the TVHs so the copy is safe across thread/transaction boundaries:
+        # TableVersionHandle.__deepcopy__ resets the per-(thread, xact) cache.
+        result = super().copy()
+        if self.tbl is not None:
+            result.tbl = copy.deepcopy(self.tbl)
+        if self.normalized_base is not None:
+            result.normalized_base = copy.deepcopy(self.normalized_base)
+        return result
 
     def __repr__(self) -> str:
         # check if this is the pos column of a component view

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from pixeltable.metadata import schema
@@ -10,6 +10,9 @@ from .column import Column
 from .globals import MediaValidation, QColumnId
 from .table_version import TableVersion, TableVersionKey
 from .table_version_handle import TableVersionHandle
+
+if TYPE_CHECKING:
+    from .catalog import Catalog
 
 
 class TableVersionPath:
@@ -37,16 +40,38 @@ class TableVersionPath:
 
     tbl_version: TableVersionHandle
     base: TableVersionPath | None
+    # Per-(thread, xact) cache of the resolved TableVersion. Reset on __deepcopy__ when the
+    # TVP crosses a thread/transaction boundary (e.g., a Query template captured at
+    # module-import time being executed in a worker thread, or a Query held across xacts in
+    # the face of a schema change from another process). Re-validation happens on the next
+    # tbl_version.get() through the catalog's is_validated machinery.
     _cached_tbl_version: TableVersion | None
+    # The Catalog instance this path was last resolved against. See the corresponding
+    # comment on TableVersionHandle._origin_catalog.
+    _origin_catalog: Catalog
 
     def __init__(self, tbl_version: TableVersionHandle, base: TableVersionPath | None = None):
+        from pixeltable.runtime import get_runtime
+
         assert tbl_version is not None
         self.tbl_version = tbl_version
         self.base = base
         self._cached_tbl_version = None
+        self._origin_catalog = get_runtime().catalog
 
         if self.base is not None and tbl_version.anchor_tbl_id is not None:
             self.base = self.base.anchor_to(tbl_version.anchor_tbl_id)
+
+    def __deepcopy__(self, memo: dict[int, object]) -> TableVersionPath:
+        # Reset _cached_tbl_version and recurse into tbl_version (TVH) and base (TVP). Both
+        # have their own __deepcopy__ that reset their respective per-(thread, xact) caches.
+        # See the comment on _cached_tbl_version above for the invariant.
+        result = TableVersionPath(
+            tbl_version=copy.deepcopy(self.tbl_version, memo),
+            base=copy.deepcopy(self.base, memo) if self.base is not None else None,
+        )
+        memo[id(self)] = result
+        return result
 
     @classmethod
     def from_md(cls, path: schema.TableVersionPath) -> TableVersionPath:
@@ -67,18 +92,25 @@ class TableVersionPath:
     def refresh_cached_md(self) -> None:
         from pixeltable.runtime import get_runtime
 
-        if get_runtime().in_xact:
-            # when we're running inside a transaction, we need to make sure to supply current metadata;
-            # mixing stale metadata with current metadata leads to query construction failures
-            # (multiple sqlalchemy Table instances for the same underlying table create corrupted From clauses)
-            if self._cached_tbl_version is not None and self._cached_tbl_version.is_validated:
-                # nothing to refresh
-                return
-        elif self._cached_tbl_version is not None:
+        # When we're running inside a transaction, we need to make sure to supply current metadata;
+        # mixing stale metadata with current metadata leads to query construction failures
+        # (multiple sqlalchemy Table instances for the same underlying table create corrupted From clauses).
+        # See the corresponding comment on TableVersionHandle.get() for the cross-thread / cross-runtime
+        # case. Snapshot the current cache once, decide whether to refresh, and atomically replace at
+        # the end — never reset to None mid-method, so that concurrent readers (this TVP can be shared
+        # across threads via Table._tbl_version_path) always observe a complete TableVersion.
+        cat = get_runtime().catalog
+        cached = self._cached_tbl_version
+        needs_refresh = (
+            self._origin_catalog is not cat or cached is None or (get_runtime().in_xact and not cached.is_validated)
+        )
+        if not needs_refresh:
             return
 
         with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=[self.tbl_version.id]):
-            self._cached_tbl_version = self.tbl_version.get()
+            new_tv = self.tbl_version.get()
+        self._cached_tbl_version = new_tv
+        self._origin_catalog = cat
 
     def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
         """
