@@ -387,3 +387,12 @@ class TestCLI:
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--host', '::1', '--json'], capsys)
             data = json.loads(capsys.readouterr().out)
             assert data['url'] == 'http://[::1]:8000'
+
+    def test_deploy(self, capsys: pytest.CaptureFixture) -> None:
+        # missing environment arg
+        _run_cli(['pxt', 'deploy'], capsys, exit_code=2, stderr='error')
+
+        # happy path: environment arg is forwarded to build_deploy_bundle
+        with patch('pixeltable.cli.deploy.build_deploy_bundle') as mock_build:
+            _run_cli(['pxt', 'deploy', 'staging'], capsys)
+            mock_build.assert_called_once_with('staging')
