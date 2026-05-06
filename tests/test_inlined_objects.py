@@ -10,10 +10,17 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore
 
-from .utils import ReloadTester, assert_columns_eq, inf_array_iterator, inf_image_iterator, validate_update_status
+from .utils import (
+    ReloadTester,
+    assert_columns_eq,
+    inf_array_iterator,
+    inf_image_iterator,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
-@pytest.mark.expensive
+@pytest.mark.expensive  # Large data volumes involved; must run on larger instances
 class TestInlinedObjects:
     def test_null_arrays(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'i': pxt.Int, 'data': pxt.Array})
@@ -99,6 +106,7 @@ class TestInlinedObjects:
 
     def test_insert_inlined_objects(self, uses_db: None) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
+        skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
         rnd = random.Random(4171780)
 
@@ -170,6 +178,7 @@ class TestInlinedObjects:
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     def test_nonstandard_json_construction(self, uses_db: None) -> None:
+        skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
         # test list/dict construction
@@ -268,6 +277,7 @@ class TestInlinedObjects:
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     def test_samples(self, uses_db: None) -> None:
+        skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
         schema = {'id': pxt.Int, 'c': pxt.Int, 'a': pxt.Array, 'd': pxt.Json}
