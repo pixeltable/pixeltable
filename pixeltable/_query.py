@@ -394,7 +394,8 @@ class Query:
         if select_list is None:
             select_list = [(exprs.ColumnRef(col), None) for tbl in tbls for col in tbl.columns()]
         if additional_select_list:
-            select_list += additional_select_list
+            # rebind to a new list so the caller's select_list is not mutated in place
+            select_list = select_list + additional_select_list  # noqa: PLR6104
 
         out_exprs: list[exprs.Expr] = []
         out_names: list[str] = []  # keep track of order
@@ -694,7 +695,6 @@ class Query:
         return Query(
             from_clause=self._from_clause,
             select_list=select_list,
-            additional_select_list=self.additional_select_list,
             where_clause=where_clause,
             group_by_clause=group_by_clause,
             grouping_tbl=self.grouping_tbl,

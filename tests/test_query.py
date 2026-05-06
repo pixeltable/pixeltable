@@ -1108,3 +1108,30 @@ class TestQuery:
         result_group = q_group.collect()
         assert {'c4', 'total', 'total_doubled'} <= set(result_group.schema)
         assert all(row['total_doubled'] == row['total'] * 2 for row in result_group)
+
+        # chaining builders after add_columns must not duplicate or grow additional_select_list
+        q_chain = t.select(t.c1, t.c2).add_columns(c2_plus_1=t.c2 + 1).where(t.c2 < 5)
+        assert len(q_chain._select_list_exprs) == len(q_chain.schema) == 3
+        assert len(q_chain.additional_select_list) == 1
+        # double-chain: add_columns → where → order_by → add_columns again
+        q_double = (
+            t.select(t.c1, t.c2)
+            .add_columns(c2_plus_1=t.c2 + 1)
+            .where(t.c2 < 5)
+            .order_by(t.c2)
+            .add_columns(c2_minus_1=t.c2 - 1)
+        )
+        result_double = q_double.collect()
+        assert {'c1', 'c2', 'c2_plus_1', 'c2_minus_1'} <= set(result_double.schema)
+        assert len(q_double._select_list_exprs) == len(q_double.schema) == 4
+        assert all(row['c2_plus_1'] == row['c2'] + 1 for row in result_double)
+        assert all(row['c2_minus_1'] == row['c2'] - 1 for row in result_double)
+
+        # serialization/de-serialization check
+        q_double_reloaded = pxt.Query.from_dict(q_double.as_dict())
+        assert len(q_double_reloaded._select_list_exprs) == 4
+        assert len(q_double_reloaded.additional_select_list) == 2
+
+        # add_columns name must not collide with a base-select column name
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='c2'):
+            t.select(t.c1, t.c2).add_columns(c2=t.c2 * 2)
