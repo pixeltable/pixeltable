@@ -37,15 +37,16 @@ if TYPE_CHECKING:
     ]
 
 
-def init(config_overrides: dict[str, Any] | None = None) -> None:
+def init(config_overrides: dict[str, Any] | None = None, additional_config_files: list[str] | None = None) -> None:
     """Initializes the Pixeltable environment.
 
     Args:
         config_overrides: Optional dictionary of configuration overrides.
+        additional_config_files: Optional list of additional TOML config file paths to load.
     """
     if config_overrides is None:
         config_overrides = {}
-    Config.init(config_overrides)
+    Config.init(config_overrides, additional_config_files=additional_config_files)
     _ = get_runtime().catalog
 
 

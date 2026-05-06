@@ -1,7 +1,7 @@
 """
-Replica operation types for pixeltable table replica operations.
+Operation types for pixeltable shared protocol.
 
-This module defines the replica operation types that are shared between
+This module defines operation types that are shared between
 pixeltable core and cloud implementations.
 """
 
@@ -13,21 +13,18 @@ from enum import Enum
 class ReplicaOperationType(str, Enum):
     """Replica operation types for table replica operations."""
 
-    # Table replica operations
     PUBLISH_REPLICA = 'publish_replica'
     FINALIZE_REPLICA = 'finalize_replica'
     CLONE_REPLICA = 'clone_replica'
     DELETE_REPLICA = 'delete_replica'
 
-    def is_replica_operation(self) -> bool:
-        """Check if operation is a replica operation."""
-        return self in REPLICA_OPERATIONS
+
+class PixeltableStoreOperationType(str, Enum):
+    """Operation types for Pixeltable-managed storage (home buckets)."""
+
+    GET_BUCKET_CREDENTIALS = 'get_bucket_credentials'
+    GET_PRESIGNED_URL = 'get_presigned_url'
 
 
-# Define the operation sets as module-level constants
-REPLICA_OPERATIONS: set[ReplicaOperationType] = {
-    ReplicaOperationType.PUBLISH_REPLICA,
-    ReplicaOperationType.FINALIZE_REPLICA,
-    ReplicaOperationType.CLONE_REPLICA,
-    ReplicaOperationType.DELETE_REPLICA,
-}
+REPLICA_OPERATIONS = frozenset(ReplicaOperationType)
+PIXELTABLE_STORE_OPERATIONS = frozenset(PixeltableStoreOperationType)

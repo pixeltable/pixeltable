@@ -414,6 +414,7 @@
           <outline text="udf|pixeltable.functions.openai.transcriptions" />
           <outline text="udf|pixeltable.functions.openai.translations" />
           <outline text="udf|pixeltable.functions.openai.chat_completions" />
+          <outline text="udf|pixeltable.functions.openai.responses" />
           <outline text="udf|pixeltable.functions.openai.embeddings" />
           <outline text="udf|pixeltable.functions.openai.image_generations" />
           <outline text="udf|pixeltable.functions.openai.image_edits" />
@@ -475,6 +476,7 @@
             <outline text="method|pixeltable.serving.FastAPIRouter.add_delete_route" />
             <outline text="method|pixeltable.serving.FastAPIRouter.add_query_route" />
           </outline>
+          <outline text="class|pixeltable.serving.SqlExport" />
         </outline>
       </outline>
 

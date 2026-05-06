@@ -1401,38 +1401,50 @@ class Table(SchemaObject):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        """Inserts rows into this table. There are two mutually exclusive call patterns:
+        """Inserts rows into this table.
 
-        To insert multiple rows at a time:
+        You can insert rows directly by providing a list of dictionaries as the `source`.
 
-        ```python
-        insert(
-            source: TableSourceDataType,
-            /,
-            *,
-            on_error: Literal['abort', 'ignore'] = 'abort',
-            print_stats: bool = False,
-            **kwargs: Any,
-        )
-        ```
+        >>> tbl.insert([{'col1': 1, 'col2': 'egg'}, {'col1': 2, 'col2': 'fish'}])
 
-        To insert just a single row, you can use the more concise syntax:
+        You can also insert data from any recognized data source by providing a file path or URL.
 
-        ```python
-        insert(
-            *,
-            on_error: Literal['abort', 'ignore'] = 'abort',
-            print_stats: bool = False,
-            **kwargs: Any
-        )
-        ```
+        >>> tbl.insert('path/to/file.csv')
+        >>> tbl.insert('https://example.com/data.xlsx')
+        >>> tbl.insert('s3://my-bucket/data.parquet')
+
+        Pixeltable will attempt to infer the format of the source data, unless the optional `source_format`
+        parameter is specified. Pixeltable will also attempt to infer the schema of the source data; you can
+        override the inferred schema by providing a `schema_overrides` dictionary (which may include all
+        columns or just a subset of columns).
+
+        The `source` can also be another table or a [`Query`][pixeltable.Query]:
+
+        >>> tbl.insert(
+        ...     other_tbl.select(
+        ...         col1=other_tbl.other_col, col2=other_tbl.yet_another_col
+        ...     )
+        ... )
+
+        For inserting just a single row, there is a convenient shorthand key/value syntax:
+
+        >>> tbl.insert(col1=1, col2='egg')
 
         Args:
-            source: A data source from which data can be imported.
+            source: A data source from which data can be imported. Can be any of the following:
+
+                - A list of dictionaries
+                - A list of Pydantic model instances
+                - A file path or URI of a recognized data source
+                - A Pandas `DataFrame`
+                - Another Pixeltable table or a `Query`
+                - A Hugging Face dataset
             kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
                 (if inserting multiple rows) Additional keyword arguments are passed to the data source.
-            source_format: A hint about the format of the source data
-            schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
+            source_format: A hint about the format of the source data. If not specified, Pixeltable will attempt
+                to infer the format.
+            schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types.
+                Any columns not included in `schema_overrides` will have their types inferred as usual.
             on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
                 invalid media file (such as a corrupt image) for one of the inserted rows.
 
@@ -1441,6 +1453,8 @@ class Table(SchemaObject):
                     with errors will have a `None` value for that cell, with information about the error stored in the
                     corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
             print_stats: If `True`, print statistics about the cost of computed columns.
+            return_rows: If `True`, populate `UpdateStatus.rows` with one dict per inserted row, mapping column names
+                to their stored or computed values. If `False` (default), `UpdateStatus.rows` is `None`.
 
         Returns:
             An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
@@ -1467,7 +1481,7 @@ class Table(SchemaObject):
 
             Insert rows from a CSV file:
 
-            >>> tbl.insert(source='path/to/file.csv')
+            >>> tbl.insert('path/to/file.csv')
 
             Insert Pydantic model instances into a table with two `pxt.Int` columns `a` and `b`:
 

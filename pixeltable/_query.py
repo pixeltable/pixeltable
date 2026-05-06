@@ -274,19 +274,15 @@ class ResultCursor(Iterable[Row]):
     Examples:
         Iterate over all rows in a table:
 
-        ```python
-        for row in t.cursor():
-            print(row['col_name'])
-        ```
+        >>> for row in t.cursor():
+        ...     print(row['col_name'])
 
         Use as a context manager for early termination:
 
-        ```python
-        with t.select(t.col1, t.col2).cursor() as cur:
-            for row in cur:
-                if row['col1'] > threshold:
-                    break  # resources are released on exit
-        ```
+        >>> with t.select(t.col1, t.col2).cursor() as cur:
+        ...     for row in cur:
+        ...         if row['col1'] > threshold:
+        ...             break  # resources are released on exit
     """
 
     def __init__(self, query: Query):
