@@ -24,6 +24,10 @@ Multi-node HA and horizontal scaling planned for Pixeltable Cloud (2026).
 
 ## Web Framework Concurrency
 
+<Tip>
+**For standard insert, query, and delete endpoints,** consider [built-in HTTP serving](/howto/deployment/serving) with `FastAPIRouter` or a TOML config before writing custom endpoint handlers. It handles request/response schemas, media serving, and background jobs automatically.
+</Tip>
+
 Pixeltable is thread-safe and works with FastAPI, Flask, Django, and other web frameworks out of the box. The key rule: **use sync (`def`) endpoint handlers**, not `async def`.
 
 ### Why Sync Endpoints
@@ -181,7 +185,7 @@ docs_table.add_computed_column(
     if_exists='ignore'  # No-op if column exists
 )
 ```
-- Version control `setup_pixeltable.py` like database migration scripts.
+- Version control `schema.py` like database migration scripts.
 - Rollback via `table.revert()` (single operation) or Git revert (complex changes).
 
 ### Updating Models
@@ -220,7 +224,8 @@ Because both columns coexist, you can A/B test retrieval quality before cutting 
 ## Deployment Patterns
 
 **Web Applications:**
-- Execute `setup_pixeltable.py` during deployment initialization
+- For standard endpoints, use [`pxt serve`](/howto/deployment/serving) with a TOML config or [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
+- For custom logic, import `schema.py` in your app module (tables are created on import)
 - Web server processes connect to Pixeltable instance
 - Pixeltable uses connection pooling internally
 - Use sync (`def`) endpoint handlers for concurrent request support
@@ -272,7 +277,7 @@ COPY backend/ ./
 COPY --from=frontend-build /app/backend/static ./static
 ENV PIXELTABLE_HOME=/data/pixeltable
 EXPOSE 8000
-CMD ["sh", "-c", "uv run python setup_pixeltable.py && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4"]
+CMD ["sh", "-c", "uv run python schema.py && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4"]
 ```
 
 ## Environment Management

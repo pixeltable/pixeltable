@@ -73,7 +73,7 @@ You still need these — Pixeltable is a data layer, not a full application fram
 
 | Tool | Why you still need it |
 |---|---|
-| **FastAPI / Flask / Django** | Pixeltable is a data layer, not a web server — you need an HTTP framework to serve your API |
+| **FastAPI / Flask / Django** | Standard CRUD endpoints can use built-in [HTTP serving](/howto/deployment/serving); custom logic still needs a framework |
 | **Pydantic** | Request/response validation for your API endpoints (Pixeltable's `.to_pydantic()` bridges the two) |
 | **React / Vue / frontend** | UI layer — Pixeltable has no frontend |
 | **Docker / Kubernetes / Terraform** | Deployment infrastructure — Pixeltable runs *inside* your containers, it doesn't provision them |
@@ -322,6 +322,10 @@ def get_document(doc_id: int):
 **Use sync (`def`) endpoints, not `async def`.** FastAPI dispatches sync endpoints to a thread pool, giving each request its own thread. Pixeltable is thread-safe and handles concurrent requests automatically. Using `async def` would block the event loop and serialize all requests. See [Production Operations](/howto/deployment/operations) for details.
 </Tip>
 
+<Tip>
+**Simpler alternative for standard endpoints:** If your endpoints are straightforward insert, query, or delete operations, consider [built-in HTTP serving](/howto/deployment/serving) with `FastAPIRouter` or a TOML config. It auto-generates request/response schemas, handles media serving, and supports background jobs.
+</Tip>
+
 ## Get Started
 
 <Card title="Pixeltable Starter Kit" icon="rocket" href="https://github.com/pixeltable/pixeltable-starter-kit">
@@ -338,6 +342,9 @@ The starter kit contains two reference architectures matching the deployment str
 ## Next Steps
 
 <CardGroup cols={2}>
+  <Card title="HTTP Serving" icon="globe" href="/howto/deployment/serving">
+    Expose tables and queries as HTTP endpoints with TOML or Python
+  </Card>
   <Card title="Infrastructure Setup" icon="server" href="/howto/deployment/infrastructure">
     Code organization and storage architecture
   </Card>

@@ -1,0 +1,258 @@
+---
+title: 'Hand-Written FastAPI Endpoints'
+sidebarTitle: 'Hand-Written Endpoints'
+description: 'Replace hand-written FastAPI endpoints with declarative FastAPIRouter routes'
+---
+
+If your Pixeltable app has hand-written FastAPI endpoints that call `pxt.get_table()`, run queries, and manually serialize results, you can replace most of them with [`FastAPIRouter`](/howto/deployment/serving) routes. The result: fewer lines of code, automatic request/response schemas, built-in media serving, and background job support.
+
+<Note>**Related guide:** [Serving Tables and Queries over HTTP](/howto/deployment/serving)</Note>
+
+---
+
+## Concept Mapping
+
+| Hand-Written Endpoints | `FastAPIRouter` Routes |
+|---|---|
+| Parse request, call `table.insert()`, serialize response | `add_insert_route(table, path, inputs, outputs)` |
+| Parse params, run query, call `to_pydantic()` or `to_pandas()` | `add_query_route(path, query)` |
+| Parse body, call `table.delete_where()` | `add_delete_route(table, path)` |
+| One Pydantic model per endpoint | Auto-generated from column schemas |
+| Manual file responses for media | Built-in `/media/...` handler |
+| Custom task queue for background work | `background=True` on any route |
+
+---
+
+## Side by Side: Query Endpoint
+
+<Tabs>
+  <Tab title="Hand-Written">
+    ```python
+    from fastapi import APIRouter
+    from pydantic import BaseModel
+
+    router = APIRouter(prefix="/api/data", tags=["data"])
+
+    class DocumentItem(BaseModel):
+        title: str
+        document: str
+
+    class DocumentsResponse(BaseModel):
+        items: list[DocumentItem]
+
+    @router.get("/documents", response_model=DocumentsResponse)
+    def list_documents():
+        t = pxt.get_table('myapp.documents')
+        results = t.select(t.title, t.document).collect()
+        return DocumentsResponse(
+            items=[DocumentItem(**row) for row in results.to_dicts()]
+        )
+    ```
+  </Tab>
+  <Tab title="FastAPIRouter">
+    ```python
+    from pixeltable.serving import FastAPIRouter
+    import schema  # import triggers table creation
+
+    router = FastAPIRouter(prefix="/api/data", tags=["data"])
+    router.add_query_route(path="/documents", query=schema.list_documents, method="get")
+    ```
+  </Tab>
+</Tabs>
+
+### What Changes
+
+| | Hand-Written | `FastAPIRouter` |
+|---|---|---|
+| **New endpoint** | Write handler, Pydantic model, serialization | One `add_*_route()` call |
+| **File uploads** | Parse `UploadFile`, save, pass path to insert | `uploadfile_inputs=["image"]` |
+| **Media responses** | Manual `FileResponse` or base64 encoding | Built-in `/media/...` serving |
+| **Background processing** | Custom task queue (Celery, RQ, etc.) | `background=True` on any route |
+| **OpenAPI docs** | Manual schema definitions | Auto-generated from columns |
+| **Delete** | Parse body, call `delete_where()` | `add_delete_route(table, path)` |
+
+---
+
+## Step-by-Step Migration
+
+### 1. Define queries with `@pxt.query`
+
+Every read pattern becomes a `@pxt.query` function. Each one maps to a single `add_query_route` call.
+
+<Warning>
+`@pxt.query` eagerly evaluates the function body at decoration time. Create tables **before** defining queries that reference them. Use `if_exists='ignore'` to make table creation idempotent.
+</Warning>
+
+```python
+# schema.py
+import pixeltable as pxt
+
+docs = pxt.create_table('myapp/documents', {
+    'document': pxt.Document, 'title': pxt.String
+}, if_exists='ignore')
+
+@pxt.query
+def list_documents():
+    return docs.select(docs.title, docs.document).order_by(docs.title)
+
+@pxt.query
+def search_documents(query_text: str, limit: int = 10):
+    sim = docs.text.similarity(string=query_text)
+    return docs.order_by(sim, asc=False).limit(limit).select(docs.title, sim)
+```
+
+### 2. Replace `APIRouter` with `FastAPIRouter`
+
+`FastAPIRouter` is a subclass of `APIRouter`, so hand-written `@router.post()` endpoints coexist on the same instance.
+
+```python
+# main.py
+import fastapi
+import pixeltable as pxt
+from pixeltable.serving import FastAPIRouter
+import schema  # import triggers table creation
+
+app = fastapi.FastAPI()
+router = FastAPIRouter(prefix="/api/data", tags=["data"])
+
+docs_table = pxt.get_table('myapp/documents')
+router.add_query_route(path="/documents", query=schema.list_documents, method="get")
+router.add_query_route(path="/search", query=schema.search_documents)
+router.add_insert_route(docs_table, path="/upload", uploadfile_inputs=["document"], outputs=["uuid"])
+
+app.include_router(router)
+```
+
+### 4. Convert uploads
+
+<Tabs>
+  <Tab title="Hand-Written">
+    ```python
+    @router.post("/upload")
+    def upload(file: UploadFile):
+        t = pxt.get_table('myapp.images')
+        t.insert([{'image': file.filename, 'timestamp': datetime.now()}])
+        return {"status": "ok"}
+    ```
+  </Tab>
+  <Tab title="FastAPIRouter">
+    ```python
+    images_table = pxt.get_table('myapp/images')
+    router.add_insert_route(
+        images_table, path="/upload",
+        uploadfile_inputs=["image"], inputs=["timestamp"],
+        outputs=["uuid", "thumbnail"],
+    )
+    ```
+  </Tab>
+</Tabs>
+
+The multipart form field name must match the column name.
+
+### 5. Convert deletes
+
+```python
+router.add_delete_route(docs_table, path="/delete")
+# Client sends: POST {"uuid": "..."} (matches primary key)
+# Response: {"num_rows": 1}
+```
+
+### 6. Delete old Pydantic models
+
+`FastAPIRouter` auto-generates request/response schemas from column types. Delete hand-written Pydantic models for any endpoint that is now declarative. Keep only models for remaining hand-written endpoints.
+
+---
+
+## When to Keep a Hand-Written Endpoint
+
+Not everything fits the declarative model. Keep `@router.post()` when:
+
+- **Multi-table operations:** inserting into one table then conditionally writing to another
+- **Conditional logic:** different behavior based on intermediate results
+- **Custom response shapes:** aggregating across multiple tables into a single response
+- **Side effects:** sending emails, webhooks, or other non-Pixeltable actions
+
+Since `FastAPIRouter` extends `APIRouter`, hand-written and declarative routes coexist on the same router instance.
+
+---
+
+## Gotchas
+
+### `@pxt.query` runs at decoration time
+
+The function body executes when Python hits the `@pxt.query` decorator, not when you call the function. If the tables don't exist yet, you get an error. Create tables before defining queries in the same module, using `if_exists='ignore'` for idempotency.
+
+### UUID parameters need `uuid.UUID` annotations
+
+Pixeltable UUID columns require `uuid.UUID` objects. Use the type annotation and let Pydantic parse strings automatically:
+
+```python
+import uuid as _uuid
+
+@pxt.query
+def get_chunks(file_uuid: _uuid.UUID):
+    return view.where(view.uuid == file_uuid).select(...)
+```
+
+Do not call `UUID()` inside the query body. The parameter is an expression proxy, not a string.
+
+### Media columns serialize as URL strings
+
+`FastAPIRouter` serializes `pxt.Document`, `pxt.Image`, `pxt.Video` columns as URL paths (e.g., `/api/data/media/path/to/file.pdf`). The client receives a string, not binary data.
+
+### Query routes default to POST
+
+`add_query_route` defaults to `method="post"` (JSON body). For parameter-free list endpoints, set `method="get"`:
+
+```python
+router.add_query_route(path="/list", query=list_all, method="get")
+```
+
+### Delete routes use POST, not HTTP DELETE
+
+`add_delete_route` uses POST with a JSON body (`{"uuid": "..."}`), not the HTTP DELETE method. Update client fetch calls accordingly.
+
+### Query responses wrap results in `{ "rows": [...] }`
+
+All `add_query_route` responses return `{"rows": [...]}`, not a flat array. Client code must unwrap `.rows`.
+
+### Name your embedding indexes explicitly
+
+`add_embedding_index(if_exists="ignore")` can create duplicates without an explicit name. Always pass `idx_name`:
+
+```python
+view.add_embedding_index(
+    'text', idx_name='chunks_text_embed',
+    string_embed=e5_embed, if_exists='ignore',
+)
+```
+
+---
+
+## Best Practices
+
+1. **Start with `@pxt.query`** for all read patterns. Each one becomes a single `add_query_route`.
+2. **One table per route.** Let the client merge results from granular endpoints.
+3. **Use `FastAPIRouter` as your base router.** You get media serving and background jobs for free.
+4. **Keep complex orchestration hand-written.** Multi-table inserts and conditional logic stay as `@router.post()`.
+5. **Type your `@pxt.query` parameters** (`uuid.UUID`, `int`, `float`, `str`). Pydantic coerces the incoming JSON; Pixeltable handles the rest.
+6. **Prototype with TOML first.** [`pxt serve`](/howto/deployment/serving) with a `service.toml` is the fastest way to test a new route before wiring it into your app.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="HTTP Serving Guide" icon="globe" href="/howto/deployment/serving">
+    TOML config, CLI, Python API, background jobs
+  </Card>
+  <Card title="Deployment Overview" icon="server" href="/howto/deployment/overview">
+    Full backend vs. orchestration layer
+  </Card>
+  <Card title="Production Operations" icon="gauge" href="/howto/deployment/operations">
+    Concurrency, error handling, sync endpoints
+  </Card>
+  <Card title="AI Applications" icon="brain" href="/use-cases/ai-applications">
+    End-to-end multimodal app patterns
+  </Card>
+</CardGroup>

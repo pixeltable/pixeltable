@@ -5,18 +5,17 @@ description: "Code organization and storage architecture for Pixeltable deployme
 
 ## Code Organization
 
-Both deployment strategies require separating schema definition from application code.
+Separate schema definition from application code.
 
-**Schema Definition (`setup_pixeltable.py`):**
-- Defines directories, tables, views, computed columns, indexes
+**Schema Definition (`schema.py`):**
+- Defines directories, tables, views, computed columns, indexes, and `@pxt.query` functions
 - Acts as Infrastructure-as-Code for Pixeltable entities
-- Version controlled in Git
-- Executed during initial deployment and schema migrations
+- Module-level definitions with `if_exists='ignore'` for idempotency
+- Importing the module creates all tables (runs once per process)
 
 **Application Code (`app.py`, `endpoints.py`, `functions.py`):**
-- Assumes Pixeltable infrastructure exists
+- Imports `schema` to trigger table creation, then uses `pxt.get_table()` for handles
 - Interacts with tables via `pxt.get_table()` and `@pxt.udf`
-- Handles missing tables/views gracefully
 
 **Configuration (`config.py`):**
 - Externalizes model IDs, API keys, thresholds, connection strings
@@ -24,34 +23,26 @@ Both deployment strategies require separating schema definition from application
 - Never hardcodes secrets
 
 ```python
-# setup_pixeltable.py
+# schema.py — creates tables, defines queries (flat, idempotent)
 import pixeltable as pxt
 import config
 
 pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
 
-pxt.create_table(
+docs = pxt.create_table(
     f'{config.APP_NAMESPACE}/documents',
-    {
-        'document': pxt.Document,
-        'metadata': pxt.Json,
-        'timestamp': pxt.Timestamp
-    },
-    if_exists='ignore'  # Idempotent: safe for repeated execution
+    {'document': pxt.Document, 'metadata': pxt.Json, 'timestamp': pxt.Timestamp},
+    if_exists='ignore',
 )
 
 # ---
 
-# app.py
+# app.py — import triggers table creation, then get handles
+import schema  # noqa: F401 — side-effect import
 import pixeltable as pxt
 import config
 
-docs_table = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
-if docs_table is None:
-    raise RuntimeError(
-        f"Table '{config.APP_NAMESPACE}/documents' not found. "
-        "Run setup_pixeltable.py first."
-    )
+docs = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
 ```
 
 ## Project Structure
@@ -62,7 +53,7 @@ if docs_table is None:
 project/
 ├── config.py              # Environment variables, model IDs, API keys
 ├── functions.py           # Custom UDFs (imported as modules)
-├── setup_pixeltable.py    # Schema definition (tables, views, indexes)
+├── schema.py              # Schema definition (tables, views, indexes, queries)
 ├── app.py                 # Application endpoints (FastAPI/Flask)
 ├── requirements.txt       # Pinned dependencies
 └── .env                   # Secrets (gitignored)
@@ -106,36 +97,30 @@ async def call_custom_model(prompt: str) -> dict:
 ```
   </Tab>
 
-  <Tab title="setup_pixeltable.py">
+  <Tab title="schema.py">
 ```python
 import pixeltable as pxt
 from pixeltable.functions.huggingface import sentence_transformer
 import config
 from functions import format_prompt  # Import module UDFs
 
-# Create namespace
 pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
 
-# Define base table
 docs = pxt.create_table(
     f'{config.APP_NAMESPACE}/documents',
     {'document': pxt.Document, 'metadata': pxt.Json, 'timestamp': pxt.Timestamp},
-    if_exists='ignore'
+    if_exists='ignore',
 )
 
-# Add computed columns
 docs.add_computed_column(
     embedding=sentence_transformer(docs.document, model_id=config.EMBEDDING_MODEL),
-    if_exists='ignore'
+    if_exists='ignore',
 )
 
-# Add embedding index for similarity search
 docs.add_embedding_index('embedding', metric='cosine', if_not_exists=True)
 
-# Define retrieval query function
 @pxt.query
 def search_documents(query_text: str, limit: int = 5):
-    """RAG retrieval query."""
     sim = docs.embedding.similarity(string=query_text)
     return docs.order_by(sim, asc=False).limit(limit).select(docs.document, sim)
 ```
@@ -146,7 +131,7 @@ def search_documents(query_text: str, limit: int = 5):
 from pydantic import BaseModel
 from fastapi import FastAPI
 import pixeltable as pxt
-from setup_pixeltable import search_documents
+import schema  # noqa: F401 — import triggers table creation
 import config
 
 app = FastAPI()
@@ -158,7 +143,7 @@ class SearchResult(BaseModel):
 
 @app.get("/search")
 def search(query: str, limit: int = 5) -> list[SearchResult]:
-    results = search_documents(query, limit).collect()
+    results = schema.search_documents(query, limit).collect()
     return list(results.to_pydantic(SearchResult))
 ```
   </Tab>
@@ -168,11 +153,13 @@ def search(query: str, limit: int = 5) -> list[SearchResult]:
 **Key Principles:**
 - **Module UDFs** (`functions.py`): Update when code changes; improve testability. [Learn more](/platform/udfs-in-pixeltable)
 - **Retrieval Queries** (`@pxt.query`): Encapsulate complex retrieval logic as reusable functions.
-- **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable.
+- **Idempotency:** Use `if_exists='ignore'` to make `schema.py` safely re-runnable.
+- **Built-in HTTP serving:** For standard endpoints, consider [`pxt serve`](/howto/deployment/serving) with a TOML config instead of manual `app.py` setup.
+- **Multi-worker deployments:** With `--workers N`, run `python schema.py` before `uvicorn` so schema creation happens once, not per worker (see [Starter Kit Dockerfile](https://github.com/pixeltable/pixeltable-starter-kit)).
 </Note>
 
 <Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-  See this structure in action — a production-ready FastAPI + React app with `setup_pixeltable.py`, `config.py`, `functions.py`, and endpoint routers already wired up. Includes deployment configs for Docker, Helm, Terraform (EKS/GKE/AKS), and AWS CDK.
+  See this structure in action: a production-ready FastAPI + React app with schema definition, config, UDFs, and endpoint routers already wired up. Includes deployment configs for Docker, Helm, Terraform (EKS/GKE/AKS), and AWS CDK.
 </Card>
 
 ## Storage Architecture

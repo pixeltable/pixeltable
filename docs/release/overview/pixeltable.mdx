@@ -207,6 +207,28 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
     </CardGroup>
   </Accordion>
   
+  <Accordion title="Serve" icon="globe">
+    **Expose tables and queries as HTTP endpoints**
+
+    ```toml
+    # service.toml
+    [[service.routes]]
+    type = "insert"
+    table = "myapp/docs"
+    path = "/ingest"
+    inputs = ["document"]
+    outputs = ["document", "summary"]
+    ```
+
+    ```bash
+    pxt serve my-service --config service.toml
+    ```
+
+    <Card title="HTTP Serving" icon="globe" href="/howto/deployment/serving">
+      TOML config, CLI, Python API, background jobs
+    </Card>
+  </Accordion>
+  
   <Accordion title="Query & Experiment" icon="flask">
     **SQL-like queries + test transformations before committing**
     

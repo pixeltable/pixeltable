@@ -1,5 +1,6 @@
 ---
 title: Serving Tables and Queries over HTTP
+sidebarTitle: HTTP Serving
 description: Configure and deploy Pixeltable endpoints using a TOML service file or Python code.
 ---
 
@@ -67,6 +68,13 @@ app.include_router(router)
 
 uvicorn.run(app, host='0.0.0.0', port=8000)
 ```
+
+<Warning>
+`@pxt.query` eagerly evaluates the function body at decoration time. Create tables
+**before** defining queries that reference them. Use `if_exists='ignore'` to keep
+table creation idempotent. See the
+[migration guide](/migrate/from-hand-written-endpoints) for examples.
+</Warning>
 
 ## Quickstart (single-endpoint CLI)
 
@@ -370,6 +378,10 @@ updated. To replace a media value, delete the row and insert a new one.
 
 ---
 
+<Note>
+Delete routes use HTTP **POST**, not the HTTP DELETE method. Update client-side fetch calls accordingly.
+</Note>
+
 ### Delete routes
 
 Delete rows matching the given column values and return the count of rows affected.
@@ -404,6 +416,10 @@ match_columns = ["tag"]
 ```
 
 ---
+
+<Note>
+Media columns (`pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`) serialize as URL strings (e.g., `/media/path/to/file.pdf`). The client receives a string, not binary data.
+</Note>
 
 ### Query routes
 

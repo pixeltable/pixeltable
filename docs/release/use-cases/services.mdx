@@ -30,18 +30,24 @@ coco = pxt.replicate(remote_uri='pxt://pixeltable:fiftyone/coco_mini_2017', loca
 
 ---
 
-## 2. Endpoints 🔜 Coming Soon
+## 2. Endpoints
 
-One-command API deployment with managed hosting.
+Self-hosted HTTP serving is available now. Cloud deployment with managed hosting is coming soon.
 
-| Feature | What |
-|---------|------|
-| `pxt serve` | Local development server |
-| `pxt deploy` | Cloud deployment with auto-scaling |
-| Pre-signed URLs | Media access without proxying |
+| Feature | Status | What |
+|---------|--------|------|
+| [`pxt serve`](/howto/deployment/serving) | ✅ Available | TOML-configured HTTP endpoints with CLI |
+| [`FastAPIRouter`](/howto/deployment/serving#quickstart-python) | ✅ Available | Declarative routes in Python, drop-in `APIRouter` subclass |
+| Background jobs | ✅ Available | `background=True` on any route |
+| `pxt deploy` | 🔜 Coming Soon | Cloud deployment with auto-scaling |
+| Pre-signed URLs | 🔜 Coming Soon | Media access without proxying |
+
+<Card title="HTTP Serving Guide" icon="globe" href="/howto/deployment/serving">
+  TOML config, CLI, Python API, and background jobs for self-hosted deployments
+</Card>
 
 <Info>
-[Join the waitlist](https://www.pixeltable.com/waitlist) to get early access to Endpoints.
+[Join the waitlist](https://www.pixeltable.com/waitlist) to get early access to cloud-managed Endpoints.
 </Info>
 
 ---

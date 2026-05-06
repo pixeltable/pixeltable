@@ -8,7 +8,7 @@
 <br>
 </div>
 
-The only open source Python library providing declarative, transactional data infrastructure for building multimodal AI applications — with incremental storage, transformation, indexing, retrieval, and orchestration of data, all with full operational integrity.
+Pixeltable is declarative, incremental data infrastructure for multimodal AI. Video, audio, images, and documents are first-class column types, not opaque blobs. Computed columns replace ETL pipelines. Embedding indexes and retrieval are built in. One system replaces five.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
@@ -33,7 +33,7 @@ The only open source Python library providing declarative, transactional data in
 pip install pixeltable
 ```
 
-Pixeltable bundles its own transactional database, orchestration engine, and local dashboard. No Docker, no external services — `pip install` is all you need. All data is managed in `~/.pixeltable` and accessed through the [Python SDK](https://docs.pixeltable.com/sdk/latest/pixeltable). See [Working with External Files](https://docs.pixeltable.com/platform/external-files) and [Storage Architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) for details.
+Pixeltable bundles its own transactional database, orchestration engine, and local dashboard. No Docker, no external services; `pip install` is all you need. All data is managed in `~/.pixeltable` and accessed through the [Python SDK](https://docs.pixeltable.com/sdk/latest/pixeltable). See [Working with External Files](https://docs.pixeltable.com/platform/external-files) and [Storage Architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) for details.
 
 ## Quick Start
 
@@ -52,35 +52,28 @@ Set your Gemini API key via environment variable or `~/.pixeltable/config.toml`.
 import pixeltable as pxt
 from pixeltable.functions import gemini, huggingface
 
-# 1. Store — structured data + media references, versioned and materialized automatically
 videos = pxt.create_table('video_search', {'video': pxt.Video, 'title': pxt.String})
 
-# 2. Orchestrate — computed columns are nodes in the table's DAG; the table is the pipeline
 videos.add_computed_column(scenes=videos.video.scene_detect_adaptive())
 
-# 3. AI integration — external API calls with rate limiting, retry, and async parallelism
 videos.add_computed_column(
     response=gemini.generate_content(
         [videos.video, 'Describe this video in detail.'], model='gemini-3-flash-preview'
     )
 )
 
-# 4. JSON path expressions — extract nested fields with just-in-time typing
 videos.add_computed_column(
     description=videos.response.candidates[0].content.parts[0].text
 )
 
-# 5. Incremental index maintenance — embedding indexes stay in sync, no ETL pipeline needed
 videos.add_embedding_index('video', embedding=gemini.embed_content.using(model='gemini-embedding-2-preview'))
 
-# Insert data — triggers the full pipeline automatically
 base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources'
 videos.insert([
     {'video': f'{base_url}/bangkok.mp4', 'title': 'Bangkok Street Tour'},
     {'video': f'{base_url}/The-Pursuit-of-Happiness-Video-Extract.mp4', 'title': 'The Pursuit of Happiness'},
 ])
 
-# 6. Retrieve — structured + unstructured data side by side, with on-the-fly transforms
 videos.select(
     videos.video,
     videos.title,
@@ -91,7 +84,6 @@ videos.select(
     ),
 ).collect()
 
-# 7. Cross-modal search — find similar videos using a reference image, with filters
 sim = videos.video.similarity(image=f'{base_url}/The-Pursuit-of-Happiness-Screenshot.png')
 videos.where(videos.description != None).order_by(sim, asc=False).limit(5).collect()
 ```
@@ -105,32 +97,17 @@ videos.where(videos.description != None).order_by(sim, asc=False).limit(5).colle
 | `add_embedding_index(column)` | Manages vector storage, keeps index in sync |
 | `@pxt.udf` / `@pxt.query` | Creates reusable functions with dependency tracking |
 | `table.insert(...)` | Triggers all dependent computations automatically |
-| `t.sample(5).select(t.text, summary=udf(t.text))` | Experiment on a sample — nothing stored, calls parallelized and cached |
+| `t.sample(5).select(t.text, summary=udf(t.text))` | Experiment on a sample; nothing stored, calls parallelized and cached |
 | `table.select(...).collect()` | Returns structured + unstructured data together |
-| *(nothing — it's automatic)* | Versions all data and schema changes for time-travel |
+| *(nothing; it's automatic)* | Versions all data and schema changes for time-travel |
 
-That single workflow replaces most of the typical AI stack:
-
-| Instead of ... | Pixeltable gives you ... |
-|---|---|
-| PostgreSQL / MySQL | `pxt.create_table()` — schema is Python, versioned automatically |
-| pgAdmin / Retool.. | Built-in local dashboard — auto-launches, zero config |
-| Pinecone / Weaviate / Qdrant | `add_embedding_index()` — one line, stays in sync |
-| S3 / boto3 / blob storage | `pxt.Image` / `Video` / `Audio` / `Document` types with caching; `destination='s3://...'` |
-| Airflow / Prefect / Celery | Computed columns trigger on insert — no orchestrator needed |
-| LangChain / LlamaIndex (RAG) | `@pxt.query` + `.similarity()` + computed column chaining |
-| pandas / polars (multimodal) | `.sample()`, ephemeral UDFs, then `add_computed_column()` |
-| DVC / MLflow / W&B | Built-in `history()`, `revert()`, time travel (`table:N`), snapshots |
-| Custom retry / rate-limit / caching | Built into every AI integration; results cached, only new rows recomputed |
-| Custom ETL / glue code | Declarative schema — Pixeltable handles execution, caching, incremental updates |
-
-On top of these, Pixeltable ships with [built-in functions](https://docs.pixeltable.com/sdk/latest/pixeltable) for media processing (FFmpeg, Pillow, spaCy), embeddings (sentence-transformers, CLIP), and [30+ AI providers](https://docs.pixeltable.com/integrations/frameworks) (OpenAI, Anthropic, Gemini, Ollama, and more). For anything domain-specific, wrap your own logic with [`@pxt.udf`](https://docs.pixeltable.com/platform/udfs-in-pixeltable). You still write the application layer (FastAPI, React, Docker).
+Pixeltable ships with [built-in functions](https://docs.pixeltable.com/sdk/latest/pixeltable) for media processing (FFmpeg, Pillow, spaCy), embeddings (sentence-transformers, CLIP), and [30+ AI providers](https://docs.pixeltable.com/integrations/frameworks) (OpenAI, Anthropic, Gemini, Ollama, and more). For anything domain-specific, wrap your own logic with [`@pxt.udf`](https://docs.pixeltable.com/platform/udfs-in-pixeltable). You still write the application layer (FastAPI, React, Docker).
 
 **Deployment options:** Pixeltable can serve as your [full backend](https://docs.pixeltable.com/howto/deployment/overview) (managing media locally or syncing with S3/GCS/Azure, plus built-in vector search and orchestration) or as an [orchestration layer](https://docs.pixeltable.com/howto/deployment/overview) alongside your existing infrastructure.
 
 ## Demo
 
-See Pixeltable in action — table creation, computed columns, multimodal processing, and querying in a single workflow:
+See Pixeltable in action: table creation, computed columns, multimodal processing, and querying in a single workflow.
 
 https://github.com/user-attachments/assets/b50fd6df-5169-4881-9dbe-1b6e5d06cede
 
@@ -281,13 +258,44 @@ t.add_computed_column(
 </details>
 
 <details>
+<summary><b>Serve:</b> Expose Tables & Queries as HTTP Endpoints</summary>
+<br>
+
+Expose any table or `@pxt.query` as an HTTP endpoint with a [TOML config](https://docs.pixeltable.com/howto/deployment/serving) or a single Python call. `FastAPIRouter` is a drop-in subclass of FastAPI's `APIRouter`, so declarative and hand-written routes coexist on the same router.
+
+```toml
+# service.toml
+[[service.routes]]
+type = "insert"
+table = "myapp/docs"
+path = "/ingest"
+inputs = ["document"]
+outputs = ["document", "summary"]
+```
+
+```bash
+pxt serve my-service --config service.toml
+```
+
+```python
+from pixeltable.serving import FastAPIRouter
+
+router = FastAPIRouter(prefix="/api", tags=["data"])
+router.add_query_route(path="/search", query=search_documents)
+router.add_insert_route(table, path="/upload", uploadfile_inputs=["image"])
+```
+
+→ [HTTP Serving Guide](https://docs.pixeltable.com/howto/deployment/serving) · [Migrating from Hand-Written Endpoints](https://docs.pixeltable.com/migrate/from-hand-written-endpoints) · [Deployment Overview](https://docs.pixeltable.com/howto/deployment/overview)
+</details>
+
+<details>
 <summary><b>Query & Experiment:</b> The Best Path from Prototype to Production</summary>
 <br>
 
 Unlike pandas/polars, Pixeltable [persists everything](https://docs.pixeltable.com/tutorials/queries-and-expressions), parallelizes API calls automatically, caches results, and turns your experiment into production with one line change. **No separate notebook → pipeline handoff:**
 
 ```python
-# Explore with a familiar DSL — filter, sample, apply UDFs ephemerally
+# Explore: filter, sample, apply UDFs ephemerally
 results = (
     t.where(t.score > 0.8)
     .order_by(t.timestamp)
@@ -296,10 +304,10 @@ results = (
     .collect()
 )
 
-# Sample 5 rows and test a UDF — nothing stored, API calls parallelized and cached
+# Sample 5 rows and test a UDF (nothing stored, calls parallelized and cached)
 t.sample(5).select(t.text, summary=summarize(t.text)).collect()
 
-# Happy? One line to commit — runs on full dataset, skips already-cached rows
+# Happy? One line to commit; runs on full dataset, skips already-cached rows
 t.add_computed_column(summary=summarize(t.text))
 ```
 
@@ -327,7 +335,7 @@ old_version = pxt.get_table('my_table:472')  # Query a specific version
 <summary><b>Inspect:</b> Local Dashboard</summary>
 <br>
 
-Pixeltable ships with a built-in local dashboard that launches automatically when you start a session. Browse tables, inspect schemas, view media with lightbox navigation, visualize your full data pipeline as a DAG, and track computation errors — all from your browser.
+Pixeltable ships with a built-in local dashboard that launches automatically when you start a session. Browse tables, inspect schemas, view media with lightbox navigation, visualize your full data pipeline as a DAG, and track computation errors, all from your browser.
 
 ```python
 import pixeltable as pxt
@@ -386,7 +394,7 @@ pxt.export_images_as_fo_dataset(table, table.image)   # FiftyOne
 
 Store computed media using the `destination` parameter on columns, or set defaults globally via `PIXELTABLE_OUTPUT_MEDIA_DEST` and `PIXELTABLE_INPUT_MEDIA_DEST`. See [Configuration](https://docs.pixeltable.com/howto/configuration).
 
-**Data Sharing:** Publish datasets to Pixeltable Cloud for team collaboration or public sharing. Replicate public datasets instantly—no account needed for replication.
+**Data Sharing:** Publish datasets to Pixeltable Cloud for team collaboration or public sharing. Replicate public datasets instantly; no account needed for replication.
 
 ```python
 import pixeltable as pxt
@@ -417,7 +425,7 @@ t.add_computed_column(
 | [**Pixelbot**](https://github.com/pixeltable/pixelbot) | Multimodal AI agent, an interactive data studio with on-demand ML inference, media generation, and a database explore |
 | [**Pixelagent**](https://github.com/pixeltable/pixelagent) | Lightweight agent framework with built-in memory and tool orchestration |
 | [**Pixelmemory**](https://github.com/pixeltable/pixelmemory) | Persistent memory layer for AI applications |
-| [**Skill**](https://github.com/pixeltable/pixeltable-skill) | AI coding skill for Cursor, Claude Code, Copilot, Windsurf, and other AI IDEs — reduces hallucination and generates accurate Pixeltable code |
+| [**Skill**](https://github.com/pixeltable/pixeltable-skill) | AI coding skill for Cursor, Claude Code, Copilot, Windsurf, and other AI IDEs; reduces hallucination and generates accurate Pixeltable code |
 | [**MCP Server**](https://github.com/pixeltable/mcp-server-pixeltable-developer) | Model Context Protocol server for Claude, Cursor, and other AI IDEs |
 
 ## Contributing
