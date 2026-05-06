@@ -58,15 +58,14 @@ videos.add_computed_column(scenes=videos.video.scene_detect_adaptive())
 
 videos.add_computed_column(
     response=gemini.generate_content(
-        [videos.video, 'Describe this video in detail.'], model='gemini-3-flash'
+        [videos.video, 'Describe this video in detail.'], model='gemini-3-flash-preview'
     )
 )
 
 videos.add_computed_column(
-    description=videos.response.candidates[0].content.parts[0].text
+    description=videos.response.candidates[0].content.parts[0].text.astype(pxt.String)
 )
 
-videos.add_embedding_index('video', embedding=gemini.embed_content.using(model='gemini-embedding-2-preview'))
 videos.add_embedding_index('description', embedding=gemini.embed_content.using(model='gemini-embedding-2-preview'))
 
 base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources'
@@ -76,7 +75,6 @@ videos.insert([
 ])
 
 videos.select(
-    videos.video,
     videos.title,
     videos.description,
     detections=huggingface.detr_for_object_detection(
@@ -85,8 +83,8 @@ videos.select(
     ),
 ).collect()
 
-sim = videos.video.similarity(image=f'{base_url}/The-Pursuit-of-Happiness-Screenshot.png')
-videos.where(videos.description != None).order_by(sim, asc=False).limit(5).collect()
+sim = videos.description.similarity(string='street food')
+videos.order_by(sim, asc=False).limit(5).select(videos.title, sim).collect()
 ```
 
 Wrap any query as an HTTP endpoint and serve it:

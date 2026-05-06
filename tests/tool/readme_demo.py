@@ -1,5 +1,5 @@
 """
-Pixeltable end-to-end demo: Storage → Orchestration → Retrieval → Serving
+Pixeltable end-to-end demo: Storage, Orchestration, Retrieval, Serving
 
     GEMINI_API_KEY=... python tests/tool/readme_demo.py
 
@@ -22,14 +22,15 @@ videos.add_computed_column(scenes=videos.video.scene_detect_adaptive())
 
 videos.add_computed_column(
     response=gemini.generate_content(
-        [videos.video, 'Describe this video in detail.'], model='gemini-3-flash'
+        [videos.video, 'Describe this video in detail.'], model='gemini-3-flash-preview'
     )
 )
 
-videos.add_computed_column(description=videos.response.candidates[0].content.parts[0].text)
+videos.add_computed_column(
+    description=videos.response.candidates[0].content.parts[0].text.astype(pxt.String)
+)
 
 # ── Indexing ─────────────────────────────────────────────────────────
-videos.add_embedding_index('video', embedding=gemini.embed_content.using(model='gemini-embedding-2-preview'))
 videos.add_embedding_index('description', embedding=gemini.embed_content.using(model='gemini-embedding-2-preview'))
 
 # ── Insert (triggers the full pipeline) ──────────────────────────────
@@ -47,9 +48,9 @@ videos.select(
     ),
 ).collect()
 
-# ── Retrieval: cross-modal search (find video by image) ──────────────
-sim = videos.video.similarity(image=f'{BASE_URL}/The-Pursuit-of-Happiness-Screenshot.png')
-videos.where(videos.description != None).order_by(sim, asc=False).limit(5).collect()
+# ── Retrieval: semantic search ───────────────────────────────────────
+sim = videos.description.similarity(string='street food')
+videos.order_by(sim, asc=False).limit(5).select(videos.title, sim).collect()
 
 # ── Serving ──────────────────────────────────────────────────────────
 @pxt.query
