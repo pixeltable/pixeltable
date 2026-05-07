@@ -9,13 +9,7 @@ from pathlib import Path
 from typing import AsyncIterator, Iterator, NamedTuple
 
 from pixeltable import exprs
-from pixeltable.utils.object_stores import (
-    ObjectOps,
-    ObjectPath,
-    ObjectStoreBase,
-    ResolvedFileDestination,
-    StorageTarget,
-)
+from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
@@ -61,7 +55,7 @@ class ObjectStoreSaveNode(ExecNode):
         # Resolved on the caller thread so that worker threads do not need catalog access
         # to perform the file write.
         store: ObjectStoreBase
-        resolved: ResolvedFileDestination
+        dest: FileDestination
         destination_count: int = 1  # number of unique destinations for this file
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
@@ -262,11 +256,11 @@ class ObjectStoreSaveNode(ExecNode):
                 continue
 
             # Resolve the destination on the caller thread (catalog context). The worker thread
-            # consumes only store and resolved and never accesses catalog state.
+            # consumes only store and dest and never accesses catalog state.
             store = ObjectOps.get_store(destination, False, col.name)
-            resolved = store.prepare_destination(col.tbl_handle.id, col.id, col.get_tbl().version, ext=src_path.suffix)
+            dest = store.resolve_destination(col.tbl_handle.id, col.id, col.get_tbl().version, ext=src_path.suffix)
             work_item = ObjectStoreSaveNode.WorkItem(
-                src_path=src_path, destination=destination, info=info, store=store, resolved=resolved
+                src_path=src_path, destination=destination, info=info, store=store, dest=dest
             )
             row_to_do.append(work_item)
             self.in_flight_work[work_designator] = [(row, info)]
@@ -320,7 +314,7 @@ class ObjectStoreSaveNode(ExecNode):
         """
         try:
             new_file_url = ObjectOps.put_file_resolved(
-                work_item.store, work_item.src_path, work_item.resolved, work_item.destination_count == 1
+                work_item.store, work_item.src_path, work_item.dest, work_item.destination_count == 1
             )
             return new_file_url, None
         except Exception as e:

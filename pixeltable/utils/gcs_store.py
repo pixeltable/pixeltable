@@ -15,9 +15,9 @@ from google.cloud.storage.client import Client  # type: ignore[import-untyped]
 from pixeltable import env, exceptions as excs
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import (
+    FileDestination,
     ObjectPath,
     ObjectStoreBase,
-    ResolvedFileDestination,
     StorageObjectAddress,
     StorageTarget,
 )
@@ -111,23 +111,23 @@ class GCSStore(ObjectStoreBase):
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def prepare_destination(
+    def resolve_destination(
         self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
-    ) -> ResolvedFileDestination:
-        new_file_uri = self._prepare_uri_raw(tbl_id, col_id, tbl_version, ext=ext)
-        parsed = urllib.parse.urlparse(new_file_uri)
+    ) -> FileDestination:
+        url = self._prepare_uri_raw(tbl_id, col_id, tbl_version, ext=ext)
+        parsed = urllib.parse.urlparse(url)
         blob_name = parsed.path.lstrip('/')
-        return ResolvedFileDestination(new_file_url=new_file_uri, remote_key=blob_name)
+        return FileDestination(url=url, remote_key=blob_name)
 
-    def copy_local_file_resolved(self, src_path: Path, resolved: ResolvedFileDestination) -> str:
-        assert resolved.remote_key is not None
+    def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
+        assert dest.remote_key is not None
         try:
             client = self.client()
             bucket = client.bucket(self.bucket_name)
-            blob = bucket.blob(resolved.remote_key)
+            blob = bucket.blob(dest.remote_key)
             blob.upload_from_filename(str(src_path))
-            _logger.debug(f'Media Storage: copied {src_path} to {resolved.new_file_url}')
-            return resolved.new_file_url
+            _logger.debug(f'Media Storage: copied {src_path} to {dest.url}')
+            return dest.url
         except GoogleAPIError as e:
             self.handle_gcs_error(e, self.bucket_name, f'upload file {src_path}')
             raise

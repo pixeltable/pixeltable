@@ -18,16 +18,14 @@ if TYPE_CHECKING:
 
 
 @dataclasses.dataclass(frozen=True)
-class ResolvedFileDestination:
-    """A file destination resolved on the caller thread, used for thread-safe writes.
+class FileDestination:
+    """A file destination: the final URL plus exactly one store-specific identifier.
 
-    Built by ObjectStoreBase.prepare_destination on the caller thread (which has catalog
-    access). Consumed by ObjectStoreBase.{move,copy}_local_file_resolved and
-    ObjectOps.put_file_resolved on a worker thread, which performs the I/O without further
-    catalog state access.
+    Self-contained (no catalog references), so instances can be passed across threads.
     """
 
-    new_file_url: str  # final URL of the persisted file (returned to the caller on success)
+    url: str  # final URL of the persisted file (returned to the caller on success)
+
     # Store-specific destination identifier; exactly one is set, depending on store type.
     local_path: Path | None = None  # LocalStore: filesystem destination
     remote_key: str | None = None  # cloud stores: object key / blob name within the bucket / container
@@ -353,28 +351,28 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
-    def prepare_destination(
+    def resolve_destination(
         self, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None
-    ) -> ResolvedFileDestination:
-        """Caller-thread side: resolve a destination for a new file.
+    ) -> FileDestination:
+        """Caller-thread side: compute a destination for a new file.
 
-        Returns a ResolvedFileDestination that captures everything a worker thread needs to
+        Returns a FileDestination that captures everything a worker thread needs to
         perform the write, with no further catalog access required.
         """
         raise AssertionError
 
-    def move_local_file_resolved(self, src_path: Path, resolved: ResolvedFileDestination) -> str | None:
-        """Worker-thread side: attempt to move a local file to the resolved destination.
+    def move_local_file(self, src_path: Path, dest: FileDestination) -> str | None:
+        """Worker-thread side: attempt to move a local file to the destination.
 
         Returns the new file URL on success, or None if move is not supported (in which case
-        the caller should fall back to copy_local_file_resolved). The default returns None;
+        the caller should fall back to copy_local_file). The default returns None;
         only stores that can perform an atomic move (e.g., LocalStore via filesystem rename)
         override this.
         """
         return None
 
-    def copy_local_file_resolved(self, src_path: Path, resolved: ResolvedFileDestination) -> str:
-        """Worker-thread side: copy a local file to the resolved destination, returning the new file URL."""
+    def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
+        """Worker-thread side: copy a local file to the destination, returning the new file URL."""
         raise AssertionError
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
@@ -523,18 +521,14 @@ class ObjectOps:
     def put_file(cls, col: Column, src_path: Path, relocate_or_delete: bool) -> str:
         """Move or copy a file to the destination, returning the file's URL within the destination.
         If relocate_or_delete is True and the file is in the TempStore, the file will be deleted after the operation.
-
-        Caller-thread convenience that resolves the destination from the Column and dispatches
-        to put_file_resolved. Worker threads (e.g., ObjectStoreSaveNode's executor) should
-        precompute the destination on the caller thread and call put_file_resolved directly.
         """
         store = cls.get_store(col.destination, False, col.name)
-        resolved = store.prepare_destination(col.tbl_handle.id, col.id, col.get_tbl().version, ext=src_path.suffix)
-        return cls.put_file_resolved(store, src_path, resolved, relocate_or_delete)
+        dest = store.resolve_destination(col.tbl_handle.id, col.id, col.get_tbl().version, ext=src_path.suffix)
+        return cls.put_file_resolved(store, src_path, dest, relocate_or_delete)
 
     @classmethod
     def put_file_resolved(
-        cls, store: ObjectStoreBase, src_path: Path, resolved: ResolvedFileDestination, relocate_or_delete: bool
+        cls, store: ObjectStoreBase, src_path: Path, dest: FileDestination, relocate_or_delete: bool
     ) -> str:
         """Worker-thread version of put_file: performs move-or-copy with no catalog access."""
         from pixeltable.utils.local_store import TempStore
@@ -542,13 +536,13 @@ class ObjectOps:
         if relocate_or_delete:
             # File is temporary, used only once, so we can delete it after copy if it can't be moved
             assert TempStore.contains_path(src_path)
-            moved_file_url = store.move_local_file_resolved(src_path, resolved)
-            if moved_file_url is not None:
-                return moved_file_url
-        new_file_url = store.copy_local_file_resolved(src_path, resolved)
+            moved_url = store.move_local_file(src_path, dest)
+            if moved_url is not None:
+                return moved_url
+        url = store.copy_local_file(src_path, dest)
         if relocate_or_delete:
             TempStore.delete_media_file(src_path)
-        return new_file_url
+        return url
 
     @classmethod
     def delete(cls, dest: str | None, tbl_id: UUID, tbl_version: int | None = None) -> int | None:

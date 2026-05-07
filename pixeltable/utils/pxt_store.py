@@ -23,8 +23,8 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.cloud_utils import get_bucket_credentials, get_presigned_url_from_cloud
 from pixeltable.utils.object_stores import (
     S3_COMPATIBLE_TARGETS,
+    FileDestination,
     ObjectStoreBase,
-    ResolvedFileDestination,
     StorageObjectAddress,
     StorageTarget,
 )
@@ -260,23 +260,21 @@ class PxtStore(ObjectStoreBase):
                 provider=self._pxt_store_entry.storage_provider,
             ) from e
 
-    def prepare_destination(
+    def resolve_destination(
         self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
-    ) -> ResolvedFileDestination:
-        inner = self._store.prepare_destination(tbl_id, col_id, tbl_version, ext=ext)
-        return ResolvedFileDestination(
-            new_file_url=self._to_logical_uri(inner.new_file_url), remote_key=inner.remote_key
-        )
+    ) -> FileDestination:
+        inner = self._store.resolve_destination(tbl_id, col_id, tbl_version, ext=ext)
+        return FileDestination(url=self._to_logical_uri(inner.url), remote_key=inner.remote_key)
 
-    def copy_local_file_resolved(self, src_path: Path, resolved: ResolvedFileDestination) -> str:
+    def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
         if self._pxt_store_entry.no_space_left:
             raise excs.ServiceUnavailableError(
                 ErrorCode.STORE_UNAVAILABLE,
                 'No space left in Pixeltable store. Only read and delete operations are allowed.',
             )
-        # Inner S3 store reads resolved.remote_key for the upload and returns resolved.new_file_url;
-        # since new_file_url is already the logical (pxtfs://) URL, we can pass resolved through unchanged.
-        return self._store.copy_local_file_resolved(src_path, resolved)
+        # Inner S3 store reads dest.remote_key for the upload and returns dest.url; since
+        # dest.url is already the logical (pxtfs://) URL, we can pass dest through unchanged.
+        return self._store.copy_local_file(src_path, dest)
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         return self._store.copy_object_to_local_file(src_path, dest_path)

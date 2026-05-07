@@ -16,9 +16,9 @@ from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import (
+    FileDestination,
     ObjectPath,
     ObjectStoreBase,
-    ResolvedFileDestination,
     StorageObjectAddress,
     StorageTarget,
 )
@@ -300,11 +300,11 @@ class S3Store(ObjectStoreBase):
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def prepare_destination(
+    def resolve_destination(
         self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
-    ) -> ResolvedFileDestination:
-        new_file_uri = self._prepare_uri_raw(tbl_id, col_id, tbl_version, ext=ext)
-        parsed = urllib.parse.urlparse(new_file_uri)
+    ) -> FileDestination:
+        url = self._prepare_uri_raw(tbl_id, col_id, tbl_version, ext=ext)
+        parsed = urllib.parse.urlparse(url)
         key = parsed.path.lstrip('/')
         if self.soa.storage_target in {
             StorageTarget.R2_STORE,
@@ -313,7 +313,7 @@ class S3Store(ObjectStoreBase):
             StorageTarget.PIXELTABLE_STORE,
         }:
             key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2/B2
-        return ResolvedFileDestination(new_file_url=new_file_uri, remote_key=key)
+        return FileDestination(url=url, remote_key=key)
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe."""
@@ -323,17 +323,17 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, f'downloading file {src_path!r}')
             raise
 
-    def copy_local_file_resolved(self, src_path: Path, resolved: ResolvedFileDestination) -> str:
-        assert resolved.remote_key is not None
+    def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
+        assert dest.remote_key is not None
         try:
-            _logger.debug(f'Media Storage: copying {src_path} to {resolved.new_file_url} : Key: {resolved.remote_key}')
+            _logger.debug(f'Media Storage: copying {src_path} to {dest.url} : Key: {dest.remote_key}')
             content_type = puremagic.from_file(str(src_path), mime=True)
             extra_args = {'ContentType': content_type} if content_type is not None else None
             self.client().upload_file(
-                Filename=str(src_path), Bucket=self.bucket_name, Key=resolved.remote_key, ExtraArgs=extra_args
+                Filename=str(src_path), Bucket=self.bucket_name, Key=dest.remote_key, ExtraArgs=extra_args
             )
-            _logger.debug(f'Media Storage: copied {src_path} to {resolved.new_file_url}')
-            return resolved.new_file_url
+            _logger.debug(f'Media Storage: copied {src_path} to {dest.url}')
+            return dest.url
         except ClientError as e:
             self.handle_s3_error(e, 'uploading file')
             raise

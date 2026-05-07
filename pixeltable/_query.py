@@ -357,7 +357,11 @@ class ResultCursor(Iterable[Row]):
 
 
 class Query:
-    """Represents a query for retrieving and transforming data from Pixeltable tables."""
+    """
+    Represents a query for retrieving and transforming data from Pixeltable tables.
+
+    Thread-safe.
+    """
 
     _from_clause: plan.FromClause
     _select_list_exprs: list[exprs.Expr]
@@ -365,19 +369,14 @@ class Query:
     select_list: list[tuple[exprs.Expr, str | None]] | None
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
-    # Stored as a TableVersionHandle (identity-only) rather than a TableVersion so the Query
-    # is shareable across thread/transaction boundaries: every read goes through the catalog's
-    # is_validated-gated machinery on the calling thread.
+    # TVH: we need to avoid inadvertently caching catalog objects, which get invalidated across thread/xact boundaries
     grouping_tbl: catalog.TableVersionHandle | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
     offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
-    # The Catalog instance this Query was constructed against. Used by _exec / _aexec to
-    # defensively deepcopy when the Query is invoked under a different Catalog (e.g., a
-    # global Query held by user code and called from FastAPI worker threads, or a Query
-    # held across reset_runtime). Set in __init__ from get_runtime().catalog and re-set
-    # by __deepcopy__.
+
+    # Catalog instance against which this Query was constructed
     _origin_catalog: 'catalog.Catalog'
 
     def __init__(
@@ -415,15 +414,12 @@ class Query:
         self._origin_catalog = get_runtime().catalog
 
     def __deepcopy__(self, memo: dict[int, Any]) -> 'Query':
-        # Default-deep traversal across all fields (which reaches into FromClause to
-        # TableVersionPath to TableVersionHandle, and into Exprs whose own copy() overrides
-        # take care of resetting the per-(thread, xact) caches), then re-tag _origin_catalog
-        # to the calling thread's catalog. See _exec / _aexec for the defensive use-site.
         cls = type(self)
         new = cls.__new__(cls)
         memo[id(self)] = new
         for k, v in self.__dict__.items():
             new.__dict__[k] = copy.deepcopy(v, memo)
+        # make sure to record the current catalog
         new._origin_catalog = get_runtime().catalog
         return new
 
@@ -616,7 +612,6 @@ class Query:
         return len(self._from_clause.join_clauses) > 0
 
     def show(self, n: int = 20) -> ResultSet:
-        # See _output_row_iterator for the rationale on the defensive copy.
         if self._origin_catalog is not get_runtime().catalog:
             return copy.deepcopy(self).show(n)
         if self.sample_clause is not None:
@@ -639,7 +634,6 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        # See _output_row_iterator for the rationale on the defensive copy.
         if self._origin_catalog is not get_runtime().catalog:
             return copy.deepcopy(self).head(n)
         if self.order_by_clause is not None:
@@ -669,7 +663,6 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        # See _output_row_iterator for the rationale on the defensive copy.
         if self._origin_catalog is not get_runtime().catalog:
             return copy.deepcopy(self).tail(n)
         if self.order_by_clause is not None:
@@ -846,7 +839,6 @@ class Query:
         return ResultCursor(self)
 
     async def _acollect(self) -> ResultSet:
-        # See _output_row_iterator for the rationale on the defensive copy.
         if self._origin_catalog is not get_runtime().catalog:
             return await copy.deepcopy(self)._acollect()
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
@@ -869,7 +861,6 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        # See _output_row_iterator for the rationale on the defensive copy.
         if self._origin_catalog is not get_runtime().catalog:
             return copy.deepcopy(self).count()
         if self.limit_val is not None and self.limit_val.val == 0:
