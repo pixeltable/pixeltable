@@ -778,7 +778,7 @@ class Catalog:
                     assert tbl_md.tbl_state in (schema.TableState.ROLLFORWARD, schema.TableState.ROLLBACK)
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
 
-                    ops = None
+                    ops: list[TableOp] | None = None
                     if rollover_op_update is not None:
                         done, ops = self._set_pending_op_status(
                             tbl_id,
