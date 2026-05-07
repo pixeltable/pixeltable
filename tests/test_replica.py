@@ -1,12 +1,21 @@
+import pytest
+
 import pixeltable as pxt
 from pixeltable.catalog import retry_loop
 from pixeltable.catalog.path import Path
+from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from tests.utils import reload_catalog
 
 
+def _skip_replica_if_cockroachdb() -> None:
+    if Env.get().is_using_cockroachdb:
+        pytest.skip('Replica creation not yet implemented for CockroachDB [PXT-1102]')
+
+
 class TestReplica:
     def test_replica(self, test_tbl: pxt.Table) -> None:
+        _skip_replica_if_cockroachdb()
         """
         Isolated test for the replica creation functionality.
         """
@@ -49,6 +58,7 @@ class TestReplica:
         assert t2.get_metadata()['is_replica']
 
     def test_complex_replica(self, uses_db: None) -> None:
+        _skip_replica_if_cockroachdb()
         """
         This test involves various more complicated arrangements of tables and snapshots.
 

@@ -122,7 +122,7 @@ def microsecond(self: datetime) -> int:
 
 @microsecond.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.extract('microseconds', self) - sql.extract('second', self) * 1000000
+    return sql.extract('microseconds', self).cast(sql.Integer) - sql.extract('second', self).cast(sql.Integer) * 1000000
 
 
 @pxt.udf(is_method=True)
@@ -152,7 +152,7 @@ def weekday(self: datetime) -> int:
 
 @weekday.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.extract('isodow', self) - 1
+    return sql.extract('isodow', self).cast(sql.Integer) - 1
 
 
 @pxt.udf(is_method=True)
@@ -240,7 +240,7 @@ def _(
         day.cast(sql.Integer),
         hour.cast(sql.Integer),
         minute.cast(sql.Integer),
-        (second + microsecond / 1000000.0).cast(sql.Float),
+        (second.cast(sql.Float) + microsecond.cast(sql.Float) / 1000000.0).cast(sql.Float),
     )
 
 

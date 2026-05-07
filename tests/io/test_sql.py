@@ -9,6 +9,8 @@ import sqlalchemy as sql
 import sqlalchemy.dialects.postgresql
 import sqlalchemy.dialects.sqlite  # noqa: F401
 
+import pytest
+
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.io.sql import export_sql
@@ -170,9 +172,13 @@ class TestSql:
         assert self._row_count(engine, 'fresh_table') == 5
 
     def test_export_sqlite(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        if Env.get().is_using_cockroachdb:
+            pytest.skip('CockroachDB GC threshold (60s) trips on the 100k-row export round trip')
         self._run_export_suite(self._sqlite_spec(), tmp_path)
 
     def test_export_postgresql(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        if Env.get().is_using_cockroachdb:
+            pytest.skip('CockroachDB GC threshold (60s) trips on the 100k-row export round trip')
         self._run_export_suite(self._postgresql_spec(), tmp_path)
 
     def test_errors(self, uses_db: None) -> None:

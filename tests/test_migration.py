@@ -48,6 +48,8 @@ class TestMigration:
     def test_db_migration(self, init_env: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('label_studio_sdk')
+        if Env.get().is_using_cockroachdb:
+            pytest.skip('DB migration test relies on pg_restore against the embedded pgserver')
 
         env = Env.get()
         pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)

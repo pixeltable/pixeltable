@@ -87,12 +87,14 @@ class ArithmeticExpr(Expr):
             # Avoid division by zero errors by converting any zero divisor to NULL.
             # TODO: Should we cast the NULLs to NaNs when they are retrieved back into Python?
             # These casts cause the computation to take place in float units, rather than DECIMAL.
-            nullif = sql.cast(sql.func.nullif(right, 0), self.col_type.to_sa_type())
+            zero = sql.cast(0, self._op2.col_type.to_sa_type())
+            nullif = sql.cast(sql.func.nullif(right, zero), self.col_type.to_sa_type())
             return sql.cast(left, self.col_type.to_sa_type()) / nullif
         if self.operator == ArithmeticOperator.MOD:
             if self.col_type.is_int_type():
                 # Avoid division by zero errors by converting any zero divisor to NULL.
-                nullif1 = sql.cast(sql.func.nullif(right, 0), self.col_type.to_sa_type())
+                zero = sql.cast(0, self._op2.col_type.to_sa_type())
+                nullif1 = sql.cast(sql.func.nullif(right, zero), self.col_type.to_sa_type())
                 return left % nullif1
             if self.col_type.is_float_type():
                 # Postgres does not support modulus for floats
@@ -104,7 +106,8 @@ class ArithmeticExpr(Expr):
             # whether or not their operands can be translated to SQL. These SQL clauses should
             # mimic the behavior of Python's // operator.
             # Avoid division by zero errors by converting any zero divisor to NULL.
-            nullif = sql.cast(sql.func.nullif(right, 0), self.col_type.to_sa_type())
+            zero = sql.cast(0, self._op2.col_type.to_sa_type())
+            nullif = sql.cast(sql.func.nullif(right, zero), self.col_type.to_sa_type())
             return sql.func.floor(sql.cast(left, self.col_type.to_sa_type()) / nullif)
         raise AssertionError()
 
