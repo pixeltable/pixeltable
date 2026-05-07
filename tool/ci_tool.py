@@ -135,6 +135,21 @@ def generate_matrix(args: argparse.Namespace) -> None:
                 for module in COCKROACH_TEST_MODULES
             )
 
+        # Full test suite against a local single-node CockroachDB container.
+        configs.append(
+            MatrixConfig(
+                'cockroach-full',
+                'py',
+                MAIN_PLATFORM,
+                '3.10',
+                pre_test_cmd=(
+                    'bash scripts/start-cockroach-ci.sh && '
+                    'export PIXELTABLE_DB_CONNECT_STR='
+                    "'cockroachdb+psycopg://root@localhost:26257/pixeltable?sslmode=disable'"
+                ),
+            )
+        )
+
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
         # different test runs don't interfere with each other and any stale data is easy to clean up.
         if os.environ.get('AWS_ACCESS_KEY_ID'):
