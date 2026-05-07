@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pixeltable import exceptions as excs
 from pixeltable.runtime import get_runtime
-
 from .table_version import TableVersion, TableVersionKey
 
 if TYPE_CHECKING:
@@ -30,6 +30,9 @@ class TableVersionHandle:
     # cache of the resolved TableVersion; needs to be cleared whenever we cross a transaction
     # or Catalog instance boundary
     _tbl_version: TableVersion | None
+
+    # id of the constructing thread; used to guard against cross-thread access
+    _origin_thread_id: int
 
     # Catalog instance against which this handle was last resolved
     _origin_catalog: Catalog
@@ -74,13 +77,9 @@ class TableVersionHandle:
         return self.effective_version is not None
 
     def get(self) -> TableVersion:
-        # Snapshot the cache once, decide whether to refresh, and atomically replace at the
-        # end - never reset to None mid-method, so that concurrent readers (this handle can
-        # be shared across threads via Table._tbl_version_path or Column.tbl_handle) always
-        # observe a complete TableVersion. The mismatch case happens when the handle is used
-        # in a different catalog context than it was built against (worker thread with its
-        # own Catalog, or after reset_runtime); we re-resolve so sa_tbl etc. come from the
-        # current catalog's metadata.
+        # guard against cross-thread access
+        assert self._origin_thread_id == threading.get_ident()
+
         cat = get_runtime().catalog
         cached = self._tbl_version
         needs_refresh = self._origin_catalog is not cat or cached is None or not cached.is_validated
@@ -88,9 +87,8 @@ class TableVersionHandle:
             return cached
 
         if self.effective_version is not None and cached is not None:
-            # Snapshot version; refer to the instance cached in Catalog, in order to avoid
-            # mixing sa_tbl instances in the same transaction (which would generate
-            # duplicates in the From clause produced by SqlNode.create_from_clause()).
+            # This is a snapshot version. We need to reuse the instance cached in Catalog, to avoid mixing sa_tbl
+            # instances in the same transaction (which would produce duplicates in the From clause).
             assert self.key in cat._tbl_versions
             new_tv = cat._tbl_versions[self.key]
             new_tv.is_validated = True
