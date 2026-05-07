@@ -106,6 +106,22 @@ class TestConcurrentOps:
         errors = _run_workers(worker2, n_threads=self.NUM_THREADS)
         assert errors == [], f'errors: {errors[:3]}'
 
+    def test_shared_query_extended(self, uses_db: None) -> None:
+        """A Query built on the main thread can be extended on a worker thread via builder methods."""
+        t = pxt.create_table('t_ext', {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(100)]), expected_rows=100)
+        base = t.where(t.a >= 50).select(t.a, t.b)
+        a_ref = t.a
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                rows = base.order_by(a_ref).limit(10).collect()
+                assert len(rows) == 10
+                assert rows[0]['a'] == 50
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
     def test_get_table(self, uses_db: None) -> None:
         t = pxt.create_table('t3', {'a': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'a': i} for i in range(100)]), expected_rows=100)

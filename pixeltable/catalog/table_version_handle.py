@@ -88,13 +88,14 @@ class TableVersionHandle:
         if not needs_refresh:
             return cached
 
-        if self.effective_version is not None and cached is not None:
-            # This is a snapshot version. We need to reuse the instance cached in Catalog, to avoid mixing sa_tbl
+        if self.effective_version is not None and cached is not None and self._origin_catalog is cat:
+            # Snapshot version, same catalog as before: reuse the instance cached in Catalog to avoid mixing sa_tbl
             # instances in the same transaction (which would produce duplicates in the From clause).
             assert self.key in cat._tbl_versions
             new_tv = cat._tbl_versions[self.key]
             new_tv.is_validated = True
         else:
+            # either no cached instance, or the catalog changed
             new_tv = cat.get_tbl_version(self.key)
             assert new_tv.key == self.key
         self._tbl_version = new_tv

@@ -423,6 +423,17 @@ class Query:
         new._origin_catalog = get_runtime().catalog
         return new
 
+    def _rebind(self) -> 'Query':
+        """Return self if its origin matches the current runtime's catalog, else a deepcopy re-rooted to it.
+
+        Catalog instances are per-thread, so this also covers the cross-thread case: a Query built on one thread
+        and used to chain a builder method on another thread will be deepcopied here, resetting the origin/thread
+        state of all embedded TVHs/TVPs/Exprs.
+        """
+        if self._origin_catalog is get_runtime().catalog:
+            return self
+        return copy.deepcopy(self)
+
     @classmethod
     def _normalize_select_list(
         cls, tbls: list[catalog.TableVersionPath], select_list: list[tuple[exprs.Expr, str | None]] | None
@@ -612,8 +623,7 @@ class Query:
         return len(self._from_clause.join_clauses) > 0
 
     def show(self, n: int = 20) -> ResultSet:
-        if self._origin_catalog is not get_runtime().catalog:
-            return copy.deepcopy(self).show(n)
+        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'show() cannot be used with sample()')
         assert n is not None
@@ -634,8 +644,7 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        if self._origin_catalog is not get_runtime().catalog:
-            return copy.deepcopy(self).head(n)
+        self = self._rebind()  # noqa: PLW0642
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with order_by()')
         if self._has_joins():
@@ -663,8 +672,7 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        if self._origin_catalog is not get_runtime().catalog:
-            return copy.deepcopy(self).tail(n)
+        self = self._rebind()  # noqa: PLW0642
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with order_by()')
         if self._has_joins():
@@ -807,15 +815,7 @@ class Query:
         return tbl_ids
 
     def _output_row_iterator(self) -> Generator[list, None, None]:
-        # Defensive thread-local copy: if this Query was constructed under a different
-        # Catalog than the one we're now running under (e.g., a user-built global held
-        # across FastAPI worker threads, or a Query held across reset_runtime), produce a
-        # thread-local copy whose embedded TVHs/TVPs/Exprs all have their per-(thread, xact)
-        # caches reset, and run the entire iteration (including the slot_idx extraction
-        # below) against the copy.
-        if self._origin_catalog is not get_runtime().catalog:
-            yield from copy.deepcopy(self)._output_row_iterator()
-            return
+        self = self._rebind()  # noqa: PLW0642
         tbl_ids = self.referenced_tbl_ids()
         with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=tbl_ids):
             try:
@@ -839,8 +839,7 @@ class Query:
         return ResultCursor(self)
 
     async def _acollect(self) -> ResultSet:
-        if self._origin_catalog is not get_runtime().catalog:
-            return await copy.deepcopy(self)._acollect()
+        self = self._rebind()  # noqa: PLW0642
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         columns = {name: i for i, name in enumerate(self.schema)}
         try:
@@ -971,6 +970,7 @@ class Query:
             >>> query = person.select(t.name, is_adult=(t.age >= 18))
 
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.select_list is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Select list already specified')
         for name, _ in named_items.items():
@@ -1055,6 +1055,7 @@ class Query:
 
             >>> query = person.where(t.age > 30)
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.where_clause is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'where() clause already specified')
         if self.sample_clause is not None:
@@ -1215,6 +1216,7 @@ class Query:
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         other._validate_thread()
+        self = self._rebind()  # noqa: PLW0642
         assert len(self._from_clause.tbls) > 0
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
@@ -1292,6 +1294,7 @@ class Query:
 
             >>> query = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'group_by() already specified')
         if self.sample_clause is not None:
@@ -1360,6 +1363,7 @@ class Query:
             ...     .distinct()
             ... )
         """
+        self = self._rebind()  # noqa: PLW0642
         exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
         return self.group_by(*exps)
 
@@ -1393,6 +1397,7 @@ class Query:
 
             >>> query = book.order_by(t.price, asc=False).order_by(t.pages)
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'order_by() cannot be used with sample()')
         for e in expr_list:
@@ -1432,6 +1437,7 @@ class Query:
 
             >>> query.limit(10, offset=20).collect()
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'limit() cannot be used with sample()')
 
@@ -1516,6 +1522,7 @@ class Query:
 
             >>> query = person.where(t.age > 30).sample(n=100)
         """
+        self = self._rebind()  # noqa: PLW0642
         # Check context of usage
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Multiple sample() clauses not allowed')
