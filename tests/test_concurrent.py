@@ -318,6 +318,26 @@ class TestCrossThreadCatalog:
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
         assert errors == [], f'errors: {errors[:3]}'
 
+    def test_join_query_cross_thread(self, uses_db: None) -> None:
+        """T17: join Query collected from workers. Multi-TVP plan: SELECT and FROM
+        reference two distinct tables, so the deepcopy traversal must produce a
+        consistent worker-side TableVersion / sa_tbl per side."""
+        t1 = pxt.create_table('t17_a', {'id': pxt.Required[pxt.Int], 'i': pxt.Required[pxt.Int]})
+        t2 = pxt.create_table('t17_b', {'id': pxt.Required[pxt.Int], 'f': pxt.Required[pxt.Float]})
+        validate_update_status(t1.insert([{'id': i, 'i': i} for i in range(20)]), expected_rows=20)
+        validate_update_status(t2.insert([{'id': i, 'f': i * 1.5} for i in range(20)]), expected_rows=20)
+
+        q = t1.join(t2, on=t1.id == t2.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t1.i)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                rows = q.collect()
+                assert len(rows) == 20
+                assert all(row['out'] == row['i'] + row['f'] for row in rows)
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
     def test_snapshot_query_cross_thread(self, uses_db: None) -> None:
         """T19: snapshot Query collected from workers. Snapshots take the
         effective_version is not None branch in TableVersionHandle.get(); worth
