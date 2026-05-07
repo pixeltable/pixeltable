@@ -1214,6 +1214,7 @@ class Query:
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
+        other._validate_thread()
         assert len(self._from_clause.tbls) > 0
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(

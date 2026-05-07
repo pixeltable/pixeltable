@@ -213,6 +213,24 @@ class TestConcurrentOps:
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
         assert errors == [], f'errors: {errors[:3]}'
 
+    def test_shared_join2(self, uses_db: None) -> None:
+        t1 = pxt.create_table('j1', {'id': pxt.Required[pxt.Int]})
+        t2 = pxt.create_table('j2', {'id': pxt.Required[pxt.Int]})
+        validate_update_status(t1.insert([{'id': i} for i in range(5)]), expected_rows=5)
+        validate_update_status(t2.insert([{'id': i} for i in range(5)]), expected_rows=5)
+
+        def worker(_tid: int) -> None:
+            t1_worker = pxt.get_table('j1')
+
+            # re-using t2 from the main thread raises
+            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='thread'):
+                t1_worker.join(t2, on=t1_worker.id == t2.id)
+            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='thread'):
+                t1_worker.select().join(t2, on=t1_worker.id == t2.id)
+
+        errors = _run_workers(worker, n_threads=1)
+        assert errors == [], f'worker raised: {errors[0][1]!r}'
+
     def test_shared_snapshot_query(self, uses_db: None) -> None:
         t = pxt.create_table('t19_base', {'a': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'a': i} for i in range(20)]), expected_rows=20)

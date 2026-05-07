@@ -311,6 +311,7 @@ class Table(SchemaObject):
     ) -> 'pxt.Query':
         """Join this table with another table."""
         self._validate_thread()
+        other._validate_thread()
         with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
             return self.select().join(other, on=on, how=how)
 
