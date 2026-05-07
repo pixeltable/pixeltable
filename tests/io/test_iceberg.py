@@ -22,8 +22,8 @@ class _MidStreamFailingTable:
     """Iceberg Table proxy that delegates every attribute to `_real` except `transaction()`,
     which raises to simulate a mid-stream write failure."""
 
-    def __init__(self, real: Table) -> None:
-        self._real: 'Table' = real
+    def __init__(self, real: 'Table') -> None:
+        self._real = real
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._real, name)
@@ -36,8 +36,8 @@ class _MidStreamFailingCatalog:
     """Iceberg Catalog proxy that delegates every attribute to `_real` except `create_table()`,
     which returns a `_MidStreamFailingTable` so the next write raises."""
 
-    def __init__(self, real: Catalog) -> None:
-        self._real: 'Catalog' = real
+    def __init__(self, real: 'Catalog') -> None:
+        self._real = real
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._real, name)
