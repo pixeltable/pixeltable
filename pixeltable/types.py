@@ -1,10 +1,40 @@
 """User-facing types used for type annotations across the Pixeltable codebase."""
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
 
 if TYPE_CHECKING:
     from pixeltable import exprs
+
+
+TableKind = Literal['table', 'view', 'snapshot', 'replica']
+
+
+class DirectoryNode(TypedDict):
+    """A directory entry in a [`TreeNode`][pixeltable.TreeNode] tree."""
+
+    name: str
+    path: str
+    kind: Literal['directory']
+    entries: list['TreeNode']
+
+
+class TableNode(TypedDict):
+    """A table/view/snapshot/replica entry in a [`TreeNode`][pixeltable.TreeNode] tree."""
+
+    name: str
+    path: str
+    kind: TableKind
+    version: int | None
+    error_count: int
+    """Cumulative error count as recorded in table's history."""
+    base: str | None
+    """Path of the immediate base table for views/snapshots; None for plain tables."""
+
+
+TreeNode = Union[DirectoryNode, TableNode]
 
 
 class ColumnSpec(TypedDict, total=False):
