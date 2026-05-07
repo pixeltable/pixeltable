@@ -56,12 +56,9 @@ class ColumnRef(Expr):
     # separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
     # insert them into the EvalCtxs as needed
 
-    # col_handle is the source of truth. Column metadata is owned by the catalog and resolved
-    # on every access via the catalog's is_validated-gated machinery, which gives us correctness
-    # across (a) transactions, including ones triggered by other processes, (b) threads, and
-    # (c) future cache evictions. The col property below derives from col_handle; we never
-    # cache a Column reference on this instance.
+    # ColumnHandle, not a Column: avoid caching of catalog objects, they get invalidated across xact/thread boundaries
     col_handle: catalog.ColumnHandle
+
     reference_tbl: catalog.TableVersionPath | None
     needs_iterator_evaluation: bool
     perform_validation: bool  # if True, performs media validation
@@ -112,11 +109,7 @@ class ColumnRef(Expr):
 
     @property
     def col(self) -> catalog.Column:
-        # Always re-resolve via the catalog. Column metadata may have been mutated by another
-        # transaction (in this process or another) since this ColumnRef was constructed; the
-        # handle resolves through TableVersionHandle.get(), which validates against the current
-        # transaction's view of the catalog. Hot-path callers should bind to a local at the top
-        # of their function rather than reading self.col.<attr> repeatedly.
+        # re-resolve via the current Catalog when we need the actual Column
         return self.col_handle.get()
 
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
@@ -129,8 +122,6 @@ class ColumnRef(Expr):
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        # Use col_handle directly (its tbl_version.id and col_id are immutable identity)
-        # rather than going through self.col.<...>; avoids a catalog lookup on every hash.
         return [
             *super()._id_attrs(),
             ('tbl_id', self.col_handle.tbl_version.id),
@@ -148,9 +139,7 @@ class ColumnRef(Expr):
 
     # override
     def copy(self) -> ColumnRef:
-        # Deepcopy the catalog-bound handles so the copy is safe across thread/transaction
-        # boundaries: TableVersionHandle.__deepcopy__ and TableVersionPath.__deepcopy__ reset
-        # their per-(thread, xact) caches. self.col is a property over col_handle, no field.
+        # deepcopy(tvh) is needed to create a copy for the local thread/catalog
         result = super().copy()
         result.col_handle = copy.deepcopy(self.col_handle)
         if self.reference_tbl is not None:
@@ -169,7 +158,7 @@ class ColumnRef(Expr):
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
             or name == ColumnPropertyRef.Property.ERRORMSG.name.lower()
         ):
-            col = self.col_handle.get()
+            col = self.col
             is_valid = (col.is_computed or col.col_type.is_media_type()) and col.is_stored
             if not is_valid:
                 raise excs.RequestError(
@@ -181,7 +170,7 @@ class ColumnRef(Expr):
             name == ColumnPropertyRef.Property.FILEURL.name.lower()
             or name == ColumnPropertyRef.Property.LOCALPATH.name.lower()
         ):
-            col = self.col_handle.get()
+            col = self.col
             if not col.col_type.is_media_type():
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -507,16 +496,12 @@ class ColumnRef(Expr):
 
     @property
     def tbl(self) -> catalog.TableVersionHandle:
-        # Use col_handle.tbl_version (the immutable identity) rather than going through col.
         return self.reference_tbl.tbl_version if self.reference_tbl is not None else self.col_handle.tbl_version
 
     def default_column_name(self) -> str | None:
         return self.col_handle.get().name
 
     def _equals(self, other: ColumnRef) -> bool:
-        # Compare by handle identity (key + col_id) rather than dereferencing to Column;
-        # avoids a catalog lookup and is the right semantic: two ColumnRefs are equal iff
-        # they refer to the same logical column.
         return self.col_handle == other.col_handle and self.perform_validation == other.perform_validation
 
     def select(self) -> 'Query':
@@ -548,7 +533,7 @@ class ColumnRef(Expr):
         return self.select().distinct()
 
     def __str__(self) -> str:
-        col = self.col_handle.get()
+        col = self.col
         if col.name is None:
             return f'<unnamed column {col.id}>'
         else:
@@ -563,7 +548,7 @@ class ColumnRef(Expr):
     def _descriptors(self) -> DescriptionHelper:
         with get_runtime().catalog.begin_xact():
             tbl = get_runtime().catalog.get_table_by_id(self.col_handle.tbl_version.id)
-        col = self.col_handle.get()
+        col = self.col
         helper = DescriptionHelper()
         helper.append(f'Column\n{col.name!r}\n(of table {tbl._path()!r})')
         col_df, _ = tbl._col_descriptor([col.name])
@@ -578,7 +563,7 @@ class ColumnRef(Expr):
 
         if not self.needs_iterator_evaluation:
             return
-        col = self.col_handle.get()
+        col = self.col
         self.base_rowid_len = col.get_tbl().base.get().num_rowid_columns()
         self.base_rowid = [None] * self.base_rowid_len
         assert isinstance(col.get_tbl().store_tbl, store.StoreComponentView)
@@ -587,10 +572,10 @@ class ColumnRef(Expr):
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         if self.perform_validation:
             return None
-        return self.col_handle.get().sa_col
+        return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        col = self.col_handle.get()  # bind once for the per-row hot path
+        col = self.col
         if self.perform_validation:
             # validate media file of our input ColumnRef and if successful, replicate the state of that slot
             # to our slot

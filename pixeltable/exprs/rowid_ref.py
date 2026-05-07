@@ -78,8 +78,7 @@ class RowidRef(Expr):
 
     # override
     def copy(self) -> RowidRef:
-        # Deepcopy the TVHs so the copy is safe across thread/transaction boundaries:
-        # TableVersionHandle.__deepcopy__ resets the per-(thread, xact) cache.
+        # deepcopy(tvh) is needed to create a copy for the local thread/catalog
         result = super().copy()
         if self.tbl is not None:
             result.tbl = copy.deepcopy(self.tbl)

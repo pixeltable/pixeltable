@@ -5,9 +5,9 @@ import threading
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from pixeltable import exceptions as excs
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
+
 from .column import Column
 from .globals import MediaValidation, QColumnId
 from .table_version import TableVersion, TableVersionKey
@@ -92,13 +92,7 @@ class TableVersionPath:
 
     def refresh_cached_md(self) -> None:
         # guard against cross-thread access
-        if self._origin_thread_id != threading.get_ident():
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_STATE,
-                f'Table {self.tbl_version.id} was accessed from a thread other than the one that constructed it. '
-                f'Tables are not thread-safe; call pxt.get_table(...) on this thread to obtain a thread-local '
-                f'instance.',
-            )
+        assert self._origin_thread_id == threading.get_ident()
 
         # re-resolve if the Catalog instance changed
         cat = get_runtime().catalog

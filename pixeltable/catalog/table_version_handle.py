@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pixeltable import exceptions as excs
 from pixeltable.runtime import get_runtime
+
 from .table_version import TableVersion, TableVersionKey
 
 if TYPE_CHECKING:
@@ -40,6 +41,7 @@ class TableVersionHandle:
     def __init__(self, key: TableVersionKey, *, tbl_version: TableVersion | None = None):
         self.key = key
         self._tbl_version = tbl_version
+        self._origin_thread_id = threading.get_ident()
         self._origin_catalog = get_runtime().catalog
 
     def __deepcopy__(self, memo: dict[int, object] | None = None) -> TableVersionHandle:
@@ -109,18 +111,25 @@ class TableVersionHandle:
 
 @dataclass(frozen=True)
 class ColumnHandle:
+    """
+    Indirection mechanism for Column instances, which get resolved against the catalog at runtime.
+
+    Not thread-safe.
+    """
+
     tbl_version: TableVersionHandle
     col_id: int
 
     def get(self) -> 'Column':
-        if self.col_id not in self.tbl_version.get().cols_by_id:
-            schema_version_drop = self.tbl_version.get()._tbl_md.column_md[self.col_id].schema_version_drop
+        tv = self.tbl_version.get()
+        if self.col_id not in tv.cols_by_id:
+            schema_version_drop = tv._tbl_md.column_md[self.col_id].schema_version_drop
             raise excs.NotFoundError(
                 excs.ErrorCode.COLUMN_NOT_FOUND,
                 f'Column was dropped (no record for column ID {self.col_id} in table '
-                f'{self.tbl_version.get().versioned_name!r}; it was dropped in table version {schema_version_drop})',
+                f'{tv.versioned_name!r}; it was dropped in table version {schema_version_drop})',
             )
-        return self.tbl_version.get().cols_by_id[self.col_id]
+        return tv.cols_by_id[self.col_id]
 
     def as_dict(self) -> dict:
         return {'tbl_version': self.tbl_version.as_dict(), 'col_id': self.col_id}
