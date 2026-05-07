@@ -238,10 +238,7 @@ class Catalog:
         self._init_store()
 
     def __deepcopy__(self, memo: dict[int, object]) -> 'Catalog':
-        # Catalog instances are owned by Runtime and never duplicated. Return self so that
-        # any deepcopy traversal that reaches a Catalog reference (e.g., the _origin_catalog
-        # field on TableVersionHandle, TableVersionPath, or Query) terminates here rather
-        # than walking the entire catalog state graph.
+        # Catalog instances are owned by Runtime and never duplicated. Return self here to prevent deepcopies.
         memo[id(self)] = self
         return self
 
