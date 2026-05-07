@@ -778,21 +778,18 @@ class Catalog:
                     assert tbl_md.tbl_state in (schema.TableState.ROLLFORWARD, schema.TableState.ROLLBACK)
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
 
-                    ops: list[TableOp] | None = None
                     if rollover_op_update is not None:
-                        done, ops = self._set_pending_op_status(
+                        if self._set_pending_op_status(
                             tbl_id,
                             op=rollover_op_update[0],
                             new_status=rollover_op_update[1],
                             is_final_op=rollover_op_update[2],
-                        )
-                        if done:
+                        ):
                             return exc
 
                         rollover_op_update = None
 
-                    if ops is None:
-                        ops = self._read_pending_table_ops(tbl_id)
+                    ops = self._read_pending_table_ops(tbl_id)
                     assert len(ops) > 0
 
                     # determine next op to execute/undo
@@ -843,8 +840,7 @@ class Catalog:
                             self.mark_modified_tvs(tv.handle)
 
                         _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
-                        done, _ = self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op)
-                        if done:
+                        if self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op):
                             return exc
                         continue
 
@@ -968,9 +964,7 @@ class Catalog:
             )
         return pending_ops_stmt
 
-    def _set_pending_op_status(
-        self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool
-    ) -> tuple[bool, list[TableOp] | None]:
+    def _set_pending_op_status(self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool) -> bool:
         """
         Updates the pending op status in the store. If is_final_op, sets table status to LIVE after additional checks.
 
@@ -979,9 +973,8 @@ class Catalog:
 
         This function must be called inside a transaction with an exclusive table lock held.
 
-        Returns a (done, ops) tuple:
-        * done is True if no unresolved pending ops remain on the table, and the table's status was set to LIVE.
-        * If pending table ops were queried and selected for update in this function, those ops will be returned as ops.
+        Returns True if no unresolved pending ops remain on the table, and the table's status was set to LIVE. False
+        otherwise.
         """
         pending_ops_stmt = self._pending_table_ops_update_stmt(tbl_id, op, new_status, is_final_op=is_final_op)
         conn = get_runtime().conn
@@ -996,12 +989,12 @@ class Catalog:
 
         if not is_final_op:
             _logger.info(f'Finalize pending ops({tbl_id}): not final op, more pending ops to finalize')
-            return (False, None)
+            return False
 
         tbl_ops = self._read_pending_table_ops(tbl_id)
         if len(tbl_ops) > 0:
             _logger.info(f'Finalize pending ops({tbl_id}): more pending ops found')
-            return (False, tbl_ops)
+            return False
 
         # No remaining pending table ops. Reset the table state.
         reset_tbl_state_stmt = (
@@ -1018,7 +1011,7 @@ class Catalog:
                 'concurrently.'
             )
 
-        return (True, tbl_ops)
+        return True
 
     def _read_pending_table_ops(self, tbl_id: UUID) -> list[TableOp]:
         """
