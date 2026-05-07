@@ -8,13 +8,10 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 from uuid import UUID
 
 from pixeltable import env, exceptions as excs
-
-if TYPE_CHECKING:
-    from pixeltable.catalog import Column
 
 
 @dataclasses.dataclass(frozen=True)
@@ -518,12 +515,21 @@ class ObjectOps:
         store.copy_object_to_local_file(soa.object_name, dest_path)
 
     @classmethod
-    def put_file(cls, col: Column, src_path: Path, relocate_or_delete: bool) -> str:
+    def put_file(
+        cls,
+        destination: str | None,
+        tbl_id: UUID,
+        col_id: int,
+        tbl_version: int,
+        col_name: str,
+        src_path: Path,
+        relocate_or_delete: bool,
+    ) -> str:
         """Move or copy a file to the destination, returning the file's URL within the destination.
         If relocate_or_delete is True and the file is in the TempStore, the file will be deleted after the operation.
         """
-        store = cls.get_store(col.destination, False, col.name)
-        dest = store.resolve_destination(col.tbl_handle.id, col.id, col.get_tbl().version, ext=src_path.suffix)
+        store = cls.get_store(destination, False, col_name)
+        dest = store.resolve_destination(tbl_id, col_id, tbl_version, ext=src_path.suffix)
         return cls.put_file_resolved(store, src_path, dest, relocate_or_delete)
 
     @classmethod
