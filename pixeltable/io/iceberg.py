@@ -27,7 +27,7 @@ def sqlite_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> SqlC
 
     if isinstance(warehouse_path, str):
         warehouse_path = Path(warehouse_path)
-    warehouse_path.mkdir(exist_ok=True)
+    warehouse_path.mkdir(parents=True, exist_ok=True)
     return SqlCatalog(name, uri=f'sqlite:///{warehouse_path}/catalog.db', warehouse=f'file://{warehouse_path}')
 
 
@@ -37,7 +37,7 @@ def export_iceberg(
     table_name: str,
     *,
     batch_size_bytes: int = 128 * 2**20,
-    if_exists: Literal['error', 'replace', 'append'] = 'error',
+    if_exists: Literal['error', 'overwrite', 'append'] = 'error',
 ) -> None:
     """
     Exports a query result or table to an Apache Iceberg table.
@@ -59,7 +59,7 @@ def export_iceberg(
         if_exists: Determines the behavior if the table already exists. Must be one of the following:
 
             - `'error'`: raise an error
-            - `'replace'`: drop the existing table and create a new one
+            - `'overwrite'`: drop the existing table and create a new one
             - `'append'`: append to the existing table (source schema must be compatible)
     """
     Env.get().require_package('pyiceberg')
@@ -68,15 +68,16 @@ def export_iceberg(
 
     from pixeltable.utils.arrow import to_arrow_schema, to_record_batches
 
-    if if_exists not in ('error', 'replace', 'append'):
+    if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            "export_iceberg(): `if_exists` must be one of: ['error', 'replace', 'append']",
+            "export_iceberg(): `if_exists` must be one of: ['error', 'overwrite', 'append']",
         )
 
     # pyiceberg requires a namespace-qualified identifier; bare names raise opaque errors deep
     # inside catalog.load_table / create_table. Reject them up front with a clear message.
-    if '.' not in table_name:
+    namespace, _, name = table_name.rpartition('.')
+    if not namespace or not name:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
             f"export_iceberg(): table_name {table_name!r} must be namespace-qualified (e.g. 'pxt.my_table').",
@@ -128,7 +129,6 @@ def export_iceberg(
             f'or omit it from the data.',
         )
 
-    namespace = table_name.rsplit('.', 1)[0]
     catalog.create_namespace_if_not_exists(namespace)
 
     batches: Iterable[pa.RecordBatch] = chain([first_batch], batch_iter) if first_batch is not None else batch_iter

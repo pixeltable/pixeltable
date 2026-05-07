@@ -1,5 +1,5 @@
 import pathlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
@@ -8,10 +8,42 @@ import pixeltable as pxt
 
 from ..utils import create_all_datatypes_tbl, pxt_raises, skip_test_if_not_installed, validate_update_status
 
+if TYPE_CHECKING:
+    from pyiceberg.catalog import Catalog
+    from pyiceberg.table import Table
+
 
 @pxt.udf
 def array_to_list(arr: pxt.Array[(10,), pxt.Float]) -> pxt.Json:
     return arr.tolist()
+
+
+class _MidStreamFailingTable:
+    """Iceberg Table proxy that delegates every attribute to `_real` except `transaction()`,
+    which raises to simulate a mid-stream write failure."""
+
+    def __init__(self, real: Table) -> None:
+        self._real: 'Table' = real
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    def transaction(self) -> Any:
+        raise RuntimeError('synthetic mid-stream failure')
+
+
+class _MidStreamFailingCatalog:
+    """Iceberg Catalog proxy that delegates every attribute to `_real` except `create_table()`,
+    which returns a `_MidStreamFailingTable` so the next write raises."""
+
+    def __init__(self, real: Catalog) -> None:
+        self._real: 'Catalog' = real
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    def create_table(self, *args: Any, **kwargs: Any) -> _MidStreamFailingTable:
+        return _MidStreamFailingTable(self._real.create_table(*args, **kwargs))
 
 
 class TestIceberg:
@@ -166,6 +198,7 @@ class TestIceberg:
     def test_if_exists(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Verify error/overwrite/append branches of if_exists."""
         skip_test_if_not_installed('pyiceberg')
+
         t = pxt.create_table('test_iceberg_if_exists', {'c_int': pxt.Int, 'c_string': pxt.String})
         t.insert([{'c_int': i, 'c_string': f'row_{i}'} for i in range(5)])
 
@@ -179,7 +212,7 @@ class TestIceberg:
             pxt.io.export_iceberg(t, catalog, 'pxt.if_exists')
 
         # Overwrite: drops + recreates, ends with same row count
-        pxt.io.export_iceberg(t.where(t.c_int < 3), catalog, 'pxt.if_exists', if_exists='replace')
+        pxt.io.export_iceberg(t.where(t.c_int < 3), catalog, 'pxt.if_exists', if_exists='overwrite')
         assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 3
 
         # Append: doubles the row count
@@ -190,12 +223,28 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be one of'):
             pxt.io.export_iceberg(t, catalog, 'pxt.if_exists', if_exists='badval')  # type: ignore[arg-type]
 
-        # Replace + preflight failure: existing table must be preserved.
+        # Overwrite + preflight failure: existing table must be preserved.
         bad = pxt.create_table('test_iceberg_replace_bad', {'c_array': pxt.Array[(4,), pxt.Float]})  # type: ignore[misc]
         bad.insert([{'c_array': np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
-            pxt.io.export_iceberg(bad, catalog, 'pxt.if_exists', if_exists='replace')
+            pxt.io.export_iceberg(bad, catalog, 'pxt.if_exists', if_exists='overwrite')
         assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 6
+
+        # Overwrite + mid-stream failure (after the temp table is created): the existing table
+        # must remain intact and no temp table should be left behind in the namespace.
+        bad_catalog = _MidStreamFailingCatalog(catalog)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='failed to write'):
+            pxt.io.export_iceberg(t, bad_catalog, 'pxt.if_exists', if_exists='overwrite')  # type: ignore[arg-type]
+
+        assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 6
+        leftover = [name for _, name in catalog.list_tables('pxt') if '__pxt_tmp_' in name]
+        assert leftover == []
+
+        # Invalid table_name: empty namespace or empty name segments must be rejected up front.
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='namespace-qualified'):
+            pxt.io.export_iceberg(t, catalog, '.tbl')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='namespace-qualified'):
+            pxt.io.export_iceberg(t, catalog, 'ns.')
 
     def test_append_schema_mismatch(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Appending a query whose schema doesn't match the existing Iceberg table should raise."""
