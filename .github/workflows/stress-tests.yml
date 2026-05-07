@@ -53,7 +53,7 @@ jobs:
           conda-remove-defaults: true
       - name: Install python
         run: |
-          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10 pip
           conda info
       - name: Install uv
         run: |
@@ -99,7 +99,7 @@ jobs:
 
       - name: Install python
         run: |
-          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10 pip
           conda info
 
       - name: Install uv
@@ -147,7 +147,7 @@ jobs:
 
       - name: Install python
         run: |
-          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10 pip
           conda info
 
       - name: Install uv

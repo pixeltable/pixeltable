@@ -4,98 +4,19 @@ from __future__ import annotations
 
 import importlib
 import logging
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import pydantic
-import toml
 
 import pixeltable as pxt
 import pixeltable.func as func
-from pixeltable import exceptions as excs
+from pixeltable import config, exceptions as excs
 from pixeltable.env import Env
 
 if TYPE_CHECKING:
     import fastapi
+
 _logger = logging.getLogger('pixeltable')
-
-
-# Pydantic models for TOML validation --
-
-
-class ServiceConfig(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    title: str = 'Pixeltable'
-    prefix: str = ''
-    host: str = '0.0.0.0'
-    port: int = 8000
-
-    @pydantic.field_validator('prefix')
-    @classmethod
-    def _validate_prefix(cls, v: str) -> str:
-        if v and not v.startswith('/'):
-            raise ValueError(f"prefix must be empty or start with '/' (got {v!r})")
-        return v
-
-
-class RouteConfigBase(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    path: str
-    background: bool = False
-
-    @pydantic.field_validator('path')
-    @classmethod
-    def _validate_path(cls, v: str) -> str:
-        if not v.startswith('/'):
-            raise ValueError(f"path must start with '/' (got {v!r})")
-        return v
-
-
-class InsertRouteConfig(RouteConfigBase):
-    type: Literal['insert']
-    table: str
-    inputs: list[str] | None = None
-    uploadfile_inputs: list[str] | None = None
-    outputs: list[str] | None = None
-    return_fileresponse: bool = False
-
-
-class UpdateRouteConfig(RouteConfigBase):
-    type: Literal['update']
-    table: str
-    inputs: list[str] | None = None
-    outputs: list[str] | None = None
-    return_fileresponse: bool = False
-
-
-class DeleteRouteConfig(RouteConfigBase):
-    type: Literal['delete']
-    table: str
-    match_columns: list[str] | None = None
-
-
-class QueryRouteConfig(RouteConfigBase):
-    type: Literal['query']
-    query: str  # dotted Python path to a @pxt.query or retrieval_udf
-    inputs: list[str] | None = None
-    uploadfile_inputs: list[str] | None = None
-    one_row: bool = False
-    return_fileresponse: bool = False
-    method: Literal['get', 'post'] = 'post'
-
-
-RouteConfig = Annotated[
-    InsertRouteConfig | UpdateRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')
-]
-
-
-class AppConfig(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    service: ServiceConfig = pydantic.Field(default_factory=ServiceConfig)
-    modules: list[str] = pydantic.Field(default_factory=list)
-    routes: list[RouteConfig]
 
 
 def _resolve_dotted_path(dotted: str) -> Any:
@@ -122,34 +43,46 @@ def _resolve_dotted_path(dotted: str) -> Any:
     return getattr(module, attr_name)
 
 
-def load_app_config(config_path: str) -> AppConfig:
-    """Load and validate a TOML service configuration file."""
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            raw = toml.load(f)
-    except OSError as e:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'could not read service configuration file {config_path!r}: {e}'
-        ) from e
-    except toml.TomlDecodeError as e:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'invalid TOML in service configuration file {config_path!r}: {e}'
-        ) from e
-    try:
-        return AppConfig.model_validate(raw)
-    except pydantic.ValidationError as e:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'invalid service configuration in {config_path}:\n{e}'
-        ) from e
+T = TypeVar('T', bound='pydantic.BaseModel')
 
 
-def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
-    """Build a FastAPI instance from an AppConfig"""
+def _lookup_config(cfg_block: str, name: str, cfg_type: type[T]) -> T:
+    items = config.Config.get().get_value(cfg_block, list)
+    if not items:
+        raise excs.NotFoundError(
+            excs.ErrorCode.SERVICE_NOT_FOUND, f'No {cfg_block}s found in Pixeltable configuration.'
+        )
+
+    cfg = next((c for c in items if c.name == name), None)
+    if cfg is None:
+        raise excs.NotFoundError(
+            excs.ErrorCode.SERVICE_NOT_FOUND,
+            f'{cfg_block.title()} {name!r} not found. The following {cfg_block}s are configured:\n'
+            f'{", ".join(cfg.name for cfg in items)}',
+        )
+
+    return cfg
+
+
+def lookup_service_config(name: str) -> config.ServiceConfig:
+    """Lookup a ServiceConfig by name from the Pixeltable configuration."""
+    return _lookup_config('service', name, config.ServiceConfig)
+
+
+def lookup_deployment_config(name: str) -> config.DeploymentConfig:
+    """Lookup a DeploymentConfig by name from the Pixeltable configuration."""
+    return _lookup_config('deployment', name, config.DeploymentConfig)
+
+
+def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
+    """Build a FastAPI instance from a ServiceConfig"""
     Env.get().require_package('fastapi')
     import fastapi
 
+    from pixeltable.serving import FastAPIRouter
+
     # import user modules so @pxt.query / retrieval_udf definitions are registered
-    for mod_path in config.modules:
+    for mod_path in cfg.modules:
         _logger.info(f'importing module: {mod_path}')
         try:
             importlib.import_module(mod_path)
@@ -158,13 +91,11 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
                 excs.ErrorCode.INVALID_CONFIGURATION, f'could not import module {mod_path!r} listed in `modules`: {e}'
             ) from e
 
-    from pixeltable.serving import FastAPIRouter
-
-    app = fastapi.FastAPI(title=config.service.title)
+    app = fastapi.FastAPI(title=cfg.name)
     router = FastAPIRouter()
 
-    for route in config.routes:
-        if isinstance(route, InsertRouteConfig):
+    for route in cfg.routes:
+        if isinstance(route, config.InsertRouteConfig):
             t = pxt.get_table(route.table)
             router.add_insert_route(
                 t,
@@ -173,9 +104,10 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
                 uploadfile_inputs=route.uploadfile_inputs,
                 outputs=route.outputs,
                 return_fileresponse=route.return_fileresponse,
+                export_sql=route.export_sql,
                 background=route.background,
             )
-        elif isinstance(route, UpdateRouteConfig):
+        elif isinstance(route, config.UpdateRouteConfig):
             t = pxt.get_table(route.table)
             router.add_update_route(
                 t,
@@ -183,12 +115,13 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
                 inputs=route.inputs,
                 outputs=route.outputs,
                 return_fileresponse=route.return_fileresponse,
+                export_sql=route.export_sql,
                 background=route.background,
             )
-        elif isinstance(route, DeleteRouteConfig):
+        elif isinstance(route, config.DeleteRouteConfig):
             t = pxt.get_table(route.table)
             router.add_delete_route(t, path=route.path, match_columns=route.match_columns, background=route.background)
-        elif isinstance(route, QueryRouteConfig):
+        elif isinstance(route, config.QueryRouteConfig):
             query_fn = _resolve_dotted_path(route.query)
             if not isinstance(query_fn, func.QueryTemplateFunction):
                 raise excs.RequestError(
@@ -208,5 +141,5 @@ def create_app_from_config(config: AppConfig) -> 'fastapi.FastAPI':
             )
         _logger.info(f'registered {route.type} route: {route.path}')
 
-    app.include_router(router, prefix=config.service.prefix)
+    app.include_router(router, prefix=cfg.prefix)
     return app

@@ -164,7 +164,7 @@ jobs:
           conda-remove-defaults: true
       - name: Install python
         run: |
-          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }}
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }} pip
           conda info
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.

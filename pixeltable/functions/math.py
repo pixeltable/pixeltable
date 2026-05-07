@@ -2,12 +2,10 @@
 Pixeltable UDFs for mathematical operations.
 
 Example:
-```python
-import pixeltable as pxt
 
-t = pxt.get_table(...)
-t.select(t.float_col.floor()).collect()
-```
+>>> import pixeltable as pxt
+>>> t = pxt.get_table(...)
+>>> t.select(t.float_col.floor()).collect()
 """
 
 import builtins

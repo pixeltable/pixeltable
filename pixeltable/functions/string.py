@@ -3,12 +3,10 @@ Pixeltable UDFs for `StringType`.
 It closely follows the Pandas `pandas.Series.str` API.
 
 Example:
-```python
-import pixeltable as pxt
 
-t = pxt.get_table(...)
-t.select(t.str_col.capitalize()).collect()
-```
+>>> import pixeltable as pxt
+>>> t = pxt.get_table(...)
+>>> t.select(t.str_col.capitalize()).collect()
 """
 
 import builtins

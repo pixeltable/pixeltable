@@ -51,8 +51,9 @@ export async function search(query: string, limit = 50): Promise<SearchResults> 
   return fetchJson<SearchResults>(`${API_BASE}/search?${params}`);
 }
 
-export async function getPipeline(): Promise<PipelineResponse> {
-  return fetchJson<PipelineResponse>(`${API_BASE}/pipeline`);
+export async function getPipeline(tablePath?: string): Promise<PipelineResponse> {
+  const query = tablePath !== undefined ? `?path=${encodeURIComponent(tablePath)}` : '';
+  return fetchJson<PipelineResponse>(`${API_BASE}/pipeline${query}`);
 }
 
 interface SystemConfig {

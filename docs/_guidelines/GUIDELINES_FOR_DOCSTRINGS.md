@@ -17,22 +17,11 @@ Python docstrings are extracted by `mintlifier` and converted to MDX for Mintlif
 
 ## Critical Rules
 
-### 1. Code Fence Placement
+### 1. Code Examples Must Use `>>>` Prompts
 
-Code fences must be on their own lines, not attached to code.
+Code examples must use `>>>` prompts with `...` continuation lines, not fenced code blocks.
 
 **❌ WRONG:**
-```python
-"""
-```python
-my_function(
-    arg1='value',
-    arg2='value'
-)```
-"""
-```
-
-**✅ CORRECT:**
 ```python
 """
 ```python
@@ -44,34 +33,38 @@ my_function(
 """
 ```
 
-**Patterns to avoid:** `)```  `}```  `]```
+**✅ CORRECT:**
+```python
+"""
+>>> my_function(
+...     arg1='value',
+...     arg2='value'
+... )
+"""
+```
 
 ---
 
-### 2. Code Fences Must Be Complete
+### 2. Multi-Line Examples Must Use `...` Continuations
 
-Don't close code fences mid-example.
+Don't break examples across separate `>>>` prompts.
 
 **❌ WRONG:**
 ```python
 """
-```python
-tbl.update(
-```
-[{'id': 1, 'name': 'Alice'}],
-if_not_exists='insert')
+>>> tbl.update(
+>>> [{'id': 1, 'name': 'Alice'}],
+>>> if_not_exists='insert')
 """
 ```
 
 **✅ CORRECT:**
 ```python
 """
-```python
-tbl.update(
-    [{'id': 1, 'name': 'Alice'}],
-    if_not_exists='insert'
-)
-```
+>>> tbl.update(
+...     [{'id': 1, 'name': 'Alice'}],
+...     if_not_exists='insert'
+... )
 """
 ```
 
@@ -133,17 +126,18 @@ Uses [CLIP embedding][pixeltable.functions.huggingface.clip] for indexing.
 
 ---
 
-### 6. All Code Must Be in Fenced Code Blocks
+### 6. Code Examples Must Use `>>>` Prompts
 
-**CRITICAL**: All Python code, including REPL examples, **MUST** be enclosed in fenced code blocks.
+**CRITICAL**: All Python code examples **MUST** use `>>>` prompts, not fenced code blocks.
 
 **❌ WRONG:**
 ```python
 """
 Example:
 
->>> from module import func
-... result = func()
+```python
+result = my_function(arg1, arg2)
+```
 """
 ```
 
@@ -152,31 +146,26 @@ Example:
 """
 Example:
 
-```python
->>> from module import func
-... result = func()
-```
+>>> result = my_function(arg1, arg2)
 """
 ```
 
 **Important**:
-- Use `python` language tag for Python code blocks (including REPL examples)
 - Use `>>>` for primary REPL prompts
 - Use `...` for continuation lines
+- Do not wrap `>>>` examples in fenced code blocks
 
 ---
 
 ## Best Practices
 
-### Use Code Blocks for All Examples
+### Use `>>>` Prompts for All Code Examples
 
 ```python
 """
 Example:
 
-```python
-result = my_function(arg1, arg2)
-```
+>>> result = my_function(arg1, arg2)
 """
 ```
 
@@ -222,16 +211,16 @@ See [`Table.add_column()`][pixeltable.Table.add_column] for details.
 ## Common Error Messages
 
 **"Could not parse expression with acorn"**
-- **Cause**: Code or data structures outside code blocks
-- **Fix**: Wrap all code in ` ```python ... ``` ` blocks
+- **Cause**: Code or data structures not properly formatted
+- **Fix**: Use `>>>` prompts for code examples
 
 **"Unexpected closing tag"**
 - **Cause**: Unclosed HTML elements
 - **Fix**: Use self-closing tags: `<img />` not `<img>`
 
 **"Could not parse import/exports with acorn"**
-- **Cause**: Import statements outside code blocks
-- **Fix**: Wrap imports in code blocks
+- **Cause**: Import statements not properly formatted
+- **Fix**: Use `>>>` prompts for import examples
 
 ---
 
@@ -244,7 +233,7 @@ When writing docstrings with code examples:
 - [ ] All backticks are properly paired
 - [ ] HTML tags are self-closing (`<img />`)
 - [ ] Markdown links use `[text][ref]`, not `\[text\]`
-- [ ] REPL examples are in code blocks with `>>>` and `...`
+- [ ] Code examples use `>>>` and `...` prompts, not fenced code blocks
 - [ ] Code blocks are complete and self-contained
 
 **Remember**: Valid Python docstrings can generate invalid MDX. Always validate before release!

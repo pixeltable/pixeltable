@@ -2,12 +2,10 @@
 Pixeltable UDFs for `ImageType`.
 
 Example:
-```python
-import pixeltable as pxt
 
-t = pxt.get_table(...)
-t.select(t.img_col.convert('L')).collect()
-```
+>>> import pixeltable as pxt
+>>> t = pxt.get_table(...)
+>>> t.select(t.img_col.convert('L')).collect()
 """
 
 from typing import Any, Literal, Sequence, TypedDict

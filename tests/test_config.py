@@ -36,13 +36,6 @@ class TestConfig:
         )
 
         with open(tmp, 'w', encoding='utf-8') as fp:
-            fp.write('[unknown_section]\nkey = "value"')
-        spawn_cmd(
-            f'pxt.init({{"pixeltable.config": "{tmp}"}})',
-            "pixeltable.exceptions.RequestError: Unrecognized section 'unknown_section' in config file:",
-        )
-
-        with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('[pixeltable]\nunknown_key = "value"')
         spawn_cmd(
             f'pxt.init({{"pixeltable.config": "{tmp}"}})',
