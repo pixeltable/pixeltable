@@ -10,16 +10,12 @@ import urllib.request
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 import PIL.Image
 
 from pixeltable import env, exceptions as excs
 from pixeltable.utils.object_stores import FileDestination, ObjectPath, ObjectStoreBase, StorageObjectAddress
-
-if TYPE_CHECKING:
-    from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
 
@@ -125,14 +121,6 @@ class LocalStore(ObjectStoreBase):
         parent.mkdir(parents=True, exist_ok=True)
         return parent / filename
 
-    def _prepare_path(self, col: Column, ext: str | None = None) -> Path:
-        """
-        Construct a new, unique Path name in the __base_dir for a persisted file.
-        Create the parent directory for the new Path if it does not already exist.
-        """
-        assert col.get_tbl() is not None, 'Column must be associated with a table'
-        return self._prepare_path_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext)
-
     def contains_path(self, file_path: Path) -> bool:
         """Return True if the given path refers to a file managed by this LocalStore, else False."""
         return str(file_path).startswith(str(self.__base_dir))
@@ -175,14 +163,15 @@ class LocalStore(ObjectStoreBase):
         _logger.debug(f'Media Storage: copied {src_path} to {dest.url}')
         return dest.url
 
-    def save_media_object(self, data: bytes | PIL.Image.Image, col: Column, format: str | None) -> tuple[Path, str]:
+    def save_media_object(
+        self, data: bytes | PIL.Image.Image, tbl_id: UUID, col_id: int, tbl_version: int, format: str | None
+    ) -> tuple[Path, str]:
         """Save a data object to a file in a LocalStore
         Returns:
             dest_path: Path to the saved file
             url: URL of the saved file
         """
-        assert col.col_type.is_media_type(), f'LocalStore: request to store non media_type Column {col.name}'
-        dest_path = self._prepare_path(col)
+        dest_path = self._prepare_path_raw(tbl_id, col_id, tbl_version)
         if isinstance(data, bytes):
             dest_path = self._save_binary_media_file(data, dest_path, format)
         elif isinstance(data, PIL.Image.Image):
@@ -302,8 +291,10 @@ class TempStore:
         return LocalStore(cls._tmp_dir()).resolve_url(file_url)
 
     @classmethod
-    def save_media_object(cls, data: bytes | PIL.Image.Image, col: Column, format: str | None) -> tuple[Path, str]:
-        return LocalStore(cls._tmp_dir()).save_media_object(data, col, format)
+    def save_media_object(
+        cls, data: bytes | PIL.Image.Image, tbl_id: UUID, col_id: int, tbl_version: int, format: str | None
+    ) -> tuple[Path, str]:
+        return LocalStore(cls._tmp_dir()).save_media_object(data, tbl_id, col_id, tbl_version, format)
 
     @classmethod
     def delete_media_file(cls, file_path: Path) -> None:
