@@ -42,20 +42,23 @@ function getNodeIcon(type: string, isOpen: boolean = false) {
 }
 
 function countDescendants(node: TreeNode): number {
-  if (node.kind !== 'directory' || node.entries.length === 0) return 0
-  return node.entries.reduce((sum, child) => sum + 1 + countDescendants(child), 0)
+  if (node.kind !== 'directory') return 0
+  const entries = node.entries ?? []
+  if (entries.length === 0) return 0
+  return entries.reduce((sum, child) => sum + 1 + countDescendants(child), 0)
 }
 
 function countAllNodes(nodes: TreeNode[]): number {
+  if (!nodes) return 0
   return nodes.reduce(
-    (sum, n) => sum + 1 + (n.kind === 'directory' ? countAllNodes(n.entries) : 0),
+    (sum, n) => sum + 1 + (n.kind === 'directory' ? countAllNodes(n.entries ?? []) : 0),
     0,
   )
 }
 
 function nodeMatchesFilter(node: TreeNode, q: string): boolean {
   if (node.name.toLowerCase().includes(q)) return true
-  if (node.kind === 'directory') return node.entries.some(c => nodeMatchesFilter(c, q))
+  if (node.kind === 'directory') return (node.entries ?? []).some(c => nodeMatchesFilter(c, q))
   return false
 }
 
@@ -65,7 +68,8 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
 }) {
   const [manualOpen, setManualOpen] = useState<boolean | null>(null)
   const isDirectory = node.kind === 'directory'
-  const hasChildren = isDirectory && node.entries.length > 0
+  const entries = isDirectory ? (node.entries ?? []) : []
+  const hasChildren = isDirectory && entries.length > 0
   const descendantCount = useMemo(() => countDescendants(node), [node])
   const hasErrors = !isDirectory && node.error_count > 0
 
@@ -134,7 +138,7 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
 
       {isDirectory && hasChildren && isOpen && (
         <div>
-          {node.entries.map((child) => (
+          {entries.map((child) => (
             <TreeItem
               key={child.path}
               node={child}
