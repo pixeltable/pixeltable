@@ -1127,8 +1127,8 @@ class Catalog:
         assert dest_obj is None or if_exists == IfExistsParam.IGNORE
         assert src_obj is not None or if_not_exists == IfNotExistsParam.IGNORE
         if dest_obj is None and src_obj is not None:
-            # If dest_obj is not None, it means if_exists='ignore' and the destination already exists.
-            # If src_obj is None, it means if_not_exists='ignore' and the source doesn't exist.
+            # If dest_obj is not None, it means `if_exists='ignore'` and the destination already exists.
+            # If src_obj is None, it means `if_not_exists='ignore'` and the source doesn't exist.
             # If dest_obj is None and src_obj is not None, then we can proceed with the move.
             src_obj._move(new_path.name, dest_dir._id)
 
@@ -1541,7 +1541,7 @@ class Catalog:
         # Finally, it's possible that the table already exists in the catalog, but as an anonymous system table that
         # was hidden the last time we checked (and that just became visible when the replica was imported). In this
         # case, we need to make the existing table visible by moving it to the specified path.
-        # We need to do this at the end, since existing_path needs to first have a non-fragment table version in
+        # We need to do this at the end, since `existing_path` needs to first have a non-fragment table version in
         # order to be instantiated as a schema object.
         existing = self.get_table_by_id(tbl_id)
         assert existing is not None
@@ -1861,7 +1861,7 @@ class Catalog:
             ):
                 # then drop the base table as well (possibly recursively).
                 _logger.debug(f'Dropping hidden base table {tvp.base.tbl_id} of dropped replica {tbl_id}.')
-                # we just dropped the anchor on tvp.base; we need to clear the anchor so that we can actually
+                # we just dropped the anchor on `tvp.base`; we need to clear the anchor so that we can actually
                 # load the TableVersion instance in order to drop it
                 self._drop_tbl(tvp.base.anchor_to(None), force=False, is_replace=False)
 
@@ -2336,7 +2336,7 @@ class Catalog:
         anchor_timestamp: float | None = None
         if key.anchor_tbl_id is not None:
             anchored_version_md = self.head_version_md(key.anchor_tbl_id)
-            # anchor_tbl_id must exist and have at least one non-fragment version, or else this isn't
+            # `anchor_tbl_id` must exist and have at least one non-fragment version, or else this isn't
             # a valid TableVersion specification.
             assert anchored_version_md is not None
             anchor_timestamp = anchored_version_md.created_at
@@ -2613,17 +2613,17 @@ class Catalog:
         # TODO: First acquire X-locks for all relevant metadata entries
         # TODO: handle concurrent drop()
 
-        # Load metadata for every table in the TableVersionPath for tbl.
+        # Load metadata for every table in the TableVersionPath for `tbl`.
         md = [self.load_tbl_md(tv.key) for tv in tbl._tbl_version_path.get_tbl_versions()]
 
-        # If tbl is a named pure snapshot, we're not quite done, since the snapshot metadata won't appear in the
+        # If `tbl` is a named pure snapshot, we're not quite done, since the snapshot metadata won't appear in the
         # TableVersionPath. We need to prepend it separately.
         if isinstance(tbl, View) and tbl._is_named_pure_snapshot():
             snapshot_md = self.load_tbl_md(TableVersionKey(tbl._id, 0, None))
             md = [snapshot_md, *md]
 
         for ancestor_md in md:
-            # Set the is_replica flag on every ancestor's TableMd.
+            # Set the `is_replica` flag on every ancestor's TableMd.
             ancestor_md.tbl_md.is_replica = True
             # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
             # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,

@@ -48,9 +48,9 @@ class ColumnRef(Expr):
     # - the non-validating ColumnRef is used for SQL translation
 
     # A ColumnRef may have an optional reference table, which carries the context of the ColumnRef resolution. Thus
-    # if v is a view of t (for example), then v.my_col and t.my_col refer to the same underlying column, but
-    # their reference tables will be v and t, respectively. This is to ensure correct behavior of expressions such
-    # as v.my_col.head().
+    # if `v` is a view of `t` (for example), then `v.my_col` and `t.my_col` refer to the same underlying column, but
+    # their reference tables will be `v` and `t`, respectively. This is to ensure correct behavior of expressions such
+    # as `v.my_col.head()`.
 
     # TODO:
     # separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder

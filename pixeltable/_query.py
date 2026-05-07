@@ -990,7 +990,7 @@ class Query:
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
             if len(self._from_clause.tbls) == 1:
                 # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
-                # such as snapshot.select(base_tbl.col)
+                # such as `snapshot.select(base_tbl.col)`
                 # TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
                 #     multiple TableVersionPaths.
                 expr = expr.copy()
