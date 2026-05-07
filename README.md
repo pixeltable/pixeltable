@@ -37,6 +37,8 @@ Every multimodal AI app needs the same five things: store media, run models, ind
 
 Transaction integrity, async execution, parallelization, caching, retries, and observability are built in. Schema changes are one line. Model upgrades are zero-downtime. Extensible via `@pxt.udf`, `@pxt.uda`, `@pxt.query`.
 
+**Deployment options:** Pixeltable can serve as your [full backend](https://docs.pixeltable.com/howto/deployment/overview) (managing media locally or syncing with S3/GCS/Azure, plus built-in vector search and orchestration) or as an [orchestration layer](https://docs.pixeltable.com/howto/deployment/overview) alongside your existing infrastructure.
+
 ---
 
 ## Installation
@@ -144,8 +146,6 @@ Storage, orchestration, retrieval, and serving in one system. See [HTTP Serving]
 | *(nothing; it's automatic)* | Versions all data and schema changes for time-travel |
 
 Pixeltable ships with [built-in functions](https://docs.pixeltable.com/sdk/latest/pixeltable) for media processing (FFmpeg, Pillow, spaCy), embeddings (sentence-transformers, CLIP), and [30+ AI providers](https://docs.pixeltable.com/integrations/frameworks) (OpenAI, Anthropic, Gemini, Ollama, and more). For anything domain-specific, wrap your own logic with [`@pxt.udf`](https://docs.pixeltable.com/platform/udfs-in-pixeltable). You still write the application layer (FastAPI, React, Docker).
-
-**Deployment options:** Pixeltable can serve as your [full backend](https://docs.pixeltable.com/howto/deployment/overview) (managing media locally or syncing with S3/GCS/Azure, plus built-in vector search and orchestration) or as an [orchestration layer](https://docs.pixeltable.com/howto/deployment/overview) alongside your existing infrastructure.
 
 ## Demo
 
