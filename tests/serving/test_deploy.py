@@ -11,9 +11,10 @@ import pytest
 import toml
 
 import pixeltable as pxt
-from pixeltable import metadata
+from pixeltable import exceptions as excs, metadata
 from pixeltable.config import Config
 from pixeltable.serving.deploy import build_deploy_bundle
+from tests.utils import pxt_raises
 
 
 class TestDeploy:
@@ -101,3 +102,72 @@ class TestDeploy:
             with tar.extractfile(env_member) as f:
                 text = f.read().decode('utf-8')
                 assert 'pixeltable==' in text, text
+
+    def test_deploy_bundle_errors(self, uses_db: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test error paths in build_deploy_bundle()."""
+        config_path = tmp_path / 'pixeltable.toml'
+        monkeypatch.chdir(tmp_path)
+
+        # No environments configured
+        config_path.write_text('')
+        Config.init({}, reinit=True)
+        with pxt_raises(excs.ErrorCode.SERVICE_NOT_FOUND, match='No environments found'):
+            build_deploy_bundle('nonexistent')
+
+        # Environment name not found among configured environments
+        config_path.write_text(
+            textwrap.dedent("""\
+            [[environment]]
+            name = "other-env"
+            """)
+        )
+        Config.init({}, reinit=True)
+        with pxt_raises(excs.ErrorCode.SERVICE_NOT_FOUND, match="Environment 'nonexistent' not found"):
+            build_deploy_bundle('nonexistent')
+
+        # Service referenced by environment not found (no services configured)
+        config_path.write_text(
+            textwrap.dedent("""\
+            [[environment]]
+            name = "my-env"
+            services = ["missing-service"]
+            """)
+        )
+        Config.init({}, reinit=True)
+        with pxt_raises(excs.ErrorCode.SERVICE_NOT_FOUND, match='No services found'):
+            build_deploy_bundle('my-env')
+
+        # Service referenced by environment not found (different service configured)
+        config_path.write_text(
+            textwrap.dedent("""\
+            [[environment]]
+            name = "my-env"
+            services = ["missing-service"]
+
+            [[service]]
+            name = "other-service"
+            """)
+        )
+        Config.init({}, reinit=True)
+        with pxt_raises(excs.ErrorCode.SERVICE_NOT_FOUND, match="Service 'missing-service' not found"):
+            build_deploy_bundle('my-env')
+
+        # Table referenced in route does not exist
+        config_path.write_text(
+            textwrap.dedent("""\
+            [[environment]]
+            name = "my-env"
+            services = ["my-service"]
+
+            [[service]]
+            name = "my-service"
+
+            [[service.routes]]
+            type = "insert"
+            table = "no_such_table"
+            path = "/insert"
+            """)
+        )
+        Config.init({}, reinit=True)
+        with pxt_raises(excs.ErrorCode.PATH_NOT_FOUND, match='no_such_table'):
+            build_deploy_bundle('my-env')
