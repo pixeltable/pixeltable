@@ -33,6 +33,8 @@ class ColumnRef(Expr):
     """
     A Pixeltable expression that references a column of a table. A `ColumnRef` is created by column access
     on a [`Table`][pixeltable.Table], such as `t.col`.
+
+    Not thread-safe.
     """
 
     # When this reference is created in the context of a view, it can also refer to a column of the view base.
@@ -109,7 +111,8 @@ class ColumnRef(Expr):
 
     @property
     def col(self) -> catalog.Column:
-        # re-resolve via the current Catalog when we need the actual Column
+        # re-resolve via the current Catalog when we need the actual Column, in the context of a transaction;
+        # this does *not* make ColumnRef thread-safe
         return self.col_handle.get()
 
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:

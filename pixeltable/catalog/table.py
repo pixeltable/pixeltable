@@ -238,7 +238,7 @@ class Table(SchemaObject):
         if origin is not None and origin != threading.get_ident():
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_STATE,
-                f'Table {self.__dict__.get("_name")!r} was accessed from a thread other than the one that '
+                f'Table {self._name} was accessed from a thread other than the one that '
                 f'constructed it. Tables are not thread-safe; call pxt.get_table(...) on this thread to obtain '
                 f'a thread-local instance.',
             )

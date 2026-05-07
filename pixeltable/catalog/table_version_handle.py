@@ -12,9 +12,7 @@ from pixeltable.runtime import get_runtime
 from .table_version import TableVersion, TableVersionKey
 
 if TYPE_CHECKING:
-    from pixeltable.catalog import Column
-
-    from .catalog import Catalog
+    from pixeltable.catalog import Catalog, Column
 
 _logger = logging.getLogger('pixeltable')
 
