@@ -59,6 +59,7 @@ def _lookup_config(cfg_block: str, name: str, cfg_type: type[T], error_code: exc
             f'{", ".join(cfg.name for cfg in items)}',
         )
 
+    assert isinstance(cfg, cfg_type), f'config item {cfg!r} is not of expected type `{cfg_type.__name__}`'
     return cfg
 
 

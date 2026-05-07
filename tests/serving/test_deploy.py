@@ -111,7 +111,7 @@ class TestDeploy:
         # No environments configured
         config_path.write_text('')
         Config.init({}, reinit=True)
-        with pxt_raises(excs.ErrorCode.SERVICE_NOT_FOUND, match='No environments found'):
+        with pxt_raises(excs.ErrorCode.ENVIRONMENT_NOT_FOUND, match='No environments found'):
             build_deploy_bundle('nonexistent')
 
         # Environment name not found among configured environments
@@ -122,7 +122,7 @@ class TestDeploy:
             """)
         )
         Config.init({}, reinit=True)
-        with pxt_raises(excs.ErrorCode.SERVICE_NOT_FOUND, match="Environment 'nonexistent' not found"):
+        with pxt_raises(excs.ErrorCode.ENVIRONMENT_NOT_FOUND, match="Environment 'nonexistent' not found"):
             build_deploy_bundle('nonexistent')
 
         # Service referenced by environment not found (no services configured)
