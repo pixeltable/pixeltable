@@ -8,8 +8,6 @@
 <br>
 </div>
 
-Pixeltable is declarative, incremental data infrastructure for multimodal AI. Video, audio, images, and documents are first-class column types, not opaque blobs. Computed columns replace ETL pipelines. Embedding indexes and retrieval are built in. One system replaces five.
-
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
@@ -24,6 +22,20 @@ Pixeltable is declarative, incremental data infrastructure for multimodal AI. Vi
 [**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) |
 [**AI Coding Skill**](https://github.com/pixeltable/pixeltable-skill) |
 [**Pixeltable Cloud**](https://www.pixeltable.com/)
+
+Pixeltable is the unified multimodal backend for AI applications. One `pip install`, one Python API, one place to store, transform, index, retrieve, serve, version, observe, and debug.
+
+Every multimodal AI app needs the same five things: store media, run models, index embeddings, serve endpoints, version everything. Most teams glue together 5-8 services and spend more time on infrastructure than on the product. Pixeltable is a single system that handles all five.
+
+| What you need | Without Pixeltable | With Pixeltable |
+|---|---|---|
+| Store video, images, docs | S3 + Postgres + custom loaders | `pxt.create_table()` with native media types |
+| Run AI on every insert | Airflow/Prefect DAGs, retry logic | `add_computed_column()`, automatic |
+| Vector search | Pinecone/Weaviate, sync pipelines | `add_embedding_index()`, always in sync |
+| HTTP endpoints | Hand-written FastAPI + Pydantic | `FastAPIRouter` or `pxt serve` |
+| Versioning & rollback | Custom migration scripts | Built-in `history()`, `revert()` |
+
+Transaction integrity, async execution, parallelization, caching, retries, and observability are built in. Schema changes are one line. Model upgrades are zero-downtime. Extensible via `@pxt.udf`, `@pxt.uda`, `@pxt.query`.
 
 ---
 

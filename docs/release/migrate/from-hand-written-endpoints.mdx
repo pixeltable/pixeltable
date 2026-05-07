@@ -51,11 +51,17 @@ If your Pixeltable app has hand-written FastAPI endpoints that call `pxt.get_tab
   </Tab>
   <Tab title="FastAPIRouter">
     ```python
+    import pixeltable as pxt
     from pixeltable.serving import FastAPIRouter
-    import schema  # import triggers table creation
 
     router = FastAPIRouter(prefix="/api/data", tags=["data"])
-    router.add_query_route(path="/documents", query=schema.list_documents, method="get")
+    docs = pxt.get_table('myapp/documents')
+
+    @pxt.query
+    def list_documents():
+        return docs.select(docs.title, docs.document).order_by(docs.title)
+
+    router.add_query_route(path="/documents", query=list_documents, method="get")
     ```
   </Tab>
 </Tabs>
@@ -75,21 +81,21 @@ If your Pixeltable app has hand-written FastAPI endpoints that call `pxt.get_tab
 
 ## Step-by-Step Migration
 
-### 1. Define queries with `@pxt.query`
+### 1. Define queries in router files
 
-Every read pattern becomes a `@pxt.query` function. Each one maps to a single `add_query_route` call.
+Every read pattern becomes a `@pxt.query` function defined in the router file where it's used. Each one maps to a single `add_query_route` call.
 
 <Warning>
-`@pxt.query` eagerly evaluates the function body at decoration time. Create tables **before** defining queries that reference them. Use `if_exists='ignore'` to make table creation idempotent.
+`@pxt.query` eagerly evaluates the function body at decoration time. Tables must exist before the router module is imported. Run `python setup_pixeltable.py` before starting the app.
 </Warning>
 
 ```python
-# schema.py
+# routers/data.py — queries live next to the routes that use them
 import pixeltable as pxt
+from pixeltable.serving import FastAPIRouter
 
-docs = pxt.create_table('myapp/documents', {
-    'document': pxt.Document, 'title': pxt.String
-}, if_exists='ignore')
+router = FastAPIRouter(prefix="/api/data", tags=["data"])
+docs = pxt.get_table('myapp/documents')
 
 @pxt.query
 def list_documents():
@@ -99,28 +105,24 @@ def list_documents():
 def search_documents(query_text: str, limit: int = 10):
     sim = docs.text.similarity(string=query_text)
     return docs.order_by(sim, asc=False).limit(limit).select(docs.title, sim)
+
+router.add_query_route(path="/documents", query=list_documents, method="get")
+router.add_query_route(path="/search", query=search_documents)
+router.add_insert_route(docs, path="/upload", uploadfile_inputs=["document"], outputs=["uuid"])
 ```
 
 ### 2. Replace `APIRouter` with `FastAPIRouter`
 
-`FastAPIRouter` is a subclass of `APIRouter`, so hand-written `@router.post()` endpoints coexist on the same instance.
+`FastAPIRouter` is a subclass of `APIRouter`, so hand-written `@router.post()` endpoints coexist on the same instance. Mount routers in `main.py`:
 
 ```python
 # main.py
-import fastapi
-import pixeltable as pxt
-from pixeltable.serving import FastAPIRouter
-import schema  # import triggers table creation
+from fastapi import FastAPI
+from routers import data, search
 
-app = fastapi.FastAPI()
-router = FastAPIRouter(prefix="/api/data", tags=["data"])
-
-docs_table = pxt.get_table('myapp/documents')
-router.add_query_route(path="/documents", query=schema.list_documents, method="get")
-router.add_query_route(path="/search", query=schema.search_documents)
-router.add_insert_route(docs_table, path="/upload", uploadfile_inputs=["document"], outputs=["uuid"])
-
-app.include_router(router)
+app = FastAPI()
+app.include_router(data.router)
+app.include_router(search.router)
 ```
 
 ### 4. Convert uploads
@@ -180,7 +182,7 @@ Since `FastAPIRouter` extends `APIRouter`, hand-written and declarative routes c
 
 ### `@pxt.query` runs at decoration time
 
-The function body executes when Python hits the `@pxt.query` decorator, not when you call the function. If the tables don't exist yet, you get an error. Create tables before defining queries in the same module, using `if_exists='ignore'` for idempotency.
+The function body executes when Python hits the `@pxt.query` decorator, not when you call the function. If the tables don't exist yet, you get an error. Run `python setup_pixeltable.py` before starting the app so tables exist when router modules are imported.
 
 ### UUID parameters need `uuid.UUID` annotations
 

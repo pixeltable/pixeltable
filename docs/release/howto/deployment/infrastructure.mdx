@@ -5,17 +5,17 @@ description: "Code organization and storage architecture for Pixeltable deployme
 
 ## Code Organization
 
-Separate schema definition from application code.
+Separate schema definition from router logic.
 
-**Schema Definition (`schema.py`):**
-- Defines directories, tables, views, computed columns, indexes, and `@pxt.query` functions
-- Acts as Infrastructure-as-Code for Pixeltable entities
-- Module-level definitions with `if_exists='ignore'` for idempotency
-- Importing the module creates all tables (runs once per process)
+**Schema Definition (`setup_pixeltable.py`):**
+- Tables, views, computed columns, indexes, and agent-internal `@pxt.query` functions
+- Flat module with `if_exists='ignore'` for idempotency (no `setup()` wrapper, no `_initialized` flag)
+- Run once before starting workers: `python setup_pixeltable.py`
 
-**Application Code (`app.py`, `endpoints.py`, `functions.py`):**
-- Imports `schema` to trigger table creation, then uses `pxt.get_table()` for handles
-- Interacts with tables via `pxt.get_table()` and `@pxt.udf`
+**Router Files (`routers/data.py`, `routers/search.py`, etc.):**
+- Call `pxt.get_table()` directly to get table handles
+- Define router-facing `@pxt.query` functions next to the routes that use them
+- No `import setup_pixeltable` needed; tables already exist from the init step
 
 **Configuration (`config.py`):**
 - Externalizes model IDs, API keys, thresholds, connection strings
@@ -23,7 +23,7 @@ Separate schema definition from application code.
 - Never hardcodes secrets
 
 ```python
-# schema.py — creates tables, defines queries (flat, idempotent)
+# setup_pixeltable.py — creates tables (flat, idempotent, no queries for routers)
 import pixeltable as pxt
 import config
 
@@ -37,12 +37,19 @@ docs = pxt.create_table(
 
 # ---
 
-# app.py — import triggers table creation, then get handles
-import schema  # noqa: F401 — side-effect import
+# routers/data.py — queries live next to the routes that use them
 import pixeltable as pxt
+from pixeltable.serving import FastAPIRouter
 import config
 
+router = FastAPIRouter(prefix="/api/data", tags=["data"])
 docs = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
+
+@pxt.query
+def list_documents():
+    return docs.select(docs.title, docs.document).order_by(docs.title)
+
+router.add_query_route(path="/documents", query=list_documents, method="get")
 ```
 
 ## Project Structure
@@ -53,8 +60,12 @@ docs = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
 project/
 ├── config.py              # Environment variables, model IDs, API keys
 ├── functions.py           # Custom UDFs (imported as modules)
-├── schema.py              # Schema definition (tables, views, indexes, queries)
-├── app.py                 # Application endpoints (FastAPI/Flask)
+├── setup_pixeltable.py     # Schema definition (tables, views, indexes)
+├── main.py                # FastAPI app, mounts routers
+├── routers/
+│   ├── data.py            # CRUD routes + queries for data pipeline
+│   ├── search.py          # Search routes + queries
+│   └── agent.py           # Agent routes (declarative + hand-written)
 ├── requirements.txt       # Pinned dependencies
 └── .env                   # Secrets (gitignored)
 ```
@@ -97,12 +108,11 @@ async def call_custom_model(prompt: str) -> dict:
 ```
   </Tab>
 
-  <Tab title="schema.py">
+  <Tab title="setup_pixeltable.py">
 ```python
 import pixeltable as pxt
 from pixeltable.functions.huggingface import sentence_transformer
 import config
-from functions import format_prompt  # Import module UDFs
 
 pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
 
@@ -118,44 +128,46 @@ docs.add_computed_column(
 )
 
 docs.add_embedding_index('embedding', metric='cosine', if_not_exists=True)
+```
+  </Tab>
+
+  <Tab title="routers/search.py">
+```python
+import pixeltable as pxt
+from pixeltable.serving import FastAPIRouter
+import config
+
+router = FastAPIRouter(prefix="/api/search", tags=["search"])
+docs = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
 
 @pxt.query
 def search_documents(query_text: str, limit: int = 5):
     sim = docs.embedding.similarity(string=query_text)
     return docs.order_by(sim, asc=False).limit(limit).select(docs.document, sim)
+
+router.add_query_route(path="/documents", query=search_documents)
 ```
   </Tab>
 
-  <Tab title="app.py">
+  <Tab title="main.py">
 ```python
-from pydantic import BaseModel
 from fastapi import FastAPI
-import pixeltable as pxt
-import schema  # noqa: F401 — import triggers table creation
-import config
+from routers import data, search
 
 app = FastAPI()
-docs_table = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
-
-class SearchResult(BaseModel):
-    document: str
-    sim: float
-
-@app.get("/search")
-def search(query: str, limit: int = 5) -> list[SearchResult]:
-    results = schema.search_documents(query, limit).collect()
-    return list(results.to_pydantic(SearchResult))
+app.include_router(data.router)
+app.include_router(search.router)
 ```
   </Tab>
 </Tabs>
 
 <Note>
 **Key Principles:**
+- **Schema separate from routers:** `setup_pixeltable.py` defines tables/views/indexes. Router files define `@pxt.query` functions next to the routes that use them. No cross-imports needed.
 - **Module UDFs** (`functions.py`): Update when code changes; improve testability. [Learn more](/platform/udfs-in-pixeltable)
-- **Retrieval Queries** (`@pxt.query`): Encapsulate complex retrieval logic as reusable functions.
-- **Idempotency:** Use `if_exists='ignore'` to make `schema.py` safely re-runnable.
-- **Built-in HTTP serving:** For standard endpoints, consider [`pxt serve`](/howto/deployment/serving) with a TOML config instead of manual `app.py` setup.
-- **Multi-worker deployments:** With `--workers N`, run `python schema.py` before `uvicorn` so schema creation happens once, not per worker (see [Starter Kit Dockerfile](https://github.com/pixeltable/pixeltable-starter-kit)).
+- **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable.
+- **Built-in HTTP serving:** For standard endpoints, consider [`pxt serve`](/howto/deployment/serving) with a TOML config.
+- **Multi-worker deployments:** With `--workers N`, run `python setup_pixeltable.py` before `uvicorn` so schema creation happens once, not per worker (see [Starter Kit Dockerfile](https://github.com/pixeltable/pixeltable-starter-kit)).
 </Note>
 
 <Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
