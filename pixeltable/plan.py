@@ -449,6 +449,7 @@ class Planner:
 
         # stored computed columns
         missing_computed_cols = [col for col in tbl.cols_by_id.values() if col.is_stored and col.is_computed]
+        cls.__check_valid_columns(tbl, missing_computed_cols, 'inserted into')
 
         # resolve missing computed col exprs
         missing_col_exprs = [

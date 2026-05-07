@@ -1135,3 +1135,17 @@ class TestQuery:
         # add_columns name must not collide with a base-select column name
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='c2'):
             t.select(t.c1, t.c2).add_columns(c2=t.c2 * 2)
+
+        # distinct() after add_columns must distinct on the materialized list (incl. additional)
+        # otherwise duplicate (c2, c2_doubled) tuples would slip through
+        q_dist = t.select(t.c2).add_columns(c2_doubled=t.c2 * 2).distinct()
+        rows_dist = list(q_dist.collect())
+        assert len({(r['c2'], r['c2_doubled']) for r in rows_dist}) == len(rows_dist)
+
+        # col_{i} auto-name must skip past indices the user already claimed,
+        # and stay in the col_N pattern (no col_i_j shape)
+        q_collide = t.select(col_1=t.c2).add_columns(t.c2 * 2)
+        names = list(q_collide.schema.keys())
+        assert len(names) == 2 and len(set(names)) == 2
+        # second slot's auto-name (would have been col_1) collides with user's 'col_1' → falls through to col_2
+        assert 'col_1' in names and 'col_2' in names

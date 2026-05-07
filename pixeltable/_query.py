@@ -413,7 +413,12 @@ class Query:
                             if column_name not in seen_out_names:
                                 break
                 else:  # no default name, eg some expressions
-                    column_name = f'col_{i}'
+                    # find next unused col_N (skip past any indices the user already claimed)
+                    name_idx = i
+                    column_name = f'col_{name_idx}'
+                    while column_name in seen_out_names:
+                        name_idx += 1
+                        column_name = f'col_{name_idx}'
             else:  # user provided name, no attempt to rename
                 column_name = name
 
@@ -1261,7 +1266,7 @@ class Query:
             ...     .distinct()
             ... )
         """
-        exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
+        exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list, self.additional_select_list)
         return self.group_by(*exps)
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> Query:
