@@ -173,15 +173,20 @@ async def generate_content(
         contents = _replace_upload_placeholders(contents, uploaded)
         response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
         result = response.model_dump(mode='json')
-        for candidate, result_candidate in zip(response.candidates or [], result.get('candidates', [])):
+        # We walk the typed Pydantic response in lockstep with its JSON dump because `model_dump(mode='json')`
+        # url-safe-base64-encodes `inline_data.data` into a `str`, which is awkward (and lossy-looking) to reverse.
+        # The Pydantic side still has the raw `bytes`, so we read from there and overwrite the dict with a PIL image.
+        for candidate, result_candidate in zip(response.candidates or [], result.get('candidates', []), strict=True):
             if candidate.content is None:
                 continue
             for part, result_part in zip(
-                candidate.content.parts or [], result_candidate.get('content', {}).get('parts', [])
+                candidate.content.parts or [], result_candidate.get('content', {}).get('parts', []), strict=True
             ):
                 blob = part.inline_data
                 if blob is not None and blob.mime_type and blob.mime_type.startswith('image/') and blob.data:
-                    result_part['inline_data']['data'] = PIL.Image.open(io.BytesIO(blob.data))
+                    img = PIL.Image.open(io.BytesIO(blob.data))
+                    img.load()
+                    result_part['inline_data']['data'] = img
         return result
 
 
