@@ -394,8 +394,15 @@ class Query:
         if select_list is None:
             select_list = [(exprs.ColumnRef(col), None) for tbl in tbls for col in tbl.columns()]
         if additional_select_list:
-            # rebind to a new list so the caller's select_list is not mutated in place
-            select_list = select_list + additional_select_list  # noqa: PLR6104
+            # process named items before unnamed so that auto-generated names (col_N) can skip over
+            # any explicit names the caller chose
+            named: list[tuple[exprs.Expr, str | None]] = [
+                (expr, name) for expr, name in additional_select_list if name is not None
+            ]
+            unnamed: list[tuple[exprs.Expr, str | None]] = [
+                (expr, name) for expr, name in additional_select_list if name is None
+            ]
+            select_list = select_list + named + unnamed
 
         out_exprs: list[exprs.Expr] = []
         out_names: list[str] = []  # keep track of order

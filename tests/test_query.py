@@ -1149,3 +1149,20 @@ class TestQuery:
         assert len(names) == 2 and len(set(names)) == 2
         # second slot's auto-name (would have been col_1) collides with user's 'col_1' → falls through to col_2
         assert 'col_1' in names and 'col_2' in names
+
+        # unnamed + explicit col_N kwarg in the same add_columns call
+        q_mixed = t.select(t.c1).add_columns(t.c2 * 3, col_1=t.c2 + 10)
+        mixed_names = list(q_mixed.schema.keys())
+        assert len(mixed_names) == len(set(mixed_names)) == 3
+        assert 'col_1' in mixed_names  # explicit kwarg
+        # t.c2 * 3 will use col_2
+        assert 'col_2' in mixed_names
+
+        # chained add_columns with both named and unnamed in each call
+        q_chain2 = t.select(t.c1, t.c2).add_columns(t.c2 * 2, alpha=t.c2 + 1).add_columns(t.c2 * 3, beta=t.c2 + 2)
+        chain2_result = q_chain2.collect()
+        assert list(q_chain2.schema.keys()) == ['c1', 'c2', 'alpha', 'beta', 'col_4', 'col_5']
+        assert all(row['alpha'] == row['c2'] + 1 for row in chain2_result)
+        assert all(row['beta'] == row['c2'] + 2 for row in chain2_result)
+        assert all(row['col_4'] == row['c2'] * 2 for row in chain2_result)
+        assert all(row['col_5'] == row['c2'] * 3 for row in chain2_result)
