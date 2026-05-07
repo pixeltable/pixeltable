@@ -20,26 +20,18 @@ _logger = logging.getLogger('pixeltable')
 
 class TableVersionHandle:
     """
-    Indirection mechanism for TableVersion instances, which get resolved against the (thread-local) catalog at runtime.
-    Each get() call needs to resolve against the current thread's catalog in order to avoid picking up catalog
-    elements (eg, Column.sa_column) created in a different thread.
+    Indirection mechanism for TableVersion instances, which get resolved against the catalog at runtime.
 
-    See the TableVersion docstring for details on the semantics of effective_version and anchor_tbl_id.
+    Not thread-safe.
     """
 
     key: TableVersionKey
-    # Per-(thread, xact) cache of the resolved TableVersion. Reset on __deepcopy__ when the
-    # handle crosses a thread/transaction boundary (e.g., a Query template captured at
-    # module-import time being executed in a worker thread, or a Query held across xacts in
-    # the face of a schema change from another process). Re-validation happens on the next
-    # get() through the catalog's is_validated machinery.
+
+    # cache of the resolved TableVersion; needs to be cleared whenever we cross a transaction
+    # or Catalog instance boundary
     _tbl_version: TableVersion | None
-    # The Catalog instance this handle was last resolved against. Set in __init__ from
-    # get_runtime().catalog, re-set by __deepcopy__, and updated by get() whenever it
-    # detects a mismatch with the calling thread's catalog (which can happen across worker
-    # threads or after reset_runtime). On mismatch get() drops the cached TableVersion and
-    # re-resolves through the current catalog, so consumers always observe metadata from the
-    # catalog they're running against.
+
+    # Catalog instance against which this handle was last resolved
     _origin_catalog: Catalog
 
     def __init__(self, key: TableVersionKey, *, tbl_version: TableVersion | None = None):
@@ -48,9 +40,7 @@ class TableVersionHandle:
         self._origin_catalog = get_runtime().catalog
 
     def __deepcopy__(self, memo: dict[int, object] | None = None) -> TableVersionHandle:
-        # Returning a fresh handle resets _tbl_version (so the next get() re-resolves via the
-        # current thread's catalog) and re-tags _origin_catalog to the calling thread's
-        # catalog via __init__.
+        # reset _tbl_version, we might end up in a different thread
         return TableVersionHandle(self.key)
 
     def __eq__(self, other: object) -> bool:

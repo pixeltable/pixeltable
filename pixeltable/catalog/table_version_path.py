@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pixeltable import exceptions as excs
 from pixeltable.metadata import schema
-
+from pixeltable.runtime import get_runtime
 from .column import Column
 from .globals import MediaValidation, QColumnId
 from .table_version import TableVersion, TableVersionKey
@@ -38,31 +38,23 @@ class TableVersionPath:
       query actually runs (at which point there is a transaction context) - there is no guarantee that in between
       constructing a Query and executing it, the underlying table schema hasn't changed (eg, a concurrent process
       could have dropped a column referenced in the query).
+
+    Not thread-safe.
     """
 
     tbl_version: TableVersionHandle
     base: TableVersionPath | None
-    # Per-(thread, xact) cache of the resolved TableVersion. Reset on __deepcopy__ when the
-    # TVP crosses a thread boundary (e.g., a Query template captured at module-import time
-    # being executed in a worker thread, or a Query held across xacts in the face of a
-    # schema change from another process). Re-validation happens on the next
-    # tbl_version.get() through the catalog's is_validated machinery.
+
+    # cache of the resolved TableVersion; needs to be reset on transaction and thread boundaries
     _cached_tbl_version: TableVersion | None
-    # The thread that constructed (or most recently deepcopied) this TVP. Tables hold a TVP
-    # via Table._tbl_version_path; cross-thread access through a Table is rejected at
-    # refresh_cached_md() with a clear error pointing the user at pxt.get_table(). Queries,
-    # by contrast, defensively deepcopy at collect-time, so the per-Query TVPs end up tagged
-    # to the executing thread.
+
+    # id of the constructing thread; used to guard against cross-thread access
     _origin_thread_id: int
-    # The Catalog instance this path was last resolved against. Used for the same-thread
-    # cross-Catalog case (reset_runtime in tests): we self-heal by dropping the cache and
-    # re-resolving via the new Catalog. See the corresponding comment on
-    # TableVersionHandle._origin_catalog.
+
+    # Catalog instance against which this path was last resolved; used to invalidate cached state/force re-resolution
     _origin_catalog: Catalog
 
     def __init__(self, tbl_version: TableVersionHandle, base: TableVersionPath | None = None):
-        from pixeltable.runtime import get_runtime
-
         assert tbl_version is not None
         self.tbl_version = tbl_version
         self.base = base
@@ -74,9 +66,7 @@ class TableVersionPath:
             self.base = self.base.anchor_to(tbl_version.anchor_tbl_id)
 
     def __deepcopy__(self, memo: dict[int, object]) -> TableVersionPath:
-        # Reset _cached_tbl_version and recurse into tbl_version (TVH) and base (TVP). Both
-        # have their own __deepcopy__ that reset their respective per-(thread, xact) caches.
-        # See the comment on _cached_tbl_version above for the invariant.
+        # reset thread-specific state
         result = TableVersionPath(
             tbl_version=copy.deepcopy(self.tbl_version, memo),
             base=copy.deepcopy(self.base, memo) if self.base is not None else None,
@@ -101,14 +91,7 @@ class TableVersionPath:
         return result
 
     def refresh_cached_md(self) -> None:
-        from pixeltable.runtime import get_runtime
-
-        # Reject cross-thread access. Tables hold a TVP and are not thread-safe: their
-        # cached metadata is a per-instance, per-thread cache. Concurrent threads sharing a
-        # Table would race on this cache, and even if races are made benign via atomic
-        # replace, the cache pings between catalogs and forces redundant metadata loads.
-        # Cross-thread sharing is supposed to go through Query.collect() (which deepcopies
-        # and produces a thread-local TVP), or through a per-thread pxt.get_table().
+        # guard against cross-thread access
         if self._origin_thread_id != threading.get_ident():
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_STATE,
@@ -116,12 +99,8 @@ class TableVersionPath:
                 f'Tables are not thread-safe; call pxt.get_table(...) on this thread to obtain a thread-local '
                 f'instance.',
             )
-        # Same thread but different Catalog (e.g., after reset_runtime): drop the cache and
-        # re-resolve. When we're inside a transaction, also reload if our cached TV's
-        # is_validated flipped (mixing stale and current metadata produces multiple
-        # sqlalchemy Table instances for the same underlying table and corrupts From
-        # clauses). Snapshot the cache, then atomically replace - never set to None
-        # mid-method.
+
+        # re-resolve if the Catalog instance changed
         cat = get_runtime().catalog
         cached = self._cached_tbl_version
         needs_refresh = (
