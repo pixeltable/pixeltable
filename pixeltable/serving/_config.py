@@ -46,17 +46,15 @@ def _resolve_dotted_path(dotted: str) -> Any:
 T = TypeVar('T', bound='pydantic.BaseModel')
 
 
-def _lookup_config(cfg_block: str, name: str, cfg_type: type[T]) -> T:
+def _lookup_config(cfg_block: str, name: str, cfg_type: type[T], error_code: excs.ErrorCode) -> T:
     items = config.Config.get().get_value(cfg_block, list)
     if not items:
-        raise excs.NotFoundError(
-            excs.ErrorCode.SERVICE_NOT_FOUND, f'No {cfg_block}s found in Pixeltable configuration.'
-        )
+        raise excs.NotFoundError(error_code, f'No {cfg_block}s found in Pixeltable configuration.')
 
     cfg = next((c for c in items if c.name == name), None)
     if cfg is None:
         raise excs.NotFoundError(
-            excs.ErrorCode.SERVICE_NOT_FOUND,
+            error_code,
             f'{cfg_block.title()} {name!r} not found. The following {cfg_block}s are configured:\n'
             f'{", ".join(cfg.name for cfg in items)}',
         )
@@ -66,12 +64,12 @@ def _lookup_config(cfg_block: str, name: str, cfg_type: type[T]) -> T:
 
 def lookup_service_config(name: str) -> config.ServiceConfig:
     """Lookup a ServiceConfig by name from the Pixeltable configuration."""
-    return _lookup_config('service', name, config.ServiceConfig)
+    return _lookup_config('service', name, config.ServiceConfig, excs.ErrorCode.SERVICE_NOT_FOUND)
 
 
 def lookup_environment_config(name: str) -> config.EnvironmentConfig:
     """Lookup an EnvironmentConfig by name from the Pixeltable configuration."""
-    return _lookup_config('environment', name, config.EnvironmentConfig)
+    return _lookup_config('environment', name, config.EnvironmentConfig, excs.ErrorCode.ENVIRONMENT_NOT_FOUND)
 
 
 def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':

@@ -128,6 +128,8 @@ class ServiceConfig(pydantic.BaseModel):
 
 
 class EnvironmentConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
     name: str
     include: list[str] | None = None
     exclude: list[str] | None = None

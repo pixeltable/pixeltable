@@ -85,9 +85,10 @@ def _export_tables_md(services_cfg: list[config.ServiceConfig]) -> dict[str, Any
     for service in services_cfg:
         for route in service.routes:
             # Query routes are only supported for cloud-hosted tables (not implemented yet)
+            # TODO: we should catch this upstream to prevent users from trying to deploy unsupported configurations
             assert not isinstance(route, config.QueryRouteConfig)
             table_paths.add(route.table)
-    tables = [pxt.get_table(path) for path in table_paths]
+    tables = [pxt.get_table(path) for path in sorted(table_paths)]
 
     # Get the md for all ancestors of all such tables.
     catalog = get_runtime().catalog
