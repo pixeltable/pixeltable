@@ -20,7 +20,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, OpStatus, TableOp
+from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -211,11 +211,13 @@ class View(Table):
             tbl_id = md.tbl_md.tbl_id
             key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
-            ops = [
-                CreateTableMdOp(tbl_id=tbl_id, op_sn=0, num_ops=3, status=OpStatus.PENDING),
-                CreateStoreTableOp(tbl_id=tbl_id, op_sn=1, num_ops=3, status=OpStatus.PENDING),
-                LoadViewOp(tbl_id=tbl_id, op_sn=2, num_ops=3, status=OpStatus.PENDING, view_path=view_path.as_dict()),
-            ]
+            ops = (
+                TableOpsBuilder(tbl_id, tbl_version=md.tbl_md.current_version)
+                .add(CreateTableMdOp)
+                .add(CreateStoreTableOp)
+                .add(LoadViewOp, view_path=view_path.as_dict())
+                .build()
+            )
             return md, ops
 
     @classmethod
