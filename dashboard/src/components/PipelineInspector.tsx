@@ -759,7 +759,7 @@ function PipelineInspectorInner() {
     const views = pipeline.nodes.filter((n) => n.is_view).length
     const totalRows = pipeline.nodes.reduce((s, n) => s + n.row_count, 0)
     const totalComputed = pipeline.nodes.reduce((s, n) => s + n.computed_count, 0)
-    const totalIndices = pipeline.nodes.reduce((s, n) => s + (n.indices?.length ?? 0), 0)
+    const totalIndices = pipeline.nodes.reduce((s, n) => s + n.indices.length, 0)
     return { tables, views, totalRows, totalComputed, totalIndices }
   }, [pipeline])
 

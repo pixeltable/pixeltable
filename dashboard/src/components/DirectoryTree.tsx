@@ -49,7 +49,6 @@ function countDescendants(node: TreeNode): number {
 }
 
 function countAllNodes(nodes: TreeNode[]): number {
-  if (!nodes) return 0
   return nodes.reduce(
     (sum, n) => sum + 1 + (n.kind === 'directory' ? countAllNodes(n.entries ?? []) : 0),
     0,
