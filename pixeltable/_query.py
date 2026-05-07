@@ -616,6 +616,9 @@ class Query:
         return len(self._from_clause.join_clauses) > 0
 
     def show(self, n: int = 20) -> ResultSet:
+        # See _output_row_iterator for the rationale on the defensive copy.
+        if self._origin_catalog is not get_runtime().catalog:
+            return copy.deepcopy(self).show(n)
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'show() cannot be used with sample()')
         assert n is not None
@@ -636,6 +639,9 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
+        # See _output_row_iterator for the rationale on the defensive copy.
+        if self._origin_catalog is not get_runtime().catalog:
+            return copy.deepcopy(self).head(n)
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with order_by()')
         if self._has_joins():
@@ -663,6 +669,9 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
+        # See _output_row_iterator for the rationale on the defensive copy.
+        if self._origin_catalog is not get_runtime().catalog:
+            return copy.deepcopy(self).tail(n)
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with order_by()')
         if self._has_joins():
@@ -860,6 +869,9 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
+        # See _output_row_iterator for the rationale on the defensive copy.
+        if self._origin_catalog is not get_runtime().catalog:
+            return copy.deepcopy(self).count()
         if self.limit_val is not None and self.limit_val.val == 0:
             return 0
         with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()) as conn:
