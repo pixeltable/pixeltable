@@ -91,8 +91,8 @@ class TableVersionPath:
         return result
 
     def refresh_cached_md(self) -> None:
-        # guard against cross-thread access
-        assert self._origin_thread_id == threading.get_ident()
+        # guard against incorrect cross-thread access; inherited-context threads are allowed
+        assert self._origin_thread_id == threading.get_ident() or get_runtime().context_inherited
 
         # re-resolve if the Catalog instance changed
         cat = get_runtime().catalog

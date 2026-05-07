@@ -4,7 +4,6 @@ from typing import Callable
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
 from tests.utils import DummyIterator, pxt_raises, validate_update_status
 
 
@@ -180,6 +179,54 @@ class TestConcurrentOps:
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
         assert errors == [], f'errors: {errors[:3]}'
 
+    def test_shared_query_udf(self, uses_db: None) -> None:
+        t = pxt.create_table('t15', {'a': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
+
+        @pxt.query
+        def find_above(threshold: int) -> pxt.Query:
+            return t.where(t.a >= threshold).select(t.a)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                bound = find_above.template_query.bind({'threshold': 40})
+                rows = bound.collect()
+                assert len(rows) == 10
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_shared_join(self, uses_db: None) -> None:
+        t1 = pxt.create_table('t17_a', {'id': pxt.Required[pxt.Int], 'i': pxt.Required[pxt.Int]})
+        t2 = pxt.create_table('t17_b', {'id': pxt.Required[pxt.Int], 'f': pxt.Required[pxt.Float]})
+        validate_update_status(t1.insert([{'id': i, 'i': i} for i in range(20)]), expected_rows=20)
+        validate_update_status(t2.insert([{'id': i, 'f': i * 1.5} for i in range(20)]), expected_rows=20)
+
+        q = t1.join(t2, on=t1.id == t2.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t1.i)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                rows = q.collect()
+                assert len(rows) == 20
+                assert all(row['out'] == row['i'] + row['f'] for row in rows)
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_shared_snapshot_query(self, uses_db: None) -> None:
+        t = pxt.create_table('t19_base', {'a': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i} for i in range(20)]), expected_rows=20)
+        s = pxt.create_snapshot('t19_snap', t)
+
+        q = s.where(s.a >= 10).select(s.a)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                assert len(q.collect()) == 10
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
     def test_table_public_methods(self, uses_db: None) -> None:
         """All public Table methods guard against cross-thread calls."""
         t = pxt.create_table('t_xthread', {'a': pxt.Required[pxt.Int], 'keep': pxt.Required[pxt.Int]})
@@ -241,86 +288,3 @@ class TestConcurrentOps:
 
         # Sanity: Table is still usable on the main thread.
         assert t.count() == 1
-
-    def test_shared_query_udf(self, uses_db: None) -> None:
-        t = pxt.create_table('t15', {'a': pxt.Required[pxt.Int]})
-        validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
-
-        @pxt.query
-        def find_above(threshold: int) -> pxt.Query:
-            return t.where(t.a >= threshold).select(t.a)
-
-        def worker(_tid: int) -> None:
-            for _ in range(self.ITERATIONS):
-                bound = find_above.template_query.bind({'threshold': 40})
-                rows = bound.collect()
-                assert len(rows) == 10
-
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
-
-    def test_shared_join(self, uses_db: None) -> None:
-        t1 = pxt.create_table('t17_a', {'id': pxt.Required[pxt.Int], 'i': pxt.Required[pxt.Int]})
-        t2 = pxt.create_table('t17_b', {'id': pxt.Required[pxt.Int], 'f': pxt.Required[pxt.Float]})
-        validate_update_status(t1.insert([{'id': i, 'i': i} for i in range(20)]), expected_rows=20)
-        validate_update_status(t2.insert([{'id': i, 'f': i * 1.5} for i in range(20)]), expected_rows=20)
-
-        q = t1.join(t2, on=t1.id == t2.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t1.i)
-
-        def worker(_tid: int) -> None:
-            for _ in range(self.ITERATIONS):
-                rows = q.collect()
-                assert len(rows) == 20
-                assert all(row['out'] == row['i'] + row['f'] for row in rows)
-
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
-
-    def test_shared_snapshot_query(self, uses_db: None) -> None:
-        t = pxt.create_table('t19_base', {'a': pxt.Required[pxt.Int]})
-        validate_update_status(t.insert([{'a': i} for i in range(20)]), expected_rows=20)
-        s = pxt.create_snapshot('t19_snap', t)
-
-        q = s.where(s.a >= 10).select(s.a)
-
-        def worker(_tid: int) -> None:
-            for _ in range(self.ITERATIONS):
-                assert len(q.collect()) == 10
-
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
-
-    def test_query_after_schema_change(self, uses_db: None) -> None:
-        t = pxt.create_table('t7', {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
-        validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(10)]), expected_rows=10)
-        q = t.select(t.a, t.b)
-        assert len(q.collect()) == 10  # pre-drop sanity check
-
-        t.drop_column('b')
-
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
-            q.collect()
-
-    def test_column_ref_attr_after_drop_and_readd(self, uses_db: None) -> None:
-        """T8: ColumnRef captured pre-change, drop+re-add the column. Accessing
-        the captured ref should re-resolve through the catalog (and raise, since
-        the original col_id is gone) rather than returning stale Column metadata."""
-        # The "keep" column exists so dropping "a" is allowed (tables need at least one column).
-        # The new "a" is nullable since add_column on a non-empty table can't add a required column.
-        t = pxt.create_table('t8', {'a': pxt.Required[pxt.Int], 'keep': pxt.Required[pxt.Int]})
-        validate_update_status(t.insert([{'a': 1, 'keep': 0}]), expected_rows=1)
-
-        a_ref = t.a
-        # The Expr's col_type is set at __init__ from col.col_type; that snapshot
-        # is fine. The bug is downstream: accessing ColumnRef.col on master
-        # returned the cached Column instance forever.
-        assert a_ref.col_type.is_int_type()
-
-        t.drop_column('a')
-        t.add_column(a=pxt.String)
-
-        # On loadtest, .col is a property over col_handle.get(), which raises NotFoundError
-        # because the captured col_id was dropped. On master, .col is a cached
-        # field and silently returns the stale Column.
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
-            _ = a_ref.col

@@ -79,8 +79,8 @@ class TableVersionHandle:
         return self.effective_version is not None
 
     def get(self) -> TableVersion:
-        # guard against cross-thread access
-        assert self._origin_thread_id == threading.get_ident()
+        # guard against incorrect cross-thread access; inherited-context threads are allowed
+        assert self._origin_thread_id == threading.get_ident() or get_runtime().context_inherited
 
         cat = get_runtime().catalog
         cached = self._tbl_version
