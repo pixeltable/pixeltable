@@ -10,7 +10,7 @@ from ..utils import rerun, skip_test_if_no_client, validate_update_status
 _logger = logging.getLogger('pixeltable')
 
 
-@pytest.mark.expensive
+@pytest.mark.very_expensive
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestReve:
