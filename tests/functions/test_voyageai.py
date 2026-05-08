@@ -13,6 +13,7 @@ from ..utils import (
 
 
 @pytest.mark.remote_api
+@pytest.mark.very_expensive
 @rerun(reruns=3, reruns_delay=8)
 class TestVoyageAI:
     @pytest.mark.parametrize('output_dimension', [None, 512])
