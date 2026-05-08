@@ -1,9 +1,30 @@
 import threading
+from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
-from tests.utils import validate_update_status
+from tests.utils import DummyIterator, pxt_raises, validate_update_status
+
+
+def _run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:
+    """Run target(tid) on n_threads workers; return any exceptions raised."""
+    errors: list[tuple[int, BaseException]] = []
+    lock = threading.Lock()
+
+    def runner(tid: int) -> None:
+        try:
+            target(tid)
+        except BaseException as e:
+            with lock:
+                errors.append((tid, e))
+
+    threads = [threading.Thread(target=runner, args=(i,)) for i in range(n_threads)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    return errors
 
 
 class TestConcurrentOps:
@@ -52,3 +73,252 @@ class TestConcurrentOps:
             assert row['offset'] == row['value'] + 100
 
         assert all(c >= 0 for c in select_counts)
+
+    NUM_THREADS = 4
+    ITERATIONS = 20
+
+    def test_shared_query(self, uses_db: None) -> None:
+        t = pxt.create_table('t1', {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(100)]), expected_rows=100)
+
+        q = t.where(t.a >= 50).select(t.a, t.b)
+
+        def worker1(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                rows = q.collect()
+                assert len(rows) == 50
+                assert all(row['a'] >= 50 for row in rows)
+                assert all(row['b'] == row['a'] * 10 for row in rows)
+
+        errors = _run_workers(worker1, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+        q = t.where(t.a > 50).select(sum_ab=t.a + t.b, double_a=t.a * 2).order_by(t.a)
+
+        def worker2(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                rows = q.collect()
+                assert len(rows) == 49
+                # rows are ordered by a; first row has a=51, b=510
+                assert rows[0]['double_a'] == 102
+                assert rows[0]['sum_ab'] == 51 + 510
+
+        errors = _run_workers(worker2, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_shared_query_extended(self, uses_db: None) -> None:
+        """A Query built on the main thread can be extended on a worker thread via builder methods."""
+        t = pxt.create_table('t_ext', {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(100)]), expected_rows=100)
+        base = t.where(t.a >= 50).select(t.a, t.b)
+        a_ref = t.a
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                rows = base.order_by(a_ref).limit(10).collect()
+                assert len(rows) == 10
+                assert rows[0]['a'] == 50
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_get_table(self, uses_db: None) -> None:
+        t = pxt.create_table('t3', {'a': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i} for i in range(100)]), expected_rows=100)
+
+        def worker(_tid: int) -> None:
+            t_worker = pxt.get_table('t3')
+            for _ in range(self.ITERATIONS):
+                rows = t_worker.select(t_worker.a).collect()
+                assert len(rows) == 100
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_shared_colrefs(self, uses_db: None) -> None:
+        t = pxt.create_table('t4', {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(100)]), expected_rows=100)
+        a_ref = t.a
+        b_ref = t.b
+
+        def worker(_tid: int) -> None:
+            t_worker = pxt.get_table('t4')
+            for _ in range(self.ITERATIONS):
+                rows = t_worker.select(a_ref, b_ref).collect()
+                assert len(rows) == 100
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_shared_view_query1(self, uses_db: None) -> None:
+        t = pxt.create_table('t5_base', {'a': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i} for i in range(100)]), expected_rows=100)
+        v = pxt.create_view('t5_view', t.where(t.a >= 50))
+
+        q = v.select(v.a)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                rows = q.collect()
+                assert len(rows) == 50
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_shared_view_query2(self, uses_db: None) -> None:
+        t = pxt.create_table('t6_base', {'n': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'n': 3}, {'n': 5}]), expected_rows=2)
+        iv = pxt.create_view('t6_iter_view', t, iterator=DummyIterator(t.n))
+
+        q = iv.select(iv.out1, iv.out2)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                rows = q.collect()
+                assert len(rows) == 3 + 5
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_non_collect_queries(self, uses_db: None) -> None:
+        t = pxt.create_table('t10', {'a': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i} for i in range(20)]), expected_rows=20)
+        q = t.where(t.a >= 5).select(t.a)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                assert q.count() == 15
+                assert len(q.head(5)) == 5
+                assert len(q.show(5)) == 5
+                assert len(q.tail(5)) == 5
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_shared_query_udf(self, uses_db: None) -> None:
+        t = pxt.create_table('t15', {'a': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
+
+        @pxt.query
+        def find_above(threshold: int) -> pxt.Query:
+            return t.where(t.a >= threshold).select(t.a)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                bound = find_above.template_query.bind({'threshold': 40})
+                rows = bound.collect()
+                assert len(rows) == 10
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_shared_join(self, uses_db: None) -> None:
+        t1 = pxt.create_table('t17_a', {'id': pxt.Required[pxt.Int], 'i': pxt.Required[pxt.Int]})
+        t2 = pxt.create_table('t17_b', {'id': pxt.Required[pxt.Int], 'f': pxt.Required[pxt.Float]})
+        validate_update_status(t1.insert([{'id': i, 'i': i} for i in range(20)]), expected_rows=20)
+        validate_update_status(t2.insert([{'id': i, 'f': i * 1.5} for i in range(20)]), expected_rows=20)
+
+        q = t1.join(t2, on=t1.id == t2.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t1.i)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                rows = q.collect()
+                assert len(rows) == 20
+                assert all(row['out'] == row['i'] + row['f'] for row in rows)
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_shared_join2(self, uses_db: None) -> None:
+        t1 = pxt.create_table('j1', {'id': pxt.Required[pxt.Int]})
+        t2 = pxt.create_table('j2', {'id': pxt.Required[pxt.Int]})
+        validate_update_status(t1.insert([{'id': i} for i in range(5)]), expected_rows=5)
+        validate_update_status(t2.insert([{'id': i} for i in range(5)]), expected_rows=5)
+
+        def worker(_tid: int) -> None:
+            t1_worker = pxt.get_table('j1')
+
+            # re-using t2 from the main thread raises
+            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='thread'):
+                t1_worker.join(t2, on=t1_worker.id == t2.id)
+            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='thread'):
+                t1_worker.select().join(t2, on=t1_worker.id == t2.id)
+
+        errors = _run_workers(worker, n_threads=1)
+        assert errors == [], f'worker raised: {errors[0][1]!r}'
+
+    def test_shared_snapshot_query(self, uses_db: None) -> None:
+        t = pxt.create_table('t19_base', {'a': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i} for i in range(20)]), expected_rows=20)
+        s = pxt.create_snapshot('t19_snap', t)
+
+        q = s.where(s.a >= 10).select(s.a)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                assert len(q.collect()) == 10
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_table_public_methods(self, uses_db: None) -> None:
+        """All public Table methods guard against cross-thread calls."""
+        t = pxt.create_table('t_xthread', {'a': pxt.Required[pxt.Int], 'keep': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': 1, 'keep': 1}]), expected_rows=1)
+        a_plus_one = t.a + 1
+
+        def expect_error(call: Callable[[], object]) -> None:
+            def worker(_tid: int) -> None:
+                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='thread'):
+                    call()
+
+            errors = _run_workers(worker, n_threads=1)
+            assert errors == [], f'worker raised: {errors[0][1]!r}'
+
+        # Read / introspection
+        expect_error(lambda: t.get_metadata())
+        expect_error(lambda: t.list_views())
+        expect_error(lambda: t.columns())
+        expect_error(lambda: t.describe())
+        expect_error(lambda: t.get_versions())
+        expect_error(lambda: t.history())
+        expect_error(lambda: t.external_stores())
+        expect_error(lambda: t.get_base_table())
+
+        # Query-builder entry points
+        expect_error(lambda: t.select(t.a))
+        expect_error(lambda: t.where(t.a > 0))
+        expect_error(lambda: t.order_by(t.a))
+        expect_error(lambda: t.limit(10))
+        expect_error(lambda: t.distinct())
+        expect_error(lambda: t.group_by(t.a))
+        expect_error(lambda: t.sample(n=1))
+
+        # Query terminals
+        expect_error(lambda: t.collect())
+        expect_error(lambda: t.count())
+        expect_error(lambda: t.head(1))
+        expect_error(lambda: t.tail(1))
+        expect_error(lambda: t.show(1))
+        expect_error(lambda: t.cursor())
+
+        # Schema
+        expect_error(lambda: t.add_column(b=pxt.String))
+        expect_error(lambda: t.add_columns({'c': pxt.String}))
+        expect_error(lambda: t.add_computed_column(double=a_plus_one))
+        expect_error(lambda: t.drop_column('a'))
+        expect_error(lambda: t.rename_column('a', 'aa'))
+
+        # DML
+        expect_error(lambda: t.insert([{'a': 2, 'keep': 1}]))
+        expect_error(lambda: t.update({'a': a_plus_one}))
+        expect_error(lambda: t.batch_update([{'a': 99, 'keep': 99}]))
+        expect_error(lambda: t.delete())
+        expect_error(lambda: t.recompute_columns('a'))
+
+        # Versioning + attribute access
+        expect_error(lambda: t.revert())
+        expect_error(lambda: t.a)
+
+        # Sanity: Table is still usable on the main thread.
+        assert t.count() == 1

@@ -861,7 +861,7 @@ class TestPackager:
     def test_embedding_index(
         self, uses_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
-        skip_test_if_not_installed('transformers')  # needed for CLIP
+        skip_test_if_not_installed('imagehash', 'transformers')  # transformers needed for CLIP
 
         t = pxt.create_table('tbl', {'image': pxt.Image})
         images = get_image_files()[:10]
@@ -874,7 +874,7 @@ class TestPackager:
     def test_multi_version_embedding_index(
         self, uses_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
-        skip_test_if_not_installed('transformers')  # needed for CLIP
+        skip_test_if_not_installed('imagehash', 'transformers')  # transformers needed for CLIP
 
         t = pxt.create_table('tbl', {'id': pxt.Int, 'image': pxt.Image})
         images = get_image_files()
