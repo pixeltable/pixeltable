@@ -270,7 +270,7 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
 
 
 def _deploy(args: argparse.Namespace) -> None:
-    deploy.build_deploy_bundle(args.environment)
+    deploy.build_deploy_bundle(args.env)
 
 
 def _serve(args: argparse.Namespace) -> None:
