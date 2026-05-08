@@ -67,7 +67,7 @@ class TablePackager:
 
         # Load metadata and convert to JSON immediately
         with get_runtime().catalog.begin_xact(for_write=False):
-            tbl_md = get_runtime().catalog.load_replica_md(table)
+            tbl_md = get_runtime().catalog.load_md_for_export(table, as_replica=True)
             self.bundle_md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
