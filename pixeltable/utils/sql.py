@@ -153,6 +153,15 @@ def get_pxt_type(sa_type: sql.types.TypeEngine, engine: sql.Engine, *, nullable:
     return _default_pxt_type(sa_type, nullable=nullable)
 
 
+def selectable_columns(selectable: sql.Selectable) -> list[sql.ColumnElement]:
+    """Return the output columns of a Selectable in their SELECT-clause order."""
+    if hasattr(selectable, 'selected_columns'):
+        # Select / TextualSelect / CompoundSelect
+        return list(selectable.selected_columns)
+    # Table / Subquery / Alias
+    return list(selectable.columns)  # type: ignore[attr-defined]
+
+
 def table_exists(engine: sql.Engine, table_name: str, schema_name: str | None = None) -> bool:
     """Check if a table exists in the database."""
     inspector = sql.inspect(engine)

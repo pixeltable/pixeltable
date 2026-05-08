@@ -23,8 +23,9 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuild
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
-    from pixeltable import exec, exprs
+    from pixeltable import exprs
     from pixeltable.globals import TableDataSource
+    from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
 
 _logger = logging.getLogger('pixeltable')
@@ -116,7 +117,7 @@ class InsertableTable(Table):
         self,
         /,
         *,
-        sql_source: exec.SqlDataSource,
+        sql_source: SqlDataSource,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         return_rows: bool = False,
@@ -154,7 +155,7 @@ class InsertableTable(Table):
         *,
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
-        sql_source: exec.SqlDataSource | None = None,
+        sql_source: SqlDataSource | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         return_rows: bool = False,
@@ -235,7 +236,7 @@ class InsertableTable(Table):
         return status
 
     def _insert_sql_source(
-        self, sql_source: exec.SqlDataSource, fail_on_exception: bool, print_stats: bool, return_rows: bool
+        self, sql_source: SqlDataSource, fail_on_exception: bool, print_stats: bool, return_rows: bool
     ) -> pxt.UpdateStatus:
         """Stream a SqlDataSource into this table through a single insert plan."""
         start_ts = time.perf_counter()

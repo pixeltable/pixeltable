@@ -5,8 +5,9 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable.exec.sql_source_node import SqlDataSource, _selectable_columns
+from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.utils import sql as sql_utils
+from pixeltable.utils.sql import selectable_columns
 
 
 def export_sql(
@@ -125,8 +126,9 @@ def import_sql(
 
     engine: sql.Engine = conn.engine if isinstance(conn, sql.Connection) else conn
 
-    sa_cols = _selectable_columns(selectable)
-    inferred_schema: dict[str, Any] = {}
+    sa_cols = selectable_columns(selectable)
+    source_names: list[str] = []
+    seen: set[str] = set()
     for i, sa_col in enumerate(sa_cols):
         col_name = getattr(sa_col, 'name', None) or getattr(sa_col, 'key', None)
         if col_name is None:
@@ -135,6 +137,16 @@ def import_sql(
                 f'SQL source has an unnamed output column at position {i}; alias it via '
                 f"`expr.label('name')` so it can be matched to a Pixeltable column.",
             )
+        if col_name in seen:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'SQL source has duplicate output column {col_name!r}; output column names must be unique.',
+            )
+        seen.add(col_name)
+        source_names.append(col_name)
+
+    inferred_schema: dict[str, Any] = {}
+    for sa_col, col_name in zip(sa_cols, source_names):
         # SQLAlchemy uses `None` for "unknown" (eg, on labeled expressions); treat that as nullable.
         nullable_attr = getattr(sa_col, 'nullable', True)
         nullable = True if nullable_attr is None else nullable_attr
@@ -160,21 +172,7 @@ def import_sql(
 
     if if_exists == 'append':
         tbl = pxt.get_table(tbl_name)
-        existing_schema = tbl._get_schema()
-        for col_name, src_type_any in inferred_schema.items():
-            if col_name not in existing_schema:
-                raise excs.NotFoundError(
-                    excs.ErrorCode.COLUMN_NOT_FOUND,
-                    f'SQL source column {col_name!r} does not match any column in destination table {tbl_name!r}.',
-                )
-            src_type = ts.ColumnType.normalize_type(src_type_any, nullable_default=True, allow_builtin_types=False)
-            dest_type = existing_schema[col_name]
-            if not dest_type.is_supertype_of(src_type, ignore_nullable=True):
-                raise excs.RequestError(
-                    excs.ErrorCode.TYPE_MISMATCH,
-                    f'SQL source column {col_name!r} has type `{src_type}`, which is incompatible with '
-                    f'destination column type `{dest_type}` in table {tbl_name!r}.',
-                )
+        _validate_append_compatibility(tbl, tbl_name, inferred_schema)
         tbl.insert(sql_source=sql_data_source, on_error=on_error)
         return tbl
 
@@ -194,3 +192,46 @@ def import_sql(
         pxt.drop_table(tbl, if_not_exists='ignore')
         raise
     return tbl
+
+
+def _validate_append_compatibility(tbl: pxt.Table, tbl_name: str, inferred_schema: dict[str, Any]) -> None:
+    """Verify the SQL source schema can append into an existing destination table.
+
+    Checks unknown source columns, computed-column collisions, type compatibility, and missing
+    required destination columns. Centralizing these checks here keeps `SqlSourceNode` purely a
+    runtime data path.
+    """
+    tv = tbl._tbl_version.get()
+    all_cols_by_name = tv.cols_by_name
+    existing_schema = tbl._get_schema()
+    computed_col_names = {name for name, col in all_cols_by_name.items() if col.is_computed}
+    required_col_names = {name for name, col in all_cols_by_name.items() if col.is_required_for_insert}
+
+    for col_name, src_type_any in inferred_schema.items():
+        if col_name in computed_col_names:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'SQL source column {col_name!r} maps to computed column {col_name!r} in destination table '
+                f'{tbl_name!r}; computed columns are populated automatically and cannot receive values.',
+            )
+        if col_name not in existing_schema:
+            raise excs.NotFoundError(
+                excs.ErrorCode.COLUMN_NOT_FOUND,
+                f'SQL source column {col_name!r} does not match any column in destination table {tbl_name!r}.',
+            )
+        src_type = ts.ColumnType.normalize_type(src_type_any, nullable_default=True, allow_builtin_types=False)
+        dest_type = existing_schema[col_name]
+        if not dest_type.is_supertype_of(src_type, ignore_nullable=True):
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'SQL source column {col_name!r} has type `{src_type}`, which is incompatible with '
+                f'destination column type `{dest_type}` in table {tbl_name!r}.',
+            )
+
+    missing_cols = required_col_names - set(inferred_schema)
+    if missing_cols:
+        raise excs.RequestError(
+            excs.ErrorCode.MISSING_REQUIRED,
+            f'Destination table {tbl_name!r} has required column(s) ({", ".join(sorted(missing_cols))}) '
+            f'that are not provided by the SQL source.',
+        )

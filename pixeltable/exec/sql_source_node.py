@@ -1,34 +1,20 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import AsyncIterator, ClassVar
+from typing import TYPE_CHECKING, AsyncIterator, ClassVar
 
 import sqlalchemy as sql
 
-from pixeltable import catalog, exceptions as excs, exprs
+from pixeltable import catalog, exprs
+from pixeltable.utils.sql import selectable_columns
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
+if TYPE_CHECKING:
+    from pixeltable.io.data_sources import SqlDataSource
+
 _logger = logging.getLogger('pixeltable')
-
-
-@dataclass
-class SqlDataSource:
-    """A user-supplied SQL source: a SQLAlchemy `Selectable` and an `Engine` or `Connection` to run it against."""
-
-    selectable: sql.Selectable
-    conn: sql.Engine | sql.Connection
-
-
-def _selectable_columns(selectable: sql.Selectable) -> list[sql.ColumnElement]:
-    """Return the output columns of a Selectable in their SELECT-clause order."""
-    if hasattr(selectable, 'selected_columns'):
-        # Select / TextualSelect / CompoundSelect
-        return list(selectable.selected_columns)
-    # Table / Subquery / Alias
-    return list(selectable.columns)  # type: ignore[attr-defined]
 
 
 class SqlSourceNode(ExecNode):
@@ -38,6 +24,10 @@ class SqlSourceNode(ExecNode):
     Same output contract as InMemoryDataNode:
       - output_exprs = row_builder.input_exprs
       - populates user-column slots by name; sets unmapped slots to None.
+
+    Source/destination column compatibility (unnamed columns, duplicates, computed-column collisions,
+    missing required columns, unknown destination columns) is validated by the caller (eg, `import_sql`)
+    before the plan is constructed; this node only builds the runtime slot mapping.
     """
 
     BATCH_SIZE: ClassVar[int] = 1024
@@ -57,66 +47,21 @@ class SqlSourceNode(ExecNode):
         self._owns_conn = False
         self._conn: sql.Connection | None = None
         self._result: sql.CursorResult | None = None
-        self._all_output_slot_idxs: set[int] = set()
         self._mapped_slot_idxs: list[int] = []
+        self._unmapped_slot_idxs: list[int] = []
 
     def _open(self) -> None:
-        # Collect destination-side metadata
-        tbl_version = self.tbl.get()
-        all_cols_by_name = tbl_version.cols_by_name
-        computed_col_names = {name for name, col in all_cols_by_name.items() if col.is_computed}
-        required_col_names = {name for name, col in all_cols_by_name.items() if col.is_required_for_insert}
-
         user_cols_by_name = {
-            col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
-            for col_ref in self.output_exprs
-            if col_ref.col.name is not None
+            col_ref.col.name: col_ref.slot_idx for col_ref in self.output_exprs if col_ref.col.name is not None
         }
-        self._all_output_slot_idxs = {e.slot_idx for e in self.output_exprs}
+        all_output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
-        tbl_name = tbl_version.name
-        sa_cols = _selectable_columns(self.sql_source.selectable)
-        source_names: list[str] = []
-        for i, c in enumerate(sa_cols):
-            name = getattr(c, 'name', None) or getattr(c, 'key', None)
-            if name is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'SQL source has an unnamed output column at position {i} (when inserting into table '
-                    f"{tbl_name!r}); alias it via `expr.label('name')` so it can be matched to a Pixeltable column.",
-                )
-            source_names.append(name)
-
-        seen: set[str] = set()
-        for name in source_names:
-            if name in seen:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'SQL source has duplicate output column {name!r} (when inserting into table {tbl_name!r}); '
-                    f'output column names must be unique.',
-                )
-            seen.add(name)
-            if name in computed_col_names:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'SQL source column {name!r} maps to computed column {name!r} in destination table '
-                    f'{tbl_name!r}; computed columns are populated automatically and cannot receive values.',
-                )
-            if name not in all_cols_by_name:
-                raise excs.NotFoundError(
-                    excs.ErrorCode.COLUMN_NOT_FOUND,
-                    f'SQL source column {name!r} does not match any column in destination table {tbl_name!r}.',
-                )
-
-        missing_cols = required_col_names - seen
-        if len(missing_cols) > 0:
-            raise excs.RequestError(
-                excs.ErrorCode.MISSING_REQUIRED,
-                f'Destination table {tbl_name!r} has required column(s) ({", ".join(sorted(missing_cols))}) '
-                f'that are not provided by the SQL source.',
-            )
-
-        self._mapped_slot_idxs = [user_cols_by_name[n].slot_idx for n in source_names]
+        sa_cols = selectable_columns(self.sql_source.selectable)
+        source_names = [getattr(c, 'name', None) or getattr(c, 'key', None) for c in sa_cols]
+        # Caller (eg, import_sql) is responsible for validating that all source names are non-None and resolve
+        # to a destination column.
+        self._mapped_slot_idxs = [user_cols_by_name[n] for n in source_names]
+        self._unmapped_slot_idxs = list(all_output_slot_idxs - set(self._mapped_slot_idxs))
 
         if isinstance(self.sql_source.conn, sql.Engine):
             self._conn = self.sql_source.conn.connect()
@@ -138,14 +83,12 @@ class SqlSourceNode(ExecNode):
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         assert self._result is not None
-        unmapped_slot_idxs = list(self._all_output_slot_idxs - set(self._mapped_slot_idxs))
-
         output_batch = DataRowBatch(self.row_builder)
         for sa_row in self._result:
             output_row = self.row_builder.make_row()
             for slot_idx, val in zip(self._mapped_slot_idxs, sa_row):
                 output_row[slot_idx] = val
-            for slot_idx in unmapped_slot_idxs:
+            for slot_idx in self._unmapped_slot_idxs:
                 output_row[slot_idx] = None
             output_batch.add_row(output_row)
             if len(output_batch) == self.BATCH_SIZE:

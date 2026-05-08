@@ -45,8 +45,8 @@ if TYPE_CHECKING:
     import torch.utils.data
 
     import pixeltable.plan
-    from pixeltable import exec
     from pixeltable.globals import TableDataSource
+    from pixeltable.io.data_sources import SqlDataSource
 
 
 _logger = logging.getLogger('pixeltable')
@@ -1374,7 +1374,7 @@ class Table(SchemaObject):
         self,
         /,
         *,
-        sql_source: exec.SqlDataSource,
+        sql_source: SqlDataSource,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         return_rows: bool = False,

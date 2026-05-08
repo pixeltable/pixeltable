@@ -546,15 +546,10 @@ class TestImportSql:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='nonexistent'):
             import_sql(ok_src, engine, 'never1', schema_overrides={'nonexistent': pxt.Int})
 
-        # Build a select that aliases two different expressions to the same name; import_sql's inference dedupes
-        # via dict assignment (last wins) and creates a single-column destination, so we bypass import_sql and
-        # call `tbl.insert(sql_source=...)` directly to hit the leaf check.
-        from pixeltable.exec import SqlDataSource
-
-        dup_dest = pxt.create_table('dup_dest', {'c_int': pxt.Int})
+        # Two expressions aliased to the same name -> import_sql rejects up-front.
         dup_stmt = sql.select(ok_src.c.c_int.label('c_int'), (ok_src.c.c_int + 1).label('c_int'))
         with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='duplicate output column'):
-            dup_dest.insert(sql_source=SqlDataSource(selectable=dup_stmt, conn=engine))
+            import_sql(dup_stmt, engine, 'dup_dest')
 
         # Pre-create a destination with a computed column, then append a source that supplies a value for it.
         comp_dest = pxt.create_table('comp_dest', {'c_int': pxt.Int})

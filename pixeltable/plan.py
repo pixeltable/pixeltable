@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 from textwrap import dedent
-from typing import Any, ClassVar, Iterable, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -13,6 +13,9 @@ from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 from pixeltable.func.iterator import GeneratingFunctionCall
+
+if TYPE_CHECKING:
+    from pixeltable.io.data_sources import SqlDataSource
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -383,9 +386,15 @@ class Planner:
 
     @classmethod
     def create_insert_plan(
-        cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
+        cls,
+        tbl: catalog.TableVersion,
+        rows: list[dict[str, Any]] | None,
+        ignore_errors: bool,
+        *,
+        sql_source: SqlDataSource | None,
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.insert()"""
+        """Creates a plan for TableVersion.insert(). Exactly one of `rows` and `sql_source` must be provided."""
+        assert (rows is None) != (sql_source is None)
         assert not tbl.is_view
         # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
@@ -395,8 +404,14 @@ class Planner:
 
         row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
 
-        # create InMemoryDataNode for 'rows'
-        plan: exec.ExecNode = exec.InMemoryDataNode(tbl.handle, rows, row_builder)
+        plan: exec.ExecNode
+        batch_size: int
+        if sql_source is not None:
+            plan = exec.SqlSourceNode(tbl.handle, sql_source, row_builder)
+            batch_size = exec.SqlSourceNode.BATCH_SIZE
+        else:
+            plan = exec.InMemoryDataNode(tbl.handle, rows, row_builder)
+            batch_size = 0
 
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
 
@@ -409,39 +424,7 @@ class Planner:
         if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
-        plan = cls._add_save_node(plan)
-
-        return plan
-
-    @classmethod
-    def create_sql_insert_plan(
-        cls, tbl: catalog.TableVersion, sql_source: exec.SqlDataSource, ignore_errors: bool
-    ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.insert() that streams rows from a SqlDataSource."""
-        assert not tbl.is_view
-        stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
-        assert len(stored_cols) > 0
-
-        cls.__check_valid_columns(tbl, stored_cols, 'inserted into')
-
-        row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
-
-        plan: exec.ExecNode = exec.SqlSourceNode(tbl.handle, sql_source, row_builder)
-
-        plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
-
-        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        if len(computed_exprs) > 0:
-            plan = exec.ExprEvalNode(
-                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
-            )
-        if any(c.col_type.supports_file_offloading() for c in stored_cols):
-            plan = exec.CellMaterializationNode(plan)
-
-        plan.set_ctx(
-            exec.ExecContext(row_builder, batch_size=exec.SqlSourceNode.BATCH_SIZE, ignore_errors=ignore_errors)
-        )
+        plan.set_ctx(exec.ExecContext(row_builder, batch_size=batch_size, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
 
         return plan
