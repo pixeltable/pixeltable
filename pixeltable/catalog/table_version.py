@@ -1023,20 +1023,23 @@ class TableVersion:
         self,
         rows: list[dict[str, Any]] | None,
         query: Query | None,
+        sql_source: exec.SqlDataSource | None = None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
         return_rows: bool = False,
     ) -> UpdateStatus:
         """
-        Insert rows into this table, either from an explicit list of dicts or from a `Query`.
+        Insert rows into this table from an explicit list of dicts, a `Query`, or a `SqlDataSource`.
         """
         from pixeltable.plan import Planner
 
         assert self.is_insertable
-        assert (rows is None) != (query is None)  # Exactly one must be specified
+        # Exactly one of rows / query / sql_source must be specified
+        assert sum(1 for x in (rows, query, sql_source) if x is not None) == 1
         if rows is not None:
             plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
-
+        elif sql_source is not None:
+            plan = Planner.create_sql_insert_plan(self, sql_source, ignore_errors=not fail_on_exception)
         else:
             plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
 

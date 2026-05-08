@@ -23,7 +23,7 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, OpStatus, TableOp
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
-    from pixeltable import exprs
+    from pixeltable import exec, exprs
     from pixeltable.globals import TableDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
 
@@ -112,6 +112,17 @@ class InsertableTable(Table):
     @overload
     def insert(
         self,
+        /,
+        *,
+        sql_source: exec.SqlDataSource,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        return_rows: bool = False,
+    ) -> UpdateStatus: ...
+
+    @overload
+    def insert(
+        self,
         source: TableDataSource | None = None,
         /,
         *,
@@ -141,6 +152,7 @@ class InsertableTable(Table):
         *,
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
+        sql_source: exec.SqlDataSource | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         return_rows: bool = False,
@@ -148,9 +160,24 @@ class InsertableTable(Table):
     ) -> UpdateStatus:
         from pixeltable.io.table_data_conduit import TableDataConduit
 
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+
+        if sql_source is not None:
+            if source is not None or kwargs or source_format is not None or schema_overrides is not None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    '`sql_source` is mutually exclusive with `source`, `source_format`, `schema_overrides`, '
+                    'and ad-hoc row keyword arguments.',
+                )
+            return self._insert_sql_source(
+                sql_source=sql_source,
+                fail_on_exception=fail_on_exception,
+                print_stats=print_stats,
+                return_rows=return_rows,
+            )
+
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
         if source is None:
             source = [kwargs]
@@ -200,6 +227,27 @@ class InsertableTable(Table):
                         fail_on_exception=fail_on_exception,
                         return_rows=return_rows,
                     )
+
+        Env.get().console_logger.info(status.insert_msg(start_ts))
+        FileCache.get().emit_eviction_warnings()
+        return status
+
+    def _insert_sql_source(
+        self, sql_source: exec.SqlDataSource, fail_on_exception: bool, print_stats: bool, return_rows: bool
+    ) -> pxt.UpdateStatus:
+        """Stream a SqlDataSource into this table through a single insert plan."""
+        start_ts = time.perf_counter()
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        ):
+            status = self._tbl_version.get().insert(
+                rows=None,
+                query=None,
+                sql_source=sql_source,
+                print_stats=print_stats,
+                fail_on_exception=fail_on_exception,
+                return_rows=return_rows,
+            )
 
         Env.get().console_logger.info(status.insert_msg(start_ts))
         FileCache.get().emit_eviction_warnings()

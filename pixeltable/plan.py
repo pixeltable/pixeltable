@@ -415,6 +415,38 @@ class Planner:
         return plan
 
     @classmethod
+    def create_sql_insert_plan(
+        cls, tbl: catalog.TableVersion, sql_source: exec.SqlDataSource, ignore_errors: bool
+    ) -> exec.ExecNode:
+        """Creates a plan for TableVersion.insert() that streams rows from a SqlDataSource."""
+        assert not tbl.is_view
+        stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
+        assert len(stored_cols) > 0
+
+        cls.__check_valid_columns(tbl, stored_cols, 'inserted into')
+
+        row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
+
+        plan: exec.ExecNode = exec.SqlSourceNode(tbl.handle, sql_source, row_builder)
+
+        plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
+
+        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
+        if len(computed_exprs) > 0:
+            plan = exec.ExprEvalNode(
+                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
+            )
+        if any(c.col_type.supports_file_offloading() for c in stored_cols):
+            plan = exec.CellMaterializationNode(plan)
+
+        plan.set_ctx(
+            exec.ExecContext(row_builder, batch_size=exec.SqlSourceNode.BATCH_SIZE, ignore_errors=ignore_errors)
+        )
+        plan = cls._add_save_node(plan)
+
+        return plan
+
+    @classmethod
     def rowid_columns(cls, target: TableVersionHandle, num_rowid_cols: int | None = None) -> list[exprs.Expr]:
         """Return list of RowidRef for the given number of associated rowids"""
         if num_rowid_cols is None:

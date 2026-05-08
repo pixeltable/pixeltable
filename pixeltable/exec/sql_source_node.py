@@ -28,7 +28,7 @@ def _selectable_columns(selectable: sql.Selectable) -> list[sql.ColumnElement]:
         # Select / TextualSelect / CompoundSelect
         return list(selectable.selected_columns)
     # Table / Subquery / Alias
-    return list(selectable.columns)
+    return list(selectable.columns)  # type: ignore[attr-defined]
 
 
 class SqlSourceNode(ExecNode):
@@ -61,7 +61,7 @@ class SqlSourceNode(ExecNode):
         self._mapped_slot_idxs: list[int] = []
 
     def _open(self) -> None:
-        # Collect destination-side metadata (mirrors TableDataConduit.add_table_info / .check_source_columns_are_insertable)
+        # Collect destination-side metadata
         tbl_version = self.tbl.get()
         all_cols_by_name = tbl_version.cols_by_name
         computed_col_names = {name for name, col in all_cols_by_name.items() if col.is_computed}
@@ -83,7 +83,7 @@ class SqlSourceNode(ExecNode):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'SQL source has an unnamed output column at position {i} (when inserting into table '
-                    f'{tbl_name!r}); alias it via `expr.label(\'name\')` so it can be matched to a Pixeltable column.',
+                    f"{tbl_name!r}); alias it via `expr.label('name')` so it can be matched to a Pixeltable column.",
                 )
             source_names.append(name)
 
@@ -124,7 +124,11 @@ class SqlSourceNode(ExecNode):
         else:
             self._conn = self.sql_source.conn
             self._owns_conn = False
-        self._result = self._conn.execute(self.sql_source.selectable)
+
+        # Tables, subqueries, and aliases are not directly executable; wrap them in `select(...)`.
+        src = self.sql_source.selectable
+        stmt: sql.Executable = src if isinstance(src, sql.Executable) else sql.select(src)  # type: ignore[call-overload]
+        self._result = self._conn.execute(stmt)
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         assert self._result is not None
