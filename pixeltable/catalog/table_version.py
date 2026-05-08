@@ -34,8 +34,8 @@ from .tbl_ops import (
     DeleteTableMdOp,
     DeleteTableMediaFilesOp,
     DropStoreTableOp,
-    OpStatus,
     TableOp,
+    TableOpsBuilder,
 )
 from .update_status import RowCountStats, UpdateStatus
 
@@ -242,9 +242,7 @@ class TableVersion:
         self.num_iterator_cols = 0
         if self.view_md is not None and self.view_md.iterator_call is not None:
             self.iterator_call = GeneratingFunctionCall.from_dict(self.view_md.iterator_call)
-            # iterator_call.outputs includes the automatically added pos column, which we do not consider an iterator
-            # column
-            self.num_iterator_cols = len(self.iterator_call.outputs) - 1
+            self.num_iterator_cols = len(self.iterator_call.outputs)
 
         self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0
@@ -432,14 +430,21 @@ class TableVersion:
         for dest in destinations:
             ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
 
-    def drop(self) -> list[TableOp]:
+    def drop_ops(self) -> tuple[list[TableOp], bool]:
+        """Returns a tuple of drop table ops, and a boolean that indicates whether a new table and schema
+        versions were created."""
+        new_version = self.is_mutable and self.is_versioned
+        if new_version:
+            self.bump_version(bump_schema_version=True)
         id_str = str(self.id)
-        ops = [
-            DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, status=OpStatus.PENDING),
-            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, status=OpStatus.PENDING, is_view=self.is_view),
-            DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, status=OpStatus.PENDING),
-        ]
-        return ops
+        ops = (
+            TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
+            .add(DeleteTableMediaFilesOp)
+            .add(DropStoreTableOp, is_view=self.is_view)
+            .add(DeleteTableMdOp)
+            .build()
+        )
+        return ops, new_version
 
     def init(self) -> None:
         """
@@ -558,9 +563,7 @@ class TableVersion:
                 idx = undo_col_idxs[col_md.id]
                 sa_col_type = idx.get_index_sa_type(col_type)
 
-            # Iterator columns are those produced by the component view's iterator. The special pos (id=0) column
-            # is not considered an iterator column.
-            is_iterator_col = self.is_component_view and col_md.id > 0 and col_md.id < self.num_iterator_cols + 1
+            is_iterator_col = self.is_component_view and col_md.id < self.num_iterator_cols
             col = Column(
                 col_id=col_md.id,
                 name=schema_col_md.name if schema_col_md is not None else None,
@@ -790,16 +793,15 @@ class TableVersion:
             idx_ids.append(self._create_index_md(col, val_col, undo_col, idx_name=None, idx=idx))
 
         id_str = str(self.id)
-        tbl_ops = [
-            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=4, status=OpStatus.PENDING),
-            CreateColumnMdOp(
-                tbl_id=id_str, op_sn=1, num_ops=4, status=OpStatus.PENDING, column_ids=[col.id for col in all_cols]
-            ),
-            CreateStoreColumnsOp(
-                tbl_id=id_str, op_sn=2, num_ops=4, status=OpStatus.PENDING, column_ids=[col.id for col in all_cols]
-            ),
-            CreateStoreIdxsOp(tbl_id=id_str, op_sn=3, num_ops=4, status=OpStatus.PENDING, idx_ids=idx_ids),
-        ]
+        col_ids = [col.id for col in all_cols]
+        tbl_ops = (
+            TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
+            .add(CreateTableVersionOp)
+            .add(CreateColumnMdOp, column_ids=col_ids)
+            .add(CreateStoreColumnsOp, column_ids=col_ids)
+            .add(CreateStoreIdxsOp, idx_ids=idx_ids)
+            .build()
+        )
         return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops
 
     def add_columns(
@@ -1346,11 +1348,19 @@ class TableVersion:
             base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
             # propagate to views
             for view in self.mutable_views:
+                view_tv = view.get()
                 recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
+                # any and all are equivalent since all iterator columns share the same input columns meaning
+                # if one is recomputed they all are. However any is more efficient since it can short circuit.
+                needs_iterator_reload = view_tv.is_component_view and any(
+                    view_tv.is_iterator_column(col) for col in recomputed_cols
+                )
                 plan = None
-                if len(recomputed_cols) > 0:
-                    plan = Planner.create_view_update_plan(view.get().path, recompute_targets=recomputed_cols)
-                status = view.get().propagate_update(
+                if needs_iterator_reload:
+                    plan, _ = Planner.create_view_load_plan(view_tv.path, propagates_insert=True)
+                elif len(recomputed_cols) > 0:
+                    plan = Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols)
+                status = view_tv.propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
                 )
                 result += status.to_cascade()
@@ -1736,13 +1746,12 @@ class TableVersion:
         return f'{"Table" if self.is_insertable else "View"} {self.name!r}'
 
     def is_iterator_column(self, col: Column) -> bool:
-        """Returns True if col is produced by an iterator"""
-        # the iterator columns directly follow the pos column
-        return self.is_component_view and col.id > 0 and col.id < self.num_iterator_cols + 1
+        """Returns True if col is produced by an iterator (including the pos column)"""
+        return col.is_iterator_col
 
     def iterator_columns(self) -> list[Column]:
-        """Return all iterator-produced columns"""
-        return self.cols[1 : self.num_iterator_cols + 1]
+        """Return all iterator-produced columns (including the pos column)"""
+        return self.cols[: self.num_iterator_cols]
 
     def iterator_args_expr(self) -> InlineDict | None:
         if self.is_component_view:
