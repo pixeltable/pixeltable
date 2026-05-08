@@ -165,6 +165,47 @@ router.add_delete_route(docs_table, path="/delete")
 
 ---
 
+## Eliminating Insert-Then-Query with `return_rows=True`
+
+A common hand-written pattern is inserting a row, then immediately querying to read back computed columns. Use `return_rows=True` instead:
+
+<Tabs>
+  <Tab title="Hand-Written">
+    ```python
+    @router.post("/query")
+    def agent_query(request: QueryRequest):
+        table.insert([{"prompt": request.prompt}])
+        result = table.where(table.prompt == request.prompt).select(
+            table.answer, table.tool_output
+        ).collect()
+        return result[0]
+    ```
+  </Tab>
+  <Tab title="return_rows=True">
+    ```python
+    from pydantic import BaseModel
+
+    class AgentResult(BaseModel):
+        model_config = {"extra": "ignore"}
+        answer: str | None = None
+        tool_output: Any = None
+
+    @router.post("/query")
+    def agent_query(request: QueryRequest):
+        status = table.insert(
+            [{"prompt": request.prompt}], return_rows=True
+        )
+        return AgentResult.model_validate(status.rows[0])
+    ```
+  </Tab>
+</Tabs>
+
+`status.rows` contains one dict per inserted row with all columns (including computed). Use `model_validate()` with `extra="ignore"` for typed access to the subset you need.
+
+Also works with `update()` and `batch_update()`.
+
+---
+
 ## When to Keep a Hand-Written Endpoint
 
 Not everything fits the declarative model. Keep `@router.post()` when:

@@ -539,6 +539,44 @@ query = "myapp.queries.get_thumbnail"
 return_fileresponse = true
 ```
 
+## Reading Back Computed Columns After Insert
+
+Use `return_rows=True` to get all column values (including computed columns)
+directly from `insert()`, `update()`, or `batch_update()` without a follow-up
+query.
+
+```python
+# Anti-pattern: insert then query
+table.insert([row])
+result = table.where(table.id == value).select(...).collect()
+data = result[0]
+
+# Correct: return_rows=True
+status = table.insert([row], return_rows=True)
+data = status.rows[0]  # dict with ALL columns including computed
+```
+
+`status.rows` is a list of plain dicts. For typed access, use Pydantic's
+`model_validate()` with `extra="ignore"` (row dicts contain every column;
+ignore the ones you don't need):
+
+```python
+from pydantic import BaseModel
+
+class AgentResult(BaseModel):
+    model_config = {"extra": "ignore"}
+    answer: str | None = None
+    tool_output: Any = None
+
+status = agent_table.insert([{"prompt": user_input}], return_rows=True)
+result = AgentResult.model_validate(status.rows[0])
+```
+
+**When to use which:**
+- `return_rows=True` -- any time you insert a row with computed columns and need the results back
+- `to_pydantic()` -- when reading from a `ResultSet` (after `.collect()`)
+- `model_validate()` -- when reading from `status.rows` (plain dicts from `return_rows=True`)
+
 ## Background jobs
 
 Any route can set `background = true`. The endpoint returns immediately with a

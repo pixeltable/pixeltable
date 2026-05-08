@@ -167,6 +167,7 @@ app.include_router(search.router)
 - **Module UDFs** (`functions.py`): Update when code changes; improve testability. [Learn more](/platform/udfs-in-pixeltable)
 - **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable.
 - **Built-in HTTP serving:** For standard endpoints, consider [`pxt serve`](/howto/deployment/serving) with a TOML config.
+- **`return_rows=True`:** Pass to `insert()`/`update()` to get computed column values back without a follow-up query. See [HTTP Serving](/howto/deployment/serving#reading-back-computed-columns-after-insert).
 - **Multi-worker deployments:** With `--workers N`, run `python setup_pixeltable.py` before `uvicorn` so schema creation happens once, not per worker (see [Starter Kit Dockerfile](https://github.com/pixeltable/pixeltable-starter-kit)).
 </Note>
 
