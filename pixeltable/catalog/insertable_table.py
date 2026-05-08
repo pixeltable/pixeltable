@@ -152,10 +152,9 @@ class InsertableTable(Table):
         self._validate_thread()
         from pixeltable.io.table_data_conduit import TableDataConduit
 
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
         if source is None:
             source = [kwargs]
