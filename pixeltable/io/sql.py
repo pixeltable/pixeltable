@@ -100,7 +100,9 @@ def import_sql(
     Args:
         selectable: A SQLAlchemy `Selectable` (a `Table`, a `select()` statement, or `text(...).columns(...)`)
             describing the source rows.
-        conn: A SQLAlchemy `Engine` or `Connection` to execute `selectable` against.
+        conn: A SQLAlchemy `Engine` or `Connection` to execute `selectable` against. If a `Connection` is
+            passed, it must remain open and untouched (no commits, rollbacks, or other statements) for the
+            duration of the import; rows are streamed directly from the server-side cursor.
         tbl_name: Pixeltable path of the destination table.
         schema_overrides: Optional per-column overrides applied on top of the inferred schema. Keys are column
             names; values accept any Pixeltable type spec recognized by `pxt.create_table` (eg, `pxt.Image`,
@@ -199,7 +201,7 @@ def import_sql(
     return tbl
 
 
-def _validate_append_compatibility(tbl: pxt.Table, tbl_name: str, inferred_schema: dict[str, Any]) -> None:
+def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, inferred_schema: dict[str, Any]) -> None:
     """Verify the SQL source schema can append into an existing destination table.
 
     Checks unknown source columns, computed-column collisions, type compatibility, and missing
