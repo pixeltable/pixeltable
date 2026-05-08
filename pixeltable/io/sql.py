@@ -163,7 +163,7 @@ def import_sql(
         existing_schema = tbl._get_schema()
         for col_name, src_type_any in inferred_schema.items():
             if col_name not in existing_schema:
-                raise excs.RequestError(
+                raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND,
                     f'SQL source column {col_name!r} does not match any column in destination table {tbl_name!r}.',
                 )

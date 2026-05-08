@@ -2,9 +2,11 @@ import dataclasses
 import datetime
 import json
 import pathlib
+import urllib.parse
 import uuid
 from typing import Any, Callable
 
+import PIL.Image
 import pytest
 import sqlalchemy as sql
 import sqlalchemy.dialects.postgresql
@@ -14,7 +16,7 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.io.sql import export_sql, import_sql
 
-from ..utils import pxt_raises
+from ..utils import get_documents, get_image_files, get_video_files, pxt_raises
 
 
 @dataclasses.dataclass(frozen=True)
@@ -294,9 +296,11 @@ class TestImportSql:
         assert tbl._tbl_version.get().version == 1
 
         # Row count + values + NULL roundtrip
-        result = tbl.order_by(tbl.c_int).select(
-            tbl.c_int, tbl.c_str, tbl.c_float, tbl.c_bool, tbl.c_ts, tbl.c_date, tbl.c_json, tbl.c_bytes
-        ).collect()
+        result = (
+            tbl.order_by(tbl.c_int)
+            .select(tbl.c_int, tbl.c_str, tbl.c_float, tbl.c_bool, tbl.c_ts, tbl.c_date, tbl.c_json, tbl.c_bytes)
+            .collect()
+        )
         assert len(result) == n
         for i, row in enumerate(result):
             assert row['c_int'] == i
@@ -314,3 +318,250 @@ class TestImportSql:
                 assert row['c_date'] == datetime.date(2024, 1, 1) + datetime.timedelta(days=i % 365)
                 assert row['c_json'] == {'i': i, 'tag': f't{i}'}
                 assert row['c_bytes'] == f'b{i}'.encode()
+
+    @pytest.mark.parametrize('dialect', _IMPORT_DIALECTS)
+    def test_import_select_and_filter(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
+        """Import via `sa.select(...)` rather than a bare Table: column projection (subset), row filter via
+        `.where(...)`, labeled expressions, accepting an `sa.Connection` (not just an Engine), and the 0-row
+        edge case (impossible filter -> empty destination, schema still created)."""
+        engine = _import_engine(dialect, tmp_path)
+        rows = [{'c_int': i, 'c_str': f'row_{i}', 'c_float': float(i)} for i in range(20)]
+        src = _seed_source(
+            engine,
+            'src_proj',
+            [
+                sql.Column('c_int', sql.Integer, nullable=False),
+                sql.Column('c_str', sql.String, nullable=False),
+                sql.Column('c_float', sql.Float, nullable=False),
+            ],
+            rows,
+        )
+
+        # Projection + filter + labeled SA function with explicit type annotation. Pass a Connection
+        # (caller-managed lifecycle).
+        with engine.connect() as conn:
+            stmt = sql.select(src.c.c_int, sql.func.upper(src.c.c_str, type_=sql.String).label('c_upper')).where(
+                src.c.c_int >= 10
+            )
+            tbl = import_sql(stmt, conn, 'projected')
+
+        # Only projected columns landed in the destination; c_float must NOT be present.
+        schema = tbl._get_schema()
+        assert set(schema) == {'c_int', 'c_upper'}
+        assert schema['c_upper'].is_string_type()
+        result = tbl.order_by(tbl.c_int).select(tbl.c_int, tbl.c_upper).collect()
+        assert len(result) == 10
+        for j, row in enumerate(result):
+            i = j + 10
+            assert row['c_int'] == i
+            assert row['c_upper'] == f'ROW_{i}'
+
+        # 0-row import: same source, impossible filter. Destination table is still created with the right schema.
+        empty_stmt = sql.select(src.c.c_int, src.c.c_str).where(src.c.c_int < 0)
+        empty_tbl = import_sql(empty_stmt, engine, 'empty_proj')
+        empty_schema = empty_tbl._get_schema()
+        assert set(empty_schema) == {'c_int', 'c_str'}
+        assert empty_tbl.count() == 0
+
+    @pytest.mark.parametrize('dialect', _IMPORT_DIALECTS)
+    def test_media_via_overrides(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
+        """`schema_overrides` promotes plain String path columns into Pixeltable media types (Image, Video,
+        Document)"""
+        engine = _import_engine(dialect, tmp_path)
+        img_paths = get_image_files()[:2]
+        video_paths = get_video_files(include_vfr=False, include_mpgs=False, extension='.mp4')[:2]
+        doc_paths = [p for p in get_documents() if p.endswith('.pdf')][:2]
+        assert len(img_paths) == 2 and len(video_paths) == 2 and len(doc_paths) == 2
+
+        rows = [
+            {'c_int': i, 'c_img': img_paths[i], 'c_vid': video_paths[i], 'c_doc': doc_paths[i], 'c_path': img_paths[i]}
+            for i in range(2)
+        ]
+        src = _seed_source(
+            engine,
+            'src_media',
+            [
+                sql.Column('c_int', sql.Integer, nullable=False),
+                sql.Column('c_img', sql.String, nullable=False),
+                sql.Column('c_vid', sql.String, nullable=False),
+                sql.Column('c_doc', sql.String, nullable=False),
+                sql.Column('c_path', sql.String, nullable=False),
+            ],
+            rows,
+        )
+
+        tbl = import_sql(
+            src, engine, 'media_dest', schema_overrides={'c_img': pxt.Image, 'c_vid': pxt.Video, 'c_doc': pxt.Document}
+        )
+
+        # Schema reflects the overrides; non-overridden c_path remains String.
+        schema = tbl._get_schema()
+        assert schema['c_img'].is_image_type()
+        assert schema['c_vid'].is_video_type()
+        assert schema['c_doc'].is_document_type()
+        assert schema['c_path'].is_string_type()
+
+        # Collected Image cells are PIL Images (the media is decodable).
+        img_result = tbl.order_by(tbl.c_int).select(tbl.c_img).collect()
+        assert len(img_result) == 2
+        for row in img_result:
+            assert isinstance(row['c_img'], PIL.Image.Image)
+
+        # Media columns expose `.fileurl`. Pixeltable references local paths in place (only external URLs are
+        # pulled into the file cache via CachePrefetchNode; local paths skip prefetch entirely). So each fileurl
+        # must resolve to the exact source path we inserted, proving the path round-tripped correctly through
+        # SqlSourceNode -> InsertableTable.insert -> store.
+        urls = (
+            tbl.order_by(tbl.c_int)
+            .select(c_img=tbl.c_img.fileurl, c_vid=tbl.c_vid.fileurl, c_doc=tbl.c_doc.fileurl)
+            .collect()
+        )
+        for i, row in enumerate(urls):
+            for col_name, expected in (('c_img', img_paths[i]), ('c_vid', video_paths[i]), ('c_doc', doc_paths[i])):
+                url = row[col_name]
+                assert isinstance(url, str) and url.startswith('file://'), (col_name, url)
+                # pixeltable URL-encodes the path component (spaces -> %20, etc.)
+                decoded = urllib.parse.unquote(url[len('file://') :])
+                assert decoded == expected, (col_name, decoded, expected)
+
+        # Control column: kept as String, value is the raw path we inserted.
+        path_result = tbl.order_by(tbl.c_int).select(tbl.c_path).collect()
+        for i, row in enumerate(path_result):
+            assert row['c_path'] == img_paths[i]
+
+    def test_if_exists(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Walk the if_exists matrix in a single test, since the branching is purely pixeltable-side and doesn't
+        depend on the SQL backend."""
+        engine = _import_engine('sqlite', tmp_path)
+        seed_a = [{'c_int': i, 'c_str': f'a_{i}'} for i in range(3)]
+        seed_b = [{'c_int': 100 + i, 'c_str': f'b_{i}'} for i in range(2)]
+        src_a = _seed_source(
+            engine,
+            'src_a',
+            [sql.Column('c_int', sql.Integer, nullable=False), sql.Column('c_str', sql.String, nullable=False)],
+            seed_a,
+        )
+        src_b = _seed_source(
+            engine,
+            'src_b',
+            [sql.Column('c_int', sql.Integer, nullable=False), sql.Column('c_str', sql.String, nullable=False)],
+            seed_b,
+        )
+
+        # if_exists='error', table doesn't exist -> succeeds.
+        tbl = import_sql(src_a, engine, 'dest')
+        assert tbl.count() == len(seed_a)
+
+        # if_exists='error', table exists -> rejects.
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='existing table'):
+            import_sql(src_b, engine, 'dest')
+        # destination must be untouched after the rejection
+        assert tbl.count() == len(seed_a)
+
+        # if_exists='append' against missing table -> rejects (pxt.get_table raises PATH_NOT_FOUND).
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND):
+            import_sql(src_a, engine, 'never_existed', if_exists='append')
+
+        # if_exists='append' happy path -> preserves existing rows and adds new ones.
+        import_sql(src_b, engine, 'dest', if_exists='append')
+        result = tbl.order_by(tbl.c_int).select(tbl.c_int, tbl.c_str).collect()
+        assert [(r['c_int'], r['c_str']) for r in result] == [
+            *((r['c_int'], r['c_str']) for r in seed_a),
+            *((r['c_int'], r['c_str']) for r in seed_b),
+        ]
+
+        # if_exists='append' with a source column not present in destination -> COLUMN_NOT_FOUND.
+        src_extra = _seed_source(
+            engine,
+            'src_extra',
+            [
+                sql.Column('c_int', sql.Integer, nullable=False),
+                sql.Column('c_str', sql.String, nullable=False),
+                sql.Column('c_unknown', sql.Integer, nullable=False),
+            ],
+            [{'c_int': 9, 'c_str': 'x', 'c_unknown': 1}],
+        )
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='c_unknown'):
+            import_sql(src_extra, engine, 'dest', if_exists='append')
+
+        # if_exists='append' with incompatible source column type vs destination -> TYPE_MISMATCH.
+        # Build a source whose c_int is a String, attempt to append into the existing Int column.
+        src_mismatch = _seed_source(
+            engine,
+            'src_mismatch',
+            [sql.Column('c_int', sql.String, nullable=False), sql.Column('c_str', sql.String, nullable=False)],
+            [{'c_int': 'not_an_int', 'c_str': 'y'}],
+        )
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='c_int'):
+            import_sql(src_mismatch, engine, 'dest', if_exists='append')
+
+        # if_exists='replace' is the documented foot-gun and is rejected with a migration hint pointing the user
+        # at drop_table + if_exists='error'.
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'drop_table'):
+            import_sql(src_a, engine, 'dest', if_exists='replace')  # type: ignore[arg-type]
+
+        # any other string is also rejected.
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r"must be one of 'error', 'append'"):
+            import_sql(src_a, engine, 'dest', if_exists='garbage')  # type: ignore[arg-type]
+
+    def test_validation_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Broad sweep of the remaining `RequestError` / `NotFoundError` paths in `import_sql` and
+        `SqlSourceNode._open()`.
+        """
+        engine = _import_engine('sqlite', tmp_path)
+
+        # `sql.Interval` has no entry in our SA -> pxt mapping; without an override the inference must fail.
+        meta = sql.MetaData()
+        bad_type_src = sql.Table(
+            'bad_type',
+            meta,
+            sql.Column('c_int', sql.Integer, nullable=False),
+            sql.Column('c_dur', sql.Interval, nullable=False),
+        )
+        meta.create_all(engine)
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match='c_dur'):
+            import_sql(bad_type_src, engine, 'bad_type_dest')
+
+        # The same source becomes valid once schema_overrides resolves the unmappable column.
+        tbl_overridden = import_sql(bad_type_src, engine, 'bad_type_dest_ok', schema_overrides={'c_dur': pxt.String})
+        assert tbl_overridden._get_schema()['c_dur'].is_string_type()
+
+        ok_src = _seed_source(
+            engine,
+            'ok_src',
+            [sql.Column('c_int', sql.Integer, nullable=False), sql.Column('c_str', sql.String, nullable=False)],
+            [{'c_int': 1, 'c_str': 'a'}],
+        )
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='nonexistent'):
+            import_sql(ok_src, engine, 'never1', schema_overrides={'nonexistent': pxt.Int})
+
+        # Build a select that aliases two different expressions to the same name; import_sql's inference dedupes
+        # via dict assignment (last wins) and creates a single-column destination, so we bypass import_sql and
+        # call `tbl.insert(sql_source=...)` directly to hit the leaf check.
+        from pixeltable.exec import SqlDataSource
+
+        dup_dest = pxt.create_table('dup_dest', {'c_int': pxt.Int})
+        dup_stmt = sql.select(ok_src.c.c_int.label('c_int'), (ok_src.c.c_int + 1).label('c_int'))
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='duplicate output column'):
+            dup_dest.insert(sql_source=SqlDataSource(selectable=dup_stmt, conn=engine))
+
+        # Pre-create a destination with a computed column, then append a source that supplies a value for it.
+        comp_dest = pxt.create_table('comp_dest', {'c_int': pxt.Int})
+        comp_dest.add_computed_column(c_doubled=comp_dest.c_int * 2)
+        comp_src = _seed_source(
+            engine,
+            'comp_src',
+            [sql.Column('c_int', sql.Integer, nullable=False), sql.Column('c_doubled', sql.Integer, nullable=False)],
+            [{'c_int': 5, 'c_doubled': 10}],
+        )
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='computed column'):
+            import_sql(comp_src, engine, 'comp_dest', if_exists='append')
+
+        # --- 5. SqlSourceNode leaf: required destination column missing from source -> MISSING_REQUIRED.
+        # Pre-create a destination where c_required is non-nullable; append a source that doesn't supply it.
+        pxt.create_table('req_dest', {'c_int': pxt.Int, 'c_required': pxt.Required[pxt.String]})
+        partial_src = _seed_source(
+            engine, 'partial_src', [sql.Column('c_int', sql.Integer, nullable=False)], [{'c_int': 1}]
+        )
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='c_required'):
+            import_sql(partial_src, engine, 'req_dest', if_exists='append')
