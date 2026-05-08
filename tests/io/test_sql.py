@@ -259,6 +259,7 @@ class TestImportSql:
                 sql.Column('c_bool', sql.Boolean, nullable=True),
                 sql.Column('c_ts', sql.DateTime, nullable=True),
                 sql.Column('c_date', sql.Date, nullable=True),
+                sql.Column('c_uuid', sql.Uuid, nullable=True),
                 sql.Column('c_json', sql.JSON, nullable=True),
                 sql.Column('c_bytes', sql.LargeBinary, nullable=True),
             ],
@@ -271,6 +272,7 @@ class TestImportSql:
                     'c_bool': None if i % 7 == 0 else (i % 2 == 0),
                     'c_ts': None if i % 7 == 0 else datetime.datetime(2024, 1, 1) + datetime.timedelta(seconds=i),
                     'c_date': None if i % 7 == 0 else datetime.date(2024, 1, 1) + datetime.timedelta(days=i % 365),
+                    'c_uuid': None if i % 7 == 0 else uuid.uuid5(uuid.NAMESPACE_DNS, f'row_{i}'),
                     'c_json': None if i % 7 == 0 else {'i': i, 'tag': f't{i}'},
                     'c_bytes': None if i % 7 == 0 else f'b{i}'.encode(),
                 }
@@ -281,24 +283,28 @@ class TestImportSql:
         tbl = import_sql(src, engine, 'imported')
 
         # Schema: types + nullability propagated from SA columns
-        schema = tbl._get_schema()
-        assert set(schema) == {'c_int', 'c_str', 'c_float', 'c_bool', 'c_ts', 'c_date', 'c_json', 'c_bytes'}
-        assert schema['c_int'].is_int_type() and not schema['c_int'].nullable
-        assert schema['c_str'].is_string_type() and not schema['c_str'].nullable
-        assert schema['c_float'].is_float_type() and schema['c_float'].nullable
-        assert schema['c_bool'].is_bool_type() and schema['c_bool'].nullable
-        assert schema['c_ts'].is_timestamp_type() and schema['c_ts'].nullable
-        assert schema['c_date'].is_date_type() and schema['c_date'].nullable
-        assert schema['c_json'].is_json_type() and schema['c_json'].nullable
-        assert schema['c_bytes'].is_binary_type() and schema['c_bytes'].nullable
+        meta = tbl.get_metadata()
+        cols = meta['columns']
+        assert set(cols) == {'c_int', 'c_str', 'c_float', 'c_bool', 'c_ts', 'c_date', 'c_uuid', 'c_json', 'c_bytes'}
+        assert cols['c_int']['type_'] == 'Required[Int]'
+        assert cols['c_str']['type_'] == 'Required[String]'
+        assert cols['c_float']['type_'] == 'Float'
+        assert cols['c_bool']['type_'] == 'Bool'
+        assert cols['c_ts']['type_'] == 'Timestamp'
+        assert cols['c_date']['type_'] == 'Date'
+        assert cols['c_uuid']['type_'] == 'UUID'
+        assert cols['c_json']['type_'] == 'Json'
+        assert cols['c_bytes']['type_'] == 'Binary'
 
         # Single-version-bump claim: streaming N=2500 rows still results in version 1
-        assert tbl._tbl_version.get().version == 1
+        assert meta['version'] == 1
 
         # Row count + values + NULL roundtrip
         result = (
             tbl.order_by(tbl.c_int)
-            .select(tbl.c_int, tbl.c_str, tbl.c_float, tbl.c_bool, tbl.c_ts, tbl.c_date, tbl.c_json, tbl.c_bytes)
+            .select(
+                tbl.c_int, tbl.c_str, tbl.c_float, tbl.c_bool, tbl.c_ts, tbl.c_date, tbl.c_uuid, tbl.c_json, tbl.c_bytes
+            )
             .collect()
         )
         assert len(result) == n
@@ -310,12 +316,19 @@ class TestImportSql:
                 assert row['c_bool'] is None
                 assert row['c_ts'] is None
                 assert row['c_date'] is None
+                assert row['c_uuid'] is None
                 assert row['c_json'] is None
                 assert row['c_bytes'] is None
             else:
                 assert row['c_float'] == float(i) * 1.5
                 assert row['c_bool'] == (i % 2 == 0)
+                # Pixeltable returns Timestamp as tz-aware (local); the SA DateTime source is naive, so compare
+                # the wall-clock components only.
+                assert row['c_ts'].replace(tzinfo=None) == datetime.datetime(2024, 1, 1) + datetime.timedelta(
+                    seconds=i
+                )
                 assert row['c_date'] == datetime.date(2024, 1, 1) + datetime.timedelta(days=i % 365)
+                assert row['c_uuid'] == uuid.uuid5(uuid.NAMESPACE_DNS, f'row_{i}')
                 assert row['c_json'] == {'i': i, 'tag': f't{i}'}
                 assert row['c_bytes'] == f'b{i}'.encode()
 
@@ -346,9 +359,9 @@ class TestImportSql:
             tbl = import_sql(stmt, conn, 'projected')
 
         # Only projected columns landed in the destination; c_float must NOT be present.
-        schema = tbl._get_schema()
-        assert set(schema) == {'c_int', 'c_upper'}
-        assert schema['c_upper'].is_string_type()
+        cols = tbl.get_metadata()['columns']
+        assert set(cols) == {'c_int', 'c_upper'}
+        assert 'String' in cols['c_upper']['type_']
         result = tbl.order_by(tbl.c_int).select(tbl.c_int, tbl.c_upper).collect()
         assert len(result) == 10
         for j, row in enumerate(result):
@@ -359,8 +372,8 @@ class TestImportSql:
         # 0-row import: same source, impossible filter. Destination table is still created with the right schema.
         empty_stmt = sql.select(src.c.c_int, src.c.c_str).where(src.c.c_int < 0)
         empty_tbl = import_sql(empty_stmt, engine, 'empty_proj')
-        empty_schema = empty_tbl._get_schema()
-        assert set(empty_schema) == {'c_int', 'c_str'}
+        empty_cols = empty_tbl.get_metadata()['columns']
+        assert set(empty_cols) == {'c_int', 'c_str'}
         assert empty_tbl.count() == 0
 
     @pytest.mark.parametrize('dialect', _IMPORT_DIALECTS)
@@ -395,11 +408,11 @@ class TestImportSql:
         )
 
         # Schema reflects the overrides; non-overridden c_path remains String.
-        schema = tbl._get_schema()
-        assert schema['c_img'].is_image_type()
-        assert schema['c_vid'].is_video_type()
-        assert schema['c_doc'].is_document_type()
-        assert schema['c_path'].is_string_type()
+        cols = tbl.get_metadata()['columns']
+        assert 'Image' in cols['c_img']['type_']
+        assert 'Video' in cols['c_vid']['type_']
+        assert 'Document' in cols['c_doc']['type_']
+        assert 'String' in cols['c_path']['type_']
 
         # Collected Image cells are PIL Images (the media is decodable).
         img_result = tbl.order_by(tbl.c_int).select(tbl.c_img).collect()
@@ -524,7 +537,7 @@ class TestImportSql:
 
         # The same source becomes valid once schema_overrides resolves the unmappable column.
         tbl_overridden = import_sql(bad_type_src, engine, 'bad_type_dest_ok', schema_overrides={'c_dur': pxt.String})
-        assert tbl_overridden._get_schema()['c_dur'].is_string_type()
+        assert 'String' in tbl_overridden.get_metadata()['columns']['c_dur']['type_']
 
         ok_src = _seed_source(
             engine,

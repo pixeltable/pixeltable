@@ -128,7 +128,13 @@ class SqlSourceNode(ExecNode):
         # Tables, subqueries, and aliases are not directly executable; wrap them in `select(...)`.
         src = self.sql_source.selectable
         stmt: sql.Executable = src if isinstance(src, sql.Executable) else sql.select(src)  # type: ignore[call-overload]
-        self._result = self._conn.execute(stmt)
+        try:
+            self._result = self._conn.execute(stmt)
+        except BaseException:
+            if self._owns_conn:
+                self._conn.close()
+                self._conn = None
+            raise
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         assert self._result is not None

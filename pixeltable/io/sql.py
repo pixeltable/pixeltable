@@ -92,12 +92,9 @@ def import_sql(
 ) -> pxt.Table:
     """Import a SQL source into a Pixeltable table by streaming through a single insert plan.
 
-    `replace` is intentionally not supported. The existing `pxt.create_table(source=..., if_exists='replace')`
-    path has an unsolved create+insert atomicity gap (see the TODO at `pixeltable/globals.py` line 244): if the
-    create succeeds but the subsequent insert fails, the original table has already been destroyed and the user
-    is left with an empty replica named like the destination - silent failure trap. Until that gap is closed,
-    callers who want overwrite semantics should `pxt.drop_table(tbl_name)` themselves first and then call
-    `import_sql(..., if_exists='error')`.
+    `replace` is intentionally not supported, because create+insert is not atomic and a failed insert would
+    leave the user with an empty replica of the original table. To overwrite, call `pxt.drop_table(tbl_name)`
+    first and then `import_sql(..., if_exists='error')`.
 
     Args:
         selectable: A SQLAlchemy `Selectable` (a `Table`, a `select()` statement, or `text(...).columns(...)`)
@@ -105,7 +102,8 @@ def import_sql(
         conn: A SQLAlchemy `Engine` or `Connection` to execute `selectable` against.
         tbl_name: Pixeltable path of the destination table.
         schema_overrides: Optional per-column overrides applied on top of the inferred schema. Keys are column
-            names; values are Pixeltable `ColumnType` instances.
+            names; values accept any Pixeltable type spec recognized by `pxt.create_table` (eg, `pxt.Image`,
+            `pxt.Required[pxt.String]`).
         primary_key: Forwarded to `pxt.create_table` when creating a new table.
         comment: Forwarded to `pxt.create_table`.
         custom_metadata: Forwarded to `pxt.create_table`.
@@ -137,7 +135,9 @@ def import_sql(
                 f'SQL source has an unnamed output column at position {i}; alias it via '
                 f"`expr.label('name')` so it can be matched to a Pixeltable column.",
             )
-        nullable = bool(getattr(sa_col, 'nullable', True))
+        # SQLAlchemy uses `None` for "unknown" (eg, on labeled expressions); treat that as nullable.
+        nullable_attr = getattr(sa_col, 'nullable', True)
+        nullable = True if nullable_attr is None else nullable_attr
         pxt_type = sql_utils.get_pxt_type(sa_col.type, engine, nullable=nullable)
         if pxt_type is None and (schema_overrides is None or col_name not in schema_overrides):
             raise excs.RequestError(
@@ -189,6 +189,8 @@ def import_sql(
     try:
         tbl.insert(sql_source=sql_data_source, on_error=on_error)
     except BaseException:
+        # If drop_table raises, Python's implicit exception chaining (PEP 3134) preserves the original
+        # insert error on `__context__` and the traceback still shows it.
         pxt.drop_table(tbl, if_not_exists='ignore')
         raise
     return tbl
