@@ -172,7 +172,7 @@ class InsertableTable(Table):
                     '`sql_source` is mutually exclusive with `source`, `source_format`, `schema_overrides`, '
                     'and ad-hoc row keyword arguments.',
                 )
-            return self._insert_sql_source(
+            return self.insert_sql_source(
                 sql_source=sql_source,
                 fail_on_exception=fail_on_exception,
                 print_stats=print_stats,
@@ -235,7 +235,7 @@ class InsertableTable(Table):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    def _insert_sql_source(
+    def insert_sql_source(
         self, sql_source: SqlDataSource, fail_on_exception: bool, print_stats: bool, return_rows: bool
     ) -> pxt.UpdateStatus:
         """Stream a SqlDataSource into this table through a single insert plan."""

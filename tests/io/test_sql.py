@@ -3,6 +3,7 @@ import datetime
 import json
 import pathlib
 import urllib.parse
+import urllib.request
 import uuid
 from typing import Any, Callable
 
@@ -431,9 +432,10 @@ class TestImportSql:
             for col_name, expected in (('c_img', img_paths[i]), ('c_vid', video_paths[i]), ('c_doc', doc_paths[i])):
                 url = row[col_name]
                 assert isinstance(url, str) and url.startswith('file://'), (col_name, url)
-                # pixeltable URL-encodes the path component (spaces -> %20, etc.)
-                decoded = urllib.parse.unquote(url[len('file://') :])
-                assert decoded == expected, (col_name, decoded, expected)
+                # url2pathname handles both percent-decoding and the OS-specific URL-to-path conversion
+                # (eg, on Windows '/D:/a/foo' -> 'D:\\a\\foo'); pathlib.Path comparison is OS-agnostic.
+                actual = pathlib.Path(urllib.request.url2pathname(urllib.parse.urlparse(url).path))
+                assert actual == pathlib.Path(expected), (col_name, actual, expected)
 
         # Control column: kept as String, value is the raw path we inserted.
         path_result = tbl.order_by(tbl.c_int).select(tbl.c_path).collect()
