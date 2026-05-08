@@ -792,7 +792,15 @@ class TableRestorer:
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
-                self.media_files[url] = ObjectOps.put_file(media_col, src_path, relocate_or_delete=True)
+                self.media_files[url] = ObjectOps.put_file(
+                    media_col.destination,
+                    media_col.tbl_handle.id,
+                    media_col.id,
+                    media_col.get_tbl().version,
+                    media_col.name,
+                    src_path,
+                    relocate_or_delete=True,
+                )
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url

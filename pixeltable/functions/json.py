@@ -2,13 +2,11 @@
 Pixeltable UDFs for `JsonType`.
 
 Example:
-```python
-import pixeltable as pxt
-import pixeltable.functions as pxtf
 
-t = pxt.get_table(...)
-t.select(pxtf.json.make_list(t.json_col)).collect()
-```
+>>> import pixeltable as pxt
+>>> import pixeltable.functions as pxtf
+>>> t = pxt.get_table(...)
+>>> t.select(pxtf.json.make_list(t.json_col)).collect()
 """
 
 import itertools

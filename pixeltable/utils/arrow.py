@@ -1,5 +1,6 @@
 import datetime
 import io
+import json
 import uuid
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
@@ -9,7 +10,6 @@ import pyarrow as pa
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable.runtime import get_runtime
 
 if TYPE_CHECKING:
     import pixeltable as pxt
@@ -122,6 +122,9 @@ def _to_record_batch(
             # convert ragged arrays to nested lists
             list_col_vals = [val.tolist() for val in column_vals[field.name]]
             pa_arrays.append(pa.array(list_col_vals))
+        elif field.type == pa.json_():
+            serialized = [json.dumps(v) if v is not None else None for v in column_vals[field.name]]
+            pa_arrays.append(pa.array(serialized, type=pa.json_()))
         else:
             pa_array = cast(pa.Array, pa.array(column_vals[field.name]))
             pa_arrays.append(pa_array)
@@ -143,89 +146,90 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
         pa_column_types: dict[str, pa.DataType] = {}
         for col_name, col_type in query.schema.items():
             if col_type.is_json_type():
-                pa_type = pa.infer_type(batch_columns[col_name], mask=None)
+                try:
+                    pa_type = pa.infer_type(batch_columns[col_name], mask=None)
+                except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError):
+                    # for mixed lists e.g. json including both lists and dicts
+                    # we need to fall back to json strings
+                    pa_type = pa.json_()
                 pa_column_types[col_name] = pa_type
             else:
                 pa_column_types[col_name] = to_arrow_type(col_type)
         arrow_schema = pa.schema(pa_column_types.items())
 
-    # TODO: in order to avoid having to deal with ExprEvalError here, ResultSet should be an iterator
-    # over _exec()
     try:
-        with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=query.referenced_tbl_ids()):
-            for data_row in query._exec():
-                num_batch_rows += 1
-                for (col_name, col_type), e in zip(query.schema.items(), query._select_list_exprs):
-                    val = data_row[e.slot_idx]
-                    val_size_bytes: int
-                    if val is None:
-                        batch_columns[col_name].append(val)
-                        continue
+        for data_row in query.cursor():
+            num_batch_rows += 1
+            for col_name, col_type in query.schema.items():
+                val = data_row[col_name]
+                val_size_bytes: int
+                if val is None:
+                    batch_columns[col_name].append(val)
+                    continue
 
-                    assert val is not None
-                    if col_type.is_image_type():
-                        # images get inlined into the parquet file
-                        if data_row.file_paths[e.slot_idx] is not None:
-                            # if there is a file, read directly to preserve information
-                            with open(data_row.file_paths[e.slot_idx], 'rb') as f:
+                assert val is not None
+                if col_type.is_image_type():
+                    # images get inlined into the parquet file
+                    if isinstance(val, PIL.Image.Image):
+                        # Only ImageFile subclasses (loaded via Image.open) have .filename;
+                        # in-memory images (resize/convert/Image.new) do not set it at all.
+                        filename = getattr(val, 'filename', None)
+                        if filename is not None:
+                            # read the original file directly to preserve format and avoid lossy re-encoding
+                            with open(filename, 'rb') as f:
                                 val = f.read()
-                        elif isinstance(val, PIL.Image.Image):
-                            # no file available: save as png
+                        else:
                             buf = io.BytesIO()
                             val.save(buf, format='png')
                             val = buf.getvalue()
-                        else:
-                            raise excs.RequestError(
-                                excs.ErrorCode.UNSUPPORTED_OPERATION, f'unknown image type {type(val)}'
-                            )
-                        val_size_bytes = len(val)
-                    elif col_type.is_string_type():
-                        val_size_bytes = len(val)
-                    elif col_type.is_uuid_type():
-                        # pa.uuid() uses fixed_size_binary(16) as storage type
-                        val = val.bytes  # Convert UUID to 16-byte binary for arrow
-                        val_size_bytes = len(val)
-                    elif col_type.is_binary_type():
-                        val_size_bytes = len(val)
-                    elif col_type.is_media_type():
-                        assert data_row.file_paths[e.slot_idx] is not None
-                        val = data_row.file_paths[e.slot_idx]
-                        val_size_bytes = len(val)
-                    elif col_type.is_json_type():
-                        if col_name not in json_val_size:
-                            val_size_bytes = pa.array([val]).nbytes
-                            json_batch_size[col_name] = json_batch_size.get(col_name, 0) + val_size_bytes
-                        else:
-                            val_size_bytes = json_val_size[col_name]
-                    elif col_type.is_array_type():
-                        val_size_bytes = val.nbytes
-                    elif col_type.is_int_type() or col_type.is_float_type():
-                        val_size_bytes = 8
-                    elif col_type.is_bool_type():
-                        val_size_bytes = 1
-                    elif col_type.is_date_type():
-                        val_size_bytes = 4
-                    elif col_type.is_timestamp_type():
-                        val = val.astimezone(datetime.timezone.utc)
-                        val_size_bytes = 8
                     else:
-                        raise excs.RequestError(excs.ErrorCode.INVALID_TYPE, f'unknown type {col_type} for {col_name}')
+                        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'unknown image type {type(val)}')
+                    val_size_bytes = len(val)
+                elif col_type.is_uuid_type():
+                    # pa.uuid() uses fixed_size_binary(16) as storage type
+                    val = val.bytes  # Convert UUID to 16-byte binary for arrow
+                    val_size_bytes = len(val)
+                elif col_type.is_binary_type() or col_type.is_media_type() or col_type.is_string_type():
+                    val_size_bytes = len(val)
+                elif col_type.is_json_type():
+                    if col_name not in json_val_size:
+                        try:
+                            val_size_bytes = pa.array([val]).nbytes
+                        except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError):
+                            # for mixed lists e.g. json including both lists and dicts, we fall back to json strings
+                            val_size_bytes = len(str(val))
+                        json_batch_size[col_name] = json_batch_size.get(col_name, 0) + val_size_bytes
+                    else:
+                        val_size_bytes = json_val_size[col_name]
+                elif col_type.is_array_type():
+                    val_size_bytes = val.nbytes
+                elif col_type.is_int_type() or col_type.is_float_type():
+                    val_size_bytes = 8
+                elif col_type.is_bool_type():
+                    val_size_bytes = 1
+                elif col_type.is_date_type():
+                    val_size_bytes = 4
+                elif col_type.is_timestamp_type():
+                    val = val.astimezone(datetime.timezone.utc)
+                    val_size_bytes = 8
+                else:
+                    raise excs.RequestError(excs.ErrorCode.INVALID_TYPE, f'unknown type {col_type} for {col_name}')
 
-                    batch_columns[col_name].append(val)
-                    current_byte_estimate += val_size_bytes
+                batch_columns[col_name].append(val)
+                current_byte_estimate += val_size_bytes
 
-                if current_byte_estimate > batch_size_bytes and num_batch_rows > 0:
-                    if arrow_schema is None:
-                        # this is the first batch
-                        json_val_size = {
-                            col_name: json_batch_size[col_name] // num_batch_rows for col_name in json_batch_size
-                        }
-                    create_arrow_schema()
-                    record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
-                    yield record_batch
-                    batch_columns = {k: [] for k in query.schema}
-                    current_byte_estimate = 0
-                    num_batch_rows = 0
+            if current_byte_estimate > batch_size_bytes and num_batch_rows > 0:
+                if arrow_schema is None:
+                    # this is the first batch
+                    json_val_size = {
+                        col_name: json_batch_size[col_name] // num_batch_rows for col_name in json_batch_size
+                    }
+                create_arrow_schema()
+                record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
+                yield record_batch
+                batch_columns = {k: [] for k in query.schema}
+                current_byte_estimate = 0
+                num_batch_rows = 0
 
     except excs.ExprEvalError as e:
         query._raise_expr_eval_err(e)
@@ -249,6 +253,8 @@ def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
             if isinstance(col, pa.ChunkedArray):
                 col = col.combine_chunks()
             out[name] = list(cast(pa.FixedShapeTensorArray, col).to_numpy_ndarray())
+        elif col.type == pa.json_():
+            out[name] = [json.loads(v) if v is not None else None for v in col.to_pylist()]
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()

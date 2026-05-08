@@ -18,8 +18,7 @@ import urllib.request
 from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
-import pixeltable.functions as pxtf
-from pixeltable.catalog.table_metadata import ColumnMetadata, TableMetadata
+from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
 from pixeltable.env import Env
 
@@ -29,30 +28,13 @@ if TYPE_CHECKING:
     from pixeltable import exprs
 
 
-def _version_error_total(tbl: pxt.Table) -> int:
-    """Sum errors across all versions of a table (cheap, no row scans)."""
-    return sum(v['errors'] for v in tbl.get_versions())
-
-
-def _column_error_counts(tbl: pxt.Table) -> dict[str, int]:
-    """Count rows with errors per computed or media column. Returns {col_name: count}."""
-    md = tbl.get_metadata()
-    select_list: dict[str, exprs.Expr] = {}
-    for col_name, info in md['columns'].items():
-        if info['is_computed'] or info['media_validation'] is not None:
-            col_ref = getattr(tbl, col_name)
-            select_list[col_name] = pxtf.count(col_ref.errortype)
-    if not select_list:
-        return {}
-    results = tbl.select(**select_list).collect()
-    assert len(results) == 1
-    return results[0]
-
-
 def _build_select(
     tbl: pxt.Table, *, include_errors: bool = False
 ) -> tuple[list[dict[str, Any]], dict[str, exprs.Expr], dict[str, str], dict[str, tuple[str, str]]]:
     """Build column info list, select dict, media URL map, and error column map.
+
+    Unstored columns appear in the returned columns list with is_stored=False, but are
+    excluded from select_dict and error_cols.
 
     Returns (columns, select_dict, media_url_cols, error_cols).
     """
@@ -62,14 +44,32 @@ def _build_select(
     media_url_cols: dict[str, str] = {}
     error_cols: dict[str, tuple[str, str]] = {}
 
+    # Columns backed by a B-tree index can be ordered cheaply; the rest cannot.
+    sorted_cols: set[str] = {
+        c for idx in md['indices'].values() if idx['index_type'] == 'btree' for c in idx['columns']
+    }
+
     for col_name, info in md['columns'].items():
-        col_ref = getattr(tbl, col_name)
         is_media = info['media_validation'] is not None
         is_computed = info['is_computed']
-        columns.append({'name': col_name, 'type': info['type_'], 'is_media': is_media, 'is_computed': is_computed})
+        is_stored = info['is_stored']
+        columns.append(
+            {
+                'name': col_name,
+                'type': info['type_'],
+                'is_media': is_media,
+                'is_computed': is_computed,
+                'is_stored': is_stored,
+                'is_sorted': col_name in sorted_cols,
+            }
+        )
 
+        if not is_stored:
+            continue
+
+        col_ref = getattr(tbl, col_name)
         if is_media:
-            # Only fetch the URL — never download the actual media file
+            # only fetch the URL
             url_key = f'{col_name}__url'
             select_dict[url_key] = col_ref.fileurl
             media_url_cols[col_name] = url_key
@@ -77,14 +77,11 @@ def _build_select(
             select_dict[col_name] = col_ref
 
         if include_errors and (is_computed or is_media):
-            try:
-                et_key = f'{col_name}__errortype'
-                em_key = f'{col_name}__errormsg'
-                select_dict[et_key] = col_ref.errortype
-                select_dict[em_key] = col_ref.errormsg
-                error_cols[col_name] = (et_key, em_key)
-            except Exception:
-                pass
+            error_type_key = f'{col_name}__errortype'
+            error_msg_key = f'{col_name}__errormsg'
+            select_dict[error_type_key] = col_ref.errortype
+            select_dict[error_msg_key] = col_ref.errormsg
+            error_cols[col_name] = (error_type_key, error_msg_key)
 
     return columns, select_dict, media_url_cols, error_cols
 
@@ -98,68 +95,6 @@ def _resolve_fileurl(fileurl: str, http_address: str) -> str:
     return fileurl
 
 
-def get_directory_tree() -> list[dict[str, Any]]:
-    """
-    Get the complete directory tree with all tables/views/snapshots.
-
-    Returns:
-        List of directory nodes with nested children.
-    """
-    all_dirs = pxt.list_dirs('', recursive=True)
-    all_tables = pxt.list_tables('', recursive=True)
-
-    root_children: list[dict[str, Any]] = []
-    dir_nodes: dict[str, dict[str, Any]] = {}
-
-    # First pass: create all directory nodes
-    for dir_path in sorted(all_dirs):
-        parts = dir_path.split('/')
-        node = {'name': parts[-1], 'path': dir_path, 'kind': 'directory', 'children': []}
-        dir_nodes[dir_path] = node
-
-        if len(parts) == 1:
-            root_children.append(node)
-        else:
-            parent_path = '/'.join(parts[:-1])
-            if parent_path in dir_nodes:
-                dir_nodes[parent_path]['children'].append(node)
-
-    # Second pass: add tables to their directories
-    for tbl_path in sorted(all_tables):
-        parts = tbl_path.split('/')
-        tbl_name = parts[-1]
-        parent_path = '/'.join(parts[:-1]) if len(parts) > 1 else ''
-
-        error_count = 0
-        try:
-            tbl = pxt.get_table(tbl_path)
-            md = tbl.get_metadata()
-            kind = md['kind']
-            version = md['version'] if kind != 'snapshot' else None
-            error_count = _version_error_total(tbl)
-        except Exception as e:
-            _logger.warning(f'Failed to get metadata for {tbl_path}: {e}')
-            kind = 'table'
-            version = None
-
-        table_node = {'name': tbl_name, 'path': tbl_path, 'kind': kind, 'version': version, 'error_count': error_count}
-
-        if parent_path and parent_path in dir_nodes:
-            dir_nodes[parent_path]['children'].append(table_node)
-        elif not parent_path:
-            root_children.append(table_node)
-
-    return root_children
-
-
-def get_table_metadata(table_path: str) -> TableMetadata:
-    """
-    Get detailed metadata for a table including schema, indices, and lineage info.
-    """
-    tbl = pxt.get_table(table_path)
-    return tbl.get_metadata()
-
-
 def get_table_data(
     table_path: str,
     offset: int = 0,
@@ -169,16 +104,17 @@ def get_table_data(
     errors_only: bool = False,
 ) -> dict[str, Any]:
     """
-    Get paginated data from a table with media URLs resolved.
+    Get paginated data from a table with media URLs resolved:
+    - ignores order_by if it is a column without a B-tree index
+    - doesn't return data for unstored computed columns
     """
     tbl = pxt.get_table(table_path)
     http_address = Env.get().http_address
-
     columns, select_dict, media_url_cols, error_cols = _build_select(tbl, include_errors=True)
-
     query = tbl.select(**select_dict)
 
-    if errors_only and error_cols:
+    error_predicate: exprs.Expr | None = None
+    if errors_only:
         error_predicates = []
         for col_name in error_cols:
             try:
@@ -186,25 +122,36 @@ def get_table_data(
                 error_predicates.append(col_ref.errortype != None)
             except Exception:
                 pass
-        if error_predicates:
-            combined = error_predicates[0]
-            for pred in error_predicates[1:]:
-                combined |= pred
-            query = query.where(combined)
+        if len(error_predicates) == 0:
+            # 'errors only' was requested but the table has no columns that can carry errors.
+            # Short-circuit: nothing to return.
+            return {'columns': columns, 'rows': [], 'total_count': 0, 'offset': offset, 'limit': limit}
+        error_predicate = error_predicates[0]
+        for pred in error_predicates[1:]:
+            error_predicate |= pred
+        query = query.where(error_predicate)
 
-    if order_by is not None and order_by in tbl.columns():
-        col = getattr(tbl, order_by)
-        query = query.order_by(col, asc=not order_desc)
+    if order_by is not None:
+        # only sort by columns with a B-tree index; other columns would force a full sort
+        order_col = next((c for c in columns if c['name'] == order_by), None)
+        if order_col is not None and order_col['is_sorted']:
+            col = getattr(tbl, order_by)
+            query = query.order_by(col, asc=not order_desc)
 
-    total_count = tbl.count() if not errors_only else None
-    results = list(query.limit(limit, offset=offset if offset else None).collect())
+    if error_predicate is not None:
+        total_count = tbl.where(error_predicate).count()
+    else:
+        total_count = tbl.count()
+    results = list(query.limit(limit, offset=offset if offset != 0 else None).collect())
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for row in results:
         row_data: dict[str, Any] = {}
         cell_errors: dict[str, dict[str, str]] = {}
         for col_info in columns:
             col_name = col_info['name']
+            if not col_info['is_stored']:
+                continue  # omitted
             value = row.get(col_name)
 
             if col_info['is_media']:
@@ -218,32 +165,29 @@ def get_table_data(
                 row_data[col_name] = str(value)
 
             if col_name in error_cols:
-                et_key, em_key = error_cols[col_name]
-                etype = row.get(et_key)
-                emsg = row.get(em_key)
-                if etype is not None:
-                    cell_errors[col_name] = {'error_type': str(etype), 'error_msg': str(emsg) if emsg else ''}
+                error_type_key, error_msg_key = error_cols[col_name]
+                error_type = row.get(error_type_key)
+                error_msg = row.get(error_msg_key)
+                if error_type is not None:
+                    cell_errors[col_name] = {
+                        'error_type': str(error_type),
+                        'error_msg': str(error_msg) if error_msg is not None else '',
+                    }
 
-        if cell_errors:
+        if len(cell_errors) > 0:
             row_data['_errors'] = cell_errors
         rows.append(row_data)
 
-    return {
-        'columns': columns,
-        'rows': rows,
-        'total_count': total_count if total_count is not None else len(rows),
-        'offset': offset,
-        'limit': limit,
-    }
+    return {'columns': columns, 'rows': rows, 'total_count': total_count, 'offset': offset, 'limit': limit}
 
 
 def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
     """Export a table as CSV bytes. Media columns export their file URL."""
     tbl = pxt.get_table(table_path)
     http_address = Env.get().http_address
-
     columns, select_dict, media_url_cols, _ = _build_select(tbl)
-    col_names = [c['name'] for c in columns]
+    # Unstored columns have no value to export; their cells would be empty anyway.
+    col_names = [c['name'] for c in columns if c['is_stored']]
 
     results = list(tbl.select(**select_dict).limit(limit).collect())
 
@@ -256,7 +200,7 @@ def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
         for col_name in col_names:
             if col_name in media_url_cols:
                 fileurl = row.get(media_url_cols[col_name])
-                csv_row.append(_resolve_fileurl(fileurl, http_address) if fileurl else '')
+                csv_row.append(_resolve_fileurl(fileurl, http_address) if fileurl is not None else '')
             else:
                 val = row.get(col_name)
                 if val is None:
@@ -329,34 +273,94 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
 _FIRST_FUNC_RE = re.compile(r'(\w+)\(')
 
 
-def get_pipeline() -> dict[str, Any]:
-    """Return the full DAG metadata for the Pipeline Inspector."""
-    table_paths = sorted(pxt.list_tables('', recursive=True))
+def _collect_tbl_nodes(nodes: list[pxt.TreeNode], out: list[pxt.TableNode]) -> None:
+    """Collect all transitively reachable TableNodes in 'nodes' and return them in 'out'"""
+    for n in nodes:
+        if n['kind'] == 'directory':
+            _collect_tbl_nodes(n['entries'], out)
+        else:
+            out.append(n)
+
+
+def _split_tbl_path(tbl_path: str) -> tuple[str, int | None]:
+    """Split a Pixeltable path of the form 'p' or 'p:N' into (path, version)."""
+    head, sep, tail = tbl_path.rpartition(':')
+    if sep != '' and tail.isdigit():
+        return head, int(tail)
+    return tbl_path, None
+
+
+def _collect_pipeline_paths(table_nodes: list[pxt.TableNode], tbl_path: str) -> set[str] | None:
+    """Return the version-free paths of all tables/views transitively connected to tbl_path."""
+    by_path = {n['path']: n for n in table_nodes}
+    if tbl_path not in by_path:
+        return None
+    view_map: dict[str, list[str]] = {}  # unpinned base path -> list[view path]
+    for n in table_nodes:
+        if n['base'] is not None:
+            # make sure we record the base path w/o the version suffix
+            base, _ = _split_tbl_path(n['base'])
+            view_map.setdefault(base, []).append(n['path'])
+
+    connected: set[str] = {tbl_path}
+    # ancestors
+    current = tbl_path
+    while True:
+        base = by_path[current]['base']
+        if base is None:
+            break
+        # make sure we record the base path w/o the version suffix
+        current, _ = _split_tbl_path(base)
+        connected.add(current)
+
+    # descendants
+    stack = [tbl_path]
+    while stack:
+        p = stack.pop()
+        for view_path in view_map.get(p, []):
+            if view_path not in connected:
+                connected.add(view_path)
+                stack.append(view_path)
+    return connected
+
+
+def get_pipeline(tbl_path: str | None = None) -> dict[str, Any]:
+    """Return DAG metadata for the Pipeline Inspector.
+
+    If tbl_path is None, returns the full catalog. If tbl_path is given, returns only the
+    connected component containing that table (transitive ancestors + the table + transitive
+    descendants). Returns an empty result if tbl_path is not in the catalog.
+    """
+    tbl_nodes: list[pxt.TableNode] = []
+    _collect_tbl_nodes(pxt.get_dir_tree(), tbl_nodes)
+
+    pipeline_paths: set[str] | None
+    if tbl_path is None:
+        pipeline_paths = {n['path'] for n in tbl_nodes}
+    else:
+        pipeline_paths = _collect_pipeline_paths(tbl_nodes, tbl_path)
+        if pipeline_paths is None:
+            return {'nodes': [], 'edges': []}
 
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
 
-    for path in table_paths:
+    for path in sorted(pipeline_paths):
         try:
             tbl = pxt.get_table(path)
             md = tbl.get_metadata()
-            column_md: dict[str, ColumnMetadata] = md['columns']
+            column_md = md['columns']
             row_count = tbl.count()
-
-            col_errors = _column_error_counts(tbl)
-            table_error_total = _version_error_total(tbl)
 
             iterator_name: str | None = None
             if md['is_view'] and md['iterator_call'] is not None:
                 m = _FIRST_FUNC_RE.search(md['iterator_call'])
-                iterator_name = m.group(1) if m else md['iterator_call']
+                iterator_name = m.group(1) if m is not None else md['iterator_call']
 
             columns: list[dict[str, Any]] = []
             computed_cols: list[str] = []
 
             for col_name, info in column_md.items():
-                # col_ref: exprs.ColumnRef = getattr(tbl, col_name)
-                # col = col_ref.col
                 value_expr = info['computed_with']
                 is_iter_col = info['is_iterator_col']
 
@@ -398,7 +402,6 @@ def get_pipeline() -> dict[str, Any]:
                     'defined_in_self': defined_in == md['name'],
                     'func_name': func_name,
                     'func_type': func_type,
-                    'error_count': col_errors.get(col_name, 0),
                 }
 
                 if is_computed and value_expr is not None and not is_iter_col:
@@ -406,16 +409,19 @@ def get_pipeline() -> dict[str, Any]:
 
                 columns.append(col_entry)
 
-            # Indices
-            raw_indices = md['indices']
+            # indices: surface only embedding indices here, the dashboard doesn't want to know about B-trees
             indices: list[dict[str, Any]] = []
-            for idx_name, idx_info in raw_indices.items():
+            for idx_name, idx_info in md['indices'].items():
+                if idx_info['index_type'] != 'embedding':
+                    continue
+                params = idx_info['parameters']
+                assert params is not None
                 indices.append(
                     {
                         'name': idx_name,
                         'columns': idx_info['columns'],
                         'type': idx_info['index_type'],
-                        'embedding': str(idx_info['parameters']['embedding'])[:120],
+                        'embedding': str(params['embedding'])[:120],
                     }
                 )
 
@@ -430,7 +436,6 @@ def get_pipeline() -> dict[str, Any]:
                     'base': base_path,
                     'row_count': row_count,
                     'version': md['version'],
-                    'total_errors': table_error_total,
                     'columns': columns,
                     'indices': indices,
                     'versions': tbl.get_versions(),
@@ -440,8 +445,19 @@ def get_pipeline() -> dict[str, Any]:
                 }
             )
 
-            if is_view and base_path:
-                edges.append({'source': base_path, 'target': path, 'type': 'view', 'label': iterator_name or 'view'})
+            if base_path is not None:
+                source, base_version = _split_tbl_path(base_path)
+                assert source in pipeline_paths
+                edge_type = md['kind']
+                edge: dict[str, Any] = {
+                    'source': source,
+                    'target': path,
+                    'type': edge_type,
+                    'label': iterator_name or edge_type,
+                }
+                if base_version is not None:
+                    edge['base_version'] = base_version
+                edges.append(edge)
 
         except Exception as e:
             _logger.warning(f'Pipeline: could not inspect {path}: {e}')
@@ -453,7 +469,6 @@ def get_pipeline() -> dict[str, Any]:
                     'base': None,
                     'row_count': 0,
                     'version': 0,
-                    'total_errors': 0,
                     'columns': [],
                     'indices': [],
                     'versions': [],
@@ -472,14 +487,20 @@ def get_status() -> dict[str, Any]:
     Get system status including version, environment, connection info, and table count.
     """
     version = pxt.__version__
-    all_tables = pxt.list_tables('', recursive=True)
 
+    total_tables = 0
     total_errors = 0
-    for path in all_tables:
-        try:
-            total_errors += _version_error_total(pxt.get_table(path))
-        except Exception:
-            pass
+
+    def collect_totals(nodes: list[pxt.TreeNode]) -> None:
+        nonlocal total_tables, total_errors
+        for n in nodes:
+            if n['kind'] == 'directory':
+                collect_totals(n['entries'])
+            else:
+                total_tables += 1
+                total_errors += n['error_count']
+
+    collect_totals(pxt.get_dir_tree())
 
     config_info: dict[str, Any] = {}
     try:
@@ -498,7 +519,7 @@ def get_status() -> dict[str, Any]:
     return {
         'version': version,
         'environment': 'local',
-        'total_tables': len(all_tables),
+        'total_tables': total_tables,
         'total_errors': total_errors,
         'config': config_info,
     }

@@ -112,6 +112,9 @@ class ExprEvalNode(ExecNode):
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
 
+    def set_gc(self, gc: bool) -> None:
+        self.eval_ctx.set_gc(gc)
+
     async def _fetch_input_batch(self) -> None:
         """
         Fetches another batch from our input or sets input_complete to True if there are no more batches.

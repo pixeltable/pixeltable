@@ -10,10 +10,17 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore
 
-from .utils import ReloadTester, assert_columns_eq, inf_array_iterator, inf_image_iterator, validate_update_status
+from .utils import (
+    ReloadTester,
+    assert_columns_eq,
+    inf_array_iterator,
+    inf_image_iterator,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
-@pytest.mark.expensive
+@pytest.mark.expensive  # Large data volumes involved; must run on larger instances
 class TestInlinedObjects:
     def test_null_arrays(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'i': pxt.Int, 'data': pxt.Array})
@@ -67,6 +74,12 @@ class TestInlinedObjects:
         for col in ('ar1', 'ar2', 'ar3', 'ar4', 'ar5'):
             assert_columns_eq(col, res.schema[col], [row[col] for row in rows], res[col])
 
+        # Reference the same array column multiple times in one query
+        res = reload_tester.run_query(t.select(t.ar1[0], t.ar1, t.ar1[-1]).order_by(t.id))
+        assert all(np.array_equal(res['col_0'][i], rows[i]['ar1'][0]) for i in range(len(rows)))
+        assert all(np.array_equal(res['ar1'][i], rows[i]['ar1']) for i in range(len(rows)))
+        assert all(np.array_equal(res['col_2'][i], rows[i]['ar1'][-1]) for i in range(len(rows)))
+
         reload_tester.run_reload_test()
 
         pxt.drop_table('test')
@@ -93,6 +106,7 @@ class TestInlinedObjects:
 
     def test_insert_inlined_objects(self, uses_db: None) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
+        skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
         rnd = random.Random(4171780)
 
@@ -164,6 +178,7 @@ class TestInlinedObjects:
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     def test_nonstandard_json_construction(self, uses_db: None) -> None:
+        skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
         # test list/dict construction
@@ -181,21 +196,6 @@ class TestInlinedObjects:
             'img4': pxt.Image,
         }
         t = pxt.create_table('test', schema)
-        t.add_computed_column(l1=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5])
-        t.add_computed_column(
-            d1={
-                'a': t.a1,
-                'z': t.img1,
-                'b': t.a2,
-                'y': t.img2,
-                'c': t.a3,
-                'x': t.img3,
-                'd': t.a4,
-                'w': t.img4,
-                'e': t.a5,
-            }
-        )
-
         array_vals = inf_array_iterator(
             shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
         )
@@ -216,6 +216,22 @@ class TestInlinedObjects:
             for i in range(100)
         ]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        t.add_computed_column(l1=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5])
+        t.add_computed_column(
+            d1={
+                'a': t.a1,
+                'z': t.img1,
+                'b': t.a2,
+                'y': t.img2,
+                'c': t.a3,
+                'x': t.img3,
+                'd': t.a4,
+                'w': t.img4,
+                'e': t.a5,
+            }
+        )
+
         tbl_id = t._id
         assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
@@ -261,6 +277,7 @@ class TestInlinedObjects:
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     def test_samples(self, uses_db: None) -> None:
+        skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
         schema = {'id': pxt.Int, 'c': pxt.Int, 'a': pxt.Array, 'd': pxt.Json}

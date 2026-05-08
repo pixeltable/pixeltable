@@ -154,9 +154,8 @@ def my_function(input_text: str, model: str = 'default-model') -> str:
         The processed output text.
 
     Example:
-        ```python
-        t.add_computed_column(result=my_function(t.text, model='advanced'))
-        ```
+
+        >>> t.add_computed_column(result=my_function(t.text, model='advanced'))
     """
     # Implementation
     pass
@@ -248,8 +247,7 @@ Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELI
 
 Follow `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md`:
 
-- Code fences must be on their own lines
-- All code examples must be in fenced code blocks
+- Code examples must use `>>>` prompts, not fenced code blocks
 - Backticks must be properly paired
 - HTML tags must be self-closing
 

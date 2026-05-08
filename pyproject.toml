@@ -71,6 +71,7 @@ dependencies = [
     "aiohttp>=3.10",
     "deprecated>=1.2.15",
     "pypdfium2>=4.30.0",
+    "pathspec>=0.10.2",
 ]
 
 [project.urls]
@@ -126,7 +127,7 @@ dev = [
     "types-toml>=0.10",
     "types-tqdm~=4.64",
     "ruff>=0.14",
-    "notebook>=7.2.2",
+    "notebook>=7.5.6",
     "mkdocs>=1.6.0,<2",
     "mkdocs-material>=9.5.23,<10",
     "mkdocstrings-python>=1.10.2,<2",
@@ -192,6 +193,9 @@ dev = [
     "nbqa>=1.9.1",
     "snowflake-sqlalchemy>=1.7.0",
     "fastapi[standard]>=0.120.0",
+    "imagehash>=4.3",
+    "scipy ; python_version < '3.14'",
+    "scipy>=1.17 ; python_version >= '3.14'",
 ]
 test = [
     "pytest>=9.0.3",

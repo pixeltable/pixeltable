@@ -1,4 +1,5 @@
 import abc
+import platform
 
 import sqlalchemy as sql
 
@@ -46,7 +47,14 @@ class PostgresqlDbms(Dbms):
         return f'DROP DATABASE {database}'
 
     def create_db_stmt(self, database: str) -> str:
-        return f"CREATE DATABASE {database} ENCODING 'utf-8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0"
+        match platform.system():
+            case 'Windows':
+                lc_ctype = '.UTF-8'
+            case 'Darwin':
+                lc_ctype = 'en_US.UTF-8'
+            case _:
+                lc_ctype = 'C.UTF-8'
+        return f"CREATE DATABASE {database} TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE '{lc_ctype}'"
 
     def default_system_db_url(self) -> str:
         a = self.db_url.set(database='postgres').render_as_string(hide_password=False)

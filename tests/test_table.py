@@ -329,7 +329,9 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {},
+                    'indices': {
+                        'idx0': {'name': 'idx0', 'columns': ['col'], 'index_type': 'btree', 'parameters': None}
+                    },
                     'is_view': False,
                     'is_snapshot': False,
                     'is_replica': False,
@@ -624,7 +626,14 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': {},
+                'indices': {
+                    'idx0': {'name': 'idx0', 'columns': ['c1'], 'index_type': 'btree', 'parameters': None},
+                    'idx1': {'name': 'idx1', 'columns': ['c2'], 'index_type': 'btree', 'parameters': None},
+                    'idx2': {'name': 'idx2', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
+                    'idx3': {'name': 'idx3', 'columns': ['plus1'], 'index_type': 'btree', 'parameters': None},
+                    'idx4': {'name': 'idx4', 'columns': ['sum12'], 'index_type': 'btree', 'parameters': None},
+                    'idx5': {'name': 'idx5', 'columns': ['custom'], 'index_type': 'btree', 'parameters': None},
+                },
                 'is_view': False,
                 'is_snapshot': False,
                 'is_replica': False,
@@ -772,7 +781,9 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': {},
+                'indices': {
+                    'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
+                },
                 'is_view': True,
                 'is_snapshot': False,
                 'is_replica': False,
@@ -812,7 +823,9 @@ class TestTable:
                 'custom_metadata': None,
                 'primary_key': None,
                 'media_validation': 'on_write',
-                'indices': {},
+                'indices': {
+                    'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
+                },
                 'columns': {
                     'pos': {
                         'name': 'pos',
@@ -828,7 +841,7 @@ class TestTable:
                         'defined_in': 'iter_view',
                         'comment': None,
                         'custom_metadata': None,
-                        'is_iterator_col': False,
+                        'is_iterator_col': True,
                         'destination': None,
                     },
                     'out1': {
@@ -2266,6 +2279,21 @@ class TestTable:
         with pytest.raises(AssertionError):
             # some rows are missing rowids
             _ = t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two'}])
+
+        # update with SQL-expressible computed columns
+        t = pxt.create_table(
+            'cascade_test', {'id': pxt.Required[pxt.Int], 'val': pxt.String, 'num': pxt.Float}, primary_key='id'
+        )
+        t.add_computed_column(val_upper=t.val.upper())
+        t.add_computed_column(num_x2=t.num * 2)
+        t.insert([{'id': 1, 'val': 'hello', 'num': 1.0}, {'id': 2, 'val': 'world', 'num': 2.0}])
+        validate_update_status(
+            t.batch_update([{'id': 1, 'val': 'updated', 'num': 10.0}, {'id': 2, 'val': 'changed', 'num': 20.0}]),
+            expected_rows=2,
+        )
+        res = t.order_by(t.id).collect()
+        assert res[0].items() >= {'id': 1, 'val_upper': 'UPDATED', 'num_x2': 20.0}.items()
+        assert res[1].items() >= {'id': 2, 'val_upper': 'CHANGED', 'num_x2': 40.0}.items()
 
     @pytest.mark.cockroachdb
     def test_update(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:

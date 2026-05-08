@@ -5,6 +5,7 @@ import typing
 import warnings
 from datetime import datetime, timezone
 from textwrap import dedent
+from typing import Any
 
 import numpy as np
 import pytest
@@ -25,10 +26,6 @@ from .utils import (
     reload_catalog,
     validate_update_status,
 )
-
-
-def dummy_fn(i: int) -> int:
-    return i
 
 
 # Module-level expr_udfs used by TestFunction.test_expr_udf_method_property.
@@ -152,50 +149,137 @@ class TestFunction:
         r4 = t.select(self.f2(c=t.c3, a=None)).collect().to_pandas()['f2']
         assert np.all(r3 == r4)
 
-        with pytest.raises(TypeError) as exc_info:
-            _ = t.select(self.f1(t.c2, c=0.0)).collect()
-        assert "'b'" in str(exc_info.value)
-        with pytest.raises(TypeError) as exc_info:
-            _ = t.select(self.f1(t.c2)).collect()
-        assert "'b'" in str(exc_info.value)
-        with pytest.raises(TypeError) as exc_info:
-            _ = t.select(self.f1(c=1.0, a=t.c2)).collect()
-        assert "'b'" in str(exc_info.value)
+    @staticmethod
+    @pxt.udf()
+    def udf_pos_only_params(a: int, b: int, /) -> int:
+        raise AssertionError()
 
-        # bad default value
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Default value'):
+    @staticmethod
+    @pxt.udf()
+    def udf_kw_only_params(*, a: int, b: int) -> int:
+        raise AssertionError()
 
-            @pxt.udf
-            def f1(a: int, b: float, c: float = '') -> float:  # type: ignore[assignment]
-                return a + b + c
+    @staticmethod
+    @pxt.udf()
+    def udf_pos_or_kw_params(a: int, b: int) -> int:
+        raise AssertionError()
 
-        # missing param type
-        with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match="Cannot infer pixeltable type for parameter 'c'"):
+    @staticmethod
+    @pxt.udf()
+    def udf_default_param_val(a: int, b: int = 0) -> int:
+        raise AssertionError()
 
-            @pxt.udf
-            def f1(a: int, b: float, c='') -> float:  # type: ignore[no-untyped-def]
-                return a + b + c
+    @staticmethod
+    @pxt.udf()
+    def udf_default_param_none(a: int, b: str | None = None) -> int:
+        raise AssertionError()
 
-        # bad parameter name
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+    @staticmethod
+    @pxt.udf()
+    def udf_variadic_pos(*args: Any) -> int:
+        raise AssertionError()
 
-            @pxt.udf
-            def f1(group_by: int) -> int:
-                return group_by
+    @staticmethod
+    @pxt.udf()
+    def udf_variadic_kw(**kwargs: Any) -> int:
+        raise AssertionError()
 
-        # bad parameter name
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+    def test_invalid_call(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        # Note: the wording is different across Python versions
+        missing_a = r"missing.+'a'"
+        missing_b = r"missing.+'b'"
+        pos_only_a = r"(?:'a'.+positional.only.+|.+positional.only.+'a')"
+        pos_only_b = r"(?:'b'.+positional.only.+|.+positional.only.+'b')"
+        multi_a = r"multiple values for argument 'a'"
+        too_many_pos = r'too many positional arguments'
+        exp_ab = r'expected \(a: pxt\.Int, b: pxt\.Int\)'
 
-            @pxt.udf
-            def f1(order_by: int) -> int:
-                return order_by
+        # udf with positional params only
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(\)'):
+            _ = t.select(self.udf_pos_only_params()).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
+            _ = t.select(self.udf_pos_only_params(x=0)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Int\)'):
+            _ = t.select(self.udf_pos_only_params(0)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{pos_only_a}; {exp_ab}, got \(a=Int\)'):
+            _ = t.select(self.udf_pos_only_params(a=1)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Int, a=Int\)'):
+            _ = t.select(self.udf_pos_only_params(1, a=1)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{pos_only_b}; {exp_ab}, got \(Int, b=Int\)'):
+            _ = t.select(self.udf_pos_only_params(1, b=1)).collect()
 
-        # bad parameter name
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='reserved'):
+        # udf with keyword params only
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(\)'):
+            _ = t.select(self.udf_kw_only_params()).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{too_many_pos}; {exp_ab}, got \(Int\)'):
+            _ = t.select(self.udf_kw_only_params(0)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
+            _ = t.select(self.udf_kw_only_params(x=0)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+            _ = t.select(self.udf_kw_only_params(a=0)).collect()
 
-            @pxt.udf
-            def f1(_int_param: int) -> int:
-                return _int_param
+        # udf with positional or kw params
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
+            _ = t.select(self.udf_pos_or_kw_params(x=0)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+            _ = t.select(self.udf_pos_or_kw_params(a=0)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int, x=Int\)'):
+            _ = t.select(self.udf_pos_or_kw_params(a=0, x=1)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{multi_a}; {exp_ab}, got \(Int, a=Int\)'):
+            _ = t.select(self.udf_pos_or_kw_params(0, a=0)).collect()
+
+        # udf with default param value
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(\)'):
+            _ = t.select(self.udf_default_param_val()).collect()
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=rf'{missing_a}; expected \(a: pxt\.Int, b: pxt\.String \| None\), got \(\)',
+        ):
+            _ = t.select(self.udf_default_param_none()).collect()
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=rf'{missing_a}; expected \(a: pxt\.Int, b: pxt\.String \| None\), got \(b=None\)',
+        ):
+            _ = t.select(self.udf_default_param_none(b=None)).collect()
+
+        # udf with variadic positional params
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(x=Int\)",
+        ):
+            _ = t.select(self.udf_variadic_pos(x=1)).collect()
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=r"got an unexpected keyword argument 'x'; expected \(\*args\), got \(Int, x=Int\)",
+        ):
+            _ = t.select(self.udf_variadic_pos(0, x=1)).collect()
+
+        # udf with variadic kw params
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int\)'):
+            _ = t.select(self.udf_variadic_kw(1)).collect()
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{too_many_pos}; expected \(\*\*kwargs\), got \(Int, x=Int\)'
+        ):
+            _ = t.select(self.udf_variadic_kw(1, x=0)).collect()
+
+        # column ref as an argument for udf
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Int\)'):
+            _ = t.select(self.udf_pos_only_params(t.c2)).collect()
+
+        # arbitrary expr as an argument
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Float\)'):
+            _ = t.select(self.udf_pos_only_params(t.c2 + t.c3)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Float\)'):
+            _ = t.select(self.udf_kw_only_params(a=t.c2 + t.c3)).collect()
+
+        # function call as an argument
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+            _ = t.select(self.udf_kw_only_params(a=t.c2.increment())).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+            _ = t.select(self.udf_kw_only_params(a=t.c2.successor)).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+            _ = t.select(self.udf_kw_only_params(a=self.udf_pos_only_params(0, 0))).collect()
 
     @staticmethod
     @pxt.udf(is_method=True)
@@ -386,9 +470,17 @@ class TestFunction:
             pxt.Json[[{'text': pxt.String | None}]],  # type: ignore[misc]
         )
 
-        t = pxt.create_table('test/retrieval', {'n': pxt.Int})
-        t.add_computed_column(result=retrieve())
-        assert t.result.col_type == retrieve.signature.return_type
+        retrieval = pxt.create_table('test/retrieval', {'n': pxt.Int})
+        retrieval.add_computed_column(result=retrieve())
+        assert retrieval.result.col_type == retrieve.signature.return_type
+
+        # Populate t (and hence v) with more rows than the limit, then verify that limit(20)
+        # inside the query UDF is enforced when it runs as a view-column computation.
+        t.insert([{'a': f's_{i}'} for i in range(30)])
+        retrieval.insert(n=1)
+        res = retrieval.select(retrieval.result).collect()
+        assert len(res) == 1
+        assert len(res[0]['result']) == 20
 
         # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
         # to a circular initialization failure.
@@ -400,6 +492,45 @@ class TestFunction:
         # TODO: find a general solution
         # reload_catalog()
         pxt.drop_dir('test', force=True)
+
+    def test_query_with_limit(self, test_tbl: pxt.Table) -> None:
+        """@pxt.query bodies that use limit() with differently-shaped limit arguments."""
+        t = test_tbl
+
+        # limit(n) where n is a plain int parameter, return_scalar=True
+        @pxt.query(return_scalar=True)
+        def q1(n: int) -> pxt.Query:
+            return t.select(t.c4).limit(n)
+
+        res = t.select(t.c4, result=q1(2)).collect()
+        assert res[0]['result'] == [False, True]
+
+        # limit((3 * (n + 1) // 2) - 1) with no return_scalar: returns list of row-dicts
+        @pxt.query
+        def q2(n: int) -> pxt.Query:
+            return t.select(t.c4, folded_flt=(5.7 * n) - 4).limit((3 * (n + 1) // 2) - 1)
+
+        res = t.select(t.c4, result=q2(1)).collect()
+        assert res[0]['result'] == [
+            {'c4': False, 'folded_flt': 1.7000000000000002},
+            {'c4': True, 'folded_flt': 1.7000000000000002},
+        ]
+
+        # limit(n.astype(Int)) where n is a float parameter
+        @pxt.query(return_scalar=True)
+        def q3(n: float) -> pxt.Query:
+            return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
+
+        res = t.select(t.c4, result=q3(2.2)).collect()
+        assert res[0]['result'] == [False, True]
+
+        # return_scalar=True returning array-valued rows
+        @pxt.query(return_scalar=True)
+        def q4(n: int) -> pxt.Query:
+            return t.select(foo=[2, 3, n]).limit(2)
+
+        res = t.select(t.c4, result=q4(4)).limit(2).collect()
+        assert res[0]['result'][0] == [2, 3, 4]
 
     def test_query_json_mapper(self, uses_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
@@ -473,9 +604,8 @@ class TestFunction:
             self.binding_test_udf.using(p1=5)
         assert "Expected type `String` for parameter 'p1'; got `Int`" in str(exc_info.value)
 
-        with pytest.raises(TypeError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='missing a required argument'):
             _ = pb1(p1='a')
-        assert 'missing a required argument' in str(exc_info.value).lower()
 
     def test_nested_partial_binding(self, uses_db: None) -> None:
         pb1 = self.binding_test_udf.using(p2='y')
@@ -555,9 +685,8 @@ class TestFunction:
         res2 = t.select(t.c2 + 1, t.other_int + 1).order_by(t.c2).collect()
         assert_resultset_eq(res1, res2)
 
-        with pytest.raises(TypeError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='missing a required argument'):
             _ = t.select(self.add1(y=t.c2)).collect()
-        assert 'missing a required argument' in str(exc_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.INVALID_TYPE) as exc_info:
             # parameter types cannot be inferred
@@ -575,14 +704,13 @@ class TestFunction:
 
         assert "missing type for parameter 'y'" in str(exc_info.value).lower()
 
-        with pytest.raises(TypeError) as t_exc_info:
+        with pytest.raises(TypeError, match='takes 0 positional arguments'):
             # signature has correct parameter kind
             @pxt.expr_udf
             def add1(*, x: int) -> int:
                 return x
 
             _ = t.select(add1(t.c2)).collect()
-        assert 'takes 0 positional arguments' in str(t_exc_info.value).lower()
 
         res1 = t.select(out=self.add2_with_default(t.c2)).order_by(t.c2).collect()
         res2 = t.select(out=self.add2(t.c2, 1)).order_by(t.c2).collect()
@@ -678,6 +806,46 @@ class TestFunction:
         assert 'A UDF with that name already exists: tests.module_with_duplicate_udf.duplicate_udf' in str(
             exc_info.value
         )
+
+        # bad default value
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Default value for parameter 'c' has type `String`, which is not of type `Float`: ''",
+        ):
+
+            @pxt.udf
+            def f1(a: int, b: float, c: float = '') -> float:  # type: ignore[assignment]
+                return a + b + c
+
+        # missing param type
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match="Cannot infer pixeltable type for parameter 'c'"):
+
+            @pxt.udf
+            def f1(a: int, b: float, c='') -> float:  # type: ignore[no-untyped-def]
+                return a + b + c
+
+        # bad parameter name
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'group_by' is a reserved parameter name"):
+
+            @pxt.udf
+            def f1(group_by: int) -> int:
+                return group_by
+
+        # bad parameter name
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'order_by' is a reserved parameter name"):
+
+            @pxt.udf
+            def f1(order_by: int) -> int:
+                return order_by
+
+        # bad parameter name
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'_int_param': parameters starting with '_' are reserved"
+        ):
+
+            @pxt.udf
+            def f1(_int_param: int) -> int:
+                return _int_param
 
     def test_udf_docstring(self) -> None:
         assert self.func.__doc__ == 'A UDF.'

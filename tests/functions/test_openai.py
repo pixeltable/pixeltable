@@ -114,6 +114,73 @@ class TestOpenai:
             t.insert(input='Say something interesting.')
         assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
 
+    def test_responses(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import responses
+
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [{'role': 'user', 'content': t.input}]
+        # Basic responses call with instructions
+        t.add_computed_column(resp_output=responses(msgs, model='gpt-4o-mini'))
+        # test model_kwargs (temperature, max_output_tokens)
+        t.add_computed_column(
+            resp_output_2=responses(
+                msgs,
+                model='gpt-4o-mini',
+                model_kwargs={
+                    'instructions': (
+                        'You are an elementary school teacher explaining the answers to a group of students.'
+                    ),
+                    'temperature': 0.7,
+                    'max_output_tokens': 300,
+                    'store': False,
+                },
+            )
+        )
+        validate_update_status(t.insert(input='What are atoms made of?'), 1)
+        result = t.collect()
+        assert 'proton' in result['resp_output'][0]['output'][0]['content'][0]['text'].lower()
+        assert 'proton' in result['resp_output_2'][0]['output'][0]['content'][0]['text'].lower()
+
+    @rerun(reruns=6, reruns_delay=8)
+    def test_responses_tool_invocations(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions import openai
+
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
+            messages = [{'role': 'user', 'content': t.prompt}]
+            t.add_computed_column(
+                response=openai.responses(model='gpt-4o-mini', input=messages, tools=tools, tool_choice=tool_choice)
+            )
+            t.add_computed_column(tool_calls=openai.invoke_tools(tools, t.response))
+            return t
+
+        run_tool_invocations_test(make_table, test_tool_choice=True, test_individual_tool_choice=True)
+
+    def test_responses_custom_tool_invocations(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import invoke_tools, responses
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        tools = pxt.tools(
+            pxt.tool(
+                stock_price, name='banana_quantity', description='Use this to compute the banana quantity of a symbol.'
+            )
+        )
+        t.add_computed_column(response=responses(model='gpt-4o-mini', input=messages, tools=tools))
+        t.add_computed_column(output=t.response.output_text)
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        t.insert(prompt='What is the banana quantity of the symbol NVDA?')
+        res = t.select(t.output, t.tool_calls).head()
+
+        assert res[0]['output'] is None or res[0]['output'] == ''
+        assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
+
     @pytest.mark.expensive
     def test_reasoning_models(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -274,7 +341,7 @@ class TestOpenai:
         t.add_computed_column(response_2=chat_completions(msgs, model='gpt-4o-mini', model_kwargs={'max_tokens': 300}))
         with pytest.warns(
             pxt.exceptions.PixeltableDeprecationWarning,
-            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) instead',
+            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) or responses\(\) instead',
         ):
             validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()
@@ -357,9 +424,9 @@ class TestOpenai:
         from pixeltable.functions.openai import image_generations
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(img=image_generations(t.input, model='gpt-image-1'))
+        t.add_computed_column(img=image_generations(t.input, model='gpt-image-2'))
         t.add_computed_column(
-            img_2=image_generations(t.input, model='gpt-image-1', model_kwargs={'quality': 'low', 'size': '1024x1024'})
+            img_2=image_generations(t.input, model='gpt-image-2', model_kwargs={'quality': 'low', 'size': '1024x1024'})
         )
 
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
@@ -378,7 +445,7 @@ class TestOpenai:
             edited=image_edits(
                 t.img,
                 prompt='Add a party hat on top',
-                model='gpt-image-1',
+                model='gpt-image-2',
                 model_kwargs={'quality': 'low', 'size': '1024x1024'},
             )
         )
@@ -392,7 +459,7 @@ class TestOpenai:
         """Test image_edits with a mask image specifying the edit region.
 
         The mask must have the same dimensions as the input image. Both are created
-        programmatically at 1024x1024 (a valid gpt-image-1 input size) to guarantee this.
+        programmatically at 1024x1024 (a valid gpt-image-2 input size) to guarantee this.
         """
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
@@ -400,7 +467,7 @@ class TestOpenai:
 
         from pixeltable.functions.openai import image_edits
 
-        # Source image: 1024x1024 solid color (valid gpt-image-1 input size)
+        # Source image: 1024x1024 solid color (valid gpt-image-2 input size)
         src_arr = np.full((1024, 1024, 3), fill_value=[70, 130, 180], dtype=np.uint8)  # steel blue
         src_img = PIL.Image.fromarray(src_arr, mode='RGB')
 
@@ -417,7 +484,7 @@ class TestOpenai:
                 t.img,
                 mask=t.mask,
                 prompt='Fill the top-left corner with a bright red apple',
-                model='gpt-image-1',
+                model='gpt-image-2',
                 model_kwargs={'quality': 'low', 'size': '1024x1024'},
             )
         )
@@ -677,7 +744,7 @@ class TestOpenai:
         # Insert 2 rows: first initializes the pool synchronously, second goes through _get_request_resources
         with pytest.warns(
             pxt.exceptions.PixeltableDeprecationWarning,
-            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) instead',
+            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) or responses\(\) instead',
         ):
             validate_update_status(t.insert([{'img': SAMPLE_IMAGE_URL}, {'img': SAMPLE_IMAGE_URL}]), expected_rows=2)
         result = t.collect()
