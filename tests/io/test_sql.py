@@ -472,7 +472,7 @@ class TestImportSql:
         assert tbl.count() == len(seed_a)
 
         # if_exists='append' against missing table -> rejects (pxt.get_table raises PATH_NOT_FOUND).
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='never_existed'):
             import_sql(src_a, engine, 'never_existed', if_exists='append')
 
         # if_exists='append' happy path -> preserves existing rows and adds new ones.
