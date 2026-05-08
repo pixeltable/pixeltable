@@ -5,13 +5,14 @@ import pathlib
 import uuid
 from typing import Any, Callable
 
+import pytest
 import sqlalchemy as sql
 import sqlalchemy.dialects.postgresql
 import sqlalchemy.dialects.sqlite  # noqa: F401
 
 import pixeltable as pxt
 from pixeltable.env import Env
-from pixeltable.io.sql import export_sql
+from pixeltable.io.sql import export_sql, import_sql
 
 from ..utils import pxt_raises
 
@@ -208,3 +209,108 @@ class TestSql:
         t_img2 = pxt.create_table('test_img2', {'img': pxt.Image})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"column 'img' of source type Image"):
             export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
+
+
+_IMPORT_DIALECTS = ['sqlite', 'postgresql']
+
+
+def _import_engine(dialect: str, tmp_path: pathlib.Path) -> sql.Engine:
+    """Build a SQLAlchemy Engine for use as an `import_sql` source. The Postgres dialect points at pixeltable's
+    embedded database, which `uses_db` resets before each test (see `clean_db`)."""
+    if dialect == 'sqlite':
+        return sql.create_engine(f'sqlite:///{tmp_path / "import_src.db"}')
+    if dialect == 'postgresql':
+        return sql.create_engine(Env.get().db_url)
+    raise AssertionError(dialect)
+
+
+def _seed_source(engine: sql.Engine, table_name: str, columns: list[sql.Column], rows: list[dict]) -> sql.Table:
+    """Create `table_name` with `columns` in `engine` and insert `rows`. Returns the SA Table."""
+    meta = sql.MetaData()
+    src = sql.Table(table_name, meta, *columns)
+    meta.create_all(engine)
+    if rows:
+        with engine.begin() as conn:
+            conn.execute(src.insert(), rows)
+    return src
+
+
+class TestImportSql:
+    """import_sql() tests, parametrized across SQLite (file) and the embedded Postgres."""
+
+    @pytest.mark.parametrize('dialect', _IMPORT_DIALECTS)
+    def test_import_full_table(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
+        """End-to-end import of a full SA Table: type inference for all common SA types, nullable vs non-nullable
+        propagation, NULL-to-None value roundtrip, exact value preservation, and the single-version-bump claim
+        across batch boundaries (rows > BATCH_SIZE so streaming actually engages)."""
+        engine = _import_engine(dialect, tmp_path)
+        n = 2500  # > SqlSourceNode.BATCH_SIZE (1024) to force at least 3 batches
+
+        # mix of nullable and non-nullable columns; nullable columns include NULL values
+        src = _seed_source(
+            engine,
+            'src_full',
+            [
+                sql.Column('c_int', sql.Integer, nullable=False),
+                sql.Column('c_str', sql.String, nullable=False),
+                sql.Column('c_float', sql.Float, nullable=True),
+                sql.Column('c_bool', sql.Boolean, nullable=True),
+                sql.Column('c_ts', sql.DateTime, nullable=True),
+                sql.Column('c_date', sql.Date, nullable=True),
+                sql.Column('c_json', sql.JSON, nullable=True),
+                sql.Column('c_bytes', sql.LargeBinary, nullable=True),
+            ],
+            [
+                {
+                    'c_int': i,
+                    'c_str': f'row_{i}',
+                    # every 7th row uses NULL so we exercise both NULL and value paths
+                    'c_float': None if i % 7 == 0 else float(i) * 1.5,
+                    'c_bool': None if i % 7 == 0 else (i % 2 == 0),
+                    'c_ts': None if i % 7 == 0 else datetime.datetime(2024, 1, 1) + datetime.timedelta(seconds=i),
+                    'c_date': None if i % 7 == 0 else datetime.date(2024, 1, 1) + datetime.timedelta(days=i % 365),
+                    'c_json': None if i % 7 == 0 else {'i': i, 'tag': f't{i}'},
+                    'c_bytes': None if i % 7 == 0 else f'b{i}'.encode(),
+                }
+                for i in range(n)
+            ],
+        )
+
+        tbl = import_sql(src, engine, 'imported')
+
+        # Schema: types + nullability propagated from SA columns
+        schema = tbl._get_schema()
+        assert set(schema) == {'c_int', 'c_str', 'c_float', 'c_bool', 'c_ts', 'c_date', 'c_json', 'c_bytes'}
+        assert schema['c_int'].is_int_type() and not schema['c_int'].nullable
+        assert schema['c_str'].is_string_type() and not schema['c_str'].nullable
+        assert schema['c_float'].is_float_type() and schema['c_float'].nullable
+        assert schema['c_bool'].is_bool_type() and schema['c_bool'].nullable
+        assert schema['c_ts'].is_timestamp_type() and schema['c_ts'].nullable
+        assert schema['c_date'].is_date_type() and schema['c_date'].nullable
+        assert schema['c_json'].is_json_type() and schema['c_json'].nullable
+        assert schema['c_bytes'].is_binary_type() and schema['c_bytes'].nullable
+
+        # Single-version-bump claim: streaming N=2500 rows still results in version 1
+        assert tbl._tbl_version.get().version == 1
+
+        # Row count + values + NULL roundtrip
+        result = tbl.order_by(tbl.c_int).select(
+            tbl.c_int, tbl.c_str, tbl.c_float, tbl.c_bool, tbl.c_ts, tbl.c_date, tbl.c_json, tbl.c_bytes
+        ).collect()
+        assert len(result) == n
+        for i, row in enumerate(result):
+            assert row['c_int'] == i
+            assert row['c_str'] == f'row_{i}'
+            if i % 7 == 0:
+                assert row['c_float'] is None
+                assert row['c_bool'] is None
+                assert row['c_ts'] is None
+                assert row['c_date'] is None
+                assert row['c_json'] is None
+                assert row['c_bytes'] is None
+            else:
+                assert row['c_float'] == float(i) * 1.5
+                assert row['c_bool'] == (i % 2 == 0)
+                assert row['c_date'] == datetime.date(2024, 1, 1) + datetime.timedelta(days=i % 365)
+                assert row['c_json'] == {'i': i, 'tag': f't{i}'}
+                assert row['c_bytes'] == f'b{i}'.encode()
