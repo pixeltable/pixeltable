@@ -115,17 +115,6 @@ class InsertableTable(Table):
     @overload
     def insert(
         self,
-        /,
-        *,
-        sql_source: SqlDataSource,
-        on_error: Literal['abort', 'ignore'] = 'abort',
-        print_stats: bool = False,
-        return_rows: bool = False,
-    ) -> UpdateStatus: ...
-
-    @overload
-    def insert(
-        self,
         source: TableDataSource | None = None,
         /,
         *,
@@ -155,7 +144,6 @@ class InsertableTable(Table):
         *,
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
-        sql_source: SqlDataSource | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         return_rows: bool = False,
@@ -165,20 +153,6 @@ class InsertableTable(Table):
         from pixeltable.io.table_data_conduit import TableDataConduit
 
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-
-        if sql_source is not None:
-            if source is not None or kwargs or source_format is not None or schema_overrides is not None:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT,
-                    '`sql_source` is mutually exclusive with `source`, `source_format`, `schema_overrides`, '
-                    'and ad-hoc row keyword arguments.',
-                )
-            return self.insert_sql_source(
-                sql_source=sql_source,
-                fail_on_exception=fail_on_exception,
-                print_stats=print_stats,
-                return_rows=return_rows,
-            )
 
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
@@ -237,9 +211,19 @@ class InsertableTable(Table):
         return status
 
     def insert_sql_source(
-        self, sql_source: SqlDataSource, fail_on_exception: bool, print_stats: bool, return_rows: bool
+        self,
+        sql_source: SqlDataSource,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        return_rows: bool = False,
     ) -> pxt.UpdateStatus:
-        """Stream a SqlDataSource into this table through a single insert plan."""
+        """Stream a SqlDataSource into this table through a single insert plan.
+
+        Internal entry point used by `pxt.io.import_sql`; not part of the public `Table` API. Source-side
+        validation (column names, type compatibility, required columns, etc.) is the caller's responsibility.
+        """
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         start_ts = time.perf_counter()
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True

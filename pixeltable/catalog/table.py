@@ -47,7 +47,6 @@ if TYPE_CHECKING:
 
     import pixeltable.plan
     from pixeltable.globals import TableDataSource
-    from pixeltable.io.data_sources import SqlDataSource
 
 
 _logger = logging.getLogger('pixeltable')
@@ -1423,17 +1422,6 @@ class Table(SchemaObject):
                 f'{", ".join(c.name for c in dependent_user_cols)}',
             )
         self._tbl_version.get().drop_index(idx_info.id)
-
-    @overload
-    def insert(
-        self,
-        /,
-        *,
-        sql_source: SqlDataSource,
-        on_error: Literal['abort', 'ignore'] = 'abort',
-        print_stats: bool = False,
-        return_rows: bool = False,
-    ) -> UpdateStatus: ...
 
     @overload
     def insert(

@@ -172,8 +172,13 @@ def import_sql(
 
     if if_exists == 'append':
         tbl = pxt.get_table(tbl_name)
+        if not isinstance(tbl, pxt.InsertableTable):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'`import_sql` requires a base table; {tbl_name!r} is a {type(tbl).__name__.lower()}.',
+            )
         _validate_append_compatibility(tbl, tbl_name, inferred_schema)
-        tbl.insert(sql_source=sql_data_source, on_error=on_error)
+        tbl.insert_sql_source(sql_data_source, on_error=on_error)
         return tbl
 
     tbl = pxt.create_table(
@@ -185,7 +190,7 @@ def import_sql(
         if_exists='error',
     )
     try:
-        tbl.insert(sql_source=sql_data_source, on_error=on_error)
+        tbl.insert_sql_source(sql_data_source, on_error=on_error)
     except BaseException:
         # If drop_table raises, Python's implicit exception chaining (PEP 3134) preserves the original
         # insert error on `__context__` and the traceback still shows it.
