@@ -324,9 +324,7 @@ class TestImportSql:
                 assert row['c_bool'] == (i % 2 == 0)
                 # Pixeltable returns Timestamp as tz-aware (local); the SA DateTime source is naive, so compare
                 # the wall-clock components only.
-                assert row['c_ts'].replace(tzinfo=None) == datetime.datetime(2024, 1, 1) + datetime.timedelta(
-                    seconds=i
-                )
+                assert row['c_ts'].replace(tzinfo=None) == datetime.datetime(2024, 1, 1) + datetime.timedelta(seconds=i)
                 assert row['c_date'] == datetime.date(2024, 1, 1) + datetime.timedelta(days=i % 365)
                 assert row['c_uuid'] == uuid.uuid5(uuid.NAMESPACE_DNS, f'row_{i}')
                 assert row['c_json'] == {'i': i, 'tag': f't{i}'}
