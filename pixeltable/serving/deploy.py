@@ -21,6 +21,13 @@ _logger = logging.getLogger('pixeltable')
 
 
 def build_deploy_bundle(environment_name: str) -> Path:
+    """
+    Packages the current Pixeltable projecti into a tarball, along with details of the environment:
+    - conda environment, if present
+    - catalog metadata for any relevant tables
+    - environment and service configuration
+    """
+
     cfg = lookup_environment_config(environment_name)
     Env.get().console_logger.info(f'Deploying {environment_name!r} ...')
     services_cfg = [lookup_service_config(name) for name in cfg.services]
@@ -111,7 +118,7 @@ def _export_tables_md(services_cfg: list[config.ServiceConfig]) -> dict[str, Any
 def _export_conda_env() -> bytes | None:
     """Export the active conda environment as YAML, without platform-specific build strings.
 
-    Returns the environment.yml content as bytes, or None if not running in a conda environment.
+    Returns the conda-env.yml content as bytes, or None if not running in a conda environment.
     """
     conda_exe = os.environ.get('CONDA_EXE')
     if conda_exe is None or 'CONDA_DEFAULT_ENV' not in os.environ:
