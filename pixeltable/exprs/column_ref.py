@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import warnings
 from typing import TYPE_CHECKING, Any, Iterator, Sequence, cast
 from uuid import UUID
@@ -32,6 +33,8 @@ class ColumnRef(Expr):
     """
     A Pixeltable expression that references a column of a table. A `ColumnRef` is created by column access
     on a [`Table`][pixeltable.Table], such as `t.col`.
+
+    Not thread-safe.
     """
 
     # When this reference is created in the context of a view, it can also refer to a column of the view base.
@@ -55,8 +58,9 @@ class ColumnRef(Expr):
     # separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
     # insert them into the EvalCtxs as needed
 
-    col: catalog.Column  # TODO: merge with col_handle
+    # ColumnHandle, not a Column: avoid caching of catalog objects, they get invalidated across xact/thread boundaries
     col_handle: catalog.ColumnHandle
+
     reference_tbl: catalog.TableVersionPath | None
     needs_iterator_evaluation: bool
     perform_validation: bool  # if True, performs media validation
@@ -76,7 +80,6 @@ class ColumnRef(Expr):
         perform_validation: bool | None = None,
     ):
         super().__init__(col.col_type)
-        self.col = col
         self.reference_tbl = reference_tbl
         self.col_handle = col.handle
 
@@ -106,6 +109,12 @@ class ColumnRef(Expr):
             self.components = [non_validating_col_ref]
         self.id = self._create_id()
 
+    @property
+    def col(self) -> catalog.Column:
+        # re-resolve via the current Catalog when we need the actual Column, in the context of a transaction;
+        # this does *not* make ColumnRef thread-safe
+        return self.col_handle.get()
+
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
         self.iter_arg_ctx = iter_arg_ctx
         self.iter_outputs = iter_outputs
@@ -118,17 +127,27 @@ class ColumnRef(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [
             *super()._id_attrs(),
-            ('tbl_id', self.col.tbl_handle.id),
-            ('col_id', self.col.id),
+            ('tbl_id', self.col_handle.tbl_version.id),
+            ('col_id', self.col_handle.col_id),
             ('perform_validation', self.perform_validation),
         ]
 
     # override
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> ColumnRef:
-        target = tbl_versions[self.col.tbl_handle.id]
-        assert self.col.id in target.cols_by_id, f'{target}: {self.col.id} not in {list(target.cols_by_id.keys())}'
-        col = target.cols_by_id[self.col.id]
+        target = tbl_versions[self.col_handle.tbl_version.id]
+        col_id = self.col_handle.col_id
+        assert col_id in target.cols_by_id, f'{target}: {col_id} not in {list(target.cols_by_id.keys())}'
+        col = target.cols_by_id[col_id]
         return ColumnRef(col, self.reference_tbl)
+
+    # override
+    def copy(self) -> ColumnRef:
+        # deepcopy(tvh) is needed to create a copy for the local thread/catalog
+        result = super().copy()
+        result.col_handle = copy.deepcopy(self.col_handle)
+        if self.reference_tbl is not None:
+            result.reference_tbl = copy.deepcopy(self.reference_tbl)
+        return result
 
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
@@ -142,7 +161,8 @@ class ColumnRef(Expr):
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
             or name == ColumnPropertyRef.Property.ERRORMSG.name.lower()
         ):
-            is_valid = (self.col.is_computed or self.col.col_type.is_media_type()) and self.col.is_stored
+            col = self.col
+            is_valid = (col.is_computed or col.col_type.is_media_type()) and col.is_stored
             if not is_valid:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -153,12 +173,13 @@ class ColumnRef(Expr):
             name == ColumnPropertyRef.Property.FILEURL.name.lower()
             or name == ColumnPropertyRef.Property.LOCALPATH.name.lower()
         ):
-            if not self.col.col_type.is_media_type():
+            col = self.col
+            if not col.col_type.is_media_type():
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{name} only valid for image/video/audio/document columns: {self}',
                 )
-            if self.col.is_computed and not self.col.is_stored:
+            if col.is_computed and not col.is_stored:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'{name} not valid for computed unstored columns: {self}'
                 )
@@ -478,13 +499,13 @@ class ColumnRef(Expr):
 
     @property
     def tbl(self) -> catalog.TableVersionHandle:
-        return self.reference_tbl.tbl_version if self.reference_tbl is not None else self.col.tbl_handle
+        return self.reference_tbl.tbl_version if self.reference_tbl is not None else self.col_handle.tbl_version
 
     def default_column_name(self) -> str | None:
-        return self.col.name if self.col is not None else None
+        return self.col_handle.get().name
 
     def _equals(self, other: ColumnRef) -> bool:
-        return self.col == other.col and self.perform_validation == other.perform_validation
+        return self.col_handle == other.col_handle and self.perform_validation == other.perform_validation
 
     def select(self) -> 'Query':
         import pixeltable.plan as plan
@@ -492,7 +513,7 @@ class ColumnRef(Expr):
 
         if self.reference_tbl is None:
             # No reference table; use the current version of the table to which the column belongs
-            tbl = get_runtime().catalog.get_table_by_id(self.col.tbl_handle.id)
+            tbl = get_runtime().catalog.get_table_by_id(self.col_handle.tbl_version.id)
             return tbl.select(self)
         else:
             # Explicit reference table; construct a Query directly from it
@@ -515,10 +536,11 @@ class ColumnRef(Expr):
         return self.select().distinct()
 
     def __str__(self) -> str:
-        if self.col.name is None:
-            return f'<unnamed column {self.col.id}>'
+        col = self.col
+        if col.name is None:
+            return f'<unnamed column {col.id}>'
         else:
-            return self.col.name
+            return col.name
 
     def __repr__(self) -> str:
         return self._descriptors().to_string()
@@ -528,12 +550,13 @@ class ColumnRef(Expr):
 
     def _descriptors(self) -> DescriptionHelper:
         with get_runtime().catalog.begin_xact():
-            tbl = get_runtime().catalog.get_table_by_id(self.col.tbl_handle.id)
+            tbl = get_runtime().catalog.get_table_by_id(self.col_handle.tbl_version.id)
+        col = self.col
         helper = DescriptionHelper()
-        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
-        col_df, _ = tbl._col_descriptor([self.col.name])
+        helper.append(f'Column\n{col.name!r}\n(of table {tbl._path()!r})')
+        col_df, _ = tbl._col_descriptor([col.name])
         helper.append(col_df)
-        idxs = tbl._index_descriptor([self.col.name])
+        idxs = tbl._index_descriptor([col.name])
         if len(idxs) > 0:
             helper.append(idxs)
         return helper
@@ -543,7 +566,7 @@ class ColumnRef(Expr):
 
         if not self.needs_iterator_evaluation:
             return
-        col = self.col_handle.get()
+        col = self.col
         self.base_rowid_len = col.get_tbl().base.get().num_rowid_columns()
         self.base_rowid = [None] * self.base_rowid_len
         assert isinstance(col.get_tbl().store_tbl, store.StoreComponentView)
@@ -552,10 +575,10 @@ class ColumnRef(Expr):
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         if self.perform_validation:
             return None
-        self.col = self.col_handle.get()
         return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        col = self.col
         if self.perform_validation:
             # validate media file of our input ColumnRef and if successful, replicate the state of that slot
             # to our slot
@@ -569,7 +592,7 @@ class ColumnRef(Expr):
                 return
 
             try:
-                self.col.col_type.validate_media(data_row.file_paths[unvalidated_slot_idx])
+                col.col_type.validate_media(data_row.file_paths[unvalidated_slot_idx])
                 # access the value only after successful validation
                 val = data_row[unvalidated_slot_idx]
                 data_row.vals[self.slot_idx] = val
@@ -595,24 +618,24 @@ class ColumnRef(Expr):
             assert self.iter_arg_ctx is not None
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.get_tbl().iterator_call.eval(iterator_args)
+            self.iterator = col.get_tbl().iterator_call.eval(iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
         assert all(name is not None for name in stored_outputs)
         assert isinstance(self.iterator, func.PxtIterator)  # Otherwise we could not have an unstored column
         self.iterator.seek(data_row.pk[self.pos_idx], **stored_outputs)
         res = next(self.iterator)
-        data_row[self.slot_idx] = res[self.col.name]
+        data_row[self.slot_idx] = res[col.name]
 
     def _as_dict(self) -> dict:
-        tbl_handle = self.col.tbl_handle
+        tbl_handle = self.col_handle.tbl_version
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
         assert tbl_handle.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(tbl_handle.id),
             'tbl_version': tbl_handle.effective_version,
-            'col_id': self.col.id,
+            'col_id': self.col_handle.col_id,
             'reference_tbl': self.reference_tbl.as_dict() if self.reference_tbl is not None else None,
             'perform_validation': self.perform_validation,
         }

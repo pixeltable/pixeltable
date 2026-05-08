@@ -1,23 +1,48 @@
 import io
+import json
 import logging
 import os
 import subprocess
 import tarfile
 import tempfile
 from pathlib import Path
+from typing import Any
 
+import toml
 from pathspec import PathSpec
 
-from pixeltable import config
+import pixeltable as pxt
+from pixeltable import config, metadata
 from pixeltable.env import Env
-from pixeltable.serving._config import lookup_deployment_config
+from pixeltable.runtime import get_runtime
+from pixeltable.serving._config import lookup_environment_config, lookup_service_config
 
 _logger = logging.getLogger('pixeltable')
 
 
-def build_deploy_bundle(deployment_name: str) -> Path:
-    cfg = lookup_deployment_config(deployment_name)
-    Env.get().console_logger.info(f'Deploying {deployment_name!r} ...')
+def build_deploy_bundle(environment_name: str) -> Path:
+    """
+    Packages the current Pixeltable projecti into a tarball, along with details of the environment:
+    - conda environment, if present
+    - catalog metadata for any relevant tables
+    - environment and service configuration
+    """
+
+    cfg = lookup_environment_config(environment_name)
+    Env.get().console_logger.info(f'Deploying {environment_name!r} ...')
+    services_cfg = [lookup_service_config(name) for name in cfg.services]
+    if len(services_cfg) == 0:
+        Env.get().console_logger.warning('That environment contains no services.')
+    else:
+        Env.get().console_logger.info(
+            f'The following service(s) will be deployed: {", ".join(service.name for service in services_cfg)}'
+        )
+
+    config_export = {
+        'environment': [cfg.model_dump(mode='json')],
+        'service': [service.model_dump(mode='json') for service in services_cfg],
+    }
+    md_export = _export_tables_md(services_cfg)
     conda_export = _export_conda_env()
     lockfile = _find_lockfile()
     if conda_export is None and len(cfg.env_dependencies) == 0:
@@ -30,7 +55,7 @@ def build_deploy_bundle(deployment_name: str) -> Path:
             'No dependency lockfile was found and no Python dependencies are specified in config.\n'
             'The deployment may not have the necessary dependencies to run correctly.'
         )
-    bundle_path = package(cfg, conda_export=conda_export)
+    bundle_path = package(cfg, config_export=config_export, md_export=md_export, conda_export=conda_export)
     Env.get().console_logger.info(f'Built project bundle: {bundle_path}')
     return bundle_path
 
@@ -61,10 +86,39 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
     return sorted(files)
 
 
+def _export_tables_md(services_cfg: list[config.ServiceConfig]) -> dict[str, Any]:
+    # Get all tables mentioned by any route contained in this environment.
+    table_paths: set[str] = set()
+    for service in services_cfg:
+        for route in service.routes:
+            # Query routes are only supported for cloud-hosted tables (not implemented yet)
+            # TODO: we should catch this upstream to prevent users from trying to deploy unsupported configurations
+            assert not isinstance(route, config.QueryRouteConfig)
+            table_paths.add(route.table)
+    tables = [pxt.get_table(path) for path in sorted(table_paths)]
+
+    # Get the md for all ancestors of all such tables.
+    catalog = get_runtime().catalog
+    with catalog.begin_xact(for_write=False):
+        tables_md = [catalog.load_md_for_export(tbl, as_replica=False) for tbl in tables]
+
+    # The ancestor md is returned as: primary table first, followed by ancestors in descending order.
+    # Reverse so that ancestors come first, then flatten and de-duplicate (since some tables might have common
+    # ancestors). Use a dict for deduplicating, so that we preserve ancestor order to get a topologically
+    # sorted list at the end.
+    flattened_md = {md.tbl_md.tbl_id: md for md_list in tables_md for md in reversed(md_list)}
+    bundle_md = {
+        'pxt_version': pxt.__version__,
+        'pxt_md_version': metadata.VERSION,
+        'tables_md': [md.as_dict() for md in flattened_md.values()],
+    }
+    return bundle_md
+
+
 def _export_conda_env() -> bytes | None:
     """Export the active conda environment as YAML, without platform-specific build strings.
 
-    Returns the environment.yml content as bytes, or None if not running in a conda environment.
+    Returns the conda-env.yml content as bytes, or None if not running in a conda environment.
     """
     conda_exe = os.environ.get('CONDA_EXE')
     if conda_exe is None or 'CONDA_DEFAULT_ENV' not in os.environ:
@@ -90,15 +144,21 @@ def _find_lockfile() -> Path | None:
 
 
 def package(
-    deploy_config: config.DeploymentConfig, project_dir: Path | None = None, conda_export: bytes | None = None
+    env_config: config.EnvironmentConfig,
+    config_export: dict[str, Any],
+    md_export: dict[str, Any],
+    conda_export: bytes | None = None,
+    project_dir: Path | None = None,
 ) -> Path:
     """Bundle the contents of a Pixeltable project directory into a tarball.
 
     Args:
-        deploy_config: Deployment configuration.
-        project_dir: Path to the project directory. Defaults to the current working directory.
-        conda_export: Output of ``conda env export --no-builds``, included as ``environment.yml``
+        env_config: Environment configuration.
+        config_export: The environment and service configuration to include in the bundle, as a dict.
+        md_export: The table metadata to include in the bundle, as a dict.
+        conda_export: Output of `conda env export --no-builds`, included as `conda-env.yml`
             in the bundle when provided.
+        project_dir: Path to the project directory. Defaults to the current working directory.
 
     Returns:
         Path to the generated tarball.
@@ -115,15 +175,22 @@ def package(
     os.close(fd)
     bundle_path = Path(name)
 
-    files = _collect_project_files(project_dir, deploy_config.include, deploy_config.exclude)
+    files = _collect_project_files(project_dir, env_config.include, env_config.exclude)
     with tarfile.open(bundle_path, 'w:bz2') as tf:
+        __add_tarfile(tf, 'config.toml', toml.dumps(config_export).encode('utf-8'))
+        __add_tarfile(tf, 'metadata.json', json.dumps(md_export).encode('utf-8'))
         if conda_export is not None:
-            info = tarfile.TarInfo(name='environment.yml')
-            info.size = len(conda_export)
-            tf.addfile(info, fileobj=io.BytesIO(conda_export))
+            __add_tarfile(tf, 'conda-env.yml', conda_export)
         for f in files:
             relpath = f.relative_to(project_dir)
             tf.add(f, arcname=f'project/{relpath}')
 
     _logger.info(f'Packaging complete: {bundle_path}')
     return bundle_path
+
+
+def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
+    """Helper function to add a file with the given content to the tarfile being built in `package()`."""
+    info = tarfile.TarInfo(name=name)
+    info.size = len(content)
+    tf.addfile(info, fileobj=io.BytesIO(content))

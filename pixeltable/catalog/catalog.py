@@ -237,6 +237,11 @@ class Catalog:
         self._column_dependents = None
         self._init_store()
 
+    def __deepcopy__(self, memo: dict[int, object]) -> 'Catalog':
+        # Catalog instances are owned by Runtime and never duplicated. Return self here to prevent deepcopies.
+        memo[id(self)] = self
+        return self
+
     def _active_tbl_clause(
         self, *, tbl_id: UUID | None = None, dir_id: UUID | None = None, tbl_name: str | None = None
     ) -> sql.ColumnElement[bool]:
@@ -281,9 +286,7 @@ class Catalog:
                     base_tv = self._tbl_versions.get(key, None)
                     if base_tv is not None and base_tv.is_validated and tbl_version.handle not in base_tv.mutable_views:
                         mutable_view_ids = ', '.join(str(tv.id) for tv in base_tv.mutable_views)
-                        mutable_view_names = ', '.join(
-                            tv._tbl_version.name for tv in base_tv.mutable_views if tv._tbl_version is not None
-                        )
+                        mutable_view_names = ', '.join(tv.get().name for tv in base_tv.mutable_views)
                         raise AssertionError(
                             f'{tbl_version.name} ({tbl_version.id}) missing in '
                             f'{mutable_view_ids} ({mutable_view_names})'
@@ -2682,7 +2685,7 @@ class Catalog:
         status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
         assert status.rowcount == 1, status.rowcount
 
-    def load_replica_md(self, tbl: Table) -> list[TableVersionMd]:
+    def load_md_for_export(self, tbl: Table, as_replica: bool) -> list[TableVersionMd]:
         """
         Load metadata for the given table along with all its ancestors. The values of TableMd.current_version and
         TableMd.current_schema_version will be adjusted to ensure that the metadata represent a valid (internally
@@ -2701,9 +2704,10 @@ class Catalog:
             md = [snapshot_md, *md]
 
         for ancestor_md in md:
-            # Set the `is_replica` flag on every ancestor's TableMd.
-            ancestor_md.tbl_md.is_replica = True
-            # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
+            if as_replica:
+                # Set the `is_replica` flag on every ancestor's TableMd.
+                ancestor_md.tbl_md.is_replica = True
+            # For exported metadata, we guarantee that the current_version and current_schema_version of TableMd
             # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,
             # when the metadata is later stored in the catalog of a different Pixeltable instance, the values of
             # current_version and current_schema_version will always point to versions that are known to the
@@ -2711,11 +2715,12 @@ class Catalog:
             ancestor_md.tbl_md.current_version = ancestor_md.version_md.version
             ancestor_md.tbl_md.current_schema_version = ancestor_md.schema_version_md.schema_version
 
-        for ancestor_md in md[1:]:
-            # Also, the table version of every proper ancestor is emphemeral; it does not represent a queryable
-            # table version (the data might be incomplete, since we have only retrieved one of its views, not
-            # the table itself).
-            ancestor_md.version_md.is_fragment = True
+        if as_replica:
+            for ancestor_md in md[1:]:
+                # Also, the table version of every proper ancestor is ephemeral; it does not represent a queryable
+                # table version (the data might be incomplete, since we have only retrieved one of its views, not
+                # the table itself).
+                ancestor_md.version_md.is_fragment = True
 
         return md
 

@@ -161,6 +161,7 @@ class InsertableTable(Table):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
+        self._validate_thread()
         from pixeltable.io.table_data_conduit import TableDataConduit
 
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
@@ -271,6 +272,7 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
+        self._validate_thread()
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):

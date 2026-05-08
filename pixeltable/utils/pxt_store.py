@@ -9,7 +9,6 @@ import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import boto3
 import botocore
@@ -22,11 +21,14 @@ from botocore.session import get_session as get_botocore_session
 from pixeltable import ErrorCode, env, exceptions as excs
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.cloud_utils import get_bucket_credentials, get_presigned_url_from_cloud
-from pixeltable.utils.object_stores import S3_COMPATIBLE_TARGETS, ObjectStoreBase, StorageObjectAddress, StorageTarget
+from pixeltable.utils.object_stores import (
+    S3_COMPATIBLE_TARGETS,
+    FileDestination,
+    ObjectStoreBase,
+    StorageObjectAddress,
+    StorageTarget,
+)
 from pixeltable.utils.s3_store import S3CompatClientDict, S3Store
-
-if TYPE_CHECKING:
-    from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
 
@@ -258,13 +260,21 @@ class PxtStore(ObjectStoreBase):
                 provider=self._pxt_store_entry.storage_provider,
             ) from e
 
-    def copy_local_file(self, col: Column, src_path: Path) -> str:
+    def resolve_destination(
+        self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
+    ) -> FileDestination:
+        inner = self._store.resolve_destination(tbl_id, col_id, tbl_version, ext=ext)
+        return FileDestination(url=self._to_logical_uri(inner.url), remote_key=inner.remote_key)
+
+    def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
         if self._pxt_store_entry.no_space_left:
             raise excs.ServiceUnavailableError(
                 ErrorCode.STORE_UNAVAILABLE,
                 'No space left in Pixeltable store. Only read and delete operations are allowed.',
             )
-        return self._to_logical_uri(self._store.copy_local_file(col, src_path))
+        # Inner S3 store reads dest.remote_key for the upload and returns dest.url; since
+        # dest.url is already the logical (pxtfs://) URL, we can pass dest through unchanged.
+        return self._store.copy_local_file(src_path, dest)
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         return self._store.copy_object_to_local_file(src_path, dest_path)
