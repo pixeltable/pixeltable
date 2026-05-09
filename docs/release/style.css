@@ -73,3 +73,9 @@ a[href*="poweredBy"] {
 .dark pre span[style*="color:black"] {
   color: #e5e5e5 !important;
 }
+
+/* Make bold text more prominent */
+strong,
+b {
+  font-weight: 700;
+}

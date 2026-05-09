@@ -656,6 +656,8 @@ t.add_computed_column(transformed=image_to_image(t.img, t.prompt, model_id='stab
     # Video
     t.video.get_metadata() / .get_duration() / .extract_frame(timestamp=5.0)
     t.video.clip(start=10, end=30) / .overlay_text(text='Title') / .scene_detect_content()
+    t.video.pan(x_sign=1)            # smooth pan right (convenience wrapper around scroll())
+    t.video.mix_audio(t.music)       # blend a second audio track into the video
 
     # Audio
     t.audio.get_metadata()
@@ -723,6 +725,10 @@ t.add_computed_column(transformed=image_to_image(t.img, t.prompt, model_id='stab
     ```python
     # Pandas
     df = t.collect().to_pandas()
+
+    # CSV / JSON
+    io.export_csv(t, 'output.csv')
+    io.export_json(t, 'output.json')
 
     # Parquet
     io.export_parquet(t, 'output.parquet')

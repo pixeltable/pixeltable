@@ -3,7 +3,7 @@ import re
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, NamedTuple
+from typing import Any, Iterator, NamedTuple
 
 import boto3
 import botocore
@@ -15,10 +15,13 @@ from botocore.exceptions import ClientError, ConnectionError
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
-
-if TYPE_CHECKING:
-    from pixeltable.catalog import Column
+from pixeltable.utils.object_stores import (
+    FileDestination,
+    ObjectPath,
+    ObjectStoreBase,
+    StorageObjectAddress,
+    StorageTarget,
+)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -27,7 +30,7 @@ class S3CompatClientDict(NamedTuple):
     """Container for S3-compatible storage access objects (R2, B2, etc.)."""
 
     profile: str | None  # AWS-style profile used to locate credentials
-    clients: dict[str, Any]  # Map of endpoint URL → boto3 client instance
+    clients: dict[str, Any]  # Map of endpoint URL to boto3 client instance
 
 
 @env.register_client('r2')
@@ -297,12 +300,20 @@ class S3Store(ObjectStoreBase):
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def _prepare_uri(self, col: 'Column', ext: str | None = None) -> str:
-        """
-        Construct a new, unique URI for a persisted media file.
-        """
-        assert col.get_tbl() is not None, 'Column must be associated with a table'
-        return self._prepare_uri_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext=ext)
+    def resolve_destination(
+        self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
+    ) -> FileDestination:
+        url = self._prepare_uri_raw(tbl_id, col_id, tbl_version, ext=ext)
+        parsed = urllib.parse.urlparse(url)
+        key = parsed.path.lstrip('/')
+        if self.soa.storage_target in {
+            StorageTarget.R2_STORE,
+            StorageTarget.B2_STORE,
+            StorageTarget.TIGRIS_STORE,
+            StorageTarget.PIXELTABLE_STORE,
+        }:
+            key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2/B2
+        return FileDestination(url=url, remote_key=key)
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe."""
@@ -312,25 +323,17 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, f'downloading file {src_path!r}')
             raise
 
-    def copy_local_file(self, col: 'Column', src_path: Path) -> str:
-        """Copy a local file, and return its new URL"""
-        new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
-        parsed = urllib.parse.urlparse(new_file_uri)
-        key = parsed.path.lstrip('/')
-        if self.soa.storage_target in {
-            StorageTarget.R2_STORE,
-            StorageTarget.B2_STORE,
-            StorageTarget.TIGRIS_STORE,
-            StorageTarget.PIXELTABLE_STORE,
-        }:
-            key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2/B2
+    def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
+        assert dest.remote_key is not None
         try:
-            _logger.debug(f'Media Storage: copying {src_path} to {new_file_uri} : Key: {key}')
+            _logger.debug(f'Media Storage: copying {src_path} to {dest.url} : Key: {dest.remote_key}')
             content_type = puremagic.from_file(str(src_path), mime=True)
             extra_args = {'ContentType': content_type} if content_type is not None else None
-            self.client().upload_file(Filename=str(src_path), Bucket=self.bucket_name, Key=key, ExtraArgs=extra_args)
-            _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
-            return new_file_uri
+            self.client().upload_file(
+                Filename=str(src_path), Bucket=self.bucket_name, Key=dest.remote_key, ExtraArgs=extra_args
+            )
+            _logger.debug(f'Media Storage: copied {src_path} to {dest.url}')
+            return dest.url
         except ClientError as e:
             self.handle_s3_error(e, 'uploading file')
             raise

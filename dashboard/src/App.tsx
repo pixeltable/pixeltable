@@ -53,7 +53,7 @@ function findTreeNode(nodes: TreeNode[], path: string): TreeNode | null {
   for (const n of nodes) {
     if (n.path === path) return n
     if (n.kind === 'directory') {
-      const found = findTreeNode(n.entries, path)
+      const found = findTreeNode(n.entries ?? [], path)
       if (found) return found
     }
   }
@@ -63,7 +63,7 @@ function findTreeNode(nodes: TreeNode[], path: string): TreeNode | null {
 function flattenTables(node: TreeNode): TableNode[] {
   if (node.kind !== 'directory') return []
   const tables: TableNode[] = []
-  for (const c of node.entries) {
+  for (const c of node.entries ?? []) {
     if (c.kind === 'directory') tables.push(...flattenTables(c))
     else tables.push(c)
   }
