@@ -484,7 +484,7 @@ class TableVersion:
             tvp = self.path
 
         # Reconstruct Column and Index objects from metadata, populating all internal lookup structures.
-        # Indexes are initialized in lock-step, immediately after the column that triggers them.
+        # Indexes are initialized in lock-step, immediately after their undo column is initialized.
         val_col_to_idx, undo_col_to_idx = self._build_col_to_idx_maps()
 
         # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
@@ -538,8 +538,9 @@ class TableVersion:
                     self.cols_by_name[col.name] = col
                 self.cols_by_id[col.id] = col
 
-            # Finally initialize indexes whose undo column this is. Undo columns have the highest col id of all columns
-            # involved in the index, so by the time undo column is initialized, the index can be initialized as well.
+            # Finally initialize the index whose undo column this is. Undo columns have the highest col id of all
+            # columns involved in an index, so by the time undo column is initialized, the index can be initialized
+            # as well.
             if self.supports_idxs and col.id in undo_col_to_idx:
                 idx, idx_md = undo_col_to_idx[col.id]
                 is_active = idx_md.schema_version_add <= self.schema_version and (
