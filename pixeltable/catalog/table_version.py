@@ -465,6 +465,9 @@ class TableVersion:
     def _init_schema(self) -> None:
         from pixeltable.store import StoreComponentView, StoreTable, StoreView
 
+        assert len(self.cols) == 0
+        assert len(self.idxs) == 0
+
         # Construct a TableVersionPath for column retargeting, if needed
         tvp: TableVersionPath | None = None
         if self.effective_version is not None:
@@ -479,13 +482,6 @@ class TableVersion:
             # "anchored" TableVersionPath.
             assert self.path is not None
             tvp = self.path
-
-        assert len(self.cols) == 0
-        assert len(self.cols_by_id) == 0
-        assert len(self.cols_by_name) == 0
-        assert len(self.idxs) == 0
-        assert len(self.idxs_by_name) == 0
-        assert len(self.idxs_by_col) == 0
 
         # Reconstruct Column and Index objects from metadata, populating all internal lookup structures.
         # Indexes are initialized in lock-step, immediately after the column that triggers them.
