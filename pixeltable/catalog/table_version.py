@@ -485,7 +485,7 @@ class TableVersion:
 
         # Reconstruct Column and Index objects from metadata, populating all internal lookup structures.
         # Indexes are initialized in lock-step, immediately after the column that triggers them.
-        idx_col_to_idx, col_id_trigger_to_idx = self._build_idx_trigger_map()
+        val_col_to_idx, undo_col_to_idx = self._build_col_to_idx_maps()
 
         # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
         # point backward.
@@ -500,8 +500,10 @@ class TableVersion:
             )
 
             sa_col_type: sql.types.TypeEngine | None = None
-            if col_md.id in idx_col_to_idx:
-                sa_col_type = idx_col_to_idx[col_md.id].get_index_sa_type(col_type)
+            if col_md.id in val_col_to_idx:
+                sa_col_type = val_col_to_idx[col_md.id][0].get_index_sa_type(col_type)
+            elif col_md.id in undo_col_to_idx:
+                sa_col_type = undo_col_to_idx[col_md.id][0].get_index_sa_type(col_type)
 
             is_iterator_col = self.is_component_view and col_md.id < self.num_iterator_cols
             is_visible = col_md.schema_version_add <= self.schema_version and (
@@ -536,9 +538,15 @@ class TableVersion:
                     self.cols_by_name[col.name] = col
                 self.cols_by_id[col.id] = col
 
-            # Finally initialize indexes that this column unlocks
-            for idx, idx_md in col_id_trigger_to_idx.get(col.id, []):
-                self._init_idx(idx, idx_md)
+            # Finally initialize indexes whose undo column this is. Undo columns have the highest col id of all columns
+            # involved in the index, so by the time undo column is initialized, the index can be initialized as well.
+            if self.supports_idxs and col.id in undo_col_to_idx:
+                idx, idx_md = undo_col_to_idx[col.id]
+                is_active = idx_md.schema_version_add <= self.schema_version and (
+                    idx_md.schema_version_drop is None or idx_md.schema_version_drop > self.schema_version
+                )
+                if is_active:
+                    self._init_idx(idx, idx_md)
 
         # create the sqlalchemy schema, after instantiating all Columns
         if self.is_component_view:
@@ -569,15 +577,14 @@ class TableVersion:
             value_expr = value_expr.retarget(tvp)
         return value_expr
 
-    def _build_idx_trigger_map(
+    def _build_col_to_idx_maps(
         self,
-    ) -> tuple[dict[int, index.IndexBase], dict[int, list[tuple[index.IndexBase, schema.IndexMd]]]]:
+    ) -> tuple[dict[int, tuple[index.IndexBase, schema.IndexMd]], dict[int, tuple[index.IndexBase, schema.IndexMd]]]:
         """Build lookup structures needed to initialize indexes from metadata in the column loop.
 
         Returns:
-            idx_col_to_idx: maps both index value and undo column ids -> IndexBase
-            col_id_trigger_to_idx: maps the highest-dependency column id for each visible index to that index,
-                so _init_schema can initialize each index as soon as all its dependency columns are ready.
+            val_col_to_idx: maps index value column ids -> (IndexBase, IndexMd)
+            undo_col_to_idx: maps index undo column ids -> (IndexBase, IndexMd)
         """
         indexes: list[tuple[schema.IndexMd, index.IndexBase]] = []
         for md in self.tbl_md.index_md.values():
@@ -585,31 +592,15 @@ class TableVersion:
             cls = getattr(index, cls_name)
             indexes.append((md, cls.from_dict(md.init_args)))
 
-        idx_col_to_idx = {
-            col_id: idx for idx_md, idx in indexes for col_id in (idx_md.index_val_col_id, idx_md.index_val_undo_col_id)
-        }
-
-        col_id_trigger_to_idx: dict[int, list[tuple[index.IndexBase, schema.IndexMd]]] = {}
-        if not self.supports_idxs:
-            # If this is a snapshot, we don't need col_id_trigger_to_idx because no indexes will be initialized.
-            # However, idx_col_to_idx is still needed because we need to recognize index value and undo columns as such
-            # in order to initialize them correctly.
-            return idx_col_to_idx, col_id_trigger_to_idx
-
+        val_col_to_idx: dict[int, tuple[index.IndexBase, schema.IndexMd]] = {}
+        undo_col_to_idx: dict[int, tuple[index.IndexBase, schema.IndexMd]] = {}
         for idx_md, idx in indexes:
-            if not (
-                idx_md.schema_version_add <= self.schema_version
-                and (idx_md.schema_version_drop is None or idx_md.schema_version_drop > self.schema_version)
-            ):
-                continue
-            col_id = max(idx_md.index_val_col_id, idx_md.index_val_undo_col_id)
-            # If indexed_col_tbl_id is a different table's id, ignore indexed_col_id — that column is in a base
-            # table and has already been initialized.
-            if UUID(idx_md.indexed_col_tbl_id) == self.id:
-                col_id = max(idx_md.indexed_col_id, col_id)
-            col_id_trigger_to_idx.setdefault(col_id, []).append((idx, idx_md))
+            assert idx_md.index_val_col_id not in val_col_to_idx
+            assert idx_md.index_val_undo_col_id not in undo_col_to_idx
+            val_col_to_idx[idx_md.index_val_col_id] = (idx, idx_md)
+            undo_col_to_idx[idx_md.index_val_undo_col_id] = (idx, idx_md)
 
-        return idx_col_to_idx, col_id_trigger_to_idx
+        return val_col_to_idx, undo_col_to_idx
 
     def _init_idx(self, idx: index.IndexBase, md: schema.IndexMd) -> None:
         indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
