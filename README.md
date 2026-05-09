@@ -20,7 +20,7 @@
 [**API Reference**](https://docs.pixeltable.com/sdk/latest/pixeltable) |
 [**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) |
 [**AI Coding Skill**](https://github.com/pixeltable/pixeltable-skill) |
-[**Pixeltable Cloud**](https://www.pixeltable.com/)
+[**Pixeltable Cloud**](https://www.pixeltable.com/) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
 Pixeltable is the unified multimodal backend for AI applications. One `pip install`, one Python API, one place to store, transform, index, retrieve, serve, version, observe, and debug.
@@ -29,10 +29,10 @@ Every multimodal AI app needs the same five things: store media, run models, ind
 
 | What you need | Without Pixeltable | With Pixeltable |
 |---|---|---|
-| Store video, images, docs | S3 + Postgres + glue code | `pxt.create_table()` with native media types |
+| Store video, images, docs | S3 + Postgres + glue code | `pxt.create_table()` with media types |
 | Run AI on every insert | Airflow DAGs + retry logic | `add_computed_column()`, automatic |
 | Vector search | Pinecone + ETL pipelines | `add_embedding_index()`, always in sync |
-| HTTP endpoints | Hand-written endpoints + Pydantic | `FastAPIRouter` or `pxt serve` |
+| HTTP endpoints | Hand-written + Pydantic | `FastAPIRouter` or `pxt serve` |
 | Versioning & rollback | Custom scripts | Built-in `history()`, `revert()` |
 
 Transaction integrity, async execution, parallelization, caching, retries, and observability are built in. Schema changes are one line. Model upgrades are zero-downtime. Extensible via `@pxt.udf`, `@pxt.uda`, `@pxt.query`.
