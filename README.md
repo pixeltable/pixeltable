@@ -14,7 +14,6 @@
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
 [![nightly status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
 [![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
-[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?logo=discord&logoColor=white)](https://discord.gg/QPyqFYx2UN)
 
 [**Quick Start**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
@@ -22,6 +21,7 @@
 [**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) |
 [**AI Coding Skill**](https://github.com/pixeltable/pixeltable-skill) |
 [**Pixeltable Cloud**](https://www.pixeltable.com/)
+[**Discord**](https://discord.gg/QPyqFYx2UN)
 
 Pixeltable is the unified multimodal backend for AI applications. One `pip install`, one Python API, one place to store, transform, index, retrieve, serve, version, observe, and debug.
 
@@ -29,11 +29,11 @@ Every multimodal AI app needs the same five things: store media, run models, ind
 
 | What you need | Without Pixeltable | With Pixeltable |
 |---|---|---|
-| Store video, images, docs | S3 + Postgres + custom loaders | `pxt.create_table()` with native media types |
-| Run AI on every insert | Airflow/Prefect DAGs, retry logic | `add_computed_column()`, automatic |
-| Vector search | Pinecone/Weaviate, sync pipelines | `add_embedding_index()`, always in sync |
-| HTTP endpoints | Hand-written FastAPI + Pydantic | `FastAPIRouter` or `pxt serve` |
-| Versioning & rollback | Custom migration scripts | Built-in `history()`, `revert()` |
+| Store video, images, docs | S3 + Postgres + glue code | `pxt.create_table()` with native media types |
+| Run AI on every insert | Airflow DAGs + retry logic | `add_computed_column()`, automatic |
+| Vector search | Pinecone + ETL pipelines | `add_embedding_index()`, always in sync |
+| HTTP endpoints | Hand-written endpoints + Pydantic | `FastAPIRouter` or `pxt serve` |
+| Versioning & rollback | Custom scripts | Built-in `history()`, `revert()` |
 
 Transaction integrity, async execution, parallelization, caching, retries, and observability are built in. Schema changes are one line. Model upgrades are zero-downtime. Extensible via `@pxt.udf`, `@pxt.uda`, `@pxt.query`.
 
