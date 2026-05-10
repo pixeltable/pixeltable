@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import random
 from typing import TYPE_CHECKING, Any, List, Literal, Mapping
 from uuid import UUID
 
@@ -119,10 +120,12 @@ class View(Table):
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
                 )
-            # create a copy that we can modify and store
+            # create a copy that we can modify and store; materialize a seed when the user did not
+            # supply one, so that subsequent reads of this view/snapshot return the same rows
             sc = sample_clause
+            sc_seed = sc.seed if sc.seed is not None else random.randint(0, 1 << 63)
             sample_clause = SampleClause(
-                sc.version, sc.n, sc.n_per_stratum, sc.fraction, sc.seed, sc.stratify_exprs.copy()
+                sc.version, sc.n, sc.n_per_stratum, sc.fraction, sc_seed, sc.stratify_exprs.copy()
             )
 
         # same for value exprs

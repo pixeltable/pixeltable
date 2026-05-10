@@ -827,8 +827,13 @@ class Query:
         if isinstance(self.limit_val, exprs.Literal) and self.limit_val.val == 0:
             return 0
         with get_runtime().catalog.begin_xact(read_tvps=self._from_clause.tbls) as conn:
+            plan = self._ensure_plan()
             count_stmt = Planner.create_count_stmt(self)
-            result: int = conn.execute(count_stmt).scalar_one()
+            args = (Query._bind_args.get() or {}).get(self) or {}
+            plan.bind_params(args)
+            sql_node = plan.exec_root.get_node(exec.SqlNode)
+            assert sql_node is not None
+            result: int = conn.execute(count_stmt, sql_node._args).scalar_one()
             assert isinstance(result, int)
             return result
 

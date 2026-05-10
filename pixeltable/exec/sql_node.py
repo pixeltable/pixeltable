@@ -1,5 +1,6 @@
 import datetime
 import logging
+import random
 import warnings
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, AsyncIterator, Iterable, NamedTuple, Sequence
@@ -10,8 +11,8 @@ import sqlalchemy as sql
 from pgvector.sqlalchemy import HalfVector  # type: ignore[import-untyped]
 
 from pixeltable import catalog, exprs, type_system as ts
-from pixeltable.metadata import schema
 from pixeltable.env import Env
+from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
 
@@ -406,7 +407,7 @@ class SqlNode(ExecNode):
             if self._stmt is None:
                 self._stmt = self._create_stmt()
             stmt = self._stmt
-            if _logger.isEnabledFor(logging.DEBUG):
+            if Env.get().emits_log(logging.DEBUG, 'sql_node'):
                 # compiling the stmt to render it as a string is non-trivially expensive (hundreds
                 # of microseconds), so only do it when the debug log is actually consumed
                 try:
@@ -734,6 +735,11 @@ class SqlSampleNode(SqlNode):
     sample_clause: 'SampleClause'
     _cte_inputs: list[SqlNode]
 
+    # Bindparam name for the per-execute random seed when sample_clause has no explicit seed.
+    # Rendering the seed as a bindparam (rather than a SQL literal) lets the cached plan stay
+    # valid across calls while a fresh seed is bound on each execute.
+    _RANDOM_SEED_PARAM = '_random_seed'
+
     def __init__(
         self,
         row_builder: exprs.RowBuilder,
@@ -787,9 +793,19 @@ class SqlSampleNode(SqlNode):
         """Create an expression for randomly ordering rows with a given seed"""
         rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
         assert len(rowid_cols) > 0
-        # If seed is not set in the sample clause, use the random seed given by the execution context
-        seed = self.sample_clause.seed if self.sample_clause.seed is not None else self.ctx.random_seed
-        return self.key_sql_expr(sql.literal_column(str(seed)), rowid_cols)
+        if self.sample_clause.seed is not None:
+            # explicit seed: same value across executes, fine to inline
+            seed_expr: sql.ColumnElement = sql.literal_column(str(self.sample_clause.seed))
+        else:
+            # no explicit seed: bind a fresh random value per execute so the cached plan can
+            # be reused while consecutive calls return different samples
+            seed_expr = sql.bindparam(self._RANDOM_SEED_PARAM, type_=sql.BigInteger)
+        return self.key_sql_expr(seed_expr, rowid_cols)
+
+    def bind_params(self, args: dict[str, Any]) -> None:
+        super().bind_params(args)
+        if self.sample_clause.seed is None:
+            self._args[self._RANDOM_SEED_PARAM] = random.randint(0, 1 << 63)
 
     def _create_stmt(self) -> sql.Select:
         from pixeltable.plan import SampleClause
