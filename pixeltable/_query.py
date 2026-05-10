@@ -555,10 +555,10 @@ class Query:
         return val
 
     def _resolved_limit(self, args: dict[str, Any]) -> int | None:
-        return Query._resolve_limit_offset_val(self.limit_val, args)
+        return self._resolve_limit_offset_val(self.limit_val, args)
 
     def _resolved_offset(self, args: dict[str, Any]) -> int | None:
-        return Query._resolve_limit_offset_val(self.offset_val, args)
+        return self._resolve_limit_offset_val(self.offset_val, args)
 
     def _validate_bound_args(self, args: dict[str, Any]) -> None:
         # Raised exceptions are caught and recorded per-cell when this Query is invoked
