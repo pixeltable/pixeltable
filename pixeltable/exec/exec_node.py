@@ -27,6 +27,7 @@ class ExecNode(abc.ABC):
 
     Lifecycle:
     - __init__ records the immutable plan structure (child nodes, exprs, slot maps, bound exprs)
+
     - in order for a plan to be re-usable (eg, re-run with different bind args), all mutable per-iteration state must
       be initialized in _open() and torn down in _close()
 
@@ -39,7 +40,7 @@ class ExecNode(abc.ABC):
     flushed_img_slots: list[int]  # idxs of image slots of our output_exprs dependencies
     ctx: ExecContext | None
     vars: list[exprs.Variable]  # Variables this node owns
-    var_args: dict[str, Any]  # bound values for self.vars, keyed by Variable name
+    bound_args: dict[str, Any]  # bound values for parameters of this node; typically for self.vars
 
     def __init__(
         self,
@@ -60,7 +61,7 @@ class ExecNode(abc.ABC):
         ]
         self.ctx = input.ctx if input is not None else None
         self.vars = []
-        self.var_args = {}
+        self.bound_args = {}
 
     def set_ctx(self, ctx: ExecContext) -> None:
         self.ctx = ctx
@@ -88,12 +89,12 @@ class ExecNode(abc.ABC):
 
     def bind_params(self, args: dict[str, Any]) -> None:
         # project to our vars
-        self.var_args = {v.name: args[v.name] for v in self.vars}
+        self.bound_args = {v.name: args[v.name] for v in self.vars}
 
     def set_var_slots(self, rows: Iterable[exprs.DataRow]) -> None:
-        """Populate Variable slots in rows with the bound values from self.var_args."""
+        """Populate Variable slots in rows with the bound values from self.bound_args."""
         for v in self.vars:
-            val = self.var_args[v.name]
+            val = self.bound_args[v.name]
             for row in rows:
                 row[v.slot_idx] = val
 
@@ -218,7 +219,7 @@ class ExecNode(abc.ABC):
             assert isinstance(e.val, int)
             return e.val
         if isinstance(e, exprs.Variable):
-            val = self.var_args[e.name]
+            val = self.bound_args[e.name]
             assert isinstance(val, int)
             return val
         raise excs.RequestError(

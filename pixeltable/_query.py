@@ -707,7 +707,7 @@ class Query:
         """Column names and types in this Query."""
         return self._schema
 
-    def bind(self, args: dict[str, Any]) -> None:
+    def bind_params(self, args: dict[str, Any]) -> None:
         """Bind arguments to this Query's parameters; applied to the plan on next execution.
 
         Bind args are scoped per-task via a ContextVar, so concurrent tasks calling bind() on
@@ -837,7 +837,7 @@ class Query:
             plan.bind_params(args)
             sql_node = plan.exec_root.get_node(exec.SqlNode)
             assert sql_node is not None
-            result: int = conn.execute(count_stmt, sql_node.var_args).scalar_one()
+            result: int = conn.execute(count_stmt, sql_node.bound_args).scalar_one()
             assert isinstance(result, int)
             return result
 

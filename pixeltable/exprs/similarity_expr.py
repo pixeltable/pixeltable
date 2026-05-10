@@ -157,11 +157,11 @@ class SimilarityExpr(Expr):
         assert self.id is not None
         return f'sim_{self.id}'
 
-    def prepare(self, args: dict[str, Any], bind_vals: dict[str, Any]) -> None:
-        super().prepare(args, bind_vals)
+    def prepare(self, args: dict[str, Any], sql_bind_args: dict[str, Any]) -> None:
+        super().prepare(args, sql_bind_args)
         # Only the Variable path needs to register a value: sql_expr() emits a bindparam in that
         # case, and we resolve the embedding from the bound Variable here. The Literal path inlines
-        # the embedding directly in sql_expr() and never reads from bind_vals.
+        # the embedding directly in sql_expr() and never reads from sql_bind_args.
         item = self.components[0]
         if isinstance(item, Variable):
             from pixeltable.index import EmbeddingIndex
@@ -171,13 +171,13 @@ class SimilarityExpr(Expr):
             self._embedding = idx_info.idx.compute_query_embedding(
                 item._bound_val, item.col_type, idx_info.val_col.col_type
             )
-            bind_vals[self._bind_name] = self._embedding
+            sql_bind_args[self._bind_name] = self._embedding
 
     def _query_element(self) -> sql.ColumnElement:
         """Build the query operand for the similarity SQL clause.
 
         For Literals, compute the embedding now and inline it into the SQL. For Variables, emit a
-        bindparam whose value is supplied by bind_vals at execute time (populated in prepare()).
+        bindparam whose value is supplied by sql_bind_args at execute time (populated in prepare()).
         """
         from pixeltable.index import EmbeddingIndex
 

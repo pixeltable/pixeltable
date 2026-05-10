@@ -77,7 +77,7 @@ class ExecPlan:
             node = node.input
 
     def bind_params(self, args: dict[str, Any]) -> None:
-        """Assign values to plan parameters (= Variable exprs)"""
+        """Assign values to plan parameters"""
         # extra args are silently ignored (Variables may have been substituted away at compile time)
         missing = self.param_types.keys() - args.keys()
         if len(missing) > 0:

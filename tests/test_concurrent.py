@@ -216,7 +216,7 @@ class TestConcurrentOps:
 
         def worker(_tid: int) -> None:
             for _ in range(self.ITERATIONS):
-                find_above.template_query.bind({'threshold': 40})
+                find_above.template_query.bind_params({'threshold': 40})
                 rows = find_above.template_query.collect()
                 assert len(rows) == 10
 

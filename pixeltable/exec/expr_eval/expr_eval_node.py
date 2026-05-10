@@ -237,7 +237,7 @@ class ExprEvalNode(ExecNode):
         input_batch_aw: asyncio.Task | None = None
         completed_aw: asyncio.Task | None = None
         closed_evaluators = False  # True after calling Evaluator.close()
-        exprs.Expr.prepare_list(self.eval_ctx.all_exprs, self.var_args, {})
+        exprs.Expr.prepare_list(self.eval_ctx.all_exprs, self.bound_args, {})
 
         try:
             while True:

@@ -516,21 +516,21 @@ class Expr(abc.ABC):
         """
         pass
 
-    def prepare(self, args: dict[str, Any], bind_vals: dict[str, Any]) -> None:
+    def prepare(self, args: dict[str, Any], sql_bind_args: dict[str, Any]) -> None:
         """
         Create execution state. Called before each iteration begins.
 
         args: Variable name -> value (already coerced via ColumnType.create_literal).
-        bind_vals: out-param. Subclasses register SQL bindparam name -> value here so
-        that SqlNode can pass them to the cached statement on each execute().
+        sql_bind_args: out-param. Subclasses register SQL bindparam name -> value here;
+        the executor passes this dict to conn.execute(stmt, sql_bind_args).
         """
         for c in self.components:
-            c.prepare(args, bind_vals)
+            c.prepare(args, sql_bind_args)
 
     @classmethod
-    def prepare_list(cls, expr_list: Iterable[Expr], args: dict[str, Any], bind_vals: dict[str, Any]) -> None:
+    def prepare_list(cls, expr_list: Iterable[Expr], args: dict[str, Any], sql_bind_args: dict[str, Any]) -> None:
         for e in expr_list:
-            e.prepare(args, bind_vals)
+            e.prepare(args, sql_bind_args)
 
     def release(self) -> None:
         """
