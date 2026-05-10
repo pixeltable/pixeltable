@@ -407,8 +407,7 @@ class Expr(abc.ABC):
     def tbl_ids(self) -> set[UUID]:
         """Returns table ids referenced by this expr.
 
-        Reads only static identifiers (UUID + version key) from ColumnRef.col_handle and
-        RowidRef.tbl. Does NOT call col_handle.get() / tbl_handle.get() / col property,
+        Avoids calling col_handle.get() / tbl_handle.get() / col property,
         because those resolve through the per-thread catalog and would fire the cross-thread
         assertion on a Query that's being used from a different thread than where it was
         constructed.

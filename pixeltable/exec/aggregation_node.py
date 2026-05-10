@@ -45,9 +45,13 @@ class AggregationNode(ExecNode):
         # we need to make sure to refer to the same exprs that RowBuilder.eval() will use
         self.agg_fn_calls = [cast(exprs.FunctionCall, e) for e in self.agg_fn_eval_ctx.target_exprs]
         self.limit = None
+        self._init_exec_state()
+
+    def _init_exec_state(self) -> None:
+        self.output_batch = DataRowBatch(self.row_builder)
 
     def _open(self) -> None:
-        self.output_batch = DataRowBatch(self.row_builder)
+        self._init_exec_state()
 
     def set_limit(self, limit: exprs.Expr) -> None:
         # we can't propagate the limit to our input

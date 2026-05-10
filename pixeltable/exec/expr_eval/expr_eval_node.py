@@ -86,8 +86,9 @@ class ExprEvalNode(ExecNode):
         self.outputs[output_slot_idxs] = True
         self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
         self._collect_vars(self.output_exprs)
+        self._init_exec_state()
 
-    def _open(self) -> None:
+    def _init_exec_state(self) -> None:
         self.tasks = set()
         self.error = None
         self.input_iter = aiter(self.input)
@@ -106,6 +107,10 @@ class ExprEvalNode(ExecNode):
         # set by the previous run's drain phase so they accept work again.
         for evaluator in self.eval_ctx.slot_evaluators.values():
             evaluator.is_closed = False
+        self.progress_reporter = None
+
+    def _open(self) -> None:
+        self._init_exec_state()
         self.progress_reporter = self.ctx.add_progress_reporter('Cell computations', 'cells')
 
     def set_input_order(self, maintain_input_order: bool) -> None:

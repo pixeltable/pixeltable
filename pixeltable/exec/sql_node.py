@@ -196,7 +196,7 @@ class SqlNode(ExecNode):
             return self.tbl.tbl_version.get().store_tbl.pk_columns()
         return []
 
-    def _init_exec_state(self) -> None:
+    def _create_select_list_state(self) -> None:
         assert self.sql_elements.contains_all(self.select_list)
         self.sql_select_list_exprs = exprs.ExprSet(self.select_list)
         self.cellmd_item_idxs = exprs.ExprDict((ref, self.sql_select_list_exprs.add(ref)) for ref in self.cell_md_refs)
@@ -213,7 +213,7 @@ class SqlNode(ExecNode):
 
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
-        self._init_exec_state()
+        self._create_select_list_state()
         sql_select_list = [self.sql_elements.get(e) for e in self.sql_select_list_exprs] + self._pk_col_items()
         stmt = sql.select(*sql_select_list)
 
@@ -811,7 +811,7 @@ class SqlSampleNode(SqlNode):
     def _create_stmt(self) -> sql.Select:
         from pixeltable.plan import SampleClause
 
-        self._init_exec_state()
+        self._create_select_list_state()
 
         if self.sample_clause.fraction is not None:
             if len(self.stratify_exprs) == 0:

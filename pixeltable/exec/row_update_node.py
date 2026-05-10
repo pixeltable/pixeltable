@@ -49,9 +49,13 @@ class RowUpdateNode(ExecNode):
         assert all(col in all_col_slot_idxs for col in col_vals_batch[0])
         self.col_slot_idxs = {col: all_col_slot_idxs[col] for col in col_vals_batch[0]}
         self.pk_columns = tbl.tbl_version.get().primary_key_columns()
+        self._init_exec_state()
+
+    def _init_exec_state(self) -> None:
+        self.matched_key_vals = set()
 
     def _open(self) -> None:
-        self.matched_key_vals = set()
+        self._init_exec_state()
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         async for batch in self.input:
