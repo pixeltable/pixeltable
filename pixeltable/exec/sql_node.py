@@ -257,17 +257,17 @@ class SqlNode(ExecNode):
         # populate lazily: where_clause and order_by_clause are set by the planner after __init__.
         # Always return a dict (possibly empty) so ExecPlan registers us as a param_node: even
         # without Variables, exprs like SimilarityExpr emit SQL bindparams and need prepare() to
-        # run so their values land in self._args before execute().
+        # run so their values land in self.var_args before execute().
         self._collect_vars(self._var_sources())
-        return {v.name: v.col_type for v in self._vars}
+        return {v.name: v.col_type for v in self.vars}
 
     def bind_params(self, args: dict[str, Any]) -> None:
         # SqlNode runs each Expr's prepare() so Variables and SimilarityExprs can register their
-        # SQL bindparam name -> value mapping into self._args. The same self._args dict is then
+        # SQL bindparam name -> value mapping into self.var_args. The same self.var_args dict is then
         # passed to conn.execute() alongside the cached self._stmt, so the database reuses its
         # prepared-statement plan across calls.
-        self._args = {}
-        exprs.Expr.prepare_list(self._var_sources(), args, self._args)
+        self.var_args = {}
+        exprs.Expr.prepare_list(self._var_sources(), args, self.var_args)
 
     def to_cte(self, keep_pk: bool = False) -> tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]:
         """
@@ -356,8 +356,9 @@ class SqlNode(ExecNode):
             elif versioned:
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
 
-                if t.effective_version is None:
-                    # v_max == MAX_VERSION: ensure we use the partial index
+                if t.effective_version is None and not tv.is_replica:
+                    # v_max == MAX_VERSION: ensure we use the partial index;
+                    # replicas don't follow this invariant, so fall back to the inequality there
                     stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max == schema.Table.MAX_VERSION)
                 else:
                     stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
@@ -388,7 +389,7 @@ class SqlNode(ExecNode):
     def _log_explain(self, stmt: sql.Select) -> None:
         try:
             # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y -> syntax error
-            if self._args:
+            if len(self.var_args) > 0:
                 # the stmt has bindparams without statement-level values; render SQL with
                 # placeholders and skip EXPLAIN (it would fail type inference on unknown params)
                 stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': False}))
@@ -411,7 +412,7 @@ class SqlNode(ExecNode):
                 # compiling the stmt to render it as a string is non-trivially expensive (hundreds
                 # of microseconds), so only do it when the debug log is actually consumed
                 try:
-                    literal_binds = not self._args
+                    literal_binds = not self.var_args
                     stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': literal_binds}))
                     _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
                 except Exception:
@@ -419,7 +420,7 @@ class SqlNode(ExecNode):
                 self._log_explain(stmt)
 
             conn = get_runtime().conn
-            result_cursor = conn.execute(stmt, self._args)
+            result_cursor = conn.execute(stmt, self.var_args)
             for _ in w:
                 pass
 
@@ -805,7 +806,7 @@ class SqlSampleNode(SqlNode):
     def bind_params(self, args: dict[str, Any]) -> None:
         super().bind_params(args)
         if self.sample_clause.seed is None:
-            self._args[self._RANDOM_SEED_PARAM] = random.randint(0, 1 << 63)
+            self.var_args[self._RANDOM_SEED_PARAM] = random.randint(0, 1 << 63)
 
     def _create_stmt(self) -> sql.Select:
         from pixeltable.plan import SampleClause

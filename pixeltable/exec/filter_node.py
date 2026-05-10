@@ -6,7 +6,6 @@ from pixeltable import exprs, type_system as ts
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
-from .globals import resolve_int
 
 
 class FilterNode(ExecNode):
@@ -41,8 +40,8 @@ class FilterNode(ExecNode):
         return super().params()
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        limit = resolve_int(self.limit, self._args, 'limit') if self.limit is not None else None
-        offset = resolve_int(self.offset, self._args, 'offset') if self.offset is not None else None
+        limit = self._resolve_limit_offset(self.limit, 'limit') if self.limit is not None else None
+        offset = self._resolve_limit_offset(self.offset, 'offset') if self.offset is not None else None
         num_passed = 0  # rows that passed the predicate (before offset/limit)
         limit_reached = False
 

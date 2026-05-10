@@ -21,9 +21,7 @@ class TableVersionHandle:
     """
     Indirection mechanism for TableVersion instances, which get resolved against the catalog at runtime.
 
-    Thread-safe: the resolved TableVersion is cached in per-thread storage (each thread has its own
-    Catalog and therefore its own TableVersion instances), so multiple threads can call .get()
-    concurrently without races.
+    Thread-safe: all mutable state is stored behind _local
     """
 
     key: TableVersionKey
@@ -36,9 +34,8 @@ class TableVersionHandle:
     def __init__(self, key: TableVersionKey, *, tbl_version: TableVersion | None = None):
         self.key = key
         self._local = threading.local()
-        if tbl_version is not None:
-            self._local.tbl_version = tbl_version
-            self._local.origin_catalog = get_runtime().catalog
+        self._local.tbl_version = tbl_version
+        self._local.origin_catalog = get_runtime().catalog
 
     def __deepcopy__(self, memo: dict[int, object] | None = None) -> TableVersionHandle:
         # Thread-safe and structurally immutable: callers can share a single instance.
@@ -76,6 +73,7 @@ class TableVersionHandle:
 
     def get(self) -> TableVersion:
         cat = get_runtime().catalog
+        # getattr(), not attribute access: threads other than the originating one will have an empty _local
         cached: TableVersion | None = getattr(self._local, 'tbl_version', None)
         origin_catalog: Catalog | None = getattr(self._local, 'origin_catalog', None)
         needs_refresh = origin_catalog is not cat or cached is None or not cached.is_validated

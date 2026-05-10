@@ -39,9 +39,7 @@ class TableVersionPath:
       constructing a Query and executing it, the underlying table schema hasn't changed (eg, a concurrent process
       could have dropped a column referenced in the query).
 
-    Thread-safe: the cached resolved TableVersion lives in per-thread storage (each thread has
-    its own Catalog and TableVersion instances), so multiple threads can call metadata accessors
-    concurrently without races.
+    Thread-safe: all mutable state is in _local
     """
 
     tbl_version: TableVersionHandle
@@ -55,6 +53,8 @@ class TableVersionPath:
         self.tbl_version = tbl_version
         self.base = base
         self._local = threading.local()
+        self._local.cached_tbl_version = None
+        self._local.origin_catalog = None
 
         if self.base is not None and tbl_version.anchor_tbl_id is not None:
             self.base = self.base.anchor_to(tbl_version.anchor_tbl_id)
@@ -81,6 +81,7 @@ class TableVersionPath:
 
     def refresh_cached_md(self) -> None:
         cat = get_runtime().catalog
+        # getattr(), not attribute access: threads other than the originating one will have an empty _local
         cached: TableVersion | None = getattr(self._local, 'cached_tbl_version', None)
         origin_catalog: Catalog | None = getattr(self._local, 'origin_catalog', None)
         needs_refresh = (
@@ -113,11 +114,8 @@ class TableVersionPath:
         )
 
     def clear_cached_md(self) -> None:
-        # Clear only the calling thread's slot; other threads keep their own cached state.
-        if hasattr(self._local, 'cached_tbl_version'):
-            del self._local.cached_tbl_version
-        if hasattr(self._local, 'origin_catalog'):
-            del self._local.origin_catalog
+        self._local.cached_tbl_version = None
+        self._local.origin_catalog = None
         if self.base is not None:
             self.base.clear_cached_md()
 

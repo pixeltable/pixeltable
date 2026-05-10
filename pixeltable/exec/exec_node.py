@@ -10,6 +10,7 @@ from typing import Any, AsyncIterator, Iterable, Iterator, TypeVar
 
 from typing_extensions import Self
 
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import exprs
 from pixeltable.runtime import get_runtime
@@ -24,10 +25,12 @@ class ExecNode(abc.ABC):
     """
     Base class of all execution nodes.
 
-    Lifecycle: __init__ records the immutable plan structure (child nodes, exprs, slot maps,
-    bound exprs). All mutable per-iteration state must initialize in _open() and tear down in
-    _close(); a plan may be entered, iterated, exited, then re-entered (e.g. a cached plan run
-    again with different bind args), and each iteration must start from a clean slate.
+    Lifecycle:
+    - __init__ records the immutable plan structure (child nodes, exprs, slot maps, bound exprs)
+    - in order for a plan to be re-usable (eg, re-run with different bind args), all mutable per-iteration state must
+      be initialized in _open() and torn down in _close()
+
+    Not thread-safe.
     """
 
     output_exprs: Iterable[exprs.Expr]
@@ -35,8 +38,8 @@ class ExecNode(abc.ABC):
     input: ExecNode | None
     flushed_img_slots: list[int]  # idxs of image slots of our output_exprs dependencies
     ctx: ExecContext | None
-    _vars: list[exprs.Variable]  # Variables this node owns; populated by subclasses via _collect_vars()
-    _args: dict[str, Any]  # bound values for self._vars, keyed by Variable name
+    vars: list[exprs.Variable]  # Variables this node owns
+    var_args: dict[str, Any]  # bound values for self.vars, keyed by Variable name
 
     def __init__(
         self,
@@ -56,18 +59,18 @@ class ExecNode(abc.ABC):
             e.slot_idx for e in output_dependencies if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
         self.ctx = input.ctx if input is not None else None
-        self._vars = []
-        self._args = {}
+        self.vars = []
+        self.var_args = {}
 
     def set_ctx(self, ctx: ExecContext) -> None:
         self.ctx = ctx
         if self.input is not None:
             self.input.set_ctx(ctx)
 
-    def _collect_vars(self, roots: Iterable[exprs.Expr]) -> None:
-        """Set self._vars to the distinct Variables referenced by any expr in roots, deduped by name."""
+    def _collect_vars(self, expr_list: Iterable[exprs.Expr]) -> None:
+        """Set self._vars to the distinct Variables referenced in expr_list"""
         result: dict[str, exprs.Variable] = {}
-        for v in exprs.Expr.list_subexprs(roots, exprs.Variable):
+        for v in exprs.Expr.list_subexprs(expr_list, exprs.Variable):
             existing = result.get(v.name)
             if existing is None:
                 result[v.name] = v
@@ -75,22 +78,22 @@ class ExecNode(abc.ABC):
                 raise AssertionError(
                     f'Variable {v.name!r} appears with conflicting types: {existing.col_type} vs {v.col_type}'
                 )
-        self._vars = list(result.values())
+        self.vars = list(result.values())
 
     def params(self) -> dict[str, ts.ColumnType] | None:
         """Return the parameter signature of this node"""
-        if len(self._vars) == 0:
+        if len(self.vars) == 0:
             return None
-        return {v.name: v.col_type for v in self._vars}
+        return {v.name: v.col_type for v in self.vars}
 
     def bind_params(self, args: dict[str, Any]) -> None:
         # project to our vars
-        self._args = {v.name: args[v.name] for v in self._vars}
+        self.var_args = {v.name: args[v.name] for v in self.vars}
 
-    def set_args(self, rows: Iterable[exprs.DataRow]) -> None:
-        """Pre-populate Variable slots in rows with the bound values from self._args."""
-        for v in self._vars:
-            val = self._args[v.name]
+    def set_var_slots(self, rows: Iterable[exprs.DataRow]) -> None:
+        """Populate Variable slots in rows with the bound values from self.var_args."""
+        for v in self.vars:
+            val = self.var_args[v.name]
             for row in rows:
                 row[v.slot_idx] = val
 
@@ -208,3 +211,16 @@ class ExecNode(abc.ABC):
         """Default implementation propagates to input"""
         if self.input is not None:
             self.input.set_offset(offset)
+
+    def _resolve_limit_offset(self, e: exprs.Expr, role: str) -> int:
+        """Resolve a limit/offset Expr (Literal or Variable) to an int value."""
+        if isinstance(e, exprs.Literal):
+            assert isinstance(e.val, int)
+            return e.val
+        if isinstance(e, exprs.Variable):
+            val = self.var_args[e.name]
+            assert isinstance(val, int)
+            return val
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{role}: unsupported expression for non-SQL limit/offset: {e}'
+        )

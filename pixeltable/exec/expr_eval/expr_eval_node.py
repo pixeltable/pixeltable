@@ -184,7 +184,7 @@ class ExprEvalNode(ExecNode):
         self._log_state(f'dispatch input ({num_rows})')
 
         self.eval_ctx.init_rows(rows)
-        self.set_args(rows)
+        self.set_var_slots(rows)
         self.dispatch(rows, self.eval_ctx)
 
     def _log_state(self, prefix: str) -> None:
@@ -232,7 +232,7 @@ class ExprEvalNode(ExecNode):
         input_batch_aw: asyncio.Task | None = None
         completed_aw: asyncio.Task | None = None
         closed_evaluators = False  # True after calling Evaluator.close()
-        exprs.Expr.prepare_list(self.eval_ctx.all_exprs, self._args, {})
+        exprs.Expr.prepare_list(self.eval_ctx.all_exprs, self.var_args, {})
 
         try:
             while True:

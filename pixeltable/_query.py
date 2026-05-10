@@ -626,7 +626,11 @@ class Query:
         )
         compile_versions = self._current_table_versions()
         return exec.ExecPlan(
-            root, root.ctx, select_list_exprs=select_list, schema=self._schema, compile_versions=compile_versions
+            root,
+            root.ctx,
+            select_list_exprs=select_list,
+            select_list_schema=self._schema,
+            compile_versions=compile_versions,
         )
 
     def __rowid_columns(self, num_rowid_cols: int | None = None) -> list[exprs.Expr]:
@@ -833,7 +837,7 @@ class Query:
             plan.bind_params(args)
             sql_node = plan.exec_root.get_node(exec.SqlNode)
             assert sql_node is not None
-            result: int = conn.execute(count_stmt, sql_node._args).scalar_one()
+            result: int = conn.execute(count_stmt, sql_node.var_args).scalar_one()
             assert isinstance(result, int)
             return result
 

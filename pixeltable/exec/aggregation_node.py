@@ -8,7 +8,6 @@ from pixeltable import catalog, exceptions as excs, exprs, type_system as ts
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
-from .globals import resolve_int
 
 _logger = logging.getLogger('pixeltable')
 
@@ -81,13 +80,13 @@ class AggregationNode(ExecNode):
                 raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, input_vals, row_num) from exc
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        limit = resolve_int(self.limit, self._args, 'limit') if self.limit is not None else None
+        limit = self._resolve_limit_offset(self.limit, 'limit') if self.limit is not None else None
         prev_row: exprs.DataRow | None = None
         current_group: list[Any] | None = None  # the values of the group-by exprs
         num_input_rows = 0
         num_output_rows = 0
         async for row_batch in self.input:
-            self.set_args(row_batch)
+            self.set_var_slots(row_batch)
             num_input_rows += len(row_batch)
             for row in row_batch:
                 group = [row[e.slot_idx] for e in self.group_by] if self.group_by is not None else None

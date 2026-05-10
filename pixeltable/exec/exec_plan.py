@@ -17,6 +17,14 @@ from .exec_node import ExecNode
 
 
 class ExecPlan:
+    """
+    Control structure for plan execution.
+
+    All resources needed to execute a plan (sequence of ExecNodes) are included here.
+
+    Not thread-safe.
+    """
+
     exec_root: ExecNode
     ctx: ExecContext
 
@@ -25,15 +33,12 @@ class ExecPlan:
     # nodes that declared parameters; used to dispatch bind_params()
     param_nodes: list[ExecNode]
 
-    # Snapshot of versioned table-versions captured at plan-compile time. Used by is_stale() to
-    # decide whether the plan can be reused or must be recompiled (e.g. after data mutations).
+    # table id -> version map of tables referenced in this plan;
+    # used to decide whether a plan is stale/needs to be re-generated
     compile_versions: dict[UUID, int]
 
-    # Planner-mutated select-list exprs with slot_idxs assigned by compilation; their layout
-    # matches the rows produced by exec_root. The plan is per-thread (held in Runtime.plan_cache).
     select_list_exprs: list[exprs.Expr]
-    # Output column name -> type, in projection order.
-    schema: dict[str, ts.ColumnType]
+    select_list_schema: dict[str, ts.ColumnType]
 
     # Serializes concurrent async iterations of the same cached plan. ExecNode state is reset in
     # _open() and mutated during iteration; two overlapping iterations would corrupt each other.
@@ -45,13 +50,13 @@ class ExecPlan:
         exec_root: ExecNode,
         ctx: ExecContext,
         select_list_exprs: list[exprs.Expr],
-        schema: dict[str, ts.ColumnType],
+        select_list_schema: dict[str, ts.ColumnType],
         compile_versions: dict[UUID, int] | None = None,
     ):
         self.exec_root = exec_root
         self.ctx = ctx
         self.select_list_exprs = select_list_exprs
-        self.schema = schema
+        self.select_list_schema = select_list_schema
         self.compile_versions = compile_versions if compile_versions is not None else {}
         self.iter_lock = asyncio.Lock()
 
@@ -72,6 +77,7 @@ class ExecPlan:
             node = node.input
 
     def bind_params(self, args: dict[str, Any]) -> None:
+        """Assign values to plan parameters (= Variable exprs)"""
         # extra args are silently ignored (Variables may have been substituted away at compile time)
         missing = self.param_types.keys() - args.keys()
         if len(missing) > 0:

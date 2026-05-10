@@ -49,10 +49,8 @@ class Runtime:
     # clients which are tied to an event loop)
     _clients: dict[str, Any]
 
-    # Per-thread cache of compiled query plans, keyed by Query identity. The plan owns its
-    # planner-mutated select-list exprs (with slot_idxs assigned) and references this thread's
-    # TableVersion objects, so it is not shared across threads. Entries auto-expire when the
-    # Query is garbage-collected.
+    # Per-thread cache of compiled query plans, keyed by Query identity. Entries auto-expire when the Query is
+    # garbage-collected.
     plan_cache: WeakKeyDictionary[Query, ExecPlan]
 
     def __init__(self) -> None:

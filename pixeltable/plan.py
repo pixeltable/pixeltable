@@ -434,7 +434,7 @@ class Planner:
         plan: exec.ExecNode = compiled.exec_root
 
         needs_cell_materialization = False
-        for col_name, expr in zip(compiled.schema.keys(), compiled.select_list_exprs):
+        for col_name, expr in zip(compiled.select_list_schema.keys(), compiled.select_list_exprs):
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
