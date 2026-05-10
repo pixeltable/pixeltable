@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from textwrap import dedent
 from typing import Any
 
-import imagehash
 import numpy as np
 import pytest
 
@@ -341,6 +340,7 @@ class TestFunction:
 
     def test_query(self, uses_db: None, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('imagehash')
+
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         name = t._name
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
@@ -403,11 +403,9 @@ class TestFunction:
         def rotated(id: int, angle: int) -> pxt.Query:
             return img_tbl.where(img_tbl.id == id).select(r=img_tbl.img.rotate(angle)).limit(1)
 
-        result1 = img_tbl.select(r=rotated(img_tbl.id, 90)).order_by(img_tbl.id).collect()
+        result1 = img_tbl.select(r=rotated(img_tbl.id, 90)[0]).order_by(img_tbl.id).collect()
         result2 = img_tbl.select(r=img_tbl.img.rotate(90)).order_by(img_tbl.id).collect()
-        assert all(
-            (imagehash.phash(row1['r'][0]) - imagehash.phash(row2['r'])) <= 2 for row1, row2 in zip(result1, result2)
-        )
+        assert_resultset_eq(result1, result2, compare_col_types=False)
 
         reload_tester.run_reload_test()
 
