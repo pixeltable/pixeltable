@@ -377,6 +377,10 @@ class Planner:
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'count() cannot be used with Python-only filters. Use collect() instead.',
             )
+        if plan.get_node(exec.SqlSampleNode) is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'count() cannot be used with sample(). Use collect() instead.'
+            )
         # Get the SQL statement from the SqlNode as a CTE
         cte, _ = sql_node.to_cte(keep_pk=True)
         count_stmt = sql.select(sql.func.count().label('all_count')).select_from(cte)

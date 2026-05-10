@@ -362,34 +362,28 @@ class Query:
     """
     Represents a query for retrieving and transforming data from Pixeltable tables.
 
-    Query is immutable after construction. The same instance can be used from any thread or
-    task. Catalog state (TableVersionHandle, etc.) referenced by Query is resolved per-thread
-    when the Query is compiled into an ExecPlan; the plan itself lives on per-thread
-    Runtime.plan_cache. Bind args are scoped per-task via a ContextVar.
+    Thread-safe.
     """
 
+    # immutable after init()
     _from_clause: plan.FromClause
     _select_list_exprs: list[exprs.Expr]
     _schema: dict[str, ts.ColumnType]
     select_list: list[tuple[exprs.Expr, str | None]] | None
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
-    # TVH: we need to avoid inadvertently caching catalog objects, which get invalidated across thread/xact boundaries
     grouping_tbl: catalog.TableVersionHandle | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
     offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
 
-    # Per-task bind args, keyed by Query identity. bind() writes here; _exec/_aexec read here.
-    # Each task gets its own ContextVar value, so bind args from one task never leak into
-    # another. Lives at the class level rather than as a per-instance field so that Query
-    # itself stays immutable after construction.
-    _bind_args: ClassVar[ContextVar[dict['Query', dict[str, Any]] | None]] = ContextVar('query_bind_args', default=None)
-
     # IDs of all tables referenced by this query (from-clause path + exprs). Computed once on
     # first access, then cached: the value depends on the static query shape and never changes.
     _referenced_tbl_ids: set[UUID] | None
+
+    # mutable state set by _bind_params()
+    _bind_args: ClassVar[ContextVar[dict['Query', dict[str, Any]] | None]] = ContextVar('query_bind_args', default=None)
 
     def __init__(
         self,
@@ -740,7 +734,7 @@ class Query:
     def bind_params(self, args: dict[str, Any]) -> None:
         """Bind arguments to this Query's parameters; applied to the plan on next execution.
 
-        Bind args are scoped per-task via a ContextVar, so concurrent tasks calling bind() on
+        Bind args are scoped per-task via a ContextVar, so concurrent tasks calling bind_params() on
         the same Query don't see each other's args.
         """
         cur = Query._bind_args.get() or {}
@@ -858,17 +852,11 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
+        if isinstance(self.limit_val, exprs.Literal) and self.limit_val.val == 0:
+            return 0
         with get_runtime().catalog.begin_xact(read_tvps=self._from_clause.tbls) as conn:
-            args = (Query._bind_args.get() or {}).get(self) or {}
-            self._validate_bound_args(args)
-            if self._resolved_limit(args) == 0:
-                return 0
-            plan = self._ensure_plan()
             count_stmt = Planner.create_count_stmt(self)
-            plan.bind_params(args)
-            sql_node = plan.exec_root.get_node(exec.SqlNode)
-            assert sql_node is not None
-            result: int = conn.execute(count_stmt, sql_node.bound_args).scalar_one()
+            result = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)
             return result
 

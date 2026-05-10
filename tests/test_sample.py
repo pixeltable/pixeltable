@@ -60,6 +60,8 @@ class TestSample:
             _ = t.select().sample(n=10).limit(5)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().sample(n=10).join(t, on=t.c1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with sample'):
+            _ = t.select().sample(n=10).count()
 
         # ------- Test sample parameter correctness
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`; got `Float`'):
