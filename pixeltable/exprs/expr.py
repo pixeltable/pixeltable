@@ -405,11 +405,18 @@ class Expr(abc.ABC):
         return any(c._has_relative_path() for c in self.components)
 
     def tbl_ids(self) -> set[UUID]:
-        """Returns table ids referenced by this expr."""
+        """Returns table ids referenced by this expr.
+
+        Reads only static identifiers (UUID + version key) from ColumnRef.col_handle and
+        RowidRef.tbl. Does NOT call col_handle.get() / tbl_handle.get() / col property,
+        because those resolve through the per-thread catalog and would fire the cross-thread
+        assertion on a Query that's being used from a different thread than where it was
+        constructed.
+        """
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
 
-        return {ref.col.get_tbl().id for ref in self.subexprs(ColumnRef)} | {
+        return {ref.col_handle.tbl_version.id for ref in self.subexprs(ColumnRef)} | {
             ref.tbl.id for ref in self.subexprs(RowidRef)
         }
 
@@ -510,17 +517,21 @@ class Expr(abc.ABC):
         """
         pass
 
-    def prepare(self) -> None:
+    def prepare(self, args: dict[str, Any], bind_vals: dict[str, Any]) -> None:
         """
-        Create execution state. This is called before the first eval() call.
+        Create execution state. Called before each iteration begins.
+
+        args: Variable name -> value (already coerced via ColumnType.create_literal).
+        bind_vals: out-param. Subclasses register SQL bindparam name -> value here so
+        that SqlNode can pass them to the cached statement on each execute().
         """
         for c in self.components:
-            c.prepare()
+            c.prepare(args, bind_vals)
 
     @classmethod
-    def prepare_list(cls, expr_list: Iterable[Expr]) -> None:
+    def prepare_list(cls, expr_list: Iterable[Expr], args: dict[str, Any], bind_vals: dict[str, Any]) -> None:
         for e in expr_list:
-            e.prepare()
+            e.prepare(args, bind_vals)
 
     def release(self) -> None:
         """

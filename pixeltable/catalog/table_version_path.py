@@ -39,40 +39,29 @@ class TableVersionPath:
       constructing a Query and executing it, the underlying table schema hasn't changed (eg, a concurrent process
       could have dropped a column referenced in the query).
 
-    Not thread-safe.
+    Thread-safe: the cached resolved TableVersion lives in per-thread storage (each thread has
+    its own Catalog and TableVersion instances), so multiple threads can call metadata accessors
+    concurrently without races.
     """
 
     tbl_version: TableVersionHandle
     base: TableVersionPath | None
 
-    # cache of the resolved TableVersion; needs to be reset on transaction and thread boundaries
-    _cached_tbl_version: TableVersion | None
-
-    # id of the constructing thread; used to guard against cross-thread access
-    _origin_thread_id: int
-
-    # Catalog instance against which this path was last resolved; used to invalidate cached state/force re-resolution
-    _origin_catalog: Catalog
+    # Per-thread cache of the resolved TableVersion plus the Catalog instance it came from.
+    _local: threading.local
 
     def __init__(self, tbl_version: TableVersionHandle, base: TableVersionPath | None = None):
         assert tbl_version is not None
         self.tbl_version = tbl_version
         self.base = base
-        self._cached_tbl_version = None
-        self._origin_thread_id = threading.get_ident()
-        self._origin_catalog = get_runtime().catalog
+        self._local = threading.local()
 
         if self.base is not None and tbl_version.anchor_tbl_id is not None:
             self.base = self.base.anchor_to(tbl_version.anchor_tbl_id)
 
     def __deepcopy__(self, memo: dict[int, object]) -> TableVersionPath:
-        # reset thread-specific state
-        result = TableVersionPath(
-            tbl_version=copy.deepcopy(self.tbl_version, memo),
-            base=copy.deepcopy(self.base, memo) if self.base is not None else None,
-        )
-        memo[id(self)] = result
-        return result
+        # Thread-safe and structurally immutable: callers can share a single instance.
+        return self
 
     @classmethod
     def from_md(cls, path: schema.TableVersionPath) -> TableVersionPath:
@@ -91,22 +80,24 @@ class TableVersionPath:
         return result
 
     def refresh_cached_md(self) -> None:
-        # guard against incorrect cross-thread access; inherited-context threads are allowed
-        assert self._origin_thread_id == threading.get_ident() or get_runtime().context_inherited
-
-        # re-resolve if the Catalog instance changed
         cat = get_runtime().catalog
-        cached = self._cached_tbl_version
+        cached: TableVersion | None = getattr(self._local, 'cached_tbl_version', None)
+        origin_catalog: Catalog | None = getattr(self._local, 'origin_catalog', None)
         needs_refresh = (
-            self._origin_catalog is not cat or cached is None or (get_runtime().in_xact and not cached.is_validated)
+            origin_catalog is not cat or cached is None or (get_runtime().in_xact and not cached.is_validated)
         )
         if not needs_refresh:
             return
 
         with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=[self.tbl_version.id]):
             new_tv = self.tbl_version.get()
-        self._cached_tbl_version = new_tv
-        self._origin_catalog = cat
+        self._local.cached_tbl_version = new_tv
+        self._local.origin_catalog = cat
+
+    def _cached_md(self) -> TableVersion:
+        """Return the validated cached TableVersion for the calling thread."""
+        self.refresh_cached_md()
+        return self._local.cached_tbl_version
 
     def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
         """
@@ -122,7 +113,11 @@ class TableVersionPath:
         )
 
     def clear_cached_md(self) -> None:
-        self._cached_tbl_version = None
+        # Clear only the calling thread's slot; other threads keep their own cached state.
+        if hasattr(self._local, 'cached_tbl_version'):
+            del self._local.cached_tbl_version
+        if hasattr(self._local, 'origin_catalog'):
+            del self._local.origin_catalog
         if self.base is not None:
             self.base.clear_cached_md()
 
@@ -135,22 +130,18 @@ class TableVersionPath:
         """Return the version of the table/view that this path represents"""
         if not self.is_versioned():
             return None
-        self.refresh_cached_md()
-        return self._cached_tbl_version.version
+        return self._cached_md().version
 
     def schema_version(self) -> int:
         """Return the version of the table/view that this path represents"""
-        self.refresh_cached_md()
-        return self._cached_tbl_version.schema_version
+        return self._cached_md().schema_version
 
     def is_versioned(self) -> bool:
-        self.refresh_cached_md()
-        return self._cached_tbl_version.is_versioned
+        return self._cached_md().is_versioned
 
     def tbl_name(self) -> str:
         """Return the name of the table/view that this path represents"""
-        self.refresh_cached_md()
-        return self._cached_tbl_version.name
+        return self._cached_md().name
 
     def path_len(self) -> int:
         """Return the length of the path"""
@@ -161,36 +152,28 @@ class TableVersionPath:
         return self.tbl_version.is_snapshot
 
     def is_view(self) -> bool:
-        self.refresh_cached_md()
-        return self._cached_tbl_version.is_view
+        return self._cached_md().is_view
 
     def is_component_view(self) -> bool:
-        self.refresh_cached_md()
-        return self._cached_tbl_version.is_component_view
+        return self._cached_md().is_component_view
 
     def is_replica(self) -> bool:
-        self.refresh_cached_md()
-        return self._cached_tbl_version.is_replica
+        return self._cached_md().is_replica
 
     def is_mutable(self) -> bool:
-        self.refresh_cached_md()
-        return self._cached_tbl_version.is_mutable
+        return self._cached_md().is_mutable
 
     def is_insertable(self) -> bool:
-        self.refresh_cached_md()
-        return self._cached_tbl_version.is_insertable
+        return self._cached_md().is_insertable
 
     def comment(self) -> str:
-        self.refresh_cached_md()
-        return self._cached_tbl_version.comment
+        return self._cached_md().comment
 
     def custom_metadata(self) -> Any:
-        self.refresh_cached_md()
-        return copy.deepcopy(self._cached_tbl_version.custom_metadata)
+        return copy.deepcopy(self._cached_md().custom_metadata)
 
     def media_validation(self) -> MediaValidation:
-        self.refresh_cached_md()
-        return self._cached_tbl_version.media_validation
+        return self._cached_md().media_validation
 
     def get_tbl_versions(self) -> list[TableVersionHandle]:
         """Return all tbl versions"""
@@ -214,12 +197,12 @@ class TableVersionPath:
 
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
-        self.refresh_cached_md()
-        result = list(self._cached_tbl_version.cols_by_name.values())
-        if self.base is not None and self._cached_tbl_version.include_base_columns:
+        tv = self._cached_md()
+        result = list(tv.cols_by_name.values())
+        if self.base is not None and tv.include_base_columns:
             base_cols = self.base.columns()
             # we only include base columns that don't conflict with one of our column names
-            result.extend(c for c in base_cols if c.name not in self._cached_tbl_version.cols_by_name)
+            result.extend(c for c in base_cols if c.name not in tv.cols_by_name)
         return result
 
     def get_column_by_qid(self, qcol_id: QColumnId) -> Column | None:
@@ -229,11 +212,11 @@ class TableVersionPath:
 
     def get_column(self, name: str) -> Column | None:
         """Return the column with the given name, or None if not found"""
-        self.refresh_cached_md()
-        col = self._cached_tbl_version.cols_by_name.get(name)
+        tv = self._cached_md()
+        col = tv.cols_by_name.get(name)
         if col is not None:
             return col
-        elif self.base is not None and self._cached_tbl_version.include_base_columns:
+        elif self.base is not None and tv.include_base_columns:
             return self.base.get_column(name)
         else:
             return None
@@ -241,12 +224,12 @@ class TableVersionPath:
     def has_column(self, col: Column) -> bool:
         """Return True if this table has the given column."""
         assert col.get_tbl() is not None
-        self.refresh_cached_md()
+        tv = self._cached_md()
 
         if (
             col.get_tbl().id == self.tbl_version.id
             and col.get_tbl().effective_version == self.tbl_version.effective_version
-            and col.id in self._cached_tbl_version.cols_by_id
+            and col.id in tv.cols_by_id
         ):
             # the column is visible in this table version
             return True

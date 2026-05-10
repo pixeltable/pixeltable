@@ -6,10 +6,11 @@ import logging
 import queue
 import threading
 from types import TracebackType
-from typing import AsyncIterator, Iterable, Iterator, TypeVar
+from typing import Any, AsyncIterator, Iterable, Iterator, TypeVar
 
 from typing_extensions import Self
 
+import pixeltable.type_system as ts
 from pixeltable import exprs
 from pixeltable.runtime import get_runtime
 
@@ -21,7 +22,12 @@ _logger = logging.getLogger('pixeltable')
 
 class ExecNode(abc.ABC):
     """
-    Base class of all execution nodes
+    Base class of all execution nodes.
+
+    Lifecycle: __init__ records the immutable plan structure (child nodes, exprs, slot maps,
+    bound exprs). All mutable per-iteration state must initialize in _open() and tear down in
+    _close(); a plan may be entered, iterated, exited, then re-entered (e.g. a cached plan run
+    again with different bind args), and each iteration must start from a clean slate.
     """
 
     output_exprs: Iterable[exprs.Expr]
@@ -29,6 +35,8 @@ class ExecNode(abc.ABC):
     input: ExecNode | None
     flushed_img_slots: list[int]  # idxs of image slots of our output_exprs dependencies
     ctx: ExecContext | None
+    _vars: list[exprs.Variable]  # Variables this node owns; populated by subclasses via _collect_vars()
+    _args: dict[str, Any]  # bound values for self._vars, keyed by Variable name
 
     def __init__(
         self,
@@ -48,11 +56,43 @@ class ExecNode(abc.ABC):
             e.slot_idx for e in output_dependencies if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
         self.ctx = input.ctx if input is not None else None
+        self._vars = []
+        self._args = {}
 
     def set_ctx(self, ctx: ExecContext) -> None:
         self.ctx = ctx
         if self.input is not None:
             self.input.set_ctx(ctx)
+
+    def _collect_vars(self, roots: Iterable[exprs.Expr]) -> None:
+        """Set self._vars to the distinct Variables referenced by any expr in roots, deduped by name."""
+        result: dict[str, exprs.Variable] = {}
+        for v in exprs.Expr.list_subexprs(roots, exprs.Variable):
+            existing = result.get(v.name)
+            if existing is None:
+                result[v.name] = v
+            elif existing.col_type != v.col_type:
+                raise AssertionError(
+                    f'Variable {v.name!r} appears with conflicting types: {existing.col_type} vs {v.col_type}'
+                )
+        self._vars = list(result.values())
+
+    def params(self) -> dict[str, ts.ColumnType] | None:
+        """Return the parameter signature of this node"""
+        if len(self._vars) == 0:
+            return None
+        return {v.name: v.col_type for v in self._vars}
+
+    def bind_params(self, args: dict[str, Any]) -> None:
+        # project to our vars
+        self._args = {v.name: args[v.name] for v in self._vars}
+
+    def set_args(self, rows: Iterable[exprs.DataRow]) -> None:
+        """Pre-populate Variable slots in rows with the bound values from self._args."""
+        for v in self._vars:
+            val = self._args[v.name]
+            for row in rows:
+                row[v.slot_idx] = val
 
     @abc.abstractmethod
     def __aiter__(self) -> AsyncIterator[DataRowBatch]: ...
@@ -159,13 +199,12 @@ class ExecNode(abc.ABC):
             return self.input.get_node(node_class)
         return None
 
-    def set_limit(self, limit: int) -> None:
+    def set_limit(self, limit: exprs.Expr) -> None:
         """Default implementation propagates to input"""
-        assert limit > 0
         if self.input is not None:
             self.input.set_limit(limit)
 
-    def set_offset(self, offset: int) -> None:
+    def set_offset(self, offset: exprs.Expr) -> None:
         """Default implementation propagates to input"""
         if self.input is not None:
             self.input.set_offset(offset)

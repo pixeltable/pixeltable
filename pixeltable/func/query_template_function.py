@@ -93,8 +93,8 @@ class QueryTemplateFunction(Function):
                 if param.has_default() and param.name not in bound_args
             }
         )
-        bound_query = self.template_query.bind(bound_args)
-        result = await bound_query._acollect()
+        self.template_query.bind(bound_args)
+        result = await self.template_query._acollect()
         if self.return_scalar:
             col_name = next(iter(self.template_query.schema))
             return [row[col_name] for row in result]

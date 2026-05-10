@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+import numpy as np
 import sqlalchemy as sql
 from typing_extensions import Self
 
@@ -19,6 +20,7 @@ from .expr import Expr
 from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
+from .variable import Variable
 
 if TYPE_CHECKING:
     from pixeltable.catalog.table_version import TableVersion
@@ -32,6 +34,7 @@ class SimilarityExpr(Expr):
     table_version_key: TableVersionKey
     idx_name: str | None = None  # index name; None if not specified by the user
     qcol_id: QColumnId | None = None  # identifies the indexed column
+    _embedding: np.ndarray | None = None  # populated by prepare()
 
     def __init__(
         self,
@@ -149,29 +152,60 @@ class SimilarityExpr(Expr):
     def default_column_name(self) -> str:
         return 'similarity'
 
+    @property
+    def _bind_name(self) -> str:
+        assert self.id is not None
+        return f'sim_{self.id}'
+
+    def prepare(self, args: dict[str, Any], bind_vals: dict[str, Any]) -> None:
+        super().prepare(args, bind_vals)
+        # Only the Variable path needs to register a value: sql_expr() emits a bindparam in that
+        # case, and we resolve the embedding from the bound Variable here. The Literal path inlines
+        # the embedding directly in sql_expr() and never reads from bind_vals.
+        item = self.components[0]
+        if isinstance(item, Variable):
+            from pixeltable.index import EmbeddingIndex
+
+            idx_info = self._resolve_idx()
+            assert isinstance(idx_info.idx, EmbeddingIndex)
+            self._embedding = idx_info.idx.compute_query_embedding(
+                item._bound_val, item.col_type, idx_info.val_col.col_type
+            )
+            bind_vals[self._bind_name] = self._embedding
+
+    def _query_element(self) -> sql.ColumnElement:
+        """Build the query operand for the similarity SQL clause.
+
+        For Literals, compute the embedding now and inline it into the SQL. For Variables, emit a
+        bindparam whose value is supplied by bind_vals at execute time (populated in prepare()).
+        """
+        from pixeltable.index import EmbeddingIndex
+
+        idx_info = self._resolve_idx()
+        assert isinstance(idx_info.idx, EmbeddingIndex)
+        item = self.components[0]
+        if isinstance(item, Literal):
+            embedding = idx_info.idx.compute_query_embedding(item.val, item.col_type, idx_info.val_col.col_type)
+            return sql.literal(embedding, type_=idx_info.val_col.sa_col.type)
+        if isinstance(item, Variable):
+            return sql.bindparam(self._bind_name, type_=idx_info.val_col.sa_col.type)
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'similarity(): requires a value, not an expression'
+        )
+
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         from pixeltable.index import EmbeddingIndex
 
-        # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
-        if not isinstance(self.components[0], Literal):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'similarity(): requires a value, not an expression'
-            )
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
-        return idx_info.idx.similarity_clause(idx_info.val_col, self.components[0])
+        return idx_info.idx.similarity_clause(idx_info.val_col, self._query_element())
 
     def as_order_by_clause(self, is_asc: bool) -> sql.ColumnElement | None:
         from pixeltable.index import EmbeddingIndex
 
-        # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
-        if not isinstance(self.components[0], Literal):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'similarity(): requires a value, not an expression'
-            )
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
-        return idx_info.idx.order_by_clause(idx_info.val_col, self.components[0], is_asc)
+        return idx_info.idx.order_by_clause(idx_info.val_col, self._query_element(), is_asc)
 
     def _resolve_idx(self, validate_initialized: bool = True) -> 'TableVersion.IndexInfo':
         """Resolve the embedding index; validate_initialized=False is used during schema initialization."""

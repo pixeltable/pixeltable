@@ -64,6 +64,8 @@ class CellMaterializationNode(ExecNode):
             for col, slot_idx in input.row_builder.table_columns.items()
             if slot_idx is not None and col.col_type.supports_file_offloading()
         }
+
+    def _open(self) -> None:
         self.inlined_obj_files = []
         self.buffered_writer = None
 

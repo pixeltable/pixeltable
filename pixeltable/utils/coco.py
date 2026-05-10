@@ -77,12 +77,11 @@ def _verify_input_dict(input_dict: dict[str, Any]) -> None:
 def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     """Export a ResultSet as a COCO dataset in dest_path and return the path of the data.json file."""
     # TODO: validate schema
-    if len(query._select_list_exprs) != 1 or not query._select_list_exprs[0].col_type.is_json_type():
+    if len(query.schema) != 1 or not next(iter(query.schema.values())).is_json_type():
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'Expected exactly one json-typed column in select list: {query._select_list_exprs}',
+            f'Expected exactly one json-typed column in select list: {list(query.schema.items())}',
         )
-    input_dict_slot_idx = -1  # df._select_list_exprs[0].slot_idx isn't valid until _exec()
 
     # create output dir
     assert not dest_path.exists()
@@ -94,10 +93,13 @@ def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     annotations: list[dict[str, Any]] = []
     ann_id = -1
     categories: set[Any] = set()
+    # Read slot_idx from the planned expr returned by query.select_list_exprs(); the rebound
+    # Query's own _select_list_exprs no longer carry slot_idx.
+    input_dict_expr = query.select_list_exprs()[0]
+    input_dict_slot_idx = input_dict_expr.slot_idx
+    img_slot_idx: int | None = None
     for img_id, input_row in enumerate(query._exec()):
-        if input_dict_slot_idx == -1:
-            input_dict_expr = query._select_list_exprs[0]
-            input_dict_slot_idx = input_dict_expr.slot_idx
+        if img_slot_idx is None:
             input_dict = input_row[input_dict_slot_idx]
             _verify_input_dict(input_dict)
 

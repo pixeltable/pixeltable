@@ -94,15 +94,6 @@ class ObjectStoreSaveNode(ExecNode):
         super().__init__(input.row_builder, [], [], input)
         self.retain_input_order = retain_input_order
         self.file_col_info = file_col_info
-
-        self.num_returned_rows = 0
-        self.ready_rows = deque()
-        self.in_flight_rows = {}
-        self.in_flight_requests = {}
-        self.in_flight_work = {}
-        self.input_finished = False
-        self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
-        self.progress_reporter = None
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
 
     @property
@@ -110,6 +101,13 @@ class ObjectStoreSaveNode(ExecNode):
         return len(self.in_flight_requests)
 
     def _open(self) -> None:
+        self.num_returned_rows = 0
+        self.ready_rows = deque()
+        self.in_flight_rows = {}
+        self.in_flight_requests = {}
+        self.in_flight_work = {}
+        self.input_finished = False
+        self.row_idx = itertools.count() if self.retain_input_order else itertools.repeat(None)
         self.progress_reporter = self.ctx.add_progress_reporter('Uploads', 'objects', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:

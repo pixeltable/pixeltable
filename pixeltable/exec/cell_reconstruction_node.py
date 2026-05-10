@@ -106,6 +106,8 @@ class CellReconstructionNode(ExecNode):
         self.json_refs = exprs.ExprSet(json_refs)
         self.array_refs = exprs.ExprSet(array_refs)
         self.binary_refs = exprs.ExprSet(binary_refs)
+
+    def _open(self) -> None:
         self.file_handles = {}
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:

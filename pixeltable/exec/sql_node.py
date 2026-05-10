@@ -2,14 +2,14 @@ import datetime
 import logging
 import warnings
 from decimal import Decimal
-from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Sequence
+from typing import TYPE_CHECKING, Any, AsyncIterator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
 import numpy as np
 import sqlalchemy as sql
 from pgvector.sqlalchemy import HalfVector  # type: ignore[import-untyped]
 
-from pixeltable import catalog, exprs
+from pixeltable import catalog, exprs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
@@ -105,8 +105,11 @@ class SqlNode(ExecNode):
     where_clause_element: sql.ColumnElement | None
 
     order_by_clause: OrderByClause
-    limit: int | None
-    offset: int | None
+    limit: exprs.Expr | None
+    offset: exprs.Expr | None
+    # cached compiled statement; built once and reused so the same SQL text is sent on each
+    # execute, letting the database reuse its prepared-statement plan cache.
+    _stmt: sql.Select | None
 
     def __init__(
         self,
@@ -167,16 +170,15 @@ class SqlNode(ExecNode):
         self.column_cellmd_item_idxs = {}
         self.result_cursor = None
         self.cte = None
-        self.limit = None
-        self.offset = None
+        self.limit: exprs.Expr | None = None
+        self.offset: exprs.Expr | None = None
         self.where_clause = None
         self.where_clause_element = None
         self.order_by_clause = []
+        self._stmt = None
 
         if self.tbl is not None:
-            tv = self.tbl.tbl_version._tbl_version
-            if tv is not None:
-                assert tv.is_validated
+            assert self.tbl.tbl_version.get().is_validated
 
     def _open(self) -> None:
         desc = 'Rows read'
@@ -228,14 +230,42 @@ class SqlNode(ExecNode):
         stmt = stmt.order_by(*order_by_clause)
 
         if self.limit is not None:
-            stmt = stmt.limit(self.limit)
+            stmt = stmt.limit(self.sql_elements.get(self.limit))
         if self.offset is not None:
-            stmt = stmt.offset(self.offset)
+            stmt = stmt.offset(self.sql_elements.get(self.offset))
 
         return stmt
 
     def _ordering_tbl_ids(self) -> set[UUID]:
         return exprs.Expr.all_tbl_ids(e for e, _ in self.order_by_clause)
+
+    def _var_sources(self) -> list[exprs.Expr]:
+        """Expr roots from which this node's Variables are collected."""
+        result: list[exprs.Expr] = list(self.select_list) + list(self.cell_md_refs)
+        if self.where_clause is not None:
+            result.append(self.where_clause)
+        result.extend(e for e, _ in self.order_by_clause)
+        if self.limit is not None:
+            result.append(self.limit)
+        if self.offset is not None:
+            result.append(self.offset)
+        return result
+
+    def params(self) -> dict[str, ts.ColumnType] | None:
+        # populate lazily: where_clause and order_by_clause are set by the planner after __init__.
+        # Always return a dict (possibly empty) so ExecPlan registers us as a param_node: even
+        # without Variables, exprs like SimilarityExpr emit SQL bindparams and need prepare() to
+        # run so their values land in self._args before execute().
+        self._collect_vars(self._var_sources())
+        return {v.name: v.col_type for v in self._vars}
+
+    def bind_params(self, args: dict[str, Any]) -> None:
+        # SqlNode runs each Expr's prepare() so Variables and SimilarityExprs can register their
+        # SQL bindparam name -> value mapping into self._args. The same self._args dict is then
+        # passed to conn.execute() alongside the cached self._stmt, so the database reuses its
+        # prepared-statement plan across calls.
+        self._args = {}
+        exprs.Expr.prepare_list(self._var_sources(), args, self._args)
 
     def to_cte(self, keep_pk: bool = False) -> tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]:
         """
@@ -248,7 +278,9 @@ class SqlNode(ExecNode):
         if self.cte is None:
             if not keep_pk:
                 self.set_pk = False  # we don't need the PK if we use this SqlNode as a CTE
-            self.cte = self._create_stmt().cte()
+            if self._stmt is None:
+                self._stmt = self._create_stmt()
+            self.cte = self._stmt.cte()
         return self.cte, exprs.ExprDict(zip(list(self.select_list) + self.cell_md_refs, self.cte.c))  # skip pk cols
 
     @classmethod
@@ -340,19 +372,23 @@ class SqlNode(ExecNode):
         assert combined is not None
         self.order_by_clause = combined
 
-    def set_limit(self, limit: int) -> None:
-        assert limit > 0
+    def set_limit(self, limit: exprs.Expr) -> None:
         self.limit = limit
 
-    def set_offset(self, offset: int) -> None:
+    def set_offset(self, offset: exprs.Expr) -> None:
         self.offset = offset
 
     def _log_explain(self, stmt: sql.Select) -> None:
-        conn = get_runtime().conn
         try:
-            # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y, which results in a syntax error
+            # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y -> syntax error
+            if self._args:
+                # the stmt has bindparams without statement-level values; render SQL with
+                # placeholders and skip EXPLAIN (it would fail type inference on unknown params)
+                stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': False}))
+                _logger.debug(f'SqlScanNode parameterized stmt:\n{stmt_str}')
+                return
             stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
-            explain_result = conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
+            explain_result = get_runtime().conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
             explain_str = '\n'.join([str(row) for row in explain_result])
             _logger.debug(f'SqlScanNode explain:\n{explain_str}')
         except Exception as e:
@@ -361,19 +397,22 @@ class SqlNode(ExecNode):
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
         with warnings.catch_warnings(record=True) as w:
-            stmt = self._create_stmt()
-            try:
-                # log stmt, if possible
-                stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
-                _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
-            except Exception:
-                # log something if we can't log the compiled stmt
-                _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt}')
+            if self._stmt is None:
+                self._stmt = self._create_stmt()
+            stmt = self._stmt
             if _logger.isEnabledFor(logging.DEBUG):
+                # compiling the stmt to render it as a string is non-trivially expensive (hundreds
+                # of microseconds), so only do it when the debug log is actually consumed
+                try:
+                    literal_binds = not self._args
+                    stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': literal_binds}))
+                    _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
+                except Exception:
+                    _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt}')
                 self._log_explain(stmt)
 
             conn = get_runtime().conn
-            result_cursor = conn.execute(stmt)
+            result_cursor = conn.execute(stmt, self._args)
             for _ in w:
                 pass
 
@@ -573,6 +612,7 @@ class SqlAggregationNode(SqlNode):
 
     group_by_items: list[exprs.Expr] | None
     input_cte: sql.CTE | None
+    _cte_inputs: list[SqlNode]  # for Variable absorption: CTE inputs whose bindparams are embedded in our stmt
 
     def __init__(
         self,
@@ -588,6 +628,7 @@ class SqlAggregationNode(SqlNode):
         sql_elements = exprs.SqlElementCache(input_col_map)
         super().__init__(None, row_builder, select_list, columns=[], sql_elements=sql_elements)
         self.group_by_items = group_by_items
+        self._cte_inputs = [input]
 
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt().select_from(self.input_cte)
@@ -597,6 +638,14 @@ class SqlAggregationNode(SqlNode):
             stmt = stmt.group_by(*sql_group_by_items)
         return stmt
 
+    def _var_sources(self) -> list[exprs.Expr]:
+        result = super()._var_sources()
+        if self.group_by_items is not None:
+            result.extend(self.group_by_items)
+        for input in self._cte_inputs:
+            result.extend(input._var_sources())
+        return result
+
 
 class SqlJoinNode(SqlNode):
     """
@@ -605,6 +654,7 @@ class SqlJoinNode(SqlNode):
 
     input_ctes: list[sql.CTE]
     join_clauses: list['pixeltable.plan.JoinClause']
+    _cte_inputs: list[SqlNode]
 
     def __init__(
         self,
@@ -626,6 +676,7 @@ class SqlJoinNode(SqlNode):
         super().__init__(
             None, row_builder, select_list, columns=[], sql_elements=sql_elements, cell_md_col_refs=cell_md_col_refs
         )
+        self._cte_inputs = list(inputs)
 
     def _create_stmt(self) -> sql.Select:
         from pixeltable import plan
@@ -648,6 +699,17 @@ class SqlJoinNode(SqlNode):
             )
         return stmt
 
+    def _var_sources(self) -> list[exprs.Expr]:
+        from pixeltable import plan
+
+        result = super()._var_sources()
+        for clause in self.join_clauses:
+            if clause.join_type != plan.JoinType.CROSS and clause.join_predicate is not None:
+                result.append(clause.join_predicate)
+        for input in self._cte_inputs:
+            result.extend(input._var_sources())
+        return result
+
 
 class SqlSampleNode(SqlNode):
     """
@@ -664,6 +726,7 @@ class SqlSampleNode(SqlNode):
     pk_count: int
     stratify_exprs: list[exprs.Expr] | None
     sample_clause: 'SampleClause'
+    _cte_inputs: list[SqlNode]
 
     def __init__(
         self,
@@ -691,6 +754,15 @@ class SqlSampleNode(SqlNode):
         )
         self.stratify_exprs = stratify_exprs
         self.sample_clause = sample_clause
+        self._cte_inputs = [input]
+
+    def _var_sources(self) -> list[exprs.Expr]:
+        result = super()._var_sources()
+        if self.stratify_exprs is not None:
+            result.extend(self.stratify_exprs)
+        for input in self._cte_inputs:
+            result.extend(input._var_sources())
+        return result
 
     @classmethod
     def key_sql_expr(cls, seed: sql.ColumnElement, sql_cols: Iterable[sql.ColumnElement]) -> sql.ColumnElement:

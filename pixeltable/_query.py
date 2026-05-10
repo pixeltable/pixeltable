@@ -7,6 +7,7 @@ import hashlib
 import itertools
 import json
 import traceback
+from contextvars import ContextVar
 from pathlib import Path
 from types import TracebackType
 from typing import (
@@ -14,6 +15,7 @@ from typing import (
     Any,
     AsyncIterator,
     Callable,
+    ClassVar,
     Generator,
     Hashable,
     Iterable,
@@ -360,7 +362,10 @@ class Query:
     """
     Represents a query for retrieving and transforming data from Pixeltable tables.
 
-    Thread-safe.
+    Query is immutable after construction. The same instance can be used from any thread or
+    task. Catalog state (TableVersionHandle, etc.) referenced by Query is resolved per-thread
+    when the Query is compiled into an ExecPlan; the plan itself lives on per-thread
+    Runtime.plan_cache. Bind args are scoped per-task via a ContextVar.
     """
 
     _from_clause: plan.FromClause
@@ -376,8 +381,15 @@ class Query:
     offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
 
-    # Catalog instance against which this Query was constructed
-    _origin_catalog: 'catalog.Catalog'
+    # Per-task bind args, keyed by Query identity. bind() writes here; _exec/_aexec read here.
+    # Each task gets its own ContextVar value, so bind args from one task never leak into
+    # another. Lives at the class level rather than as a per-instance field so that Query
+    # itself stays immutable after construction.
+    _bind_args: ClassVar[ContextVar[dict['Query', dict[str, Any]] | None]] = ContextVar('query_bind_args', default=None)
+
+    # IDs of all tables referenced by this query (from-clause path + exprs). Computed once on
+    # first access, then cached: the value depends on the static query shape and never changes.
+    _referenced_tbl_ids: set[UUID] | None
 
     def __init__(
         self,
@@ -411,28 +423,7 @@ class Query:
         self.limit_val = limit
         self.offset_val = offset
         self.sample_clause = sample_clause
-        self._origin_catalog = get_runtime().catalog
-
-    def __deepcopy__(self, memo: dict[int, Any]) -> 'Query':
-        cls = type(self)
-        new = cls.__new__(cls)
-        memo[id(self)] = new
-        for k, v in self.__dict__.items():
-            new.__dict__[k] = copy.deepcopy(v, memo)
-        # make sure to record the current catalog
-        new._origin_catalog = get_runtime().catalog
-        return new
-
-    def _rebind(self) -> 'Query':
-        """Return self if its origin matches the current runtime's catalog, else a deepcopy re-rooted to it.
-
-        Catalog instances are per-thread, so this also covers the cross-thread case: a Query built on one thread
-        and used to chain a builder method on another thread will be deepcopied here, resetting the origin/thread
-        state of all embedded TVHs/TVPs/Exprs.
-        """
-        if self._origin_catalog is get_runtime().catalog:
-            return self
-        return copy.deepcopy(self)
+        self._referenced_tbl_ids = None
 
     @classmethod
     def _normalize_select_list(
@@ -552,35 +543,55 @@ class Query:
         return {name: var.col_type for name, var in self._vars().items()}
 
     def _exec(self) -> Iterator[exprs.DataRow]:
-        """Run the query and return rows as a generator.
-        This function must not modify the state of the Query, otherwise it breaks dataset caching.
+        """Run the query and yield rows.
+
+        Slot indices live on the planned exprs returned by select_list_exprs(); callers that
+        need them must read from there, not from this Query's _select_list_exprs (which are the
+        pre-compile copies and don't carry slot_idx).
         """
-        if self.limit_val is not None and self.limit_val.val == 0:
+        if isinstance(self.limit_val, exprs.Literal) and self.limit_val.val == 0:
             return
-        plan = self._create_query_plan()
-
-        def exec_plan() -> Iterator[exprs.DataRow]:
-            with plan:
-                for row_batch in plan:
-                    # stop progress output before we display anything, otherwise it'll mess up the output
-                    get_runtime().stop_progress()
-                    yield from row_batch
-
-        yield from exec_plan()
+        plan = self._ensure_plan()
+        args = (Query._bind_args.get() or {}).get(self) or {}
+        for row in plan.exec(args):
+            # stop progress output before we display anything, otherwise it'll mess up the output
+            get_runtime().stop_progress()
+            yield row
 
     async def _aexec(self) -> AsyncIterator[exprs.DataRow]:
-        """Run the query and return rows as a generator.
-        This function must not modify the state of the Query, otherwise it breaks dataset caching.
-        """
-        if self.limit_val is not None and self.limit_val.val == 0:
+        """Run the query and yield rows."""
+        if isinstance(self.limit_val, exprs.Literal) and self.limit_val.val == 0:
             return
-        plan = self._create_query_plan()
-        with plan:
-            async for row_batch in plan:
-                for row in row_batch:
-                    yield row
+        plan = self._ensure_plan()
+        args = (Query._bind_args.get() or {}).get(self) or {}
+        async for row in plan.aexec(args):
+            yield row
 
-    def _create_query_plan(self) -> exec.ExecNode:
+    def _ensure_plan(self) -> exec.ExecPlan:
+        # Must be called inside begin_xact: compilation references TableVersions that are
+        # validated only within a transaction. The cache lives on the per-thread Runtime, keyed
+        # by Query identity. The plan owns its own select-list exprs (with slot_idxs from
+        # compilation), so callers extracting output rows read those from the plan.
+        cache = get_runtime().plan_cache
+        plan = cache.get(self)
+        if plan is not None and not plan.is_stale(self._current_table_versions()):
+            return plan
+        plan = self._create_query_plan()
+        cache[self] = plan
+        return plan
+
+    def _current_table_versions(self) -> dict[UUID, int]:
+        out: dict[UUID, int] = {}
+        for tbl in self._from_clause.tbls:
+            for tvh in tbl.get_tbl_versions():
+                tv = tvh.get()
+                if tv.is_versioned:
+                    out[tvh.id] = tv.version
+        return out
+
+    def _create_query_plan(self) -> exec.ExecPlan:
+        # The planner deepcopies its inputs; Query just hands its references. TVHs/TVPs in
+        # from_clause are thread-safe and structurally immutable, so they can be shared.
         has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in self._from_clause.tbls)
         if has_unversioned_tbl:
             # For now, we only support queries of the simplest form on unversioned tables
@@ -591,28 +602,31 @@ class Query:
             assert self.sample_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # construct a group-by clause if we're grouping by a table
-        group_by_clause: list[exprs.Expr] | None = None
+        group_by_clause = self.group_by_clause
         if self.grouping_tbl is not None:
-            assert self.group_by_clause is None
+            assert group_by_clause is None
             num_rowid_cols = len(self.grouping_tbl.get().store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
-            assert num_rowid_cols <= len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
-            group_by_clause = self.__rowid_columns(num_rowid_cols)
-        elif self.group_by_clause is not None:
-            group_by_clause = self.group_by_clause
+            first_tbl = self._from_clause.tbls[0]
+            assert num_rowid_cols <= len(first_tbl.tbl_version.get().store_tbl.rowid_columns())
+            group_by_clause = Planner.rowid_columns(first_tbl.tbl_version, num_rowid_cols)
 
-        for item in self._select_list_exprs:
-            item.bind_rel_paths()
-
-        return Planner.create_query_plan(
+        # Variables in clauses flow through to SQL bindparams or to Expr.prepare() at iteration
+        # time, so the compiled plan is reusable across distinct bind values.
+        select_list = list(self._select_list_exprs)
+        root = Planner.create_query_plan(
             self._from_clause,
-            self._select_list_exprs,
+            select_list,
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
             sample_clause=self.sample_clause,
+        )
+        compile_versions = self._current_table_versions()
+        return exec.ExecPlan(
+            root, root.ctx, select_list_exprs=select_list, schema=self._schema, compile_versions=compile_versions
         )
 
     def __rowid_columns(self, num_rowid_cols: int | None = None) -> list[exprs.Expr]:
@@ -623,7 +637,6 @@ class Query:
         return len(self._from_clause.join_clauses) > 0
 
     def show(self, n: int = 20) -> ResultSet:
-        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'show() cannot be used with sample()')
         assert n is not None
@@ -644,7 +657,6 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with order_by()')
         if self._has_joins():
@@ -672,7 +684,6 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with order_by()')
         if self._has_joins():
@@ -692,76 +703,14 @@ class Query:
         """Column names and types in this Query."""
         return self._schema
 
-    def bind(self, args: dict[str, Any]) -> Query:
-        """Bind arguments to parameters and return a new Query."""
-        # substitute Variables with the corresponding values according to 'args', converted to Literals
-        select_list_exprs = copy.deepcopy(self._select_list_exprs)
-        where_clause = copy.deepcopy(self.where_clause)
-        group_by_clause = copy.deepcopy(self.group_by_clause)
-        order_by_exprs = (
-            [copy.deepcopy(order_by_expr) for order_by_expr, _ in self.order_by_clause]
-            if self.order_by_clause is not None
-            else None
-        )
-        limit_val = copy.deepcopy(self.limit_val)
-        offset_val = copy.deepcopy(self.offset_val)
+    def bind(self, args: dict[str, Any]) -> None:
+        """Bind arguments to this Query's parameters; applied to the plan on next execution.
 
-        var_exprs: dict[exprs.Expr, exprs.Expr] = {}
-        vars = self._vars()
-        for arg_name, arg_val in args.items():
-            if arg_name not in vars:
-                # ignore unused variables
-                continue
-            var_expr = vars[arg_name]
-            arg_expr = exprs.Expr.from_object(arg_val)
-            if arg_expr is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_EXPRESSION,
-                    f'That argument cannot be converted to a Pixeltable expression: {arg_val}',
-                )
-            var_exprs[var_expr] = arg_expr
-
-        exprs.Expr.list_substitute(select_list_exprs, var_exprs)
-        if where_clause is not None:
-            where_clause = where_clause.substitute(var_exprs)
-        if group_by_clause is not None:
-            exprs.Expr.list_substitute(group_by_clause, var_exprs)
-        if order_by_exprs is not None:
-            exprs.Expr.list_substitute(order_by_exprs, var_exprs)
-
-        select_list = list(zip(select_list_exprs, self.schema.keys()))
-        order_by_clause: list[tuple[exprs.Expr, bool]] | None = None
-        if order_by_exprs is not None:
-            order_by_clause = [
-                (expr, asc) for expr, asc in zip(order_by_exprs, [asc for _, asc in self.order_by_clause])
-            ]
-        if limit_val is not None:
-            limit_val = limit_val.substitute(var_exprs)
-            if limit_val is not None and not isinstance(limit_val, exprs.Literal):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT, f'limit(): parameter must be a constant; got: {limit_val}'
-                )
-        if offset_val is not None:
-            offset_val = offset_val.substitute(var_exprs)
-            if offset_val is not None and not isinstance(offset_val, exprs.Literal):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT, f'offset parameter must be a constant; got: {offset_val}'
-                )
-
-        return Query(
-            # Deepcopy from_clause so its TableVersionHandles get their _tbl_version cache
-            # reset (via TableVersionHandle.__deepcopy__). Without this, a worker thread
-            # executing a bound Query would render FROM via the importing thread's sa_tbl
-            # while WHERE references its own sa_tbl, producing a duplicate-FROM error.
-            from_clause=copy.deepcopy(self._from_clause),
-            select_list=select_list,
-            where_clause=where_clause,
-            group_by_clause=group_by_clause,
-            grouping_tbl=self.grouping_tbl,
-            order_by_clause=order_by_clause,
-            limit=limit_val,
-            offset=offset_val,
-        )
+        Bind args are scoped per-task via a ContextVar, so concurrent tasks calling bind() on
+        the same Query don't see each other's args.
+        """
+        cur = Query._bind_args.get() or {}
+        Query._bind_args.set({**cur, self: args})
 
     def _replace_select_list(self, new_exprs: list[exprs.Expr]) -> Query:
         """Return a new Query with the given select-list exprs.
@@ -802,7 +751,13 @@ class Query:
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, msg) from e
 
     def referenced_tbl_ids(self) -> set[UUID]:
-        """Returns the IDs of all tables referenced by this query"""
+        """Returns the IDs of all tables referenced by this query.
+
+        Walks the query's static structure (exprs + from-clause path) on first call and caches
+        the result; the value depends on the static query shape and never changes.
+        """
+        if self._referenced_tbl_ids is not None:
+            return self._referenced_tbl_ids
         all_exprs = itertools.chain(
             self._select_list_exprs,
             [] if self.where_clause is None else [self.where_clause],
@@ -812,15 +767,25 @@ class Query:
         tbl_ids = exprs.Expr.all_tbl_ids(all_exprs)
         for tvp in self._from_clause.tbls:
             tbl_ids.update(tvh.id for tvh in tvp.get_tbl_versions())
+        self._referenced_tbl_ids = tbl_ids
         return tbl_ids
 
+    def select_list_exprs(self) -> list[exprs.Expr]:
+        """Return the planned select-list exprs, with slot_idx assigned by plan compilation.
+
+        Use these (not Query's internal exprs) when extracting values from a DataRow produced
+        by _exec()/_aexec(). Must be called inside a transaction; the result references this
+        thread's catalog state.
+        """
+        return self._ensure_plan().select_list_exprs
+
     def _output_row_iterator(self) -> Generator[list, None, None]:
-        self = self._rebind()  # noqa: PLW0642
         tbl_ids = self.referenced_tbl_ids()
-        with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=tbl_ids):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls):
             try:
+                planned_exprs = self.select_list_exprs()
                 for data_row in self._exec():
-                    yield [data_row[e.slot_idx] for e in self._select_list_exprs]
+                    yield [data_row[e.slot_idx] for e in planned_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
@@ -839,13 +804,12 @@ class Query:
         return ResultCursor(self)
 
     async def _acollect(self) -> ResultSet:
-        self = self._rebind()  # noqa: PLW0642
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         columns = {name: i for i, name in enumerate(self.schema)}
         try:
+            planned_exprs = self.select_list_exprs()
             result = [
-                Row(tuple(row[e.slot_idx] for e in self._select_list_exprs), columns, self.schema)
-                async for row in self._aexec()
+                Row(tuple(row[e.slot_idx] for e in planned_exprs), columns, self.schema) async for row in self._aexec()
             ]
             return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:
@@ -860,11 +824,9 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        if self._origin_catalog is not get_runtime().catalog:
-            return copy.deepcopy(self).count()
-        if self.limit_val is not None and self.limit_val.val == 0:
+        if isinstance(self.limit_val, exprs.Literal) and self.limit_val.val == 0:
             return 0
-        with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()) as conn:
+        with get_runtime().catalog.begin_xact(read_tvps=self._from_clause.tbls) as conn:
             count_stmt = Planner.create_count_stmt(self)
             result: int = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)
@@ -970,7 +932,6 @@ class Query:
             >>> query = person.select(t.name, is_adult=(t.age >= 18))
 
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.select_list is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Select list already specified')
         for name, _ in named_items.items():
@@ -1055,7 +1016,6 @@ class Query:
 
             >>> query = person.where(t.age > 30)
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.where_clause is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'where() clause already specified')
         if self.sample_clause is not None:
@@ -1216,7 +1176,6 @@ class Query:
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         other._validate_thread()
-        self = self._rebind()  # noqa: PLW0642
         assert len(self._from_clause.tbls) > 0
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
@@ -1294,7 +1253,6 @@ class Query:
 
             >>> query = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'group_by() already specified')
         if self.sample_clause is not None:
@@ -1363,7 +1321,6 @@ class Query:
             ...     .distinct()
             ... )
         """
-        self = self._rebind()  # noqa: PLW0642
         exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
         return self.group_by(*exps)
 
@@ -1397,7 +1354,6 @@ class Query:
 
             >>> query = book.order_by(t.price, asc=False).order_by(t.pages)
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'order_by() cannot be used with sample()')
         for e in expr_list:
@@ -1437,7 +1393,6 @@ class Query:
 
             >>> query.limit(10, offset=20).collect()
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'limit() cannot be used with sample()')
 
@@ -1450,9 +1405,19 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'offset' parameter must be >= 0")
 
         limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
+        if not isinstance(limit_expr, (exprs.Literal, exprs.Variable)):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'limit(): parameter must be an int constant or query parameter; got: {n}',
+            )
         offset_expr = None
         if offset is not None:
             offset_expr = self._convert_param_to_typed_expr(offset, ts.IntType(nullable=False), False, 'offset')
+            if not isinstance(offset_expr, (exprs.Literal, exprs.Variable)):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'offset: parameter must be an int constant or query parameter; got: {offset}',
+                )
 
         return Query(
             from_clause=self._from_clause,
@@ -1522,7 +1487,6 @@ class Query:
 
             >>> query = person.where(t.age > 30).sample(n=100)
         """
-        self = self._rebind()  # noqa: PLW0642
         # Check context of usage
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Multiple sample() clauses not allowed')
@@ -1808,7 +1772,7 @@ class Query:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()):
+            with get_runtime().catalog.begin_xact(read_tvps=self._from_clause.tbls):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1853,7 +1817,7 @@ class Query:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()):
+            with get_runtime().catalog.begin_xact(read_tvps=self._from_clause.tbls):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)
 

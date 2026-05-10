@@ -999,8 +999,8 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            bound_df = template_query.bind(call_kwargs)
-            result_set = bound_df.collect()
+            template_query.bind(call_kwargs)
+            result_set = template_query.collect()
             rows = list(result_set)
 
             # do error checking now, before converting data

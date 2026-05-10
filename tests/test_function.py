@@ -505,25 +505,6 @@ class TestFunction:
         res = t.select(t.c4, result=q1(2)).collect()
         assert res[0]['result'] == [False, True]
 
-        # limit((3 * (n + 1) // 2) - 1) with no return_scalar: returns list of row-dicts
-        @pxt.query
-        def q2(n: int) -> pxt.Query:
-            return t.select(t.c4, folded_flt=(5.7 * n) - 4).limit((3 * (n + 1) // 2) - 1)
-
-        res = t.select(t.c4, result=q2(1)).collect()
-        assert res[0]['result'] == [
-            {'c4': False, 'folded_flt': 1.7000000000000002},
-            {'c4': True, 'folded_flt': 1.7000000000000002},
-        ]
-
-        # limit(n.astype(Int)) where n is a float parameter
-        @pxt.query(return_scalar=True)
-        def q3(n: float) -> pxt.Query:
-            return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
-
-        res = t.select(t.c4, result=q3(2.2)).collect()
-        assert res[0]['result'] == [False, True]
-
         # return_scalar=True returning array-valued rows
         @pxt.query(return_scalar=True)
         def q4(n: int) -> pxt.Query:
@@ -531,6 +512,50 @@ class TestFunction:
 
         res = t.select(t.c4, result=q4(4)).limit(2).collect()
         assert res[0]['result'][0] == [2, 3, 4]
+
+    def test_query_with_limit_errors(self, test_tbl: pxt.Table) -> None:
+        """limit()/offset() reject non-(int constant | query parameter) arguments."""
+        t = test_tbl
+
+        # arithmetic on a query parameter is not allowed for limit
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
+
+            @pxt.query
+            def q_arith(n: int) -> pxt.Query:
+                return t.select(t.c4).limit(n + 1)
+
+        # cast on a query parameter is not allowed for limit
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
+
+            @pxt.query
+            def q_cast(n: float) -> pxt.Query:
+                return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
+
+        # column reference is not allowed for limit
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
+            t.select(t.c4).limit(t.c2)  # type: ignore[arg-type]
+
+        # arithmetic on a query parameter is not allowed for offset
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
+
+            @pxt.query
+            def q_off_arith(n: int) -> pxt.Query:
+                return t.select(t.c4).limit(10, offset=n * 2)
+
+        # cast on a query parameter is not allowed for offset
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
+
+            @pxt.query
+            def q_off_cast(n: float) -> pxt.Query:
+                return t.select(t.c4).limit(10, offset=n.astype(pxt.Int))  # type: ignore[attr-defined]
+
+        # column reference is not allowed for offset
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
+            t.select(t.c4).limit(10, offset=t.c2)  # type: ignore[arg-type]
+
+        # negative int literal is rejected for offset
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
+            t.select(t.c4).limit(10, offset=-1)
 
     def test_query_json_mapper(self, uses_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})

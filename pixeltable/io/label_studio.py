@@ -204,15 +204,18 @@ class LabelStudioProject(Project):
         tasks_created = 0
         row_ids_in_pxt: set[tuple] = set()
 
+        # slot_idxs live on the planned exprs returned by select_list_exprs(); the rebound
+        # Query's own _select_list_exprs are pre-compile and don't carry them.
+        sl = rows.select_list_exprs()
+        media_col_idx = sl[0].slot_idx
+        rl_col_idxs = [expr.slot_idx for expr in sl[1 : 1 + len(t_rl_cols)]]
+        localpath_col_idx = sl[-1].slot_idx
         for row in rows._exec():
-            media_col_idx = rows._select_list_exprs[0].slot_idx
-            rl_col_idxs = [expr.slot_idx for expr in rows._select_list_exprs[1 : 1 + len(t_rl_cols)]]
             row_ids_in_pxt.add(row.rowid)
             if row.rowid not in existing_tasks:
                 # Upload the media file to Label Studio
                 if is_stored:
                     # There is an existing localpath; use it!
-                    localpath_col_idx = rows._select_list_exprs[-1].slot_idx
                     file = Path(row[localpath_col_idx])
                     task_id: int = self.project.import_tasks(file)[0]
                 else:
@@ -313,10 +316,10 @@ class LabelStudioProject(Project):
                 'predictions': predictions,
             }
 
+        sl = query.select_list_exprs()
+        rl_col_idxs = [expr.slot_idx for expr in sl[: len(t_rl_cols)]]
+        data_col_idxs = [expr.slot_idx for expr in sl[len(t_rl_cols) :]]
         for row in query._exec():
-            if rl_col_idxs is None:
-                rl_col_idxs = [expr.slot_idx for expr in query._select_list_exprs[: len(t_rl_cols)]]
-                data_col_idxs = [expr.slot_idx for expr in query._select_list_exprs[len(t_rl_cols) :]]
             row_ids_in_pxt.add(row.rowid)
             task_info = create_task_info(row)
             # TODO(aaron-siegel): Implement more efficient update logic (currently involves a full table scan)
