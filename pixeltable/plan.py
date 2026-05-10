@@ -370,18 +370,20 @@ class Planner:
         # Create the query plan
         assert query.limit_val is None or not isinstance(query.limit_val, exprs.Literal) or query.limit_val.val > 0
         plan = query._create_query_plan().exec_root
-        sql_node = plan.get_node(exec.SqlNode)
-        assert sql_node is not None
         if plan.get_node(exec.FilterNode) is not None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'count() cannot be used with Python-only filters. Use collect() instead.',
             )
-        if plan.get_node(exec.SqlSampleNode) is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'count() cannot be used with sample(). Use collect() instead.'
-            )
-        # Get the SQL statement from the SqlNode as a CTE
+
+        # For sample queries, count() doesn't reuse the plan across calls, so the random seed
+        # can be inlined as a literal instead of bound at execute time.
+        sample_node = plan.get_node(exec.SqlSampleNode)
+        if sample_node is not None:
+            sample_node.inline_random_seed = True
+
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
         cte, _ = sql_node.to_cte(keep_pk=True)
         count_stmt = sql.select(sql.func.count().label('all_count')).select_from(cte)
         return count_stmt

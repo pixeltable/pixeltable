@@ -617,6 +617,20 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
             t.select(t.c4).limit(10, offset=-1)
 
+        # non-int-typed query parameter is rejected for limit
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='limit'):
+
+            @pxt.query
+            def q_str_limit(n: str) -> pxt.Query:
+                return t.select(t.c4).limit(n)  # type: ignore[arg-type]
+
+        # non-int-typed query parameter is rejected for offset
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='offset'):
+
+            @pxt.query
+            def q_str_offset(n: str) -> pxt.Query:
+                return t.select(t.c4).limit(10, offset=n)  # type: ignore[arg-type]
+
     def test_query_json_mapper(self, uses_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         t_rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]

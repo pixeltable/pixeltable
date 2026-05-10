@@ -723,6 +723,10 @@ class SqlSampleNode(SqlNode):
     sample_clause: 'SampleClause'
     _cte_inputs: list[SqlNode]
 
+    # When the seed isn't user-specified, callers that don't reuse the plan (e.g. count()) can
+    # set this to render a fresh random seed as a SQL literal instead of a bindparam.
+    inline_random_seed: bool = False
+
     # Bindparam name for the per-execute random seed when sample_clause has no explicit seed.
     # Rendering the seed as a bindparam (rather than a SQL literal) lets the cached plan stay
     # valid across calls while a fresh seed is bound on each execute.
@@ -781,6 +785,8 @@ class SqlSampleNode(SqlNode):
         if self.sample_clause.seed is not None:
             # explicit seed: same value across executes, fine to inline
             seed_expr: sql.ColumnElement = sql.literal_column(str(self.sample_clause.seed))
+        elif self.inline_random_seed:
+            seed_expr = sql.literal_column(str(random.randint(0, 1 << 63)))
         else:
             # no explicit seed: bind a fresh random value per execute so the cached plan can
             # be reused while consecutive calls return different samples
