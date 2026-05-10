@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 
+from pixeltable import exceptions as excs, exprs
 from pixeltable.exprs import ArrayMd, BinaryMd
 from pixeltable.utils.misc import non_none_dict_factory
 
@@ -33,3 +34,19 @@ class InlinedObjectMd:
         if self.binary_md is not None:
             result['binary_md'] = dataclasses.asdict(self.binary_md)
         return result
+
+def resolve_int(e: exprs.Expr, args: dict[str, Any], role: str) -> int:
+    """Resolve a limit/offset Expr to an int at iteration time.
+
+    Accepts Literal (constant) or Variable (resolved from the bound args dict). Other Expr
+    shapes are rejected because Python-side limit/offset (FilterNode, AggregationNode) needs
+    a concrete int. SQL-side limit/offset on SqlNode supports the full Expr surface via
+    bindparams.
+    """
+    if isinstance(e, exprs.Literal):
+        return int(e.val)
+    if isinstance(e, exprs.Variable):
+        return int(args[e.name])
+    raise excs.RequestError(
+        excs.ErrorCode.UNSUPPORTED_OPERATION, f'{role}: unsupported expression for non-SQL limit/offset: {e}'
+    )

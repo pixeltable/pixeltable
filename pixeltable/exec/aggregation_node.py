@@ -8,7 +8,7 @@ from pixeltable import catalog, exceptions as excs, exprs, type_system as ts
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
-from .limit_offset import resolve_int
+from .globals import resolve_int
 
 _logger = logging.getLogger('pixeltable')
 
