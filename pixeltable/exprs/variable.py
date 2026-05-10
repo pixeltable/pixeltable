@@ -25,10 +25,10 @@ class Variable(Expr):
         self.name = name
         self.id = self._create_id()
 
-    def prepare(self, args: dict[str, Any], sql_bind_args: dict[str, Any]) -> None:
-        super().prepare(args, sql_bind_args)
+    def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
+        super().prepare(args, bound_args)
         self._bound_val = args[self.name]
-        sql_bind_args[self.name] = self._bound_val
+        bound_args[self.name] = self._bound_val
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('name', self.name)]

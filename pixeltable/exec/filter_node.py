@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from pixeltable import exprs, type_system as ts
+from pixeltable import exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -33,11 +33,9 @@ class FilterNode(ExecNode):
     def set_offset(self, offset: exprs.Expr) -> None:
         self.offset = offset
 
-    def params(self) -> dict[str, ts.ColumnType] | None:
-        sources = [e for e in (self.limit, self.offset) if e is not None]
-        if sources:
-            self._collect_vars(sources)
-        return super().params()
+    def finalize(self) -> None:
+        self.bind_sources = [e for e in (self.limit, self.offset) if e is not None]
+        super().finalize()
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         limit = self._resolve_limit_offset(self.limit, 'limit') if self.limit is not None else None

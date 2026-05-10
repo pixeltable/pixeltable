@@ -107,7 +107,7 @@ class Runtime:
             # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
             self._event_loop.slow_callback_duration = 3600
 
-        if _logger.isEnabledFor(logging.DEBUG):
+        if Env.get().logging_is_enabled_for(logging.DEBUG, 'runtime'):
             self._event_loop.set_debug(True)
 
     def get_client(self, name: str) -> Any:

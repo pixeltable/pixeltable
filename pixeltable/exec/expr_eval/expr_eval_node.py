@@ -85,8 +85,11 @@ class ExprEvalNode(ExecNode):
         output_slot_idxs = [e.slot_idx for e in output_exprs]
         self.outputs[output_slot_idxs] = True
         self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
-        self._collect_vars(self.output_exprs)
         self._init_exec_state()
+
+    def finalize(self) -> None:
+        self.bind_sources = list(self.output_exprs)
+        super().finalize()
 
     def _init_exec_state(self) -> None:
         self.tasks = set()

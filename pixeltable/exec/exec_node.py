@@ -26,10 +26,11 @@ class ExecNode(abc.ABC):
     Base class of all execution nodes.
 
     Lifecycle:
-    - __init__ records the immutable plan structure (child nodes, exprs, slot maps, bound exprs)
-
-    - in order for a plan to be re-usable (eg, re-run with different bind args), all mutable per-iteration state must
-      be initialized in _open() and torn down in _close()
+    1. The immutable node structure (output_exprs, input node, etc.) can be created incrementally
+       (ie, after init(); the planner might need to make adjustments after instance construction)
+    2. finalize() assumes the immutable structure is complete and sets bind_sources/vars
+    3. bind_params()/iter() can then be called repeated to execute the same plan with different parameters
+    4. _open() initializes per-iteration execution state
 
     Not thread-safe.
     """
@@ -39,8 +40,15 @@ class ExecNode(abc.ABC):
     input: ExecNode | None
     flushed_img_slots: list[int]  # idxs of image slots of our output_exprs dependencies
     ctx: ExecContext | None
-    vars: list[exprs.Variable]  # Variables this node owns
-    bound_args: dict[str, Any]  # bound values for parameters of this node; typically for self.vars
+
+    # source exprs used to extract Variables; populated by finalize()
+    bind_sources: list[exprs.Expr]
+
+    # Variables found in bind_sources; populated by finalize()
+    vars: list[exprs.Variable]
+
+    # values bound for this node's parameters (typically Variables); populated by bind_params()
+    bound_args: dict[str, Any]
 
     def __init__(
         self,
@@ -60,6 +68,7 @@ class ExecNode(abc.ABC):
             e.slot_idx for e in output_dependencies if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
         self.ctx = input.ctx if input is not None else None
+        self.bind_sources = []
         self.vars = []
         self.bound_args = {}
 
@@ -68,28 +77,29 @@ class ExecNode(abc.ABC):
         if self.input is not None:
             self.input.set_ctx(ctx)
 
-    def _collect_vars(self, expr_list: Iterable[exprs.Expr]) -> None:
-        """Set self._vars to the distinct Variables referenced in expr_list"""
-        result: dict[str, exprs.Variable] = {}
-        for v in exprs.Expr.list_subexprs(expr_list, exprs.Variable):
-            existing = result.get(v.name)
+    def finalize(self) -> None:
+        """Populate self.vars from self.bind_sources.
+
+        Subclasses need to override this to set bind_sources first, then call super().finalize().
+        """
+        vars: dict[str, exprs.Variable] = {}
+        for v in exprs.Expr.list_subexprs(self.bind_sources, exprs.Variable):
+            existing = vars.get(v.name)
             if existing is None:
-                result[v.name] = v
+                vars[v.name] = v
             elif existing.col_type != v.col_type:
                 raise AssertionError(
                     f'Variable {v.name!r} appears with conflicting types: {existing.col_type} vs {v.col_type}'
                 )
-        self.vars = list(result.values())
+        self.vars = list(vars.values())
 
-    def params(self) -> dict[str, ts.ColumnType] | None:
-        """Return the parameter signature of this node"""
-        if len(self.vars) == 0:
-            return None
+    def params(self) -> dict[str, ts.ColumnType]:
+        """Return the parameter signature of this node. Valid after _finalize()."""
         return {v.name: v.col_type for v in self.vars}
 
     def bind_params(self, args: dict[str, Any]) -> None:
-        # project to our vars
-        self.bound_args = {v.name: args[v.name] for v in self.vars}
+        self.bound_args = {}
+        exprs.Expr.prepare_list(self.bind_sources, args, self.bound_args)
 
     def set_var_slots(self, rows: Iterable[exprs.DataRow]) -> None:
         """Populate Variable slots in rows with the bound values from self.bound_args."""

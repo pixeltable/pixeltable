@@ -4,7 +4,7 @@ import logging
 import sys
 from typing import Any, AsyncIterator, Iterable, cast
 
-from pixeltable import catalog, exceptions as excs, exprs, type_system as ts
+from pixeltable import catalog, exceptions as excs, exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -57,12 +57,11 @@ class AggregationNode(ExecNode):
         # we can't propagate the limit to our input
         self.limit = limit
 
-    def params(self) -> dict[str, ts.ColumnType] | None:
-        sources: list[exprs.Expr] = (self.group_by or []) + list(self.agg_fn_calls)
+    def finalize(self) -> None:
+        self.bind_sources = (self.group_by or []) + list(self.agg_fn_calls)
         if self.limit is not None:
-            sources.append(self.limit)
-        self._collect_vars(sources)
-        return super().params()
+            self.bind_sources.append(self.limit)
+        super().finalize()
 
     def _reset_agg_state(self, row_num: int) -> None:
         for fn_call in self.agg_fn_calls:

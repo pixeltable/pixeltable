@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from textwrap import dedent
 from typing import Any
 
+import imagehash
 import numpy as np
 import pytest
 
@@ -24,6 +25,7 @@ from .utils import (
     get_video_files,
     pxt_raises,
     reload_catalog,
+    skip_test_if_not_installed,
     validate_update_status,
 )
 
@@ -338,6 +340,7 @@ class TestFunction:
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
     def test_query(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        skip_test_if_not_installed('imagehash')
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         name = t._name
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
@@ -390,6 +393,21 @@ class TestFunction:
         assert t.query2.col_type == lt_x_with_default.signature.return_type.copy(nullable=True)
         assert t.query3.col_type == lt_x_with_unused_default.signature.return_type.copy(nullable=True)
         reload_tester.run_query(t.select(t.query1, t.query2, t.query3).order_by(t.c1))
+
+        # query parameter applies to a Python-side expr in the inner select list
+        img_tbl = pxt.create_table('img_test', {'id': pxt.Int, 'img': pxt.Image})
+        img_paths = get_image_files()[:5]
+        img_tbl.insert([{'id': i, 'img': p} for i, p in enumerate(img_paths)])
+
+        @pxt.query(return_scalar=True)
+        def rotated(id: int, angle: int) -> pxt.Query:
+            return img_tbl.where(img_tbl.id == id).select(r=img_tbl.img.rotate(angle)).limit(1)
+
+        result1 = img_tbl.select(r=rotated(img_tbl.id, 90)).order_by(img_tbl.id).collect()
+        result2 = img_tbl.select(r=img_tbl.img.rotate(90)).order_by(img_tbl.id).collect()
+        assert all(
+            (imagehash.phash(row1['r'][0]) - imagehash.phash(row2['r'])) <= 2 for row1, row2 in zip(result1, result2)
+        )
 
         reload_tester.run_reload_test()
 

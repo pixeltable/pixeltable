@@ -516,21 +516,21 @@ class Expr(abc.ABC):
         """
         pass
 
-    def prepare(self, args: dict[str, Any], sql_bind_args: dict[str, Any]) -> None:
+    def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         """
         Create execution state. Called before each iteration begins.
 
         args: Variable name -> value (already coerced via ColumnType.create_literal).
-        sql_bind_args: out-param. Subclasses register SQL bindparam name -> value here;
-        the executor passes this dict to conn.execute(stmt, sql_bind_args).
+        bound_args: out-param. Subclasses register name -> value entries that the executor needs at
+        run time (e.g. Variable values for slot population, SQL bindparam values for conn.execute).
         """
         for c in self.components:
-            c.prepare(args, sql_bind_args)
+            c.prepare(args, bound_args)
 
     @classmethod
-    def prepare_list(cls, expr_list: Iterable[Expr], args: dict[str, Any], sql_bind_args: dict[str, Any]) -> None:
+    def prepare_list(cls, expr_list: Iterable[Expr], args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         for e in expr_list:
-            e.prepare(args, sql_bind_args)
+            e.prepare(args, bound_args)
 
     def release(self) -> None:
         """

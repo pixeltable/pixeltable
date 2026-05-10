@@ -317,13 +317,11 @@ class Env:
                     return True
         return record.levelno >= self._default_log_level
 
-    def emits_log(self, level: int, module_name: str | None = None) -> bool:
-        """True iff a log record at `level` from `module_name` would pass `_log_filter`.
+    def logging_is_enabled_for(self, level: int, module_name: str | None = None) -> bool:
+        """Use this instead of logger.isEnabledFor(level).
 
         The pixeltable logger is set to DEBUG so all records reach the filter; this means
-        `_logger.isEnabledFor(DEBUG)` is True even when DEBUG output is suppressed. Use this
-        method to gate work that's only worthwhile if the DEBUG output will actually be
-        emitted.
+        _logger.isEnabledFor(level) can be True even when 'level' output is suppressed.
         """
         if module_name is not None and self._module_log_level.get(module_name, level + 1) <= level:
             return True

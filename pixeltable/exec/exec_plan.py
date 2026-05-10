@@ -65,15 +65,17 @@ class ExecPlan:
         node: ExecNode | None = exec_root
         while node is not None:
             node.set_ctx(ctx)
-            node_params = node.params()
-            if node_params is not None:
+            node.finalize()
+            if node.bind_sources:
                 self.param_nodes.append(node)
-                for name, t in node_params.items():
-                    existing = self.param_types.get(name)
+                for v in node.vars:
+                    existing = self.param_types.get(v.name)
                     if existing is None:
-                        self.param_types[name] = t
-                    elif existing != t:
-                        raise AssertionError(f'Parameter {name!r} declared with conflicting types: {existing} vs {t}')
+                        self.param_types[v.name] = v.col_type
+                    elif existing != v.col_type:
+                        raise AssertionError(
+                            f'Parameter {v.name!r} declared with conflicting types: {existing} vs {v.col_type}'
+                        )
             node = node.input
 
     def bind_params(self, args: dict[str, Any]) -> None:
