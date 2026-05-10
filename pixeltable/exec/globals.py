@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 from pixeltable import exceptions as excs, exprs
 from pixeltable.exprs import ArrayMd, BinaryMd
@@ -34,6 +35,7 @@ class InlinedObjectMd:
         if self.binary_md is not None:
             result['binary_md'] = dataclasses.asdict(self.binary_md)
         return result
+
 
 def resolve_int(e: exprs.Expr, args: dict[str, Any], role: str) -> int:
     """Resolve a limit/offset Expr to an int at iteration time.

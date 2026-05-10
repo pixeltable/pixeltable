@@ -10,6 +10,7 @@ import sqlalchemy as sql
 from pgvector.sqlalchemy import HalfVector  # type: ignore[import-untyped]
 
 from pixeltable import catalog, exprs, type_system as ts
+from pixeltable.metadata import schema
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
@@ -353,7 +354,12 @@ class SqlNode(ExecNode):
                 stmt = stmt.where(tv.store_tbl.v_min_col == tv.version)
             elif versioned:
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
-                stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
+
+                if t.effective_version is None:
+                    # v_max == MAX_VERSION: ensure we use the partial index
+                    stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max == schema.Table.MAX_VERSION)
+                else:
+                    stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
             prev_tv = tv
 
         return stmt
