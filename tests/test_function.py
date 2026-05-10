@@ -415,6 +415,50 @@ class TestFunction:
         t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
 
+    def test_query_bound_limit_offset(self, uses_db: None) -> None:
+        t = pxt.create_table('test', {'c1': pxt.Int})
+        t.insert([{'c1': i} for i in range(10)])
+
+        @pxt.query(return_scalar=True)
+        def head(n: int) -> pxt.Query:
+            return t.select(r=t.c1).limit(n)
+
+        @pxt.query(return_scalar=True)
+        def skipped(off: int) -> pxt.Query:
+            return t.select(r=t.c1).limit(1, offset=off)
+
+        # bound limit < 0 raises RequestError
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'limit'"):
+            t.select(r=head(-1)).collect()
+
+        # bound offset < 0 raises RequestError
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'offset'"):
+            t.select(r=skipped(-1)).collect()
+
+        # bound limit = 0 short-circuits to empty rows (Variable path)
+        result = t.select(r=head(0)).collect()
+        assert all(row['r'] == [] for row in result)
+
+        # query UDF inside a computed column: on_error='abort' raises (re-wrapped as UNSUPPORTED_OPERATION
+        # with the original message preserved)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'limit'"):
+            t.add_computed_column(c=head(-1), on_error='abort')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'offset'"):
+            t.add_computed_column(c=skipped(-1), on_error='abort')
+
+        # query UDF inside a computed column: on_error='ignore' records per-cell error
+        status = t.add_computed_column(c=head(-1), on_error='ignore')
+        assert status.num_excs == 10
+        assert t.where(t.c.errortype != None).count() == 10
+        msgs = t.select(msg=t.c.errormsg).collect()['msg']
+        assert all("'limit'" in m for m in msgs if m is not None)
+
+        status = t.add_computed_column(c2=skipped(-1), on_error='ignore')
+        assert status.num_excs == 10
+        assert t.where(t.c2.errortype != None).count() == 10
+        msgs = t.select(msg=t.c2.errormsg).collect()['msg']
+        assert all("'offset'" in m for m in msgs if m is not None)
+
     def test_query2(self, uses_db: None) -> None:
         schema = {'query_text': pxt.String, 'i': pxt.Int}
         queries = pxt.create_table('queries', schema)

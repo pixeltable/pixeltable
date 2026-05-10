@@ -542,9 +542,8 @@ class Query:
         """
         return {name: var.col_type for name, var in self._vars().items()}
 
-    def _resolved_limit(self, args: dict[str, Any]) -> int | None:
-        """Resolve limit_val to an int, or None if no limit"""
-        e = self.limit_val
+    def _resolve_limit_offset_val(self, e: exprs.Expr | None, args: dict[str, Any]) -> int | None:
+        """Resolve a limit_val/offset_val Expr to an int, or None if not set."""
         if e is None:
             return None
         if isinstance(e, exprs.Literal):
@@ -555,6 +554,22 @@ class Query:
         assert isinstance(val, int)
         return val
 
+    def _resolved_limit(self, args: dict[str, Any]) -> int | None:
+        return Query._resolve_limit_offset_val(self.limit_val, args)
+
+    def _resolved_offset(self, args: dict[str, Any]) -> int | None:
+        return Query._resolve_limit_offset_val(self.offset_val, args)
+
+    def _validate_bound_args(self, args: dict[str, Any]) -> None:
+        # Raised exceptions are caught and recorded per-cell when this Query is invoked
+        # via a query UDF inside a computed column (see ExprEvalNode evaluators).
+        limit = self._resolved_limit(args)
+        if limit is not None and limit < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'limit' parameter must be >= 0")
+        offset = self._resolved_offset(args)
+        if offset is not None and offset < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'offset' parameter must be >= 0")
+
     def _exec(self) -> Iterator[exprs.DataRow]:
         """Run the query and yield rows.
 
@@ -563,6 +578,7 @@ class Query:
         pre-compile copies and don't carry slot_idx).
         """
         args = (Query._bind_args.get() or {}).get(self) or {}
+        self._validate_bound_args(args)
         if self._resolved_limit(args) == 0:
             return
         plan = self._ensure_plan()
@@ -574,6 +590,7 @@ class Query:
     async def _aexec(self) -> AsyncIterator[exprs.DataRow]:
         """Run the query and yield rows."""
         args = (Query._bind_args.get() or {}).get(self) or {}
+        self._validate_bound_args(args)
         if self._resolved_limit(args) == 0:
             return
         plan = self._ensure_plan()
@@ -841,12 +858,13 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        if isinstance(self.limit_val, exprs.Literal) and self.limit_val.val == 0:
-            return 0
         with get_runtime().catalog.begin_xact(read_tvps=self._from_clause.tbls) as conn:
+            args = (Query._bind_args.get() or {}).get(self) or {}
+            self._validate_bound_args(args)
+            if self._resolved_limit(args) == 0:
+                return 0
             plan = self._ensure_plan()
             count_stmt = Planner.create_count_stmt(self)
-            args = (Query._bind_args.get() or {}).get(self) or {}
             plan.bind_params(args)
             sql_node = plan.exec_root.get_node(exec.SqlNode)
             assert sql_node is not None
