@@ -542,6 +542,19 @@ class Query:
         """
         return {name: var.col_type for name, var in self._vars().items()}
 
+    def _resolved_limit(self, args: dict[str, Any]) -> int | None:
+        """Resolve limit_val to an int, or None if no limit"""
+        e = self.limit_val
+        if e is None:
+            return None
+        if isinstance(e, exprs.Literal):
+            assert isinstance(e.val, int)
+            return e.val
+        assert isinstance(e, exprs.Variable)
+        val = args[e.name]
+        assert isinstance(val, int)
+        return val
+
     def _exec(self) -> Iterator[exprs.DataRow]:
         """Run the query and yield rows.
 
@@ -549,10 +562,10 @@ class Query:
         need them must read from there, not from this Query's _select_list_exprs (which are the
         pre-compile copies and don't carry slot_idx).
         """
-        if isinstance(self.limit_val, exprs.Literal) and self.limit_val.val == 0:
+        args = (Query._bind_args.get() or {}).get(self) or {}
+        if self._resolved_limit(args) == 0:
             return
         plan = self._ensure_plan()
-        args = (Query._bind_args.get() or {}).get(self) or {}
         for row in plan.exec(args):
             # stop progress output before we display anything, otherwise it'll mess up the output
             get_runtime().stop_progress()
@@ -560,10 +573,10 @@ class Query:
 
     async def _aexec(self) -> AsyncIterator[exprs.DataRow]:
         """Run the query and yield rows."""
-        if isinstance(self.limit_val, exprs.Literal) and self.limit_val.val == 0:
+        args = (Query._bind_args.get() or {}).get(self) or {}
+        if self._resolved_limit(args) == 0:
             return
         plan = self._ensure_plan()
-        args = (Query._bind_args.get() or {}).get(self) or {}
         async for row in plan.aexec(args):
             yield row
 
