@@ -216,8 +216,7 @@ class TestConcurrentOps:
 
         def worker(_tid: int) -> None:
             for _ in range(self.ITERATIONS):
-                find_above.template_query.bind_params({'threshold': 40})
-                rows = find_above.template_query.collect()
+                rows = find_above.template_query._collect(args={'threshold': 40})
                 assert len(rows) == 10
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)

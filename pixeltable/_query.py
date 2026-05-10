@@ -7,7 +7,6 @@ import hashlib
 import itertools
 import json
 import traceback
-from contextvars import ContextVar
 from pathlib import Path
 from types import TracebackType
 from typing import (
@@ -15,7 +14,6 @@ from typing import (
     Any,
     AsyncIterator,
     Callable,
-    ClassVar,
     Generator,
     Hashable,
     Iterable,
@@ -382,9 +380,6 @@ class Query:
     # first access, then cached: the value depends on the static query shape and never changes.
     _referenced_tbl_ids: set[UUID] | None
 
-    # mutable state set by _bind_params()
-    _bind_args: ClassVar[ContextVar[dict['Query', dict[str, Any]] | None]] = ContextVar('query_bind_args', default=None)
-
     def __init__(
         self,
         from_clause: plan.FromClause | None = None,
@@ -564,14 +559,14 @@ class Query:
         if offset is not None and offset < 0:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'offset' parameter must be >= 0")
 
-    def _exec(self) -> Iterator[exprs.DataRow]:
+    def _exec(self, args: dict[str, Any] | None = None) -> Iterator[exprs.DataRow]:
         """Run the query and yield rows.
 
         Slot indices live on the planned exprs returned by select_list_exprs(); callers that
         need them must read from there, not from this Query's _select_list_exprs (which are the
         pre-compile copies and don't carry slot_idx).
         """
-        args = (Query._bind_args.get() or {}).get(self) or {}
+        args = args or {}
         self._validate_bound_args(args)
         if self._resolved_limit(args) == 0:
             return
@@ -581,9 +576,9 @@ class Query:
             get_runtime().stop_progress()
             yield row
 
-    async def _aexec(self) -> AsyncIterator[exprs.DataRow]:
+    async def _aexec(self, args: dict[str, Any] | None = None) -> AsyncIterator[exprs.DataRow]:
         """Run the query and yield rows."""
-        args = (Query._bind_args.get() or {}).get(self) or {}
+        args = args or {}
         self._validate_bound_args(args)
         if self._resolved_limit(args) == 0:
             return
@@ -731,15 +726,6 @@ class Query:
         """Column names and types in this Query."""
         return self._schema
 
-    def bind_params(self, args: dict[str, Any]) -> None:
-        """Bind arguments to this Query's parameters; applied to the plan on next execution.
-
-        Bind args are scoped per-task via a ContextVar, so concurrent tasks calling bind_params() on
-        the same Query don't see each other's args.
-        """
-        cur = Query._bind_args.get() or {}
-        Query._bind_args.set({**cur, self: args})
-
     def _replace_select_list(self, new_exprs: list[exprs.Expr]) -> Query:
         """Return a new Query with the given select-list exprs.
 
@@ -807,12 +793,12 @@ class Query:
         """
         return self._ensure_plan().select_list_exprs
 
-    def _output_row_iterator(self) -> Generator[list, None, None]:
+    def _output_row_iterator(self, args: dict[str, Any] | None = None) -> Generator[list, None, None]:
         tbl_ids = self.referenced_tbl_ids()
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls):
             try:
                 planned_exprs = self.select_list_exprs()
-                for data_row in self._exec():
+                for data_row in self._exec(args=args):
                     yield [data_row[e.slot_idx] for e in planned_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
@@ -822,7 +808,14 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        return ResultSet(list(self.cursor()), self.schema)
+        return self._collect()
+
+    def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
+        if args is None:
+            return ResultSet(list(self.cursor()), self.schema)
+        columns = {name: i for i, name in enumerate(self.schema)}
+        rows = [Row(tuple(data), columns, self.schema) for data in self._output_row_iterator(args=args)]
+        return ResultSet(rows, self.schema)
 
     def cursor(self) -> ResultCursor:
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.
@@ -831,13 +824,14 @@ class Query:
         """
         return ResultCursor(self)
 
-    async def _acollect(self) -> ResultSet:
+    async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         columns = {name: i for i, name in enumerate(self.schema)}
         try:
             planned_exprs = self.select_list_exprs()
             result = [
-                Row(tuple(row[e.slot_idx] for e in planned_exprs), columns, self.schema) async for row in self._aexec()
+                Row(tuple(row[e.slot_idx] for e in planned_exprs), columns, self.schema)
+                async for row in self._aexec(args=args)
             ]
             return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:

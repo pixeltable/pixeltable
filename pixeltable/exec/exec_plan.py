@@ -78,7 +78,7 @@ class ExecPlan:
                         )
             node = node.input
 
-    def bind_params(self, args: dict[str, Any]) -> None:
+    def _bind_params(self, args: dict[str, Any]) -> None:
         """Assign values to plan parameters"""
         # extra args are silently ignored (Variables may have been substituted away at compile time)
         missing = self.param_types.keys() - args.keys()
@@ -129,7 +129,7 @@ class ExecPlan:
         that drive the plan from an async context should use aexec() instead so concurrent
         iterations of the same cached plan don't interleave on shared ExecNode state.
         """
-        self.bind_params(args)
+        self._bind_params(args)
         with self:
             for batch in self.exec_root:
                 yield from batch
@@ -143,7 +143,7 @@ class ExecPlan:
         it); standard async-generator finalization releases the lock when the generator is closed.
         """
         async with self.iter_lock:
-            self.bind_params(args)
+            self._bind_params(args)
             with self:
                 async for batch in self.exec_root:
                     for row in batch:
