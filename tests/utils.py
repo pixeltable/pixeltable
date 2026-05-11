@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import glob
 import itertools
@@ -13,7 +15,7 @@ import uuid
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from typing import Any, Callable, Iterator, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Iterator, TypedDict
 from unittest import TestCase
 from uuid import uuid4
 
@@ -34,6 +36,9 @@ from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.object_stores import ObjectOps
+
+if TYPE_CHECKING:
+    from pyiceberg.catalog.sql import SqlCatalog
 
 TESTS_DIR = Path(os.path.dirname(__file__))
 
@@ -750,6 +755,20 @@ def validate_sync_status(
         assert status.pxt_rows_updated == expected_pxt_rows_updated, status
     if expected_num_excs is not None:
         assert status.num_excs == expected_num_excs, status
+
+
+def sqlite_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> SqlCatalog:
+    """
+    Instantiate a sqlite Iceberg catalog at the specified path. If no catalog exists, one will be created.
+    """
+    Env.get().require_package('pyiceberg')
+
+    from pyiceberg.catalog.sql import SqlCatalog
+
+    if isinstance(warehouse_path, str):
+        warehouse_path = Path(warehouse_path)
+    warehouse_path.mkdir(parents=True, exist_ok=True)
+    return SqlCatalog(name, uri=f'sqlite:///{warehouse_path}/catalog.db', warehouse=f'file://{warehouse_path}')
 
 
 def make_test_arrow_table(output_path: Path) -> str:

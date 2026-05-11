@@ -6,7 +6,13 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import create_all_datatypes_tbl, pxt_raises, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    create_all_datatypes_tbl,
+    pxt_raises,
+    skip_test_if_not_installed,
+    sqlite_catalog,
+    validate_update_status,
+)
 
 if TYPE_CHECKING:
     from pyiceberg.catalog import Catalog
@@ -48,8 +54,6 @@ class _MidStreamFailingCatalog:
 
 class TestIceberg:
     def _catalog(self, tmp_path: pathlib.Path) -> Any:
-        from pixeltable.io.iceberg import sqlite_catalog
-
         return sqlite_catalog(tmp_path / 'warehouse')
 
     def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:

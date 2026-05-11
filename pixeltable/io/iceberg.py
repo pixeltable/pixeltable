@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 from itertools import chain
-from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Literal
 
 import pyarrow as pa
@@ -14,21 +13,6 @@ from pixeltable.utils.arrow import find_null_fields, to_arrow_schema, to_record_
 
 if TYPE_CHECKING:
     from pyiceberg.catalog import Catalog
-    from pyiceberg.catalog.sql import SqlCatalog
-
-
-def sqlite_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> SqlCatalog:
-    """
-    Instantiate a sqlite Iceberg catalog at the specified path. If no catalog exists, one will be created.
-    """
-    Env.get().require_package('pyiceberg')
-
-    from pyiceberg.catalog.sql import SqlCatalog
-
-    if isinstance(warehouse_path, str):
-        warehouse_path = Path(warehouse_path)
-    warehouse_path.mkdir(parents=True, exist_ok=True)
-    return SqlCatalog(name, uri=f'sqlite:///{warehouse_path}/catalog.db', warehouse=f'file://{warehouse_path}')
 
 
 def export_iceberg(
@@ -65,7 +49,6 @@ def export_iceberg(
     Env.get().require_package('pyiceberg')
 
     from pyiceberg.exceptions import NoSuchTableError
-
 
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.RequestError(
