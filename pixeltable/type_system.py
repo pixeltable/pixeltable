@@ -24,7 +24,6 @@ import sqlalchemy as sql
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
-from pixeltable.env import Env
 from pixeltable.utils import parse_local_file_path
 
 
@@ -879,6 +878,8 @@ class TimestampType(ColumnType):
             raise TypeError(f'Expected datetime.datetime, got {val.__class__.__name__}')
 
     def _create_literal(self, val: Any) -> Any:
+        from pixeltable.env import Env  # local import to avoid circular imports
+
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
         # Place naive timestamps in the default time zone

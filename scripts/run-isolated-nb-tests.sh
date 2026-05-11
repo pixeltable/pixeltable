@@ -31,7 +31,7 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Testing notebook: $nb"
 
     echo "Creating conda environment $NB_CONDA_ENV ..."
-    conda create -y --name "$NB_CONDA_ENV" python="$PY_VERSION"
+    conda create -y --name "$NB_CONDA_ENV" python="$PY_VERSION" pip
 
     echo "Activating conda environment ..."
     conda activate "$NB_CONDA_ENV"

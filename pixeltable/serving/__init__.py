@@ -4,6 +4,8 @@ Adapters for web serving frameworks.
 
 from typing import Any
 
+from pixeltable.config import SqlExport
+
 try:
     from ._fastapi import FastAPIRouter
 except ImportError:
@@ -15,4 +17,4 @@ except ImportError:
             )
 
 
-__all__ = ['FastAPIRouter']
+__all__ = ['FastAPIRouter', 'SqlExport']

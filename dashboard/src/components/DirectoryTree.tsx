@@ -42,17 +42,22 @@ function getNodeIcon(type: string, isOpen: boolean = false) {
 }
 
 function countDescendants(node: TreeNode): number {
-  if (!node.children || node.children.length === 0) return 0
-  return node.children.reduce((sum, child) => sum + 1 + countDescendants(child), 0)
+  if (node.kind !== 'directory') return 0
+  const entries = node.entries ?? []
+  if (entries.length === 0) return 0
+  return entries.reduce((sum, child) => sum + 1 + countDescendants(child), 0)
 }
 
 function countAllNodes(nodes: TreeNode[]): number {
-  return nodes.reduce((sum, n) => sum + 1 + countAllNodes(n.children || []), 0)
+  return nodes.reduce(
+    (sum, n) => sum + 1 + (n.kind === 'directory' ? countAllNodes(n.entries ?? []) : 0),
+    0,
+  )
 }
 
 function nodeMatchesFilter(node: TreeNode, q: string): boolean {
   if (node.name.toLowerCase().includes(q)) return true
-  if (node.children) return node.children.some(c => nodeMatchesFilter(c, q))
+  if (node.kind === 'directory') return (node.entries ?? []).some(c => nodeMatchesFilter(c, q))
   return false
 }
 
@@ -61,10 +66,11 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
   onSelect: (path: string, type: string) => void; filter: string; collapsedAll: number
 }) {
   const [manualOpen, setManualOpen] = useState<boolean | null>(null)
-  const hasChildren = node.children && node.children.length > 0
   const isDirectory = node.kind === 'directory'
+  const entries = isDirectory ? (node.entries ?? []) : []
+  const hasChildren = isDirectory && entries.length > 0
   const descendantCount = useMemo(() => countDescendants(node), [node])
-  const hasErrors = (node.error_count ?? 0) > 0
+  const hasErrors = !isDirectory && node.error_count > 0
 
   useEffect(() => {
     if (collapsedAll > 0) setManualOpen(false)
@@ -110,7 +116,7 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
         {getNodeIcon(node.kind, isOpen)}
         <span className="flex-1 text-[13px] truncate">{node.name}</span>
 
-        {hasErrors && (
+        {hasErrors && !isDirectory && (
           <span className="flex items-center gap-0.5 text-[10px] text-destructive shrink-0" title={`${node.error_count} errors`}>
             <AlertTriangle className="h-2.5 w-2.5" />
           </span>
@@ -122,7 +128,7 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
           </span>
         )}
 
-        {!isDirectory && node.version !== null && node.version !== undefined && (
+        {!isDirectory && node.version !== null && (
           <span className="text-[10px] text-muted-foreground/40 tabular-nums shrink-0">
             v{node.version}
           </span>
@@ -131,7 +137,7 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
 
       {isDirectory && hasChildren && isOpen && (
         <div>
-          {node.children!.map((child) => (
+          {entries.map((child) => (
             <TreeItem
               key={child.path}
               node={child}

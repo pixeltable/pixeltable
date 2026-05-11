@@ -33,7 +33,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import OpStatus, TableOp
+from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
 from .update_status import UpdateStatus
 from .view import View
 
@@ -237,6 +237,11 @@ class Catalog:
         self._column_dependents = None
         self._init_store()
 
+    def __deepcopy__(self, memo: dict[int, object]) -> 'Catalog':
+        # Catalog instances are owned by Runtime and never duplicated. Return self here to prevent deepcopies.
+        memo[id(self)] = self
+        return self
+
     def _active_tbl_clause(
         self, *, tbl_id: UUID | None = None, dir_id: UUID | None = None, tbl_name: str | None = None
     ) -> sql.ColumnElement[bool]:
@@ -281,9 +286,7 @@ class Catalog:
                     base_tv = self._tbl_versions.get(key, None)
                     if base_tv is not None and base_tv.is_validated and tbl_version.handle not in base_tv.mutable_views:
                         mutable_view_ids = ', '.join(str(tv.id) for tv in base_tv.mutable_views)
-                        mutable_view_names = ', '.join(
-                            tv._tbl_version.name for tv in base_tv.mutable_views if tv._tbl_version is not None
-                        )
+                        mutable_view_names = ', '.join(tv.get().name for tv in base_tv.mutable_views)
                         raise AssertionError(
                             f'{tbl_version.name} ({tbl_version.id}) missing in '
                             f'{mutable_view_ids} ({mutable_view_names})'
@@ -749,10 +752,13 @@ class Catalog:
         tbl_version: int | None = None
         op: TableOp | None = None
         exc: Exception | None = None
-        update_op_stmt: sql.Update
-        delete_ops_stmt: sql.Delete
-        reset_tbl_state_stmt: sql.Update
         assert not get_runtime().in_xact, 'Cannot finalize pending ops inside a transaction'
+        # If set, a pending table op update rolled over from the previous loop iteration. It saves us 1 transaction per
+        # non-transactional table op.
+        # Contains: (op, new_op_status, is_final_op)
+        rollover_op_update: tuple[TableOp, OpStatus, bool] | None = None
+
+        tbl_q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
 
         while True:
             try:
@@ -763,8 +769,7 @@ class Catalog:
                     self._allow_tbl_md_read(),
                 ):
                     # determine table status
-                    q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
-                    row = conn.execute(q).one_or_none()
+                    row = conn.execute(tbl_q).one_or_none()
                     if row is None:
                         _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
                         return None
@@ -775,18 +780,20 @@ class Catalog:
                         return None
                     assert tbl_md.tbl_state in (schema.TableState.ROLLFORWARD, schema.TableState.ROLLBACK)
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
-                    tbl_version = tbl_md.current_version if tbl_md.is_snapshot else None
 
-                    # retrieve this table's op log
-                    q = (
-                        sql.select(schema.PendingTableOp)
-                        .where(schema.PendingTableOp.tbl_id == tbl_id)
-                        .order_by(schema.PendingTableOp.op_sn)
-                        .with_for_update()
-                    )
-                    rows = conn.execute(q).fetchall()
-                    assert len(rows) > 0
-                    ops = [TableOp.from_dict(dict(row.op)) for row in rows]
+                    if rollover_op_update is not None:
+                        if self._set_pending_op_status(
+                            tbl_id,
+                            op=rollover_op_update[0],
+                            new_status=rollover_op_update[1],
+                            is_final_op=rollover_op_update[2],
+                        ):
+                            return exc
+
+                        rollover_op_update = None
+
+                    ops = self._read_pending_table_ops(tbl_id)
+                    assert len(ops) > 0
 
                     # determine next op to execute/undo
                     if is_rollback:
@@ -807,30 +814,12 @@ class Catalog:
                         op = next(op for op in ops if op.status == OpStatus.PENDING)
                         is_final_op = op.op_sn == op.num_ops - 1
 
-                    update_op_stmt = (
-                        sql.update(schema.PendingTableOp)
-                        .where(schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.op_sn == op.op_sn)
-                        .values(
-                            op=schema.PendingTableOp.op.op('||')(
-                                {'status': OpStatus.ABORTED.value if is_rollback else OpStatus.COMPLETED.value}
-                            )
-                        )
-                    )
-                    delete_ops_stmt = sql.delete(schema.PendingTableOp).where(schema.PendingTableOp.tbl_id == tbl_id)
-                    reset_tbl_state_stmt = (
-                        sql.update(schema.Table)
-                        .where(schema.Table.id == tbl_id)
-                        .values(
-                            md=schema.Table.md.op('||')(
-                                {'tbl_state': schema.TableState.LIVE.value, 'pending_stmt': None}
-                            )
-                        )
-                    )
                     _logger.debug(
                         f'Finalize pending ops({tbl_id}): finalizing op {op!s}; is_rollback={is_rollback}, '
                         f'is_final_op={is_final_op}, transactional={op.needs_xact}'
                     )
 
+                    tbl_version = tbl_md.current_version if tbl_md.is_snapshot else None
                     tv = (
                         self._get_tbl_version(
                             TableVersionKey(tbl_id, tbl_version, None),
@@ -840,6 +829,7 @@ class Catalog:
                         if op.needs_tv
                         else None
                     )
+                    new_op_status = OpStatus.ABORTED if is_rollback else OpStatus.COMPLETED
                     if op.needs_xact:
                         # TODO: The above TableVersionKey instance will need to be updated if we see a replica here.
                         # For now, just assert that we don't.
@@ -853,12 +843,8 @@ class Catalog:
                             self.mark_modified_tvs(tv.handle)
 
                         _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
-                        if is_final_op:
-                            status = conn.execute(reset_tbl_state_stmt)
-                            status = conn.execute(delete_ops_stmt)
+                        if self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op):
                             return exc
-                        else:
-                            conn.execute(update_op_stmt)
                         continue
 
                 # this op runs outside of a transaction
@@ -868,17 +854,7 @@ class Catalog:
                     op.exec(tv)
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
                 # inside a transaction and therefore wouldn't end up here
-
-                with self.begin_xact(
-                    for_write=True, write_tbl_ids=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
-                ) as conn:
-                    _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
-                    if is_final_op:
-                        conn.execute(reset_tbl_state_stmt)
-                        conn.execute(delete_ops_stmt)
-                        return exc
-                    else:
-                        conn.execute(update_op_stmt)
+                rollover_op_update = (op, new_op_status, is_final_op)
 
             except AssertionError as e:
                 _logger.error(f'Finalize pending ops({tbl_id}): assertion error: {e}', exc_info=True)
@@ -948,6 +924,114 @@ class Catalog:
 
             num_retries = 0
 
+    def _pending_table_ops_update_stmt(
+        self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool
+    ) -> sql.UpdateBase:
+        """
+        Generates a PendingTableOp (pendingtableops) update statement for the given op.
+
+        If this op is final, deletes the ops. Otherwise simply updates the op's status.
+        """
+        pending_ops_stmt: sql.UpdateBase
+        if is_final_op:
+            _logger.info(f'Finalize pending ops({tbl_id}): deleting pendingtableops with tbl_version={op.tbl_version}')
+            pending_ops_stmt = sql.delete(schema.PendingTableOp)
+        else:
+            _logger.info(
+                f'Finalize pending ops({tbl_id}): updating pendingtableops with op_sn={op.op_sn}, '
+                f'tbl_version={op.tbl_version}; new status: {new_status}'
+            )
+            pending_ops_stmt = (
+                sql.update(schema.PendingTableOp)
+                .where(schema.PendingTableOp.op_sn == op.op_sn)
+                .values(op=schema.PendingTableOp.op.op('||')({'status': new_status.value}))
+            )
+        pending_ops_stmt = pending_ops_stmt.where(schema.PendingTableOp.tbl_id == tbl_id)
+
+        # Add a table version condition. This is necessary to avoid a scenario in which a delayed pending ops finalizer
+        # corrupts the table by updating pending ops associated with a future schema change, not the one that it
+        # finalized. This issue is described in more detail in PXT-1130.
+        # Note: all schema changes except create table increment table version. Create table is not a problem because
+        # no other schema change can precede it.
+        # Note: the only known gap that this safeguard does not cover is table revert. The way table revert is
+        # implemented, it decrements table and schema versions. Which means that if we do a schema change, then revert,
+        # then a schema change again, those two schema changes will share a table version value, therefore, with unlucky
+        # timing, the pendingtableops table can still get corrupted. The right fix is for that is not here, it is to
+        # reimplement revert by advancing schema/data versions, not decrementing them.
+        if op.tbl_version is None:
+            # Legacy pendingtableop
+            pending_ops_stmt = pending_ops_stmt.where(sql.not_(schema.PendingTableOp.op.has_key('tbl_version')))
+        else:
+            pending_ops_stmt = pending_ops_stmt.where(
+                schema.PendingTableOp.op['tbl_version'].cast(sql.Integer) == op.tbl_version
+            )
+        return pending_ops_stmt
+
+    def _set_pending_op_status(self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool) -> bool:
+        """
+        Updates the pending op status in the store. If is_final_op, sets table status to LIVE after additional checks.
+
+        Note: is_final_op is a hint that this may have been the last pending table op. Due to possible concurrent schema
+        changes, only the store can be the final authority on the state of the table.
+
+        This function must be called inside a transaction with an exclusive table lock held.
+
+        Returns True if no unresolved pending ops remain on the table, and the table's status was set to LIVE. False
+        otherwise.
+        """
+        pending_ops_stmt = self._pending_table_ops_update_stmt(tbl_id, op, new_status, is_final_op=is_final_op)
+        conn = get_runtime().conn
+        rowcount = conn.execute(pending_ops_stmt).rowcount
+        # Log a message if no pendingtableops rows were matched. DeleteTableMdOp is a special case because it
+        # deletes all pendingtableops.
+        if rowcount == 0 and not isinstance(op, DeleteTableMdOp):
+            _logger.info(
+                f'Finalize pending ops({tbl_id}): no PendingTableOp rows matched. Another process may have already '
+                'resolved the same pending op concurrently.'
+            )
+
+        if not is_final_op:
+            _logger.info(f'Finalize pending ops({tbl_id}): not final op, more pending ops to finalize')
+            return False
+
+        tbl_ops = self._read_pending_table_ops(tbl_id)
+        if len(tbl_ops) > 0:
+            _logger.info(f'Finalize pending ops({tbl_id}): more pending ops found')
+            return False
+
+        # No remaining pending table ops. Reset the table state.
+        reset_tbl_state_stmt = (
+            sql.update(schema.Table)
+            .where(schema.Table.id == tbl_id)
+            .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.LIVE.value, 'pending_stmt': None}))
+        )
+
+        _logger.info(f'Finalize pending ops({tbl_id}): no more pending ops, resetting table state')
+        rowcount = conn.execute(reset_tbl_state_stmt).rowcount
+        if rowcount == 0 and not isinstance(op, DeleteTableMdOp):
+            _logger.info(
+                f'Finalize pending ops({tbl_id}): no Table rows matched. Another process may have deleted the table '
+                'concurrently.'
+            )
+
+        return True
+
+    def _read_pending_table_ops(self, tbl_id: UUID) -> list[TableOp]:
+        """
+        Selects table's pending ops for update and returns them as TableOps in order.
+
+        Must be called inside a transaction with the table selected for update.
+        """
+        conn = get_runtime().conn
+        q = (
+            sql.select(schema.PendingTableOp)
+            .where(schema.PendingTableOp.tbl_id == tbl_id)
+            .order_by(schema.PendingTableOp.op_sn)
+            .with_for_update()
+        )
+        rows = conn.execute(q).fetchall()
+        return [TableOp.from_dict(dict(row.op)) for row in rows]
+
     def _debug_str(self) -> str:
         tv_str = '\n'.join(str(k) for k in self._tbl_versions)
         tbl_str = '\n'.join(str(k) for k in self._tbls)
@@ -981,7 +1065,7 @@ class Catalog:
 
     def record_column_dependencies(self, tbl_version: TableVersion) -> None:
         """Update self._column_dependencies. Only valid for mutable versions."""
-        from pixeltable.exprs import Expr
+        from pixeltable.exprs import ColumnRef, Expr
 
         assert tbl_version.is_mutable
         dependencies: dict[QColumnId, set[QColumnId]] = {}
@@ -989,6 +1073,17 @@ class Catalog:
             if col.value_expr_dict is None:
                 continue
             dependencies[QColumnId(tbl_version.id, col.id)] = Expr.get_refd_column_ids(col.value_expr_dict)
+
+        if tbl_version.is_component_view:
+            iterator_arg_deps: set[QColumnId] = set()
+            iterator_args = tbl_version.iterator_args_expr()
+            if iterator_args is not None:
+                for col_ref in iterator_args.subexprs(ColumnRef):
+                    iterator_arg_deps.add(QColumnId(col_ref.col.tbl_handle.id, col_ref.col.id))
+            if len(iterator_arg_deps) > 0:
+                for col in tbl_version.iterator_columns():
+                    dependencies[QColumnId(tbl_version.id, col.id)] = iterator_arg_deps
+
         self._column_dependencies[tbl_version.id] = dependencies
 
     def get_column_dependents(self, tbl_id: UUID, col_id: int) -> set[Column]:
@@ -1041,18 +1136,40 @@ class Catalog:
             dir_id = dir.parent_id
         return Path.parse('/'.join(names), allow_empty_path=True, allow_system_path=True)
 
+    def _table_error_counts(self) -> dict[UUID, int]:
+        """Returns map from table id to the sum of num_excs across that table's versions."""
+        md = schema.TableVersion.md
+        update_status = md['update_status']
+        row_count_excs = sql.func.coalesce(update_status['row_count_stats']['num_excs'].astext.cast(sql.Integer), 0)
+        cascade_row_count_excs = sql.func.coalesce(
+            update_status['cascade_row_count_stats']['num_excs'].astext.cast(sql.Integer), 0
+        )
+        errors = sql.func.coalesce(sql.func.sum(row_count_excs + cascade_row_count_excs), 0).label('errors')
+        stmt = sql.select(schema.TableVersion.tbl_id, errors).group_by(schema.TableVersion.tbl_id)
+        rows = get_runtime().conn.execute(stmt).all()
+        return {r.tbl_id: r.errors for r in rows}
+
     @dataclasses.dataclass
     class DirEntry:
         dir: schema.Dir | None
         dir_entries: dict[str, Catalog.DirEntry]
         table: schema.Table | None
 
-    @retry_loop(for_write=False)
-    def get_dir_contents(self, dir_path: Path, recursive: bool = False) -> dict[str, DirEntry]:
-        dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
-        return self._get_dir_contents(dir._id, recursive=recursive)
+        # Only populated for table entries when get_dir_contents() was called with with_error_counts=True;
+        # None otherwise (including for directory entries).
+        table_error_count: int | None = None
 
-    def _get_dir_contents(self, dir_id: UUID, recursive: bool = False) -> dict[str, DirEntry]:
+    @retry_loop(for_write=False)
+    def get_dir_contents(
+        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
+    ) -> dict[str, DirEntry]:
+        dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
+        error_counts = self._table_error_counts() if with_error_counts else None
+        return self._get_dir_contents(dir._id, recursive=recursive, error_counts=error_counts)
+
+    def _get_dir_contents(
+        self, dir_id: UUID, recursive: bool = False, *, error_counts: dict[UUID, int] | None = None
+    ) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
         conn = get_runtime().conn
         result: dict[str, Catalog.DirEntry] = {}
@@ -1063,14 +1180,15 @@ class Catalog:
             dir = schema.Dir(**row._mapping)
             dir_contents: dict[str, Catalog.DirEntry] = {}
             if recursive:
-                dir_contents = self._get_dir_contents(dir.id, recursive=True)
+                dir_contents = self._get_dir_contents(dir.id, recursive=True, error_counts=error_counts)
             result[dir.md['name']] = self.DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(self._active_tbl_clause(dir_id=dir_id))
         rows = conn.execute(q).all()
         for row in rows:
             tbl = schema.Table(**row._mapping)
-            result[tbl.md['name']] = self.DirEntry(dir=None, dir_entries={}, table=tbl)
+            err_count = error_counts.get(tbl.id, 0) if error_counts is not None else None
+            result[tbl.md['name']] = self.DirEntry(dir=None, dir_entries={}, table=tbl, table_error_count=err_count)
 
         return result
 
@@ -1395,8 +1513,11 @@ class Catalog:
 
         self._roll_forward()
 
-        with self.begin_xact(for_write=True, write_tbl_ids=[view_id]):
+        @retry_loop(read_tbl_ids=[view_id])
+        def _get_tbl() -> Table:
             return self.get_table_by_id(view_id)
+
+        return _get_tbl()
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)
@@ -1701,7 +1822,7 @@ class Catalog:
         Locking protocol:
         - X-lock base before X-locking any view
         - deadlock-free wrt to TableVersion.insert() (insert propagation also proceeds top-down)
-        - X-locks parent dir prior to calling TableVersion.drop(): prevent concurrent creation of another SchemaObject
+        - X-locks parent dir: prevent concurrent creation of another SchemaObject
           in the same directory with the same name (which could lead to duplicate names if we get aborted)
         """
         is_pure_snapshot: bool
@@ -1783,13 +1904,13 @@ class Catalog:
                 # write TableOps to execute the drop, plus the updated Table record
                 tv = tvp.tbl_version.get()
                 tv.tbl_md.pending_stmt = schema.TableStatement.DROP_TABLE
-                drop_ops = tv.drop()
+                drop_ops, new_version = tv.drop_ops()
                 self.write_tbl_md(
                     tv.id,
                     dir_id=None,
                     tbl_md=tv.tbl_md,
-                    version_md=None,
-                    schema_version_md=None,
+                    version_md=tv.version_md if new_version else None,
+                    schema_version_md=tv.schema_version_md if new_version else None,
                     pending_ops=drop_ops,
                     remove_from_dir=True,
                 )
@@ -2564,7 +2685,7 @@ class Catalog:
         status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
         assert status.rowcount == 1, status.rowcount
 
-    def load_replica_md(self, tbl: Table) -> list[TableVersionMd]:
+    def load_md_for_export(self, tbl: Table, as_replica: bool) -> list[TableVersionMd]:
         """
         Load metadata for the given table along with all its ancestors. The values of TableMd.current_version and
         TableMd.current_schema_version will be adjusted to ensure that the metadata represent a valid (internally
@@ -2583,9 +2704,10 @@ class Catalog:
             md = [snapshot_md, *md]
 
         for ancestor_md in md:
-            # Set the `is_replica` flag on every ancestor's TableMd.
-            ancestor_md.tbl_md.is_replica = True
-            # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
+            if as_replica:
+                # Set the `is_replica` flag on every ancestor's TableMd.
+                ancestor_md.tbl_md.is_replica = True
+            # For exported metadata, we guarantee that the current_version and current_schema_version of TableMd
             # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,
             # when the metadata is later stored in the catalog of a different Pixeltable instance, the values of
             # current_version and current_schema_version will always point to versions that are known to the
@@ -2593,11 +2715,12 @@ class Catalog:
             ancestor_md.tbl_md.current_version = ancestor_md.version_md.version
             ancestor_md.tbl_md.current_schema_version = ancestor_md.schema_version_md.schema_version
 
-        for ancestor_md in md[1:]:
-            # Also, the table version of every proper ancestor is emphemeral; it does not represent a queryable
-            # table version (the data might be incomplete, since we have only retrieved one of its views, not
-            # the table itself).
-            ancestor_md.version_md.is_fragment = True
+        if as_replica:
+            for ancestor_md in md[1:]:
+                # Also, the table version of every proper ancestor is ephemeral; it does not represent a queryable
+                # table version (the data might be incomplete, since we have only retrieved one of its views, not
+                # the table itself).
+                ancestor_md.version_md.is_fragment = True
 
         return md
 

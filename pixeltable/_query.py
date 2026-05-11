@@ -274,19 +274,15 @@ class ResultCursor(Iterable[Row]):
     Examples:
         Iterate over all rows in a table:
 
-        ```python
-        for row in t.cursor():
-            print(row['col_name'])
-        ```
+        >>> for row in t.cursor():
+        ...     print(row['col_name'])
 
         Use as a context manager for early termination:
 
-        ```python
-        with t.select(t.col1, t.col2).cursor() as cur:
-            for row in cur:
-                if row['col1'] > threshold:
-                    break  # resources are released on exit
-        ```
+        >>> with t.select(t.col1, t.col2).cursor() as cur:
+        ...     for row in cur:
+        ...         if row['col1'] > threshold:
+        ...             break  # resources are released on exit
     """
 
     def __init__(self, query: Query):
@@ -361,7 +357,11 @@ class ResultCursor(Iterable[Row]):
 
 
 class Query:
-    """Represents a query for retrieving and transforming data from Pixeltable tables."""
+    """
+    Represents a query for retrieving and transforming data from Pixeltable tables.
+
+    Thread-safe.
+    """
 
     _from_clause: plan.FromClause
     _select_list_exprs: list[exprs.Expr]
@@ -369,11 +369,15 @@ class Query:
     select_list: list[tuple[exprs.Expr, str | None]] | None
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
-    grouping_tbl: catalog.TableVersion | None
+    # TVH: we need to avoid inadvertently caching catalog objects, which get invalidated across thread/xact boundaries
+    grouping_tbl: catalog.TableVersionHandle | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
     offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
+
+    # Catalog instance against which this Query was constructed
+    _origin_catalog: 'catalog.Catalog'
 
     def __init__(
         self,
@@ -381,7 +385,7 @@ class Query:
         select_list: list[tuple[exprs.Expr, str | None]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
-        grouping_tbl: catalog.TableVersion | None = None,
+        grouping_tbl: catalog.TableVersionHandle | None = None,
         order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,  # list[(expr, asc)]
         limit: exprs.Expr | None = None,
         offset: exprs.Expr | None = None,
@@ -407,6 +411,28 @@ class Query:
         self.limit_val = limit
         self.offset_val = offset
         self.sample_clause = sample_clause
+        self._origin_catalog = get_runtime().catalog
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> 'Query':
+        cls = type(self)
+        new = cls.__new__(cls)
+        memo[id(self)] = new
+        for k, v in self.__dict__.items():
+            new.__dict__[k] = copy.deepcopy(v, memo)
+        # make sure to record the current catalog
+        new._origin_catalog = get_runtime().catalog
+        return new
+
+    def _rebind(self) -> 'Query':
+        """Return self if its origin matches the current runtime's catalog, else a deepcopy re-rooted to it.
+
+        Catalog instances are per-thread, so this also covers the cross-thread case: a Query built on one thread
+        and used to chain a builder method on another thread will be deepcopied here, resetting the origin/thread
+        state of all embedded TVHs/TVPs/Exprs.
+        """
+        if self._origin_catalog is get_runtime().catalog:
+            return self
+        return copy.deepcopy(self)
 
     @classmethod
     def _normalize_select_list(
@@ -568,7 +594,7 @@ class Query:
         group_by_clause: list[exprs.Expr] | None = None
         if self.grouping_tbl is not None:
             assert self.group_by_clause is None
-            num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
+            num_rowid_cols = len(self.grouping_tbl.get().store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
             assert num_rowid_cols <= len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
             group_by_clause = self.__rowid_columns(num_rowid_cols)
@@ -597,6 +623,7 @@ class Query:
         return len(self._from_clause.join_clauses) > 0
 
     def show(self, n: int = 20) -> ResultSet:
+        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'show() cannot be used with sample()')
         assert n is not None
@@ -617,6 +644,7 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with order_by()')
         if self._has_joins():
@@ -644,6 +672,7 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with order_by()')
         if self._has_joins():
@@ -720,7 +749,11 @@ class Query:
                 )
 
         return Query(
-            from_clause=self._from_clause,
+            # Deepcopy from_clause so its TableVersionHandles get their _tbl_version cache
+            # reset (via TableVersionHandle.__deepcopy__). Without this, a worker thread
+            # executing a bound Query would render FROM via the importing thread's sa_tbl
+            # while WHERE references its own sa_tbl, producing a duplicate-FROM error.
+            from_clause=copy.deepcopy(self._from_clause),
             select_list=select_list,
             where_clause=where_clause,
             group_by_clause=group_by_clause,
@@ -782,6 +815,7 @@ class Query:
         return tbl_ids
 
     def _output_row_iterator(self) -> Generator[list, None, None]:
+        self = self._rebind()  # noqa: PLW0642
         tbl_ids = self.referenced_tbl_ids()
         with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=tbl_ids):
             try:
@@ -805,6 +839,7 @@ class Query:
         return ResultCursor(self)
 
     async def _acollect(self) -> ResultSet:
+        self = self._rebind()  # noqa: PLW0642
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         columns = {name: i for i, name in enumerate(self.schema)}
         try:
@@ -825,6 +860,8 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
+        if self._origin_catalog is not get_runtime().catalog:
+            return copy.deepcopy(self).count()
         if self.limit_val is not None and self.limit_val.val == 0:
             return 0
         with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()) as conn:
@@ -933,6 +970,7 @@ class Query:
             >>> query = person.select(t.name, is_adult=(t.age >= 18))
 
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.select_list is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Select list already specified')
         for name, _ in named_items.items():
@@ -1017,6 +1055,7 @@ class Query:
 
             >>> query = person.where(t.age > 30)
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.where_clause is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'where() clause already specified')
         if self.sample_clause is not None:
@@ -1176,6 +1215,8 @@ class Query:
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
+        other._validate_thread()
+        self = self._rebind()  # noqa: PLW0642
         assert len(self._from_clause.tbls) > 0
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
@@ -1253,12 +1294,13 @@ class Query:
 
             >>> query = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'group_by() already specified')
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by() cannot be used with sample()')
 
-        grouping_tbl: catalog.TableVersion | None = None
+        grouping_tbl: catalog.TableVersionHandle | None = None
         group_by_clause: list[exprs.Expr] | None = None
         for item in grouping_items:
             if isinstance(item, (catalog.Table, catalog.TableVersion)):
@@ -1270,13 +1312,16 @@ class Query:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by() with Table not supported for joins'
                     )
-                grouping_tbl = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
+                # Take a handle (identity), not a TV instance: the Query may be invoked from a
+                # different thread/xact than the one that built it.
+                grouping_tv = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
+                grouping_tbl = grouping_tv.handle
                 # we need to make sure that the grouping table is a base of self.tbl
                 base = self._first_tbl.find_tbl_version(grouping_tbl.id)
                 if base is None or base.id == self._first_tbl.tbl_id:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'group_by(): {grouping_tbl.name!r} is not a base table of {self._first_tbl.tbl_name()!r}',
+                        f'group_by(): {grouping_tv.name!r} is not a base table of {self._first_tbl.tbl_name()!r}',
                     )
                 break
             if not isinstance(item, exprs.Expr):
@@ -1318,6 +1363,7 @@ class Query:
             ...     .distinct()
             ... )
         """
+        self = self._rebind()  # noqa: PLW0642
         exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
         return self.group_by(*exps)
 
@@ -1351,6 +1397,7 @@ class Query:
 
             >>> query = book.order_by(t.price, asc=False).order_by(t.pages)
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'order_by() cannot be used with sample()')
         for e in expr_list:
@@ -1390,6 +1437,7 @@ class Query:
 
             >>> query.limit(10, offset=20).collect()
         """
+        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'limit() cannot be used with sample()')
 
@@ -1474,6 +1522,7 @@ class Query:
 
             >>> query = person.where(t.age > 30).sample(n=100)
         """
+        self = self._rebind()  # noqa: PLW0642
         # Check context of usage
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Multiple sample() clauses not allowed')
@@ -1693,7 +1742,9 @@ class Query:
         group_by_clause = (
             [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
         )
-        grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+        grouping_tbl = (
+            catalog.TableVersionHandle.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+        )
         order_by_clause = (
             [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
             if d['order_by_clause'] is not None

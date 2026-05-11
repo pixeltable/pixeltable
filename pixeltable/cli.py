@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import argparse
 import errno
-import json as json_mod
+import json
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pydantic
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
-
-if TYPE_CHECKING:
-    from pixeltable.serving._config import AppConfig, RouteConfig
+from pixeltable import config, exceptions as excs
+from pixeltable.serving import deploy
+from pixeltable.serving._config import create_service_from_config, lookup_service_config
 
 
 class _Parser(argparse.ArgumentParser):
@@ -28,12 +27,12 @@ class _Parser(argparse.ArgumentParser):
         sys.exit(2)
 
 
-# Examples mirror the "Quickstart (single-endpoint CLI)" section of
-# docs/release/howto/deployment/serving.mdx. Keep in sync if examples change.
-_EPILOG_CONFIG = """\
-Examples:
-  pxt serve config service.toml
-  pxt serve config service.toml --port 9000"""
+_SERVE_SUBCOMMANDS = ('insert', 'query', 'update', 'delete')
+
+_EPILOG_SERVE = """\
+To start a configured service:
+  pxt serve <service-name>
+  pxt serve <service-name> --port 9000"""
 
 _EPILOG_INSERT = """\
 Examples:
@@ -53,6 +52,11 @@ _EPILOG_QUERY = """\
 Examples:
   pxt serve query --query myapp.queries.search_docs --path /search"""
 
+_EPILOG_DEPLOY = """\
+To deploy into the environment `staging`:
+  pxt deploy staging
+"""
+
 
 def main() -> None:
     parser = _Parser(
@@ -64,8 +68,30 @@ def main() -> None:
     parser.add_argument('--version', action='version', version=f'pxt {pxt.__version__}')
     subparsers = parser.add_subparsers(dest='command', required=False)
 
-    serve_parser = subparsers.add_parser('serve', help='Start an HTTP service')
-    _add_serve_subparsers(serve_parser)
+    serve_parser = subparsers.add_parser(
+        'serve', help='Start an HTTP service', formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    # Detect whether this is `pxt serve <service-name>` or `pxt serve <subcommand>`.
+    # If the first arg after `serve` is not a known subcommand and not a flag,
+    # set up the parser for named-service mode; otherwise set up subcommand parsers.
+    argv = sys.argv[1:]
+    if len(argv) >= 2 and argv[0] == 'serve' and argv[1] not in _SERVE_SUBCOMMANDS and not argv[1].startswith('-'):
+        serve_parser.add_argument('service', help='Name of the configured service to start')
+        _add_service_args(serve_parser)
+        _add_output_args(serve_parser)
+    else:
+        serve_parser.epilog = _EPILOG_SERVE
+        _add_serve_subparsers(serve_parser)
+
+    deploy_parser = subparsers.add_parser(
+        'deploy',
+        help='Deploy the services in the specified environment to Pixeltable cloud.',
+        epilog=_EPILOG_DEPLOY,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    deploy_parser.add_argument('env', help='Name of the target environment')
+    deploy_parser.add_argument('--json', action='store_true', dest='json', help='Emit machine-readable JSON output')
 
     args = parser.parse_args()
 
@@ -76,6 +102,8 @@ def main() -> None:
     try:
         if args.command == 'serve':
             _serve(args)
+        elif args.command == 'deploy':
+            _deploy(args)
     except pxt.Error as e:
         _emit_error(str(e), args.json)
         sys.exit(1)
@@ -83,7 +111,7 @@ def main() -> None:
 
 def _emit_error(message: str, json_output: bool) -> None:
     if json_output:
-        print(json_mod.dumps({'status': 'error', 'message': message}), file=sys.stderr)
+        print(json.dumps({'status': 'error', 'message': message}), file=sys.stderr)
     else:
         print(f'pxt: error: {message}', file=sys.stderr)
 
@@ -91,8 +119,8 @@ def _emit_error(message: str, json_output: bool) -> None:
 def _add_service_args(p: argparse.ArgumentParser) -> None:
     p.add_argument('--host', type=str, default=None, help='Bind address (overrides config default)')
     p.add_argument('--port', type=int, default=None, help='Bind port (overrides config default)')
-    p.add_argument('--title', type=str, default=None, help='Service title (overrides config default)')
     p.add_argument('--prefix', type=str, default=None, help='URL prefix (overrides config default)')
+    p.add_argument('--config', type=str, default=None, help='Path to an additional TOML config file')
 
 
 def _add_output_args(p: argparse.ArgumentParser) -> None:
@@ -102,19 +130,36 @@ def _add_output_args(p: argparse.ArgumentParser) -> None:
     p.add_argument('--json', action='store_true', dest='json', help='Emit machine-readable JSON output')
 
 
+def _add_export_sql_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        '--export-sql-db-connect',
+        dest='export_sql_db_connect',
+        default=None,
+        help='SQLAlchemy connection string for an external SQL target (enables export_sql)',
+    )
+    p.add_argument(
+        '--export-sql-table',
+        dest='export_sql_table',
+        default=None,
+        help='Target table name (required when --export-sql-db-connect is set)',
+    )
+    p.add_argument(
+        '--export-sql-db-schema',
+        dest='export_sql_db_schema',
+        default=None,
+        help='Optional database schema qualifier for the target table',
+    )
+    p.add_argument(
+        '--export-sql-method',
+        dest='export_sql_method',
+        choices=('insert', 'update', 'merge'),
+        default='insert',
+        help="How to write each row into the target table (default: 'insert')",
+    )
+
+
 def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     serve_sub = serve_parser.add_subparsers(dest='mode', required=True)
-
-    # pxt serve config <path>
-    config_parser = serve_sub.add_parser(
-        'config',
-        help='Load service from a TOML config file',
-        epilog=_EPILOG_CONFIG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    config_parser.add_argument('config', type=str, help='Path to the service TOML file')
-    _add_service_args(config_parser)
-    _add_output_args(config_parser)
 
     # pxt serve insert
     insert_parser = serve_sub.add_parser(
@@ -141,6 +186,7 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
         help='Stream the output as a file response',
     )
     insert_parser.add_argument('--background', action='store_true', help='Run the insert in the background')
+    _add_export_sql_args(insert_parser)
     _add_service_args(insert_parser)
     _add_output_args(insert_parser)
 
@@ -167,6 +213,7 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
         help='Stream the output as a file response',
     )
     update_parser.add_argument('--background', action='store_true', help='Run the update in the background')
+    _add_export_sql_args(update_parser)
     _add_service_args(update_parser)
     _add_output_args(update_parser)
 
@@ -222,58 +269,70 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     _add_output_args(query_parser)
 
 
-def _serve(args: argparse.Namespace) -> None:
-    from pixeltable.serving._config import AppConfig, ServiceConfig, create_app_from_config, load_app_config
+def _deploy(args: argparse.Namespace) -> None:
+    deploy.build_deploy_bundle(args.env)
 
-    if args.mode == 'config':
-        config = load_app_config(args.config)
+
+def _serve(args: argparse.Namespace) -> None:
+    if args.config is not None:
+        config.Config.init({}, additional_config_files=[args.config])
+    if hasattr(args, 'service'):
+        cfg = lookup_service_config(args.service)
     else:
         try:
-            route = _build_route_from_args(args)
-            config = AppConfig(service=ServiceConfig(), routes=[route])
+            route = _create_route_from_args(args)
+            cfg = config.ServiceConfig(name='pxt-serve', routes=[route])
         except pydantic.ValidationError as e:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, str(e)) from e
 
-    overrides = {
-        k: v
-        for k, v in (('host', args.host), ('port', args.port), ('title', args.title), ('prefix', args.prefix))
-        if v is not None
-    }
+    overrides = {k: v for k, v in (('host', args.host), ('port', args.port), ('prefix', args.prefix)) if v is not None}
     if overrides:
         try:
-            new_service = ServiceConfig.model_validate(config.service.model_dump() | overrides)
+            cfg = config.ServiceConfig.model_validate(cfg.model_dump() | overrides)
         except pydantic.ValidationError as e:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, str(e)) from e
-        config = config.model_copy(update={'service': new_service})
 
     if args.dry_run:
-        _print_dry_run(config, args.json)
+        _print_dry_run(cfg, args.json)
         return
 
-    _run(config, create_app_from_config(config), args.json)
+    _run(cfg, create_service_from_config(cfg), args.json)
 
 
-def _print_dry_run(config: 'AppConfig', json_output: bool) -> None:
+def _print_dry_run(config: config.ServiceConfig, json_output: bool) -> None:
     if json_output:
         print(config.model_dump_json(indent=2))
     else:
-        svc = config.service
-        print(f'Service:  {svc.title}')
-        print(f'  Host:   {svc.host}')
-        print(f'  Port:   {svc.port}')
-        if svc.prefix:
-            print(f'  Prefix: {svc.prefix}')
+        print(f'Service:  {config.name}')
+        print(f'  Host:   {config.host}')
+        print(f'  Port:   {config.port}')
+        if config.prefix:
+            print(f'  Prefix: {config.prefix}')
         print(f'Routes ({len(config.routes)}):')
         for route in config.routes:
             d = route.model_dump()
             print(f'  [{d["type"]}] {d["path"]}')
 
 
-def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
-    from pixeltable.serving._config import DeleteRouteConfig, InsertRouteConfig, QueryRouteConfig, UpdateRouteConfig
+def _create_sql_export(args: argparse.Namespace) -> config.SqlExport | None:
+    db_connect = args.export_sql_db_connect
+    table = args.export_sql_table
+    db_schema = args.export_sql_db_schema
+    if db_connect is None:
+        if table is not None or db_schema is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                '--export-sql-table / --export-sql-db-schema requires --export-sql-db-connect',
+            )
+        return None
+    if table is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '--export-sql-db-connect requires --export-sql-table')
+    return config.SqlExport(db_connect=db_connect, table=table, db_schema=db_schema, method=args.export_sql_method)
 
+
+def _create_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
     if args.mode == 'insert':
-        return InsertRouteConfig(
+        return config.InsertRouteConfig(
             type='insert',
             table=args.table,
             path=args.path,
@@ -281,20 +340,22 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
             uploadfile_inputs=args.uploadfile_inputs,
             outputs=args.outputs,
             return_fileresponse=args.return_fileresponse,
+            export_sql=_create_sql_export(args),
             background=args.background,
         )
     if args.mode == 'update':
-        return UpdateRouteConfig(
+        return config.UpdateRouteConfig(
             type='update',
             table=args.table,
             path=args.path,
             inputs=args.inputs,
             outputs=args.outputs,
             return_fileresponse=args.return_fileresponse,
+            export_sql=_create_sql_export(args),
             background=args.background,
         )
     if args.mode == 'delete':
-        return DeleteRouteConfig(
+        return config.DeleteRouteConfig(
             type='delete',
             table=args.table,
             path=args.path,
@@ -302,7 +363,7 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
             background=args.background,
         )
     if args.mode == 'query':
-        return QueryRouteConfig(
+        return config.QueryRouteConfig(
             type='query',
             path=args.path,
             query=args.query,
@@ -316,7 +377,7 @@ def _build_route_from_args(args: argparse.Namespace) -> 'RouteConfig':
     raise AssertionError(f'unknown serve mode: {args.mode}')
 
 
-def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
+def _run(config: config.ServiceConfig, app: Any, json_output: bool = False) -> None:
     try:
         import uvicorn
     except ImportError as e:
@@ -325,7 +386,7 @@ def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
             "uvicorn is required for `pxt serve`; install it with `pip install 'fastapi[standard]'`",
         ) from e
 
-    host, port = config.service.host, config.service.port
+    host, port = config.host, config.port
     # wildcard bind addresses aren't navigable; print localhost for the URL hints
     display_host = 'localhost' if host in ('0.0.0.0', '::', '') else host
     if ':' in display_host:
@@ -335,7 +396,7 @@ def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
 
     if json_output:
         print(
-            json_mod.dumps(
+            json.dumps(
                 {
                     'status': 'starting',
                     'host': host,
@@ -347,7 +408,7 @@ def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
             )
         )
     else:
-        print(f'Starting Pixeltable service: {config.service.title}')
+        print(f'Starting Pixeltable service: {config.name}')
         print(f'  Bound to {host}:{port}')
         print(f'  Listening on {url}')
         print(f'  API docs at {docs_url}')
@@ -360,7 +421,7 @@ def _run(config: 'AppConfig', app: Any, json_output: bool = False) -> None:
             message = f'port {port} is already in use'
             if json_output:
                 print(
-                    json_mod.dumps({'status': 'error', 'code': 'EADDRINUSE', 'port': port, 'message': message}),
+                    json.dumps({'status': 'error', 'code': 'EADDRINUSE', 'port': port, 'message': message}),
                     file=sys.stderr,
                 )
             else:

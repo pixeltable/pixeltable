@@ -20,6 +20,7 @@
           <outline text="func|pixeltable.create_dir" />
           <outline text="func|pixeltable.drop_dir" />
           <outline text="func|pixeltable.get_dir_contents" />
+          <outline text="func|pixeltable.get_dir_tree" />
           <outline text="func|pixeltable.home" />
           <outline text="func|pixeltable.ls" />
           <outline text="func|pixeltable.move" />
@@ -125,8 +126,11 @@
 
           <outline text="class|pixeltable.ColumnMetadata" />
           <outline text="class|pixeltable.DirContents" />
+          <outline text="class|pixeltable.DirectoryNode" />
           <outline text="class|pixeltable.IndexMetadata" />
           <outline text="class|pixeltable.TableMetadata" />
+          <outline text="class|pixeltable.TableNode" />
+          <outline text="class|pixeltable.TreeNode" />
           <outline text="class|pixeltable.UpdateStatus" />
           <outline text="class|pixeltable.VersionMetadata" />
         </outline>
@@ -312,10 +316,10 @@
           <outline text="udf|pixeltable.functions.video.grayscale" />
           <outline text="udf|pixeltable.functions.video.mirror_x" />
           <outline text="udf|pixeltable.functions.video.mirror_y" />
+          <outline text="udf|pixeltable.functions.video.mix_audio" />
+          <outline text="udf|pixeltable.functions.video.overlay_image" />
           <outline text="udf|pixeltable.functions.video.overlay_text" />
-          <!-- pan omitted: its docstring cross-ref to scroll() produces a broken
-               #func-scroll link (doctools bug: cross-refs always use #func- but
-               UDF headings produce #udf- anchors) -->
+          <outline text="udf|pixeltable.functions.video.pan" />
           <outline text="udf|pixeltable.functions.video.resize" />
           <outline text="udf|pixeltable.functions.video.reverse" />
           <outline text="udf|pixeltable.functions.video.rotate" />
@@ -414,6 +418,7 @@
           <outline text="udf|pixeltable.functions.openai.transcriptions" />
           <outline text="udf|pixeltable.functions.openai.translations" />
           <outline text="udf|pixeltable.functions.openai.chat_completions" />
+          <outline text="udf|pixeltable.functions.openai.responses" />
           <outline text="udf|pixeltable.functions.openai.embeddings" />
           <outline text="udf|pixeltable.functions.openai.image_generations" />
           <outline text="udf|pixeltable.functions.openai.image_edits" />
@@ -475,6 +480,7 @@
             <outline text="method|pixeltable.serving.FastAPIRouter.add_delete_route" />
             <outline text="method|pixeltable.serving.FastAPIRouter.add_query_route" />
           </outline>
+          <outline text="class|pixeltable.serving.SqlExport" />
         </outline>
       </outline>
 

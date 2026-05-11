@@ -1158,3 +1158,26 @@ class TestQuery:
             assert len(res) == row_count
 
         benchmark(select_inexpensive)
+
+    def test_query_after_column_drop(self, uses_db: None) -> None:
+        t = pxt.create_table('t_drop', {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(10)]), expected_rows=10)
+        q = t.select(t.a, t.b)
+        assert len(q.collect()) == 10
+
+        t.drop_column('b')
+
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
+            q.collect()
+
+    def test_query_after_column_drop_and_add(self, uses_db: None) -> None:
+        t = pxt.create_table('t_readd', {'a': pxt.Required[pxt.Int], 'keep': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': 1, 'keep': 0}]), expected_rows=1)
+        q = t.select(t.a)
+        assert len(q.collect()) == 1
+
+        t.drop_column('a')
+        t.add_column(a=pxt.String)
+
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
+            q.collect()

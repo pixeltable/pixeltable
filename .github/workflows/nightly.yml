@@ -46,16 +46,21 @@ jobs:
         package-configs:
           - ""
           - "lancedb mcp opencv-python scenedetect"
-          - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm"
           - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
           - "fal-client reve runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "label_studio_sdk"
           - "pixeltable-yolox"
-          - "whisperx transformers timm"
         os: [ubuntu-24.04]
         include:
+          # transformers-based tests need to run on a larger runner.
+          - python-version: "3.10"
+            package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm"
+            os: ubuntu-large
+          - python-version: "3.10"
+            package-configs: "whisperx transformers timm"
+            os: ubuntu-large
           # Test the basic pixeltable installation on other platforms.
           - python-version: "3.10"
             package-configs: ""
@@ -105,7 +110,7 @@ jobs:
           conda-remove-defaults: true
       - name: Install python
         run: |
-          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }}
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }} pip
           conda info
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
