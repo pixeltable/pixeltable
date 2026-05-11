@@ -125,6 +125,8 @@ class TestDeploy:
 
     def test_deploy_bundle_errors(self, uses_db: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test error paths in build_deploy_bundle()."""
+        skip_test_if_not_installed('fastapi')
+
         config_path = tmp_path / 'pixeltable.toml'
         monkeypatch.chdir(tmp_path)
 
