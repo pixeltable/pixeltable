@@ -101,7 +101,7 @@ class PxtEndpoint:
     name: str
     signature: inspect.Signature
     uploadfile_inputs: list[str]
-    executor: ThreadPoolExecutor | None
+    background: bool
     endpoint_op: Callable[..., Any]
     tbl: pxt.Table | None
 

@@ -119,6 +119,7 @@ def _tables_from_fastapi_app(env_cfg: config.EnvironmentConfig, module_attr: str
     table_paths: set[str] = set()
     for route in app.routes:
         if isinstance(route, Route) and isinstance(route.endpoint, PxtEndpoint):
+            assert route.endpoint.tbl is not None  # It's only None for Query routes
             table_paths.add(route.endpoint.tbl._path())
 
     _logger.info(

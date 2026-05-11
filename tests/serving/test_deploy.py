@@ -15,16 +15,15 @@ import toml
 import pixeltable as pxt
 from pixeltable import exceptions as excs, metadata
 from pixeltable.config import Config
-from pixeltable.env import Env
 from pixeltable.serving.deploy import build_deploy_bundle
 
-from ..utils import pxt_raises
+from ..utils import pxt_raises, skip_test_if_not_installed
 
 
 class TestDeploy:
     def test_deploy_bundle(self, uses_db: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Build a deploy bundle from a TOML config and verify its contents."""
-        Env.get().require_package('fastapi')
+        skip_test_if_not_installed('fastapi')
         from fastapi import FastAPI
 
         from pixeltable.serving import FastAPIRouter
