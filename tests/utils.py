@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import datetime
 import glob
 import itertools
@@ -765,7 +763,7 @@ def validate_sync_status(
         assert status.num_excs == expected_num_excs, status
 
 
-def sqlite_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> SqlCatalog:
+def sqlite_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> 'SqlCatalog':
     """
     Instantiate a sqlite Iceberg catalog at the specified path. If no catalog exists, one will be created.
     """
