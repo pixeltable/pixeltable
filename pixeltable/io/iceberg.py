@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from pyiceberg.catalog import Catalog
     from pyiceberg.table import Table as IcebergTable
 
+
 def export_iceberg(
     table_or_query: pxt.Table | pxt.Query,
     catalog: Catalog,
@@ -50,7 +51,7 @@ def export_iceberg(
 
     from pyiceberg.exceptions import NoSuchTableError
     from pyiceberg.table import Table
-    
+
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
