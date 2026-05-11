@@ -829,9 +829,22 @@ def _get_subtree(
                     base = f'{base_path}:{base_version}' if base_version is not None else base_path
 
             assert entry.table_error_count is not None
+            # column_md / index_md track when an entry was dropped; schema_version_drop is None for active ones
+            column_md = tbl_md.get('column_md') or {}
+            index_md = tbl_md.get('index_md') or {}
+            active_cols = [c for c in column_md.values() if c.get('schema_version_drop') is None]
+            active_idxs = [i for i in index_md.values() if i.get('schema_version_drop') is None]
             nodes.append(
                 TableNode(
-                    name=name, path=path, kind=kind, version=version, error_count=entry.table_error_count, base=base
+                    name=name,
+                    path=path,
+                    kind=kind,
+                    version=version,
+                    error_count=entry.table_error_count,
+                    base=base,
+                    num_cols=len(active_cols),
+                    has_computed_cols=any(c.get('value_expr') is not None for c in active_cols),
+                    has_indexes=len(active_idxs) > 0,
                 )
             )
 
