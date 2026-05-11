@@ -20,7 +20,8 @@
               "overview/pixeltable",
               "overview/quick-start",
               "overview/ten-minute-tour",
-              "overview/building-pixeltable-with-llms"
+              "overview/building-pixeltable-with-llms",
+              "platform/cli"
             ]
           },
           {
@@ -383,6 +384,10 @@
   },
   "navbar": {
     "links": [
+      {
+        "label": "AI Skill",
+        "href": "https://github.com/pixeltable/pixeltable-skill"
+      },
       {
         "label": "Discord",
         "href": "https://discord.com/invite/QPyqFYx2UN"
