@@ -206,7 +206,7 @@ class LabelStudioProject(Project):
 
         # slot_idxs live on the planned exprs returned by select_list_exprs(); the rebound
         # Query's own _select_list_exprs are pre-compile and don't carry them.
-        sl = rows.select_list_exprs()
+        sl = rows._compiled_select_list()
         media_col_idx = sl[0].slot_idx
         rl_col_idxs = [expr.slot_idx for expr in sl[1 : 1 + len(t_rl_cols)]]
         localpath_col_idx = sl[-1].slot_idx
@@ -316,7 +316,7 @@ class LabelStudioProject(Project):
                 'predictions': predictions,
             }
 
-        sl = query.select_list_exprs()
+        sl = query._compiled_select_list()
         rl_col_idxs = [expr.slot_idx for expr in sl[: len(t_rl_cols)]]
         data_col_idxs = [expr.slot_idx for expr in sl[len(t_rl_cols) :]]
         for row in query._exec():

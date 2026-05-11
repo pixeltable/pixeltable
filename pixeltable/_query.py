@@ -591,15 +591,16 @@ class Query:
         # validated only within a transaction. The cache lives on the per-thread Runtime, keyed
         # by Query identity. The plan owns its own select-list exprs (with slot_idxs from
         # compilation), so callers extracting output rows read those from the plan.
+        assert get_runtime().in_xact
         cache = get_runtime().plan_cache
         plan = cache.get(self)
-        if plan is not None and not plan.is_stale(self._current_table_versions()):
+        if plan is not None and not plan.is_stale(self._from_clause_tbl_versions()):
             return plan
         plan = self._create_query_plan()
         cache[self] = plan
         return plan
 
-    def _current_table_versions(self) -> dict[UUID, int]:
+    def _from_clause_tbl_versions(self) -> dict[UUID, int]:
         out: dict[UUID, int] = {}
         for tbl in self._from_clause.tbls:
             for tvh in tbl.get_tbl_versions():
@@ -609,8 +610,6 @@ class Query:
         return out
 
     def _create_query_plan(self) -> exec.ExecPlan:
-        # The planner deepcopies its inputs; Query just hands its references. TVHs/TVPs in
-        # from_clause are thread-safe and structurally immutable, so they can be shared.
         has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in self._from_clause.tbls)
         if has_unversioned_tbl:
             # For now, we only support queries of the simplest form on unversioned tables
@@ -630,8 +629,6 @@ class Query:
             assert num_rowid_cols <= len(first_tbl.tbl_version.get().store_tbl.rowid_columns())
             group_by_clause = Planner.rowid_columns(first_tbl.tbl_version, num_rowid_cols)
 
-        # Variables in clauses flow through to SQL bindparams or to Expr.prepare() at iteration
-        # time, so the compiled plan is reusable across distinct bind values.
         select_list = list(self._select_list_exprs)
         root = Planner.create_query_plan(
             self._from_clause,
@@ -643,7 +640,7 @@ class Query:
             offset=self.offset_val,
             sample_clause=self.sample_clause,
         )
-        compile_versions = self._current_table_versions()
+        compile_versions = self._from_clause_tbl_versions()
         return exec.ExecPlan(
             root,
             root.ctx,
@@ -784,7 +781,7 @@ class Query:
         self._referenced_tbl_ids = tbl_ids
         return tbl_ids
 
-    def select_list_exprs(self) -> list[exprs.Expr]:
+    def _compiled_select_list(self) -> list[exprs.Expr]:
         """Return the planned select-list exprs, with slot_idx assigned by plan compilation.
 
         Use these (not Query's internal exprs) when extracting values from a DataRow produced
@@ -797,7 +794,7 @@ class Query:
         tbl_ids = self.referenced_tbl_ids()
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls):
             try:
-                planned_exprs = self.select_list_exprs()
+                planned_exprs = self._compiled_select_list()
                 for data_row in self._exec(args=args):
                     yield [data_row[e.slot_idx] for e in planned_exprs]
             except excs.ExprEvalError as e:
@@ -828,7 +825,7 @@ class Query:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         columns = {name: i for i, name in enumerate(self.schema)}
         try:
-            planned_exprs = self.select_list_exprs()
+            planned_exprs = self._compiled_select_list()
             result = [
                 Row(tuple(row[e.slot_idx] for e in planned_exprs), columns, self.schema)
                 async for row in self._aexec(args=args)

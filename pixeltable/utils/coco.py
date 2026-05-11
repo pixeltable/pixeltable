@@ -95,7 +95,7 @@ def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     categories: set[Any] = set()
     # Read slot_idx from the planned expr returned by query.select_list_exprs(); the rebound
     # Query's own _select_list_exprs no longer carry slot_idx.
-    input_dict_expr = query.select_list_exprs()[0]
+    input_dict_expr = query._compiled_select_list()[0]
     input_dict_slot_idx = input_dict_expr.slot_idx
     img_slot_idx: int | None = None
     for img_id, input_row in enumerate(query._exec()):
