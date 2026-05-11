@@ -16,6 +16,12 @@ commands:
   count      count rows in a table
   status     show daemon/runtime state
   env        show pixeltable env vars and active config file
+  computed   list computed columns (alias for 'columns --computed')
+  drop       drop a table or view (use 'rm' for directories)
+  rm         remove a directory (use 'drop' for tables/views)
+  rename     rename a table/view/dir in place
+  mv         move a table/view/dir to a different directory
+  revert     undo the last op(s) on a table
 
 Use 'pcli <command> --help' for subcommand options.
 """
@@ -63,6 +69,24 @@ def main() -> None:
     elif cmd == 'env':
         from .commands import env
         env.run(argv)
+    elif cmd == 'computed':
+        from .commands import computed
+        computed.run(argv)
+    elif cmd == 'drop':
+        from .commands import drop
+        drop.run(argv)
+    elif cmd == 'rm':
+        from .commands import rm
+        rm.run(argv)
+    elif cmd == 'rename':
+        from .commands import rename
+        rename.run(argv)
+    elif cmd == 'mv':
+        from .commands import mv
+        mv.run(argv)
+    elif cmd == 'revert':
+        from .commands import revert
+        revert.run(argv)
     else:
         print(f'pcli: unknown command: {cmd}', file=sys.stderr)
         sys.exit(2)
