@@ -191,3 +191,45 @@ class TestDeploy:
         Config.init({}, reinit=True)
         with pxt_raises(excs.ErrorCode.PATH_NOT_FOUND, match='no_such_table'):
             build_deploy_bundle('my-env')
+
+        # Code-defined service: module cannot be imported
+        config_path.write_text(
+            textwrap.dedent("""\
+            [[environment]]
+            name = "my-env"
+            services = ["no_such_module:app"]
+            """)
+        )
+        Config.init({}, reinit=True)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='Could not import module'):
+            build_deploy_bundle('my-env')
+
+        # Code-defined service: module exists but attribute does not
+        skip_test_if_not_installed('fastapi')
+        test_module = MagicMock(spec=[])  # spec=[] means no attributes
+        monkeypatch.setitem(sys.modules, 'pxttest_noattr', test_module)
+        config_path.write_text(
+            textwrap.dedent("""\
+            [[environment]]
+            name = "my-env"
+            services = ["pxttest_noattr:missing_app"]
+            """)
+        )
+        Config.init({}, reinit=True)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='has no attribute'):
+            build_deploy_bundle('my-env')
+
+        # Code-defined service: attribute exists but is not a FastAPI app
+        test_module_bad = MagicMock()
+        test_module_bad.not_a_fastapi = 'just a string'
+        monkeypatch.setitem(sys.modules, 'pxttest_bad', test_module_bad)
+        config_path.write_text(
+            textwrap.dedent("""\
+            [[environment]]
+            name = "my-env"
+            services = ["pxttest_bad:not_a_fastapi"]
+            """)
+        )
+        Config.init({}, reinit=True)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='is not a FastAPI app'):
+            build_deploy_bundle('my-env')

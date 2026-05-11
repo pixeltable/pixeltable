@@ -17,7 +17,6 @@ from pixeltable import config, exceptions as excs, metadata
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.serving._config import lookup_environment_config, lookup_service_config
-from pixeltable.serving._fastapi import PxtEndpoint
 
 _logger = logging.getLogger('pixeltable')
 
@@ -96,6 +95,8 @@ def _tables_from_fastapi_app(env_cfg: config.EnvironmentConfig, module_attr: str
     all tables mentioned by any insert routes."""
     from fastapi import FastAPI
     from starlette.routing import Route
+
+    from pixeltable.serving._fastapi import PxtEndpoint
 
     module_path, attr_name = module_attr.split(':', 1)
     try:
