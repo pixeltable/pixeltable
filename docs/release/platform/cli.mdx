@@ -149,6 +149,10 @@ Start a service with a single insert endpoint.
 
 SQL export flags are also available on insert and update routes. See [SQL export flags](#sql-export-flags).
 
+<Warning>
+`--background` and `--return-fileresponse` are mutually exclusive. Similarly, `--export-sql-*` flags cannot be combined with `--return-fileresponse`. These constraints apply to all serve subcommands that support these flags.
+</Warning>
+
 ```bash
 pxt serve insert --table my_dir.my_table --path /generate \
   --inputs prompt --outputs prompt result --port 8000
