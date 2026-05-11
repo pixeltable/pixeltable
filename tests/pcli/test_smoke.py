@@ -107,6 +107,89 @@ class TestPcliSmoke:
         # PIXELTABLE_DB is always set by init_env
         assert 'PIXELTABLE_DB' in out['env_vars']
 
+    def test_computed(self, pcli) -> None:
+        pxt.create_dir('pcli_smoke', if_exists='ignore')
+        t = pxt.create_table('pcli_smoke.cmp', {'a': pxt.Int}, if_exists='replace')
+        t.add_computed_column(b=t.a * 2)
+
+        entries = pcli('computed', 'pcli_smoke/cmp', '--json').json
+        names = {e['column'] for e in entries}
+        assert names == {'b'}
+
+    def test_drop_and_rm(self, pcli) -> None:
+        pxt.create_dir('pcli_smoke', if_exists='ignore')
+        pxt.create_dir('pcli_smoke.tmp_dir', if_exists='ignore')
+        pxt.create_table('pcli_smoke.tmp_dir.victim', {'a': pxt.Int}, if_exists='replace')
+
+        # drop the table
+        out = pcli('drop', 'pcli_smoke/tmp_dir/victim', '-f', '--json').json
+        assert out['dropped'] is True
+        assert pxt.get_table('pcli_smoke/tmp_dir/victim', if_not_exists='ignore') is None
+
+        # remove the now-empty dir
+        out = pcli('rm', 'pcli_smoke/tmp_dir', '-f', '--json').json
+        assert out['dropped'] is True
+
+    def test_rm_recursive(self, pcli) -> None:
+        pxt.create_dir('pcli_smoke', if_exists='ignore')
+        pxt.create_dir('pcli_smoke.nest', if_exists='ignore')
+        pxt.create_table('pcli_smoke.nest.t', {'a': pxt.Int}, if_exists='replace')
+
+        # non-recursive should fail
+        r = pcli('rm', 'pcli_smoke/nest', '-f', check=False)
+        assert r.returncode != 0
+
+        # recursive succeeds
+        out = pcli('rm', 'pcli_smoke/nest', '-r', '-f', '--json').json
+        assert out['dropped'] is True
+
+    def test_drop_dry_run(self, pcli) -> None:
+        pxt.create_dir('pcli_smoke', if_exists='ignore')
+        pxt.create_table('pcli_smoke.dry_run_target', {'a': pxt.Int}, if_exists='replace')
+
+        r = pcli('drop', 'pcli_smoke/dry_run_target', '-n')
+        assert 'would drop' in r.stdout
+        # still exists
+        assert pxt.get_table('pcli_smoke/dry_run_target', if_not_exists='ignore') is not None
+
+    def test_no_force_no_tty(self, pcli) -> None:
+        pxt.create_dir('pcli_smoke', if_exists='ignore')
+        pxt.create_table('pcli_smoke.protected', {'a': pxt.Int}, if_exists='replace')
+
+        r = pcli('drop', 'pcli_smoke/protected', check=False)
+        assert r.returncode != 0
+        assert '--force' in r.stderr
+        assert pxt.get_table('pcli_smoke/protected', if_not_exists='ignore') is not None
+
+    def test_rename(self, pcli) -> None:
+        pxt.create_dir('pcli_smoke', if_exists='ignore')
+        pxt.create_table('pcli_smoke.old_name', {'a': pxt.Int}, if_exists='replace')
+
+        out = pcli('rename', 'pcli_smoke/old_name', 'new_name', '--json').json
+        assert out['new_path'] == 'pcli_smoke/new_name'
+        assert pxt.get_table('pcli_smoke/new_name', if_not_exists='ignore') is not None
+        assert pxt.get_table('pcli_smoke/old_name', if_not_exists='ignore') is None
+
+    def test_mv(self, pcli) -> None:
+        pxt.create_dir('pcli_smoke', if_exists='ignore')
+        pxt.create_dir('pcli_smoke.src', if_exists='ignore')
+        pxt.create_dir('pcli_smoke.dst', if_exists='ignore')
+        pxt.create_table('pcli_smoke.src.movee', {'a': pxt.Int}, if_exists='replace')
+
+        out = pcli('mv', 'pcli_smoke/src/movee', 'pcli_smoke/dst', '--json').json
+        assert out['new_path'] == 'pcli_smoke/dst/movee'
+        assert pxt.get_table('pcli_smoke/dst/movee', if_not_exists='ignore') is not None
+
+    def test_revert(self, pcli) -> None:
+        pxt.create_dir('pcli_smoke', if_exists='ignore')
+        t = pxt.create_table('pcli_smoke.revert_me', {'a': pxt.Int}, if_exists='replace')
+        t.insert([{'a': 1}])
+        v_before = t.get_metadata()['version']
+
+        out = pcli('revert', 'pcli_smoke/revert_me', '-f', '--json').json
+        assert out['from_version'] == v_before
+        assert out['to_version'] == v_before - 1
+
     def test_errors_requires_pk(self, pcli) -> None:
         pxt.create_dir('pcli_smoke', if_exists='ignore')
         pxt.create_table('pcli_smoke.no_pk', {'a': pxt.Int}, if_exists='replace')

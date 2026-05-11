@@ -147,3 +147,35 @@ class GetRequest(BaseModel):
 class GetResponse(BaseModel):
     pk_columns: list[str]
     row: dict | None
+
+
+class DropRequest(BaseModel):
+    path: str
+    cascade: bool = False  # drops dependent views (tables) or recurses (dirs)
+    is_dir: bool  # client tells us which API to call
+
+
+class DropResponse(BaseModel):
+    path: str
+    dropped: bool
+
+
+class MoveRequest(BaseModel):
+    path: str
+    new_path: str
+
+
+class MoveResponse(BaseModel):
+    path: str
+    new_path: str
+
+
+class RevertRequest(BaseModel):
+    path: str
+    steps: int = 1  # number of consecutive revert() calls
+
+
+class RevertResponse(BaseModel):
+    path: str
+    from_version: int
+    to_version: int
