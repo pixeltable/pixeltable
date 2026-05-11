@@ -13,7 +13,7 @@ from pixeltable.utils.arrow import find_null_fields, to_arrow_schema, to_record_
 
 if TYPE_CHECKING:
     from pyiceberg.catalog import Catalog
-
+    from pyiceberg.table import Table as IcebergTable
 
 def export_iceberg(
     table_or_query: pxt.Table | pxt.Query,
@@ -49,7 +49,8 @@ def export_iceberg(
     Env.get().require_package('pyiceberg')
 
     from pyiceberg.exceptions import NoSuchTableError
-
+    from pyiceberg.table import Table
+    
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
@@ -71,7 +72,7 @@ def export_iceberg(
     else:
         query = table_or_query
 
-    existing_tbl = None
+    existing_tbl: IcebergTable | None = None
     try:
         existing_tbl = catalog.load_table(table_name)
     except NoSuchTableError:
