@@ -782,12 +782,7 @@ class Query:
         return tbl_ids
 
     def _compiled_select_list(self) -> list[exprs.Expr]:
-        """Return the planned select-list exprs, with slot_idx assigned by plan compilation.
-
-        Use these (not Query's internal exprs) when extracting values from a DataRow produced
-        by _exec()/_aexec(). Must be called inside a transaction; the result references this
-        thread's catalog state.
-        """
+        """Select list exprs that can be evaluated in the context of a plan (has slot_idxs assigned)."""
         return self._ensure_plan().select_list_exprs
 
     def _output_row_iterator(self, args: dict[str, Any] | None = None) -> Generator[list, None, None]:
@@ -822,6 +817,8 @@ class Query:
         return ResultCursor(self)
 
     async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:
+        # this can only be called in the context of a running transaction
+        assert get_runtime().in_xact
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         columns = {name: i for i, name in enumerate(self.schema)}
         try:
