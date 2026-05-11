@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import sys
 import tarfile
 import textwrap
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import toml
@@ -13,15 +15,34 @@ import toml
 import pixeltable as pxt
 from pixeltable import exceptions as excs, metadata
 from pixeltable.config import Config
+from pixeltable.env import Env
 from pixeltable.serving.deploy import build_deploy_bundle
-from tests.utils import pxt_raises
+
+from ..utils import pxt_raises
 
 
 class TestDeploy:
     def test_deploy_bundle(self, uses_db: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Build a deploy bundle from a TOML config and verify its contents."""
+        Env.get().require_package('fastapi')
+        from fastapi import FastAPI
+
+        from pixeltable.serving import FastAPIRouter
+
         _ = pxt.create_table('table1', {'id': pxt.Int, 'name': pxt.String})
-        _ = pxt.create_table('table2', {'id': pxt.Int, 'value': pxt.Float})
+        pxt.create_dir('dir1')
+        _ = pxt.create_table('dir1.table2', {'id': pxt.Int, 'value': pxt.Float})
+        tbl3 = pxt.create_table('dir1.table3', {'id': pxt.Int, 'description': pxt.String})
+
+        app = FastAPI(title='Pixeltable Test Service', version='0.42')
+        router = FastAPIRouter()
+        router.add_insert_route(tbl3, path='/insert3')
+        app.include_router(router)
+
+        # Monkeypatch a new module with the test service so that config can find it
+        test_service_module = MagicMock()
+        test_service_module.test_service = app
+        monkeypatch.setitem(sys.modules, 'pxttest', test_service_module)
 
         config_path = tmp_path / 'pixeltable.toml'
         config_contents = textwrap.dedent(
@@ -30,7 +51,7 @@ class TestDeploy:
             name = "test-deploy"
             include = ["*.toml", "a*.txt"]
             exclude = ["a_exclude.txt"]
-            services = ["myservice1", "myservice2"]
+            services = ["myservice1", "myservice2", "pxttest:test_service"]
 
             [[service]]
             name = "myservice1"
@@ -38,15 +59,15 @@ class TestDeploy:
             [[service.routes]]
             type = "insert"
             table = "table1"
-            path = "/insert"
+            path = "/insert1"
 
             [[service]]
             name = "myservice2"
 
             [[service.routes]]
             type = "insert"
-            table = "table2"
-            path = "/insert"
+            table = "dir1.table2"
+            path = "/insert2"
             """
         )
         config_path.write_text(config_contents)
@@ -86,7 +107,7 @@ class TestDeploy:
                 assert content['service'][0]['name'] == 'myservice1'
                 assert content['service'][0]['routes'][0]['table'] == 'table1'
                 assert content['service'][1]['name'] == 'myservice2'
-                assert content['service'][1]['routes'][0]['table'] == 'table2'
+                assert content['service'][1]['routes'][0]['table'] == 'dir1.table2'
 
             # Verify the contents of metadata.json
             metadata_member = tar.getmember('metadata.json')
@@ -94,7 +115,7 @@ class TestDeploy:
                 content = json.loads(f.read().decode('utf-8'))
                 assert content['pxt_version'] == pxt.__version__
                 assert content['pxt_md_version'] == metadata.VERSION
-                assert len(content['tables_md']) == 2  # 2 tables referenced in services
+                assert len(content['tables_md']) == 3  # 3 tables referenced in services
                 assert len(content['tables_md'][0]) == 3  # TableVersionMd structure
 
             # Verify the contents of conda-env.yml

@@ -92,6 +92,68 @@ def _run_endpoint_op(
         raise
 
 
+class PxtEndpoint:
+    """
+    Wrapper for an endpoint `Callable` that carries additional metadata about the endpoint operation.
+    """
+
+    router: 'FastAPIRouter'
+    name: str
+    signature: inspect.Signature
+    uploadfile_inputs: list[str]
+    executor: ThreadPoolExecutor | None
+    endpoint_op: Callable[..., Any]
+    tbl: pxt.Table | None
+
+    def __init__(
+        self,
+        router: 'FastAPIRouter',
+        name: str,
+        signature: inspect.Signature,
+        uploadfile_inputs: list[str],
+        background: bool,
+        endpoint_op: Callable[..., Any],
+        tbl: pxt.Table | None,
+    ) -> None:
+        self.router = router
+        self.name = name
+        self.signature = signature
+        self.uploadfile_inputs = uploadfile_inputs
+        self.background = background
+        self.endpoint_op = endpoint_op
+        self.tbl = tbl
+
+        # FastAPI needs the correct signature and a name
+        self.__signature__ = signature
+        self.__name__ = name
+
+    def __call__(self, request: Request, **kwargs: Any) -> Any:
+        sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
+        media_url_base = sample_url[:-1]
+
+        def url_for_media(rel_path: str) -> str:
+            return f'{media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
+
+        # write out uploads while the request is still alive
+        tmp_paths: list[Path] = []
+        if len(self.uploadfile_inputs) > 0:
+            # list(...): make sure that the sequence of name/val pairs can't change underneath us
+            for input_name, val in list(kwargs.items()):
+                if input_name in self.uploadfile_inputs:
+                    path = self.router._write_to_temp(val)
+                    tmp_paths.append(path)
+                    kwargs[input_name] = str(path)
+
+        if self.background:
+            job_id = uuid.uuid4().hex
+            fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, url_for_media)
+            with self.router._jobs_lock:
+                self.router._jobs[job_id] = fut
+            return BackgroundJobResponse(id=job_id, job_url=str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id)))
+        else:
+            return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, url_for_media)
+
+
 class FastAPIRouter(fastapi.APIRouter):
     """
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
@@ -807,12 +869,14 @@ class FastAPIRouter(fastapi.APIRouter):
         cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
         match_cols = [cols_by_name[name] for name in match_columns]
         sig = self._create_endpoint_signature(input_cols=match_cols)
-        endpoint = self._create_endpoint(
+        endpoint = PxtEndpoint(
+            self,
             f'delete_{path.strip("/").replace("/", "_") or "root"}',
             sig,
             uploadfile_inputs=[],
             background=background,
             endpoint_op=run_delete,
+            tbl=t,
         )
         self.add_api_route(path, endpoint, methods=['POST'], response_model=endpoint_model)
 
@@ -1042,12 +1106,14 @@ class FastAPIRouter(fastapi.APIRouter):
             is_post=(method == 'post'),
             defaults=input_defaults,
         )
-        endpoint = self._create_endpoint(
+        endpoint = PxtEndpoint(
+            self,
             f'query_{path.strip("/").replace("/", "_") or "root"}',
             sig,
             uploadfile_inputs=uploadfile_inputs,
             background=background,
             endpoint_op=run_query,
+            tbl=None,
         )
 
         api_kwargs: dict[str, Any] = {'methods': [method.upper()]}
@@ -1150,8 +1216,14 @@ class FastAPIRouter(fastapi.APIRouter):
             return row_processor(rows[0], url_for_media)
 
         sig = self._create_endpoint_signature(input_cols=pk_cols + input_cols, upload_col_names=uploadfile_inputs)
-        endpoint = self._create_endpoint(
-            endpoint_name, sig, uploadfile_inputs=uploadfile_inputs, background=background, endpoint_op=run_dml
+        endpoint = PxtEndpoint(
+            self,
+            endpoint_name,
+            sig,
+            uploadfile_inputs=uploadfile_inputs,
+            background=background,
+            endpoint_op=run_dml,
+            tbl=t,
         )
         api_kwargs: dict[str, Any] = {'methods': ['POST']}
         if background:
@@ -1161,6 +1233,7 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_model'] = row_processor_model
         if return_fileresponse:
             api_kwargs['response_class'] = FileResponse
+
         self.add_api_route(path, endpoint, **api_kwargs)
 
     def _validate_decorated_fn(
@@ -1314,47 +1387,6 @@ class FastAPIRouter(fastapi.APIRouter):
             output_item_str='column',
         )
         return pk_col_names, input_col_names, output_col_names, cols_by_name
-
-    def _create_endpoint(
-        self,
-        name: str,
-        signature: inspect.Signature,
-        uploadfile_inputs: list[str],
-        background: bool,
-        endpoint_op: Callable,
-    ) -> Callable[..., Any]:
-        def endpoint(request: Request, **kwargs: Any) -> Any:
-            sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
-            media_url_base = sample_url[:-1]
-
-            def url_for_media(rel_path: str) -> str:
-                return f'{media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
-
-            # write out uploads while the request is still alive
-            tmp_paths: list[Path] = []
-            if len(uploadfile_inputs) > 0:
-                # list(...): make sure that the sequence of name/val pairs can't change underneath us
-                for input_name, val in list(kwargs.items()):
-                    if input_name in uploadfile_inputs:
-                        path = self._write_to_temp(val)
-                        tmp_paths.append(path)
-                        kwargs[input_name] = str(path)
-
-            if background:
-                job_id = uuid.uuid4().hex
-                fut = self._executor.submit(_run_endpoint_op, endpoint_op, kwargs, tmp_paths, url_for_media)
-                with self._jobs_lock:
-                    self._jobs[job_id] = fut
-                return BackgroundJobResponse(
-                    id=job_id, job_url=str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id))
-                )
-            else:
-                return _run_endpoint_op(endpoint_op, kwargs, tmp_paths, url_for_media)
-
-        # FastAPI needs the correct signature and a name
-        endpoint.__signature__ = signature  # type: ignore[attr-defined]
-        endpoint.__name__ = name
-        return endpoint
 
     def _validate_args(
         self,

@@ -5,6 +5,7 @@ import os
 import subprocess
 import tarfile
 import tempfile
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +13,11 @@ import toml
 from pathspec import PathSpec
 
 import pixeltable as pxt
-from pixeltable import config, metadata
+from pixeltable import config, exceptions as excs, metadata
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.serving._config import lookup_environment_config, lookup_service_config
+from pixeltable.serving._fastapi import PxtEndpoint
 
 _logger = logging.getLogger('pixeltable')
 
@@ -27,22 +29,23 @@ def build_deploy_bundle(environment_name: str) -> Path:
     - catalog metadata for any relevant tables
     - environment and service configuration
     """
+    Env.get().require_package('fastapi')
 
     cfg = lookup_environment_config(environment_name)
     Env.get().console_logger.info(f'Deploying {environment_name!r} ...')
-    services_cfg = [lookup_service_config(name) for name in cfg.services]
-    if len(services_cfg) == 0:
+
+    # Process the list of services, validating them and collecting their configs and table MD.
+    services_cfg, md_export = _process_services(cfg)
+
+    if len(cfg.services) == 0:
         Env.get().console_logger.warning('That environment contains no services.')
     else:
-        Env.get().console_logger.info(
-            f'The following service(s) will be deployed: {", ".join(service.name for service in services_cfg)}'
-        )
+        Env.get().console_logger.info(f'The following service(s) will be deployed: {", ".join(cfg.services)}')
 
     config_export = {
         'environment': [cfg.model_dump(mode='json')],
         'service': [service.model_dump(mode='json') for service in services_cfg],
     }
-    md_export = _export_tables_md(services_cfg)
     conda_export = _export_conda_env()
     lockfile = _find_lockfile()
     if conda_export is None and len(cfg.env_dependencies) == 0:
@@ -58,6 +61,70 @@ def build_deploy_bundle(environment_name: str) -> Path:
     bundle_path = package(cfg, config_export=config_export, md_export=md_export, conda_export=conda_export)
     Env.get().console_logger.info(f'Built project bundle: {bundle_path}')
     return bundle_path
+
+
+def _process_services(cfg: config.EnvironmentConfig) -> tuple[list[config.ServiceConfig], dict[str, Any]]:
+    """
+    Validate the services listed in the environment config.
+
+    Returns: (list of service configs, table md export)
+    """
+    services_cfg: list[config.ServiceConfig] = []
+    table_paths: set[str] = set()
+    for service_name in cfg.services:
+        if ':' in service_name:
+            # "module:attribute" references a service defined as a FastAPI app in user code.
+            paths = _tables_from_fastapi_app(cfg, service_name)
+            table_paths.update(paths)
+        else:
+            # Otherwise, it references a service defined in config.
+            service_cfg = lookup_service_config(service_name)
+            for route in service_cfg.routes:
+                # Query routes are only supported for cloud-hosted tables (not implemented yet)
+                # TODO: we should catch this upstream to prevent users from trying to deploy unsupported configurations
+                assert not isinstance(route, config.QueryRouteConfig)
+                table_paths.add(route.table)
+            services_cfg.append(service_cfg)
+            _logger.info(f'Validated service {service_name!r} with {len(service_cfg.routes)} route(s).')
+
+    md_export = _export_tables_md(table_paths)
+    return services_cfg, md_export
+
+
+def _tables_from_fastapi_app(env_cfg: config.EnvironmentConfig, module_attr: str) -> set[str]:
+    """Given a "module:attribute" reference to a FastAPI app, import the module and inspect the app's routes to find
+    all tables mentioned by any insert routes."""
+    from fastapi import FastAPI
+    from starlette.routing import Route
+
+    module_path, attr_name = module_attr.split(':', 1)
+    try:
+        module = import_module(module_path)
+    except Exception as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Could not import module `{module_path}` referenced in environment {env_cfg.name!r}: {e}',
+        ) from e
+    if not hasattr(module, attr_name):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Module `{module_path}` referenced in environment {env_cfg.name!r} has no attribute `{attr_name}`',
+        )
+    app = getattr(module, attr_name)
+    if not isinstance(app, FastAPI):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Service `{module_attr}` referenced in environment {env_cfg.name!r} is not a FastAPI app',
+        )
+    table_paths: set[str] = set()
+    for route in app.routes:
+        if isinstance(route, Route) and isinstance(route.endpoint, PxtEndpoint):
+            table_paths.add(route.endpoint.tbl._path())
+
+    _logger.info(
+        f'Validated service {module_attr!r} with {len(table_paths)} table(s) referenced by {len(app.routes)} route(s).'
+    )
+    return table_paths
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
@@ -86,15 +153,8 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
     return sorted(files)
 
 
-def _export_tables_md(services_cfg: list[config.ServiceConfig]) -> dict[str, Any]:
+def _export_tables_md(table_paths: set[str]) -> dict[str, Any]:
     # Get all tables mentioned by any route contained in this environment.
-    table_paths: set[str] = set()
-    for service in services_cfg:
-        for route in service.routes:
-            # Query routes are only supported for cloud-hosted tables (not implemented yet)
-            # TODO: we should catch this upstream to prevent users from trying to deploy unsupported configurations
-            assert not isinstance(route, config.QueryRouteConfig)
-            table_paths.add(route.table)
     tables = [pxt.get_table(path) for path in sorted(table_paths)]
 
     # Get the md for all ancestors of all such tables.
