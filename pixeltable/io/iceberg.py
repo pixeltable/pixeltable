@@ -10,7 +10,7 @@ import pyarrow as pa
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
-from pixeltable.utils.arrow import find_null_fields
+from pixeltable.utils.arrow import find_null_fields, to_arrow_schema, to_record_batches
 
 if TYPE_CHECKING:
     from pyiceberg.catalog import Catalog
@@ -66,7 +66,6 @@ def export_iceberg(
 
     from pyiceberg.exceptions import NoSuchTableError
 
-    from pixeltable.utils.arrow import to_arrow_schema, to_record_batches
 
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.RequestError(
