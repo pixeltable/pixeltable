@@ -5,7 +5,7 @@ Production code calls `process_fault(loc)` at each `FaultLocation`. In productio
 no-op (`ProdFaultManager`). In tests, a `TestFaultManager` can register a `Fault` at any
 location before triggering the code under test:
 
-- `ExceptionFault`: raises a given exception
+- `ExceptionFault`: raises an exception
 - `BlockFault`: pauses the thread at the fault point, letting the test inspect or manipulate shared state before calling
 `unblock()`
 """
