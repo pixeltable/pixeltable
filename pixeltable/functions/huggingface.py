@@ -376,6 +376,151 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
     return output_list
 
 
+@pxt.udf
+def sam_for_segmentation(
+    image: PIL.Image.Image,
+    *,
+    model_id: str = 'facebook/sam3',
+    text: str | None = None,
+    input_boxes: list[list[float]] | None = None,
+    input_boxes_labels: list[int] | None = None,
+    threshold: float = 0.5,
+    mask_threshold: float = 0.5,
+    revision: str | None = None,
+) -> dict[str, Any]:
+    """
+    Computes SAM 3 (Segment Anything Model 3) Promptable Concept Segmentation for the specified image.
+    `model_id` should be a reference to a pretrained
+    [SAM 3 Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3`.
+
+    SAM 3 performs Promptable Concept Segmentation (PCS): given a concept prompt (a short text noun phrase,
+    a set of bounding boxes, or both), it detects and segments every object instance in the image that
+    matches the concept.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    Args:
+        image: The image to segment.
+        model_id: The pretrained SAM 3 model to use (default `facebook/sam3`).
+        text: Optional concept prompt as a short noun phrase (e.g., `'yellow school bus'`).
+        input_boxes: Optional list of bounding boxes in `[x1, y1, x2, y2]` pixel coordinates that
+            constrain the concept (e.g., `[[100, 150, 500, 450]]`).
+        input_boxes_labels: Optional list of integer labels for each box: `1` for positive
+            (include this region), `0` for negative (exclude this region). If `input_boxes` is
+            provided and this is `None`, all boxes default to positive.
+        threshold: Confidence threshold for filtering detections.
+        mask_threshold: Threshold applied to mask logits to produce binary masks.
+        revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not
+            specified, uses the default revision for the model.
+
+    Returns:
+        A dictionary containing the segmentation output, in the following format:
+
+            ```python
+            {
+                # list of confidence scores for each detected instance
+                'scores': [0.92, 0.88],
+                # list of bounding boxes, [x1, y1, x2, y2] in absolute pixel coordinates
+                'boxes': [[51.9, 356.1, 181.4, 413.9], [383.2, 58.6, 605.6, 361.3]],
+                # binary masks for each detected instance, shape (num_instances, H, W)
+                'masks': np.ndarray,
+            }
+            ```
+
+    Examples:
+        Add a computed column that segments every "cat" in an existing Pixeltable column `image` of the
+        table `tbl`:
+
+        >>> tbl.add_computed_column(seg=sam_for_segmentation(tbl.image, text='cat'))
+
+        Use a bounding-box prompt to segment a specific object:
+
+        >>> tbl.add_computed_column(
+        ...     seg=sam_for_segmentation(
+        ...         tbl.image, input_boxes=[[100, 150, 500, 450]]
+        ...     )
+        ... )
+
+        Combine a text prompt with a negative box to exclude a region:
+
+        >>> tbl.add_computed_column(
+        ...     seg=sam_for_segmentation(
+        ...         tbl.image,
+        ...         text='handle',
+        ...         input_boxes=[[40, 183, 318, 204]],
+        ...         input_boxes_labels=[0],
+        ...     )
+        ... )
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import Sam3Model, Sam3Processor
+
+    if text is None and input_boxes is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            'At least one of `text` or `input_boxes` must be provided to sam_for_segmentation',
+        )
+
+    if input_boxes_labels is not None:
+        if input_boxes is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, '`input_boxes_labels` was provided without `input_boxes`'
+            )
+        if len(input_boxes_labels) != len(input_boxes):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'`input_boxes_labels` (length {len(input_boxes_labels)}) must have the same length as '
+                f'`input_boxes` (length {len(input_boxes)})',
+            )
+
+    model = _lookup_model(
+        model_id,
+        Sam3Model.from_pretrained,
+        device=device,
+        revision=revision,
+        cache_key=(model_id, Sam3Model.from_pretrained, device, ('revision', revision)),
+    )
+    processor = _lookup_processor(model_id, Sam3Processor.from_pretrained, revision=revision)
+    normalized_image = normalize_image_mode(image)
+
+    processor_kwargs: dict[str, Any] = {'images': normalized_image, 'return_tensors': 'pt'}
+    if text is not None:
+        processor_kwargs['text'] = text
+    if input_boxes is not None:
+        processor_kwargs['input_boxes'] = [input_boxes]
+        labels = input_boxes_labels if input_boxes_labels is not None else [1] * len(input_boxes)
+        processor_kwargs['input_boxes_labels'] = [labels]
+
+    with torch.no_grad():
+        inputs = processor(**processor_kwargs).to(device)
+        outputs = model(**inputs)
+        results = processor.post_process_instance_segmentation(
+            outputs, threshold=threshold, mask_threshold=mask_threshold, target_sizes=inputs['original_sizes'].tolist()
+        )
+
+    result = results[0]
+    masks = result['masks']
+    boxes = result['boxes']
+    scores = result['scores']
+
+    if hasattr(masks, 'cpu'):
+        masks_np = masks.cpu().numpy()
+    else:
+        masks_np = np.asarray(masks)
+    if masks_np.dtype != np.bool_:
+        masks_np = masks_np.astype(bool)
+
+    return {
+        'scores': [float(s) for s in (scores.cpu().tolist() if hasattr(scores, 'cpu') else list(scores))],
+        'boxes': [[float(v) for v in box] for box in (boxes.cpu().tolist() if hasattr(boxes, 'cpu') else list(boxes))],
+        'masks': masks_np,
+    }
+
+
 @pxt.udf(batch_size=4)
 def vit_for_image_classification(
     image: Batch[PIL.Image.Image], *, model_id: str, top_k: int = 5
