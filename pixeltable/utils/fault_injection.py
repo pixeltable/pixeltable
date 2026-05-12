@@ -110,7 +110,7 @@ class ExceptionFault:
         _logger.info(f'Injecting {type(self.e)} at fault location {loc}')
         with self._lock:
             self._counter += 1
-            raise self.e
+            raise type(self.e)(*self.e.args)
 
     def counter(self) -> int:
         with self._lock:

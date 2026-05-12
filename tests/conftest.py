@@ -160,9 +160,9 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
 
 @pytest.fixture(autouse=True)
 def clear_armed_faults() -> Iterator[None]:
-    """Disarm any faults that the previous test left behind"""
-    get_runtime().fault_manager.clear_faults()
+    """Disarms any faults that the test left behind"""
     yield
+    get_runtime().fault_manager.clear_faults()
 
 
 @pytest.fixture(scope='function')

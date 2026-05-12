@@ -114,10 +114,8 @@ class MultiThreadedScenario:
         def check_exceptions() -> None:
             with exc_lock:
                 if exceptions:
-                    step_name, exc = exceptions[0]
-                    raise (
-                        exc if isinstance(exc, TimeoutError) else RuntimeError(f'Step "{step_name}" failed: {exc}')
-                    ) from exc
+                    _, exc = exceptions[0]
+                    raise exc
 
         for w in workers:
             remaining = deadline - time.monotonic()
