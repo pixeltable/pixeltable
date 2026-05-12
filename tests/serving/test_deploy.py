@@ -126,6 +126,9 @@ class TestDeploy:
     def test_deploy_bundle_errors(self, uses_db: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test error paths in build_deploy_bundle()."""
         skip_test_if_not_installed('fastapi')
+        from fastapi import FastAPI
+
+        from pixeltable.serving import FastAPIRouter
 
         config_path = tmp_path / 'pixeltable.toml'
         monkeypatch.chdir(tmp_path)
@@ -173,6 +176,28 @@ class TestDeploy:
         Config.init({}, reinit=True)
         with pxt_raises(excs.ErrorCode.SERVICE_NOT_FOUND, match="Service 'missing-service' not found"):
             build_deploy_bundle('my-env')
+
+        # TOML-defined service: route type is not 'compute' (e.g. 'insert')
+        _ = pxt.create_table('deploy_err_toml_tbl', {'id': pxt.Int})
+        for route_type in ('insert', 'update', 'delete'):
+            config_path.write_text(
+                textwrap.dedent(f"""\
+                [[environment]]
+                name = "my-env"
+                services = ["my-service"]
+
+                [[service]]
+                name = "my-service"
+
+                [[service.routes]]
+                type = "{route_type}"
+                table = "deploy_err_toml_tbl"
+                path = "/invalid"
+                """)
+            )
+            Config.init({}, reinit=True)
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match="only 'compute' routes are supported"):
+                build_deploy_bundle('my-env')
 
         # Table referenced in route does not exist
         config_path.write_text(
@@ -235,3 +260,25 @@ class TestDeploy:
         Config.init({}, reinit=True)
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='is not a FastAPI app'):
             build_deploy_bundle('my-env')
+
+        # Code-defined service: route is not a 'compute' route (e.g. 'insert')
+        t = pxt.create_table('deploy_err_tbl', {'id': pxt.Required[pxt.Int], 'name': pxt.String}, primary_key='id')
+        for route_type in ('insert', 'update', 'delete'):
+            insert_app = FastAPI()
+            insert_router = FastAPIRouter()
+            add_route_fn = getattr(insert_router, f'add_{route_type}_route')
+            add_route_fn(t, path='/invalid')
+            insert_app.include_router(insert_router)
+            test_module = MagicMock()
+            test_module.app = insert_app
+            monkeypatch.setitem(sys.modules, 'pxttest', test_module)
+            config_path.write_text(
+                textwrap.dedent("""\
+                [[environment]]
+                name = "my-env"
+                services = ["pxttest:app"]
+                """)
+            )
+            Config.init({}, reinit=True)
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match="only 'compute' routes are supported"):
+                build_deploy_bundle('my-env')
