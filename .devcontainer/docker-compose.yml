@@ -93,6 +93,7 @@ services:
           SET CLUSTER SETTING sql.defaults.experimental_temporary_tables.enabled = true;
           ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 60;
           ALTER DATABASE pixeltable CONFIGURE ZONE USING gc.ttlseconds = 60;
+          SET CLUSTER SETTING sql.txn.read_committed_isolation.enabled = true;
         "
         echo 'cluster initialized'
     restart: "no"
