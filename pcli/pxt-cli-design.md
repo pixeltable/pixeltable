@@ -1,10 +1,30 @@
 # pxt CLI — AI-Agent-First Design
 
-## Goal
-
 A CLI that makes inspection, debugging, and lifecycle ops cheap for an AI agent
 writing a Pixeltable + FastAPIRouter app. Code stays the artifact for schema,
 UDFs, queries; CLI handles state-of-the-world questions and one-shot ops.
+
+## Goals
+
+- **Sub-150ms per command.** Agents fire bursts of commands; 10 calls at 150ms
+  vs 1500ms is the difference between "instant catalog view" and a
+  context-blowing wait. Measured at ~110ms warm.
+- **Errors are self-correcting.** Every misuse (bad arg, missing PK, unknown
+  column, dependent views) returns enough info for the agent to retry
+  correctly in one shot — argparse failures re-print example invocations,
+  HTTP errors surface pxt's diagnostic verbatim.
+- **No daemon literacy required.** Auto-spawns on first call. No PID files,
+  no `start`/`stop` ceremony. Help text never mentions "daemon".
+- **Catalog state is always current.** Changes made from the user's Python
+  REPL or notebook are visible to the CLI without any sync step.
+- **Bounded blast radius.** No mutation runs without `-f` or an interactive
+  y/N. Non-TTY callers without `-f` fail closed. `--cascade`/`-r` are never
+  inferred.
+- **Mirrors the Python API.** Each command corresponds to a Python call the
+  user could write: `describe` ≡ `t.describe()`, `rows` ≡ `t.head()`,
+  `rename` ≡ `pxt.move()`. No DSLs. Learning the CLI teaches the API.
+- **One transport.** All catalog ops go through HTTP to the daemon. No
+  "fast path" that direct-imports pxt in the client. Single state model.
 
 ## Non-goals
 
@@ -18,12 +38,8 @@ UDFs, queries; CLI handles state-of-the-world questions and one-shot ops.
 
 1. **Structured output, always available.** Default tabular for humans, `--json`
    for agents.
-2. **Fast cold-start.** Target <50ms feels-instant; <200ms acceptable for v1.
-   Achieved via long-running daemon.
-3. **Read-only by default.** Mutating commands require `-f` to skip
-   confirmation.
-4. **Composable.** Output flows into `jq`, `grep`, pipes.
-5. **Rooted, no session state.** All paths absolute from catalog root.
+2. **Composable.** Output flows into `jq`, `grep`, pipes.
+3. **Rooted, no session state.** All paths absolute from catalog root.
 
 ## Architecture
 
@@ -63,16 +79,66 @@ Python-only wheel.
 Cost of v2: CI multi-arch builds, slightly larger wheels, separate binary-build
 step in release. Benefit: ~10ms cold start.
 
-### Daemon lifecycle
+### Version coherence
 
-- `pxt daemon start` — explicit start (also auto-spawned on first command).
-- `pxt daemon stop` — kill daemon.
-- `pxt daemon status` — running, PID, port, idle timer, pxt version.
-- `pxt daemon restart` — stop + start, after pixeltable upgrades.
+Client compares its `pixeltable.__version__` with `health.pxt_version` on each
+call; if they differ, it SIGTERMs the daemon and respawns. Keeps post-`pip
+install -U pixeltable` behavior correct with zero user action.
 
-## Command surface
+## Commands
 
-### Catalog inspection (read-only)
+All commands accept `--json`. Mutations accept `-f` (skip confirmation) and
+`-n` / `--dry-run`. Non-TTY callers must pass `-f` to mutate.
+
+### Inspection
+
+| Command    | Purpose |
+|------------|---------|
+| `ls`       | List catalog entries (table/view/dir), flat or `--tree`. |
+| `describe` | Schema + metadata for one table. |
+| `rows`     | First N rows; optional `--cols` subset. |
+| `get`      | Single-row lookup by primary key. |
+| `count`    | Row count for a table. |
+| `errors`   | Rows where any computed column failed. PK required. |
+| `history`  | Table version timeline. |
+| `plan`     | Computed-column DAG + SQL-pushdown vs Python. |
+
+### Discovery
+
+| Command     | Purpose |
+|-------------|---------|
+| `columns`   | All columns across the catalog (or one table). |
+| `computed`  | Only computed columns; alias for `columns --computed`. |
+| `idxs`      | Embedding/btree indexes across the catalog. |
+| `udfs`      | UDFs in a module or project. |
+| `endpoints` | FastAPIRouter routes a serve config would expose. |
+
+### State
+
+| Command  | Purpose |
+|----------|---------|
+| `status` | Daemon pid, pxt version, pgdata path, cache sizes. |
+| `env`    | `PIXELTABLE_*` env vars + active config file. |
+| `logs`   | Per-request log + pxt log, joinable by request_id. |
+| `health` | Liveness probe; also used internally to detect version drift. |
+
+### Static analysis
+
+| Command | Purpose |
+|---------|---------|
+| `lint`  | Catch AI-failure-mode bugs pxt can't see at runtime. |
+
+### Mutation
+
+| Command  | Purpose |
+|----------|---------|
+| `drop`   | Drop a table/view. Refuses directories. |
+| `rm`     | Remove a directory. Refuses tables/views. |
+| `rename` | Rename in place (parent dir preserved). |
+| `mv`     | Move to a different directory (leaf preserved). |
+| `revert` | Undo last op(s) on a table. Irreversible. |
+
+### Inspection (read-only)
 
 #### `pxt ls [path] [--tree] [-l] [--json] [--no-counts]`
 
@@ -136,7 +202,7 @@ that).
 
 Table version timeline. Default last 20 ops.
 
-### Cross-catalog discovery
+### Discovery
 
 These are "find X across the project / catalog" commands that compose with
 each other. Honestly the most context-saving commands for an AI.
@@ -321,72 +387,7 @@ doesn't separate them.
 
 If downstream views would break, fails loudly rather than attempting to repair.
 
-## Dropped from earlier drafts
-
-- `pxt sql` — no concrete use case that isn't better served by other
-  commands. Exposing pg invites SQL that bypasses pxt's invariants in ways
-  that are very hard to reason about, with no upside today.
-
-- `pxt cache` as a top-level command — sizes surfaced in `pxt status` instead;
-  no clear use case for CLI-driven cache wipes.
-
 ## Output format
 
 Default: plain TSV-like text (composable, pipes cleanly, easy to grep). No
 boxes, no colors. `--json` for structured.
-
-## Open questions
-
-1. After Python import audit, does cold start land under ~100ms? If not,
-   trigger Go v2.
-2. **pre_flight(intent)** — term floated externally; we don't know the
-   intended meaning. Plausible reads: validate planned op before running,
-   cost-estimate an expensive op, CORS-style pre-flight. Punted: don't design
-   for it until the concrete problem it solves is identified.
-
-## History (running notes)
-
-- 2026-05-11 r1: AI-agent-first framing. Sketched ls / describe / head /
-  errors / plan / endpoints / status / drop / clear-cache.
-- 2026-05-11 r2: Confirmed `pxt ls` rooted (no session state). `pxt describe`
-  reuses `Table.describe()`; `--json` is `get_metadata()`. `pxt errors`
-  per-table only. Split mutation: `pxt drop` for table/view, `pxt rm` for dir.
-  Added history, sql (later dropped), env, rename, mv, revert, cache (later
-  collapsed into status). Architecture: FastAPI daemon + Python/Go client.
-- 2026-05-11 r3: Dropped `pxt sql` (no real use case) and `pxt cache` (collapsed
-  into status). Added cross-catalog discovery commands (udfs, indexes,
-  computed). Revised on 150ms-vs-10ms: v1 Python client is acceptable
-  short-term but v2 Go binary is the target — bursts of 20 commands at 150ms
-  add up to 3s, noticeable. Defined revert semantics defaulting to last-op,
-  schema+data together.
-- 2026-05-11 r4: Revert always covers data+schema (no separable knobs).
-  Daemon stateless on cwd: client sends `X-Cwd` per request, daemon resolves
-  project context from that. `--dry-run` (alias `-n`) is the standard form.
-  Client v1 strategy: Python with aggressive lazy imports targeting <50ms;
-  Go via cibuildwheel-style wheels as fallback if Python can't make it.
-- 2026-05-11 r5: `pxt revert` confirmed exposed. `-n` extended to every
-  mutating command (drop, rm, rename, mv, revert). Added `pxt lint`: highest-
-  value single command for AI-generated code; rule namespace `PXT0xx`-`PXT3xx`
-  static + `PXT4xx` catalog-aware. Plain TSV is default output format.
-- 2026-05-11 r6: Removed type/schema rules from `pxt lint` (pxt already
-  infers/validates these; column types aren't even declared). Removed
-  `--catalog` mode and `PXT4xx` rules — leftover from the type-check premise.
-  Added data ops: `pxt get <table> <pk>` and `pxt count <table> [--where]`.
-  Skipped insert/update/delete — Python API stays clearer. Pre-flight
-  concept seeded as open question; likely a Python API rather than a
-  CLI-first feature.
-- 2026-05-11 r7: Confirmed `pxt delete` unnecessary — `pxt revert` covers
-  data undo. Pre-flight downgraded: term floated but meaning unknown, deferred
-  until concrete need surfaces. Added `pxt logs` plus FastAPIRouter
-  default-on logging middleware: JSON-line file at `~/.pixeltable/serve.log`,
-  in-memory ring buffer for `--recent`, off-switch via `PXT_SERVE_LOG=0`.
-  Filters: `--errors`, `--slow MS`, `--endpoint`, `--since`. Bodies not
-  logged by default.
-- 2026-05-11 r8: Pixeltable already has a verbose log stream at
-  `~/.pixeltable/logs/...` but lacks request correlation. Added
-  request_id-via-ContextVar plumbing: pxt logger gains a `%(request_id)s`
-  field, FastAPIRouter middleware sets the ContextVar per request, executor
-  dispatch uses `copy_context().run` to propagate across threads. `pxt logs`
-  gains `--request <id>` to join the per-request entry with all pxt log
-  lines tagged with that id — killer query for "what happened in this
-  request".
