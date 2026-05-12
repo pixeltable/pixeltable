@@ -2,6 +2,7 @@ import math
 from typing import Any
 
 import numpy as np
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -1225,6 +1226,32 @@ class TestVision:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly 4 coordinates'):
             t.select(udf_call).collect()
         t.delete()
+
+    def test_overlay_segmentation_instance_masks(self, uses_db: None) -> None:
+        # Synthetic instance-mask stack: 2 instances on a 4x6 image
+        height, width = 4, 6
+        masks = np.zeros((2, height, width), dtype=bool)
+        masks[0, 0:2, 0:3] = True  # instance 1 covers top-left quadrant
+        masks[1, 2:4, 3:6] = True  # instance 2 covers bottom-right quadrant
+
+        t = pxt.create_table(
+            'test_tbl',
+            {'img': pxt.Image, 'masks': pxt.Array[(None, None, None), pxt.Bool]},  # type: ignore[misc]
+        )
+        img = PIL.Image.new('RGB', (width, height), color=(128, 128, 128))
+        t.insert(img=img, masks=masks)
+
+        # Overload should accept the 3D bool stack directly, no adapter needed
+        result = t.select(viz=overlay_segmentation(t.img, t.masks)).collect()[0]['viz']
+        assert isinstance(result, PIL.Image.Image)
+        assert result.size == (width, height)
+
+        # Empty stack should also work and produce an image identical-shaped to the input
+        empty_masks = np.zeros((0, height, width), dtype=bool)
+        t.insert(img=img, masks=empty_masks)
+        empty_result = t.select(viz=overlay_segmentation(t.img, t.masks)).collect()[1]['viz']
+        assert isinstance(empty_result, PIL.Image.Image)
+        assert empty_result.size == (width, height)
 
     @pytest.mark.expensive  # Resource-intensive
     def test_overlay_segmentation(self, uses_db: None) -> None:
