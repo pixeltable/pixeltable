@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from itertools import chain
-from typing import TYPE_CHECKING, Iterable, Literal
+from typing import TYPE_CHECKING, Iterable, Literal, Mapping
 
 import pyarrow as pa
 
@@ -23,6 +23,7 @@ def export_iceberg(
     *,
     batch_size_bytes: int = 128 * 2**20,
     if_exists: Literal['error', 'overwrite', 'append'] = 'error',
+    schema_override: Mapping[str, pa.DataType] | None = None,
 ) -> None:
     """
     Exports a query result or table to an Apache Iceberg table.
@@ -46,11 +47,14 @@ def export_iceberg(
             - `'error'`: raise an error
             - `'overwrite'`: drop the existing table and create a new one
             - `'append'`: append to the existing table (source schema must be compatible)
+        schema_override: Optional mapping from column name to an explicit pyarrow `DataType` that should be used
+            instead of the type inferred from the pixeltable schema. Useful for pinning the shape of a JSON column
+            whose inferred type would be unsuitable (e.g. `pa.null()` when every sampled value is None) or for
+            downcasting scalar columns (e.g. `pa.int64()` -> `pa.int32()`).
     """
     Env.get().require_package('pyiceberg')
 
     from pyiceberg.exceptions import NoSuchTableError
-    from pyiceberg.table import Table
 
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.RequestError(
@@ -87,7 +91,7 @@ def export_iceberg(
     # Build a deterministic arrow schema up front so we can materialize the Iceberg table even
     # when the query yields no rows, and reject fixed-shape tensor columns before we run the query.
     # Variable-shape arrays are mapped to pa.list_(...) by to_arrow_type and are supported by Iceberg.
-    schema_arrow = to_arrow_schema(query.schema)
+    schema_arrow = to_arrow_schema(query.schema, schema_override)
     fixed_tensor_cols = [f.name for f in schema_arrow if isinstance(f.type, pa.FixedShapeTensorType)]
     if fixed_tensor_cols:
         raise excs.RequestError(
@@ -96,7 +100,7 @@ def export_iceberg(
             f'Iceberg has no fixed-shape tensor type; project the column to a list before exporting.',
         )
 
-    batch_iter = to_record_batches(query, batch_size_bytes)
+    batch_iter = to_record_batches(query, batch_size_bytes, schema_override)
     first_batch = next(batch_iter, None)
 
     arrow_schema = first_batch.schema if first_batch is not None else schema_arrow
@@ -109,7 +113,7 @@ def export_iceberg(
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'export_iceberg(): cannot infer a concrete type for JSON field(s) {null_paths} because every sampled '
-            f'value is None. Iceberg has no null-only type; populate the field with at least one non-None value '
+            f'value is None. Iceberg has no null-only type; provide a `schema_override` for the field '
             f'or omit it from the data.',
         )
 

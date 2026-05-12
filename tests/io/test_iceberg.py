@@ -2,6 +2,7 @@ import pathlib
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import pyarrow as pa
 import pytest
 
 import pixeltable as pxt
@@ -286,6 +287,34 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='every sampled'):
             pxt.io.export_iceberg(t, catalog, 'pxt.bad_json')
         t.delete()
+
+    def test_schema_override(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """`schema_override` pins arrow types for specified columns."""
+        skip_test_if_not_installed('pyiceberg')
+        catalog = self._catalog(tmp_path)
+
+        # Null-only JSON field: an explicit struct override pins the column type so the export succeeds.
+        t = pxt.create_table('test_iceberg_override_null', {'c_json': pxt.Json})
+        t.insert([{'c_json': {'a': None}}, {'c_json': {'a': None}}])
+        override = {'c_json': pa.struct([pa.field('a', pa.string())])}
+        pxt.io.export_iceberg(t, catalog, 'pxt.override_null', schema_override=override)
+        exported = catalog.load_table('pxt.override_null').scan().to_arrow()
+        assert exported.num_rows == 2
+        assert all(r['c_json']['a'] is None for r in exported.to_pylist())
+
+        # Scalar downcast: int64 -> int32 round-trips with matching values.
+        t2 = pxt.create_table('test_iceberg_override_int', {'c_int': pxt.Int})
+        t2.insert([{'c_int': i} for i in range(3)])
+        pxt.io.export_iceberg(t2, catalog, 'pxt.override_int', schema_override={'c_int': pa.int32()})
+        loaded = catalog.load_table('pxt.override_int').scan().to_arrow()
+        assert loaded.schema.field('c_int').type == pa.int32()
+        assert sorted(r['c_int'] for r in loaded.to_pylist()) == [0, 1, 2]
+
+        # Override that does not fit the data: string values cannot be cast to int64.
+        t3 = pxt.create_table('test_iceberg_override_bad', {'c_string': pxt.String})
+        t3.insert([{'c_string': 'hello'}])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='schema_override'):
+            pxt.io.export_iceberg(t3, catalog, 'pxt.override_bad', schema_override={'c_string': pa.int64()})
 
     def test_namespace_auto_create(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """A non-existent namespace in the table identifier should be created automatically."""
