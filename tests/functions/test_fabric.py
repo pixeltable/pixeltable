@@ -101,7 +101,7 @@ class TestFabric:
         assert all(hasattr(emb, '__len__') for emb in results['embed'])
         # Check that all embeddings have the same length
         assert len({len(emb) for emb in results['embed']}) == 1
-        # text-embedding-ada-002 produces 1536-dimensional vectors
+        # text-embedding-3-small produces 1536-dimensional vectors by default
         assert len(results['embed'][0]) == 1536
 
     def test_embeddings_batching(self, uses_db: None) -> None:

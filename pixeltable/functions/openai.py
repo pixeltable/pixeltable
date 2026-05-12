@@ -1136,9 +1136,7 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
         Add a computed column that applies the default moderation model to an existing Pixeltable column `tbl.input`
         of the table `tbl`:
 
-        >>> tbl.add_computed_column(
-        ...     moderations=moderations(tbl.text)
-        ... )
+        >>> tbl.add_computed_column(moderations=moderations(tbl.input))
     """
     result = await _openai_client().moderations.create(input=input, model=model)
     return result.dict()

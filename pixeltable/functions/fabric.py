@@ -217,7 +217,7 @@ async def embeddings(
 
     Args:
         input: The text to embed (automatically batched).
-        model: The embedding model deployment name (default: 'text-embedding-ada-002').
+        model: The embedding model deployment name
         api_version: The API version to use (default: '2024-02-15-preview').
         model_kwargs: Additional keyword args for the Azure OpenAI `embeddings` API.
             For details on available parameters, see:
@@ -227,7 +227,7 @@ async def embeddings(
         An array representing the embedding vector for the input text.
 
     Examples:
-        Add a computed column that applies the model `text-embedding-ada-002` to an existing
+        Add a computed column that applies the model `text-embedding-3-small` to an existing
         Pixeltable column `tbl.text` of the table `tbl`:
 
         >>> from pixeltable.functions import fabric
