@@ -13,8 +13,7 @@ OUTPUT_PCT_THRESHOLD = 50.0  # Minimum percentage of code cells that must have o
 
 # Temporarily excluded notebooks (matched by filename only)
 # TODO(PXT-1081): Regenerate Fabric notebook in docs with new access account
-# img-promptable-segmentation.ipynb requires access to the gated facebook/sam3 model
-SKIP_NOTEBOOKS = {'working-with-fabric.ipynb', 'img-promptable-segmentation.ipynb'}
+SKIP_NOTEBOOKS = {'working-with-fabric.ipynb'}
 
 
 class NotebookStats(NamedTuple):

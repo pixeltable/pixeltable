@@ -421,16 +421,16 @@ def sam_for_segmentation(
     Returns:
         A dictionary containing the segmentation output, in the following format:
 
-            ```python
-            {
-                # list of confidence scores for each detected instance
-                'scores': [0.92, 0.88],
-                # list of bounding boxes, [x1, y1, x2, y2] in absolute pixel coordinates
-                'boxes': [[51.9, 356.1, 181.4, 413.9], [383.2, 58.6, 605.6, 361.3]],
-                # binary masks for each detected instance, shape (num_instances, H, W)
-                'masks': np.ndarray,
-            }
-            ```
+        ```python
+        {
+            # list of confidence scores for each detected instance
+            'scores': [0.92, 0.88],
+            # list of bounding boxes, [x1, y1, x2, y2] in absolute pixel coordinates
+            'boxes': [[51.9, 356.1, 181.4, 413.9], [383.2, 58.6, 605.6, 361.3]],
+            # binary masks for each detected instance, shape (num_instances, H, W)
+            'masks': np.ndarray,
+        }
+        ```
 
     Examples:
         Add a computed column that segments every "cat" in an existing Pixeltable column `image` of the
