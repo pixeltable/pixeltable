@@ -46,7 +46,7 @@ class TestDeploy:
         config_path = tmp_path / 'pixeltable.toml'
         config_contents = textwrap.dedent(
             """\
-            [[environment]]
+            [[deployment]]
             name = "test-deploy"
             include = ["*.toml", "a*.txt"]
             exclude = ["a_exclude.txt"]
@@ -101,7 +101,7 @@ class TestDeploy:
             config_member = tar.getmember('config.toml')
             with tar.extractfile(config_member) as f:
                 content = toml.loads(f.read().decode('utf-8'))
-                assert content['environment'][0]['name'] == 'test-deploy'
+                assert content['deployment'][0]['name'] == 'test-deploy'
                 assert len(content['service']) == 2
                 assert content['service'][0]['name'] == 'myservice1'
                 assert content['service'][0]['routes'][0]['table'] == 'table1'
@@ -133,37 +133,37 @@ class TestDeploy:
         config_path = tmp_path / 'pixeltable.toml'
         monkeypatch.chdir(tmp_path)
 
-        # Invalid environment name
+        # Invalid deployment name
         config_path.write_text(
             textwrap.dedent("""\
-            [[environment]]
+            [[deployment]]
             name = "123bad"
             """)
         )
         with pytest.raises(pxt.Error, match='not a valid Pixeltable identifier'):
             Config.init({}, reinit=True)
 
-        # No environments configured
+        # No deployments configured
         config_path.write_text('')
         Config.init({}, reinit=True)
-        with pxt_raises(excs.ErrorCode.ENVIRONMENT_NOT_FOUND, match='No environments found'):
+        with pxt_raises(excs.ErrorCode.ENVIRONMENT_NOT_FOUND, match='No deployments found'):
             build_deploy_bundle('nonexistent')
 
-        # Environment name not found among configured environments
+        # Deployment name not found among configured deployments
         config_path.write_text(
             textwrap.dedent("""\
-            [[environment]]
+            [[deployment]]
             name = "other-env"
             """)
         )
         Config.init({}, reinit=True)
-        with pxt_raises(excs.ErrorCode.ENVIRONMENT_NOT_FOUND, match="Environment 'nonexistent' not found"):
+        with pxt_raises(excs.ErrorCode.ENVIRONMENT_NOT_FOUND, match="Deployment 'nonexistent' not found"):
             build_deploy_bundle('nonexistent')
 
-        # Service referenced by environment not found (no services configured)
+        # Service referenced by deployment not found (no services configured)
         config_path.write_text(
             textwrap.dedent("""\
-            [[environment]]
+            [[deployment]]
             name = "my-env"
             services = ["missing-service"]
             """)
@@ -172,10 +172,10 @@ class TestDeploy:
         with pxt_raises(excs.ErrorCode.SERVICE_NOT_FOUND, match='No services found'):
             build_deploy_bundle('my-env')
 
-        # Service referenced by environment not found (different service configured)
+        # Service referenced by deployment not found (different service configured)
         config_path.write_text(
             textwrap.dedent("""\
-            [[environment]]
+            [[deployment]]
             name = "my-env"
             services = ["missing-service"]
 
@@ -192,7 +192,7 @@ class TestDeploy:
         for route_type in ('insert', 'update', 'delete'):
             config_path.write_text(
                 textwrap.dedent(f"""\
-                [[environment]]
+                [[deployment]]
                 name = "my-env"
                 services = ["my-service"]
 
@@ -212,7 +212,7 @@ class TestDeploy:
         # Table referenced in route does not exist
         config_path.write_text(
             textwrap.dedent("""\
-            [[environment]]
+            [[deployment]]
             name = "my-env"
             services = ["my-service"]
 
@@ -232,7 +232,7 @@ class TestDeploy:
         # Code-defined service: module cannot be imported
         config_path.write_text(
             textwrap.dedent("""\
-            [[environment]]
+            [[deployment]]
             name = "my-env"
             services = ["no_such_module:app"]
             """)
@@ -247,7 +247,7 @@ class TestDeploy:
         monkeypatch.setitem(sys.modules, 'pxttest_noattr', test_module)
         config_path.write_text(
             textwrap.dedent("""\
-            [[environment]]
+            [[deployment]]
             name = "my-env"
             services = ["pxttest_noattr:missing_app"]
             """)
@@ -262,7 +262,7 @@ class TestDeploy:
         monkeypatch.setitem(sys.modules, 'pxttest_bad', test_module_bad)
         config_path.write_text(
             textwrap.dedent("""\
-            [[environment]]
+            [[deployment]]
             name = "my-env"
             services = ["pxttest_bad:not_a_fastapi"]
             """)
@@ -284,7 +284,7 @@ class TestDeploy:
             monkeypatch.setitem(sys.modules, 'pxttest', test_module)
             config_path.write_text(
                 textwrap.dedent("""\
-                [[environment]]
+                [[deployment]]
                 name = "my-env"
                 services = ["pxttest:app"]
                 """)

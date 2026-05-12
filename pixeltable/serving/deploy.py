@@ -16,40 +16,40 @@ import pixeltable as pxt
 from pixeltable import config, exceptions as excs, metadata
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
-from pixeltable.serving._config import lookup_environment_config, lookup_service_config
+from pixeltable.serving._config import lookup_deployment_config, lookup_service_config
 
 _logger = logging.getLogger('pixeltable')
 
 
-def build_deploy_bundle(environment_name: str) -> Path:
+def build_deploy_bundle(deployment_name: str) -> Path:
     """
-    Packages the current Pixeltable projecti into a tarball, along with details of the environment:
+    Packages the current Pixeltable project into a tarball, along with:
     - conda environment, if present
     - catalog metadata for any relevant tables
-    - environment and service configuration
+    - deployment and service configuration
     """
     Env.get().require_package('fastapi')
 
-    cfg = lookup_environment_config(environment_name)
-    Env.get().console_logger.info(f'Deploying {environment_name!r} ...')
+    cfg = lookup_deployment_config(deployment_name)
+    Env.get().console_logger.info(f'Deploying {deployment_name!r} ...')
 
     # Process the list of services, validating them and collecting their configs and table MD.
     services_cfg, md_export = _process_services(cfg)
 
     if len(cfg.services) == 0:
-        Env.get().console_logger.warning('That environment contains no services.')
+        Env.get().console_logger.warning('That deployment contains no services.')
     else:
         Env.get().console_logger.info(f'The following service(s) will be deployed: {", ".join(cfg.services)}')
 
     config_export = {
-        'environment': [cfg.model_dump(mode='json')],
+        'deployment': [cfg.model_dump(mode='json')],
         'service': [service.model_dump(mode='json') for service in services_cfg],
     }
     conda_export = _export_conda_env()
     lockfile = _find_lockfile()
     if conda_export is None and len(cfg.env_dependencies) == 0:
         Env.get().console_logger.warning(
-            'No conda environment was detected and no environment dependencies are specified in config.\n'
+            'No conda environment was detected and no dependencies are specified in config.\n'
             'The deployment may not have the necessary dependencies to run correctly.'
         )
     if lockfile is None and len(cfg.python_dependencies) == 0:
@@ -62,9 +62,9 @@ def build_deploy_bundle(environment_name: str) -> Path:
     return bundle_path
 
 
-def _process_services(cfg: config.EnvironmentConfig) -> tuple[list[config.ServiceConfig], dict[str, Any]]:
+def _process_services(cfg: config.DeploymentConfig) -> tuple[list[config.ServiceConfig], dict[str, Any]]:
     """
-    Validate the services listed in the environment config.
+    Validate the services listed in the deployment config.
 
     Returns: (list of service configs, table md export)
     """
@@ -82,7 +82,7 @@ def _process_services(cfg: config.EnvironmentConfig) -> tuple[list[config.Servic
                 if route.type != 'compute':
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_CONFIGURATION,
-                        f'Service {service_name!r} referenced in environment {cfg.name!r} has a route {route.path!r} '
+                        f'Service {service_name!r} referenced in deployment {cfg.name!r} has a route {route.path!r} '
                         f"of type {route.type!r}. Currently, only 'compute' routes are supported for deployment.",
                     )
                 assert isinstance(route, config.InsertRouteConfig)
@@ -94,7 +94,7 @@ def _process_services(cfg: config.EnvironmentConfig) -> tuple[list[config.Servic
     return services_cfg, md_export
 
 
-def _tables_from_fastapi_app(env_cfg: config.EnvironmentConfig, module_attr: str) -> set[str]:
+def _tables_from_fastapi_app(env_cfg: config.DeploymentConfig, module_attr: str) -> set[str]:
     """
     Given a "module:attribute" reference to a FastAPI app, import the module and inspect the app's routes to find
     all tables mentioned by any compute routes.
@@ -112,18 +112,18 @@ def _tables_from_fastapi_app(env_cfg: config.EnvironmentConfig, module_attr: str
     except Exception as e:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Could not import module `{module_path}` referenced in environment {env_cfg.name!r}: {e}',
+            f'Could not import module `{module_path}` referenced in deployment {env_cfg.name!r}: {e}',
         ) from e
     if not hasattr(module, attr_name):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Module `{module_path}` referenced in environment {env_cfg.name!r} has no attribute `{attr_name}`',
+            f'Module `{module_path}` referenced in deployment {env_cfg.name!r} has no attribute `{attr_name}`',
         )
     app = getattr(module, attr_name)
     if not isinstance(app, FastAPI):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Service `{module_attr}` referenced in environment {env_cfg.name!r} is not a FastAPI app',
+            f'Service `{module_attr}` referenced in deployment {env_cfg.name!r} is not a FastAPI app',
         )
     table_paths: set[str] = set()
     for route in app.routes:
@@ -131,7 +131,7 @@ def _tables_from_fastapi_app(env_cfg: config.EnvironmentConfig, module_attr: str
             if route.endpoint.route_type != 'compute':
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'Service `{module_attr}` referenced in environment {env_cfg.name!r} has a route {route.path!r} '
+                    f'Service `{module_attr}` referenced in deployment {env_cfg.name!r} has a route {route.path!r} '
                     f"of type {route.endpoint.route_type!r}. Currently, only 'compute' routes are supported for "
                     'deployment.',
                 )
@@ -171,7 +171,7 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
 
 
 def _export_tables_md(table_paths: set[str]) -> dict[str, Any]:
-    # Get all tables mentioned by any route contained in this environment.
+    # Get all tables mentioned by any route contained in this deployment.
     tables = [pxt.get_table(path) for path in sorted(table_paths)]
 
     # Get the md for all ancestors of all such tables.
@@ -221,7 +221,7 @@ def _find_lockfile() -> Path | None:
 
 
 def package(
-    env_config: config.EnvironmentConfig,
+    deployment_config: config.DeploymentConfig,
     config_export: dict[str, Any],
     md_export: dict[str, Any],
     conda_export: bytes | None = None,
@@ -230,8 +230,8 @@ def package(
     """Bundle the contents of a Pixeltable project directory into a tarball.
 
     Args:
-        env_config: Environment configuration.
-        config_export: The environment and service configuration to include in the bundle, as a dict.
+        deployment_config: Environment configuration.
+        config_export: The deployment and service configuration to include in the bundle, as a dict.
         md_export: The table metadata to include in the bundle, as a dict.
         conda_export: Output of `conda env export --no-builds`, included as `conda-env.yml`
             in the bundle when provided.
@@ -252,7 +252,7 @@ def package(
     os.close(fd)
     bundle_path = Path(name)
 
-    files = _collect_project_files(project_dir, env_config.include, env_config.exclude)
+    files = _collect_project_files(project_dir, deployment_config.include, deployment_config.exclude)
     with tarfile.open(bundle_path, 'w:bz2') as tf:
         __add_tarfile(tf, 'config.toml', toml.dumps(config_export).encode('utf-8'))
         __add_tarfile(tf, 'metadata.json', json.dumps(md_export).encode('utf-8'))
