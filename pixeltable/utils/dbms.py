@@ -3,7 +3,7 @@ import platform
 
 import sqlalchemy as sql
 
-# Note: this applies mostly to database bootstrap sessions. All user-facing operations go through Runtime which
+# Note: this applies mostly to database bootstrap sessions. Most user-facing operations go through Runtime which
 # overrides this isolation level. Keeping SERIALIZABLE as a safe default.
 _DEFAULT_ISOLATION_LEVEL = 'SERIALIZABLE'
 
