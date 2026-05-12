@@ -184,7 +184,7 @@ class TestDeploy:
         # No deployments configured
         config_path.write_text('')
         Config.init({}, reinit=True)
-        with pxt_raises(excs.ErrorCode.ENVIRONMENT_NOT_FOUND, match='No deployments found'):
+        with pxt_raises(excs.ErrorCode.DEPLOYMENT_NOT_FOUND, match='No deployments found'):
             build_deploy_bundle('nonexistent')
 
         # Deployment name not found among configured deployments
@@ -197,7 +197,7 @@ class TestDeploy:
             """)
         )
         Config.init({}, reinit=True)
-        with pxt_raises(excs.ErrorCode.ENVIRONMENT_NOT_FOUND, match="Deployment 'nonexistent' not found"):
+        with pxt_raises(excs.ErrorCode.DEPLOYMENT_NOT_FOUND, match="Deployment 'nonexistent' not found"):
             build_deploy_bundle('nonexistent')
 
         # Service referenced by deployment not found (no services configured)

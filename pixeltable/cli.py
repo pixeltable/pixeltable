@@ -53,8 +53,8 @@ Examples:
   pxt serve query --query myapp.queries.search_docs --path /search"""
 
 _EPILOG_DEPLOY = """\
-To deploy into the deployment `staging`:
-  pxt deploy staging
+To deploy a configured deployment:
+  pxt deploy <deployment-name>
 """
 
 
@@ -86,7 +86,7 @@ def main() -> None:
 
     deploy_parser = subparsers.add_parser(
         'deploy',
-        help='Deploy the services in the specified deployment to Pixeltable cloud.',
+        help='Deploy the service in the specified deployment configuration to Pixeltable cloud.',
         epilog=_EPILOG_DEPLOY,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

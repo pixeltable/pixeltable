@@ -40,7 +40,7 @@ def build_deploy_bundle(deployment_name: str) -> Path:
 
     config_export = {'deployment': [cfg.model_dump(mode='json')]}
     if service_cfg is not None:
-        config_export.update({'service': [service_cfg.model_dump(mode='json')]})
+        config_export['service'] = [service_cfg.model_dump(mode='json')]
     conda_export = _export_conda_env()
     lockfile = _find_lockfile()
 
