@@ -376,7 +376,9 @@ class DataRow:
         format = None
         if isinstance(val, PIL.Image.Image):
             format = image_utils.default_format(val)
-        filepath, url = TempStore.save_media_object(val, col, format=format)
+        filepath, url = TempStore.save_media_object(
+            val, col.tbl_handle.id, col.id, col.get_tbl().version, format=format
+        )
         self.file_paths[index] = str(filepath) if filepath is not None else None
         self.vals[index] = None
         return url

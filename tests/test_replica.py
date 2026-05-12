@@ -24,9 +24,9 @@ class TestReplica:
         cat = get_runtime().catalog
 
         with cat.begin_xact(for_write=False):
-            md1 = cat.load_replica_md(pure_snapshot)
-            md2 = cat.load_replica_md(snapshot_view)
-            md3 = cat.load_replica_md(test_tbl)
+            md1 = cat.load_md_for_export(pure_snapshot, as_replica=True)
+            md2 = cat.load_md_for_export(snapshot_view, as_replica=True)
+            md3 = cat.load_md_for_export(test_tbl, as_replica=True)
 
         assert len(md1) == 2
         assert len(md2) == 2
@@ -102,11 +102,11 @@ class TestReplica:
         s61 = pxt.create_snapshot('s61', v6)
 
         with cat.begin_xact(for_write=False):
-            s11_md = cat.load_replica_md(s11)
-            s12_md = cat.load_replica_md(s12)
-            s31_md = cat.load_replica_md(s31)
-            s51_md = cat.load_replica_md(s51)
-            s61_md = cat.load_replica_md(s61)
+            s11_md = cat.load_md_for_export(s11, as_replica=True)
+            s12_md = cat.load_md_for_export(s12, as_replica=True)
+            s31_md = cat.load_md_for_export(s31, as_replica=True)
+            s51_md = cat.load_md_for_export(s51, as_replica=True)
+            s61_md = cat.load_md_for_export(s61, as_replica=True)
 
         pxt.drop_table('base_tbl', force=True)
         reload_catalog()

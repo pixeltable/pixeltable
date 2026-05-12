@@ -50,6 +50,8 @@ class Expr(abc.ABC):
 
     All Pixeltable expressions, including [column references][pixeltable.exprs.ColumnRef] (such as `t.col`),
     UDF calls (`t.my_string.lower()`), and compound expressions (`t.col + 5`) are instances of this class.
+
+    Not thread-safe: Expr and subclasses contain execution state and are never thread-safe.
     """
 
     # Rules for using state in subclasses:

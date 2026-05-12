@@ -12,6 +12,7 @@ import pydantic
 
 import pixeltable as pxt
 from pixeltable import config, exceptions as excs
+from pixeltable.serving import deploy
 from pixeltable.serving._config import create_service_from_config, lookup_service_config
 
 
@@ -51,6 +52,11 @@ _EPILOG_QUERY = """\
 Examples:
   pxt serve query --query myapp.queries.search_docs --path /search"""
 
+_EPILOG_DEPLOY = """\
+To deploy into the environment `staging`:
+  pxt deploy staging
+"""
+
 
 def main() -> None:
     parser = _Parser(
@@ -78,6 +84,15 @@ def main() -> None:
         serve_parser.epilog = _EPILOG_SERVE
         _add_serve_subparsers(serve_parser)
 
+    deploy_parser = subparsers.add_parser(
+        'deploy',
+        help='Deploy the services in the specified environment to Pixeltable cloud.',
+        epilog=_EPILOG_DEPLOY,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    deploy_parser.add_argument('env', help='Name of the target environment')
+    deploy_parser.add_argument('--json', action='store_true', dest='json', help='Emit machine-readable JSON output')
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -87,6 +102,8 @@ def main() -> None:
     try:
         if args.command == 'serve':
             _serve(args)
+        elif args.command == 'deploy':
+            _deploy(args)
     except pxt.Error as e:
         _emit_error(str(e), args.json)
         sys.exit(1)
@@ -250,6 +267,10 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     query_parser.add_argument('--method', choices=['get', 'post'], default='post', help='HTTP method (default: post)')
     _add_service_args(query_parser)
     _add_output_args(query_parser)
+
+
+def _deploy(args: argparse.Namespace) -> None:
+    deploy.build_deploy_bundle(args.env)
 
 
 def _serve(args: argparse.Namespace) -> None:

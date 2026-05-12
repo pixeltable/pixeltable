@@ -5,6 +5,7 @@ import builtins
 import datetime
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 from uuid import UUID
@@ -55,10 +56,15 @@ class Table(SchemaObject):
     """
     A handle to a table, view, or snapshot. This class is the primary interface through which table operations
     (queries, insertions, updates, etc.) are performed in Pixeltable.
+
+    Table instances are not thread-safe. A thread that needs to perform table operations must get its own handle
+    (e.g., via get_table)
     """
 
     # Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
     # FileCache.emit_eviction_warnings() at the end of the operation.
+    #
+    # Every public method needs to call _validate_thread() at the beginning.
 
     # the chain of TableVersions needed to run queries and supply metadata (eg, schema)
     _tbl_version_path: TableVersionPath
@@ -66,10 +72,26 @@ class Table(SchemaObject):
     # the physical TableVersion backing this Table; None for pure snapshots
     _tbl_version: TableVersionHandle | None
 
+    # the thread that constructed this Table; used to guard against cross-thread access
+    _origin_thread_id: int
+
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
         self._tbl_version_path = tbl_version_path
         self._tbl_version = None
+        self._origin_thread_id = threading.get_ident()
+
+    def _validate_thread(self) -> None:
+        """Raise if accessed from a thread other than the one that constructed this Table."""
+        if self._origin_thread_id != threading.get_ident():
+            # Use self._name (a plain attribute) rather than self._path() so the error
+            # construction itself doesn't go through the catalog from the wrong thread.
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'Table {self._name!r} was accessed from a thread other than the one that constructed it. '
+                f'Tables are not thread-safe; call pxt.get_table(...) on this thread to obtain a thread-local '
+                f'instance.',
+            )
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         old_name = self._name
@@ -103,6 +125,7 @@ class Table(SchemaObject):
         Returns:
             A [TableMetadata][pixeltable.TableMetadata] instance containing this table's metadata.
         """
+        self._validate_thread()
         from pixeltable.catalog import retry_loop
 
         @retry_loop(for_write=False)
@@ -148,6 +171,9 @@ class Table(SchemaObject):
         indices = tv.idxs_by_name.values()
         index_info: dict[str, IndexMetadata] = {}
         for info in indices:
+            # Only surface indexes whose underlying column is user-visible.
+            if info.col.name not in column_info:
+                continue
             if isinstance(info.idx, index.EmbeddingIndex):
                 col_ref = ColumnRef(info.col)
                 embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
@@ -160,6 +186,10 @@ class Table(SchemaObject):
                         embedding=str(embedding),
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
+                )
+            elif isinstance(info.idx, index.BtreeIndex):
+                index_info[info.name] = IndexMetadata(
+                    name=info.name, columns=[info.col.name], index_type='btree', parameters=None
                 )
 
         primary_key: list[str] | None = None
@@ -201,6 +231,17 @@ class Table(SchemaObject):
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
+        # __getattr__ is called when normal attribute lookup fails. Avoid recursion by reading
+        # _origin_thread_id from the instance dict directly. If it's missing (Table not fully
+        # constructed yet), skip the check.
+        origin = self.__dict__.get('_origin_thread_id')
+        if origin is not None and origin != threading.get_ident():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'Table {self._name} was accessed from a thread other than the one that '
+                f'constructed it. Tables are not thread-safe; call pxt.get_table(...) on this thread to obtain '
+                f'a thread-local instance.',
+            )
         col = self._tbl_version_path.get_column(name)
         if col is None:
             raise AttributeError(f'Unknown column: {name}')
@@ -221,6 +262,7 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
+        self._validate_thread()
         from pixeltable.catalog import retry_loop
 
         # we need retry_loop() here, because we end up loading Tables for the views
@@ -245,6 +287,7 @@ class Table(SchemaObject):
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
+        self._validate_thread()
         from pixeltable.plan import FromClause
 
         query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
@@ -259,7 +302,7 @@ class Table(SchemaObject):
 
         See [`Query.where`][pixeltable.Query.where] for more details.
         """
-
+        self._validate_thread()
         with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
             return self.select().where(pred)
 
@@ -267,7 +310,8 @@ class Table(SchemaObject):
         self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
     ) -> 'pxt.Query':
         """Join this table with another table."""
-
+        self._validate_thread()
+        other._validate_thread()
         with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
             return self.select().join(other, on=on, how=how)
 
@@ -276,7 +320,7 @@ class Table(SchemaObject):
 
         See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
-
+        self._validate_thread()
         with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
             return self.select().order_by(*items, asc=asc)
 
@@ -285,12 +329,13 @@ class Table(SchemaObject):
 
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
-
+        self._validate_thread()
         with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
             return self.select().group_by(*items)
 
     def distinct(self) -> 'pxt.Query':
         """Remove duplicate rows from table."""
+        self._validate_thread()
         return self.select().distinct()
 
     def limit(self, n: int, offset: int | None = None) -> 'pxt.Query':
@@ -312,6 +357,7 @@ class Table(SchemaObject):
 
             >>> t.limit(10, offset=20).collect()
         """
+        self._validate_thread()
         return self.select().limit(n, offset=offset)
 
     def sample(
@@ -326,12 +372,14 @@ class Table(SchemaObject):
 
         See [`Query.sample`][pixeltable.Query.sample] for more details.
         """
+        self._validate_thread()
         return self.select().sample(
             n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
         )
 
     def collect(self) -> 'pxt._query.ResultSet':
         """Return rows from this table."""
+        self._validate_thread()
         return self.select().collect()
 
     def cursor(self) -> 'pxt._query.ResultCursor':
@@ -339,26 +387,32 @@ class Table(SchemaObject):
 
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
+        self._validate_thread()
         return self.select().cursor()
 
     def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
         """Return rows from this table."""
+        self._validate_thread()
         return self.select().show(*args, **kwargs)
 
     def head(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
         """Return the first n rows inserted into this table."""
+        self._validate_thread()
         return self.select().head(*args, **kwargs)
 
     def tail(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
         """Return the last n rows inserted into this table."""
+        self._validate_thread()
         return self.select().tail(*args, **kwargs)
 
     def count(self) -> int:
         """Return the number of rows in this table."""
+        self._validate_thread()
         return self.select().count()
 
     def columns(self) -> list[str]:
         """Return the names of the columns in this table."""
+        self._validate_thread()
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
 
@@ -367,6 +421,7 @@ class Table(SchemaObject):
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
     def get_base_table(self) -> 'Table' | None:
+        self._validate_thread()
         return self._get_base_table()
 
     @abc.abstractmethod
@@ -451,9 +506,7 @@ class Table(SchemaObject):
         for i, col in enumerate(cols):
             computed_with = col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
             source_tv = col.get_tbl()
-            if source_tv.is_iterator_column(col) or (source_tv.is_component_view and col.id == 0):
-                # col is an iterator column (including the special "pos" column) of an iterator view. Computed With
-                # should be the iterator class name.
+            if source_tv.is_iterator_column(col):
                 assert source_tv.iterator_call is not None
                 computed_with = source_tv.iterator_call.it.name
 
@@ -502,6 +555,7 @@ class Table(SchemaObject):
         """
         Print the table schema.
         """
+        self._validate_thread()
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import Markdown, display
 
@@ -515,12 +569,14 @@ class Table(SchemaObject):
         """Return a PyTorch Dataset for this table.
         See Query.to_pytorch_dataset()
         """
+        self._validate_thread()
         return self.select().to_pytorch_dataset(image_format=image_format)
 
     def to_coco_dataset(self) -> Path:
         """Return the path to a COCO json file for this table.
         See Query.to_coco_dataset()
         """
+        self._validate_thread()
         return self.select().to_coco_dataset()
 
     def _column_has_dependents(self, col: Column) -> bool:
@@ -626,7 +682,7 @@ class Table(SchemaObject):
             ... }
             ... tbl.add_columns(schema)
         """
-
+        self._validate_thread()
         from pixeltable.catalog import retry_loop
 
         # a retry loop is necessary because drop column needs it
@@ -721,6 +777,7 @@ class Table(SchemaObject):
             ...     }
             ... )
         """
+        self._validate_thread()
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
             raise excs.RequestError(
@@ -785,6 +842,7 @@ class Table(SchemaObject):
 
             >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90), stored=False)
         """
+        self._validate_thread()
         from pixeltable.catalog import retry_loop
 
         # a retry loop is necessary because drop column needs it.
@@ -879,6 +937,7 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_col(tbl.col, if_not_exists='ignore')
         """
+        self._validate_thread()
         from pixeltable.catalog import retry_loop
 
         cat = get_runtime().catalog
@@ -995,7 +1054,7 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.rename_column('col1', 'col2')
         """
-
+        self._validate_thread()
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
         ):
@@ -1109,6 +1168,7 @@ class Table(SchemaObject):
             ...     image_embed=image_embedding_fn,
             ... )
         """
+        self._validate_thread()
         assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
             'TODO: implement for unversioned tables [PXT-1101]'
         )
@@ -1207,7 +1267,7 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_embedding_index(idx_name='idx1', if_not_exists='ignore')
         """
-
+        self._validate_thread()
         if (column is None) == (idx_name is None):
             raise excs.RequestError(
                 excs.ErrorCode.MISSING_REQUIRED, "Exactly one of 'column' or 'idx_name' must be provided"
@@ -1291,7 +1351,7 @@ class Table(SchemaObject):
             ... tbl.drop_index(idx_name='idx1', if_not_exists='ignore')
 
         """
-
+        self._validate_thread()
         if (column is None) == (idx_name is None):
             raise excs.RequestError(
                 excs.ErrorCode.MISSING_REQUIRED, "Exactly one of 'column' or 'idx_name' must be provided"
@@ -1493,6 +1553,7 @@ class Table(SchemaObject):
             ... models = [MyModel(a=1, b=2), MyModel(a=3, b=4)]
             ... tbl.insert(models)
         """
+        self._validate_thread()
         raise NotImplementedError
 
     def update(
@@ -1531,7 +1592,7 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
-
+        self._validate_thread()
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
@@ -1585,7 +1646,7 @@ class Table(SchemaObject):
             ...     if_not_exists='insert',
             ... )
         """
-
+        self._validate_thread()
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
@@ -1665,7 +1726,7 @@ class Table(SchemaObject):
 
             >>> tbl.recompute_columns('c1', errors_only=True)
         """
-
+        self._validate_thread()
         cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True):
@@ -1731,6 +1792,7 @@ class Table(SchemaObject):
 
             >>> tbl.delete(tbl.a > 5)
         """
+        self._validate_thread()
         raise NotImplementedError
 
     def revert(self) -> None:
@@ -1739,6 +1801,7 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
+        self._validate_thread()
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
@@ -1753,6 +1816,7 @@ class Table(SchemaObject):
             self._tbl_version_path.clear_cached_md()
 
     def push(self) -> None:
+        self._validate_thread()
         from pixeltable.share import push_replica
         from pixeltable.share.protocol import PxtUri
 
@@ -1793,6 +1857,7 @@ class Table(SchemaObject):
         push_replica(uuid_uri_obj, self)
 
     def pull(self) -> None:
+        self._validate_thread()
         from pixeltable.share import pull_replica
         from pixeltable.share.protocol import PxtUri
 
@@ -1821,6 +1886,7 @@ class Table(SchemaObject):
         pull_replica(self._path(), uuid_uri_obj)
 
     def external_stores(self) -> list[str]:
+        self._validate_thread()
         return list(self._tbl_version.get().external_stores.keys())
 
     def _link_external_store(self, store: 'pxt.io.ExternalStore') -> None:
@@ -1855,7 +1921,7 @@ class Table(SchemaObject):
             delete_external_data (bool): If `True`, then the external data store will also be deleted. WARNING: This
                 is a destructive operation that will delete data outside Pixeltable, and cannot be undone.
         """
-
+        self._validate_thread()
         if not self._tbl_version_path.is_mutable():
             return
         with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._tbl_version_path]):
@@ -1897,7 +1963,7 @@ class Table(SchemaObject):
             export_data: If `True`, data from this table will be exported to the external stores during synchronization.
             import_data: If `True`, data from the external stores will be imported to this table during synchronization.
         """
-
+        self._validate_thread()
         if not self._tbl_version_path.is_mutable():
             return UpdateStatus()
         # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
@@ -1957,7 +2023,7 @@ class Table(SchemaObject):
 
             >>> tbl.get_versions(n=5)
         """
-
+        self._validate_thread()
         if n is None:
             n = 1_000_000_000
         if not isinstance(n, int) or n < 1:
@@ -2027,6 +2093,7 @@ class Table(SchemaObject):
 
             >>> tbl.history(n=5)
         """
+        self._validate_thread()
         versions = self.get_versions(n)
         assert len(versions) > 0
         return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))
