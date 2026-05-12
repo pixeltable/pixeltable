@@ -122,6 +122,11 @@ class ExceptionFault:
 
 
 class BlockFault:
+    # Note: a FaultManager sometimes can become shared between threads (see Runtime.copy_db_context), and as the result,
+    # so can a BlockFault. It's not clear what the desired behavior is in that case, so for now all BlockFaults are
+    # non-recurring, meaning, only the first thread to hit one will be blocked. This can be changed in the future if
+    # there is a need for a different behavior.
+
     # an event that is signaled (set) when the fault is reached
     reached: Event
     # an event that is signaled when the blocked thread should proceed

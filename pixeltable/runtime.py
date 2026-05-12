@@ -70,6 +70,7 @@ class Runtime:
         self._catalog = other.catalog
         self._progress = other._progress
         self.context_inherited = True
+        self.fault_manager = other.fault_manager
 
     @property
     def in_xact(self) -> bool:
