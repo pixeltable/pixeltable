@@ -54,7 +54,7 @@ def build_deploy_bundle(deployment_name: str) -> Path:
             'No dependency lockfile was found and no Python dependencies are specified in config.\n'
             'The deployment may not have the necessary dependencies to run correctly.'
         )
-        
+
     bundle_path = package(cfg, config_export=config_export, md_export=md_export, conda_export=conda_export)
     Env.get().console_logger.info(f'Built project bundle: {bundle_path}')
     return bundle_path
