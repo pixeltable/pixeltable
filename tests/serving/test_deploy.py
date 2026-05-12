@@ -47,10 +47,18 @@ class TestDeploy:
         config_contents = textwrap.dedent(
             """\
             [[deployment]]
-            name = "test-deploy"
+            name = "deploy-svc1"
             include = ["*.toml", "a*.txt"]
             exclude = ["a_exclude.txt"]
-            services = ["myservice1", "myservice2", "pxttest:test_service"]
+            service = "myservice1"
+
+            [[deployment]]
+            name = "deploy-svc2"
+            service = "myservice2"
+
+            [[deployment]]
+            name = "deploy-code"
+            service = "pxttest:test_service"
 
             [[service]]
             name = "myservice1"
@@ -78,9 +86,8 @@ class TestDeploy:
 
         Config.init({}, reinit=True)  # pick up the new configuration
 
-        bundle_path = build_deploy_bundle('test-deploy')
-
-        # Extract the bundle and verify contents
+        # deploy-svc1: TOML-defined service with file include/exclude
+        bundle_path = build_deploy_bundle('deploy-svc1')
         with tarfile.open(bundle_path, 'r:bz2') as tar:
             members = tar.getnames()
             assert 'config.toml' in members
@@ -101,12 +108,10 @@ class TestDeploy:
             config_member = tar.getmember('config.toml')
             with tar.extractfile(config_member) as f:
                 content = toml.loads(f.read().decode('utf-8'))
-                assert content['deployment'][0]['name'] == 'test-deploy'
-                assert len(content['service']) == 2
+                assert content['deployment'][0]['name'] == 'deploy-svc1'
+                assert len(content['service']) == 1
                 assert content['service'][0]['name'] == 'myservice1'
                 assert content['service'][0]['routes'][0]['table'] == 'table1'
-                assert content['service'][1]['name'] == 'myservice2'
-                assert content['service'][1]['routes'][0]['table'] == 'dir1.table2'
 
             # Verify the contents of metadata.json
             metadata_member = tar.getmember('metadata.json')
@@ -114,7 +119,7 @@ class TestDeploy:
                 content = json.loads(f.read().decode('utf-8'))
                 assert content['pxt_version'] == pxt.__version__
                 assert content['pxt_md_version'] == metadata.VERSION
-                assert len(content['tables_md']) == 3  # 3 tables referenced in services
+                assert len(content['tables_md']) == 1
                 assert len(content['tables_md'][0]) == 3  # TableVersionMd structure
 
             # Verify the contents of conda-env.yml
@@ -122,6 +127,34 @@ class TestDeploy:
             with tar.extractfile(env_member) as f:
                 text = f.read().decode('utf-8')
                 assert 'pixeltable==' in text, text
+
+        # deploy-svc2: second TOML-defined service
+        bundle_path = build_deploy_bundle('deploy-svc2')
+        with tarfile.open(bundle_path, 'r:bz2') as tar:
+            config_member = tar.getmember('config.toml')
+            with tar.extractfile(config_member) as f:
+                content = toml.loads(f.read().decode('utf-8'))
+                assert content['deployment'][0]['name'] == 'deploy-svc2'
+                assert len(content['service']) == 1
+                assert content['service'][0]['name'] == 'myservice2'
+                assert content['service'][0]['routes'][0]['table'] == 'dir1.table2'
+            metadata_member = tar.getmember('metadata.json')
+            with tar.extractfile(metadata_member) as f:
+                content = json.loads(f.read().decode('utf-8'))
+                assert len(content['tables_md']) == 1
+
+        # deploy-code: code-defined service (pxttest:test_service)
+        bundle_path = build_deploy_bundle('deploy-code')
+        with tarfile.open(bundle_path, 'r:bz2') as tar:
+            config_member = tar.getmember('config.toml')
+            with tar.extractfile(config_member) as f:
+                content = toml.loads(f.read().decode('utf-8'))
+                assert content['deployment'][0]['name'] == 'deploy-code'
+                assert 'service' not in content or len(content.get('service', [])) == 0
+            metadata_member = tar.getmember('metadata.json')
+            with tar.extractfile(metadata_member) as f:
+                content = json.loads(f.read().decode('utf-8'))
+                assert len(content['tables_md']) == 1
 
     def test_deploy_bundle_errors(self, uses_db: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test error paths in build_deploy_bundle()."""
@@ -138,6 +171,7 @@ class TestDeploy:
             textwrap.dedent("""\
             [[deployment]]
             name = "123bad"
+            service = "x"
             """)
         )
         with pytest.raises(pxt.Error, match='not a valid Pixeltable identifier'):
@@ -154,6 +188,7 @@ class TestDeploy:
             textwrap.dedent("""\
             [[deployment]]
             name = "other-env"
+            service = "x"
             """)
         )
         Config.init({}, reinit=True)
@@ -165,7 +200,7 @@ class TestDeploy:
             textwrap.dedent("""\
             [[deployment]]
             name = "my-env"
-            services = ["missing-service"]
+            service = "missing-service"
             """)
         )
         Config.init({}, reinit=True)
@@ -177,7 +212,7 @@ class TestDeploy:
             textwrap.dedent("""\
             [[deployment]]
             name = "my-env"
-            services = ["missing-service"]
+            service = "missing-service"
 
             [[service]]
             name = "other-service"
@@ -194,7 +229,7 @@ class TestDeploy:
                 textwrap.dedent(f"""\
                 [[deployment]]
                 name = "my-env"
-                services = ["my-service"]
+                service = "my-service"
 
                 [[service]]
                 name = "my-service"
@@ -214,7 +249,7 @@ class TestDeploy:
             textwrap.dedent("""\
             [[deployment]]
             name = "my-env"
-            services = ["my-service"]
+            service = "my-service"
 
             [[service]]
             name = "my-service"
@@ -234,7 +269,7 @@ class TestDeploy:
             textwrap.dedent("""\
             [[deployment]]
             name = "my-env"
-            services = ["no_such_module:app"]
+            service = "no_such_module:app"
             """)
         )
         Config.init({}, reinit=True)
@@ -249,7 +284,7 @@ class TestDeploy:
             textwrap.dedent("""\
             [[deployment]]
             name = "my-env"
-            services = ["pxttest_noattr:missing_app"]
+            service = "pxttest_noattr:missing_app"
             """)
         )
         Config.init({}, reinit=True)
@@ -264,7 +299,7 @@ class TestDeploy:
             textwrap.dedent("""\
             [[deployment]]
             name = "my-env"
-            services = ["pxttest_bad:not_a_fastapi"]
+            service = "pxttest_bad:not_a_fastapi"
             """)
         )
         Config.init({}, reinit=True)
@@ -286,7 +321,7 @@ class TestDeploy:
                 textwrap.dedent("""\
                 [[deployment]]
                 name = "my-env"
-                services = ["pxttest:app"]
+                service = "pxttest:app"
                 """)
             )
             Config.init({}, reinit=True)

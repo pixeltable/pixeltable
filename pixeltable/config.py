@@ -143,11 +143,11 @@ class DeploymentConfig(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid')
 
     name: str
+    service: str
     include: list[str] | None = None
     exclude: list[str] | None = None
     env_dependencies: list[str] = pydantic.Field(default_factory=list)
     python_dependencies: list[str] = pydantic.Field(default_factory=list)
-    services: list[str] = pydantic.Field(default_factory=list)
 
     @pydantic.field_validator('name')
     @classmethod

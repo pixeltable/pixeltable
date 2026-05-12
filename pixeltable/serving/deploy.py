@@ -33,20 +33,17 @@ def build_deploy_bundle(deployment_name: str) -> Path:
     cfg = lookup_deployment_config(deployment_name)
     Env.get().console_logger.info(f'Deploying {deployment_name!r} ...')
 
-    # Process the list of services, validating them and collecting their configs and table MD.
-    services_cfg, md_export = _process_services(cfg)
+    # Process the service, validating it and collecting its config and table MD.
+    service_cfg, md_export = _process_service(cfg)
 
-    if len(cfg.services) == 0:
-        Env.get().console_logger.warning('That deployment contains no services.')
-    else:
-        Env.get().console_logger.info(f'The following service(s) will be deployed: {", ".join(cfg.services)}')
+    Env.get().console_logger.info(f'The following service will be deployed: {cfg.service}')
 
-    config_export = {
-        'deployment': [cfg.model_dump(mode='json')],
-        'service': [service.model_dump(mode='json') for service in services_cfg],
-    }
+    config_export = {'deployment': [cfg.model_dump(mode='json')]}
+    if service_cfg is not None:
+        config_export.update({'service': [service_cfg.model_dump(mode='json')]})
     conda_export = _export_conda_env()
     lockfile = _find_lockfile()
+
     if conda_export is None and len(cfg.env_dependencies) == 0:
         Env.get().console_logger.warning(
             'No conda environment was detected and no dependencies are specified in config.\n'
@@ -57,41 +54,41 @@ def build_deploy_bundle(deployment_name: str) -> Path:
             'No dependency lockfile was found and no Python dependencies are specified in config.\n'
             'The deployment may not have the necessary dependencies to run correctly.'
         )
+        
     bundle_path = package(cfg, config_export=config_export, md_export=md_export, conda_export=conda_export)
     Env.get().console_logger.info(f'Built project bundle: {bundle_path}')
     return bundle_path
 
 
-def _process_services(cfg: config.DeploymentConfig) -> tuple[list[config.ServiceConfig], dict[str, Any]]:
+def _process_service(cfg: config.DeploymentConfig) -> tuple[config.ServiceConfig | None, dict[str, Any]]:
     """
-    Validate the services listed in the deployment config.
+    Validate the service referenced by the deployment config.
 
-    Returns: (list of service configs, table md export)
+    Returns: (service config, table md export)
     """
-    services_cfg: list[config.ServiceConfig] = []
+    service_cfg: config.ServiceConfig | None = None
     table_paths: set[str] = set()
-    for service_name in cfg.services:
-        if ':' in service_name:
-            # "module:attribute" references a service defined as a FastAPI app in user code.
-            paths = _tables_from_fastapi_app(cfg, service_name)
-            table_paths.update(paths)
-        else:
-            # Otherwise, it references a service defined in config.
-            service_cfg = lookup_service_config(service_name)
-            for route in service_cfg.routes:
-                if route.type != 'compute':
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_CONFIGURATION,
-                        f'Service {service_name!r} referenced in deployment {cfg.name!r} has a route {route.path!r} '
-                        f"of type {route.type!r}. Currently, only 'compute' routes are supported for deployment.",
-                    )
-                assert isinstance(route, config.InsertRouteConfig)
-                table_paths.add(route.table)
-            services_cfg.append(service_cfg)
-            _logger.info(f'Validated service {service_name!r} with {len(service_cfg.routes)} route(s).')
+    service_name = cfg.service
+    if ':' in service_name:
+        # "module:attribute" references a service defined as a FastAPI app in user code.
+        paths = _tables_from_fastapi_app(cfg, service_name)
+        table_paths.update(paths)
+    else:
+        # Otherwise, it references a service defined in config.
+        service_cfg = lookup_service_config(service_name)
+        for route in service_cfg.routes:
+            if route.type != 'compute':
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'Service {service_name!r} referenced in deployment {cfg.name!r} has a route {route.path!r} '
+                    f"of type {route.type!r}. Currently, only 'compute' routes are supported for deployment.",
+                )
+            assert isinstance(route, config.InsertRouteConfig)
+            table_paths.add(route.table)
+        _logger.info(f'Validated service {service_name!r} with {len(service_cfg.routes)} route(s).')
 
     md_export = _export_tables_md(table_paths)
-    return services_cfg, md_export
+    return service_cfg, md_export
 
 
 def _tables_from_fastapi_app(env_cfg: config.DeploymentConfig, module_attr: str) -> set[str]:
