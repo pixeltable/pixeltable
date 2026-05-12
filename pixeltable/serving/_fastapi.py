@@ -479,6 +479,8 @@ class FastAPIRouter(fastapi.APIRouter):
                 the insert plus post-processing in a background thread. Poll `job_url` for the
                 result; the decorated function's return value is delivered as the job result.
         """
+        # Right now this is just an alias for insert_route().
+        # TODO: Once Table.compute() is implemented, implement this method properly.
         return self._insert_route(
             t,
             path=path,
@@ -598,6 +600,7 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool,
         route_type: Literal['insert', 'compute'],
     ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
+        # TODO: This can be folded back into insert_route() once compute_route() is properly implemented.
         _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             t,
             inputs=inputs,

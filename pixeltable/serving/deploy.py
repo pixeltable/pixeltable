@@ -95,8 +95,12 @@ def _process_services(cfg: config.EnvironmentConfig) -> tuple[list[config.Servic
 
 
 def _tables_from_fastapi_app(env_cfg: config.EnvironmentConfig, module_attr: str) -> set[str]:
-    """Given a "module:attribute" reference to a FastAPI app, import the module and inspect the app's routes to find
-    all tables mentioned by any insert routes."""
+    """
+    Given a "module:attribute" reference to a FastAPI app, import the module and inspect the app's routes to find
+    all tables mentioned by any compute routes.
+
+    Validate the config to ensure there are no non-compute routes and that all routes refer to valid FastAPI apps.
+    """
     from fastapi import FastAPI
     from starlette.routing import Route
 
