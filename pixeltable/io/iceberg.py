@@ -112,7 +112,7 @@ def export_iceberg(
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'export_iceberg(): cannot infer a concrete type for JSON field(s) {null_paths} because every sampled '
-            f'value is None. Iceberg has no null-only type; you can specify an explicit type using the schema_overrides parameter.'
+            f'value is None. Iceberg has no null-only type; you can specify an explicit type using the schema_overrides parameter.',
         )
 
     catalog.create_namespace_if_not_exists(namespace)
