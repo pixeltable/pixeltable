@@ -93,7 +93,7 @@ def to_arrow_type(pxt_type: ts.ColumnType) -> pa.DataType | None:
 
 
 def to_arrow_schema(
-    pxt_schema: dict[str, ts.ColumnType], schema_override: Mapping[str, pa.DataType] | None = None
+    pxt_schema: dict[str, ts.ColumnType], schema_overrides: Mapping[str, pa.DataType] | None = None
 ) -> pa.Schema:
     """Build a deterministic `pa.Schema` from a pixeltable schema.
 
@@ -101,13 +101,13 @@ def to_arrow_schema(
     data: JSON columns are mapped to an empty `pa.struct([])` instead of being inferred from
     values.
 
-    `schema_override` maps a column name to the arrow type that should be used instead of the
+    `schema_overrides` maps a column name to the arrow type that should be used instead of the
     default mapping; useful for pinning JSON columns or downcasting scalar types.
     """
     pa_column_types: dict[str, pa.DataType] = {}
     for col_name, col_type in pxt_schema.items():
-        if schema_override is not None and col_name in schema_override:
-            pa_column_types[col_name] = schema_override[col_name]
+        if schema_overrides is not None and col_name in schema_overrides:
+            pa_column_types[col_name] = schema_overrides[col_name]
             continue
         if col_type.is_json_type():
             pa_column_types[col_name] = pa.struct([])
@@ -138,7 +138,7 @@ def _to_record_batch(
     column_vals: dict[str, list[Any]],
     schema: pa.Schema,
     pxt_schema: dict[str, ts.ColumnType],
-    schema_override: Mapping[str, pa.DataType] | None = None,
+    schema_overrides: Mapping[str, pa.DataType] | None = None,
 ) -> pa.RecordBatch:
     import pyarrow as pa
 
@@ -146,13 +146,13 @@ def _to_record_batch(
     for field in schema:
         assert field.name in pxt_schema
         pxt_type = pxt_schema[field.name]
-        if schema_override is not None and field.name in schema_override:
+        if schema_overrides is not None and field.name in schema_overrides:
             try:
                 pa_arrays.append(pa.array(column_vals[field.name], type=field.type))
             except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError) as e:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'schema_override type {field.type} does not fit the data for column {field.name!r}: {e}',
+                    f'schema_overrides type {field.type} does not fit the data for column {field.name!r}: {e}',
                 ) from e
         elif isinstance(field.type, pa.FixedShapeTensorType):
             stacked_arr = np.stack(column_vals[field.name])
@@ -180,7 +180,7 @@ def _to_record_batch(
 
 
 def to_record_batches(
-    query: 'pxt.Query', batch_size_bytes: int, schema_override: Mapping[str, pa.DataType] | None = None
+    query: 'pxt.Query', batch_size_bytes: int, schema_overrides: Mapping[str, pa.DataType] | None = None
 ) -> Iterator[pa.RecordBatch]:
     arrow_schema: pa.Schema | None = None  # initialized after first batch, when we have data to infer struct schemas
     batch_columns: dict[str, list[Any]] = {k: [] for k in query.schema}
@@ -195,8 +195,8 @@ def to_record_batches(
             return
         pa_column_types: dict[str, pa.DataType] = {}
         for col_name, col_type in query.schema.items():
-            if schema_override is not None and col_name in schema_override:
-                pa_column_types[col_name] = schema_override[col_name]
+            if schema_overrides is not None and col_name in schema_overrides:
+                pa_column_types[col_name] = schema_overrides[col_name]
             elif col_type.is_json_type():
                 try:
                     pa_type = pa.infer_type(batch_columns[col_name], mask=None)
@@ -279,7 +279,7 @@ def to_record_batches(
                         col_name: json_batch_size[col_name] // num_batch_rows for col_name in json_batch_size
                     }
                 create_arrow_schema()
-                record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema, schema_override)
+                record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema, schema_overrides)
                 yield record_batch
                 batch_columns = {k: [] for k in query.schema}
                 current_byte_estimate = 0
@@ -290,7 +290,7 @@ def to_record_batches(
 
     if num_batch_rows > 0:
         create_arrow_schema()
-        record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema, schema_override)
+        record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema, schema_overrides)
         yield record_batch
 
 
