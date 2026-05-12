@@ -12,30 +12,15 @@ docker run -d --rm \
     -p 8080:8080 \
     "cockroachdb/cockroach:$ROACH_VERSION" \
     start-single-node --insecure \
-    --listen-addr=0.0.0.0:26257 \
-    --http-addr=0.0.0.0:8080 \
-    --cache=256MiB \
-    --max-sql-memory=256MiB
+    --cache=1GiB \
+    --max-sql-memory=1GiB
 
-ready=0
 for _ in $(seq 1 60); do
-    if ! docker ps --format '{{.Names}}' | grep -q "^${ROACH_NAME}$"; then
-        echo "Container ${ROACH_NAME} is not running. Last logs:" >&2
-        docker logs "$ROACH_NAME" 2>&1 || true
-        exit 1
-    fi
     if docker exec "$ROACH_NAME" /cockroach/cockroach sql --insecure -e 'SELECT 1' >/dev/null 2>&1; then
-        ready=1
         break
     fi
     sleep 2
 done
-
-if [ "$ready" -ne 1 ]; then
-    echo "CockroachDB did not become ready in time. Logs:" >&2
-    docker logs "$ROACH_NAME" 2>&1 || true
-    exit 1
-fi
 
 docker exec "$ROACH_NAME" /cockroach/cockroach sql --insecure -e "
     CREATE DATABASE IF NOT EXISTS pixeltable;
