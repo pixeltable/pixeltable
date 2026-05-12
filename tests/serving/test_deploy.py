@@ -48,17 +48,20 @@ class TestDeploy:
             """\
             [[deployment]]
             name = "deploy-svc1"
+            service = "myservice1"
+            env = "prod"
             include = ["*.toml", "a*.txt"]
             exclude = ["a_exclude.txt"]
-            service = "myservice1"
 
             [[deployment]]
             name = "deploy-svc2"
             service = "myservice2"
+            env = "prod"
 
             [[deployment]]
             name = "deploy-code"
             service = "pxttest:test_service"
+            env = "prod"
 
             [[service]]
             name = "myservice1"
@@ -172,6 +175,7 @@ class TestDeploy:
             [[deployment]]
             name = "123bad"
             service = "x"
+            env = "prod"
             """)
         )
         with pytest.raises(pxt.Error, match='not a valid Pixeltable identifier'):
@@ -189,6 +193,7 @@ class TestDeploy:
             [[deployment]]
             name = "other-env"
             service = "x"
+            env = "prod"
             """)
         )
         Config.init({}, reinit=True)
@@ -201,6 +206,7 @@ class TestDeploy:
             [[deployment]]
             name = "my-env"
             service = "missing-service"
+            env = "prod"
             """)
         )
         Config.init({}, reinit=True)
@@ -213,6 +219,7 @@ class TestDeploy:
             [[deployment]]
             name = "my-env"
             service = "missing-service"
+            env = "prod"
 
             [[service]]
             name = "other-service"
@@ -230,6 +237,7 @@ class TestDeploy:
                 [[deployment]]
                 name = "my-env"
                 service = "my-service"
+                env = "prod"
 
                 [[service]]
                 name = "my-service"
@@ -250,6 +258,7 @@ class TestDeploy:
             [[deployment]]
             name = "my-env"
             service = "my-service"
+            env = "prod"
 
             [[service]]
             name = "my-service"
@@ -270,6 +279,7 @@ class TestDeploy:
             [[deployment]]
             name = "my-env"
             service = "no_such_module:app"
+            env = "prod"
             """)
         )
         Config.init({}, reinit=True)
@@ -285,6 +295,7 @@ class TestDeploy:
             [[deployment]]
             name = "my-env"
             service = "pxttest_noattr:missing_app"
+            env = "prod"
             """)
         )
         Config.init({}, reinit=True)
@@ -300,6 +311,7 @@ class TestDeploy:
             [[deployment]]
             name = "my-env"
             service = "pxttest_bad:not_a_fastapi"
+            env = "prod"
             """)
         )
         Config.init({}, reinit=True)
@@ -322,6 +334,7 @@ class TestDeploy:
                 [[deployment]]
                 name = "my-env"
                 service = "pxttest:app"
+                env = "prod"
                 """)
             )
             Config.init({}, reinit=True)

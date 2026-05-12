@@ -144,6 +144,7 @@ class DeploymentConfig(pydantic.BaseModel):
 
     name: str
     service: str
+    env: str
     include: list[str] | None = None
     exclude: list[str] | None = None
     env_dependencies: list[str] = pydantic.Field(default_factory=list)
