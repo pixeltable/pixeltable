@@ -129,7 +129,7 @@ class Runtime:
         Prefer Catalog.begin_xact() unless there is a specific reason to call this directly.
 
         Args:
-            for_write: if True, uses serializable isolation; if False, uses repeatable_read
+            for_write: unused (TODO use or remove)
 
         TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
         that avoids tripping over any pending ops
