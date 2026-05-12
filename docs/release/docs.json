@@ -20,7 +20,13 @@
               "overview/pixeltable",
               "overview/quick-start",
               "overview/ten-minute-tour",
-              "overview/building-pixeltable-with-llms",
+              "overview/building-pixeltable-with-llms"
+            ]
+          },
+          {
+            "group": "Tools",
+            "pages": [
+              "platform/dashboard",
               "platform/cli"
             ]
           },
