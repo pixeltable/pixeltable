@@ -56,7 +56,7 @@ class TestDeploy:
             name = "myservice1"
 
             [[service.routes]]
-            type = "insert"
+            type = "compute"
             table = "table1"
             path = "/insert1"
 
@@ -64,7 +64,7 @@ class TestDeploy:
             name = "myservice2"
 
             [[service.routes]]
-            type = "insert"
+            type = "compute"
             table = "dir1.table2"
             path = "/insert2"
             """

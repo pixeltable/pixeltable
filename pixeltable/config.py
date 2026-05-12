@@ -69,8 +69,11 @@ class RouteConfigBase(pydantic.BaseModel):
         return v
 
 
+# Right now, 'compute' simply functions as an alias for 'insert' (that is permitted by `pxt deploy`).
+# TODO: Implement a separate 'compute' operation (possibly still reusing `InsertRouteConfig`) once
+#     `Table.compute()` has been implemented.
 class InsertRouteConfig(RouteConfigBase):
-    type: Literal['insert']
+    type: Literal['compute', 'insert']
     table: str
     inputs: list[str] | None = None
     uploadfile_inputs: list[str] | None = None

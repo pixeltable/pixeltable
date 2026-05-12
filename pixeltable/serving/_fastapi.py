@@ -104,6 +104,7 @@ class PxtEndpoint:
     background: bool
     endpoint_op: Callable[..., Any]
     tbl: pxt.Table | None
+    route_type: Literal['insert', 'update', 'delete', 'query', 'compute']
 
     def __init__(
         self,
@@ -114,6 +115,7 @@ class PxtEndpoint:
         background: bool,
         endpoint_op: Callable[..., Any],
         tbl: pxt.Table | None,
+        route_type: Literal['insert', 'update', 'delete', 'query', 'compute'],
     ) -> None:
         self.router = router
         self.name = name
@@ -122,6 +124,7 @@ class PxtEndpoint:
         self.background = background
         self.endpoint_op = endpoint_op
         self.tbl = tbl
+        self.route_type = route_type
 
         # FastAPI needs the correct signature and a name
         self.__signature__ = signature
@@ -193,6 +196,52 @@ class FastAPIRouter(fastapi.APIRouter):
             eng = sql.create_engine(db_connect)
             self._engine_cache[db_connect] = eng
         return eng
+
+    def add_compute_route(
+        self,
+        t: pxt.Table,
+        *,
+        path: str,
+        inputs: list[str] | None = None,
+        uploadfile_inputs: list[str] | None = None,
+        outputs: list[str] | None = None,
+        return_fileresponse: bool = False,
+        export_sql: SqlExport | None = None,
+        background: bool = False,
+    ) -> None:
+        """
+        Add a POST endpoint that computes the workflow given by `t` and returns the resulting rows.
+
+        This is identical to [[`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route]],
+        except that no data is actually inserted into the table.
+
+        Args:
+            t: The table to compute rows over.
+            path: The URL path for the endpoint.
+            inputs: Columns to accept as request fields. Defaults to all non-computed columns.
+            uploadfile_inputs: Columns to accept as
+                [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
+                (must be media-typed). These are sent as multipart form data; all other inputs
+                become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
+            outputs: Columns to include in the response. Defaults to all columns (including inputs).
+            return_fileresponse: If True, return the single media-typed output column as a
+                [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
+                Requires exactly one media-typed output column.
+            export_sql: If set, export each inserted row into an external RDBMS table after the
+                Pixeltable insert succeeds. See [`SqlExport`][pixeltable.serving.SqlExport] for
+                the target specification and supported `method` values.
+
+                See the [[`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route]]
+                documentation for more details.
+            background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
+                the insert plus post-processing in a background thread. Poll `job_url` for the
+                result; the decorated function's return value is delivered as the job result.
+        """
+        # Right now this is just an alias for add_insert_route().
+        # TODO: Once Table.compute() is implemented, implement this method properly.
+        return self._add_insert_route(t, path=path, inputs=inputs, uploadfile_inputs=uploadfile_inputs, outputs=outputs,
+                                      return_fileresponse=return_fileresponse, export_sql=export_sql, background=background,
+                                      route_type='compute')
 
     def add_insert_route(
         self,
@@ -309,6 +358,24 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"status": "done", "result": {...}}
             ```
         """
+        self._add_insert_route(t, path=path, inputs=inputs, uploadfile_inputs=uploadfile_inputs, outputs=outputs,
+                               return_fileresponse=return_fileresponse, export_sql=export_sql, background=background,
+                               route_type='insert')
+
+    def _add_insert_route(
+        self,
+        t: pxt.Table,
+        *,
+        path: str,
+        inputs: list[str] | None,
+        uploadfile_inputs: list[str] | None,
+        outputs: list[str] | None,
+        return_fileresponse: bool,
+        export_sql: SqlExport | None,
+        background: bool,
+        route_type: Literal['insert', 'compute']
+    ) -> None:
+        # TODO: This can be folded back into add_insert_route() once add_compute_route() is properly implemented.
         _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             t,
             inputs=inputs,
@@ -355,6 +422,56 @@ class FastAPIRouter(fastapi.APIRouter):
             row_processor=row_processor,
             row_processor_model=insert_response_model,
             is_update=False,
+            route_type=route_type,
+        )
+
+    def compute_route(
+        self,
+        t: pxt.Table,
+        *,
+        path: str,
+        inputs: list[str] | None = None,
+        uploadfile_inputs: list[str] | None = None,
+        outputs: list[str] | None = None,
+        export_sql: SqlExport | None = None,
+        background: bool = False,
+    ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
+        """
+        Decorator that registers a POST endpoint computing the workflow given by `t` and returning the resulting rows.
+
+        This is identical to [[`@insert_route`][pixeltable.serving.FastAPIRouter.insert_route]],
+        except that no data is actually inserted into the table.
+
+        Args:
+            t: The table to compute rows over.
+            path: The URL path for the endpoint.
+            inputs: Columns to accept as request fields. Defaults to all non-computed columns.
+            uploadfile_inputs: Columns to accept as
+                [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
+                (must be media-typed). These are sent as multipart form data; all other inputs
+                become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
+            outputs: Columns from the inserted row to pass to the decorated function as keyword
+                arguments. Defaults to all columns.
+            export_sql: If set, export the decorated function's return value into an external
+                RDBMS table after the Pixeltable insert succeeds. See
+                [`SqlExport`][pixeltable.serving.SqlExport] for the target specification and
+                supported `method` values.
+
+                See the [[`@insert_route`][pixeltable.serving.FastAPIRouter.insert_route]] documentation for more
+                details.
+            background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
+                the insert plus post-processing in a background thread. Poll `job_url` for the
+                result; the decorated function's return value is delivered as the job result.
+        """
+        return self._insert_route(
+            t,
+            path=path,
+            inputs=inputs,
+            uploadfile_inputs=uploadfile_inputs,
+            outputs=outputs,
+            export_sql=export_sql,
+            background=background,
+            route_type='compute',
         )
 
     def insert_route(
@@ -442,6 +559,29 @@ class FastAPIRouter(fastapi.APIRouter):
             Each successful POST inserts a row into the Pixeltable table and then appends a row
             with columns `caption`, `score` (the response model fields) to `captions`.
         """
+        return self._insert_route(
+            t,
+            path=path,
+            inputs=inputs,
+            uploadfile_inputs=uploadfile_inputs,
+            outputs=outputs,
+            export_sql=export_sql,
+            background=background,
+            route_type='insert',
+        )
+
+    def _insert_route(
+        self,
+        t: pxt.Table,
+        *,
+        path: str,
+        inputs: list[str] | None,
+        uploadfile_inputs: list[str] | None,
+        outputs: list[str] | None,
+        export_sql: SqlExport | None,
+        background: bool,
+        route_type: Literal['insert', 'compute'],
+    ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
         _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             t,
             inputs=inputs,
@@ -484,6 +624,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 row_processor=row_processor,
                 row_processor_model=response_model,
                 is_update=False,
+                route_type=route_type,
             )
             return user_fn
 
@@ -632,6 +773,7 @@ class FastAPIRouter(fastapi.APIRouter):
             row_processor=row_processor,
             row_processor_model=update_response_model,
             is_update=True,
+            route_type='update',
         )
 
     def update_route(
@@ -785,6 +927,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 row_processor=row_processor,
                 row_processor_model=response_model,
                 is_update=True,
+                route_type='update',
             )
             return user_fn
 
@@ -877,6 +1020,7 @@ class FastAPIRouter(fastapi.APIRouter):
             background=background,
             endpoint_op=run_delete,
             tbl=t,
+            route_type='delete',
         )
         self.add_api_route(path, endpoint, methods=['POST'], response_model=endpoint_model)
 
@@ -1114,6 +1258,7 @@ class FastAPIRouter(fastapi.APIRouter):
             background=background,
             endpoint_op=run_query,
             tbl=None,
+            route_type='query',
         )
 
         api_kwargs: dict[str, Any] = {'methods': [method.upper()]}
@@ -1181,6 +1326,7 @@ class FastAPIRouter(fastapi.APIRouter):
         row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
         row_processor_model: type[pydantic.BaseModel] | None,
         is_update: bool,
+        route_type: Literal['insert', 'update', 'compute'],
     ) -> None:
         """Create endpoint for insert/update.
 
@@ -1224,6 +1370,7 @@ class FastAPIRouter(fastapi.APIRouter):
             background=background,
             endpoint_op=run_dml,
             tbl=t,
+            route_type=route_type,
         )
         api_kwargs: dict[str, Any] = {'methods': ['POST']}
         if background:
