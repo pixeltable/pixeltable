@@ -1195,14 +1195,10 @@ class TestFastAPI:
         eng.dispose()
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="column 'id'"):
-            add_route_fn(
-                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out_bad')
-            )
+            add_route_fn(t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out_bad'))
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="column 'id' not in table"):
-            add_route_fn(
-                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out_missing')
-            )
+            add_route_fn(t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out_missing'))
 
         # method='update' validation: target needs a PK
         make_sqlite_target(tmp_path / 'export.db', 'no_pk', {'id': sql.Integer, 'text_upper': sql.VARCHAR})

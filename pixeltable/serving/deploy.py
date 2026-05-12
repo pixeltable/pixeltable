@@ -83,7 +83,7 @@ def _process_services(cfg: config.EnvironmentConfig) -> tuple[list[config.Servic
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_CONFIGURATION,
                         f'Service {service_name!r} referenced in environment {cfg.name!r} has a route {route.path!r} '
-                        f"of type {route.type!r}. Currently, only 'compute' routes are supported for deployment."
+                        f"of type {route.type!r}. Currently, only 'compute' routes are supported for deployment.",
                     )
                 assert isinstance(route, config.InsertRouteConfig)
                 table_paths.add(route.table)
@@ -128,7 +128,8 @@ def _tables_from_fastapi_app(env_cfg: config.EnvironmentConfig, module_attr: str
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
                     f'Service `{module_attr}` referenced in environment {env_cfg.name!r} has a route {route.path!r} '
-                    f"of type {route.endpoint.route_type!r}. Currently, only 'compute' routes are supported for deployment."
+                    f"of type {route.endpoint.route_type!r}. Currently, only 'compute' routes are supported for "
+                    'deployment.',
                 )
             assert route.endpoint.tbl is not None  # It's always non-None for 'compute' routes
             table_paths.add(route.endpoint.tbl._path())

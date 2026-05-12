@@ -239,9 +239,17 @@ class FastAPIRouter(fastapi.APIRouter):
         """
         # Right now this is just an alias for add_insert_route().
         # TODO: Once Table.compute() is implemented, implement this method properly.
-        return self._add_insert_route(t, path=path, inputs=inputs, uploadfile_inputs=uploadfile_inputs, outputs=outputs,
-                                      return_fileresponse=return_fileresponse, export_sql=export_sql, background=background,
-                                      route_type='compute')
+        return self._add_insert_route(
+            t,
+            path=path,
+            inputs=inputs,
+            uploadfile_inputs=uploadfile_inputs,
+            outputs=outputs,
+            return_fileresponse=return_fileresponse,
+            export_sql=export_sql,
+            background=background,
+            route_type='compute',
+        )
 
     def add_insert_route(
         self,
@@ -358,9 +366,17 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"status": "done", "result": {...}}
             ```
         """
-        self._add_insert_route(t, path=path, inputs=inputs, uploadfile_inputs=uploadfile_inputs, outputs=outputs,
-                               return_fileresponse=return_fileresponse, export_sql=export_sql, background=background,
-                               route_type='insert')
+        self._add_insert_route(
+            t,
+            path=path,
+            inputs=inputs,
+            uploadfile_inputs=uploadfile_inputs,
+            outputs=outputs,
+            return_fileresponse=return_fileresponse,
+            export_sql=export_sql,
+            background=background,
+            route_type='insert',
+        )
 
     def _add_insert_route(
         self,
@@ -373,7 +389,7 @@ class FastAPIRouter(fastapi.APIRouter):
         return_fileresponse: bool,
         export_sql: SqlExport | None,
         background: bool,
-        route_type: Literal['insert', 'compute']
+        route_type: Literal['insert', 'compute'],
     ) -> None:
         # TODO: This can be folded back into add_insert_route() once add_compute_route() is properly implemented.
         _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
