@@ -188,7 +188,7 @@ async def chat_completions(
 async def embeddings(
     input: Batch[str],
     *,
-    model: str = 'text-embedding-ada-002',
+    model: str,
     api_version: str = '2024-02-15-preview',
     model_kwargs: dict[str, Any] | None = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
@@ -231,13 +231,15 @@ async def embeddings(
         Pixeltable column `tbl.text` of the table `tbl`:
 
         >>> from pixeltable.functions import fabric
-        >>> tbl.add_computed_column(embed=fabric.embeddings(tbl.text))
+        >>> tbl.add_computed_column(
+        ...     embed=fabric.embeddings(tbl.text, model='text-embedding-3-small')
+        ... )
 
         Add an embedding index to an existing column `text`:
 
         >>> tbl.add_embedding_index(
         ...     'text',
-        ...     embedding=fabric.embeddings.using(model='text-embedding-ada-002'),
+        ...     embedding=fabric.embeddings.using(model='text-embedding-3-large'),
         ... )
     """
     if model_kwargs is None:
@@ -270,15 +272,13 @@ async def embeddings(
     return [np.array(item['embedding'], dtype=np.float64) for item in data['data']]
 
 
+# Known embedding dimensions for common models
+_embedding_dimensions = {'text-embedding-ada-002': 1536, 'text-embedding-3-small': 1536, 'text-embedding-3-large': 3072}
+
+
 @embeddings.conditional_return_type
-def _(model: str = 'text-embedding-ada-002', model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
+def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
     """Determine the return type based on the model."""
-    # Known embedding dimensions for common models
-    embedding_dimensions = {
-        'text-embedding-ada-002': 1536,
-        'text-embedding-3-small': 1536,
-        'text-embedding-3-large': 3072,
-    }
 
     # Check if dimensions are specified in model_kwargs
     dimensions = None
@@ -287,7 +287,7 @@ def _(model: str = 'text-embedding-ada-002', model_kwargs: dict[str, Any] | None
 
     # If not specified, use known dimensions for the model
     if dimensions is None:
-        dimensions = embedding_dimensions.get(model, 1536)  # Default to 1536
+        dimensions = _embedding_dimensions.get(model, 1536)  # Default to 1536
 
     return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
 

@@ -4,7 +4,7 @@
 BASE_DIR = 'reddit_bot_data'
 
 # Embedding model choice
-# Example: "text-embedding-ada-002" (OpenAI)
+# Example: "text-embedding-3-small" (OpenAI)
 # Example: "sentence-transformers/all-MiniLM-L6-v2" (Local Hugging Face)
 EMBEDDING_MODEL_ID = 'intfloat/multilingual-e5-large-instruct'
 

@@ -91,7 +91,7 @@ class TestFabric:
         from pixeltable.functions import fabric
 
         t = pxt.create_table('test_tbl', {'text': pxt.String})
-        t.add_computed_column(embed=fabric.embeddings(t.text, model='text-embedding-ada-002'))
+        t.add_computed_column(embed=fabric.embeddings(t.text, model='text-embedding-3-small'))
         validate_update_status(
             t.insert([{'text': 'Hello, world!'}, {'text': 'Pixeltable is great for AI workflows.'}]), 2
         )
@@ -110,7 +110,7 @@ class TestFabric:
         from pixeltable.functions import fabric
 
         t = pxt.create_table('test_tbl', {'text': pxt.String})
-        t.add_computed_column(embed=fabric.embeddings(t.text))
+        t.add_computed_column(embed=fabric.embeddings(t.text, model='text-embedding-3-small'))
 
         # Insert multiple rows to test batching (batch_size=32)
         texts = [{'text': f'Sample text number {i}'} for i in range(50)]
@@ -144,7 +144,7 @@ class TestFabric:
 
         t = pxt.create_table('test_tbl', {'text': pxt.String})
         t.add_computed_column(
-            embed=fabric.embeddings(t.text, model='text-embedding-ada-002', api_version='2024-02-15-preview')
+            embed=fabric.embeddings(t.text, model='text-embedding-3-small', api_version='2024-02-15-preview')
         )
         validate_update_status(t.insert(text='Test text'), 1)
         results = t.collect()
