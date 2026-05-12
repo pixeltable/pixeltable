@@ -400,6 +400,9 @@ def sam_for_segmentation(
     __Requirements:__
 
     - `pip install torch transformers`
+    - `facebook/sam3` is a gated repository. Request access on its
+        [model page](https://huggingface.co/facebook/sam3), then authenticate with
+        `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before calling this UDF.
 
     Args:
         image: The image to segment.
