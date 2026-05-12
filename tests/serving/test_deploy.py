@@ -35,7 +35,7 @@ class TestDeploy:
 
         app = FastAPI(title='Pixeltable Test Service', version='0.42')
         router = FastAPIRouter()
-        router.add_insert_route(tbl3, path='/insert3')
+        router.add_compute_route(tbl3, path='/compute3')
         app.include_router(router)
 
         # Monkeypatch a new module with the test service so that config can find it
@@ -58,7 +58,7 @@ class TestDeploy:
             [[service.routes]]
             type = "compute"
             table = "table1"
-            path = "/insert1"
+            path = "/compute1"
 
             [[service]]
             name = "myservice2"
@@ -66,7 +66,7 @@ class TestDeploy:
             [[service.routes]]
             type = "compute"
             table = "dir1.table2"
-            path = "/insert2"
+            path = "/compute2"
             """
         )
         config_path.write_text(config_contents)
@@ -185,9 +185,9 @@ class TestDeploy:
             name = "my-service"
 
             [[service.routes]]
-            type = "insert"
+            type = "compute"
             table = "no_such_table"
-            path = "/insert"
+            path = "/compute"
             """)
         )
         Config.init({}, reinit=True)
