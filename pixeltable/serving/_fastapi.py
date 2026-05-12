@@ -206,9 +206,12 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool = False,
     ) -> None:
         """
-        Add a POST endpoint that computes the workflow given by `t` and returns the resulting rows.
+        Add a POST endpoint that materializes the computed columns of `t` and returns the resulting row.
 
-        This is identical to [[`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route]],
+
+        The endpoint runs [`Table.compute()`][pixeltable.Table.compute] on the request body
+        and returns the materialized row without persisting it. This is identical to
+        [`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route],
         except that no data is actually inserted into the table.
 
         Args:
@@ -223,19 +226,73 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse: If True, return the single media-typed output column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
                 Requires exactly one media-typed output column.
-            export_sql: If set, export each inserted row into an external RDBMS table after the
-                Pixeltable insert succeeds. See [`SqlExport`][pixeltable.serving.SqlExport] for
-                the target specification and supported `method` values.
-
-                See the [[`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route]]
-                documentation for more details.
+            export_sql: If set, export the computed row into an external RDBMS table after the
+                computation succeeds. See [`SqlExport`][pixeltable.serving.SqlExport] for the
+                target specification and supported `method` values. The exported row is the
+                response body. See [`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route]
+                for the schema-compatibility rules.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
-                the insert plus post-processing in a background thread. Poll `job_url` for the
-                result; the decorated function's return value is delivered as the job result.
+                the computation in a background thread. Poll `job_url` for the result.
+
+        Examples:
+            JSON request/response (no row stored):
+
+            >>> router.add_compute_route(t, path='/preview', inputs=['prompt'], outputs=['result'])
+
+            ```bash
+            curl -X POST http://localhost:8000/preview \\
+              -H 'Content-Type: application/json' \\
+              -d '{"prompt": "a sunset over the ocean"}'
+            # {"prompt": "a sunset over the ocean", "result": "..."}
+            ```
+
+            File upload with `FileResponse`:
+
+            >>> router.add_compute_route(
+            ...     t, path='/resize', inputs=['width', 'height'],
+            ...     uploadfile_inputs=['image'], outputs=['resized'], return_fileresponse=True,
+            ... )
+
+            ```bash
+            curl -X POST http://localhost:8000/resize \\
+              -F image=@photo.jpg -F width=640 -F height=480 \\
+              --output resized.jpg
+            # saves the resized image to resized.jpg; no row is inserted into `t`
+            ```
+
+            Export each computed row into an external RDBMS table:
+
+            >>> router.add_compute_route(
+            ...     t,
+            ...     path='/preview',
+            ...     inputs=['prompt'],
+            ...     outputs=['prompt', 'result'],
+            ...     export_sql=SqlExport(
+            ...         db_connect='postgresql+psycopg://user:pw@host/analytics',
+            ...         table='previews',
+            ...     ),
+            ... )
+
+            Each successful POST computes the row and appends it (columns: `prompt`, `result`)
+            to `public.previews`. The Pixeltable table is not modified.
+
+            Background processing:
+
+            >>> router.add_compute_route(t, path='/slow', background=True)
+
+            ```bash
+            # submit
+            curl -X POST http://localhost:8000/slow -d '{"prompt": "hello"}'
+            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
+            ```
+
+            ```bash
+            # poll
+            curl http://localhost:8000/jobs/abc123
+            # {"status": "done", "result": {...}}
+            ```
         """
-        # Right now this is just an alias for add_insert_route().
-        # TODO: Once Table.compute() is implemented, implement this method properly.
-        return self._add_insert_route(
+        self._add_insert_compute_route(
             t,
             path=path,
             inputs=inputs,
@@ -362,7 +419,7 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"status": "done", "result": {...}}
             ```
         """
-        self._add_insert_route(
+        self._add_insert_compute_route(
             t,
             path=path,
             inputs=inputs,
@@ -374,7 +431,7 @@ class FastAPIRouter(fastapi.APIRouter):
             route_type='insert',
         )
 
-    def _add_insert_route(
+    def _add_insert_compute_route(
         self,
         t: pxt.Table,
         *,
@@ -387,7 +444,8 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool,
         route_type: Literal['insert', 'compute'],
     ) -> None:
-        # TODO: This can be folded back into add_insert_route() once add_compute_route() is properly implemented.
+        """Shared implementation of add_insert_route()/add_compute_route()."""
+        error_prefix = f'add_{route_type}_route()'
         _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             t,
             inputs=inputs,
@@ -395,7 +453,7 @@ class FastAPIRouter(fastapi.APIRouter):
             outputs=outputs,
             return_fileresponse=return_fileresponse,
             background=background,
-            error_prefix=f'add_{route_type}_route()',
+            error_prefix=error_prefix,
             route_type=route_type,
         )
         uploadfile_inputs = uploadfile_inputs or []
@@ -405,17 +463,14 @@ class FastAPIRouter(fastapi.APIRouter):
             export_sql,
             return_fileresponse=return_fileresponse,
             schema={name: cols_by_name[name].col_type for name in output_col_names},
-            error_prefix=f'add_{route_type}_route()',
+            error_prefix=error_prefix,
         )
 
-        # response model derived from output columns, named after the path
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
-        insert_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
+        response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
         def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            output = self._create_output(
-                [row], output_col_names, insert_response_model, return_fileresponse, url_for_media
-            )
+            output = self._create_output([row], output_col_names, response_model, return_fileresponse, url_for_media)
             result = output[0] if isinstance(output, list) else output
             if sql_exporter is not None:
                 assert isinstance(result, pydantic.BaseModel)
@@ -432,7 +487,7 @@ class FastAPIRouter(fastapi.APIRouter):
             background=background,
             endpoint_name=f'{route_type}_{path.strip("/").replace("/", "_") or "root"}',
             row_processor=row_processor,
-            row_processor_model=insert_response_model,
+            row_processor_model=response_model,
             route_type=route_type,
         )
 
@@ -448,10 +503,11 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool = False,
     ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
         """
-        Decorator that registers a POST endpoint computing the workflow given by `t` and returning the resulting rows.
+        Decorator that registers a POST endpoint computing the workflow given by `t` and returning the resulting row.
 
-        This is identical to [[`@insert_route`][pixeltable.serving.FastAPIRouter.insert_route]],
-        except that no data is actually inserted into the table.
+        The endpoint runs [`Table.compute()`][pixeltable.Table.compute] on the request body
+        and passes the materialized row to the decorated function for post-processing.
+        No data is persisted; use this for "what would an insert produce?" workflows.
 
         Args:
             t: The table to compute rows over.
@@ -461,22 +517,53 @@ class FastAPIRouter(fastapi.APIRouter):
                 [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
                 (must be media-typed). These are sent as multipart form data; all other inputs
                 become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
-            outputs: Columns from the inserted row to pass to the decorated function as keyword
+            outputs: Columns from the computed row to pass to the decorated function as keyword
                 arguments. Defaults to all columns.
             export_sql: If set, export the decorated function's return value into an external
-                RDBMS table after the Pixeltable insert succeeds. See
+                RDBMS table after the computation succeeds. See
                 [`SqlExport`][pixeltable.serving.SqlExport] for the target specification and
-                supported `method` values.
-
-                See the [[`@insert_route`][pixeltable.serving.FastAPIRouter.insert_route]] documentation for more
-                details.
+                supported `method` values. See
+                [`@insert_route`][pixeltable.serving.FastAPIRouter.insert_route] for the schema-compatibility rules.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
-                the insert plus post-processing in a background thread. Poll `job_url` for the
+                the computation plus post-processing in a background thread. Poll `job_url` for the
                 result; the decorated function's return value is delivered as the job result.
+
+        Examples:
+            >>> class PreviewResponse(pydantic.BaseModel):
+            ...     caption: str
+            ...     score: float
+            ...
+            ... @router.compute_route(
+            ...     t, path='/preview', inputs=['prompt'], outputs=['caption', 'score'],
+            ... )
+            ... def format_response(*, caption: str, score: float) -> PreviewResponse:
+            ...     return PreviewResponse(caption=caption.strip(), score=round(score, 3))
+
+            ```bash
+            curl -X POST http://localhost:8000/preview \\
+              -H 'Content-Type: application/json' \\
+              -d '{"prompt": "a sunset over the ocean"}'
+            # {"caption": "orange sky above calm water", "score": 0.932}
+            ```
+
+            Nothing is inserted into `t`; the computed row is passed only to `format_response`.
+
+            Export the post-processed response into an external RDBMS table:
+
+            >>> @router.compute_route(
+            ...     t, path='/preview', inputs=['prompt'], outputs=['caption', 'score'],
+            ...     export_sql=SqlExport(
+            ...         db_connect='postgresql+psycopg://user:pw@host/analytics',
+            ...         table='preview_captions',
+            ...     ),
+            ... )
+            ... def format_response(*, caption: str, score: float) -> PreviewResponse:
+            ...     return PreviewResponse(caption=caption.strip(), score=round(score, 3))
+
+            Each successful POST computes the row and appends the response (fields `caption`,
+            `score`) to `preview_captions`. The Pixeltable table is not modified.
         """
-        # Right now this is just an alias for insert_route().
-        # TODO: Once Table.compute() is implemented, implement this method properly.
-        return self._insert_route(
+        return self._insert_compute_route(
             t,
             path=path,
             inputs=inputs,
@@ -572,7 +659,7 @@ class FastAPIRouter(fastapi.APIRouter):
             Each successful POST inserts a row into the Pixeltable table and then appends a row
             with columns `caption`, `score` (the response model fields) to `captions`.
         """
-        return self._insert_route(
+        return self._insert_compute_route(
             t,
             path=path,
             inputs=inputs,
@@ -583,7 +670,7 @@ class FastAPIRouter(fastapi.APIRouter):
             route_type='insert',
         )
 
-    def _insert_route(
+    def _insert_compute_route(
         self,
         t: pxt.Table,
         *,
@@ -595,7 +682,8 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool,
         route_type: Literal['insert', 'compute'],
     ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
-        # TODO: This can be folded back into insert_route() once compute_route() is properly implemented.
+        """Shared implementation of insert_route()/compute_route()."""
+        error_prefix = f'{route_type}_route()'
         _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             t,
             inputs=inputs,
@@ -603,7 +691,7 @@ class FastAPIRouter(fastapi.APIRouter):
             outputs=outputs,
             return_fileresponse=False,
             background=background,
-            error_prefix=f'{route_type}_route()',
+            error_prefix=error_prefix,
             route_type=route_type,
         )
         uploadfile_inputs = uploadfile_inputs or []
@@ -612,11 +700,11 @@ class FastAPIRouter(fastapi.APIRouter):
             response_model = self._validate_decorated_fn(
                 user_fn,
                 output_schema={col_name: cols_by_name[col_name].col_type for col_name in output_col_names},
-                error_prefix=f'{route_type}_route()',
+                error_prefix=error_prefix,
             )
 
             sql_exporter = self._make_model_sql_exporter(
-                export_sql, response_model=response_model, error_prefix=f'{route_type}_route()'
+                export_sql, response_model=response_model, error_prefix=error_prefix
             )
 
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
@@ -1337,7 +1425,7 @@ class FastAPIRouter(fastapi.APIRouter):
         row_processor_model: type[pydantic.BaseModel] | None,
         route_type: Literal['insert', 'update', 'compute'],
     ) -> None:
-        """Create endpoint for insert/update.
+        """Create endpoint for insert/compute/update.
 
         The endpoint signature is the PK columns (for row identification, update only) followed by
         the input columns. row_processor is called with the single inserted/updated row dict and
@@ -1363,9 +1451,12 @@ class FastAPIRouter(fastapi.APIRouter):
                 status = tbl.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
                 if status.num_rows == 0:
                     raise HTTPException(status_code=404, detail='row not found')
-            else:
+                rows = status.rows or []
+            elif route_type == 'compute':
+                rows = tbl.compute([row_kwargs])
+            else:  # 'insert'
                 status = tbl.insert([row_kwargs], return_rows=True)
-            rows = status.rows or []
+                rows = status.rows or []
             if len(rows) != 1:
                 raise HTTPException(status_code=500, detail=f'operation returned unexpected row count ({len(rows)})')
             return row_processor(rows[0], url_for_media)

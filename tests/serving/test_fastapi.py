@@ -1,9 +1,12 @@
+import io
 import json
 import os
 import pathlib
 import time
 from typing import Any, Callable, Literal
 
+import av
+import PIL.Image
 import pytest
 import sqlalchemy as sql
 
@@ -96,6 +99,40 @@ def assert_fileresponse_ok(resp: Any, local_path: str, mime_prefix: str) -> None
     assert resp.headers['content-type'].startswith(mime_prefix), resp.headers['content-type']
     with open(local_path, 'rb') as f:
         assert resp.content == f.read()
+
+
+def assert_image_bytes(data: bytes, *, size: tuple[int, int] | None = None) -> None:
+    """Decode `data` as an image; optionally assert dimensions."""
+    PIL.Image.open(io.BytesIO(data)).verify()  # raises on truncated/corrupt
+    if size is not None:
+        assert PIL.Image.open(io.BytesIO(data)).size == size
+
+
+def assert_video_bytes(data: bytes, *, width: int | None = None, height: int | None = None) -> None:
+    """Decode `data` as video; optionally assert frame dimensions."""
+    with av.open(io.BytesIO(data)) as container:
+        stream = container.streams.video[0]
+        if width is not None:
+            assert stream.codec_context.width == width, (stream.codec_context.width, width)
+        if height is not None:
+            assert stream.codec_context.height == height, (stream.codec_context.height, height)
+
+
+def assert_audio_bytes(data: bytes, *, duration_s: float | None = None, tol: float = 0.1) -> None:
+    """Decode `data` as audio; optionally assert duration in seconds within `tol`."""
+    with av.open(io.BytesIO(data)) as container:
+        stream = container.streams.audio[0]
+        if duration_s is not None:
+            actual = float(stream.duration * stream.time_base)
+            assert abs(actual - duration_s) <= tol, (actual, duration_s)
+
+
+def fetch_and_decode_media(client: Any, url: str, decoder: Callable[..., None], **kwargs: Any) -> None:
+    """GET `url`, assert 200, then decode the bytes with `decoder(bytes, **kwargs)`."""
+    assert '/media/' in url, f'expected /media/ URL, got: {url}'
+    resp = client.get(url)
+    assert resp.status_code == 200, resp.text
+    decoder(resp.content, **kwargs)
 
 
 def make_sqlite_target(
@@ -240,8 +277,9 @@ class TestFastAPI:
             'json_str': json.dumps({'key': 'value'}),
         }
         assert resp.json() == expected
-        row = t.where(t.id == 1).collect()[0]
-        assert row == expected
+        if route_type == 'insert':
+            row = t.where(t.id == 1).collect()[0]
+            assert row == expected
         assert_sqlite_row(db_connect, 'out_all', {'id': 1}, expected)
 
         resp = client.post('/partial-in', json={'id': 2, 'str_col': 'world', 'int_col': 10})
@@ -260,22 +298,25 @@ class TestFastAPI:
         }
         assert resp.json() == expected
         print(resp.json())
-        row = t.where(t.id == 2).collect()[0]
-        assert row == expected
+        if route_type == 'insert':
+            row = t.where(t.id == 2).collect()[0]
+            assert row == expected
 
         resp = client.post('/partial-out', json={**all_input, 'id': 3})
         assert resp.status_code == 200, resp.text
         expected = {'id': 3, 'str_upper': 'HELLO', 'int_plus1': -4}
         assert resp.json() == expected
-        row = t.where(t.id == 3).select(t.id, t.str_upper, t.int_plus1).collect()[0]
-        assert row == expected
+        if route_type == 'insert':
+            row = t.where(t.id == 3).select(t.id, t.str_upper, t.int_plus1).collect()[0]
+            assert row == expected
 
         resp = client.post('/minimal', json={'id': 4, 'int_col': 99})
         assert resp.status_code == 200, resp.text
         expected = {'int_plus1': 100}
         assert resp.json() == expected
-        row = t.where(t.id == 4).select(t.int_plus1).collect()[0]
-        assert row == expected
+        if route_type == 'insert':
+            row = t.where(t.id == 4).select(t.int_plus1).collect()[0]
+            assert row == expected
         assert_sqlite_row(db_connect, 'out_minimal', {'int_plus1': 100}, expected)
 
         # method='update': pxt insert triggers UPDATE of the existing target row keyed on id=42
@@ -349,31 +390,48 @@ class TestFastAPI:
         print(result)
         assert result['id'] == 1 and result['width'] == 320 and result['height'] == 240
 
-        video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
+        # media URL format check (no row state needed)
         if use_uploadfile:
-            assert video_local.startswith(media_dir + os.sep), f'video not under media_dir: {video_local}'
-            assert_media_fetchable(client, result['video'], video_local)
+            assert '/media/' in result['video'], result['video']
         else:
-            # this stores the local file reference we passed in
-            assert result['video'].startswith('file:')
-            assert not video_local.startswith(media_dir + os.sep), f'external video moved into media_dir: {video_local}'
+            assert result['video'].startswith('file:'), result['video']
+        if route_type == 'insert':
+            video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
+            if use_uploadfile:
+                assert video_local.startswith(media_dir + os.sep), f'video not under media_dir: {video_local}'
+                assert_media_fetchable(client, result['video'], video_local)
+            else:
+                assert not video_local.startswith(media_dir + os.sep), (
+                    f'external video moved into media_dir: {video_local}'
+                )
 
-        paths = t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
-        for col in ('resized', 'thumbnail'):
-            assert_media_fetchable(client, result[col], paths[col], label=col)
-        # verify persisted row
-        row = t.where(t.id == 1).select(t.id, t.width, t.height).collect()[0]
-        assert row == {'id': 1, 'width': 320, 'height': 240}
+            paths = t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
+            for col in ('resized', 'thumbnail'):
+                assert_media_fetchable(client, result[col], paths[col], label=col)
+            # verify persisted row
+            row = t.where(t.id == 1).select(t.id, t.width, t.height).collect()[0]
+            assert row == {'id': 1, 'width': 320, 'height': 240}
+        # semantic check on computed media (runs in both modes)
+        fetch_and_decode_media(client, result['resized'], assert_video_bytes, width=320, height=240)
+        fetch_and_decode_media(client, result['thumbnail'], assert_image_bytes)
 
-        # route /resize: FileResponse with resized video; response bytes must match the stored file
+        # route /resize: FileResponse with resized video; width=160, height preserves aspect ratio
         resp = post('/resize', 2, width=160)
-        resized_path = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
-        assert_fileresponse_ok(resp, resized_path, 'video/')
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'].startswith('video/'), resp.headers['content-type']
+        assert_video_bytes(resp.content, width=160)
+        if route_type == 'insert':
+            resized_path = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
+            assert_fileresponse_ok(resp, resized_path, 'video/')
 
-        # route /thumbnail: FileResponse with thumbnail image; response bytes must match the stored file
+        # route /thumbnail: FileResponse with thumbnail image (extract_frame at t=0)
         resp = post('/thumbnail', 3, height=120)
-        thumbnail_path = t.where(t.id == 3).select(p=t.thumbnail.localpath).collect()[0]['p']
-        assert_fileresponse_ok(resp, thumbnail_path, 'image/')
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
+        assert_image_bytes(resp.content)
+        if route_type == 'insert':
+            thumbnail_path = t.where(t.id == 3).select(p=t.thumbnail.localpath).collect()[0]['p']
+            assert_fileresponse_ok(resp, thumbnail_path, 'image/')
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
@@ -386,6 +444,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         image_path = get_image_files()[0]
+        orig_w, orig_h = PIL.Image.open(image_path).size
         pxt.create_dir('test_serve')
         # Unlike video.resize (which tolerates None width/height and preserves aspect ratio),
         # image.resize requires concrete ints - so width and height must be Required, and every
@@ -458,22 +517,32 @@ class TestFastAPI:
         print(result)
         assert result['id'] == 1 and result['width'] == 128 and result['height'] == 96
 
-        image_local = t.where(t.id == 1).select(p=t.image.localpath).collect()[0]['p']
+        # media URL format check
         if use_uploadfile:
-            assert image_local.startswith(media_dir + os.sep), f'image not under media_dir: {image_local}'
-            assert_media_fetchable(client, result['image'], image_local)
+            assert '/media/' in result['image'], result['image']
         else:
-            # this stores the local file reference we passed in
-            assert result['image'].startswith('file:')
-            assert not image_local.startswith(media_dir + os.sep), f'external image moved into media_dir: {image_local}'
+            assert result['image'].startswith('file:'), result['image']
+        if route_type == 'insert':
+            image_local = t.where(t.id == 1).select(p=t.image.localpath).collect()[0]['p']
+            if use_uploadfile:
+                assert image_local.startswith(media_dir + os.sep), f'image not under media_dir: {image_local}'
+                assert_media_fetchable(client, result['image'], image_local)
+            else:
+                assert not image_local.startswith(media_dir + os.sep), (
+                    f'external image moved into media_dir: {image_local}'
+                )
 
-        paths = t.where(t.id == 1).select(resized=t.resized.localpath, rotated=t.rotated.localpath).collect()[0]
-        for col in ('resized', 'rotated'):
-            assert_media_fetchable(client, result[col], paths[col], label=col)
-        # verify persisted row
-        row = t.where(t.id == 1).select(t.id, t.width, t.height).collect()[0]
-        assert row == {'id': 1, 'width': 128, 'height': 96}
+            paths = t.where(t.id == 1).select(resized=t.resized.localpath, rotated=t.rotated.localpath).collect()[0]
+            for col in ('resized', 'rotated'):
+                assert_media_fetchable(client, result[col], paths[col], label=col)
+            # verify persisted row
+            row = t.where(t.id == 1).select(t.id, t.width, t.height).collect()[0]
+            assert row == {'id': 1, 'width': 128, 'height': 96}
+        # semantic check on computed media (runs in both modes); PIL's rotate(90) keeps canvas size
+        fetch_and_decode_media(client, result['resized'], assert_image_bytes, size=(128, 96))
+        fetch_and_decode_media(client, result['rotated'], assert_image_bytes, size=(orig_w, orig_h))
         # verify the row landed in the sqlite target with the same media URLs as the response body
+        # (export_sql writes the response body, so this assertion holds for both insert and compute)
         assert_sqlite_row(
             db_connect,
             'img_out',
@@ -488,16 +557,24 @@ class TestFastAPI:
             },
         )
 
-        # route /resize: FileResponse with resized image; response bytes must match the stored file
+        # route /resize: FileResponse with resized image
         resp = post('/resize', 2, width=64, height=48)
-        resized_path = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
-        assert_fileresponse_ok(resp, resized_path, 'image/')
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
+        assert_image_bytes(resp.content, size=(64, 48))
+        if route_type == 'insert':
+            resized_path = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
+            assert_fileresponse_ok(resp, resized_path, 'image/')
 
-        # route /rotate: FileResponse with rotated image; response bytes must match the stored file.
+        # route /rotate: FileResponse with rotated image.
         # width/height must be supplied (schema-required) even though the rotation doesn't use them.
         resp = post('/rotate', 3, width=32, height=24)
-        rotated_path = t.where(t.id == 3).select(p=t.rotated.localpath).collect()[0]['p']
-        assert_fileresponse_ok(resp, rotated_path, 'image/')
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
+        assert_image_bytes(resp.content, size=(orig_w, orig_h))
+        if route_type == 'insert':
+            rotated_path = t.where(t.id == 3).select(p=t.rotated.localpath).collect()[0]['p']
+            assert_fileresponse_ok(resp, rotated_path, 'image/')
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
@@ -563,32 +640,50 @@ class TestFastAPI:
         print(result)
         assert result['id'] == 1 and result['factor'] == 0.5 and result['end_time'] == 0.5
 
-        audio_local = t.where(t.id == 1).select(p=t.audio.localpath).collect()[0]['p']
+        # media URL format check
         if use_uploadfile:
-            assert audio_local.startswith(media_dir + os.sep), f'audio not under media_dir: {audio_local}'
-            assert_media_fetchable(client, result['audio'], audio_local)
+            assert '/media/' in result['audio'], result['audio']
         else:
-            # this stores the local file reference we passed in
-            assert result['audio'].startswith('file:')
-            assert not audio_local.startswith(media_dir + os.sep), f'external audio moved into media_dir: {audio_local}'
+            assert result['audio'].startswith('file:'), result['audio']
+        if route_type == 'insert':
+            audio_local = t.where(t.id == 1).select(p=t.audio.localpath).collect()[0]['p']
+            if use_uploadfile:
+                assert audio_local.startswith(media_dir + os.sep), f'audio not under media_dir: {audio_local}'
+                assert_media_fetchable(client, result['audio'], audio_local)
+            else:
+                assert not audio_local.startswith(media_dir + os.sep), (
+                    f'external audio moved into media_dir: {audio_local}'
+                )
 
-        paths = t.where(t.id == 1).select(scaled=t.scaled.localpath, normalized=t.normalized.localpath).collect()[0]
-        for col in ('scaled', 'normalized'):
-            assert_media_fetchable(client, result[col], paths[col], label=col)
-        # verify persisted row
-        row = t.where(t.id == 1).select(t.id, t.factor, t.end_time).collect()[0]
-        assert row == {'id': 1, 'factor': 0.5, 'end_time': 0.5}
+            paths = t.where(t.id == 1).select(scaled=t.scaled.localpath, normalized=t.normalized.localpath).collect()[0]
+            for col in ('scaled', 'normalized'):
+                assert_media_fetchable(client, result[col], paths[col], label=col)
+            # verify persisted row
+            row = t.where(t.id == 1).select(t.id, t.factor, t.end_time).collect()[0]
+            assert row == {'id': 1, 'factor': 0.5, 'end_time': 0.5}
+        # semantic check on computed media (runs in both modes); multiply_volume / normalize
+        # preserve duration, so we just verify the bytes decode as valid audio
+        fetch_and_decode_media(client, result['scaled'], assert_audio_bytes)
+        fetch_and_decode_media(client, result['normalized'], assert_audio_bytes)
 
-        # route /scale: FileResponse with volume-scaled audio; response bytes must match the stored file
+        # route /scale: FileResponse with volume-scaled audio
         resp = post('/scale', 2, factor=0.25, end_time=1.0)
-        scaled_path = t.where(t.id == 2).select(p=t.scaled.localpath).collect()[0]['p']
-        assert_fileresponse_ok(resp, scaled_path, 'audio/')
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'].startswith('audio/'), resp.headers['content-type']
+        assert_audio_bytes(resp.content)
+        if route_type == 'insert':
+            scaled_path = t.where(t.id == 2).select(p=t.scaled.localpath).collect()[0]['p']
+            assert_fileresponse_ok(resp, scaled_path, 'audio/')
 
-        # route /normalize: FileResponse with normalized audio; response bytes must match the stored file.
+        # route /normalize: FileResponse with normalized audio.
         # factor/end_time must be supplied (schema-required) even though normalize doesn't use them.
         resp = post('/normalize', 3, factor=0.5, end_time=0.5)
-        normalized_path = t.where(t.id == 3).select(p=t.normalized.localpath).collect()[0]['p']
-        assert_fileresponse_ok(resp, normalized_path, 'audio/')
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'].startswith('audio/'), resp.headers['content-type']
+        assert_audio_bytes(resp.content)
+        if route_type == 'insert':
+            normalized_path = t.where(t.id == 3).select(p=t.normalized.localpath).collect()[0]['p']
+            assert_fileresponse_ok(resp, normalized_path, 'audio/')
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
@@ -646,17 +741,25 @@ class TestFastAPI:
         result = await_background_job(client, job)['result']
         assert result['id'] == 1 and result['width'] == 320 and result['height'] == 240
 
-        video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
+        # media URL format check
         if use_uploadfile:
-            assert video_local.startswith(media_dir + os.sep), f'video not under media_dir: {video_local}'
-            assert_media_fetchable(client, result['video'], video_local)
+            assert '/media/' in result['video'], result['video']
         else:
-            assert result['video'].startswith('file:')
-            assert not video_local.startswith(media_dir + os.sep)
+            assert result['video'].startswith('file:'), result['video']
+        if route_type == 'insert':
+            video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
+            if use_uploadfile:
+                assert video_local.startswith(media_dir + os.sep), f'video not under media_dir: {video_local}'
+                assert_media_fetchable(client, result['video'], video_local)
+            else:
+                assert not video_local.startswith(media_dir + os.sep)
 
-        paths = t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
-        for col in ('resized', 'thumbnail'):
-            assert_media_fetchable(client, result[col], paths[col], label=col)
+            paths = t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
+            for col in ('resized', 'thumbnail'):
+                assert_media_fetchable(client, result[col], paths[col], label=col)
+        # semantic check on computed media (runs in both modes)
+        fetch_and_decode_media(client, result['resized'], assert_video_bytes, width=320, height=240)
+        fetch_and_decode_media(client, result['thumbnail'], assert_image_bytes)
 
         # /resize route (row id 2): single-output JSON response
         resp = post('/resize', 2, width=160)
@@ -665,9 +768,12 @@ class TestFastAPI:
         result = await_background_job(client, job)['result']
         # single-output response model: only 'resized' is present
         assert set(result.keys()) == {'resized'}, result
-        resize_local = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
-        assert_media_fetchable(client, result['resized'], resize_local)
+        if route_type == 'insert':
+            resize_local = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
+            assert_media_fetchable(client, result['resized'], resize_local)
+        fetch_and_decode_media(client, result['resized'], assert_video_bytes, width=160)
         # SQL write happened in the worker thread; the URL string in sqlite matches the response
+        # (export_sql writes the response body, so this assertion holds for both insert and compute)
         assert_sqlite_row(db_connect, 'bg_resize', {'resized': result['resized']}, {'resized': result['resized']})
 
     def test_openapi(self, uses_db: None) -> None:
