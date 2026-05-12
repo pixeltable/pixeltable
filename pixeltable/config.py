@@ -122,6 +122,15 @@ class ServiceConfig(pydantic.BaseModel):
     routes: list[RouteConfig] = pydantic.Field(default_factory=list)
     modules: list[str] = pydantic.Field(default_factory=list)  # List of user modules to import
 
+    @pydantic.field_validator('name')
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        from pixeltable.catalog import is_valid_identifier
+
+        if not is_valid_identifier(v, allow_hyphens=True):
+            raise ValueError(f'{v!r} is not a valid Pixeltable identifier')
+        return v
+
     @pydantic.field_validator('prefix')
     @classmethod
     def _validate_prefix(cls, v: str) -> str:
@@ -139,6 +148,15 @@ class EnvironmentConfig(pydantic.BaseModel):
     env_dependencies: list[str] = pydantic.Field(default_factory=list)
     python_dependencies: list[str] = pydantic.Field(default_factory=list)
     services: list[str] = pydantic.Field(default_factory=list)
+
+    @pydantic.field_validator('name')
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        from pixeltable.catalog import is_valid_identifier
+
+        if not is_valid_identifier(v, allow_hyphens=True):
+            raise ValueError(f'{v!r} is not a valid Pixeltable identifier')
+        return v
 
 
 class Config:

@@ -133,6 +133,16 @@ class TestDeploy:
         config_path = tmp_path / 'pixeltable.toml'
         monkeypatch.chdir(tmp_path)
 
+        # Invalid environment name
+        config_path.write_text(
+            textwrap.dedent("""\
+            [[environment]]
+            name = "123bad"
+            """)
+        )
+        with pytest.raises(pxt.Error, match='not a valid Pixeltable identifier'):
+            Config.init({}, reinit=True)
+
         # No environments configured
         config_path.write_text('')
         Config.init({}, reinit=True)
