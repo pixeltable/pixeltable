@@ -25,6 +25,7 @@ from . import (
     image,
     jina,
     json,
+    litellm,
     llama_cpp,
     math,
     mistralai,

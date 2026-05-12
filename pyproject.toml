@@ -154,6 +154,7 @@ dev = [
     "replicate>=1.0.7 ; python_version < '3.14'",
     "google-genai>=1.67.0",
     "groq>=0.26.0",
+    "litellm>=1.55.0,<1.85",
     "boto3==1.36.23",
     "botocore==1.36.23",
     "spacy>=3.8.7,<3.9 ; python_version < '3.14'",
