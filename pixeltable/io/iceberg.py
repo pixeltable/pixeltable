@@ -47,10 +47,9 @@ def export_iceberg(
             - `'error'`: raise an error
             - `'overwrite'`: drop the existing table and create a new one
             - `'append'`: append to the existing table (source schema must be compatible)
-        schema_overrides: Optional mapping from column name to an explicit pyarrow `DataType` that should be used
-            instead of the type inferred from the pixeltable schema. Useful for pinning the shape of a JSON column
-            whose inferred type would be unsuitable (e.g. `pa.null()` when every sampled value is None) or for
-            downcasting scalar columns (e.g. `pa.int64()` -> `pa.int32()`).
+        schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
+            name `name` will be given type `type`, instead of being inferred from the Pixeltable schema. The keys in
+            `schema_overrides` should be the column names of the Pixeltable schema.
     """
     Env.get().require_package('pyiceberg')
 
