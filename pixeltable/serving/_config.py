@@ -24,11 +24,12 @@ def _resolve_dotted_path(dotted: str) -> Any:
 
     For example, 'myapp.queries.search_docs' imports myapp.queries and returns its search_docs attribute.
     """
-    module_path, _, attr_name = dotted.rpartition('.')
-    if not module_path:
+    split_path = dotted.split(':', 1)
+    if len(split_path) != 2:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, f'invalid query reference {dotted!r}: expected module.attribute'
+            excs.ErrorCode.INVALID_ARGUMENT, f'invalid query reference {dotted!r}: expected module:attribute'
         )
+    module_path, attr_name = split_path
     try:
         module = importlib.import_module(module_path)
     except Exception as e:

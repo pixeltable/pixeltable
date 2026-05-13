@@ -96,7 +96,7 @@ class DeleteRouteConfig(RouteConfigBase):
 
 class QueryRouteConfig(RouteConfigBase):
     type: Literal['query']
-    query: str  # dotted Python path to a @pxt.query or retrieval_udf
+    query: str  # module:attr path to a @pxt.query or retrieval_udf
     inputs: list[str] | None = None
     uploadfile_inputs: list[str] | None = None
     one_row: bool = False
