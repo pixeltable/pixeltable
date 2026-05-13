@@ -117,7 +117,6 @@ class ServiceConfig(pydantic.BaseModel):
     host: str = '0.0.0.0'
     port: int = 8000
     routes: list[RouteConfig] = pydantic.Field(default_factory=list)
-    modules: list[str] = pydantic.Field(default_factory=list)  # List of user modules to import
 
     @pydantic.field_validator('prefix')
     @classmethod

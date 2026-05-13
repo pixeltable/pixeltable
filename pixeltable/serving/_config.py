@@ -81,16 +81,6 @@ def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
 
     from pixeltable.serving import FastAPIRouter
 
-    # import user modules so @pxt.query / retrieval_udf definitions are registered
-    for mod_path in cfg.modules:
-        _logger.info(f'importing module: {mod_path}')
-        try:
-            importlib.import_module(mod_path)
-        except Exception as e:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION, f'could not import module {mod_path!r} listed in `modules`: {e}'
-            ) from e
-
     app = fastapi.FastAPI(title=cfg.name)
     router = FastAPIRouter()
 
