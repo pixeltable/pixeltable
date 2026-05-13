@@ -90,7 +90,6 @@ class View(Table):
         iterator_call: func.GeneratingFunctionCall | None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
-        from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
         include_base_columns: bool = select_list is None
