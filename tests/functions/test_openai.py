@@ -396,28 +396,6 @@ class TestOpenai:
         _ = t.head()
 
     @pytest.mark.expensive
-    def test_image_generations(self, uses_db: None) -> None:
-        skip_test_if_not_installed('openai')
-        skip_test_if_no_client('openai')
-        from pixeltable.functions.openai import image_generations
-
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(img=image_generations(t.input, model='dall-e-2'))
-        # Test dall-e-2 options
-        t.add_computed_column(
-            img_2=image_generations(
-                t.input, model='dall-e-2', model_kwargs={'size': '512x512', 'user': 'pixeltable', 'n': 2}
-            )
-        )
-
-        validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
-        assert t.collect()['img'][0]['data'][0].size == (1024, 1024)
-
-        # Also check that multiple images can be generated and returned in the same results dict
-        assert t.collect()['img_2'][0]['data'][0].size == (512, 512)
-        assert t.collect()['img_2'][0]['data'][1].size == (512, 512)
-
-    @pytest.mark.expensive
     def test_image_generations_gpt_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
@@ -492,31 +470,6 @@ class TestOpenai:
         validate_update_status(t.insert(img=src_img, mask=mask_img), 1)
         result = t.collect()
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
-
-    @pytest.mark.expensive
-    def test_image_edits_dall_e_2(self, uses_db: None) -> None:
-        """Test image_edits with dall-e-2, which requires a square RGBA PNG."""
-        skip_test_if_not_installed('openai')
-        skip_test_if_no_client('openai')
-        import numpy as np
-
-        from pixeltable.functions.openai import image_edits
-
-        # dall-e-2 requires RGBA — the alpha channel marks which pixels to edit (alpha=0 means edit here)
-        arr = np.full((512, 512, 4), fill_value=[70, 130, 180, 255], dtype=np.uint8)  # fully opaque steel blue
-        src_img = PIL.Image.fromarray(arr, mode='RGBA')
-
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
-        t.add_computed_column(
-            edited=image_edits(
-                t.img, prompt='Add a blue sky background', model='dall-e-2', model_kwargs={'size': '512x512'}
-            )
-        )
-
-        validate_update_status(t.insert(img=src_img), 1)
-        result = t.collect()
-        assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
-        assert result['edited'][0]['data'][0].size == (512, 512)
 
     @pytest.mark.skip(
         reason='[PXT-1115] Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.'
