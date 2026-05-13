@@ -279,20 +279,25 @@ class TestCatalog:
         t = pxt.create_table('test', {'a': pxt.Int})
         fault = BlockFault()
 
-        def t0_inject_block() -> None:
-            get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault)
-
-        def t0_add_column() -> None:
-            t = pxt.get_table('test')
-            t.add_computed_column(b=t.a + 1)
-
         (
             MultiThreadedScenario()
             # Thread 0: arm the fault in pending table ops finalization
-            .then_run(thread_id=0, name='inject fault', fn=t0_inject_block)
+            .then_run(
+                thread_id=0,
+                name='inject fault',
+                fn=lambda: get_runtime().fault_manager.inject_fault(
+                    FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault
+                ),
+            )
             # Thread 0: start adding a computed column, this will block at the fault point
-            .then_run_until(thread_id=0, name='add column', event=fault.reached, fn=t0_add_column)
-            # Thread 1: run an insert concurrently once thread 0 is blocked at the fault point
+            .then_run_until(
+                thread_id=0,
+                name='add column',
+                event=fault.reached,
+                fn=lambda: (t := pxt.get_table('test'), t.add_computed_column(b=t.a + 1)),
+            )
+            # Thread 1: run an insert concurrently with add column in thread 0 once thread 0 is in finalize pending ops
+            # point
             .then_run(thread_id=1, name='insert', fn=lambda: pxt.get_table('test').insert([{'a': 1}]))
             # Unblock thread 0
             .then_run(thread_id=1, name='unblock thread 0', fn=lambda: fault.unblock())
