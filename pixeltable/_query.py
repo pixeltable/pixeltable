@@ -531,33 +531,31 @@ class Query:
         """
         return {name: var.col_type for name, var in self._vars().items()}
 
-    def _resolve_limit_offset_val(self, e: exprs.Expr | None, args: dict[str, Any]) -> int | None:
+    def _resolve_limit_offset_val(self, e: exprs.Expr | None, role: str, args: dict[str, Any]) -> int | None:
         """Resolve a limit_val/offset_val Expr to an int, or None if not set."""
         if e is None:
             return None
         if isinstance(e, exprs.Literal):
-            assert isinstance(e.val, int)
-            return e.val
-        assert isinstance(e, exprs.Variable)
-        val = args[e.name]
-        assert isinstance(val, int)
+            val = e.val
+        else:
+            assert isinstance(e, exprs.Variable)
+            val = args[e.name]
+        if val < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"'{role}' parameter must be >= 0")
         return val
 
     def _resolved_limit(self, args: dict[str, Any]) -> int | None:
-        return self._resolve_limit_offset_val(self.limit_val, args)
+        return self._resolve_limit_offset_val(self.limit_val, 'limit', args)
 
     def _resolved_offset(self, args: dict[str, Any]) -> int | None:
-        return self._resolve_limit_offset_val(self.offset_val, args)
+        return self._resolve_limit_offset_val(self.offset_val, 'offset', args)
 
     def _validate_bound_args(self, args: dict[str, Any]) -> None:
         # Raised exceptions are caught and recorded per-cell when this Query is invoked
         # via a query UDF inside a computed column (see ExprEvalNode evaluators).
-        limit = self._resolved_limit(args)
-        if limit is not None and limit < 0:
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'limit' parameter must be >= 0")
-        offset = self._resolved_offset(args)
-        if offset is not None and offset < 0:
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'offset' parameter must be >= 0")
+        # _resolved_limit/_resolved_offset perform the type and range checks.
+        self._resolved_limit(args)
+        self._resolved_offset(args)
 
     def _exec(self, args: dict[str, Any] | None = None) -> Iterator[exprs.DataRow]:
         """Run the query and yield rows.

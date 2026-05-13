@@ -226,12 +226,13 @@ class ExecNode(abc.ABC):
     def _resolve_limit_offset(self, e: exprs.Expr, role: str) -> int:
         """Resolve a limit/offset Expr (Literal or Variable) to an int value."""
         if isinstance(e, exprs.Literal):
-            assert isinstance(e.val, int)
-            return e.val
-        if isinstance(e, exprs.Variable):
+            val = e.val
+        elif isinstance(e, exprs.Variable):
             val = self.bound_args[e.name]
-            assert isinstance(val, int)
-            return val
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{role}: unsupported expression for non-SQL limit/offset: {e}'
-        )
+        else:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{role}: unsupported expression for non-SQL limit/offset: {e}'
+            )
+        if val < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"'{role}' parameter must be >= 0")
+        return val

@@ -457,6 +457,14 @@ class TestFunction:
         msgs = t.select(msg=t.c2.errormsg).collect()['msg']
         assert all("'offset'" in m for m in msgs if m is not None)
 
+        # negative limit/offset coming from a column at runtime (Variable bound per-row from a row value)
+        neg = pxt.create_table('test_neg', {'c1': pxt.Int, 'n': pxt.Int})
+        neg.insert([{'c1': i, 'n': -1 if i % 2 == 0 else 1} for i in range(10)])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'limit'"):
+            neg.add_computed_column(c=head(neg.n), on_error='abort')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'offset'"):
+            neg.add_computed_column(c=skipped(neg.n), on_error='abort')
+
     def test_query2(self, uses_db: None) -> None:
         schema = {'query_text': pxt.String, 'i': pxt.Int}
         queries = pxt.create_table('queries', schema)

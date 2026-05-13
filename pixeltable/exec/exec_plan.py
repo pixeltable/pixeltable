@@ -42,8 +42,9 @@ class ExecPlan:
 
     # Serializes concurrent async iterations of the same cached plan. ExecNode state is reset in
     # _open() and mutated during iteration; two overlapping iterations would corrupt each other.
-    # The lock is per-plan and binds to the running event loop on first await.
-    iter_lock: asyncio.Lock
+    # Lazy-init in aexec() so construction works in sync contexts (Python 3.10+ asyncio.Lock binds
+    # to the running event loop on first await; constructing it without one is fragile).
+    iter_lock: asyncio.Lock | None
 
     def __init__(
         self,
@@ -58,7 +59,7 @@ class ExecPlan:
         self.select_list_exprs = select_list_exprs
         self.select_list_schema = select_list_schema
         self.compile_versions = compile_versions if compile_versions is not None else {}
-        self.iter_lock = asyncio.Lock()
+        self.iter_lock = None
 
         self.param_types = {}
         self.param_nodes = []
@@ -142,6 +143,8 @@ class ExecPlan:
         bind+iterate cycles on the same cached plan. Callers must drain the generator (or aclose
         it); standard async-generator finalization releases the lock when the generator is closed.
         """
+        if self.iter_lock is None:
+            self.iter_lock = asyncio.Lock()
         async with self.iter_lock:
             self._bind_params(args)
             with self:
