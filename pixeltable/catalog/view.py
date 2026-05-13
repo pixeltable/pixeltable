@@ -122,14 +122,7 @@ class View(Table):
                 )
 
             # create a copy that we can modify and store
-            sample_clause = SampleClause(
-                sample_clause.version,
-                sample_clause.n,
-                sample_clause.n_per_stratum,
-                sample_clause.fraction,
-                sample_clause.seed,
-                copy.copy(sample_clause.stratify_exprs),
-            )
+            sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
 
         # same for value exprs
         for col in columns:

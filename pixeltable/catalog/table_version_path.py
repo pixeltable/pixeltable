@@ -79,22 +79,20 @@ class TableVersionPath:
             result.extend(self.base.as_md())
         return result
 
-    def refresh_cached_md(self) -> None:
+    def _cached_tv(self) -> TableVersion:
+        """Return the validated cached TableVersion for the calling thread."""
         cat = get_runtime().catalog
         # getattr(), not attribute access: threads other than the originating one will have an empty _local
         cached: TableVersion | None = getattr(self._local, 'cached_tbl_version', None)
         origin_catalog: Catalog | None = getattr(self._local, 'origin_catalog', None)
         if origin_catalog is cat and cached is not None and (not get_runtime().in_xact or cached.is_validated):
-            return
+            return cached
 
         with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=[self.tbl_version.id]):
             new_tv = self.tbl_version.get()
         self._local.cached_tbl_version = new_tv
         self._local.origin_catalog = cat
 
-    def _cached_md(self) -> TableVersion:
-        """Return the validated cached TableVersion for the calling thread."""
-        self.refresh_cached_md()
         return self._local.cached_tbl_version
 
     def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
@@ -125,18 +123,18 @@ class TableVersionPath:
         """Return the version of the table/view that this path represents"""
         if not self.is_versioned():
             return None
-        return self._cached_md().version
+        return self._cached_tv().version
 
     def schema_version(self) -> int:
         """Return the version of the table/view that this path represents"""
-        return self._cached_md().schema_version
+        return self._cached_tv().schema_version
 
     def is_versioned(self) -> bool:
-        return self._cached_md().is_versioned
+        return self._cached_tv().is_versioned
 
     def tbl_name(self) -> str:
         """Return the name of the table/view that this path represents"""
-        return self._cached_md().name
+        return self._cached_tv().name
 
     def path_len(self) -> int:
         """Return the length of the path"""
@@ -147,28 +145,28 @@ class TableVersionPath:
         return self.tbl_version.is_snapshot
 
     def is_view(self) -> bool:
-        return self._cached_md().is_view
+        return self._cached_tv().is_view
 
     def is_component_view(self) -> bool:
-        return self._cached_md().is_component_view
+        return self._cached_tv().is_component_view
 
     def is_replica(self) -> bool:
-        return self._cached_md().is_replica
+        return self._cached_tv().is_replica
 
     def is_mutable(self) -> bool:
-        return self._cached_md().is_mutable
+        return self._cached_tv().is_mutable
 
     def is_insertable(self) -> bool:
-        return self._cached_md().is_insertable
+        return self._cached_tv().is_insertable
 
     def comment(self) -> str:
-        return self._cached_md().comment
+        return self._cached_tv().comment
 
     def custom_metadata(self) -> Any:
-        return copy.deepcopy(self._cached_md().custom_metadata)
+        return copy.deepcopy(self._cached_tv().custom_metadata)
 
     def media_validation(self) -> MediaValidation:
-        return self._cached_md().media_validation
+        return self._cached_tv().media_validation
 
     def get_tbl_versions(self) -> list[TableVersionHandle]:
         """Return all tbl versions"""
@@ -192,7 +190,7 @@ class TableVersionPath:
 
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
-        tv = self._cached_md()
+        tv = self._cached_tv()
         result = list(tv.cols_by_name.values())
         if self.base is not None and tv.include_base_columns:
             base_cols = self.base.columns()
@@ -207,7 +205,7 @@ class TableVersionPath:
 
     def get_column(self, name: str) -> Column | None:
         """Return the column with the given name, or None if not found"""
-        tv = self._cached_md()
+        tv = self._cached_tv()
         col = tv.cols_by_name.get(name)
         if col is not None:
             return col
@@ -219,7 +217,7 @@ class TableVersionPath:
     def has_column(self, col: Column) -> bool:
         """Return True if this table has the given column."""
         assert col.get_tbl() is not None
-        tv = self._cached_md()
+        tv = self._cached_tv()
 
         if (
             col.get_tbl().id == self.tbl_version.id
