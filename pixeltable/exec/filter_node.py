@@ -33,13 +33,13 @@ class FilterNode(ExecNode):
     def set_offset(self, offset: exprs.Expr) -> None:
         self.offset = offset
 
-    def finalize(self) -> None:
+    def init_bindings(self) -> None:
         self.bind_sources = [e for e in (self.limit, self.offset) if e is not None]
-        super().finalize()
+        super().init_bindings()
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        limit = self._resolve_limit_offset(self.limit, 'limit') if self.limit is not None else None
-        offset = self._resolve_limit_offset(self.offset, 'offset') if self.offset is not None else None
+        limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
+        offset = self._resolve_positive_int(self.offset, 'offset') if self.offset is not None else None
         num_passed = 0  # rows that passed the predicate (before offset/limit)
         limit_reached = False
 

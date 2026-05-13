@@ -87,9 +87,9 @@ class ExprEvalNode(ExecNode):
         self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
         self._init_exec_state()
 
-    def finalize(self) -> None:
+    def init_bindings(self) -> None:
         self.bind_sources = list(self.output_exprs)
-        super().finalize()
+        super().init_bindings()
 
     def _init_exec_state(self) -> None:
         self.tasks = set()

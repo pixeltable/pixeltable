@@ -57,11 +57,11 @@ class AggregationNode(ExecNode):
         # we can't propagate the limit to our input
         self.limit = limit
 
-    def finalize(self) -> None:
+    def init_bindings(self) -> None:
         self.bind_sources = (self.group_by or []) + list(self.agg_fn_calls)
         if self.limit is not None:
             self.bind_sources.append(self.limit)
-        super().finalize()
+        super().init_bindings()
 
     def _reset_agg_state(self, row_num: int) -> None:
         for fn_call in self.agg_fn_calls:
@@ -83,7 +83,7 @@ class AggregationNode(ExecNode):
                 raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, input_vals, row_num) from exc
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        limit = self._resolve_limit_offset(self.limit, 'limit') if self.limit is not None else None
+        limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
         prev_row: exprs.DataRow | None = None
         current_group: list[Any] | None = None  # the values of the group-by exprs
         num_input_rows = 0

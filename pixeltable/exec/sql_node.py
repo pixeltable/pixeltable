@@ -251,18 +251,18 @@ class SqlNode(ExecNode):
     def _ordering_tbl_ids(self) -> set[UUID]:
         return exprs.Expr.all_tbl_ids(e for e, _ in self.order_by_clause)
 
-    def finalize(self) -> None:
+    def init_bindings(self) -> None:
         self.bind_sources.extend(list(self.select_list))
         self.bind_sources.extend(list(self.cell_md_refs))
         self.bind_sources.extend(e for e in (self.where_clause, self.limit, self.offset) if e is not None)
         self.bind_sources.extend(e for e, _ in self.order_by_clause)
 
-        # finalize CTE inputs so we can absorb their bind_sources
+        # initialize CTE-input bindings so we can absorb their bind_sources
         for input in self._cte_inputs:
-            input.finalize()
+            input.init_bindings()
             self.bind_sources.extend(input.bind_sources)
 
-        super().finalize()
+        super().init_bindings()
 
     def to_cte(self, keep_pk: bool = False) -> tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]:
         """
@@ -645,10 +645,10 @@ class SqlAggregationNode(SqlNode):
             stmt = stmt.group_by(*sql_group_by_items)
         return stmt
 
-    def finalize(self) -> None:
+    def init_bindings(self) -> None:
         if self.group_by_items is not None:
             self.bind_sources.extend(list(self.group_by_items))
-        super().finalize()
+        super().init_bindings()
 
 
 class SqlJoinNode(SqlNode):
@@ -703,13 +703,13 @@ class SqlJoinNode(SqlNode):
             )
         return stmt
 
-    def finalize(self) -> None:
+    def init_bindings(self) -> None:
         from pixeltable import plan
 
         for clause in self.join_clauses:
             if clause.join_type != plan.JoinType.CROSS and clause.join_predicate is not None:
                 self.bind_sources.append(clause.join_predicate)
-        super().finalize()
+        super().init_bindings()
 
 
 class SqlSampleNode(SqlNode):
@@ -763,10 +763,10 @@ class SqlSampleNode(SqlNode):
         self.sample_clause = sample_clause
         self._cte_inputs = [input]
 
-    def finalize(self) -> None:
+    def init_bindings(self) -> None:
         if self.stratify_exprs is not None:
             self.bind_sources.extend(list(self.stratify_exprs))
-        super().finalize()
+        super().init_bindings()
 
     @classmethod
     def key_sql_expr(cls, seed: sql.ColumnElement, sql_cols: Iterable[sql.ColumnElement]) -> sql.ColumnElement:

@@ -28,8 +28,8 @@ class ExecNode(abc.ABC):
     Lifecycle:
     1. The immutable node structure (output_exprs, input node, etc.) can be created incrementally
        (ie, after init(); the planner might need to make adjustments after instance construction)
-    2. finalize() assumes the immutable structure is complete and sets bind_sources/vars
-    3. bind_params()/iter() can then be called repeated to execute the same plan with different parameters
+    2. init_bindings() assumes the immutable structure is complete and sets bind_sources/vars
+    3. bind_params()/iter() can then be called repeatedly to execute the same plan with different parameters
     4. _open() initializes per-iteration execution state
 
     Not thread-safe.
@@ -77,10 +77,10 @@ class ExecNode(abc.ABC):
         if self.input is not None:
             self.input.set_ctx(ctx)
 
-    def finalize(self) -> None:
+    def init_bindings(self) -> None:
         """Populate self.vars from self.bind_sources.
 
-        Subclasses need to override this to set bind_sources first, then call super().finalize().
+        Subclasses need to override this to set bind_sources first, then call super().init_bindings().
         """
         vars: dict[str, exprs.Variable] = {}
         for v in exprs.Expr.list_subexprs(self.bind_sources, exprs.Variable):
@@ -94,7 +94,7 @@ class ExecNode(abc.ABC):
         self.vars = list(vars.values())
 
     def params(self) -> dict[str, ts.ColumnType]:
-        """Return the parameter signature of this node. Valid after _finalize()."""
+        """Return the parameter signature of this node. Valid after init_bindings()."""
         return {v.name: v.col_type for v in self.vars}
 
     def bind_params(self, args: dict[str, Any]) -> None:
@@ -223,16 +223,16 @@ class ExecNode(abc.ABC):
         if self.input is not None:
             self.input.set_offset(offset)
 
-    def _resolve_limit_offset(self, e: exprs.Expr, role: str) -> int:
-        """Resolve a limit/offset Expr (Literal or Variable) to an int value."""
+    def _resolve_positive_int(self, e: exprs.Expr, role: str) -> int:
+        """Resolve Literal or Variable to a positive int value."""
         if isinstance(e, exprs.Literal):
             val = e.val
         elif isinstance(e, exprs.Variable):
             val = self.bound_args[e.name]
         else:
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{role}: unsupported expression for non-SQL limit/offset: {e}'
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{role}: unsupported expression for {role!r}: {e}'
             )
         if val < 0:
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"'{role}' parameter must be >= 0")
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{role!r} parameter must be >= 0')
         return val

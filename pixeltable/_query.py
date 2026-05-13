@@ -531,8 +531,8 @@ class Query:
         """
         return {name: var.col_type for name, var in self._vars().items()}
 
-    def _resolve_limit_offset_val(self, e: exprs.Expr | None, role: str, args: dict[str, Any]) -> int | None:
-        """Resolve a limit_val/offset_val Expr to an int, or None if not set."""
+    def _resolve_positive_int(self, e: exprs.Expr | None, role: str, args: dict[str, Any]) -> int | None:
+        """Resolve Expr to a positive int, or None if not set."""
         if e is None:
             return None
         if isinstance(e, exprs.Literal):
@@ -545,10 +545,10 @@ class Query:
         return val
 
     def _resolved_limit(self, args: dict[str, Any]) -> int | None:
-        return self._resolve_limit_offset_val(self.limit_val, 'limit', args)
+        return self._resolve_positive_int(self.limit_val, 'limit', args)
 
     def _resolved_offset(self, args: dict[str, Any]) -> int | None:
-        return self._resolve_limit_offset_val(self.offset_val, 'offset', args)
+        return self._resolve_positive_int(self.offset_val, 'offset', args)
 
     def _validate_bound_args(self, args: dict[str, Any]) -> None:
         # Raised exceptions are caught and recorded per-cell when this Query is invoked
@@ -588,7 +588,7 @@ class Query:
         assert get_runtime().in_xact
         cache = get_runtime().plan_cache
         plan = cache.get(self)
-        if plan is not None and not plan.is_stale(self._from_clause_tbl_versions()):
+        if plan is not None and plan.matches_versions(self._from_clause_tbl_versions()):
             return plan
         plan = self._create_query_plan()
         cache[self] = plan

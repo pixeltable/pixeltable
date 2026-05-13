@@ -28,14 +28,14 @@ class ExecPlan:
     exec_root: ExecNode
     ctx: ExecContext
 
-    # the parameter signature, merged across nodes (one entry per distinct Variable name)
-    param_types: dict[str, ts.ColumnType]
-    # nodes that declared parameters; used to dispatch bind_params()
-    param_nodes: list[ExecNode]
+    # the parameter signature, merged across nodes
+    _param_types: dict[str, ts.ColumnType]
+    # nodes that declared parameters
+    _param_nodes: list[ExecNode]
 
     # table id -> version map of tables referenced in this plan;
     # used to decide whether a plan is stale/needs to be re-generated
-    compile_versions: dict[UUID, int]
+    _compile_versions: dict[UUID, int]
 
     select_list_exprs: list[exprs.Expr]
     select_list_schema: dict[str, ts.ColumnType]
@@ -44,7 +44,7 @@ class ExecPlan:
     # _open() and mutated during iteration; two overlapping iterations would corrupt each other.
     # Lazy-init in aexec() so construction works in sync contexts (Python 3.10+ asyncio.Lock binds
     # to the running event loop on first await; constructing it without one is fragile).
-    iter_lock: asyncio.Lock | None
+    _iter_lock: asyncio.Lock | None
 
     def __init__(
         self,
@@ -58,21 +58,21 @@ class ExecPlan:
         self.ctx = ctx
         self.select_list_exprs = select_list_exprs
         self.select_list_schema = select_list_schema
-        self.compile_versions = compile_versions if compile_versions is not None else {}
-        self.iter_lock = None
+        self._compile_versions = compile_versions if compile_versions is not None else {}
+        self._iter_lock = None
 
-        self.param_types = {}
-        self.param_nodes = []
+        self._param_types = {}
+        self._param_nodes = []
         node: ExecNode | None = exec_root
         while node is not None:
             node.set_ctx(ctx)
-            node.finalize()
+            node.init_bindings()
             if node.bind_sources:
-                self.param_nodes.append(node)
+                self._param_nodes.append(node)
                 for v in node.vars:
-                    existing = self.param_types.get(v.name)
+                    existing = self._param_types.get(v.name)
                     if existing is None:
-                        self.param_types[v.name] = v.col_type
+                        self._param_types[v.name] = v.col_type
                     elif existing != v.col_type:
                         raise AssertionError(
                             f'Parameter {v.name!r} declared with conflicting types: {existing} vs {v.col_type}'
@@ -82,13 +82,13 @@ class ExecPlan:
     def _bind_params(self, args: dict[str, Any]) -> None:
         """Assign values to plan parameters"""
         # extra args are silently ignored (Variables may have been substituted away at compile time)
-        missing = self.param_types.keys() - args.keys()
+        missing = self._param_types.keys() - args.keys()
         if len(missing) > 0:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'bind_params: missing: {sorted(missing)}')
 
         # coerce each value to the canonical Pixeltable representation for its declared type
         coerced: dict[str, Any] = {}
-        for name, expected_type in self.param_types.items():
+        for name, expected_type in self._param_types.items():
             raw = args[name]
             # unwrap already-wrapped Literals so create_literal receives the underlying value
             if isinstance(raw, exprs.Literal):
@@ -101,12 +101,12 @@ class ExecPlan:
                     f'bind_params: argument {name!r} is not a valid {expected_type}: {e}',
                 ) from e
 
-        for node in self.param_nodes:
+        for node in self._param_nodes:
             node.bind_params(coerced)
 
-    def is_stale(self, current_versions: dict[UUID, int]) -> bool:
-        """True if any captured table version differs from current_versions (or is missing)."""
-        return any(current_versions.get(tbl_id) != version for tbl_id, version in self.compile_versions.items())
+    def matches_versions(self, versions: dict[UUID, int]) -> bool:
+        """True if versions matches _compile_versions."""
+        return all(versions.get(tbl_id) == version for tbl_id, version in self._compile_versions.items())
 
     def __enter__(self) -> Self:
         self.exec_root.__enter__()
@@ -143,9 +143,9 @@ class ExecPlan:
         bind+iterate cycles on the same cached plan. Callers must drain the generator (or aclose
         it); standard async-generator finalization releases the lock when the generator is closed.
         """
-        if self.iter_lock is None:
-            self.iter_lock = asyncio.Lock()
-        async with self.iter_lock:
+        if self._iter_lock is None:
+            self._iter_lock = asyncio.Lock()
+        async with self._iter_lock:
             self._bind_params(args)
             with self:
                 async for batch in self.exec_root:
