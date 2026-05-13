@@ -150,7 +150,7 @@ def main() -> None:
         epilog="""
 Examples:
   %(prog)s --provider openai --n 10 --t 100
-  %(prog)s --provider gemini --n 5 --model gemini-1.5-pro
+  %(prog)s --provider gemini --n 5 --model gemini-2.5-flash
   %(prog)s --provider anthropic --n 20
         """,
     )
