@@ -13,6 +13,8 @@ RUN apt-get update \
         git \
         build-essential \
         sudo \
+        libgl1 \
+        libglib2.0-0 \
  && rm -rf /var/lib/apt/lists/*
 
 # `ubuntu` (uid 1000) is preinstalled in the base image; grant it passwordless
