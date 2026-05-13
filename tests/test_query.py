@@ -555,7 +555,8 @@ class TestQuery:
         # count() does not support Python-only filters
         t = small_img_tbl
         with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape('count() cannot be used with Python-only filters')
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape('count() cannot be used: query plan contains a non-SQL node'),
         ):
             _ = t.where(t.img.width > 100).count()
 

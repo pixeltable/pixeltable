@@ -190,6 +190,14 @@ class SqlNode(ExecNode):
             desc += f' (table {self.tbl.tbl_name()!r})'
         self.progress_reporter = self.ctx.add_progress_reporter(desc, 'rows')
 
+        # CTE inputs are embedded in our stmt and not part of the exec chain, so the normal
+        # _open() traversal misses them. Open them here and absorb any per-execute bindparam
+        # values they produced.
+        for input in self._cte_inputs:
+            input.set_ctx(self.ctx)
+            input._open()
+            self.bound_args.update(input.bound_args)
+
     def _pk_col_items(self) -> list[sql.Column]:
         if self.set_pk:
             # we need to retrieve the pk columns
@@ -274,9 +282,13 @@ class SqlNode(ExecNode):
 
     @classmethod
     def retarget_rowid_refs(cls, target: catalog.TableVersionPath, expr_seq: Iterable[exprs.Expr]) -> None:
-        """Change rowid refs to point to target"""
+        """Change rowid refs to point to target, where target is a view of the ref's current table.
+
+        Rowid refs in select lists of unrelated tables (e.g. in a join) are left alone.
+        """
+        target_base_ids = {tv.id for tv in target.get_tbl_versions()}
         for e in expr_seq:
-            if isinstance(e, exprs.RowidRef):
+            if isinstance(e, exprs.RowidRef) and e.tbl_id in target_base_ids:
                 e.set_tbl(target)
 
     @classmethod
@@ -717,10 +729,6 @@ class SqlSampleNode(SqlNode):
     sample_clause: 'SampleClause'
     _cte_inputs: list[SqlNode]
 
-    # When the seed isn't user-specified, callers that don't reuse the plan (e.g. count()) can
-    # set this to render a fresh random seed as a SQL literal instead of a bindparam.
-    inline_random_seed: bool = False
-
     # Bindparam name for the per-execute random seed when sample_clause has no explicit seed.
     # Rendering the seed as a bindparam (rather than a SQL literal) lets the cached plan stay
     # valid across calls while a fresh seed is bound on each execute.
@@ -779,8 +787,6 @@ class SqlSampleNode(SqlNode):
         if self.sample_clause.seed is not None:
             # explicit seed: same value across executes, fine to inline
             seed_expr: sql.ColumnElement = sql.literal_column(str(self.sample_clause.seed))
-        elif self.inline_random_seed:
-            seed_expr = sql.literal_column(str(random.randint(0, 1 << 63)))
         else:
             # no explicit seed: bind a fresh random value per execute so the cached plan can
             # be reused while consecutive calls return different samples
@@ -789,7 +795,7 @@ class SqlSampleNode(SqlNode):
 
     def _open(self) -> None:
         super()._open()
-        if self.sample_clause.seed is None and not self.inline_random_seed:
+        if self.sample_clause.seed is None:
             # fresh seed per execute, so consecutive calls on the same cached plan return different samples
             self.bound_args[self._RANDOM_SEED_PARAM] = random.randint(0, 1 << 63)
 

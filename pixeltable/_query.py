@@ -587,10 +587,6 @@ class Query:
             yield row
 
     def _ensure_plan(self) -> exec.ExecPlan:
-        # Must be called inside begin_xact: compilation references TableVersions that are
-        # validated only within a transaction. The cache lives on the per-thread Runtime, keyed
-        # by Query identity. The plan owns its own select-list exprs (with slot_idxs from
-        # compilation), so callers extracting output rows read those from the plan.
         assert get_runtime().in_xact
         cache = get_runtime().plan_cache
         plan = cache.get(self)
@@ -840,13 +836,36 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
+        from pixeltable.functions.globals import count as pxt_count
+
         if isinstance(self.limit_val, exprs.Literal) and self.limit_val.val == 0:
             return 0
-        with get_runtime().catalog.begin_xact(read_tvps=self._from_clause.tbls) as conn:
-            count_stmt = Planner.create_count_stmt(self)
-            result = conn.execute(count_stmt).scalar_one()
-            assert isinstance(result, int)
-            return result
+
+        count_query = Query(
+            from_clause=self._from_clause,
+            select_list=[(pxt_count(1), 'count')],
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            limit=copy.deepcopy(self.limit_val),
+            offset=copy.deepcopy(self.offset_val),
+            sample_clause=copy.deepcopy(self.sample_clause),
+        )
+        is_grouped = self.group_by_clause is not None or self.grouping_tbl is not None
+
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls):
+            plan_root = count_query._ensure_plan().exec_root
+            if not isinstance(plan_root, exec.SqlNode):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'count() cannot be used: query plan contains a non-SQL node ({type(plan_root).__name__})',
+                )
+
+        result = count_query.collect()
+        if is_grouped:
+            return len(result)
+        assert len(result) == 1
+        return int(result[0, 'count'])
 
     def _descriptors(self) -> DescriptionHelper:
         helper = DescriptionHelper()
