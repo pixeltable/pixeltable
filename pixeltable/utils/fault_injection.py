@@ -11,6 +11,7 @@ location before triggering the code under test:
 """
 
 import abc
+import copy
 import logging
 import os
 from enum import Enum, auto
@@ -110,7 +111,7 @@ class ExceptionFault:
         _logger.info(f'Injecting {type(self.e)} at fault location {loc}')
         with self._lock:
             self._counter += 1
-            raise type(self.e)(*self.e.args)
+            raise copy.copy(self.e)
 
     def counter(self) -> int:
         with self._lock:
