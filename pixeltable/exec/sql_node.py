@@ -732,7 +732,8 @@ class SqlSampleNode(SqlNode):
     # Bindparam name for the per-execute random seed when sample_clause has no explicit seed.
     # Rendering the seed as a bindparam (rather than a SQL literal) lets the cached plan stay
     # valid across calls while a fresh seed is bound on each execute.
-    _RANDOM_SEED_PARAM = '_random_seed'
+    # the colon makes this a non-identifier, so it can never collide with a user-supplied Variable name
+    _RANDOM_SEED_PARAM = 'pxt:random_seed'
 
     def __init__(
         self,

@@ -552,13 +552,24 @@ class TestQuery:
         cnt = t.where(t.c2 < 10).count()
         assert cnt == 10
 
-        # count() does not support Python-only filters
+    def test_count_errors(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = small_img_tbl
+        # Python-only filter forces a non-SQL plan
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
             match=re.escape('count() cannot be used: query plan contains a non-SQL node'),
         ):
             _ = t.where(t.img.width > 100).count()
+
+        t = test_tbl
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape('count() cannot be used with limit() or offset()')
+        ):
+            _ = t.limit(5).count()
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape('count() cannot be used with limit() or offset()')
+        ):
+            _ = t.limit(5, offset=5).count()
 
     def test_count_with_group_by(self, test_tbl: pxt.Table) -> None:
         """Test that count() works with group_by()."""

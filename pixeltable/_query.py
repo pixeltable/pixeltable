@@ -838,8 +838,14 @@ class Query:
         """
         from pixeltable.functions.globals import count as pxt_count
 
-        if isinstance(self.limit_val, exprs.Literal) and self.limit_val.val == 0:
-            return 0
+        if self.limit_val is not None or self.offset_val is not None:
+            # supporting these would require wrapping the limited query in a subquery and counting
+            # that, which the current SqlAggregationNode path doesn't do;
+            # count() is meant for exploration, so no need to make every corner case work
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'count() cannot be used with limit() or offset(). Use `select(pxtf.count())` instead.',
+            )
 
         count_query = Query(
             from_clause=self._from_clause,
@@ -847,8 +853,6 @@ class Query:
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
             grouping_tbl=self.grouping_tbl,
-            limit=copy.deepcopy(self.limit_val),
-            offset=copy.deepcopy(self.offset_val),
             sample_clause=copy.deepcopy(self.sample_clause),
         )
         is_grouped = self.group_by_clause is not None or self.grouping_tbl is not None

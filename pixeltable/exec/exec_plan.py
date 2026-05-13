@@ -94,7 +94,7 @@ class ExecPlan:
                 raw = raw.val
             try:
                 coerced[name] = expected_type.create_literal(raw)
-            except TypeError as e:
+            except (TypeError, ValueError) as e:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
                     f'bind_params: argument {name!r} is not a valid {expected_type}: {e}',

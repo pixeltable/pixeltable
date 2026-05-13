@@ -45,11 +45,16 @@ class Variable(Expr):
     def __repr__(self) -> str:
         return f"Variable('{self.name}')"
 
-    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
+        # types that don't round-trip cleanly through SQLAlchemy parameter binding (eg, arrays bound to
+        # LargeBinary expect serialized bytes, not the raw Python value, and media types hold PIL/file
+        # refs) are evaluated in Python instead
+        if self.col_type.supports_file_offloading() or self.col_type.is_media_type():
+            return None
         return sql.bindparam(self.name, type_=self.col_type.to_sa_type())
 
-    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> NoReturn:
-        raise NotImplementedError()
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        data_row[self.slot_idx] = self._bound_val
 
     def _as_dict(self) -> dict:
         return {'name': self.name, 'type': self.col_type.as_dict(), **super()._as_dict()}
