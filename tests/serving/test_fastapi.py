@@ -1142,7 +1142,8 @@ class TestFastAPI:
         router = FastAPIRouter()
         add_route_fn = router.add_insert_route if route_type == 'insert' else router.add_compute_route
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot insert into'):
+        verb = 'insert into' if route_type == 'insert' else 'compute'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'cannot {verb}'):
             v = pxt.create_view('test_serve.errors_view', t)
             add_route_fn(v, path='/v')
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown input column 'doesnotexist'"):

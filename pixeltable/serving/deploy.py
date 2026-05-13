@@ -227,7 +227,7 @@ def package(
     """Bundle the contents of a Pixeltable project directory into a tarball.
 
     Args:
-        deployment_config: Environment configuration.
+        deployment_config: Deployment configuration.
         config_export: The deployment and service configuration to include in the bundle, as a dict.
         md_export: The table metadata to include in the bundle, as a dict.
         conda_export: Output of `conda env export --no-builds`, included as `conda-env.yml`

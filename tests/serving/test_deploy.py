@@ -30,8 +30,10 @@ class TestDeploy:
 
         _ = pxt.create_table('table1', {'id': pxt.Int, 'name': pxt.String})
         pxt.create_dir('dir1')
-        _ = pxt.create_table('dir1.table2', {'id': pxt.Int, 'value': pxt.Float})
-        tbl3 = pxt.create_table('dir1.table3', {'id': pxt.Int, 'description': pxt.String})
+        tbl2 = pxt.create_table('dir1.table2', {'id': pxt.Int, 'value': pxt.Float})
+        tbl2.add_computed_column(computed=(tbl2.value + 2.7))
+        tbl3 = pxt.create_table('dir1.table3', {'id': pxt.Int, 'value': pxt.Float})
+        tbl3.add_computed_column(computed=(tbl3.value + 2.9))
 
         app = FastAPI(title='Pixeltable Test Service', version='0.42')
         router = FastAPIRouter()
@@ -178,7 +180,7 @@ class TestDeploy:
             env = "prod"
             """)
         )
-        with pytest.raises(pxt.Error, match='not a valid Pixeltable identifier'):
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='not a valid Pixeltable identifier'):
             Config.init({}, reinit=True)
 
         # No deployments configured

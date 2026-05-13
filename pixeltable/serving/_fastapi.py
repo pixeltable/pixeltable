@@ -750,7 +750,7 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse=return_fileresponse,
             background=background,
             error_prefix='add_update_route()',
-            is_update=True,
+            route_type='update',
         )
         output_cols = [cols_by_name[name] for name in output_col_names]
 
@@ -785,7 +785,6 @@ class FastAPIRouter(fastapi.APIRouter):
             endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
             row_processor=row_processor,
             row_processor_model=update_response_model,
-            is_update=True,
             route_type='update',
         )
 
@@ -907,7 +906,7 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse=False,
             background=background,
             error_prefix='update_route()',
-            is_update=True,
+            route_type='update',
         )
 
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
@@ -939,7 +938,6 @@ class FastAPIRouter(fastapi.APIRouter):
                 endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
                 row_processor=row_processor,
                 row_processor_model=response_model,
-                is_update=True,
                 route_type='update',
             )
             return user_fn
