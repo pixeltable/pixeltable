@@ -84,10 +84,7 @@ class TableVersionPath:
         # getattr(), not attribute access: threads other than the originating one will have an empty _local
         cached: TableVersion | None = getattr(self._local, 'cached_tbl_version', None)
         origin_catalog: Catalog | None = getattr(self._local, 'origin_catalog', None)
-        needs_refresh = (
-            origin_catalog is not cat or cached is None or (get_runtime().in_xact and not cached.is_validated)
-        )
-        if not needs_refresh:
+        if origin_catalog is cat and cached is not None and (not get_runtime().in_xact or cached.is_validated):
             return
 
         with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=[self.tbl_version.id]):

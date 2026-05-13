@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import dataclasses
 import logging
-import random
 from typing import TYPE_CHECKING, Any, List, Literal, Mapping
 from uuid import UUID
 
@@ -122,15 +121,13 @@ class View(Table):
                     f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
                 )
 
-            # create a copy that we can modify and store; materialize a seed when the user did not
-            # supply one, so that subsequent reads of this view/snapshot return the same rows
-            seed = sample_clause.seed if sample_clause.seed is not None else random.randint(0, 1 << 63)
+            # create a copy that we can modify and store
             sample_clause = SampleClause(
                 sample_clause.version,
                 sample_clause.n,
                 sample_clause.n_per_stratum,
                 sample_clause.fraction,
-                seed,
+                sample_clause.seed,
                 copy.copy(sample_clause.stratify_exprs),
             )
 

@@ -3,7 +3,7 @@ import logging
 import random
 import warnings
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, AsyncIterator, Iterable, NamedTuple, Sequence
+from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
 import numpy as np
@@ -182,8 +182,7 @@ class SqlNode(ExecNode):
         # structure
         self._cte_inputs: list[SqlNode] = []
 
-        if self.tbl is not None:
-            assert self.tbl.tbl_version.get().is_validated
+        assert self.tbl is None or self.tbl.tbl_version.get().is_validated
 
     def _open(self) -> None:
         desc = 'Rows read'
@@ -247,13 +246,8 @@ class SqlNode(ExecNode):
     def finalize(self) -> None:
         self.bind_sources.extend(list(self.select_list))
         self.bind_sources.extend(list(self.cell_md_refs))
-        if self.where_clause is not None:
-            self.bind_sources.append(self.where_clause)
+        self.bind_sources.extend(e for e in (self.where_clause, self.limit, self.offset) if e is not None)
         self.bind_sources.extend(e for e, _ in self.order_by_clause)
-        if self.limit is not None:
-            self.bind_sources.append(self.limit)
-        if self.offset is not None:
-            self.bind_sources.append(self.offset)
 
         # finalize CTE inputs so we can absorb their bind_sources
         for input in self._cte_inputs:
@@ -793,9 +787,10 @@ class SqlSampleNode(SqlNode):
             seed_expr = sql.bindparam(self._RANDOM_SEED_PARAM, type_=sql.BigInteger)
         return self.key_sql_expr(seed_expr, rowid_cols)
 
-    def bind_params(self, args: dict[str, Any]) -> None:
-        super().bind_params(args)
-        if self.sample_clause.seed is None:
+    def _open(self) -> None:
+        super()._open()
+        if self.sample_clause.seed is None and not self.inline_random_seed:
+            # fresh seed per execute, so consecutive calls on the same cached plan return different samples
             self.bound_args[self._RANDOM_SEED_PARAM] = random.randint(0, 1 << 63)
 
     def _create_stmt(self) -> sql.Select:

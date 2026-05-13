@@ -38,7 +38,6 @@ class TableVersionHandle:
         self._local.origin_catalog = get_runtime().catalog
 
     def __deepcopy__(self, memo: dict[int, object] | None = None) -> TableVersionHandle:
-        # Thread-safe and structurally immutable: callers can share a single instance.
         return self
 
     def __eq__(self, other: object) -> bool:
@@ -76,8 +75,7 @@ class TableVersionHandle:
         # getattr(), not attribute access: threads other than the originating one will have an empty _local
         cached: TableVersion | None = getattr(self._local, 'tbl_version', None)
         origin_catalog: Catalog | None = getattr(self._local, 'origin_catalog', None)
-        needs_refresh = origin_catalog is not cat or cached is None or not cached.is_validated
-        if not needs_refresh:
+        if origin_catalog is cat and cached is not None and cached.is_validated:
             return cached
 
         if self.effective_version is not None and cached is not None and origin_catalog is cat:
