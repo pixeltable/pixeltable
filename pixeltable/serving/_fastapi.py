@@ -98,8 +98,6 @@ class PxtEndpoint:
     """
 
     router: 'FastAPIRouter'
-    name: str
-    signature: inspect.Signature
     uploadfile_inputs: list[str]
     background: bool
     endpoint_op: Callable[..., Any]
@@ -118,8 +116,6 @@ class PxtEndpoint:
         route_type: Literal['insert', 'update', 'delete', 'query', 'compute'],
     ) -> None:
         self.router = router
-        self.name = name
-        self.signature = signature
         self.uploadfile_inputs = uploadfile_inputs
         self.background = background
         self.endpoint_op = endpoint_op
@@ -399,8 +395,8 @@ class FastAPIRouter(fastapi.APIRouter):
             outputs=outputs,
             return_fileresponse=return_fileresponse,
             background=background,
-            error_prefix='add_insert_route()',
-            is_update=False,
+            error_prefix=f'add_{route_type}_route()',
+            route_type=route_type,
         )
         uploadfile_inputs = uploadfile_inputs or []
         output_cols = [cols_by_name[name] for name in output_col_names]
@@ -409,7 +405,7 @@ class FastAPIRouter(fastapi.APIRouter):
             export_sql,
             return_fileresponse=return_fileresponse,
             schema={name: cols_by_name[name].col_type for name in output_col_names},
-            error_prefix='add_insert_route()',
+            error_prefix=f'add_{route_type}_route()',
         )
 
         # response model derived from output columns, named after the path
@@ -434,10 +430,9 @@ class FastAPIRouter(fastapi.APIRouter):
             uploadfile_inputs=uploadfile_inputs,
             return_fileresponse=return_fileresponse,
             background=background,
-            endpoint_name=f'insert_{path.strip("/").replace("/", "_") or "root"}',
+            endpoint_name=f'{route_type}_{path.strip("/").replace("/", "_") or "root"}',
             row_processor=row_processor,
             row_processor_model=insert_response_model,
-            is_update=False,
             route_type=route_type,
         )
 
@@ -608,8 +603,8 @@ class FastAPIRouter(fastapi.APIRouter):
             outputs=outputs,
             return_fileresponse=False,
             background=background,
-            error_prefix='insert_route()',
-            is_update=False,
+            error_prefix=f'{route_type}_route()',
+            route_type=route_type,
         )
         uploadfile_inputs = uploadfile_inputs or []
 
@@ -617,11 +612,11 @@ class FastAPIRouter(fastapi.APIRouter):
             response_model = self._validate_decorated_fn(
                 user_fn,
                 output_schema={col_name: cols_by_name[col_name].col_type for col_name in output_col_names},
-                error_prefix='insert_route()',
+                error_prefix=f'{route_type}_route()',
             )
 
             sql_exporter = self._make_model_sql_exporter(
-                export_sql, response_model=response_model, error_prefix='insert_route()'
+                export_sql, response_model=response_model, error_prefix=f'{route_type}_route()'
             )
 
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
@@ -639,10 +634,9 @@ class FastAPIRouter(fastapi.APIRouter):
                 uploadfile_inputs=uploadfile_inputs,
                 return_fileresponse=False,
                 background=background,
-                endpoint_name=f'insert_{path.strip("/").replace("/", "_") or "root"}',
+                endpoint_name=f'{route_type}_{path.strip("/").replace("/", "_") or "root"}',
                 row_processor=row_processor,
                 row_processor_model=response_model,
-                is_update=False,
                 route_type=route_type,
             )
             return user_fn
@@ -1344,7 +1338,6 @@ class FastAPIRouter(fastapi.APIRouter):
         endpoint_name: str,
         row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
         row_processor_model: type[pydantic.BaseModel] | None,
-        is_update: bool,
         route_type: Literal['insert', 'update', 'compute'],
     ) -> None:
         """Create endpoint for insert/update.
@@ -1369,7 +1362,7 @@ class FastAPIRouter(fastapi.APIRouter):
                     status_code=409,
                     detail='table schema changed since route was registered; please restart the service',
                 )
-            if is_update:
+            if route_type == 'update':
                 status = tbl.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
                 if status.num_rows == 0:
                     raise HTTPException(status_code=404, detail='row not found')
@@ -1403,7 +1396,7 @@ class FastAPIRouter(fastapi.APIRouter):
         self.add_api_route(path, endpoint, **api_kwargs)
 
     def _validate_decorated_fn(
-        self, user_fn: Callable, *, output_schema: dict[str, ts.ColumnType], error_prefix: str = 'insert_route()'
+        self, user_fn: Callable, *, output_schema: dict[str, ts.ColumnType], error_prefix: str
     ) -> type[pydantic.BaseModel]:
         """Validate the decorated function of insert_/update_route(); return the resolved response model."""
         sig = inspect.signature(user_fn)
@@ -1488,12 +1481,12 @@ class FastAPIRouter(fastapi.APIRouter):
         return_fileresponse: bool,
         background: bool,
         error_prefix: str,
-        is_update: bool,
+        route_type: Literal['insert', 'update', 'compute'],
     ) -> tuple[list[str], list[str], list[str], dict[str, catalog.Column]]:
         """
         Validate insert-/update-route args. Returns (pk_col_names, input_col_names, output_col_names, cols_by_name).
         """
-        verb = 'update' if is_update else 'insert into'
+        verb = 'insert into' if route_type == 'insert' else route_type
         md = t.get_metadata()
         if md['kind'] != 'table':
             raise pxt.RequestError(
@@ -1507,7 +1500,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
         col_md = md['columns']
         pk_col_names = [name for name, c in col_md.items() if c['is_primary_key']]
-        if is_update and not pk_col_names:
+        if route_type == 'update' and not pk_col_names:
             raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
 
         cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
@@ -1522,14 +1515,14 @@ class FastAPIRouter(fastapi.APIRouter):
                 )
 
             # PK columns cannot be inputs for an update route
-            if is_update and name in pk_set:
+            if route_type == 'update' and name in pk_set:
                 raise pxt.RequestError(
                     pxt.ErrorCode.INVALID_ARGUMENT,
                     f'{error_prefix}: {name!r} is a primary key column and cannot be used as input',
                 )
 
             # media columns cannot be updated
-            if is_update and name in cols_by_name and cols_by_name[name].col_type.is_media_type():
+            if route_type == 'update' and name in cols_by_name and cols_by_name[name].col_type.is_media_type():
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{error_prefix}: {name!r} is a media column and cannot be updated',
@@ -1539,7 +1532,7 @@ class FastAPIRouter(fastapi.APIRouter):
         input_schema = {
             c.name: c.col_type
             for c in cols_by_name.values()
-            if not c.is_computed and not (is_update and (c.name in pk_set or c.col_type.is_media_type()))
+            if not c.is_computed and not (route_type == 'update' and (c.name in pk_set or c.col_type.is_media_type()))
         }
         input_col_names, output_col_names = self._validate_args(
             input_schema=input_schema,
