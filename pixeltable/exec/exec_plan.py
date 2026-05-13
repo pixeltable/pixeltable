@@ -46,6 +46,10 @@ class ExecPlan:
     # to the running event loop on first await; constructing it without one is fragile).
     _iter_lock: asyncio.Lock | None
 
+    # True while an iteration is in progress. Re-entering exec()/aexec() before the current
+    # iteration has finished would scribble over the shared ExecNode state.
+    _is_executing: bool
+
     def __init__(
         self,
         exec_root: ExecNode,
@@ -60,6 +64,7 @@ class ExecPlan:
         self.select_list_schema = select_list_schema
         self._compile_versions = compile_versions if compile_versions is not None else {}
         self._iter_lock = None
+        self._is_executing = False
 
         self._param_types = {}
         self._param_nodes = []
@@ -109,13 +114,22 @@ class ExecPlan:
         return all(versions.get(tbl_id) == version for tbl_id, version in self._compile_versions.items())
 
     def __enter__(self) -> Self:
+        if self._is_executing:
+            raise RuntimeError(
+                'ExecPlan is already executing; nested iteration on a cached plan is not supported'
+            )
+        self._is_executing = True
+        self.ctx.reset()
         self.exec_root.__enter__()
         return self
 
     def __exit__(
         self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
     ) -> None:
-        self.exec_root.__exit__(exc_type, exc_val, exc_tb)
+        try:
+            self.exec_root.__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self._is_executing = False
 
     def __iter__(self) -> Iterator[DataRowBatch]:
         return iter(self.exec_root)

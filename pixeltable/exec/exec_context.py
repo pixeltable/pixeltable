@@ -63,6 +63,13 @@ class ExecContext:
         self.ignore_errors = ignore_errors
         self.random_seed = random.getrandbits(63)
 
+    def reset(self) -> None:
+        """Clear per-execution state so a cached plan can be re-executed without leaking
+        progress/profile state from the previous run."""
+        self.progress = None
+        self.progress_reporters = {}
+        self.profile = exprs.ExecProfile(self.row_builder)
+
     def add_progress_reporter(self, desc: str, unit_1: str, unit_2: str | None = None) -> ProgressReporter | None:
         """Records new ProgressReporter for the given desc/units, or returns the existing one."""
         if not self.show_progress:
