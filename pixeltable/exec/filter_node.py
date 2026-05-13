@@ -40,6 +40,8 @@ class FilterNode(ExecNode):
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
         offset = self._resolve_positive_int(self.offset, 'offset') if self.offset is not None else None
+        if limit == 0:
+            return
         num_passed = 0  # rows that passed the predicate (before offset/limit)
         limit_reached = False
 

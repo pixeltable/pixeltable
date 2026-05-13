@@ -155,7 +155,9 @@ class SimilarityExpr(Expr):
     @property
     def _bind_name(self) -> str:
         assert self.id is not None
-        return f'sim_{self.id}'
+        # 'pxt:' prefix makes this a non-identifier so it can't collide with SQLAlchemy's
+        # auto-generated bind names (param_1, etc.) or with a user-supplied Variable name
+        return f'pxt:sim_{self.id}'
 
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         super().prepare(args, bound_args)

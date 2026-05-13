@@ -104,7 +104,7 @@ class ExecNode(abc.ABC):
     def set_var_slots(self, rows: Iterable[exprs.DataRow]) -> None:
         """Populate Variable slots in rows with the bound values from self.bound_args."""
         for v in self.vars:
-            val = self.bound_args[v.name]
+            val = self.bound_args[v._bind_name]
             for row in rows:
                 row[v.slot_idx] = val
 
@@ -228,7 +228,7 @@ class ExecNode(abc.ABC):
         if isinstance(e, exprs.Literal):
             val = e.val
         elif isinstance(e, exprs.Variable):
-            val = self.bound_args[e.name]
+            val = self.bound_args[e._bind_name]
         else:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'{role}: unsupported expression for {role!r}: {e}'

@@ -92,6 +92,13 @@ class FnCallEvaluator(Evaluator):
             else:
                 self.scalar_py_fn = None
 
+    def reset(self) -> None:
+        super().reset()
+        # discard any FnCallArgs left over from a previous run that was closed before the queue
+        # drained (eg, cursor abandoned mid-iteration)
+        if self.call_args_queue is not None:
+            self.call_args_queue = asyncio.Queue[FnCallArgs]()
+
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.fn_call.slot_idx >= 0
 

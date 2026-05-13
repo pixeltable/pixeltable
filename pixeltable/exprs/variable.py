@@ -25,10 +25,17 @@ class Variable(Expr):
         self.name = name
         self.id = self._create_id()
 
+    @property
+    def _bind_name(self) -> str:
+        # 'pxt:' prefix makes this a non-identifier so it can't collide with SQLAlchemy's
+        # auto-generated bind names (param_1, c2_1, etc.) when the same bound_args dict is passed
+        # to execute()
+        return f'pxt:{self.name}'
+
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         super().prepare(args, bound_args)
         self._bound_val = args[self.name]
-        bound_args[self.name] = self._bound_val
+        bound_args[self._bind_name] = self._bound_val
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('name', self.name)]
@@ -51,7 +58,7 @@ class Variable(Expr):
         # refs) are evaluated in Python instead
         if self.col_type.supports_file_offloading() or self.col_type.is_media_type():
             return None
-        return sql.bindparam(self.name, type_=self.col_type.to_sa_type())
+        return sql.bindparam(self._bind_name, type_=self.col_type.to_sa_type())
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         data_row[self.slot_idx] = self._bound_val

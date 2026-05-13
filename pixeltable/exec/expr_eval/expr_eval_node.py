@@ -106,10 +106,10 @@ class ExprEvalNode(ExecNode):
         self.num_input_rows = 0
         self.num_output_rows = 0
         self.schedulers = {}
-        # evaluators are owned by eval_ctx and reused across iterations; reset the closed flag
-        # set by the previous run's drain phase so they accept work again.
+        # evaluators are owned by eval_ctx and reused across iterations; clear per-execution state
+        # (closed flag, batched-call queue, etc.) so they accept work again
         for evaluator in self.eval_ctx.slot_evaluators.values():
-            evaluator.is_closed = False
+            evaluator.reset()
         self.progress_reporter = None
 
     def _open(self) -> None:
@@ -240,7 +240,10 @@ class ExprEvalNode(ExecNode):
         input_batch_aw: asyncio.Task | None = None
         completed_aw: asyncio.Task | None = None
         closed_evaluators = False  # True after calling Evaluator.close()
-        exprs.Expr.prepare_list(self.eval_ctx.all_exprs, self.bound_args, {})
+        # self.bound_args is keyed by Variable._bind_name (prefixed for SQL execute); prepare() expects
+        # input args keyed by user-given Variable name
+        inner_args = {v.name: self.bound_args[v._bind_name] for v in self.vars}
+        exprs.Expr.prepare_list(self.eval_ctx.all_exprs, inner_args, {})
 
         try:
             while True:

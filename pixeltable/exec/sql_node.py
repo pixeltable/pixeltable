@@ -798,7 +798,7 @@ class SqlSampleNode(SqlNode):
         super()._open()
         if self.sample_clause.seed is None:
             # fresh seed per execute, so consecutive calls on the same cached plan return different samples
-            self.bound_args[self._RANDOM_SEED_PARAM] = random.randint(0, 1 << 63)
+            self.bound_args[self._RANDOM_SEED_PARAM] = random.getrandbits(63)
 
     def _create_stmt(self) -> sql.Select:
         from pixeltable.plan import SampleClause

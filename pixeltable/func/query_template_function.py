@@ -88,7 +88,7 @@ class QueryTemplateFunction(Function):
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {
-                param.name: param.default
+                param.name: param.default_value
                 for param in self.signature.parameters.values()
                 if param.has_default() and param.name not in bound_args
             }

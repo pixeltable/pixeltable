@@ -61,7 +61,7 @@ class ExecContext:
         self.conn = None
         self.pk_clause = pk_clause
         self.ignore_errors = ignore_errors
-        self.random_seed = random.randint(0, 1 << 63)
+        self.random_seed = random.getrandbits(63)
 
     def add_progress_reporter(self, desc: str, unit_1: str, unit_2: str | None = None) -> ProgressReporter | None:
         """Records new ProgressReporter for the given desc/units, or returns the existing one."""

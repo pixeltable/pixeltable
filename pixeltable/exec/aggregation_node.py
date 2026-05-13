@@ -84,6 +84,8 @@ class AggregationNode(ExecNode):
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
+        if limit == 0:
+            return
         prev_row: exprs.DataRow | None = None
         current_group: list[Any] | None = None  # the values of the group-by exprs
         num_input_rows = 0
