@@ -49,6 +49,16 @@ pip install pixeltable
 
 Pixeltable bundles its own transactional database, orchestration engine, and local dashboard. No Docker, no external services; `pip install` is all you need. All data is managed in `~/.pixeltable` and accessed through the [Python SDK](https://docs.pixeltable.com/sdk/latest/pixeltable). See [Working with External Files](https://docs.pixeltable.com/platform/external-files) and [Storage Architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) for details.
 
+## AI Agent Skill
+
+Teach AI coding assistants (Cursor, Claude Code, Windsurf, Copilot, etc.) to write correct Pixeltable code:
+
+```bash
+npx skills add pixeltable/pixeltable-skill
+```
+
+Covers 25+ providers, multimodal pipelines, tool-calling agents, RAG, and production patterns. [Learn more →](https://github.com/pixeltable/pixeltable-skill)
+
 ## Quick Start
 
 Define your data processing and AI workflow declaratively using
