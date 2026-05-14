@@ -11,14 +11,19 @@ import urllib.error
 import urllib.request
 
 DEFAULT_PORT = 22089
+_DAEMON_LOG_PATH = os.path.expanduser('~/.pixeltable/logs/pcli-daemon.log')
 
 
 def get_port() -> int:
     return int(os.environ.get('PCLI_PORT') or DEFAULT_PORT)
 
 
+def base_url() -> str:
+    return f'http://127.0.0.1:{get_port()}'
+
+
 def health_url() -> str:
-    return f'http://localhost:{get_port()}/pcli/v0/health'
+    return f'{base_url()}/pcli/v0/health'
 
 
 def _fetch_health(timeout: float = 0.3) -> dict | None:
@@ -42,13 +47,21 @@ def _client_pxt_version() -> str | None:
 
 
 def spawn_detached() -> None:
-    log_path = os.path.expanduser('~/.pixeltable/logs/pcli-daemon.log')
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    log = open(log_path, 'a')
-    subprocess.Popen(
-        [sys.executable, '-m', 'pcli.server.daemon'],
-        start_new_session=True, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
-    )
+    os.makedirs(os.path.dirname(_DAEMON_LOG_PATH), exist_ok=True)
+    with open(_DAEMON_LOG_PATH, 'a') as log:
+        subprocess.Popen(
+            [sys.executable, '-m', 'pcli.server.daemon'],
+            start_new_session=True, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+        )
+
+
+def _tail_daemon_log(n_lines: int = 10) -> str:
+    try:
+        with open(_DAEMON_LOG_PATH) as f:
+            lines = f.readlines()
+    except OSError:
+        return ''
+    return ''.join(lines[-n_lines:]).rstrip()
 
 
 def wait_for_health(timeout: float = 15.0) -> None:
@@ -57,7 +70,11 @@ def wait_for_health(timeout: float = 15.0) -> None:
         if is_running():
             return
         time.sleep(0.1)
-    raise RuntimeError(f'pcli daemon did not come up within {timeout}s')
+    tail = _tail_daemon_log()
+    msg = f'pcli daemon did not come up within {timeout}s'
+    if tail:
+        msg += f'\n--- tail of {_DAEMON_LOG_PATH} ---\n{tail}'
+    raise RuntimeError(msg)
 
 
 def _kill_and_wait(pid: int, timeout: float = 5.0) -> None:
@@ -87,4 +104,4 @@ def ensure_running() -> str:
     else:
         spawn_detached()
         wait_for_health()
-    return f'http://localhost:{get_port()}'
+    return base_url()

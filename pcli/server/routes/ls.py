@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 import pixeltable as pxt
+from pixeltable import exceptions as excs
 
 from pcli.models import LsEntry, LsRequest, LsResponse
 
@@ -17,7 +18,7 @@ def ls(req: LsRequest) -> LsResponse:
 
 
 def _descend(tree: list[dict], path: str) -> list[dict]:
-    """Find children of `path` (`.` or `/` separated). Empty = root."""
+    """Find children of `path` (`.` or `/` separated). Empty path = root."""
     parts = [p for p in path.replace('/', '.').split('.') if p]
     cur = tree
     for part in parts:
@@ -26,7 +27,7 @@ def _descend(tree: list[dict], path: str) -> list[dict]:
                 cur = node['entries']
                 break
         else:
-            return []
+            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f"Path '{path}' does not exist.")
     return cur
 
 
@@ -35,9 +36,8 @@ def _to_entry(node: dict, req: LsRequest) -> LsEntry:
     entry = LsEntry(path=node['path'], kind=kind)  # type: ignore[arg-type]
     if kind != 'dir':
         entry.last_version = node.get('version')
-        if req.long:
-            entry.num_cols = node.get('num_cols')
-            entry.flags = ('c' if node.get('has_computed_cols') else '') + ('i' if node.get('has_indexes') else '')
+        entry.num_cols = node.get('num_cols')
+        entry.flags = ('c' if node.get('has_computed_cols') else '') + ('i' if node.get('has_indexes') else '')
         if req.counts:
             entry.num_rows = pxt.get_table(node['path']).count()
     return entry

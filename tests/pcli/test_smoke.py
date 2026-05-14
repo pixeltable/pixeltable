@@ -77,8 +77,9 @@ class TestPcliSmoke:
 
     def test_get_by_pk(self, pcli) -> None:
         pxt.create_dir('pcli_smoke', if_exists='ignore')
-        t = pxt.create_table('pcli_smoke.pk_tbl', {'k': pxt.Required[pxt.Int], 'v': pxt.String},
-                             primary_key='k', if_exists='replace')
+        t = pxt.create_table(
+            'pcli_smoke.pk_tbl', {'k': pxt.Required[pxt.Int], 'v': pxt.String}, primary_key='k', if_exists='replace'
+        )
         t.insert([{'k': 1, 'v': 'one'}, {'k': 2, 'v': 'two'}])
 
         out = pcli('get', 'pcli_smoke/pk_tbl', '2', '--json').json

@@ -23,3 +23,10 @@ def run(argv: list[str]) -> None:
     print(f"config_file  {resp['config_file'] or '-'}")
     for k in sorted(resp['env_vars']):
         print(f'{k}={resp["env_vars"][k]}')
+    creds = resp.get('credentials_present') or {}
+    present = sorted(k for k, v in creds.items() if v)
+    missing = sorted(k for k, v in creds.items() if not v)
+    if present:
+        print(f"credentials  set: {', '.join(present)}")
+    if missing:
+        print(f"credentials  unset: {', '.join(missing)}")

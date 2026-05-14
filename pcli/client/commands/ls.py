@@ -22,9 +22,7 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    resp = post('/pcli/v0/ls', {
-        'path': args.path, 'tree': args.tree, 'long': args.long, 'counts': args.counts,
-    })
+    resp = post('/pcli/v0/ls', {'path': args.path, 'tree': args.tree, 'counts': args.counts})
 
     if args.as_json:
         print(json.dumps(resp, indent=2))
@@ -39,9 +37,9 @@ def run(argv: list[str]) -> None:
         if args.counts and e.get('num_rows') is not None:
             cols.append(str(e['num_rows']))
         if args.long:
-            cols.append(str(e.get('num_cols') or ''))
-            cols.append(str(e.get('last_version') or ''))
-            cols.append(e.get('flags', '') or '-')
+            cols.append('' if e.get('num_cols') is None else str(e['num_cols']))
+            cols.append('' if e.get('last_version') is None else str(e['last_version']))
+            cols.append(e.get('flags') or '-')
         print('\t'.join(cols))
 
 
