@@ -568,24 +568,31 @@ class Expr(abc.ABC):
         return cls.from_dict(json.loads(dict_str))
 
     @classmethod
-    def from_dict(cls, d: dict) -> Self:
+    def from_dict(cls, d: dict, tbl_versions: dict[UUID, catalog.TableVersion] | None = None) -> Self:
         """
         Turn dict that was produced by calling Expr.as_dict() into an instance of the correct Expr subclass.
+
+        tbl_versions: when deserializing snapshot or replica expressions, pass a mapping of table UUID to the
+        target TableVersion so that ColumnRefs are resolved directly to the correct version without creating references
+        to columns that were later dropped. This allows us to create immediately correct ColumnRefs that don't need
+        further retargeting.
         """
         assert '_classname' in d
         exprs_module = importlib.import_module(cls.__module__.rsplit('.', 1)[0])
         type_class = getattr(exprs_module, d['_classname'])
         components: list[Expr] = []
         if 'components' in d:
-            components = [cls.from_dict(component_dict) for component_dict in d['components']]
-        return type_class._from_dict(d, components)
+            components = [cls.from_dict(component_dict, tbl_versions) for component_dict in d['components']]
+        return type_class._from_dict(d, components, tbl_versions)
 
     @classmethod
     def from_dict_list(cls, dict_list: list[dict]) -> list[Expr]:
         return [cls.from_dict(d) for d in dict_list]
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Self:
+    def _from_dict(
+        cls, d: dict, components: list[Expr], tbl_versions: dict[UUID, catalog.TableVersion] | None = None
+    ) -> Self:
         raise AssertionError(f'not implemented: {cls.__name__}')
 
     def isin(self, value_set: Any) -> 'exprs.InPredicate':
