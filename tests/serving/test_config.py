@@ -252,6 +252,7 @@ class TestConfig:
         cases.append(
             ({'service': [{'name': 'test-service'}, {'name': 'test-service'}]}, 'Duplicate `ServiceConfig` name')
         )
+        cases.append(({'service': [{'name': '123bad'}]}, 'not a valid Pixeltable identifier'))
 
         for config_dict, expected_substring in cases:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as f:

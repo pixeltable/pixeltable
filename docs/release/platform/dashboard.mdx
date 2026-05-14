@@ -1,0 +1,116 @@
+---
+title: Local Dashboard
+sidebarTitle: Dashboard
+icon: table-layout
+description: Browse tables, inspect pipelines, preview media, and debug computed columns from a local web UI that starts automatically.
+---
+
+The Pixeltable dashboard is a local web UI for exploring your data. It starts automatically when you use Pixeltable and runs at [http://localhost:22089](http://localhost:22089).
+
+No extra install is needed. The dashboard ships inside the `pixeltable` package.
+
+## Opening the dashboard
+
+The dashboard server launches in the background the first time your script or notebook calls any Pixeltable API. To open it in a browser explicitly:
+
+```python
+import pixeltable as pxt
+
+pxt.dashboard.serve()            # opens http://localhost:22089 in your default browser
+pxt.dashboard.serve(open_browser=False)  # start the server without opening a browser
+```
+
+<Info>
+The dashboard binds to `127.0.0.1` only and is not accessible from other machines on the network. For remote access to tables and queries, see [HTTP Serving](/howto/deployment/serving).
+</Info>
+
+## What you can do
+
+The dashboard is a **read-only inspector**. You browse and debug your data visually; all mutations (inserts, schema changes, etc.) happen through the Python SDK or [CLI](/platform/cli).
+
+### Browse the catalog
+
+The left sidebar shows your full directory tree: directories, tables, views, and snapshots. Each entry displays its kind and error count. Click any table to open it, or click a directory to see a summary with aggregate stats and a list of child tables.
+
+A global search panel (**Cmd/Ctrl + K**) lets you find directories, tables, and columns by name.
+
+### Inspect table data
+
+The main table view has three tabs:
+
+- **Data** - paginated rows with typed columns, sortable by indexed columns, with configurable page sizes. Cells render inline previews for images, video, audio, and documents.
+- **Lineage** - shows the table's position in the pipeline: its base table, derived views, and column-level dependency graphs.
+- **History** - version list with change types (inserts, updates, deletes) and timestamps.
+
+Above the data grid, a collapsible **Schema** panel shows every column with its type, whether it is computed (with the Python expression), stored vs. unstored, and any embedding indexes.
+
+### Filter and search rows
+
+A filter panel lets you narrow down the current page:
+
+- **Free-text search** across all columns (debounced)
+- **Faceted filters**: text contains, numeric ranges, datetime ranges, boolean/enum checklists
+- **Errors-only mode**: server-side filter that shows only rows with computation errors, useful for debugging failed computed columns
+
+### Preview media
+
+Images and videos render inline in the data grid. Click any media cell to open a **lightbox** with keyboard navigation (arrow keys for prev/next). For image-heavy tables, a **gallery view** displays thumbnails in a grid with a detail overlay per row.
+
+### Explore the pipeline
+
+The **Lineage** page (accessible from the sidebar) shows a full-instance pipeline graph built with React Flow. Every table and view appears as a node, with edges showing relationships (base table, iterator, query dependencies).
+
+Click any node to open a detail drawer with:
+
+- Row count and version info
+- Column breakdown (insertable, computed, stored)
+- Embedding index definitions
+- Computed column expressions with dependency graphs
+- Version history
+
+A **Find table** search on the canvas lets you jump to any node and fit it into view.
+
+### Export data
+
+Download the current table as **CSV** (up to 100,000 rows) from the table view.
+
+### Copy SDK snippets
+
+The table view includes a **Copy** button that generates the Python SDK code for opening the current table, making it easy to switch from visual inspection to scripted work.
+
+## Configuration
+
+| Setting | Default | Environment variable | Description |
+|---|---|---|---|
+| `start_dashboard` | `true` | `PIXELTABLE_START_DASHBOARD` | Set to `false` to prevent auto-start |
+| `dashboard_port` | `22089` | `PIXELTABLE_DASHBOARD_PORT` | Port the dashboard listens on |
+
+You can also set these in your [Pixeltable config file](/platform/configuration):
+
+```toml
+[pixeltable]
+start_dashboard = false
+dashboard_port = 3000
+```
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| **Cmd/Ctrl + K** | Open global search |
+| **Cmd/Ctrl + F** | Focus in-table row filter |
+| **Esc** | Close search, modals, or lightbox |
+| **Arrow keys** | Navigate media in lightbox |
+
+## Troubleshooting
+
+**Port already in use**: If another process occupies port 22089, set a different port via `PIXELTABLE_DASHBOARD_PORT=3000` or the config file. The dashboard detects port conflicts and prints the alternative in the console.
+
+**Dashboard not starting**: Verify the dashboard is not explicitly disabled:
+
+```python
+import pixeltable as pxt
+pxt.dashboard.serve()  # force-start and open browser
+```
+
+**Static files missing**: The React app ships as pre-built static files inside the `pixeltable` package. If you installed from source, ensure the dashboard was built (`npm run build` in the `dashboard/` directory).
