@@ -92,7 +92,7 @@ def export_iceberg(
     # Variable-shape arrays are mapped to pa.list_(...) by to_arrow_type and are supported by Iceberg.
     schema_arrow = to_arrow_schema(query.schema, schema_overrides)
     fixed_tensor_cols = [f.name for f in schema_arrow if isinstance(f.type, pa.FixedShapeTensorType)]
-    if fixed_tensor_cols:
+    if len(fixed_tensor_cols) > 0:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'export_iceberg(): cannot export fixed-shape tensor column(s) {fixed_tensor_cols}. '
