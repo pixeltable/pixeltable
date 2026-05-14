@@ -86,7 +86,7 @@ class TestIndex:
         clip_embed: pxt.Function,
         reload_tester: ReloadTester,
     ) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('imagehash', 'transformers')
         t = small_img_tbl
         res = t.select(t.img, t.img.localpath, t.img.fileurl).head(1)
         sample_img = res[0, 'img']
@@ -142,7 +142,7 @@ class TestIndex:
         Test that the deprecated pattern still works, with a warning.
         (Deprecated pattern = calling similarity() without a specific modality)
         """
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('imagehash', 'transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         _ = t.select(t.img.localpath).collect()

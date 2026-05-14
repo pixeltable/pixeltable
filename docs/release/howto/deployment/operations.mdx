@@ -24,6 +24,10 @@ Multi-node HA and horizontal scaling planned for Pixeltable Cloud (2026).
 
 ## Web Framework Concurrency
 
+<Tip>
+**For standard insert, query, and delete endpoints,** consider [built-in HTTP serving](/howto/deployment/serving) with `FastAPIRouter` or a TOML config before writing custom endpoint handlers. It handles request/response schemas, media serving, and background jobs automatically.
+</Tip>
+
 Pixeltable is thread-safe and works with FastAPI, Flask, Django, and other web frameworks out of the box. The key rule: **use sync (`def`) endpoint handlers**, not `async def`.
 
 ### Why Sync Endpoints
@@ -220,9 +224,9 @@ Because both columns coexist, you can A/B test retrieval quality before cutting 
 ## Deployment Patterns
 
 **Web Applications:**
-- Execute `setup_pixeltable.py` during deployment initialization
-- Web server processes connect to Pixeltable instance
-- Pixeltable uses connection pooling internally
+- For standard endpoints, use [`pxt serve`](/howto/deployment/serving) with a TOML config or [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
+- Run `python setup_pixeltable.py` once before starting workers to create tables
+- Each router calls `pxt.get_table()` directly and defines its own `@pxt.query` functions
 - Use sync (`def`) endpoint handlers for concurrent request support
 
 <Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">

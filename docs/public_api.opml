@@ -316,10 +316,10 @@
           <outline text="udf|pixeltable.functions.video.grayscale" />
           <outline text="udf|pixeltable.functions.video.mirror_x" />
           <outline text="udf|pixeltable.functions.video.mirror_y" />
+          <outline text="udf|pixeltable.functions.video.mix_audio" />
+          <outline text="udf|pixeltable.functions.video.overlay_image" />
           <outline text="udf|pixeltable.functions.video.overlay_text" />
-          <!-- pan omitted: its docstring cross-ref to scroll() produces a broken
-               #func-scroll link (doctools bug: cross-refs always use #func- but
-               UDF headings produce #udf- anchors) -->
+          <outline text="udf|pixeltable.functions.video.pan" />
           <outline text="udf|pixeltable.functions.video.resize" />
           <outline text="udf|pixeltable.functions.video.reverse" />
           <outline text="udf|pixeltable.functions.video.rotate" />

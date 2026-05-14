@@ -546,10 +546,11 @@ t.add_computed_column(tool_results=invoke_tools(tools, t.llm_response))
     <Card title="Anthropic Guide" href="/howto/providers/working-with-anthropic" />
   </Tab>
   <Tab title="Google Gemini">
+
     ```python
     from pixeltable.functions.gemini import generate_content
     t.add_computed_column(
-        text=generate_content(contents=t.prompt, model='gemini-2.5-flash').text
+        text=generate_content(contents=t.prompt, model='gemini-3.1-flash-lite').text
     )
     ```
     <Card title="Gemini Guide" href="/howto/providers/working-with-gemini" />
@@ -656,6 +657,8 @@ t.add_computed_column(transformed=image_to_image(t.img, t.prompt, model_id='stab
     # Video
     t.video.get_metadata() / .get_duration() / .extract_frame(timestamp=5.0)
     t.video.clip(start=10, end=30) / .overlay_text(text='Title') / .scene_detect_content()
+    t.video.pan(x_sign=1)            # smooth pan right (convenience wrapper around scroll())
+    t.video.mix_audio(t.music)       # blend a second audio track into the video
 
     # Audio
     t.audio.get_metadata()
@@ -723,6 +726,10 @@ t.add_computed_column(transformed=image_to_image(t.img, t.prompt, model_id='stab
     ```python
     # Pandas
     df = t.collect().to_pandas()
+
+    # CSV / JSON
+    io.export_csv(t, 'output.csv')
+    io.export_json(t, 'output.json')
 
     # Parquet
     io.export_parquet(t, 'output.parquet')

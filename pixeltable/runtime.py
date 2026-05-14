@@ -39,6 +39,9 @@ class Runtime:
     _event_loop: asyncio.AbstractEventLoop | None  # event loop for this thread
     _run_coro_executor: concurrent.futures.ThreadPoolExecutor | None
 
+    # True if this thread's runtime was populated from another thread via copy_db_context()
+    context_inherited: bool
+
     # we need to cache client instances on a per-thread basis because some of them are thread-specific (eg, async
     # clients which are tied to an event loop)
     _clients: dict[str, Any]
@@ -54,6 +57,7 @@ class Runtime:
         self._event_loop = None
         self._run_coro_executor = None
         self._clients = {}
+        self.context_inherited = False
 
     def copy_db_context(self, other: Runtime) -> None:
         """Copy the db-related state from another Runtime instance."""
@@ -62,6 +66,7 @@ class Runtime:
         self.isolation_level = other.isolation_level
         self._catalog = other.catalog
         self._progress = other._progress
+        self.context_inherited = True
 
     @property
     def in_xact(self) -> bool:
