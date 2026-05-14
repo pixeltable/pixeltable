@@ -22,7 +22,7 @@ def ls(req: LsRequest) -> LsResponse:
     if req.tree:
         return LsResponse(entries=[], tree={'path': req.path, 'entries': nodes})
 
-    entries = [_to_entry(n) for n in nodes]
+    entries = [_to_entry(n, details=req.details) for n in nodes]
     if req.counts:
         _fill_counts(entries)
     return LsResponse(entries=entries)
@@ -42,18 +42,18 @@ def _descend(tree: list[Any], path: str) -> list[Any]:
     return cur
 
 
-def _to_entry(node: Any) -> LsEntry:
+def _to_entry(node: Any, details: bool) -> LsEntry:
     # pxt kinds: 'directory' | 'table' | 'view' | 'snapshot' | 'replica' (see pixeltable.types.TableKind)
     kind = 'dir' if node['kind'] == 'directory' else node['kind']
     entry = LsEntry(path=node['path'], kind=kind)
     if kind != 'dir':
         entry.last_version = node.get('version')
-        tbl = pxt.get_table(node['path'])
-        md = tbl.get_metadata()
-        cols = md.get('columns') or {}
-        idxs = md.get('indices') or {}
-        entry.num_cols = len(cols)
-        entry.flags = ('c' if any(c.get('is_computed') for c in cols.values()) else '') + ('i' if idxs else '')
+        if details:
+            md = pxt.get_table(node['path']).get_metadata()
+            cols = md.get('columns') or {}
+            idxs = md.get('indices') or {}
+            entry.num_cols = len(cols)
+            entry.flags = ('c' if any(c.get('is_computed') for c in cols.values()) else '') + ('i' if idxs else '')
     return entry
 
 

@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 import pixeltable as pxt
 from pcli.models import IdxEntry, IdxsRequest, IdxsResponse
+from pixeltable import exceptions as excs
 
 from .columns import _all_tables
 
@@ -17,7 +18,8 @@ def idxs(req: IdxsRequest) -> IdxsResponse:
     for path in paths:
         try:
             md = pxt.get_table(path).get_metadata()
-        except Exception:
+        except excs.Error:
+            # skip tables whose metadata can't be loaded; other exceptions propagate as 500s
             continue
         for name, idx in md['indices'].items():
             if req.embedding_only and idx['index_type'] != 'embedding':

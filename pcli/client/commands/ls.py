@@ -29,7 +29,8 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    resp = post('/pcli/v0/ls', {'path': args.path, 'tree': args.tree, 'counts': args.counts})
+    details = args.long or args.as_json  # plain text ls is path+kind only, skip metadata fetch
+    resp = post('/pcli/v0/ls', {'path': args.path, 'tree': args.tree, 'details': details, 'counts': args.counts})
 
     if args.as_json:
         print(json.dumps(resp, indent=2))

@@ -22,6 +22,7 @@ class LsEntry(BaseModel):
 class LsRequest(BaseModel):
     path: str = '/'
     tree: bool = False
+    details: bool = False  # populate num_cols/flags (one get_metadata() per entry)
     counts: bool = False  # opt-in: row counts run queries, so off by default
 
 

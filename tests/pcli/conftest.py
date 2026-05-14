@@ -43,7 +43,7 @@ def pcli_daemon(init_env: None) -> Iterator[int]:
     port = _pick_port()
     env = {**os.environ, 'PCLI_PORT': str(port)}
     log_path = Path(tempfile.mkdtemp(prefix='pcli-test-')) / 'daemon.log'
-    env_for_probe = os.environ.copy()
+    prior_port = os.environ.get('PCLI_PORT')
     with open(log_path, 'w', encoding='utf-8') as log:
         proc = subprocess.Popen(
             [sys.executable, '-m', 'pcli.server.daemon'], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL
@@ -65,8 +65,10 @@ def pcli_daemon(init_env: None) -> Iterator[int]:
             raise RuntimeError(f'daemon did not come up within 15s; log tail:\n{tail}')
         yield port
     finally:
-        os.environ.clear()
-        os.environ.update(env_for_probe)
+        if prior_port is None:
+            os.environ.pop('PCLI_PORT', None)
+        else:
+            os.environ['PCLI_PORT'] = prior_port
         proc.terminate()
         try:
             proc.wait(timeout=5)
