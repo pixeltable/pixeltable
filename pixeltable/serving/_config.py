@@ -68,9 +68,9 @@ def lookup_service_config(name: str) -> config.ServiceConfig:
     return _lookup_config('service', name, config.ServiceConfig, excs.ErrorCode.SERVICE_NOT_FOUND)
 
 
-def lookup_environment_config(name: str) -> config.EnvironmentConfig:
-    """Lookup an EnvironmentConfig by name from the Pixeltable configuration."""
-    return _lookup_config('environment', name, config.EnvironmentConfig, excs.ErrorCode.ENVIRONMENT_NOT_FOUND)
+def lookup_deployment_config(name: str) -> config.DeploymentConfig:
+    """Lookup a DeploymentConfig by name from the Pixeltable configuration."""
+    return _lookup_config('deployment', name, config.DeploymentConfig, excs.ErrorCode.DEPLOYMENT_NOT_FOUND)
 
 
 def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':

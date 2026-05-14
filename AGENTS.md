@@ -1,3 +1,5 @@
+> **Audience: Pixeltable contributors.** If you're building an *application* with Pixeltable, use the [Agent Skill](https://github.com/pixeltable/pixeltable-skill) instead (`npx skills add pixeltable/pixeltable-skill`).
+
 # AGENTS.md
 
 Instructions for AI coding agents working with the Pixeltable codebase.
