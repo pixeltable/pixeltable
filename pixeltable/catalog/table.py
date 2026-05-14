@@ -799,7 +799,7 @@ class Table(SchemaObject):
         stored: bool | None = None,
         destination: str | Path | None = None,
         custom_metadata: Any = None,
-        comment: str = "",
+        comment: str = '',
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
