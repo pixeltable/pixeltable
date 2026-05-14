@@ -19,6 +19,7 @@ def _coerce(s: str) -> object:
     except json.JSONDecodeError:
         return s
 
+
 EPILOG = """\
 Examples:
   pcli get my_dir.my_table 42                    # single-column PK, int value

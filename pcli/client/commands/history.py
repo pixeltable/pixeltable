@@ -26,6 +26,18 @@ def run(argv: list[str]) -> None:
 
     print('version\tcreated_at\tchange_type\tinserts\tupdates\tdeletes\terrors\tschema_change')
     for v in versions:
-        print('\t'.join(str(v.get(k) if v.get(k) is not None else '')
-                        for k in ('version', 'created_at', 'change_type',
-                                  'inserts', 'updates', 'deletes', 'errors', 'schema_change')))
+        print(
+            '\t'.join(
+                str(v.get(k) if v.get(k) is not None else '')
+                for k in (
+                    'version',
+                    'created_at',
+                    'change_type',
+                    'inserts',
+                    'updates',
+                    'deletes',
+                    'errors',
+                    'schema_change',
+                )
+            )
+        )

@@ -39,6 +39,7 @@ def _redact_db_url(url: str | None) -> str | None:
 def status(sizes: bool = False) -> StatusResponse:
     """Status snapshot. Pass `?sizes=1` to include media/file_cache disk usage (scans the directories)."""
     from pixeltable.dashboard import bridge
+
     s = bridge.get_status()
     cfg = s.get('config') or {}
     media_dir = cfg.get('media_dir')

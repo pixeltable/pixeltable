@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
 import pixeltable as pxt
-
 from pcli.models import ErrorEntry, ErrorsRequest, ErrorsResponse
 
 router = APIRouter()
@@ -14,21 +13,18 @@ def errors(req: ErrorsRequest) -> ErrorsResponse:
 
     pk_names = md.get('primary_key')
     if not pk_names:
-        raise HTTPException(400, f"{req.path}: no primary key declared; pcli errors requires one")
+        raise HTTPException(400, f'{req.path}: no primary key declared; pcli errors requires one')
 
-    computed = [
-        name for name, c in md['columns'].items()
-        if c['is_computed'] and (req.col is None or name == req.col)
-    ]
+    computed = [name for name, c in md['columns'].items() if c['is_computed'] and (req.col is None or name == req.col)]
     if not computed:
         return ErrorsResponse(entries=[])
 
     where = None
     for col in computed:
-        cond = (t[col].errortype != None)  # noqa: E711 — pxt's `!=` returns an Expr
+        cond = t[col].errortype != None  # pxt overrides `!=` to return an Expr
         where = cond if where is None else where | cond
 
-    select_args = [t[c] for c in pk_names]
+    select_args: list = [t[c] for c in pk_names]
     for col in computed:
         select_args += [t[col].errortype, t[col].errormsg]
     rows = t.where(where).select(*select_args).collect()

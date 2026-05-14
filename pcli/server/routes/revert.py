@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
 import pixeltable as pxt
-
 from pcli.models import RevertRequest, RevertResponse
 
 router = APIRouter()

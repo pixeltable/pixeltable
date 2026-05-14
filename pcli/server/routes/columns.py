@@ -1,7 +1,8 @@
+from typing import Any
+
 from fastapi import APIRouter
 
 import pixeltable as pxt
-
 from pcli.models import ColumnEntry, ColumnsRequest, ColumnsResponse
 
 router = APIRouter()
@@ -20,21 +21,23 @@ def columns(req: ColumnsRequest) -> ColumnsResponse:
         for name, c in md['columns'].items():
             if req.computed_only and not c['is_computed']:
                 continue
-            entries.append(ColumnEntry(
-                table=path,
-                column=name,
-                is_computed=c['is_computed'],
-                type_=c['type_'],
-                computed_with=c['computed_with'],
-                depends_on=c['depends_on'],
-            ))
+            entries.append(
+                ColumnEntry(
+                    table=path,
+                    column=name,
+                    is_computed=c['is_computed'],
+                    type_=c['type_'],
+                    computed_with=c['computed_with'],
+                    depends_on=c['depends_on'],
+                )
+            )
     return ColumnsResponse(entries=entries)
 
 
 def _all_tables() -> list[str]:
     paths: list[str] = []
 
-    def walk(nodes: list[dict]) -> None:
+    def walk(nodes: list[Any]) -> None:
         for n in nodes:
             if n['kind'] == 'directory':
                 walk(n['entries'])

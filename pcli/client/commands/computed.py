@@ -27,4 +27,4 @@ def run(argv: list[str]) -> None:
 
     for e in entries:
         expr = e.get('computed_with') or ''
-        print(f"{e['table']}\t{e['column']}\t{e['type_']}\t{expr}")
+        print(f'{e["table"]}\t{e["column"]}\t{e["type_"]}\t{expr}')

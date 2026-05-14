@@ -14,8 +14,7 @@ Examples:
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pcli idxs', epilog=EPILOG)
     ap.add_argument('path', nargs='?', default=None, help='if omitted: every index in the catalog')
-    ap.add_argument('--embedding', action='store_true', dest='embedding_only',
-                    help='restrict to embedding indexes')
+    ap.add_argument('--embedding', action='store_true', dest='embedding_only', help='restrict to embedding indexes')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
@@ -30,5 +29,5 @@ def run(argv: list[str]) -> None:
         cols = ','.join(e['columns'])
         extra = ''
         if e['index_type'] == 'embedding':
-            extra = f"\t{e.get('metric') or ''}\t{e.get('embedding') or ''}"
-        print(f"{e['table']}\t{e['name']}\t{e['index_type']}\t{cols}{extra}")
+            extra = f'\t{e.get("metric") or ""}\t{e.get("embedding") or ""}'
+        print(f'{e["table"]}\t{e["name"]}\t{e["index_type"]}\t{cols}{extra}')
