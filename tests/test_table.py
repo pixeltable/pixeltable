@@ -3921,6 +3921,13 @@ class TestTable:
         t = pxt.get_table('tbl')
         assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
 
+        # add_computed_column with custom_metadata
+        t.add_computed_column(c2=(t.c + 1), custom_metadata=custom_metadata)
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c2']['custom_metadata'] == custom_metadata
+
         # check that invalid JSON user metadata are rejected for columns
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
@@ -3935,6 +3942,14 @@ class TestTable:
         t = pxt.get_table('tbl')
         assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
 
+        # add_computed_column with comment
+        t.add_computed_column(c2=t.c + 1, comment='This is a computed column.')
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c2']['comment'] == 'This is a computed column.'
+
         # check that raw object JSON comments are rejected for columns
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'comment' must be a string"):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[dict-item]
+

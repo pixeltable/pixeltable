@@ -798,6 +798,8 @@ class Table(SchemaObject):
         *,
         stored: bool | None = None,
         destination: str | Path | None = None,
+        custom_metadata: Any = None,
+        comment: str = "",
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
@@ -810,6 +812,9 @@ class Table(SchemaObject):
             kwargs: Exactly one keyword argument of the form `col_name=expression`.
             stored: Whether the column is materialized and stored or computed on demand.
             destination: An object store reference for persisting computed files.
+            custom_metadata: Optional user-defined metadata to associate with the column. Must be a valid
+                JSON-serializable object.
+            comment: An optional comment; its meaning is user-defined.
             print_stats: If `True`, print execution metrics during evaluation.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.
@@ -865,6 +870,8 @@ class Table(SchemaObject):
                 col_schema['stored'] = stored
 
             col_schema['destination'] = destination
+            col_schema['custom_metadata'] = custom_metadata
+            col_schema['comment'] = comment
 
             # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
