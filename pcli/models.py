@@ -12,7 +12,7 @@ class HealthResponse(BaseModel):
 
 class LsEntry(BaseModel):
     path: str
-    kind: Literal['table', 'view', 'dir']
+    kind: Literal['table', 'view', 'snapshot', 'replica', 'dir']
     num_rows: int | None = None
     num_cols: int | None = None
     last_version: int | None = None

@@ -13,9 +13,10 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -33,7 +34,7 @@ class PcliResult:
     stderr: str
 
     @property
-    def json(self) -> object:
+    def json(self) -> Any:
         return json.loads(self.stdout)
 
 
@@ -42,14 +43,14 @@ def pcli_daemon(init_env: None) -> Iterator[int]:
     port = _pick_port()
     env = {**os.environ, 'PCLI_PORT': str(port)}
     log_path = Path(tempfile.mkdtemp(prefix='pcli-test-')) / 'daemon.log'
-    with open(log_path, 'w') as log:
+    env_for_probe = os.environ.copy()
+    with open(log_path, 'w', encoding='utf-8') as log:
         proc = subprocess.Popen(
             [sys.executable, '-m', 'pcli.server.daemon'], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL
         )
     try:
         from pcli.probe import is_running
 
-        env_for_probe = os.environ.copy()
         os.environ['PCLI_PORT'] = str(port)
         deadline = time.time() + 15
         while time.time() < deadline:
@@ -73,11 +74,14 @@ def pcli_daemon(init_env: None) -> Iterator[int]:
             proc.kill()
 
 
+PcliRunner = Callable[..., PcliResult]
+
+
 @pytest.fixture
-def pcli(pcli_daemon: int, uses_db: None):
+def pcli(pcli_daemon: int, uses_db: None) -> PcliRunner:
     def _run(*args: str, check: bool = True) -> PcliResult:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
-        r = subprocess.run(['pcli', *args], capture_output=True, text=True, env=env)
+        r = subprocess.run(['pcli', *args], capture_output=True, text=True, env=env, check=False)
         if check and r.returncode != 0:
             raise AssertionError(f'pcli {args} failed (rc={r.returncode}): {r.stderr}')
         return PcliResult(r.returncode, r.stdout, r.stderr)
