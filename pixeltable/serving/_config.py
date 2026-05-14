@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-def _resolve_dotted_path(dotted: str) -> Any:
+def _resolve_module_attr(dotted: str) -> Any:
     """Import a module and resolve an attribute by dotted path.
 
     For example, 'myapp.queries.search_docs' imports myapp.queries and returns its search_docs attribute.
@@ -112,7 +112,7 @@ def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
             t = pxt.get_table(route.table)
             router.add_delete_route(t, path=route.path, match_columns=route.match_columns, background=route.background)
         elif isinstance(route, config.QueryRouteConfig):
-            query_fn = _resolve_dotted_path(route.query)
+            query_fn = _resolve_module_attr(route.query)
             if not isinstance(query_fn, func.QueryTemplateFunction):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
