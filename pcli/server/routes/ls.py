@@ -32,12 +32,17 @@ def _descend(tree: list[dict], path: str) -> list[dict]:
 
 
 def _to_entry(node: dict, req: LsRequest) -> LsEntry:
-    kind = 'dir' if node['kind'] == 'directory' else ('view' if node['kind'] == 'view' else 'table')
-    entry = LsEntry(path=node['path'], kind=kind)  # type: ignore[arg-type]
+    # pxt kinds: 'directory' | 'table' | 'view' | 'snapshot' | 'replica' (see pixeltable.types.TableKind)
+    kind = 'dir' if node['kind'] == 'directory' else node['kind']
+    entry = LsEntry(path=node['path'], kind=kind)
     if kind != 'dir':
         entry.last_version = node.get('version')
-        entry.num_cols = node.get('num_cols')
-        entry.flags = ('c' if node.get('has_computed_cols') else '') + ('i' if node.get('has_indexes') else '')
+        tbl = pxt.get_table(node['path'])
+        md = tbl.get_metadata()
+        cols = md.get('columns') or {}
+        idxs = md.get('indices') or {}
+        entry.num_cols = len(cols)
+        entry.flags = ('c' if any(c.get('is_computed') for c in cols.values()) else '') + ('i' if idxs else '')
         if req.counts:
-            entry.num_rows = pxt.get_table(node['path']).count()
+            entry.num_rows = tbl.count()
     return entry

@@ -73,7 +73,7 @@ def wait_for_health(timeout: float = 15.0) -> None:
     tail = _tail_daemon_log()
     msg = f'pcli daemon did not come up within {timeout}s'
     if tail:
-        msg += f'\n--- tail of {_DAEMON_LOG_PATH} ---\n{tail}'
+        msg += f'\n--- daemon log tail ---\n{tail}'
     raise RuntimeError(msg)
 
 

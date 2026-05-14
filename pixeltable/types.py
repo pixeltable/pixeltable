@@ -32,12 +32,6 @@ class TableNode(TypedDict):
     """Cumulative error count as recorded in table's history."""
     base: str | None
     """Path of the immediate base table for views/snapshots; None for plain tables."""
-    num_cols: int
-    """Number of currently-visible columns."""
-    has_computed_cols: bool
-    """True if at least one currently-visible column is computed."""
-    has_indexes: bool
-    """True if at least one currently-visible index is defined."""
 
 
 TreeNode = Union[DirectoryNode, TableNode]
