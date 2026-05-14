@@ -121,9 +121,10 @@ def export_iceberg(
 
     if existing_tbl is not None and if_exists == 'append':
         target_schema = existing_tbl.schema().as_arrow()
+
+        # Cast a zero-row slice to the target schema: pyarrow validates field names match
+        # exactly and that source types can be promoted to target types (e.g. string -> large_string).
         try:
-            # Cast a zero-row slice to the target schema: pyarrow validates field names match
-            # exactly and that source types can be promoted to target types (e.g. string -> large_string).
             sample = (
                 first_batch.slice(0, 0)
                 if first_batch is not None
@@ -137,6 +138,8 @@ def export_iceberg(
                 f'Source schema:\n{arrow_schema}\n'
                 f'Target schema:\n{target_schema}',
             ) from e
+
+        # Stream batches and convert non-Pixeltable errors to user-facing error
         try:
             with existing_tbl.transaction() as tx:
                 for batch in batches:
