@@ -3,6 +3,10 @@ import platform
 
 import sqlalchemy as sql
 
+# Note: this applies mostly to database bootstrap sessions. Most user-facing operations go through Runtime which
+# overrides this isolation level. Keeping SERIALIZABLE as a safe default.
+_DEFAULT_ISOLATION_LEVEL = 'SERIALIZABLE'
+
 
 class Dbms(abc.ABC):
     """
@@ -41,7 +45,7 @@ class PostgresqlDbms(Dbms):
     """
 
     def __init__(self, db_url: sql.URL):
-        super().__init__('postgresql', 'SERIALIZABLE', 'brin', db_url)
+        super().__init__('postgresql', _DEFAULT_ISOLATION_LEVEL, 'brin', db_url)
 
     def drop_db_stmt(self, database: str) -> str:
         return f'DROP DATABASE {database}'
@@ -79,7 +83,7 @@ class CockroachDbms(Dbms):
     """
 
     def __init__(self, db_url: sql.URL):
-        super().__init__('cockroachdb', 'SERIALIZABLE', 'btree', db_url)
+        super().__init__('cockroachdb', _DEFAULT_ISOLATION_LEVEL, 'btree', db_url)
 
     def drop_db_stmt(self, database: str) -> str:
         return f'DROP DATABASE {database} CASCADE'
