@@ -19,6 +19,8 @@ def idxs(req: IdxsRequest) -> IdxsResponse:
         except Exception:
             continue
         for name, idx in md['indices'].items():
+            if req.embedding_only and idx['index_type'] != 'embedding':
+                continue
             params = idx.get('parameters') or {}
             entries.append(IdxEntry(
                 table=path,

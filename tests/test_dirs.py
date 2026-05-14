@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from typing import Any
+
 import pytest
 
 import pixeltable as pxt
@@ -10,6 +13,14 @@ def _fail_on_neg(x: int) -> int:
     if x < 0:
         raise ValueError('negative')
     return x
+
+
+def _iter_table_nodes(tree: list[Any]) -> Iterator[dict]:
+    for node in tree:
+        if node['kind'] == 'directory':
+            yield from _iter_table_nodes(node['entries'])
+        else:
+            yield node
 
 
 class TestDirs:
@@ -82,6 +93,15 @@ class TestDirs:
 
         subsub1 = {'name': 'subsub1', 'path': 'dir1/sub1/subsub1', 'kind': 'directory', 'entries': []}
         sub1 = {'name': 'sub1', 'path': 'dir1/sub1', 'kind': 'directory', 'entries': [subsub1]}
+        tree = pxt.get_dir_tree()
+        # check the per-table metadata fields from the actual tree, then strip them
+        # and compare the rest against the expected shape
+        for node in _iter_table_nodes(tree):
+            assert isinstance(node['num_cols'], int) and node['num_cols'] >= 0
+            assert isinstance(node['has_computed_cols'], bool)
+            assert isinstance(node['has_indexes'], bool)
+            del node['num_cols'], node['has_computed_cols'], node['has_indexes']
+
         t1 = {'name': 't1', 'path': 'dir1/t1', 'kind': 'table', 'version': 0, 'error_count': 0, 'base': None}
         v = {'name': 'v', 'path': 'dir1/v', 'kind': 'view', 'version': 0, 'error_count': 0, 'base': 'dir1/t1'}
         snap = {
@@ -94,7 +114,7 @@ class TestDirs:
         }
         dir1 = {'name': 'dir1', 'path': 'dir1', 'kind': 'directory', 'entries': [snap, sub1, t1, v]}
         t2 = {'name': 't2', 'path': 't2', 'kind': 'table', 'version': 0, 'error_count': 0, 'base': None}
-        assert pxt.get_dir_tree() == [dir1, t2]
+        assert tree == [dir1, t2]
 
     def test_get_dir_tree_error_count(self, uses_db: None) -> None:
         t = pxt.create_table('errs', {'x': pxt.Int})

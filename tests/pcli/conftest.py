@@ -11,9 +11,11 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -39,12 +41,14 @@ class PcliResult:
 def pcli_daemon(init_env: None) -> Iterator[int]:
     port = _pick_port()
     env = {**os.environ, 'PCLI_PORT': str(port)}
-    proc = subprocess.Popen(
-        [sys.executable, '-m', 'pcli.server.daemon'],
-        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
-    )
+    log_path = Path(tempfile.mkdtemp(prefix='pcli-test-')) / 'daemon.log'
+    with open(log_path, 'w') as log:
+        proc = subprocess.Popen(
+            [sys.executable, '-m', 'pcli.server.daemon'], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL
+        )
     try:
         from pcli.probe import is_running
+
         env_for_probe = os.environ.copy()
         os.environ['PCLI_PORT'] = str(port)
         deadline = time.time() + 15
@@ -52,11 +56,12 @@ def pcli_daemon(init_env: None) -> Iterator[int]:
             if is_running():
                 break
             if proc.poll() is not None:
-                _, err = proc.communicate(timeout=1)
-                raise RuntimeError(f'daemon exited early: {err.decode(errors="replace")[:500]}')
+                tail = log_path.read_text(errors='replace')[-500:]
+                raise RuntimeError(f'daemon exited early: {tail}')
             time.sleep(0.1)
         else:
-            raise RuntimeError('daemon did not come up within 15s')
+            tail = log_path.read_text(errors='replace')[-500:]
+            raise RuntimeError(f'daemon did not come up within 15s; log tail:\n{tail}')
         yield port
     finally:
         os.environ.clear()
@@ -76,4 +81,5 @@ def pcli(pcli_daemon: int, uses_db: None):
         if check and r.returncode != 0:
             raise AssertionError(f'pcli {args} failed (rc={r.returncode}): {r.stderr}')
         return PcliResult(r.returncode, r.stdout, r.stderr)
+
     return _run
