@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 
 import pixeltable as pxt
-
 from pcli.models import DropRequest, DropResponse
 
 router = APIRouter()

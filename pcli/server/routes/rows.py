@@ -3,7 +3,6 @@ from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
 
 import pixeltable as pxt
-
 from pcli.models import RowsRequest, RowsResponse
 
 router = APIRouter()

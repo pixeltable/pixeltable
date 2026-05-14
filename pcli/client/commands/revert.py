@@ -39,4 +39,4 @@ def run(argv: list[str]) -> None:
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:
-        print(f"reverted {resp['path']}: v{resp['from_version']} -> v{resp['to_version']}")
+        print(f'reverted {resp["path"]}: v{resp["from_version"]} -> v{resp["to_version"]}')

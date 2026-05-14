@@ -35,57 +35,75 @@ def main() -> None:
     cmd, argv = sys.argv[1], sys.argv[2:]
     if cmd == 'health':
         from .commands import health
+
         health.run(argv)
     elif cmd == 'ls':
         from .commands import ls
+
         ls.run(argv)
     elif cmd == 'describe':
         from .commands import describe
+
         describe.run(argv)
     elif cmd == 'errors':
         from .commands import errors
+
         errors.run(argv)
     elif cmd == 'history':
         from .commands import history
+
         history.run(argv)
     elif cmd == 'columns':
         from .commands import columns
+
         columns.run(argv)
     elif cmd == 'idxs':
         from .commands import idxs
+
         idxs.run(argv)
     elif cmd == 'rows':
         from .commands import rows
+
         rows.run(argv)
     elif cmd == 'get':
         from .commands import get
+
         get.run(argv)
     elif cmd == 'count':
         from .commands import count
+
         count.run(argv)
     elif cmd == 'status':
         from .commands import status
+
         status.run(argv)
     elif cmd == 'env':
         from .commands import env
+
         env.run(argv)
     elif cmd == 'computed':
         from .commands import computed
+
         computed.run(argv)
     elif cmd == 'drop':
         from .commands import drop
+
         drop.run(argv)
     elif cmd == 'rm':
         from .commands import rm
+
         rm.run(argv)
     elif cmd == 'rename':
         from .commands import rename
+
         rename.run(argv)
     elif cmd == 'mv':
         from .commands import mv
+
         mv.run(argv)
     elif cmd == 'revert':
         from .commands import revert
+
         revert.run(argv)
     else:
         print(f'pcli: unknown command: {cmd}', file=sys.stderr)

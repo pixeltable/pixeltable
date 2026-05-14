@@ -74,6 +74,11 @@ dependencies = [
     "pathspec>=0.10.2",
 ]
 
+[project.optional-dependencies]
+# Runtime deps for the `pcli` daemon. The pcli client itself is stdlib-only, but
+# `pcli` commands auto-spawn the daemon which needs fastapi + uvicorn.
+cli = ["fastapi[standard]>=0.120.0"]
+
 [project.urls]
 homepage = "https://pixeltable.com/"
 repository = "https://github.com/pixeltable/pixeltable"

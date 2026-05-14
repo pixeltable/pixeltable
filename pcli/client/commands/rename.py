@@ -36,4 +36,4 @@ def run(argv: list[str]) -> None:
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:
-        print(f"renamed {resp['path']} -> {resp['new_path']}")
+        print(f'renamed {resp["path"]} -> {resp["new_path"]}')

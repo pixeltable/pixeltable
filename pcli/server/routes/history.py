@@ -2,7 +2,6 @@ from fastapi import APIRouter
 from fastapi.encoders import jsonable_encoder
 
 import pixeltable as pxt
-
 from pcli.models import HistoryRequest, HistoryResponse
 
 router = APIRouter()

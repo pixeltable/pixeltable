@@ -4,6 +4,13 @@ from ..http import post
 from ..parser import Parser
 
 EPILOG = """\
+Columns under -l:
+  rows      number of rows (only with --counts)
+  cols      number of currently-visible user columns
+  version   last committed version number
+  flags     'c' = has at least one computed column
+            'i' = has at least one index
+
 Examples:
   pcli ls
   pcli ls some_dir
@@ -32,15 +39,41 @@ def run(argv: list[str]) -> None:
         _print_tree(resp['tree'])
         return
 
+    headers = ['path', 'kind']
+    right_align = set()
+    if args.counts:
+        headers.append('rows')
+        right_align.add(len(headers) - 1)
+    if args.long:
+        headers.extend(['cols', 'version', 'flags'])
+        right_align.update({len(headers) - 3, len(headers) - 2})
+
+    rows: list[list[str]] = []
     for e in resp['entries']:
-        cols = [e['path'], e['kind']]
-        if args.counts and e.get('num_rows') is not None:
-            cols.append(str(e['num_rows']))
+        row = [e['path'], e['kind']]
+        if args.counts:
+            row.append('' if e.get('num_rows') is None else str(e['num_rows']))
         if args.long:
-            cols.append('' if e.get('num_cols') is None else str(e['num_cols']))
-            cols.append('' if e.get('last_version') is None else str(e['last_version']))
-            cols.append(e.get('flags') or '-')
-        print('\t'.join(cols))
+            row.append('' if e.get('num_cols') is None else str(e['num_cols']))
+            row.append('' if e.get('last_version') is None else str(e['last_version']))
+            row.append(e.get('flags') or '-')
+        rows.append(row)
+
+    _print_aligned(headers, rows, right_align)
+
+
+def _print_aligned(headers: list[str], rows: list[list[str]], right_align: set[int]) -> None:
+    if not rows:
+        return
+    widths = [max(len(c) for c in col) for col in zip(headers, *rows)]
+
+    def fmt(r: list[str]) -> str:
+        cells = [c.rjust(w) if i in right_align else c.ljust(w) for i, (c, w) in enumerate(zip(r, widths))]
+        return '  '.join(cells).rstrip()
+
+    print(fmt(headers))
+    for r in rows:
+        print(fmt(r))
 
 
 def _print_tree(node: dict, prefix: str = '') -> None:
@@ -48,6 +81,6 @@ def _print_tree(node: dict, prefix: str = '') -> None:
     for i, child in enumerate(entries):
         last = i == len(entries) - 1
         bar = '└── ' if last else '├── '
-        print(f"{prefix}{bar}{child['name']}\t{child['kind']}")
+        print(f'{prefix}{bar}{child["name"]}  {child["kind"]}')
         if child['kind'] == 'directory':
             _print_tree({'entries': child.get('entries', [])}, prefix + ('    ' if last else '│   '))

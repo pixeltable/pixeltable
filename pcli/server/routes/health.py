@@ -4,7 +4,6 @@ import os
 from fastapi import APIRouter
 
 import pixeltable
-
 from pcli.models import HealthResponse
 
 router = APIRouter()

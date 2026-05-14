@@ -1,7 +1,8 @@
+from typing import Any
+
 from fastapi import APIRouter
 
 import pixeltable as pxt
-
 from pcli.models import IdxEntry, IdxsRequest, IdxsResponse
 
 from .columns import _all_tables
@@ -21,13 +22,15 @@ def idxs(req: IdxsRequest) -> IdxsResponse:
         for name, idx in md['indices'].items():
             if req.embedding_only and idx['index_type'] != 'embedding':
                 continue
-            params = idx.get('parameters') or {}
-            entries.append(IdxEntry(
-                table=path,
-                name=name,
-                columns=idx['columns'],
-                index_type=idx['index_type'],
-                metric=params.get('metric'),
-                embedding=params.get('embedding'),
-            ))
+            params: Any = idx.get('parameters') or {}
+            entries.append(
+                IdxEntry(
+                    table=path,
+                    name=name,
+                    columns=idx['columns'],
+                    index_type=idx['index_type'],
+                    metric=params.get('metric'),
+                    embedding=params.get('embedding'),
+                )
+            )
     return IdxsResponse(entries=entries)

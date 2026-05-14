@@ -27,4 +27,4 @@ def run(argv: list[str]) -> None:
 
     for e in resp['entries']:
         pk = '{' + ', '.join(f'{k}: {v!r}' for k, v in e['pk'].items()) + '}'
-        print(f"{pk}\t{e['column']}\t{e['errortype']}\t{e['errormsg'] or ''}")
+        print(f'{pk}\t{e["column"]}\t{e["errortype"]}\t{e["errormsg"] or ""}')

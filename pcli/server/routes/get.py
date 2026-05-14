@@ -3,7 +3,6 @@ from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
 
 import pixeltable as pxt
-
 from pcli.models import GetRequest, GetResponse
 
 router = APIRouter()
@@ -21,13 +20,15 @@ def get(req: GetRequest) -> GetResponse:
 
     where = None
     for name, val in zip(pk_names, req.pk):
-        cond = (t[name] == val)
+        cond = t[name] == val
         where = cond if where is None else where & cond
     result = t.where(where).limit(2).collect()
     if len(result) == 0:
         return GetResponse(pk_columns=pk_names, row=None)
     if len(result) > 1:
-        raise HTTPException(500, f'{req.path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?')
+        raise HTTPException(
+            500, f'{req.path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?'
+        )
 
     r = result[0]
     columns = list(md['columns'].keys())

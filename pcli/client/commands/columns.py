@@ -28,4 +28,4 @@ def run(argv: list[str]) -> None:
     for e in entries:
         flag = 'computed' if e['is_computed'] else 'stored'
         expr = e.get('computed_with') or ''
-        print(f"{e['table']}\t{e['column']}\t{e['type_']}\t{flag}\t{expr}")
+        print(f'{e["table"]}\t{e["column"]}\t{e["type_"]}\t{flag}\t{expr}')

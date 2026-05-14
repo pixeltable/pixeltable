@@ -36,4 +36,4 @@ def run(argv: list[str]) -> None:
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:
-        print(f"removed {resp['path']}")
+        print(f'removed {resp["path"]}')

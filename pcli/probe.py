@@ -1,6 +1,7 @@
 """Stdlib-only so the client can import without pulling in pxt or pydantic."""
 
 import importlib.metadata
+import importlib.util
 import json
 import os
 import signal
@@ -12,6 +13,7 @@ import urllib.request
 
 DEFAULT_PORT = 22089
 _DAEMON_LOG_PATH = os.path.expanduser('~/.pixeltable/logs/pcli-daemon.log')
+_IS_WINDOWS = os.name == 'nt'
 
 
 def get_port() -> int:
@@ -46,18 +48,32 @@ def _client_pxt_version() -> str | None:
         return None
 
 
+def _check_daemon_deps() -> None:
+    """Fail fast if the optional `cli` deps aren't installed."""
+    missing = [m for m in ('fastapi', 'uvicorn') if importlib.util.find_spec(m) is None]
+    if missing:
+        raise RuntimeError(f'pcli daemon requires {", ".join(missing)} (install with: pip install pixeltable[cli])')
+
+
 def spawn_detached() -> None:
+    _check_daemon_deps()
     os.makedirs(os.path.dirname(_DAEMON_LOG_PATH), exist_ok=True)
-    with open(_DAEMON_LOG_PATH, 'a') as log:
-        subprocess.Popen(
-            [sys.executable, '-m', 'pcli.server.daemon'],
-            start_new_session=True, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+    # POSIX: setsid() detaches from the controlling terminal; Windows: a new process
+    # group + DETACHED_PROCESS gives the same "survive the parent shell" property.
+    popen_kwargs: dict = {'stdin': subprocess.DEVNULL}
+    if _IS_WINDOWS:
+        popen_kwargs['creationflags'] = (
+            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
         )
+    else:
+        popen_kwargs['start_new_session'] = True
+    with open(_DAEMON_LOG_PATH, 'a', encoding='utf-8') as log:
+        subprocess.Popen([sys.executable, '-m', 'pcli.server.daemon'], stdout=log, stderr=log, **popen_kwargs)
 
 
 def _tail_daemon_log(n_lines: int = 10) -> str:
     try:
-        with open(_DAEMON_LOG_PATH) as f:
+        with open(_DAEMON_LOG_PATH, encoding='utf-8') as f:
             lines = f.readlines()
     except OSError:
         return ''
@@ -78,9 +94,12 @@ def wait_for_health(timeout: float = 15.0) -> None:
 
 
 def _kill_and_wait(pid: int, timeout: float = 5.0) -> None:
+    # Windows has no SIGKILL; os.kill(pid, SIGTERM) calls TerminateProcess, which is
+    # already a hard kill, so the fallback below is a no-op there.
+    sigkill = getattr(signal, 'SIGKILL', signal.SIGTERM)
     try:
         os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError, OSError):
         return
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -88,8 +107,8 @@ def _kill_and_wait(pid: int, timeout: float = 5.0) -> None:
             return
         time.sleep(0.1)
     try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
+        os.kill(pid, sigkill)
+    except (ProcessLookupError, PermissionError, OSError):
         pass
 
 
