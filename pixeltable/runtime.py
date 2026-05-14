@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 _thread_local = threading.local()
 
-SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
+_XACT_ISOLATION_LEVEL = 'READ COMMITTED'
 
 _T = TypeVar('_T')
 
@@ -129,7 +129,7 @@ class Runtime:
         Prefer Catalog.begin_xact() unless there is a specific reason to call this directly.
 
         Args:
-            for_write: if True, uses serializable isolation; if False, uses repeatable_read
+            for_write: unused (TODO use or remove)
 
         TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
         that avoids tripping over any pending ops
@@ -139,7 +139,7 @@ class Runtime:
         if not self.in_xact:
             assert self.session is None
             try:
-                self.isolation_level = SERIALIZABLE_ISOLATION_LEVEL
+                self.isolation_level = _XACT_ISOLATION_LEVEL
                 with (
                     Env.get().engine.connect().execution_options(isolation_level=self.isolation_level) as conn,
                     orm.Session(conn) as session,
@@ -154,7 +154,7 @@ class Runtime:
                 self.isolation_level = None
         else:
             assert self.session is not None
-            assert self.isolation_level == SERIALIZABLE_ISOLATION_LEVEL or not for_write
+            assert self.isolation_level == _XACT_ISOLATION_LEVEL or not for_write
             yield self.conn
 
     def start_progress(self, create_fn: Callable[[], Progress]) -> Progress:
