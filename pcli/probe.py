@@ -12,8 +12,13 @@ import urllib.error
 import urllib.request
 
 DEFAULT_PORT = 22089
-_DAEMON_LOG_PATH = os.path.expanduser('~/.pixeltable/logs/pcli-daemon.log')
 _IS_WINDOWS = os.name == 'nt'
+
+
+def _daemon_log_path() -> str:
+    """Resolve at call time so tests / users that set PIXELTABLE_HOME mid-run are honored."""
+    home = os.environ.get('PIXELTABLE_HOME') or os.path.expanduser('~/.pixeltable')
+    return os.path.join(home, 'logs', 'pcli-daemon.log')
 
 
 def get_port() -> int:
@@ -57,23 +62,27 @@ def _check_daemon_deps() -> None:
 
 def spawn_detached() -> None:
     _check_daemon_deps()
-    os.makedirs(os.path.dirname(_DAEMON_LOG_PATH), exist_ok=True)
-    # POSIX: setsid() detaches from the controlling terminal; Windows: a new process
-    # group + DETACHED_PROCESS gives the same "survive the parent shell" property.
-    popen_kwargs: dict = {'stdin': subprocess.DEVNULL}
-    if _IS_WINDOWS:
-        popen_kwargs['creationflags'] = (
-            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-        )
-    else:
-        popen_kwargs['start_new_session'] = True
-    with open(_DAEMON_LOG_PATH, 'a', encoding='utf-8') as log:
-        subprocess.Popen([sys.executable, '-m', 'pcli.server.daemon'], stdout=log, stderr=log, **popen_kwargs)
+    log_path = _daemon_log_path()
+    try:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        # POSIX: setsid() detaches from the controlling terminal; Windows: a new process
+        # group + DETACHED_PROCESS gives the same "survive the parent shell" property.
+        popen_kwargs: dict = {'stdin': subprocess.DEVNULL}
+        if _IS_WINDOWS:
+            popen_kwargs['creationflags'] = (
+                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            )
+        else:
+            popen_kwargs['start_new_session'] = True
+        with open(log_path, 'a', encoding='utf-8') as log:
+            subprocess.Popen([sys.executable, '-m', 'pcli.server.daemon'], stdout=log, stderr=log, **popen_kwargs)
+    except OSError as e:
+        raise RuntimeError(f'pcli daemon log unavailable: {e.strerror or e}') from None
 
 
 def _tail_daemon_log(n_lines: int = 10) -> str:
     try:
-        with open(_DAEMON_LOG_PATH, encoding='utf-8') as f:
+        with open(_daemon_log_path(), encoding='utf-8') as f:
             lines = f.readlines()
     except OSError:
         return ''

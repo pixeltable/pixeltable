@@ -16,7 +16,12 @@ from pcli.probe import ensure_running
 
 
 def _request(method: str, path: str, body: dict | None = None) -> Any:
-    url = f'{ensure_running()}{path}'
+    try:
+        base = ensure_running()
+    except RuntimeError as e:
+        print(f'pcli: {e}', file=sys.stderr)
+        sys.exit(1)
+    url = f'{base}{path}'
     headers = {'X-Cwd': os.getcwd()}
     data: bytes | None = None
     if body is not None:

@@ -11,11 +11,9 @@ import os
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -39,10 +37,10 @@ class PcliResult:
 
 
 @pytest.fixture(scope='session')
-def pcli_daemon(init_env: None) -> Iterator[int]:
+def pcli_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iterator[int]:
     port = _pick_port()
     env = {**os.environ, 'PCLI_PORT': str(port)}
-    log_path = Path(tempfile.mkdtemp(prefix='pcli-test-')) / 'daemon.log'
+    log_path = tmp_path_factory.mktemp('pcli-daemon') / 'daemon.log'
     prior_port = os.environ.get('PCLI_PORT')
     with open(log_path, 'w', encoding='utf-8') as log:
         proc = subprocess.Popen(
