@@ -104,7 +104,7 @@ def export_iceberg(
 
     arrow_schema = first_batch.schema if first_batch is not None else schema_arrow
 
-    # `pa.infer_type` produces `pa.null()` for JSON keys whose value is None in every sampled row.
+    # `pa.infer_type()` produces `pa.null()` for JSON keys whose value is None in every sampled row.
     # Iceberg format-version 2 cannot represent a null-only column, so reject it up front rather
     # than letting pyiceberg fail mid-write with a less actionable error.
     null_paths = find_null_fields(arrow_schema)
