@@ -104,6 +104,10 @@ class ExecNode(abc.ABC):
     def set_var_slots(self, rows: Iterable[exprs.DataRow]) -> None:
         """Populate Variable slots in rows with the bound values from self.bound_args."""
         for v in self.vars:
+            if v.slot_idx is None:
+                # parameter-only Variable (eg, the limit/offset on AggregationNode/FilterNode); not
+                # materialized per row, just needs to be in bind_sources for value coercion
+                continue
             val = self.bound_args[v._bind_name]
             for row in rows:
                 row[v.slot_idx] = val

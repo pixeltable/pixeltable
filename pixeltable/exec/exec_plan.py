@@ -113,14 +113,20 @@ class ExecPlan:
         """True if versions matches _compile_versions."""
         return all(versions.get(tbl_id) == version for tbl_id, version in self._compile_versions.items())
 
-    def __enter__(self) -> Self:
+    def _acquire(self) -> None:
+        """Set the in-use guard, raising if a previous iteration is still in progress."""
         if self._is_executing:
-            raise RuntimeError(
-                'ExecPlan is already executing; nested iteration on a cached plan is not supported'
-            )
+            raise RuntimeError('ExecPlan is already executing; nested iteration on a cached plan is not supported')
         self._is_executing = True
-        self.ctx.reset()
-        self.exec_root.__enter__()
+
+    def __enter__(self) -> Self:
+        try:
+            self.ctx.reset()
+            self.exec_root.__enter__()
+        except BaseException:
+            # an open-time failure must not leave the plan permanently flagged in-use
+            self._is_executing = False
+            raise
         return self
 
     def __exit__(
@@ -144,7 +150,15 @@ class ExecPlan:
         that drive the plan from an async context should use aexec() instead so concurrent
         iterations of the same cached plan don't interleave on shared ExecNode state.
         """
-        self._bind_params(args)
+        # acquire the in-use guard before binding so a concurrent re-entry can't overwrite our
+        # bound_args; bind before __enter__ so SqlNode._open()'s per-execute bindparam additions
+        # aren't wiped by bind_params resetting bound_args
+        self._acquire()
+        try:
+            self._bind_params(args)
+        except BaseException:
+            self._is_executing = False
+            raise
         with self:
             for batch in self.exec_root:
                 yield from batch
@@ -160,7 +174,12 @@ class ExecPlan:
         if self._iter_lock is None:
             self._iter_lock = asyncio.Lock()
         async with self._iter_lock:
-            self._bind_params(args)
+            self._acquire()
+            try:
+                self._bind_params(args)
+            except BaseException:
+                self._is_executing = False
+                raise
             with self:
                 async for batch in self.exec_root:
                     for row in batch:
