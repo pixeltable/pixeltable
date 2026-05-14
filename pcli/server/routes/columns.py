@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 import pixeltable as pxt
 from pcli.models import ColumnEntry, ColumnsRequest, ColumnsResponse
+from pixeltable import exceptions as excs
 
 router = APIRouter()
 
@@ -15,8 +16,8 @@ def columns(req: ColumnsRequest) -> ColumnsResponse:
     for path in paths:
         try:
             md = pxt.get_table(path).get_metadata()
-        except Exception:
-            # skip tables whose metadata can't be loaded; surfacing them would block the whole walk
+        except excs.Error:
+            # skip tables whose metadata can't be loaded; other exceptions propagate as 500s
             continue
         for name, c in md['columns'].items():
             if req.computed_only and not c['is_computed']:
