@@ -211,13 +211,26 @@ class TestConcurrentOps:
         validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
 
         @pxt.query
-        def find_above(threshold: int) -> pxt.Query:
-            return t.where(t.a >= threshold).select(t.a)
+        def find_range(lower: int, upper: int) -> pxt.Query:
+            return t.where((t.a >= lower) & (t.a <= upper)).select(t.a)
+
+        # driver with varying centers; each [center-5, center+5] stays inside [0, 49] and contains
+        # exactly 11 values so every per-row inner invocation has a deterministic length
+        driver = pxt.create_table('t15_driver', {'center': pxt.Required[pxt.Int]})
+        n_rows = 10
+        validate_update_status(
+            driver.insert([{'center': i % 40 + 5} for i in range(n_rows)]), expected_rows=n_rows
+        )
 
         def worker(_tid: int) -> None:
+            # pre-resolve both tables on this thread so they're catalog-warm before find_range's
+            # inner invocation tries to load t inside the outer xact
+            pxt.get_table('t15')
+            driver_w = pxt.get_table('t15_driver')
             for _ in range(self.ITERATIONS):
-                rows = find_above.template_query._collect(args={'threshold': 40})
-                assert len(rows) == 10
+                result = driver_w.select(rows=find_range(driver_w.center - 5, driver_w.center + 5)).collect()
+                assert len(result) == n_rows
+                assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
         assert errors == [], f'errors: {errors[:3]}'
