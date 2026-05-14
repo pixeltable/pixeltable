@@ -1,0 +1,6 @@
+[submodule "tools/pixeltable-skill"]
+	path = tools/pixeltable-skill
+	url = https://github.com/pixeltable/pixeltable-skill.git
+[submodule "tools/pixeltable-starter-kit"]
+	path = tools/pixeltable-starter-kit
+	url = https://github.com/pixeltable/pixeltable-starter-kit.git

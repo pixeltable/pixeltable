@@ -5,7 +5,7 @@ description: 'Use AI coding tools to build Pixeltable applications faster'
 
 ## Why Pixeltable Is Easy to Vibe-Code
 
-Pixeltable's API is declarative — you say *what* you want, not *how* to wire it up. That means LLMs get it right on the first try. Ask your AI tool to "summarize articles with GPT-4o-mini" and you get working code:
+Pixeltable's API is declarative: you say *what* you want, not *how* to wire it up. That means LLMs get it right on the first try. Ask your AI tool to "summarize articles with GPT-4o-mini" and you get working code:
 
 ```python
 import pixeltable as pxt
@@ -21,43 +21,50 @@ t.insert([{'title': 'Climate Report', 'body': 'Global temperatures rose 1.2°C .
 t.select(t.title, t.summary).collect()
 ```
 
-Ten lines of code — and the result is **persistent**, **versioned**, **traceable**, and **incrementally optimized**. Every output is stored, every transformation is replayable, and new rows only recompute what changed. The same pattern scales to [RAG pipelines](/howto/cookbooks/agents/pattern-rag-pipeline), [video frame extraction](/howto/cookbooks/video/video-extract-frames), [tool-calling agents](/howto/cookbooks/agents/llm-tool-calling), and [semantic search](/howto/cookbooks/search/search-semantic-text).
+Ten lines of code, and the result is **persistent**, **versioned**, **traceable**, and **incrementally optimized**. Every output is stored, every transformation is replayable, and new rows only recompute what changed. The same pattern scales to [RAG pipelines](/howto/cookbooks/agents/pattern-rag-pipeline), [video frame extraction](/howto/cookbooks/video/video-extract-frames), [tool-calling agents](/howto/cookbooks/agents/llm-tool-calling), and [semantic search](/howto/cookbooks/search/search-semantic-text).
 
 ---
 
 ## Set Up Your AI Tool
 
-Pick the setup that matches your editor. These aren't mutually exclusive — use whichever combination helps.
+Pick the setup that matches your editor. These aren't mutually exclusive; use whichever combination helps.
+
+### Agent Skill (recommended, works everywhere)
+
+The [Pixeltable Agent Skill](https://github.com/pixeltable/pixeltable-skill) teaches AI coding assistants to write correct Pixeltable code on the first attempt. It provides anti-pattern deflection (no LangChain, no pandas-as-store, no for-loops calling AI), correct patterns for 25+ providers, and production recipes for agents, RAG, and multimodal pipelines.
+
+```bash
+npx skills add pixeltable/pixeltable-skill
+```
+
+Works with any tool that supports the [Agent Skills specification](https://agentskills.io/specification): Cursor, Claude Code, Windsurf, Cline, OpenCode, Codex CLI, and 40+ more.
 
 <Tabs>
   <Tab title="Cursor / Windsurf">
-    Drop our [AGENTS.md](https://github.com/pixeltable/pixeltable/blob/main/AGENTS.md) into your project root. Cursor, Windsurf, and similar agents pick it up automatically and use it as context for code generation.
+    The `npx skills add` command above is the recommended setup. It installs the full skill with anti-pattern deflection, provider coverage, and progressive reference loading.
+
+    Alternatively, drop our [AGENTS.md](https://github.com/pixeltable/pixeltable/blob/main/AGENTS.md) into your project root for contributor-focused context:
 
     ```bash
     curl -o AGENTS.md https://raw.githubusercontent.com/pixeltable/pixeltable/main/AGENTS.md
     ```
-
-    For Claude-based editors, the same file is also available as [CLAUDE.md](https://github.com/pixeltable/pixeltable/blob/main/CLAUDE.md).
   </Tab>
   <Tab title="Claude Code">
-    Install the [Pixeltable Skill](https://github.com/pixeltable/pixeltable-skill) — Claude discovers it automatically when you ask about Pixeltable. It loads a concise `SKILL.md` first, then pulls in the full API reference only when needed.
+    The `npx skills add` command works with Claude Code. You can also install as a Claude Code plugin for auto-updates:
 
     ```bash
-    # Plugin install (recommended — auto-updates)
     /plugin marketplace add pixeltable/pixeltable-skill
     /plugin install pixeltable-skill@pixeltable-skill
-
-    # Or manual install
-    git clone https://github.com/pixeltable/pixeltable-skill.git /tmp/pxt-skill
-    cp -r /tmp/pxt-skill/skills/pixeltable-skill ~/.claude/skills/
     ```
+
+    The skill loads a concise `SKILL.md` first (~480 lines), then pulls in reference files on demand only when the task requires them.
   </Tab>
   <Tab title="Any LLM">
     Append `.md` to any docs URL to get a plain-text version optimized for LLMs. Paste it straight into your chat.
 
     | Resource | URL |
     |----------|-----|
-    | Any docs page as markdown | `https://docs.pixeltable.com/<path>.md` — e.g., [this page](https://docs.pixeltable.com/overview/building-pixeltable-with-llms.md) |
+    | Any docs page as markdown | `https://docs.pixeltable.com/<path>.md`, e.g., [this page](https://docs.pixeltable.com/overview/building-pixeltable-with-llms.md) |
     | Site index for LLMs | [llms.txt](https://docs.pixeltable.com/llms.txt) ([standard](https://llmstxt.org/)) |
     | Full site map with metadata | [llms-full.txt](https://docs.pixeltable.com/llms-full.txt) |
   </Tab>
@@ -67,7 +74,7 @@ Pick the setup that matches your editor. These aren't mutually exclusive — use
 
 ## MCP Servers
 
-Connect your AI tool to Pixeltable directly via the [Model Context Protocol](https://modelcontextprotocol.io). We ship two servers — or you can build your own using [`pxt.mcp_udfs()`](/libraries/mcp).
+Connect your AI tool to Pixeltable directly via the [Model Context Protocol](https://modelcontextprotocol.io). We ship two servers, or you can build your own using [`pxt.mcp_udfs()`](/libraries/mcp).
 
 <Tabs>
   <Tab title="Docs Search (Hosted)">
@@ -80,7 +87,7 @@ Connect your AI tool to Pixeltable directly via the [Model Context Protocol](htt
     Exposes a `SearchPixeltableDocumentation` tool that returns relevant content, code examples, and direct links.
   </Tab>
   <Tab title="Developer Server">
-    32 tools for creating tables, running queries, managing dependencies, and executing Python — all from your AI editor. Experimental; great for prototyping.
+    32 tools for creating tables, running queries, managing dependencies, and executing Python, all from your AI editor. Experimental; great for prototyping.
 
     ```bash
     # Install
@@ -115,7 +122,7 @@ Connect your AI tool to Pixeltable directly via the [Model Context Protocol](htt
 
 ## Start Building
 
-Use the app template to scaffold a full-stack project. It wires up a FastAPI backend and React frontend on top of Pixeltable — document upload, cross-modal search, and a tool-calling agent, all powered by computed columns. Ask your AI tool to customize it from there.
+Use the app template to scaffold a full-stack project. It wires up a FastAPI backend and React frontend on top of Pixeltable: document upload, cross-modal search, and a tool-calling agent, all powered by computed columns. Ask your AI tool to customize it from there.
 
 <Card title="Pixeltable App Template" icon="github" href="https://github.com/pixeltable/pixeltable-app-template">
   Full-stack skeleton: FastAPI + React + Pixeltable for multimodal AI workloads
@@ -130,7 +137,7 @@ Use the app template to scaffold a full-stack project. It wires up a FastAPI bac
     Install and run your first pipeline in 5 minutes
   </Card>
   <Card title="Computed Columns" icon="wand-magic-sparkles" href="/tutorials/computed-columns">
-    The core pattern LLMs generate — learn how it works
+    The core pattern LLMs generate. Learn how it works
   </Card>
   <Card title="Tool Calling" icon="wrench" href="/howto/cookbooks/agents/llm-tool-calling">
     Build agents with UDFs, queries, and MCP tools
