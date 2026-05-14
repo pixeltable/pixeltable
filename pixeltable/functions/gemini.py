@@ -131,7 +131,7 @@ async def generate_content(
         ... )
 
         Generate an image with a Nano Banana model (Gemini image-generation models such as
-        `gemini-2.5-flash-image`) and extract the PIL image from the response using JSON
+        `gemini-3.1-flash-image-preview`) and extract the PIL image from the response using JSON
         subscripting. Image bytes in `inline_data.data` are decoded into PIL images
         automatically. Pass `response_modalities=['IMAGE']` so the response contains a
         single image part:
@@ -139,7 +139,7 @@ async def generate_content(
         >>> tbl.add_computed_column(
         ...     response=generate_content(
         ...         tbl.prompt,
-        ...         model='gemini-2.5-flash-image',
+        ...         model='gemini-3.1-flash-image-preview',
         ...         config={'response_modalities': ['IMAGE']},
         ...     )
         ... )
@@ -262,7 +262,8 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
     <https://ai.google.dev/gemini-api/docs/imagen>
 
     Note: This function is for Imagen models only. For Gemini image-generation models (Nano Banana,
-    e.g. `gemini-2.5-flash-image`), use [`generate_content`][pixeltable.functions.gemini.generate_content] instead.
+    e.g. `gemini-3.1-flash-image-preview`), use [`generate_content`][pixeltable.functions.gemini.generate_content]
+    instead.
 
     Request throttling:
     Applies the rate limit set in the config (section `imagen.rate_limits`; use the model id as the key). If no rate
@@ -745,13 +746,13 @@ async def embed_content(
         Add a computed column with embeddings to an existing table with a `text` column:
 
         >>> t.add_computed_column(
-        ...     embedding=embed_content(t.text, model='gemini-embedding-001')
+        ...     embedding=embed_content(t.text, model='gemini-embedding-2')
         ... )
 
         Add an embedding index on `text` column:
 
         >>> t.add_embedding_index(
-        ...     t.text, embedding=embed_content.using(model='gemini-embedding-001')
+        ...     t.text, embedding=embed_content.using(model='gemini-embedding-2')
         ... )
     """
     return await _embed_content(contents, model, config)
@@ -889,6 +890,7 @@ async def _embed_content(
 _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {
     'gemini-embedding-001': 3072,
     'gemini-embedding-2-preview': 3072,
+    'gemini-embedding-2': 3072,
 }
 
 
