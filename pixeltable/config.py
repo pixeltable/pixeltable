@@ -99,7 +99,7 @@ class DeleteRouteConfig(RouteConfigBase):
 
 class QueryRouteConfig(RouteConfigBase):
     type: Literal['query']
-    query: str  # dotted Python path to a @pxt.query or retrieval_udf
+    query: str  # module:attr path to a @pxt.query or retrieval_udf
     inputs: list[str] | None = None
     uploadfile_inputs: list[str] | None = None
     one_row: bool = False
@@ -120,7 +120,6 @@ class ServiceConfig(pydantic.BaseModel):
     host: str = '0.0.0.0'
     port: int = 8000
     routes: list[RouteConfig] = pydantic.Field(default_factory=list)
-    modules: list[str] = pydantic.Field(default_factory=list)  # List of user modules to import
 
     @pydantic.field_validator('name')
     @classmethod
