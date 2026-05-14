@@ -423,10 +423,11 @@ def sam_for_segmentation(
 
         ```python
         {
-            # list of confidence scores for each detected instance
-            'scores': [0.92, 0.88],
-            # list of bounding boxes, [x1, y1, x2, y2] in absolute pixel coordinates
-            'boxes': [[51.9, 356.1, 181.4, 413.9], [383.2, 58.6, 605.6, 361.3]],
+            # confidence scores for each detected instance, shape (num_instances,)
+            'scores': np.ndarray,
+            # bounding boxes, [x1, y1, x2, y2] in absolute pixel coordinates,
+            # shape (num_instances, 4)
+            'boxes': np.ndarray,
             # binary masks for each detected instance, shape (num_instances, H, W)
             'masks': np.ndarray,
         }
@@ -506,22 +507,11 @@ def sam_for_segmentation(
         )
 
     result = results[0]
-    masks = result['masks']
-    boxes = result['boxes']
-    scores = result['scores']
-
-    if hasattr(masks, 'cpu'):
-        masks_np = masks.cpu().numpy()
-    else:
-        masks_np = np.asarray(masks)
+    masks_np = result['masks'].cpu().numpy()
     if masks_np.dtype != np.bool_:
         masks_np = masks_np.astype(bool)
 
-    return {
-        'scores': [float(s) for s in (scores.cpu().tolist() if hasattr(scores, 'cpu') else list(scores))],
-        'boxes': [[float(v) for v in box] for box in (boxes.cpu().tolist() if hasattr(boxes, 'cpu') else list(boxes))],
-        'masks': masks_np,
-    }
+    return {'scores': result['scores'].cpu().numpy(), 'boxes': result['boxes'].cpu().numpy(), 'masks': masks_np}
 
 
 @pxt.udf(batch_size=4)
