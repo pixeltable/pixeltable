@@ -31,7 +31,7 @@ class QueryTemplateFunction(Function):
         return_scalar: bool,
     ) -> QueryTemplateFunction:
         # we need to construct a template df and a signature
-        py_sig = inspect.signature(template_callable)
+        py_sig = inspect.signature(template_callable, eval_str=True)
         py_params = list(py_sig.parameters.values())
         params = Signature.create_parameters(py_params=py_params, param_types=param_types)
         # invoke template_callable with parameter expressions to construct a Query with parameters

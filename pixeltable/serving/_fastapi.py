@@ -1397,7 +1397,7 @@ class FastAPIRouter(fastapi.APIRouter):
         self, user_fn: Callable, *, output_schema: dict[str, ts.ColumnType], error_prefix: str
     ) -> type[pydantic.BaseModel]:
         """Validate the decorated function of insert_/update_route(); return the resolved response model."""
-        sig = inspect.signature(user_fn)
+        sig = inspect.signature(user_fn, eval_str=True)
         fn_name = getattr(user_fn, '__name__', repr(user_fn))
         # resolve PEP-563 string annotations (from __future__ import annotations) and forward refs
         try:

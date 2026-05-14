@@ -920,7 +920,7 @@ class Expr(abc.ABC):
         try:
             # If `fn` is not a builtin, we can do some basic validation to ensure it's
             # compatible with `apply`.
-            params = inspect.signature(fn).parameters
+            params = inspect.signature(fn, eval_str=True).parameters
             params_iter = iter(params.values())
             first_param = next(params_iter) if len(params) >= 1 else None
             second_param = next(params_iter) if len(params) >= 2 else None
