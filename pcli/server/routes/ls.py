@@ -38,7 +38,7 @@ def _descend(tree: list[Any], path: str) -> list[Any]:
                 cur = node['entries']
                 break
         else:
-            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f"Path '{path}' does not exist.")
+            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Path {path!r} does not exist.')
     return cur
 
 

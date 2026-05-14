@@ -15,7 +15,13 @@ def errors(req: ErrorsRequest) -> ErrorsResponse:
     if not pk_names:
         raise HTTPException(400, f'{req.path}: no primary key declared; pcli errors requires one')
 
-    computed = [name for name, c in md['columns'].items() if c['is_computed'] and (req.col is None or name == req.col)]
+    # errortype/errormsg are only addressable on stored computed columns; an unstored
+    # one would raise UNSUPPORTED_OPERATION and fail the whole request.
+    computed = [
+        name
+        for name, c in md['columns'].items()
+        if c['is_computed'] and c.get('is_stored') and (req.col is None or name == req.col)
+    ]
     if not computed:
         return ErrorsResponse(entries=[])
 

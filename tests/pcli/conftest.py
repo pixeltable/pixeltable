@@ -18,6 +18,11 @@ from typing import Any
 
 import pytest
 
+# The pcli daemon is behind the `pixeltable[cli]` extra. In CI profiles that don't
+# install it (`minimal`), skip the whole pcli test module rather than fail to spawn.
+pytest.importorskip('fastapi')
+pytest.importorskip('uvicorn')
+
 
 def _pick_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -81,7 +86,11 @@ PcliRunner = Callable[..., PcliResult]
 def pcli(pcli_daemon: int, uses_db: None) -> PcliRunner:
     def _run(*args: str, check: bool = True) -> PcliResult:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
-        r = subprocess.run(['pcli', *args], capture_output=True, text=True, env=env, check=False)
+        # Force a non-TTY stdin so tests behave the same on POSIX and Windows CI;
+        # otherwise Windows inherits the console and `isatty()` returns True there.
+        r = subprocess.run(
+            ['pcli', *args], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL
+        )
         if check and r.returncode != 0:
             raise AssertionError(f'pcli {args} failed (rc={r.returncode}): {r.stderr}')
         return PcliResult(r.returncode, r.stdout, r.stderr)

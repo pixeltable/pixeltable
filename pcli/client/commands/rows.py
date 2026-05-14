@@ -13,7 +13,7 @@ Examples:
 Notes:
   --cols takes a comma-separated list with no spaces.
   Use 'pcli describe <table>' to discover column names first.
-  Image cells are stringified as '<Image WxH MODE>'; media columns return their on-disk path."""
+  Image cells are stringified as '<Image WxH MODE>'; other media columns return their file URL."""
 
 
 def run(argv: list[str]) -> None:

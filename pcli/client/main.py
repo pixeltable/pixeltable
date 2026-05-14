@@ -1,113 +1,59 @@
+import importlib
 import sys
+from collections.abc import Callable
 
-HELP = """\
-usage: pcli <command> [args...]
+# (module_name, short help) — single source of truth for both the top-level help
+# message and the shell-mode dispatcher. Modules under pcli.client.commands.* must
+# expose `run(argv: list[str]) -> None`.
+COMMANDS: dict[str, tuple[str, str]] = {
+    'health': ('health', 'show daemon info'),
+    'ls': ('ls', 'list catalog entries'),
+    'describe': ('describe', "show a table's schema and metadata"),
+    'errors': ('errors', 'list rows where a computed column failed'),
+    'history': ('history', "show a table's version timeline"),
+    'columns': ('columns', 'list columns across tables (optionally one)'),
+    'idxs': ('idxs', 'list indexes across tables (optionally one)'),
+    'rows': ('rows', 'peek the first N rows of a table'),
+    'get': ('get', 'look up a single row by primary key'),
+    'count': ('count', 'count rows in a table'),
+    'status': ('status', 'show daemon/runtime state'),
+    'env': ('env', 'show pixeltable env vars and active config file'),
+    'computed': ('computed', "list computed columns (alias for 'columns --computed')"),
+    'drop': ('drop', "drop a table or view (use 'rm' for directories)"),
+    'rm': ('rm', "remove a directory (use 'drop' for tables/views)"),
+    'rename': ('rename', 'rename a table/view/dir in place'),
+    'mv': ('mv', 'move a table/view/dir to a different directory'),
+    'revert': ('revert', 'undo the last op(s) on a table'),
+    'shell': ('shell', 'interactive REPL (avoids per-command Python startup)'),
+}
 
-commands:
-  health     show daemon info
-  ls         list catalog entries
-  describe   show a table's schema and metadata
-  errors     list rows where a computed column failed
-  history    show a table's version timeline
-  columns    list columns across tables (optionally one)
-  idxs       list indexes across tables (optionally one)
-  rows       peek the first N rows of a table
-  get        look up a single row by primary key
-  count      count rows in a table
-  status     show daemon/runtime state
-  env        show pixeltable env vars and active config file
-  computed   list computed columns (alias for 'columns --computed')
-  drop       drop a table or view (use 'rm' for directories)
-  rm         remove a directory (use 'drop' for tables/views)
-  rename     rename a table/view/dir in place
-  mv         move a table/view/dir to a different directory
-  revert     undo the last op(s) on a table
 
-Use 'pcli <command> --help' for subcommand options.
-"""
+def _resolve(cmd: str) -> Callable[[list[str]], None]:
+    module_name, _ = COMMANDS[cmd]
+    mod = importlib.import_module(f'pcli.client.commands.{module_name}')
+    return mod.run
+
+
+def _print_help() -> None:
+    sys.stdout.write('usage: pcli <command> [args...]\n\ncommands:\n')
+    width = max(len(c) for c in COMMANDS)
+    for cmd, (_, help_text) in COMMANDS.items():
+        sys.stdout.write(f'  {cmd.ljust(width)}  {help_text}\n')
+    sys.stdout.write("\nUse 'pcli <command> --help' for subcommand options.\n")
+
+
+def dispatch(cmd: str, argv: list[str]) -> None:
+    if cmd not in COMMANDS:
+        print(f'pcli: unknown command: {cmd}', file=sys.stderr)
+        sys.exit(2)
+    _resolve(cmd)(argv)
 
 
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help'):
-        sys.stdout.write(HELP)
+        _print_help()
         sys.exit(0 if len(sys.argv) >= 2 else 2)
-
-    cmd, argv = sys.argv[1], sys.argv[2:]
-    if cmd == 'health':
-        from .commands import health
-
-        health.run(argv)
-    elif cmd == 'ls':
-        from .commands import ls
-
-        ls.run(argv)
-    elif cmd == 'describe':
-        from .commands import describe
-
-        describe.run(argv)
-    elif cmd == 'errors':
-        from .commands import errors
-
-        errors.run(argv)
-    elif cmd == 'history':
-        from .commands import history
-
-        history.run(argv)
-    elif cmd == 'columns':
-        from .commands import columns
-
-        columns.run(argv)
-    elif cmd == 'idxs':
-        from .commands import idxs
-
-        idxs.run(argv)
-    elif cmd == 'rows':
-        from .commands import rows
-
-        rows.run(argv)
-    elif cmd == 'get':
-        from .commands import get
-
-        get.run(argv)
-    elif cmd == 'count':
-        from .commands import count
-
-        count.run(argv)
-    elif cmd == 'status':
-        from .commands import status
-
-        status.run(argv)
-    elif cmd == 'env':
-        from .commands import env
-
-        env.run(argv)
-    elif cmd == 'computed':
-        from .commands import computed
-
-        computed.run(argv)
-    elif cmd == 'drop':
-        from .commands import drop
-
-        drop.run(argv)
-    elif cmd == 'rm':
-        from .commands import rm
-
-        rm.run(argv)
-    elif cmd == 'rename':
-        from .commands import rename
-
-        rename.run(argv)
-    elif cmd == 'mv':
-        from .commands import mv
-
-        mv.run(argv)
-    elif cmd == 'revert':
-        from .commands import revert
-
-        revert.run(argv)
-    else:
-        print(f'pcli: unknown command: {cmd}', file=sys.stderr)
-        sys.exit(2)
+    dispatch(sys.argv[1], sys.argv[2:])
 
 
 if __name__ == '__main__':
