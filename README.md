@@ -37,7 +37,7 @@ Every multimodal AI app needs the same five things: store media, run models, ind
 
 Transaction integrity, async execution, parallelization, caching, retries, and observability are built in. Schema changes are one line. Model upgrades are zero-downtime. Extensible via `@pxt.udf`, `@pxt.uda`, `@pxt.query`.
 
-**Deployment options:** Pixeltable can serve as your [full backend](https://docs.pixeltable.com/howto/deployment/overview) (managing media locally or syncing with S3/GCS/Azure, plus built-in vector search and orchestration) or as an [orchestration layer](https://docs.pixeltable.com/howto/deployment/overview) alongside your existing infrastructure.
+**Deployment options:** Use Pixeltable as a [full backend](https://docs.pixeltable.com/howto/deployment/overview) (FastAPI + React), a [batch processing](https://docs.pixeltable.com/howto/deployment/overview) engine (process and export to your DB), or a [declarative API](https://docs.pixeltable.com/howto/deployment/overview) (generate endpoints from TOML). See the [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) for production-ready examples of all three.
 
 ---
 
@@ -121,13 +121,17 @@ def search_videos(query_text: str, limit: int = 5):
 ```
 
 ```toml
-# service.toml
-[[service.routes]]
+# pyproject.toml
+[[tool.pixeltable.service]]
+name = "video-api"
+modules = ["video_search_app"]
+
+[[tool.pixeltable.service.routes]]
 type = "query"
 path = "/search"
 query = "video_search_app.search_videos"
 
-[[service.routes]]
+[[tool.pixeltable.service.routes]]
 type = "insert"
 table = "video_search"
 path = "/ingest"
@@ -136,11 +140,11 @@ outputs = ["title", "description"]
 ```
 
 ```bash
-pxt serve my-service --config service.toml
+PYTHONPATH=. pxt serve video-api
 # curl -X POST localhost:8000/search -d '{"query_text": "street food"}'
 ```
 
-Storage, orchestration, retrieval, and serving in one system. See [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving) for the full guide.
+Storage, retrieval, and serving in one system. See [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving) for the full guide.
 
 ## What Pixeltable Does
 
@@ -316,17 +320,21 @@ t.add_computed_column(
 Expose any table or `@pxt.query` as an HTTP endpoint with a [TOML config](https://docs.pixeltable.com/howto/deployment/serving) or a single Python call. `FastAPIRouter` is a drop-in subclass of FastAPI's `APIRouter`, so declarative and hand-written routes coexist on the same router.
 
 ```toml
-# service.toml
-[[service.routes]]
+# pyproject.toml
+[[tool.pixeltable.service]]
+name = "my-service"
+modules = ["schema"]
+
+[[tool.pixeltable.service.routes]]
 type = "insert"
-table = "myapp/docs"
+table = "myapp.docs"
 path = "/ingest"
 inputs = ["document"]
 outputs = ["document", "summary"]
 ```
 
 ```bash
-pxt serve my-service --config service.toml
+PYTHONPATH=. pxt serve my-service
 ```
 
 ```python
@@ -473,7 +481,7 @@ t.add_computed_column(
 
 | Project | Description |
 |:--------|:------------|
-| [**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) | Production-ready FastAPI + React app with deployment configs for Docker, Helm, Terraform (EKS/GKE/AKS), and AWS CDK |
+| [**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) | Production-ready examples for three patterns: Full Backend (FastAPI + React), Batch Processing (`export_sql`), and Declarative Serving (`pxt serve`). Includes Docker, Helm, Terraform (EKS/GKE/AKS), CDK, and cloud job runners. |
 | [**Pixelbot**](https://github.com/pixeltable/pixelbot) | Multimodal AI agent, an interactive data studio with on-demand ML inference, media generation, and a database explore |
 | [**Pixelagent**](https://github.com/pixeltable/pixelagent) | Lightweight agent framework with built-in memory and tool orchestration |
 | [**Pixelmemory**](https://github.com/pixeltable/pixelmemory) | Persistent memory layer for AI applications |

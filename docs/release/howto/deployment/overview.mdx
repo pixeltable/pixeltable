@@ -89,14 +89,15 @@ You still need these — Pixeltable is a data layer, not a full application fram
 
 ## Deployment Decision Guide
 
-Pixeltable supports two production deployment patterns. Choose based on your constraints:
+Pixeltable supports three production deployment patterns. Choose based on your constraints:
 
 | Question | Answer | Recommendation |
 |----------|--------|----------------|
-| Existing production DB that must stay? | Yes | **Orchestration Layer** |
-| Building new multimodal app? | Yes | **Full Backend** |
-| Need semantic search (RAG)? | Yes | **Full Backend** |
-| Only ETL/transformation? | Yes | **Orchestration Layer** |
+| Building a web app with a frontend? | Yes | **Full Backend** (FastAPI + React) |
+| Need an API with zero web code? | Yes | **Declarative Serving** (`pxt serve` from TOML) |
+| Need batch/background processing (cron, queue, Cloud Run Job)? | Yes | **Batch Processing** (pure Python script, no HTTP server) |
+| Existing production DB that must stay? | Yes | **Batch Processing** (process in Pixeltable, `export_sql` to your DB) |
+| Need semantic search (RAG)? | Yes | **Full Backend** or **Declarative Serving** |
 | Expose Pixeltable as MCP server for LLM tools? | Yes | **Full Backend** + [MCP Server](/libraries/mcp) |
 
 
@@ -124,109 +125,115 @@ Regardless of deployment mode, you get:
 
 ## Deployment Strategies
 
-### Approach 1: Pixeltable as Orchestration Layer
+### Approach 1: Batch Processing
 
-Use Pixeltable for multimodal data orchestration while retaining your existing data infrastructure.
+Use Pixeltable as a batch processing engine: a Python script that ingests data, lets computed columns process it, exports results to your existing serving database via `export_sql`, and exits. **No HTTP server, no FastAPI.** Run it as a Cloud Run Job, ECS Task, Kubernetes Job, Lambda, or a cron container.
 
 ```mermaid
 flowchart TB
-    App[Application Layer]
+    Trigger["Cron / Queue / Webhook"]
 
-    subgraph Existing[Your Existing Infrastructure]
-        DB[(RDBMS)]
-        Blob[Blob Storage]
+    subgraph Container["Ephemeral Container"]
+        Schema["Create Schema"]
+        Ingest["Ingest Data"]
+        Process["Computed Columns"]
     end
 
-    subgraph PXT[Pixeltable]
-        Process[Process Media<br/>Generate Embeddings<br/>Run LLM Calls]
-    end
+    DB["Serving DB (export_sql)"]
+    Bucket["Cloud Bucket (destination)"]
 
-    PXT -->|Export Results| DB
-    PXT -->|Export Media| Blob
-    App --> DB
-    App --> Blob
+    Trigger --> Schema --> Ingest --> Process
+    Process -->|"structured data"| DB
+    Process -->|"generated media"| Bucket
 ```
 
 <AccordionGroup>
   <Accordion title="Use When" icon="check">
-    - Existing RDBMS (PostgreSQL, MySQL) and blob storage (S3, GCS, Azure Blob) must remain
-    - Application already queries a separate data layer
-    - Incremental adoption required with minimal stack changes
+    - Existing RDBMS (PostgreSQL, MySQL, Snowflake) and blob storage (S3, GCS, Azure Blob) must remain
+    - Long-running batch jobs (processing thousands of documents, hours of video)
+    - Background tasks triggered by a queue, cron, or webhook
+    - You don't need an HTTP API at all
   </Accordion>
 
   <Accordion title="Architecture" icon="sitemap">
-    - Deploy Pixeltable in Docker container or dedicated compute instance
-    - Define tables, views, computed columns, and UDFs for multimodal processing
-    - Process videos, documents, audio, images within Pixeltable
-    - Export structured outputs (embeddings, metadata, classifications) to RDBMS
-    - Export generated media to blob storage
-    - Application queries existing data layer, not Pixeltable
+    - Run Pixeltable in an ephemeral container (Cloud Run Job, ECS Fargate, K8s Job, Lambda)
+    - Define tables, views, computed columns in `schema.py` (idempotent)
+    - Insert data from queue, RDBMS, or cloud storage
+    - Computed columns process everything automatically (chunking, embeddings, LLM calls)
+    - `export_sql` pushes structured results to your serving database
+    - `destination` parameter routes generated media to cloud buckets
+    - Container exits when done
   </Accordion>
 
   <Accordion title="What This Provides" icon="sparkles">
     - Native multimodal type system (Video, Document, Audio, Image, JSON)
     - Declarative computed columns eliminate orchestration boilerplate
     - Incremental computation automatically handles new data
-    - UDFs encapsulate transformation logic
+    - `export_sql` for any SQL database (PostgreSQL, MySQL, Snowflake, SQLite)
+    - `destination` parameter for routing media to S3/GCS/Azure Blob
     - LLM call orchestration with automatic rate limiting
     - Iterators for chunking documents, extracting frames, splitting audio
   </Accordion>
 </AccordionGroup>
 
 ```python
-# Example: Orchestrate in Pixeltable, export to external systems
+# schema.py: declarative schema (idempotent, safe to re-run)
 import pixeltable as pxt
-from pixeltable.functions.video import extract_audio
-from pixeltable.functions.openai import transcriptions
-from pixeltable.functions.video import frame_iterator
-import psycopg2
+from pixeltable.functions.huggingface import sentence_transformer
+from pixeltable.functions.string import string_splitter
+from pixeltable.functions.uuid import uuid7
+
+pxt.create_dir('pipeline', if_exists='ignore')
+embed_fn = sentence_transformer.using(model_id='all-MiniLM-L6-v2')
+
+documents = pxt.create_table('pipeline.documents', {
+    'title': pxt.String,
+    'body': pxt.String,
+    'source_id': pxt.String,
+    'uuid': uuid7(),
+    'timestamp': pxt.Timestamp,
+}, primary_key=['uuid'], if_exists='ignore')
+
+sentences = pxt.create_view(
+    'pipeline.sentences', documents,
+    iterator=string_splitter(text=documents.body, separators='sentence'),
+    if_exists='ignore',
+)
+sentences.add_embedding_index(
+    'text', idx_name='sentences_embed', string_embed=embed_fn, if_exists='ignore'
+)
+```
+
+```python
+# pipeline.py: ingest, compute, export, exit
+import json
 from datetime import datetime
+from pixeltable.io.sql import export_sql
+import schema
 
-# Setup: Define Pixeltable orchestration pipeline
-pxt.create_dir('video_processing', if_exists='ignore')
+SERVING_DB_URL = 'postgresql+psycopg://user:pass@host/db'
 
-videos = pxt.create_table(
-    'video_processing/videos',
-    {'video': pxt.Video, 'uploaded_at': pxt.Timestamp}
+with open('batch.json') as f:
+    batch = json.load(f)
+
+now = datetime.now()
+for row in batch['documents']:
+    row.setdefault('timestamp', now)
+
+# Insert triggers computed columns: chunking, embeddings, etc.
+schema.documents.insert(batch['documents'])
+
+# Export structured results to serving DB
+export_sql(
+    schema.documents.select(
+        schema.documents.source_id,
+        schema.documents.title,
+        schema.documents.body,
+    ),
+    'processed_documents',
+    db_connect_str=SERVING_DB_URL,
+    if_exists='replace',
 )
-
-# Computed columns for orchestration
-videos.add_computed_column(
-    audio=extract_audio(videos.video, format='mp3')
-)
-videos.add_computed_column(
-    transcript=transcriptions(audio=videos.audio, model='whisper-1')
-)
-
-# Optional: Add LLM-based summary
-from pixeltable.functions.openai import chat_completions
-videos.add_computed_column(
-    summary=chat_completions(
-        messages=[{'role': 'user', 'content': f"Summarize: {videos.transcript.text}"}],
-        model='gpt-4o-mini'
-    )
-)
-
-# Extract frames for analysis
-frames = pxt.create_view(
-    'video_processing/frames',
-    videos,
-    iterator=frame_iterator(video=videos.video, fps=1.0)
-)
-
-# Insert video for processing
-videos.insert([{'video': 's3://bucket/video.mp4', 'uploaded_at': datetime.now()}])
-
-# Export structured results to external RDBMS
-conn = psycopg2.connect("postgresql://...")
-cursor = conn.cursor()
-
-for row in videos.select(videos.video, videos.transcript).collect():
-    cursor.execute(
-        "INSERT INTO video_metadata (video_url, transcript_json) VALUES (%s, %s)",
-        (row['video'], row['transcript'])
-    )
-conn.commit()
 ```
 
 ### Approach 2: Pixeltable as Full Backend
@@ -326,18 +333,103 @@ def get_document(doc_id: int):
 **Simpler alternative for standard endpoints:** If your endpoints are straightforward insert, query, or delete operations, consider [built-in HTTP serving](/howto/deployment/serving) with `FastAPIRouter` or a TOML config. It auto-generates request/response schemas, handles media serving, and supports background jobs.
 </Tip>
 
+### Approach 3: Declarative Serving (`pxt serve`)
+
+Generate a complete REST API from a TOML config. No FastAPI code, no frontend, no hand-written endpoints. Define your schema in Python, declare routes in `pyproject.toml`, and run `pxt serve`.
+
+```mermaid
+flowchart LR
+    Client["REST Client / cURL"]
+    TOML["pyproject.toml"]
+
+    subgraph PXT["pxt serve"]
+        API["Auto-generated FastAPI"]
+        Tables["Pixeltable Tables"]
+    end
+
+    TOML -->|declares routes| PXT
+    Client --> API --> Tables
+```
+
+<AccordionGroup>
+  <Accordion title="Use When" icon="check">
+    - You need an API but not a frontend
+    - Endpoints are standard insert, query, delete, or `export_sql` operations
+    - Prototyping an API before building a full application
+    - You want zero Python web framework code
+  </Accordion>
+
+  <Accordion title="Architecture" icon="sitemap">
+    - Define tables, views, computed columns, embedding indexes in `schema.py`
+    - Declare routes in `pyproject.toml` using `[[tool.pixeltable.service.routes]]`
+    - Run `pxt serve my-service` to generate and start a FastAPI app
+    - Supports insert, query, delete, and `export_sql` route types
+    - Auto-generates OpenAPI/Swagger docs
+  </Accordion>
+
+  <Accordion title="What This Provides" icon="sparkles">
+    - Complete REST API from configuration alone
+    - Auto-generated request/response schemas
+    - Background job support for long-running inserts
+    - `export_sql` routes for pushing data to external databases
+    - OpenAPI documentation out of the box
+    - Same Pixeltable capabilities (computed columns, embedding indexes, etc.)
+  </Accordion>
+</AccordionGroup>
+
+```toml
+# pyproject.toml
+[project]
+name = "my-api"
+requires-python = ">=3.10"
+
+[tool.pixeltable]
+dir = "pipeline"
+
+[[tool.pixeltable.service]]
+name = "my-service"
+prefix = "/api"
+modules = ["schema"]
+
+[[tool.pixeltable.service.routes]]
+type = "query"
+path = "/search"
+query = "schema.search_documents"
+
+[[tool.pixeltable.service.routes]]
+type = "insert"
+table = "pipeline.documents"
+path = "/ingest"
+inputs = ["title", "body"]
+outputs = ["title", "body"]
+
+[[tool.pixeltable.service.routes]]
+type = "export_sql"
+path = "/export"
+query = "schema.export_query"
+db_url = "postgresql+psycopg://user:pass@host/db"
+table_name = "exported_docs"
+if_exists = "replace"
+```
+
+```bash
+PYTHONPATH=. pxt serve my-service
+# curl -X POST localhost:8000/api/search -d '{"query_text": "machine learning"}'
+```
+
 ## Get Started
 
 <Card title="Pixeltable Starter Kit" icon="rocket" href="https://github.com/pixeltable/pixeltable-starter-kit">
-  A production-ready starter app with a FastAPI backend and React frontend — multimodal upload, cross-modal search, and a tool-calling agent, all wired through Pixeltable computed columns. Includes deployment configs for Docker Compose, Helm, Terraform (EKS/GKE/AKS), and AWS CDK.
+  Production-ready examples for all three patterns. Includes deployment configs for Docker Compose, Helm, Terraform (EKS/GKE/AKS), AWS CDK, and cloud job runners (Cloud Run, Lambda, ECS Fargate).
 </Card>
 
-The starter kit contains two reference architectures matching the deployment strategies above:
+The starter kit contains reference implementations for all three deployment patterns:
 
-| Architecture | Pattern | What it demonstrates |
+| Directory | Pattern | What it demonstrates |
 |---|---|---|
-| **Starter Kit** (main app) | Pixeltable as **full backend** | FastAPI + React with persistent storage, multimodal upload, cross-modal search, tool-calling agent |
-| **[Orchestration Pipeline](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/pipeline)** | Pixeltable as **ephemeral processing engine** | Batch ingest, computed column processing, `export_sql` to serving DB, media routing to cloud buckets |
+| **[`backend/` + `frontend/`](https://github.com/pixeltable/pixeltable-starter-kit)** | **Full Backend** | FastAPI + React with persistent storage, multimodal upload, cross-modal search, tool-calling agent. Deployment via Docker, Helm, Terraform, CDK. |
+| **[`batch/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/batch)** | **Batch Processing** | Pure Python script: ingest, computed columns, `export_sql` to serving DB. Deploy to Cloud Run Jobs, Lambda, ECS Fargate, K8s Jobs. |
+| **[`serving/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/serving)** | **Declarative Serving** | `pxt serve` from TOML config: zero-code REST API with insert, query, search, and `export_sql` routes. |
 
 ## Next Steps
 

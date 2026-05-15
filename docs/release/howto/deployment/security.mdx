@@ -7,7 +7,7 @@ description: "Backup strategies, recovery procedures, and security best practice
 
 | Deployment Approach | Backup Strategy | Recovery Method |
 |---------------------|-----------------|-----------------|
-| **Orchestration Layer** | External RDBMS + Blob Storage backups | Re-run transformation pipelines |
+| **Batch Processing** | External RDBMS + Blob Storage backups | Re-run transformation pipelines |
 | **Full Backend** | `pg_dump` of `~/.pixeltable/pgdata` + S3/GCS versioning | Restore `pgdata` + media files |
 
 ### Full Backend Backup
@@ -24,12 +24,12 @@ tar -czf media_backup.tar.gz ~/.pixeltable/media/
 # For cloud media storage, ensure S3/GCS versioning is enabled
 ```
 
-### Orchestration Layer Backup
+### Batch Processing Backup
 
-For orchestration-only deployments:
+For batch processing deployments:
 - Primary data lives in your external RDBMS and blob storage
 - Pixeltable state can be rebuilt by re-running transformation pipelines
-- Back up your `setup_pixeltable.py` and UDF code in version control
+- Back up your `schema.py` and UDF code in version control
 
 ## Recovery Procedures
 
@@ -40,7 +40,7 @@ For orchestration-only deployments:
 3. Restore media files to `~/.pixeltable/media/`
 4. Restart the application
 
-### Orchestration Layer Recovery
+### Batch Processing Recovery
 
 1. Deploy fresh Pixeltable instance
 2. Run `python setup_pixeltable.py` to recreate schema (idempotent with `if_exists='ignore'`)
@@ -154,7 +154,7 @@ async def audit_log(request: Request, call_next):
 
 | Deployment | RTO | Strategy |
 |------------|-----|----------|
-| Orchestration Layer | Minutes | Spin up new instance, re-run pipelines |
+| Batch Processing | Minutes | Spin up new instance, re-run pipelines |
 | Full Backend | Hours | Restore from backup, validate data integrity |
 
 ### Recommendations
