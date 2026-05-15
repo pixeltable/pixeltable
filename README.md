@@ -138,7 +138,7 @@ modules = ["video_search_app"]
 [[tool.pixeltable.service.routes]]
 type = "query"
 path = "/search"
-query = "video_search_app.search_videos"
+query = "video_search_app:search_videos"
 
 [[tool.pixeltable.service.routes]]
 type = "insert"

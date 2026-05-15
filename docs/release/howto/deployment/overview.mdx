@@ -384,9 +384,6 @@ flowchart LR
 name = "my-api"
 requires-python = ">=3.10"
 
-[tool.pixeltable]
-dir = "pipeline"
-
 [[tool.pixeltable.service]]
 name = "my-service"
 prefix = "/api"
@@ -395,7 +392,7 @@ modules = ["schema"]
 [[tool.pixeltable.service.routes]]
 type = "query"
 path = "/search"
-query = "schema.search_documents"
+query = "schema:search_documents"
 
 [[tool.pixeltable.service.routes]]
 type = "insert"
@@ -407,7 +404,7 @@ outputs = ["title", "body"]
 [[tool.pixeltable.service.routes]]
 type = "export_sql"
 path = "/export"
-query = "schema.export_query"
+query = "schema:export_query"
 db_url = "postgresql+psycopg://user:pass@host/db"
 table_name = "exported_docs"
 if_exists = "replace"
