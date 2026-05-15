@@ -32,12 +32,19 @@ Every multimodal AI app needs the same five things: store media, run models, ind
 | Store video, images, docs | S3 + Postgres + glue code | `pxt.create_table()` with media types |
 | Run AI on every insert | Airflow DAGs + retry logic | `add_computed_column()`, automatic |
 | Vector search | Pinecone + ETL pipelines | `add_embedding_index()`, always in sync |
-| HTTP endpoints | Hand-written + Pydantic | `FastAPIRouter` or `pxt serve` |
-| Versioning & rollback | Custom scripts | Built-in `history()`, `revert()` |
+| HTTP endpoints | Hand-written FastAPI + Pydantic | `FastAPIRouter` or `pxt serve` |
+| Export to your DB | Custom ETL scripts | `export_sql()` to any SQL database |
+| Versioning & rollback | DVC / MLflow / custom scripts | Built-in `history()`, `revert()` |
 
-Transaction integrity, async execution, parallelization, caching, retries, and observability are built in. Schema changes are one line. Model upgrades are zero-downtime. Extensible via `@pxt.udf`, `@pxt.uda`, `@pxt.query`.
+Transaction integrity, parallelization, caching, retries, and observability are built in. Schema changes are one line. Model upgrades are zero-downtime. Extensible via `@pxt.udf`, `@pxt.uda`, `@pxt.query`.
 
-**Deployment options:** Use Pixeltable as a [full backend](https://docs.pixeltable.com/howto/deployment/overview) (FastAPI + React), a [batch processing](https://docs.pixeltable.com/howto/deployment/overview) engine (process and export to your DB), or a [declarative API](https://docs.pixeltable.com/howto/deployment/overview) (generate endpoints from TOML). See the [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) for production-ready examples of all three.
+**Three deployment patterns** ([docs](https://docs.pixeltable.com/howto/deployment/overview) / [starter kit](https://github.com/pixeltable/pixeltable-starter-kit)):
+
+| Pattern | What it is | You write |
+|---|---|---|
+| **Full Backend** | FastAPI + React web app | Python schema + endpoints + frontend |
+| **Batch Processing** | Cron / queue / Cloud Run Job | Python script: ingest, compute, `export_sql`, exit |
+| **Declarative API** | REST API from TOML config | `pyproject.toml` routes + `pxt serve` |
 
 ---
 
