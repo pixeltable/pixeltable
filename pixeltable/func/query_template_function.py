@@ -88,13 +88,12 @@ class QueryTemplateFunction(Function):
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {
-                param.name: param.default
+                param.name: param.default_value
                 for param in self.signature.parameters.values()
                 if param.has_default() and param.name not in bound_args
             }
         )
-        bound_query = self.template_query.bind(bound_args)
-        result = await bound_query._acollect()
+        result = await self.template_query._acollect(args=bound_args)
         if self.return_scalar:
             col_name = next(iter(self.template_query.schema))
             return [row[col_name] for row in result]

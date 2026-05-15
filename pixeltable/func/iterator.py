@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import abc
 import collections.abc
 import inspect
@@ -61,7 +63,7 @@ class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
         pass
 
     @classmethod
-    def conditional_output_schema(cls, bound_args: dict[str, 'exprs.Expr']) -> dict[str, type] | None:
+    def conditional_output_schema(cls, bound_args: dict[str, exprs.Expr]) -> dict[str, type] | None:
         return None
 
 
@@ -84,7 +86,7 @@ class GeneratingFunction:
     is_legacy_retrofit: bool
 
     _default_output_schema: dict[str, ts.ColumnType] | None
-    _conditional_output_schema: Callable[[dict[str, 'exprs.Expr']], dict[str, type]] | None
+    _conditional_output_schema: Callable[[dict[str, exprs.Expr]], dict[str, type]] | None
     _validate: Callable[[dict[str, Any]], bool] | None
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str], fqn: str | None = None) -> None:
@@ -215,7 +217,7 @@ class GeneratingFunction:
                 )
             self._default_output_schema[name] = col_type
 
-    def call_output_schema(self, bound_args: dict[str, 'exprs.Expr']) -> dict[str, ts.ColumnType]:
+    def call_output_schema(self, bound_args: dict[str, exprs.Expr]) -> dict[str, ts.ColumnType]:
         if self._conditional_output_schema is None:
             if self._default_output_schema is None:
                 raise excs.RequestError(
@@ -240,7 +242,7 @@ class GeneratingFunction:
                     result[name] = ts.ColumnType.from_python_type(type_)
             return result
 
-    def bind_to_signature(self, args: list['exprs.Expr'], kwargs: dict[str, 'exprs.Expr']) -> dict[str, 'exprs.Expr']:
+    def bind_to_signature(self, args: list[exprs.Expr], kwargs: dict[str, exprs.Expr]) -> dict[str, exprs.Expr]:
         try:
             bound_args = self.py_sig.bind(*args, **kwargs).arguments
         except TypeError as exc:
@@ -313,8 +315,8 @@ class GeneratingFunction:
 
     # conditional_output_schema decorator
     def conditional_output_schema(
-        self, fn: Callable[[dict[str, 'exprs.Expr']], dict[str, type]]
-    ) -> Callable[[dict[str, 'exprs.Expr']], dict[str, type]]:
+        self, fn: Callable[[dict[str, exprs.Expr]], dict[str, type]]
+    ) -> Callable[[dict[str, exprs.Expr]], dict[str, type]]:
         if self._conditional_output_schema is not None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
@@ -369,7 +371,7 @@ class InvalidGeneratingFunction(GeneratingFunction):
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
 
-    def call_output_schema(self, bound_args: dict[str, 'exprs.Expr']) -> dict[str, ts.ColumnType]:
+    def call_output_schema(self, bound_args: dict[str, exprs.Expr]) -> dict[str, ts.ColumnType]:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
@@ -386,9 +388,9 @@ class InvalidGeneratingFunction(GeneratingFunction):
 @dataclass(frozen=True)
 class GeneratingFunctionCall:
     it: GeneratingFunction
-    args: list['exprs.Expr']
-    kwargs: dict[str, 'exprs.Expr']
-    bound_args: dict[str, 'exprs.Expr']
+    args: list[exprs.Expr]
+    kwargs: dict[str, exprs.Expr]
+    bound_args: dict[str, exprs.Expr]
     outputs: dict[str, IteratorOutput] | None
     validation_error: str | None
 

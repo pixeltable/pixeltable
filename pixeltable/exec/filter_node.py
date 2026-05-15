@@ -18,8 +18,8 @@ class FilterNode(ExecNode):
     """
 
     predicate_slot_idx: int
-    limit: int | None
-    offset: int | None
+    limit: exprs.Expr | None
+    offset: exprs.Expr | None
 
     def __init__(self, row_builder: exprs.RowBuilder, predicate: exprs.Expr, input: ExecNode):
         super().__init__(row_builder, [], [], input)
@@ -27,14 +27,21 @@ class FilterNode(ExecNode):
         self.limit = None
         self.offset = None
 
-    def set_limit(self, limit: int) -> None:
-        assert limit > 0
+    def set_limit(self, limit: exprs.Expr) -> None:
         self.limit = limit
 
-    def set_offset(self, offset: int) -> None:
+    def set_offset(self, offset: exprs.Expr) -> None:
         self.offset = offset
 
+    def init_bindings(self) -> None:
+        self.bind_sources = [e for e in (self.limit, self.offset) if e is not None]
+        super().init_bindings()
+
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+        limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
+        offset = self._resolve_positive_int(self.offset, 'offset') if self.offset is not None else None
+        if limit == 0:
+            return
         num_passed = 0  # rows that passed the predicate (before offset/limit)
         limit_reached = False
 
@@ -46,10 +53,10 @@ class FilterNode(ExecNode):
                 if not row[self.predicate_slot_idx]:
                     continue
                 num_passed += 1
-                if self.offset is not None and num_passed <= self.offset:
+                if offset is not None and num_passed <= offset:
                     continue
                 output_batch.add_row(row)
-                if self.limit is not None and num_passed - (self.offset or 0) >= self.limit:
+                if limit is not None and num_passed - (offset or 0) >= limit:
                     limit_reached = True
                     break
             if len(output_batch) > 0:

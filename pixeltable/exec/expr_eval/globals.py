@@ -131,6 +131,15 @@ class Evaluator(abc.ABC):
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         """Create tasks to evaluate the expression in the given slot for the given rows; must not block."""
 
+    def reset(self) -> None:
+        """Reset per-execution state so this evaluator can be reused for a fresh run.
+
+        Evaluators are owned by ExprEvalCtx and outlive a single iteration, so anything created
+        per-execution (queues, counters) must be cleared here. Default clears is_closed; subclasses
+        override to clear their own state.
+        """
+        self.is_closed = False
+
     def _close(self) -> None:
         """Close the evaluator; must not block"""
         pass
