@@ -30,10 +30,10 @@ Every multimodal AI app needs the same five things: store media, run models, ind
 | What you need | Without Pixeltable | With Pixeltable |
 |---|---|---|
 | Store video, images, docs | S3 + Postgres + glue code | `pxt.create_table()` with media types |
+| Connect cloud storage | boto3 / gsutil + sync scripts | `destination='s3://…'` per column or globally |
 | Run AI on every insert | Airflow DAGs + retry logic | `add_computed_column()`, automatic |
 | Vector search | Pinecone + ETL pipelines | `add_embedding_index()`, always in sync |
 | HTTP endpoints | Hand-written FastAPI + Pydantic | `FastAPIRouter` or `pxt serve` |
-| Export to your DB | Custom ETL scripts | `export_sql()` to any SQL database |
 | Versioning & rollback | DVC / MLflow / custom scripts | Built-in `history()`, `revert()` |
 
 Transaction integrity, parallelization, caching, retries, and observability are built in. Schema changes are one line. Model upgrades are zero-downtime. Extensible via `@pxt.udf`, `@pxt.uda`, `@pxt.query`.
