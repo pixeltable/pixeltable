@@ -149,7 +149,7 @@ outputs = ["title", "description"]
 ```
 
 ```bash
-PYTHONPATH=. pxt serve video-api
+pxt serve video-api
 # curl -X POST localhost:8000/search -d '{"query_text": "street food"}'
 ```
 
@@ -343,7 +343,7 @@ outputs = ["document", "summary"]
 ```
 
 ```bash
-PYTHONPATH=. pxt serve my-service
+pxt serve my-service
 ```
 
 ```python
