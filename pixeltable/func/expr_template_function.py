@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any, Sequence
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
@@ -13,11 +15,11 @@ class ExprTemplate:
     `CallableFunction`.)
     """
 
-    expr: 'exprs.Expr'
+    expr: exprs.Expr
     signature: Signature
-    param_exprs: dict[str, 'exprs.Variable']
+    param_exprs: dict[str, exprs.Variable]
 
-    def __init__(self, expr: 'exprs.Expr', signature: Signature):
+    def __init__(self, expr: exprs.Expr, signature: Signature):
         self.expr = expr
         self.signature = signature
 
@@ -67,7 +69,7 @@ class ExprTemplateFunction(Function):
         assert not self.is_polymorphic
         return self.templates[0]
 
-    def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> 'exprs.Expr':
+    def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> exprs.Expr:
         assert not self.is_polymorphic
         template = self.template
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
@@ -93,7 +95,7 @@ class ExprTemplateFunction(Function):
         result = result.substitute(arg_exprs)
         return result
 
-    def call_return_type(self, bound_args: dict[str, 'exprs.Expr']) -> ts.ColumnType:
+    def call_return_type(self, bound_args: dict[str, exprs.Expr]) -> ts.ColumnType:
         """
         The call_return_type of an ExprTemplateFunction is derived from the template expression's col_type after
         substitution (unlike for UDFs, whose call_return_type is derived from an explicitly specified

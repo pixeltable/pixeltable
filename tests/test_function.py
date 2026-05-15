@@ -24,6 +24,7 @@ from .utils import (
     get_video_files,
     pxt_raises,
     reload_catalog,
+    skip_test_if_not_installed,
     validate_update_status,
 )
 
@@ -338,6 +339,8 @@ class TestFunction:
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
     def test_query(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        skip_test_if_not_installed('imagehash')
+
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         name = t._name
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
@@ -391,11 +394,76 @@ class TestFunction:
         assert t.query3.col_type == lt_x_with_unused_default.signature.return_type.copy(nullable=True)
         reload_tester.run_query(t.select(t.query1, t.query2, t.query3).order_by(t.c1))
 
+        # query parameter applies to a Python-side expr in the inner select list
+        img_tbl = pxt.create_table('img_test', {'id': pxt.Int, 'img': pxt.Image})
+        img_paths = get_image_files()[:5]
+        img_tbl.insert([{'id': i, 'img': p} for i, p in enumerate(img_paths)])
+
+        @pxt.query(return_scalar=True)
+        def rotated(id: int, angle: int) -> pxt.Query:
+            return img_tbl.where(img_tbl.id == id).select(r=img_tbl.img.rotate(angle)).limit(1)
+
+        result1 = img_tbl.select(r=rotated(img_tbl.id, 90)[0]).order_by(img_tbl.id).collect()
+        result2 = img_tbl.select(r=img_tbl.img.rotate(90)).order_by(img_tbl.id).collect()
+        assert_resultset_eq(result1, result2, compare_col_types=False)
+
         reload_tester.run_reload_test()
 
         # insert more rows in order to verify that lt_x() is still executable after catalog reload
         t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
+
+    def test_query_bound_limit_offset(self, uses_db: None) -> None:
+        t = pxt.create_table('test', {'c1': pxt.Int})
+        t.insert([{'c1': i} for i in range(10)])
+
+        @pxt.query(return_scalar=True)
+        def head(n: int) -> pxt.Query:
+            return t.select(r=t.c1).limit(n)
+
+        @pxt.query(return_scalar=True)
+        def skipped(off: int) -> pxt.Query:
+            return t.select(r=t.c1).limit(1, offset=off)
+
+        # bound limit < 0 raises RequestError
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'limit'"):
+            t.select(r=head(-1)).collect()
+
+        # bound offset < 0 raises RequestError
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'offset'"):
+            t.select(r=skipped(-1)).collect()
+
+        # bound limit = 0 short-circuits to empty rows (Variable path)
+        result = t.select(r=head(0)).collect()
+        assert all(row['r'] == [] for row in result)
+
+        # query UDF inside a computed column: on_error='abort' raises (re-wrapped as UNSUPPORTED_OPERATION
+        # with the original message preserved)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'limit'"):
+            t.add_computed_column(c=head(-1), on_error='abort')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'offset'"):
+            t.add_computed_column(c=skipped(-1), on_error='abort')
+
+        # query UDF inside a computed column: on_error='ignore' records per-cell error
+        status = t.add_computed_column(c=head(-1), on_error='ignore')
+        assert status.num_excs == 10
+        assert t.where(t.c.errortype != None).count() == 10
+        msgs = t.select(msg=t.c.errormsg).collect()['msg']
+        assert all("'limit'" in m for m in msgs if m is not None)
+
+        status = t.add_computed_column(c2=skipped(-1), on_error='ignore')
+        assert status.num_excs == 10
+        assert t.where(t.c2.errortype != None).count() == 10
+        msgs = t.select(msg=t.c2.errormsg).collect()['msg']
+        assert all("'offset'" in m for m in msgs if m is not None)
+
+        # negative limit/offset coming from a column at runtime (Variable bound per-row from a row value)
+        neg = pxt.create_table('test_neg', {'c1': pxt.Int, 'n': pxt.Int})
+        neg.insert([{'c1': i, 'n': -1 if i % 2 == 0 else 1} for i in range(10)])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'limit'"):
+            neg.add_computed_column(c=head(neg.n), on_error='abort')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'offset'"):
+            neg.add_computed_column(c=skipped(neg.n), on_error='abort')
 
     def test_query2(self, uses_db: None) -> None:
         schema = {'query_text': pxt.String, 'i': pxt.Int}
@@ -505,25 +573,6 @@ class TestFunction:
         res = t.select(t.c4, result=q1(2)).collect()
         assert res[0]['result'] == [False, True]
 
-        # limit((3 * (n + 1) // 2) - 1) with no return_scalar: returns list of row-dicts
-        @pxt.query
-        def q2(n: int) -> pxt.Query:
-            return t.select(t.c4, folded_flt=(5.7 * n) - 4).limit((3 * (n + 1) // 2) - 1)
-
-        res = t.select(t.c4, result=q2(1)).collect()
-        assert res[0]['result'] == [
-            {'c4': False, 'folded_flt': 1.7000000000000002},
-            {'c4': True, 'folded_flt': 1.7000000000000002},
-        ]
-
-        # limit(n.astype(Int)) where n is a float parameter
-        @pxt.query(return_scalar=True)
-        def q3(n: float) -> pxt.Query:
-            return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
-
-        res = t.select(t.c4, result=q3(2.2)).collect()
-        assert res[0]['result'] == [False, True]
-
         # return_scalar=True returning array-valued rows
         @pxt.query(return_scalar=True)
         def q4(n: int) -> pxt.Query:
@@ -531,6 +580,64 @@ class TestFunction:
 
         res = t.select(t.c4, result=q4(4)).limit(2).collect()
         assert res[0]['result'][0] == [2, 3, 4]
+
+    def test_query_with_limit_errors(self, test_tbl: pxt.Table) -> None:
+        """limit()/offset() reject non-(int constant | query parameter) arguments."""
+        t = test_tbl
+
+        # arithmetic on a query parameter is not allowed for limit
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
+
+            @pxt.query
+            def q_arith(n: int) -> pxt.Query:
+                return t.select(t.c4).limit(n + 1)
+
+        # cast on a query parameter is not allowed for limit
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
+
+            @pxt.query
+            def q_cast(n: float) -> pxt.Query:
+                return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
+
+        # column reference is not allowed for limit
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
+            t.select(t.c4).limit(t.c2)  # type: ignore[arg-type]
+
+        # arithmetic on a query parameter is not allowed for offset
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
+
+            @pxt.query
+            def q_off_arith(n: int) -> pxt.Query:
+                return t.select(t.c4).limit(10, offset=n * 2)
+
+        # cast on a query parameter is not allowed for offset
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
+
+            @pxt.query
+            def q_off_cast(n: float) -> pxt.Query:
+                return t.select(t.c4).limit(10, offset=n.astype(pxt.Int))  # type: ignore[attr-defined]
+
+        # column reference is not allowed for offset
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
+            t.select(t.c4).limit(10, offset=t.c2)  # type: ignore[arg-type]
+
+        # negative int literal is rejected for offset
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
+            t.select(t.c4).limit(10, offset=-1)
+
+        # non-int-typed query parameter is rejected for limit
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='limit'):
+
+            @pxt.query
+            def q_str_limit(n: str) -> pxt.Query:
+                return t.select(t.c4).limit(n)  # type: ignore[arg-type]
+
+        # non-int-typed query parameter is rejected for offset
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='offset'):
+
+            @pxt.query
+            def q_str_offset(n: str) -> pxt.Query:
+                return t.select(t.c4).limit(10, offset=n)  # type: ignore[arg-type]
 
     def test_query_json_mapper(self, uses_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})

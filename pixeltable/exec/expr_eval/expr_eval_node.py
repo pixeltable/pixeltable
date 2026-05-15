@@ -84,10 +84,17 @@ class ExprEvalNode(ExecNode):
         self.outputs = np.zeros(row_builder.num_materialized, dtype=bool)
         output_slot_idxs = [e.slot_idx for e in output_exprs]
         self.outputs[output_slot_idxs] = True
+        self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
+        self._init_exec_state()
+
+    def init_bindings(self) -> None:
+        self.bind_sources = list(self.output_exprs)
+        super().init_bindings()
+
+    def _init_exec_state(self) -> None:
         self.tasks = set()
         self.error = None
-
-        self.input_iter = self.input.__aiter__()
+        self.input_iter = aiter(self.input)
         self.current_input_batch = None
         self.next_input_batch = None
         self.input_row_idx = 0
@@ -96,17 +103,17 @@ class ExprEvalNode(ExecNode):
         self.num_in_flight = 0
         self.row_pos_map = None
         self.output_buffer = RowBuffer(self.MAX_BUFFERED_ROWS)
-        self.progress_reporter = None
-
         self.num_input_rows = 0
         self.num_output_rows = 0
-
-        # self.slot_evaluators = {}
         self.schedulers = {}
-        # self._init_slot_evaluators()
-        self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
+        # evaluators are owned by eval_ctx and reused across iterations; clear per-execution state
+        # (closed flag, batched-call queue, etc.) so they accept work again
+        for evaluator in self.eval_ctx.slot_evaluators.values():
+            evaluator.reset()
+        self.progress_reporter = None
 
     def _open(self) -> None:
+        self._init_exec_state()
         self.progress_reporter = self.ctx.add_progress_reporter('Cell computations', 'cells')
 
     def set_input_order(self, maintain_input_order: bool) -> None:
@@ -185,6 +192,7 @@ class ExprEvalNode(ExecNode):
         self._log_state(f'dispatch input ({num_rows})')
 
         self.eval_ctx.init_rows(rows)
+        self.set_var_slots(rows)
         self.dispatch(rows, self.eval_ctx)
 
     def _log_state(self, prefix: str) -> None:
@@ -232,7 +240,10 @@ class ExprEvalNode(ExecNode):
         input_batch_aw: asyncio.Task | None = None
         completed_aw: asyncio.Task | None = None
         closed_evaluators = False  # True after calling Evaluator.close()
-        exprs.Expr.prepare_list(self.eval_ctx.all_exprs)
+        # self.bound_args is keyed by Variable._bind_name (prefixed for SQL execute); prepare() expects
+        # input args keyed by user-given Variable name
+        inner_args = {v.name: self.bound_args[v._bind_name] for v in self.vars}
+        exprs.Expr.prepare_list(self.eval_ctx.all_exprs, inner_args, {})
 
         try:
             while True:

@@ -241,53 +241,46 @@ class EmbeddingIndex(IndexBase):
                 f'indexed column length {expected_len}',
             )
 
-    def similarity_clause(self, val_column: catalog.Column, item: exprs.Literal) -> sql.ColumnElement:
-        """Create a ColumnElement that represents '<val_column> <op> <item>'"""
-        if item.col_type.is_array_type():
-            # Array value is already a vector; no embedding function needed.
-            embedding = item.val
-            assert isinstance(embedding, np.ndarray)
-            assert isinstance(val_column.col_type, ts.ArrayType)
-            self._validate_query_vector(embedding, val_column.col_type)
-        else:
-            assert item.col_type._type in self.embeddings
-            embedding = self.embeddings[item.col_type._type].exec([item.val], {})
-            assert isinstance(embedding, np.ndarray)
+    def compute_query_embedding(self, val: Any, val_type: ts.ColumnType, val_col_type: ts.ColumnType) -> np.ndarray:
+        """Convert a query value into the embedding used for similarity comparisons."""
+        if val_type.is_array_type():
+            assert isinstance(val, np.ndarray)
+            assert isinstance(val_col_type, ts.ArrayType)
+            self._validate_query_vector(val, val_col_type)
+            return val
+        assert val_type._type in self.embeddings
+        embedding = self.embeddings[val_type._type].exec([val], {})
+        assert isinstance(embedding, np.ndarray)
+        return embedding
 
+    def similarity_clause(self, val_column: catalog.Column, query: sql.ColumnElement) -> sql.ColumnElement:
+        """Create a ColumnElement that represents '<val_column> <op> <query>'.
+
+        query is either a bound vector value or a bindparam of the index's vector type.
+        """
         # In arithmetic operations between floats and ints (or between vector and int), CockroachDB requires an explicit
         # cast. Otherwise the query fails.
         cast_ints = Env.get().is_using_cockroachdb
         one = cast(1, sql.types.Float) if cast_ints else 1
         neg_one = cast(-1, sql.types.Float) if cast_ints else -1
         if self.metric == self.Metric.COSINE:
-            return val_column.sa_col.cosine_distance(embedding) * neg_one + one
+            return val_column.sa_col.cosine_distance(query) * neg_one + one
         elif self.metric == self.Metric.IP:
-            return val_column.sa_col.max_inner_product(embedding) * neg_one
+            return val_column.sa_col.max_inner_product(query) * neg_one
         else:
-            return val_column.sa_col.l2_distance(embedding)
+            return val_column.sa_col.l2_distance(query)
 
-    def order_by_clause(self, val_column: catalog.Column, item: exprs.Literal, is_asc: bool) -> sql.ColumnElement:
+    def order_by_clause(self, val_column: catalog.Column, query: sql.ColumnElement, is_asc: bool) -> sql.ColumnElement:
         """Create a ColumnElement that is used in an ORDER BY clause"""
-        if item.col_type.is_array_type():
-            # Array value is already a vector; no embedding function needed.
-            embedding = item.val
-            assert isinstance(embedding, np.ndarray)
-            assert isinstance(val_column.col_type, ts.ArrayType)
-            self._validate_query_vector(embedding, val_column.col_type)
-        else:
-            assert item.col_type._type in self.embeddings
-            embedding = self.embeddings[item.col_type._type].exec([item.val], {})
-            assert isinstance(embedding, np.ndarray)
-
         if self.metric == self.Metric.COSINE:
-            result = val_column.sa_col.cosine_distance(embedding)
+            result = val_column.sa_col.cosine_distance(query)
             result = result.desc() if is_asc else result
         elif self.metric == self.Metric.IP:
-            result = val_column.sa_col.max_inner_product(embedding)
+            result = val_column.sa_col.max_inner_product(query)
             result = result.desc() if is_asc else result
         else:
             assert self.metric == self.Metric.L2
-            result = val_column.sa_col.l2_distance(embedding)
+            result = val_column.sa_col.l2_distance(query)
         return result
 
     @classmethod
