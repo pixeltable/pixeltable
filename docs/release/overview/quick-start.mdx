@@ -211,21 +211,21 @@ This guide will help you spin up a functioning AI workload in 5 minutes.
     </Note>
   </Step>
 
-  <Step>
-    Insert a few more images.
-
+  <Step title="Insert More Data">
     ```python
     t.insert([
       {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000034.jpg'},
       {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000057.jpg'}
     ])
 
-    t.select(t.image, t.labels, t.description).collect()
+    t.select(t.image, t.labels).collect()
     ```
 
     <Note>
-    When new data is insterted into tables, Pixeltable incrementally runs all
+    When new data is inserted into tables, Pixeltable incrementally runs all
     computed columns against the new data, ensuring the table is up to date.
+    If you completed the optional LLM Vision step, the descriptions will also
+    be generated automatically for these new images.
     </Note>
   </Step>
 </Steps>
