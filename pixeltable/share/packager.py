@@ -67,7 +67,7 @@ class TablePackager:
 
         # Load metadata and convert to JSON immediately
         with get_runtime().catalog.begin_xact(for_write=False):
-            tbl_md = get_runtime().catalog.load_replica_md(table)
+            tbl_md = get_runtime().catalog.load_md_for_export(table, as_replica=True)
             self.bundle_md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
@@ -805,7 +805,12 @@ class TableRestorer:
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
                 self.media_files[url] = ObjectOps.put_file(
-                    tbl_id, tbl_version, col_md, src_path, relocate_or_delete=True
+                    destination=col_md.destination,
+                    tbl_id=tbl_id,
+                    col_id=col_md.id,
+                    tbl_version=tbl_version,
+                    src_path=src_path,
+                    relocate_or_delete=True,
                 )
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.

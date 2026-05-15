@@ -50,6 +50,8 @@ class Expr(abc.ABC):
 
     All Pixeltable expressions, including [column references][pixeltable.exprs.ColumnRef] (such as `t.col`),
     UDF calls (`t.my_string.lower()`), and compound expressions (`t.col + 5`) are instances of this class.
+
+    Not thread-safe: Expr and subclasses contain execution state and are never thread-safe.
     """
 
     # Rules for using state in subclasses:
@@ -403,11 +405,17 @@ class Expr(abc.ABC):
         return any(c._has_relative_path() for c in self.components)
 
     def tbl_ids(self) -> set[UUID]:
-        """Returns table ids referenced by this expr."""
+        """Returns table ids referenced by this expr.
+
+        Avoids calling col_handle.get() / tbl_handle.get() / col property,
+        because those resolve through the per-thread catalog and would fire the cross-thread
+        assertion on a Query that's being used from a different thread than where it was
+        constructed.
+        """
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
 
-        return {ref.col.get_tbl().id for ref in self.subexprs(ColumnRef)} | {
+        return {ref.col_handle.tbl_version.id for ref in self.subexprs(ColumnRef)} | {
             ref.tbl.id for ref in self.subexprs(RowidRef)
         }
 
@@ -508,17 +516,21 @@ class Expr(abc.ABC):
         """
         pass
 
-    def prepare(self) -> None:
+    def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         """
-        Create execution state. This is called before the first eval() call.
+        Create execution state. Called before each iteration begins.
+
+        args: Variable name -> value (already coerced via ColumnType.create_literal).
+        bound_args: out-param. Subclasses register name -> value entries that the executor needs at
+        run time (e.g. Variable values for slot population, SQL bindparam values for conn.execute).
         """
         for c in self.components:
-            c.prepare()
+            c.prepare(args, bound_args)
 
     @classmethod
-    def prepare_list(cls, expr_list: Iterable[Expr]) -> None:
+    def prepare_list(cls, expr_list: Iterable[Expr], args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         for e in expr_list:
-            e.prepare()
+            e.prepare(args, bound_args)
 
     def release(self) -> None:
         """

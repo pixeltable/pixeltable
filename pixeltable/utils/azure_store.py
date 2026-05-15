@@ -14,13 +14,10 @@ from azure.storage.blob import BlobSasPermissions, generate_blob_sas
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress
+from pixeltable.utils.object_stores import FileDestination, ObjectPath, ObjectStoreBase, StorageObjectAddress
 
 if TYPE_CHECKING:
     from azure.storage.blob import BlobProperties, BlobServiceClient
-
-    import pixeltable.metadata.schema as schema
-
 
 _logger = logging.getLogger('pixeltable')
 
@@ -134,18 +131,25 @@ class AzureBlobStore(ObjectStoreBase):
             self.handle_azure_error(e, self.container_name, f'download file {src_path}')
             raise
 
-    def copy_local_file(self, tbl_id: uuid.UUID, tbl_version: int, col_md: 'schema.ColumnMd', src_path: Path) -> str:
-        """Copy a local file to Azure Blob Storage, and return its new URL"""
-        prefix, filename = ObjectPath.create_prefix_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
+    # def copy_local_file(self, tbl_id: uuid.UUID, tbl_version: int, col_md: 'schema.ColumnMd', src_path: Path) -> str:
+    #     """Copy a local file to Azure Blob Storage, and return its new URL"""
+    #     prefix, filename = ObjectPath.create_prefix_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
+    def resolve_destination(
+        self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
+    ) -> FileDestination:
+        prefix, filename = ObjectPath.create_prefix_raw(tbl_id, col_id, tbl_version, ext=ext)
         blob_name = f'{self.prefix}{prefix}/{filename}'
-        new_file_uri = f'{self.__base_uri}{prefix}/{filename}'
+        url = f'{self.__base_uri}{prefix}/{filename}'
+        return FileDestination(url=url, remote_key=blob_name)
 
+    def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
+        assert dest.remote_key is not None
         try:
-            blob_client = self.client().get_blob_client(container=self.container_name, blob=blob_name)
+            blob_client = self.client().get_blob_client(container=self.container_name, blob=dest.remote_key)
             with open(src_path, 'rb') as data:
                 blob_client.upload_blob(data, overwrite=True)
-            _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
-            return new_file_uri
+            _logger.debug(f'Media Storage: copied {src_path} to {dest.url}')
+            return dest.url
         except AzureError as e:
             self.handle_azure_error(e, self.container_name, f'upload file {src_path}')
             raise

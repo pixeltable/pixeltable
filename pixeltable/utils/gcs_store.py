@@ -5,7 +5,7 @@ import re
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import Any, Iterator
 
 from google.api_core.exceptions import GoogleAPIError
 from google.cloud import storage  # type: ignore[attr-defined]
@@ -14,11 +14,13 @@ from google.cloud.storage.client import Client  # type: ignore[import-untyped]
 
 from pixeltable import env, exceptions as excs
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
-
-if TYPE_CHECKING:
-    import pixeltable.metadata.schema as schema
-    from pixeltable.catalog import Column
+from pixeltable.utils.object_stores import (
+    FileDestination,
+    ObjectPath,
+    ObjectStoreBase,
+    StorageObjectAddress,
+    StorageTarget,
+)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -109,26 +111,34 @@ class GCSStore(ObjectStoreBase):
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def _prepare_uri(self, col: Column, ext: str | None = None) -> str:
-        """
-        Construct a new, unique URI for a persisted media file.
-        """
-        assert col.get_tbl() is not None, 'Column must be associated with a table'
-        return self._prepare_uri_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext=ext)
+    # def _prepare_uri(self, col: Column, ext: str | None = None) -> str:
+    #     """
+    #     Construct a new, unique URI for a persisted media file.
+    #     """
+    #     assert col.get_tbl() is not None, 'Column must be associated with a table'
+    #     return self._prepare_uri_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext=ext)
 
-    def copy_local_file(self, tbl_id: uuid.UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str:
-        """Copy a local file, and return its new URL"""
-        new_file_uri = self._prepare_uri_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
-        parsed = urllib.parse.urlparse(new_file_uri)
+    # def copy_local_file(self, tbl_id: uuid.UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str:
+    #     """Copy a local file, and return its new URL"""
+    #     new_file_uri = self._prepare_uri_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
+    #     parsed = urllib.parse.urlparse(new_file_uri)
+    def resolve_destination(
+        self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
+    ) -> FileDestination:
+        url = self._prepare_uri_raw(tbl_id, col_id, tbl_version, ext=ext)
+        parsed = urllib.parse.urlparse(url)
         blob_name = parsed.path.lstrip('/')
+        return FileDestination(url=url, remote_key=blob_name)
 
+    def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
+        assert dest.remote_key is not None
         try:
             client = self.client()
             bucket = client.bucket(self.bucket_name)
-            blob = bucket.blob(blob_name)
+            blob = bucket.blob(dest.remote_key)
             blob.upload_from_filename(str(src_path))
-            _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
-            return new_file_uri
+            _logger.debug(f'Media Storage: copied {src_path} to {dest.url}')
+            return dest.url
         except GoogleAPIError as e:
             self.handle_gcs_error(e, self.bucket_name, f'upload file {src_path}')
             raise

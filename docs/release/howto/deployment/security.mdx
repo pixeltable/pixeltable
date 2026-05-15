@@ -43,7 +43,7 @@ For orchestration-only deployments:
 ### Orchestration Layer Recovery
 
 1. Deploy fresh Pixeltable instance
-2. Run `setup_pixeltable.py` to recreate schema
+2. Run `python setup_pixeltable.py` to recreate schema (idempotent with `if_exists='ignore'`)
 3. Re-process data through computed columns (incremental)
 
 ## Security Best Practices

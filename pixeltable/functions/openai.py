@@ -923,17 +923,17 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         ...     gen_image=image_generations(tbl.text, model='dall-e-2')
         ... )
 
-        Generate an image using the `gpt-image-1` model:
+        Generate an image using the `gpt-image-2` model:
 
         >>> tbl.add_computed_column(
-        ...     gen_image=image_generations(tbl.text, model='gpt-image-1')
+        ...     gen_image=image_generations(tbl.text, model='gpt-image-2')
         ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
 
     kwargs: dict[str, Any] = {'prompt': prompt, 'model': model, **model_kwargs}
-    # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
+    # GPT image models do not support the response_format parameter and always return b64_json.
     # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
     # https://developers.openai.com/api/reference/resources/images/methods/generate
     if not _is_gpt_image_model(model):
@@ -995,7 +995,7 @@ async def image_edits(
         ...     edited=image_edits(
         ...         tbl.source_image,
         ...         prompt='Add a sunset background',
-        ...         model='gpt-image-1',
+        ...         model='gpt-image-2',
         ...     )
         ... )
 
@@ -1006,7 +1006,7 @@ async def image_edits(
         ...         tbl.source_image,
         ...         mask=tbl.mask_image,
         ...         prompt='Replace with a beach scene',
-        ...         model='gpt-image-1',
+        ...         model='gpt-image-2',
         ...     )
         ... )
     """
@@ -1019,7 +1019,7 @@ async def image_edits(
     if mask is not None:
         kwargs['mask'] = _pil_to_png_bytes(mask)
 
-    # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
+    # GPT image models do not support the response_format parameter and always return b64_json.
     # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
     # https://developers.openai.com/api/reference/resources/images/methods/edit
     if not _is_gpt_image_model(model):
@@ -1076,7 +1076,7 @@ async def image_variations(image: PIL.Image.Image, *, model: str, model_kwargs: 
 
     png_image_buffer = _pil_to_png_bytes(image)
     kwargs: dict[str, Any] = {'image': png_image_buffer, 'model': model, **model_kwargs}
-    # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
+    # GPT image models do not support the response_format parameter and always return b64_json.
     # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
     # https://developers.openai.com/api/reference/resources/images/methods/create_variation
     if not _is_gpt_image_model(model):
@@ -1133,12 +1133,10 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
         Details of the moderations results.
 
     Examples:
-        Add a computed column that applies the model `text-moderation-stable` to an existing
-        Pixeltable column `tbl.input` of the table `tbl`:
+        Add a computed column that applies the default moderation model to an existing Pixeltable column `tbl.input`
+        of the table `tbl`:
 
-        >>> tbl.add_computed_column(
-        ...     moderations=moderations(tbl.text, model='text-moderation-stable')
-        ... )
+        >>> tbl.add_computed_column(moderations=moderations(tbl.input))
     """
     result = await _openai_client().moderations.create(input=input, model=model)
     return result.dict()

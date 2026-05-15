@@ -6,6 +6,7 @@ import itertools
 import logging
 import time
 import uuid
+import warnings
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 from uuid import UUID
 
@@ -34,8 +35,8 @@ from .tbl_ops import (
     DeleteTableMdOp,
     DeleteTableMediaFilesOp,
     DropStoreTableOp,
-    OpStatus,
     TableOp,
+    TableOpsBuilder,
 )
 from .update_status import RowCountStats, UpdateStatus
 
@@ -429,14 +430,21 @@ class TableVersion:
         for dest in destinations:
             ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
 
-    def drop(self) -> list[TableOp]:
+    def drop_ops(self) -> tuple[list[TableOp], bool]:
+        """Returns a tuple of drop table ops, and a boolean that indicates whether a new table and schema
+        versions were created."""
+        new_version = self.is_mutable and self.is_versioned
+        if new_version:
+            self.bump_version(bump_schema_version=True)
         id_str = str(self.id)
-        ops = [
-            DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, status=OpStatus.PENDING),
-            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, status=OpStatus.PENDING, is_view=self.is_view),
-            DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, status=OpStatus.PENDING),
-        ]
-        return ops
+        ops = (
+            TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
+            .add(DeleteTableMediaFilesOp)
+            .add(DropStoreTableOp, is_view=self.is_view)
+            .add(DeleteTableMdOp)
+            .build()
+        )
+        return ops, new_version
 
     def init(self) -> None:
         """
@@ -456,51 +464,10 @@ class TableVersion:
     def _init_schema(self) -> None:
         from pixeltable.store import StoreComponentView, StoreTable, StoreView
 
-        # initialize IndexBase instances and collect sa_col_types
-        idxs: dict[int, index.IndexBase] = {}
-        idxs_with_md: list[tuple[schema.IndexMd, index.IndexBase]] = []
-        for md in self.tbl_md.index_md.values():
-            cls_name = md.class_fqn.rsplit('.', 1)[-1]
-            cls = getattr(index, cls_name)
-            idx = cls.from_dict(md.init_args)
-            idxs[md.id] = idx
-            idxs_with_md.append((md, idx))
+        assert len(self.cols) == 0
+        assert len(self.idxs) == 0
 
-        # initialize Columns
-        self.cols = self._init_cols_from_md(idxs_with_md)
-        self.cols_by_name = {}
-        self.cols_by_id = {}
-        # populate lookup structures before Expr.from_dict()
-        for col in self.cols:
-            if col.name is not None:
-                self.cols_by_name[col.name] = col
-            self.cols_by_id[col.id] = col
-
-        if self.supports_idxs:
-            # create IndexInfo for indices visible in current_version
-            visible_idxs = [
-                md
-                for md in self.tbl_md.index_md.values()
-                if md.schema_version_add <= self.schema_version
-                and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
-            ]
-            for md in visible_idxs:
-                idx = idxs[md.id]
-                indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
-                idx_col = self._lookup_column(indexed_col_id)
-                info = self.IndexInfo(
-                    id=md.id,
-                    name=md.name,
-                    idx=idx,
-                    col=idx_col,
-                    val_col=self.cols_by_id[md.index_val_col_id],
-                    undo_col=self.cols_by_id[md.index_val_undo_col_id],
-                )
-                self.idxs[md.id] = info
-                self.idxs_by_name[md.name] = info
-                self.idxs_by_col.setdefault(indexed_col_id, []).append(info)
-
-        # create value exprs, now that we have all lookup structures in place
+        # Construct a TableVersionPath for column retargeting, if needed
         tvp: TableVersionPath | None = None
         if self.effective_version is not None:
             # for snapshot TableVersion instances, we need to retarget the column value_exprs to the snapshot;
@@ -514,23 +481,16 @@ class TableVersion:
             # "anchored" TableVersionPath.
             assert self.path is not None
             tvp = self.path
-        for col in self.cols_by_id.values():
-            col.init_value_expr(tvp)
 
-        # create the sqlalchemy schema, after instantiating all Columns
-        if self.is_component_view:
-            self.store_tbl = StoreComponentView(self)
-        elif self.is_view:
-            self.store_tbl = StoreView(self)
-        else:
-            self.store_tbl = StoreTable(self)
+        # Reconstruct Column and Index objects from metadata, populating all internal lookup structures.
+        # Indexes are initialized in lock-step, immediately after their undo column is initialized.
+        # TODO val_col_to_idx is unused
+        val_col_to_idx, undo_col_to_idx = self._build_col_to_idx_maps()
+        _ = val_col_to_idx
 
-    # TODO unused indexes param
-    def _init_cols_from_md(self, indexes: list[tuple[schema.IndexMd, index.IndexBase]]) -> list[Column]:
         # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
         # point backward.
         sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
-        cols = []
         for col_md in sorted_column_md:
             if not col_md.is_live_in_version(self.schema_version):
                 continue
@@ -542,7 +502,19 @@ class TableVersion:
                 else None
             )
 
+            # sa_col_type: sql.types.TypeEngine | None = None
+            # if col_md.id in val_col_to_idx:
+            #     sa_col_type = val_col_to_idx[col_md.id][0].get_index_sa_type(col_type)
+            # elif col_md.id in undo_col_to_idx:
+            #     sa_col_type = undo_col_to_idx[col_md.id][0].get_index_sa_type(col_type)
+
             is_iterator_col = self.is_component_view and col_md.id < self.num_iterator_cols
+            is_visible = col_md.schema_version_add <= self.schema_version and (
+                col_md.schema_version_drop is None or col_md.schema_version_drop > self.schema_version
+            )
+
+            value_expr = self._init_col_value_expr_from_md(schema_col_md, tvp) if is_visible else None
+
             col = Column(
                 col_id=col_md.id,
                 name=schema_col_md.name,
@@ -555,14 +527,100 @@ class TableVersion:
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
                 stores_cellmd=col_md.stores_cellmd,
+                computed_with=value_expr,
                 value_expr_dict=schema_col_md.value_expr,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
                 custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
                 comment=schema_col_md.comment if schema_col_md is not None else '',
             )
-            cols.append(col)
-        return cols
+
+            self.cols.append(col)
+            if is_visible:
+                if col.name is not None:
+                    self.cols_by_name[col.name] = col
+                self.cols_by_id[col.id] = col
+
+            # Finally initialize the index whose undo column this is. Undo columns have the highest col id of all
+            # columns involved in an index, so by the time undo column is initialized, the index can be initialized
+            # as well.
+            if self.supports_idxs and col.id in undo_col_to_idx:
+                idx, idx_md = undo_col_to_idx[col.id]
+                is_active = idx_md.schema_version_add <= self.schema_version and (
+                    idx_md.schema_version_drop is None or idx_md.schema_version_drop > self.schema_version
+                )
+                if is_active:
+                    self._init_idx(idx, idx_md)
+
+        # create the sqlalchemy schema, after instantiating all Columns
+        if self.is_component_view:
+            self.store_tbl = StoreComponentView(self)
+        elif self.is_view:
+            self.store_tbl = StoreView(self)
+        else:
+            self.store_tbl = StoreTable(self)
+
+    def _init_col_value_expr_from_md(
+        self, schema_col_md: schema.SchemaColumn, tvp: 'TableVersionPath | None'
+    ) -> exprs.Expr | None:
+        if schema_col_md.value_expr is None:
+            return None
+        value_expr = exprs.Expr.from_dict(schema_col_md.value_expr)
+        value_expr.bind_rel_paths()
+        if not value_expr.is_valid:
+            col_name = schema_col_md.name if schema_col_md is not None else '<unnamed>'
+            message = '\n'.join(
+                [
+                    f'The computed column {col_name!r} in table {self.name!r} is no longer valid.',
+                    value_expr.validation_error,
+                    'You can continue to query existing data from this column, but evaluating it on new data will raise an error.',  # noqa: E501
+                ]
+            )
+            warnings.warn(message, category=excs.PixeltableWarning)  # noqa: B028
+        if tvp is not None:
+            value_expr = value_expr.retarget(tvp)
+        return value_expr
+
+    def _build_col_to_idx_maps(
+        self,
+    ) -> tuple[dict[int, tuple[index.IndexBase, schema.IndexMd]], dict[int, tuple[index.IndexBase, schema.IndexMd]]]:
+        """Build lookup structures needed to initialize indexes from metadata in the column loop.
+
+        Returns:
+            val_col_to_idx: maps index value column ids -> (IndexBase, IndexMd)
+            undo_col_to_idx: maps index undo column ids -> (IndexBase, IndexMd)
+        """
+        indexes: list[tuple[schema.IndexMd, index.IndexBase]] = []
+        for md in self.tbl_md.index_md.values():
+            cls_name = md.class_fqn.rsplit('.', 1)[-1]
+            cls = getattr(index, cls_name)
+            indexes.append((md, cls.from_dict(md.init_args)))
+
+        val_col_to_idx: dict[int, tuple[index.IndexBase, schema.IndexMd]] = {}
+        undo_col_to_idx: dict[int, tuple[index.IndexBase, schema.IndexMd]] = {}
+        for idx_md, idx in indexes:
+            assert idx_md.index_val_col_id not in val_col_to_idx
+            assert idx_md.index_val_undo_col_id not in undo_col_to_idx
+            val_col_to_idx[idx_md.index_val_col_id] = (idx, idx_md)
+            undo_col_to_idx[idx_md.index_val_undo_col_id] = (idx, idx_md)
+
+        return val_col_to_idx, undo_col_to_idx
+
+    def _init_idx(self, idx: index.IndexBase, md: schema.IndexMd) -> None:
+        indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+        idx_col = self._lookup_column(indexed_col_id)
+        assert idx_col is not None
+        info = self.IndexInfo(
+            id=md.id,
+            name=md.name,
+            idx=idx,
+            col=idx_col,
+            val_col=self.cols_by_id[md.index_val_col_id],
+            undo_col=self.cols_by_id[md.index_val_undo_col_id],
+        )
+        self.idxs[md.id] = info
+        self.idxs_by_name[md.name] = info
+        self.idxs_by_col.setdefault(indexed_col_id, []).append(info)
 
     def _lookup_column(self, qid: QColumnId) -> Column | None:
         """
@@ -758,16 +816,15 @@ class TableVersion:
             idx_ids.append(self._create_index_md(col, val_col, undo_col, idx_name=None, idx=idx))
 
         id_str = str(self.id)
-        tbl_ops = [
-            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=4, status=OpStatus.PENDING),
-            CreateColumnMdOp(
-                tbl_id=id_str, op_sn=1, num_ops=4, status=OpStatus.PENDING, column_ids=[col.id for col in all_cols]
-            ),
-            CreateStoreColumnsOp(
-                tbl_id=id_str, op_sn=2, num_ops=4, status=OpStatus.PENDING, column_ids=[col.id for col in all_cols]
-            ),
-            CreateStoreIdxsOp(tbl_id=id_str, op_sn=3, num_ops=4, status=OpStatus.PENDING, idx_ids=idx_ids),
-        ]
+        col_ids = [col.id for col in all_cols]
+        tbl_ops = (
+            TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
+            .add(CreateTableVersionOp)
+            .add(CreateColumnMdOp, column_ids=col_ids)
+            .add(CreateStoreColumnsOp, column_ids=col_ids)
+            .add(CreateStoreIdxsOp, idx_ids=idx_ids)
+            .build()
+        )
         return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops
 
     def add_columns(

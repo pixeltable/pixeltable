@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import warnings
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
 from pixeltable import catalog, exceptions as excs
@@ -28,7 +26,6 @@ from .globals import MediaValidation, QColumnId, is_system_column_name, is_valid
 if TYPE_CHECKING:
     from .table_version import TableVersion
     from .table_version_handle import ColumnHandle, TableVersionHandle
-    from .table_version_path import TableVersionPath
 
 
 class Column:
@@ -74,6 +71,7 @@ class Column:
     sa_col_type: sql.types.TypeEngine | None
     sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
     _value_expr: exprs.Expr | None
+    # TODO it is likely not required anymore, and with some additional work can be removed.
     value_expr_dict: dict[str, Any] | None
     # we store a handle here in order to allow Column construction before there is a corresponding TableVersion
     tbl_handle: 'TableVersionHandle' | None
@@ -428,39 +426,6 @@ class Column:
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {self.name!r}: `destination` property only applies to stored computed columns',
             )
-
-    def init_value_expr(self, tvp: 'TableVersionPath' | None) -> None:
-        """
-        Initialize the value_expr from its dict representation, if necessary.
-
-        If `tvp` is not None, retarget the value_expr to the given TableVersionPath.
-        """
-        from pixeltable import exprs
-
-        if self._value_expr is None and self.value_expr_dict is None:
-            return
-
-        if self._value_expr is None:
-            # Instantiate the Expr from its dict
-            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
-            self._value_expr.bind_rel_paths()
-            if not self._value_expr.is_valid:
-                message = (
-                    dedent(
-                        f"""
-                        The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
-                        {{validation_error}}
-                        You can continue to query existing data from this column, but evaluating it on new data will raise an error.
-                        """  # noqa: E501
-                    )
-                    .strip()
-                    .format(validation_error=self._value_expr.validation_error)
-                )
-                warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
-
-        if tvp is not None:
-            # Retarget the Expr
-            self._value_expr = self._value_expr.retarget(tvp)
 
     def get_tbl(self) -> TableVersion:
         tv = self.tbl_handle.get()

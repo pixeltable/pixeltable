@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import AsyncIterator, Iterator, NamedTuple
 
 from pixeltable import exprs
-from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
+from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
@@ -51,7 +51,11 @@ class ObjectStoreSaveNode(ExecNode):
     class WorkItem(NamedTuple):
         src_path: Path
         destination: str | None
-        info: exprs.ColumnSlotIdx  # column info for the file being processed
+        info: exprs.ColumnSlotIdx  # column info for the file being processed (caller-thread post-processing only)
+        # Resolved on the caller thread so that worker threads do not need catalog access
+        # to perform the file write.
+        store: ObjectStoreBase
+        dest: FileDestination
         destination_count: int = 1  # number of unique destinations for this file
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
@@ -90,22 +94,25 @@ class ObjectStoreSaveNode(ExecNode):
         super().__init__(input.row_builder, [], [], input)
         self.retain_input_order = retain_input_order
         self.file_col_info = file_col_info
+        assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
+        self._init_exec_state()
 
+    @property
+    def queued_work(self) -> int:
+        return len(self.in_flight_requests)
+
+    def _init_exec_state(self) -> None:
         self.num_returned_rows = 0
         self.ready_rows = deque()
         self.in_flight_rows = {}
         self.in_flight_requests = {}
         self.in_flight_work = {}
         self.input_finished = False
-        self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
+        self.row_idx = itertools.count() if self.retain_input_order else itertools.repeat(None)
         self.progress_reporter = None
-        assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
-
-    @property
-    def queued_work(self) -> int:
-        return len(self.in_flight_requests)
 
     def _open(self) -> None:
+        self._init_exec_state()
         self.progress_reporter = self.ctx.add_progress_reporter('Uploads', 'objects', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
@@ -251,7 +258,13 @@ class ObjectStoreSaveNode(ExecNode):
                 num_missing += 1
                 continue
 
-            work_item = ObjectStoreSaveNode.WorkItem(src_path, destination, info)
+            # Resolve the destination on the caller thread (catalog context). The worker thread
+            # consumes only store and dest and never accesses catalog state.
+            store = ObjectOps.get_store(destination, False, col.name)
+            dest = store.resolve_destination(col.tbl_handle.id, col.id, col.get_tbl().version, ext=src_path.suffix)
+            work_item = ObjectStoreSaveNode.WorkItem(
+                src_path=src_path, destination=destination, info=info, store=store, dest=dest
+            )
             row_to_do.append(work_item)
             self.in_flight_work[work_designator] = [(row, info)]
             num_missing += 1
@@ -264,13 +277,8 @@ class ObjectStoreSaveNode(ExecNode):
                 new_to_do.append(work_item)
             else:
                 new_to_do.append(
-                    ObjectStoreSaveNode.WorkItem(
-                        work_item.src_path,
-                        work_item.destination,
-                        work_item.info,
-                        destination_count=unique_destinations[work_item.src_path] + 1,
-                        # +1 for the TempStore destination
-                    )
+                    work_item._replace(destination_count=unique_destinations[work_item.src_path] + 1)
+                    # +1 for the TempStore destination
                 )
         delete_destinations = [k for k, v in unique_destinations.items() if v > 1 and TempStore.contains_path(k)]
         row_to_do = new_to_do
@@ -302,17 +310,25 @@ class ObjectStoreSaveNode(ExecNode):
             _logger.debug(f'submitted {work_item}')
 
     def __persist_media_file(self, work_item: WorkItem) -> tuple[str | None, Exception | None]:
-        """Move data from the TempStore to another location"""
-        src_path = work_item.src_path
-        col = work_item.info.col
-        assert col.destination == work_item.destination
-        tbl_id = col.get_tbl().id
-        tbl_version = col.get_tbl().version
-        # TODO this is a hack, to_md needs to be split (back) in two functions. ColumnMd doesn't need pos
-        col_md = col.to_md(None if col.name is None else 0)[0]
+        # src_path = work_item.src_path
+        # col = work_item.info.col
+        # assert col.destination == work_item.destination
+        # tbl_id = col.get_tbl().id
+        # tbl_version = col.get_tbl().version
+        # # TODO this is a hack, to_md needs to be split (back) in two functions. ColumnMd doesn't need pos
+        # col_md = col.to_md(None if col.name is None else 0)[0]
+        # try:
+        #     new_file_url = ObjectOps.put_file(tbl_id, tbl_version, col_md, src_path, work_item.destination_count == 1)
+        """Move data from the TempStore to another location.
+
+        Runs on a worker thread of the ThreadPoolExecutor. Performs no catalog access:
+        the destination was resolved on the caller thread when the WorkItem was built.
+        """
         try:
-            new_file_url = ObjectOps.put_file(tbl_id, tbl_version, col_md, src_path, work_item.destination_count == 1)
+            new_file_url = ObjectOps.put_file_resolved(
+                work_item.store, work_item.src_path, work_item.dest, work_item.destination_count == 1
+            )
             return new_file_url, None
         except Exception as e:
-            _logger.debug(f'Failed to move/copy {src_path}: {e}', exc_info=e)
+            _logger.debug(f'Failed to move/copy {work_item.src_path}: {e}', exc_info=e)
             return None, e

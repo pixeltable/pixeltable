@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any, List, Literal, Mapping
@@ -20,7 +21,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, OpStatus, TableOp
+from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -89,7 +90,6 @@ class View(Table):
         iterator_call: func.GeneratingFunctionCall | None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
-        from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
         include_base_columns: bool = select_list is None
@@ -119,11 +119,9 @@ class View(Table):
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
                 )
+
             # create a copy that we can modify and store
-            sc = sample_clause
-            sample_clause = SampleClause(
-                sc.version, sc.n, sc.n_per_stratum, sc.fraction, sc.seed, sc.stratify_exprs.copy()
-            )
+            sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
 
         # same for value exprs
         for col in columns:
@@ -212,11 +210,13 @@ class View(Table):
             tbl_id = md.tbl_md.tbl_id
             key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
-            ops = [
-                CreateTableMdOp(tbl_id=tbl_id, op_sn=0, num_ops=3, status=OpStatus.PENDING),
-                CreateStoreTableOp(tbl_id=tbl_id, op_sn=1, num_ops=3, status=OpStatus.PENDING),
-                LoadViewOp(tbl_id=tbl_id, op_sn=2, num_ops=3, status=OpStatus.PENDING, view_path=view_path.as_dict()),
-            ]
+            ops = (
+                TableOpsBuilder(tbl_id, tbl_version=md.tbl_md.current_version)
+                .add(CreateTableMdOp)
+                .add(CreateStoreTableOp)
+                .add(LoadViewOp, view_path=view_path.as_dict())
+                .build()
+            )
             return md, ops
 
     @classmethod
@@ -313,11 +313,13 @@ class View(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
+        self._validate_thread()
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot insert into a {self._display_name()}.'
         )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
+        self._validate_thread()
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot delete from a {self._display_name()}.'
         )

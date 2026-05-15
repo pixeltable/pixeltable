@@ -42,6 +42,7 @@ class ErrorCode(enum.Enum):
     ROW_NOT_FOUND = 1006, 404, False
     STORAGE_NOT_FOUND = 1007, 404, False
     SERVICE_NOT_FOUND = 1008, 404, False
+    DEPLOYMENT_NOT_FOUND = 1009, 404, False
 
     # AlreadyExistsError (2xxx)
     COLUMN_ALREADY_EXISTS = 2000, 409, False
