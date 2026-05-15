@@ -1,10 +1,21 @@
 import threading
+import time
 from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
 from tests.utils import DummyIterator, pxt_raises, validate_update_status
+
+
+@pxt.udf
+def _make_label(s: str) -> str:
+    return f'lbl_{s}'
+
+
+@pxt.udf
+def _combine(n: int, double: int, s: str) -> str:
+    return f'{s}:{n}:{double}'
 
 
 def _run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:
@@ -200,17 +211,158 @@ class TestConcurrentOps:
         validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
 
         @pxt.query
-        def find_above(threshold: int) -> pxt.Query:
-            return t.where(t.a >= threshold).select(t.a)
+        def find_range(lower: int, upper: int) -> pxt.Query:
+            return t.where((t.a >= lower) & (t.a <= upper)).select(t.a)
+
+        # driver with varying centers; each [center-5, center+5] stays inside [0, 49] and contains
+        # exactly 11 values so every per-row inner invocation has a deterministic length
+        driver = pxt.create_table('t15_driver', {'center': pxt.Required[pxt.Int]})
+        n_rows = 10
+        validate_update_status(driver.insert([{'center': i % 40 + 5} for i in range(n_rows)]), expected_rows=n_rows)
 
         def worker(_tid: int) -> None:
+            # pre-resolve both tables on this thread so they're catalog-warm before find_range's
+            # inner invocation tries to load t inside the outer xact
+            pxt.get_table('t15')
+            driver_w = pxt.get_table('t15_driver')
             for _ in range(self.ITERATIONS):
-                bound = find_above.template_query.bind({'threshold': 40})
-                rows = bound.collect()
-                assert len(rows) == 10
+                result = driver_w.select(rows=find_range(driver_w.center - 5, driver_w.center + 5)).collect()
+                assert len(result) == n_rows
+                assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
         assert errors == [], f'errors: {errors[:3]}'
+
+    @pytest.mark.skip(
+        reason='Known issue: an outer query that calls a @pxt.query template referencing a different '
+        'table fails on a fresh thread because the inner template_query plan compilation tries to '
+        'load the inner table mid-xact. Workaround: pre-resolve the inner table via pxt.get_table() '
+        'in the worker (see test_shared_query_udf). Fix should auto-declare per-row inner-template '
+        'tables in the outer xact.'
+    )
+    def test_shared_query_udf_cross_table(self, uses_db: None) -> None:
+        # Same shape as test_shared_query_udf but the worker does not pre-resolve the inner table.
+        # The inner find_range invocation tries to load t mid-xact and fails the catalog guard.
+        # Re-enable when cross-table inner queries auto-declare their tables in the surrounding xact.
+        t = pxt.create_table('t15x', {'a': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
+
+        @pxt.query
+        def find_range(lower: int, upper: int) -> pxt.Query:
+            return t.where((t.a >= lower) & (t.a <= upper)).select(t.a)
+
+        driver = pxt.create_table('t15x_driver', {'center': pxt.Required[pxt.Int]})
+        n_rows = 10
+        validate_update_status(driver.insert([{'center': i % 40 + 5} for i in range(n_rows)]), expected_rows=n_rows)
+
+        def worker(_tid: int) -> None:
+            driver_w = pxt.get_table('t15x_driver')
+            for _ in range(self.ITERATIONS):
+                result = driver_w.select(rows=find_range(driver_w.center - 5, driver_w.center + 5)).collect()
+                assert len(result) == n_rows
+                assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_concurrent_select_insert(self, uses_db: None) -> None:
+        """
+        Concurrent threads doing select and insert operations on the same table.
+
+        Also exercises limit/offset under plan caching: a literal-limit/offset SqlNode path,
+        and a query-template-with-Variable-limit path that flows through an SQL bindparam in
+        LIMIT. Each reader iteration runs both shapes so plan invalidation across writer
+        commits is exercised on plans that include limit/offset.
+
+        TODO: programmatic validation of plan reuse (cache-hit count)
+        """
+        n0 = 20
+        t = pxt.create_table(
+            't_reader_writer',
+            {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.String], 'n': pxt.Required[pxt.Int]},
+        )
+        t.add_computed_column(s_double=t.n * 2)
+        t.add_computed_column(s_label=_make_label(t.val))
+        t.add_computed_column(u_sum=t.n + t.s_double, stored=False)
+        t.add_computed_column(u_check=_combine(t.n, t.s_double, t.val), stored=False)
+
+        validate_update_status(t.insert([{'id': i, 'val': f'v{i}', 'n': i} for i in range(n0)]), expected_rows=n0)
+
+        @pxt.query
+        def top_ids(k: int) -> pxt.Query:
+            return t.order_by(t.id).select(t.id).limit(k)
+
+        # The writer sleeps longer than the reader between operations so the reader hits stretches where
+        # the table version is unchanged and the cached plan is reused.
+
+        n_writers = 2
+        writes_per_writer = self.ITERATIONS
+        reader_iterations = self.ITERATIONS * 4
+        limit_k = 5
+        offset_j = 3
+
+        def writer(tid: int) -> None:
+            t_w = pxt.get_table('t_reader_writer')
+            for i in range(writes_per_writer):
+                row_id = n0 + tid * writes_per_writer + i
+                status = t_w.insert([{'id': row_id, 'val': f'v{row_id}', 'n': row_id}])
+                validate_update_status(status, expected_rows=1)
+                time.sleep(0.05)
+
+        def reader(_tid: int) -> None:
+            t_r = pxt.get_table('t_reader_writer')
+            prev_len = 0
+            prev_ids: set[int] = set()
+            for _ in range(reader_iterations):
+                rows = t_r.select(t_r.id, t_r.val, t_r.n, t_r.s_double, t_r.s_label, t_r.u_sum, t_r.u_check).collect()
+                cur_len = len(rows)
+                cur_ids = {row['id'] for row in rows}
+                assert cur_len >= prev_len
+                assert prev_ids.issubset(cur_ids)
+                assert all(row['s_double'] == row['n'] * 2 for row in rows)
+                assert all(row['s_label'] == f'lbl_{row["val"]}' for row in rows)
+                assert all(row['u_sum'] == row['n'] + row['s_double'] for row in rows)
+                assert all(row['u_check'] == f'{row["val"]}:{row["n"]}:{row["s_double"]}' for row in rows)
+                prev_len = cur_len
+                prev_ids = cur_ids
+
+                # Literal limit/offset
+                limited_rows = (
+                    t_r.order_by(t_r.id).select(t_r.id, t_r.s_double).limit(limit_k, offset=offset_j).collect()
+                )
+                assert len(limited_rows) <= limit_k
+                expected_ids = sorted(cur_ids)[offset_j : offset_j + limit_k]
+                assert [row['id'] for row in limited_rows] == expected_ids
+                assert all(row['s_double'] == row['id'] * 2 for row in limited_rows)
+
+                # Variable limit via query template
+                template_rows = t_r.select(top_k=top_ids(limit_k)).limit(1).collect()
+                assert len(template_rows) == 1
+                top_k_result = template_rows[0]['top_k']
+                assert len(top_k_result) == min(limit_k, cur_len)
+                assert [row['id'] for row in top_k_result] == sorted(cur_ids)[:limit_k]
+
+                time.sleep(0.005)
+
+        errors: list[tuple[int, BaseException]] = []
+        lock = threading.Lock()
+
+        def runner(role: str, tid: int, fn: Callable[[int], None]) -> None:
+            try:
+                fn(tid)
+            except BaseException as e:
+                with lock:
+                    errors.append((tid, e))
+
+        threads = [threading.Thread(target=runner, args=('w', i, writer)) for i in range(n_writers)]
+        threads += [threading.Thread(target=runner, args=('r', i, reader)) for i in range(self.NUM_THREADS)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join()
+
+        assert errors == [], f'errors: {errors[:3]}'
+        assert t.count() == n0 + n_writers * writes_per_writer
 
     def test_shared_join(self, uses_db: None) -> None:
         t1 = pxt.create_table('t17_a', {'id': pxt.Required[pxt.Int], 'i': pxt.Required[pxt.Int]})
