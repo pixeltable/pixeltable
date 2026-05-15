@@ -225,6 +225,9 @@ class SqlNode(ExecNode):
         """Create Select from local state"""
         self._create_select_list_state()
         sql_select_list = [self.sql_elements.get(e) for e in self.sql_select_list_exprs] + self._pk_col_items()
+        if len(sql_select_list) == 0:
+            # empty select list: turn it into a SELECT 1 to avoid SELECT FROM ...
+            sql_select_list = [sql.literal(1)]
         stmt = sql.select(*sql_select_list)
 
         where_clause_element = (
