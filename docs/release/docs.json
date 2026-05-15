@@ -313,7 +313,8 @@
               "howto/deployment/infrastructure",
               "howto/deployment/operations",
               "howto/deployment/monitoring",
-              "howto/deployment/security"
+              "howto/deployment/security",
+              "howto/deployment/cheatsheet"
             ]
           },
           {
