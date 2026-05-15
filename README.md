@@ -31,7 +31,7 @@ Every multimodal AI app needs the same five things: store media, run models, ind
 |---|---|---|
 | Store video, images, docs | S3 + Postgres + glue code | `pxt.create_table()` with media types |
 | Connect cloud storage | boto3 / gsutil + sync scripts | `destination='s3://…'` per column or globally |
-| Transform media | FFmpeg, Pillow, spaCy + custom scripts | Built-in: chunk, extract frames, resize, rotate, transcribe |
+| Transform media | FFmpeg, Pillow, spaCy + custom scripts | Built-in: chunk, extract frames, resize, rotate, transcribe... |
 | Run AI on every insert | Airflow DAGs + retry logic | `add_computed_column()`, incremental + cached |
 | Extend with custom logic | Glue code, no caching or retries | `@pxt.udf` with automatic parallelization, caching, retries |
 | Vector search | Pinecone + ETL pipelines | `add_embedding_index()`, always in sync |
