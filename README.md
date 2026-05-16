@@ -56,7 +56,13 @@ Transaction integrity, parallelization, caching, retries, and observability are 
 pip install pixeltable
 ```
 
-Pixeltable bundles its own transactional database, orchestration engine, and local dashboard. No Docker, no external services; `pip install` is all you need. All data is managed in `~/.pixeltable` and accessed through the [Python SDK](https://docs.pixeltable.com/sdk/latest/pixeltable). See [Working with External Files](https://docs.pixeltable.com/platform/external-files) and [Storage Architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) for details.
+or with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv add pixeltable
+```
+
+Pixeltable bundles its own transactional database, orchestration engine, and local dashboard. No Docker, no external services — one install is all you need. All data is managed in `~/.pixeltable` and accessed through the [Python SDK](https://docs.pixeltable.com/sdk/latest/pixeltable). See [Working with External Files](https://docs.pixeltable.com/platform/external-files) and [Storage Architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) for details.
 
 ## AI Agent Skill
 
