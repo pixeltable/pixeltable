@@ -417,9 +417,15 @@ pxt serve my-service
 
 ## Get Started
 
-<Card title="Pixeltable Starter Kit" icon="rocket" href="https://github.com/pixeltable/pixeltable-starter-kit">
-  Production-ready examples for all three patterns. Includes deployment configs for Docker Compose, Helm, Terraform (EKS/GKE/AKS), AWS CDK, and cloud job runners (Cloud Run, Lambda, ECS Fargate).
-</Card>
+Scaffold a project in one command, then customize:
+
+```bash
+uvx pixeltable-new myapp              # declarative serving (default)
+uvx pixeltable-new myapp --backend    # full FastAPI + React app
+uvx pixeltable-new myapp --batch      # batch processing script
+```
+
+Or clone the full [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) for reference implementations with Docker, Helm, Terraform, CDK, and cloud job runners.
 
 The starter kit contains reference implementations for all three deployment patterns:
 

@@ -68,6 +68,18 @@ npx skills add pixeltable/pixeltable-skill
 
 Covers 25+ providers, multimodal pipelines, tool-calling agents, RAG, and production patterns. [Learn more →](https://github.com/pixeltable/pixeltable-skill)
 
+## Create a New Project
+
+Scaffold a production-ready Pixeltable project in one command:
+
+```bash
+uvx pixeltable-new myapp              # declarative serving (default)
+uvx pixeltable-new myapp --backend    # full FastAPI + React app
+uvx pixeltable-new myapp --batch      # batch processing script
+```
+
+Templates are fetched from the [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit). Modify `schema.py`, run `pxt serve`, and you have a working API. [Learn more →](https://github.com/pixeltable/pixeltable-new)
+
 ## Quick Start
 
 Define your data processing and AI workflow declaratively using
@@ -490,6 +502,7 @@ t.add_computed_column(
 
 | Project | Description |
 |:--------|:------------|
+| [**pixeltable-new**](https://github.com/pixeltable/pixeltable-new) | `uvx pixeltable-new myapp` — scaffold a Pixeltable project (serving, backend, or batch) in one command. Templates fetched from the Starter Kit. |
 | [**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) | Production-ready examples for three patterns: Full Backend (FastAPI + React), Batch Processing (`export_sql`), and Declarative Serving (`pxt serve`). Includes Docker, Helm, Terraform (EKS/GKE/AKS), CDK, and cloud job runners. |
 | [**Pixelbot**](https://github.com/pixeltable/pixelbot) | Multimodal AI agent, an interactive data studio with on-demand ML inference, media generation, and a database explore |
 | [**Pixelagent**](https://github.com/pixeltable/pixelagent) | Lightweight agent framework with built-in memory and tool orchestration |
