@@ -10,6 +10,7 @@ SKIP_NOTEBOOKS=(
     working-with-reve               # [PXT-1116] Out of credits
     working-with-runwayml           # [PXT-1120] RunwayML integration is very broken
     working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
+    working-with-fireworks          # [PXT-1160] Model not found, inaccessible, and/or not deployed
 )
 
 # Notebooks that are skipped unless --include-expensive is passed

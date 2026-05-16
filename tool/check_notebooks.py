@@ -13,8 +13,7 @@ OUTPUT_PCT_THRESHOLD = 50.0  # Minimum percentage of code cells that must have o
 
 # Temporarily excluded notebooks (matched by filename only)
 # TODO(PXT-1081): Regenerate Fabric notebook in docs with new access account
-# TODO(PXT-1160): working-with-fireworks.ipynb fails in ci: Model not found, inaccessible, and/or not deployed
-SKIP_NOTEBOOKS = {'working-with-fabric.ipynb', 'working-with-fireworks.ipynb'}
+SKIP_NOTEBOOKS = {'working-with-fabric.ipynb'}
 
 
 class NotebookStats(NamedTuple):
