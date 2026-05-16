@@ -11,6 +11,8 @@ import time
 import urllib.error
 import urllib.request
 
+from pcli._paths import redact_home
+
 DEFAULT_PORT = 22089
 _IS_WINDOWS = os.name == 'nt'
 
@@ -23,6 +25,20 @@ def _daemon_log_path() -> str:
 
 def get_port() -> int:
     return int(os.environ.get('PCLI_PORT') or DEFAULT_PORT)
+
+
+def pidfile_path() -> str:
+    """Per-port pidfile: lets parallel pcli test workers (each on its own port) coexist."""
+    home = os.environ.get('PIXELTABLE_HOME') or os.path.expanduser('~/.pixeltable')
+    return os.path.join(home, f'pcli-daemon-{get_port()}.pid')
+
+
+def _read_pidfile() -> int | None:
+    try:
+        with open(pidfile_path(), encoding='utf-8') as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
 
 
 def base_url() -> str:
@@ -77,7 +93,10 @@ def spawn_detached() -> None:
         with open(log_path, 'a', encoding='utf-8') as log:
             subprocess.Popen([sys.executable, '-m', 'pcli.server.daemon'], stdout=log, stderr=log, **popen_kwargs)
     except OSError as e:
-        raise RuntimeError(f'pcli daemon log unavailable: {e.strerror or e}') from None
+        # don't surface the resolved home path (which often appears in e.strerror); use the
+        # redacted form so users see `$PIXELTABLE_HOME/logs/...` instead.
+        reason = e.strerror or e.__class__.__name__
+        raise RuntimeError(f'pcli daemon log unavailable ({redact_home(log_path)}): {reason}') from None
 
 
 def _tail_daemon_log(n_lines: int = 10) -> str:
@@ -126,9 +145,29 @@ def ensure_running() -> str:
     if health is not None:
         client_ver = _client_pxt_version()
         if client_ver and health.get('pxt_version') and client_ver != health['pxt_version']:
-            _kill_and_wait(health['pid'])
+            # version mismatch: restart, but only kill a PID we wrote ourselves. We compare
+            # the pidfile against the responder's self-reported PID — if they disagree, the
+            # responder is not our daemon and we refuse to SIGTERM an unrelated process.
+            tracked_pid = _read_pidfile()
+            reported_pid = health.get('pid')
+            if tracked_pid is None or tracked_pid != reported_pid:
+                raise RuntimeError(
+                    f'a process on port {get_port()} is responding to /pcli/v0/health but does not match '
+                    f'our pidfile (pidfile={tracked_pid}, responder={reported_pid}); refusing to terminate it'
+                )
+            _kill_and_wait(tracked_pid)
             spawn_detached()
             wait_for_health()
+            # cross-verify: the responder should now be a different PID running our version
+            new_health = _fetch_health()
+            if (
+                new_health is None
+                or new_health.get('pid') == tracked_pid
+                or (new_health.get('pxt_version') and new_health['pxt_version'] != client_ver)
+            ):
+                raise RuntimeError(
+                    f'pcli daemon restart did not produce a matching-version responder on port {get_port()}'
+                )
     else:
         spawn_detached()
         wait_for_health()

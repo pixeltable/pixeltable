@@ -86,8 +86,6 @@ PcliRunner = Callable[..., PcliResult]
 def pcli(pcli_daemon: int, uses_db: None) -> PcliRunner:
     def _run(*args: str, check: bool = True) -> PcliResult:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
-        # Force a non-TTY stdin so tests behave the same on POSIX and Windows CI;
-        # otherwise Windows inherits the console and `isatty()` returns True there.
         r = subprocess.run(
             ['pcli', *args], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL
         )

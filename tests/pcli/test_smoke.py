@@ -1,5 +1,7 @@
 """Smoke tests: drive state via the pxt API, validate via pcli."""
 
+import os
+
 import pixeltable as pxt
 
 from .conftest import PcliRunner
@@ -104,6 +106,13 @@ class TestPcliSmoke:
         out = pcli('status', '--json').json
         assert out['pxt_version']
         assert out['pid'] > 0
+        # PIXELTABLE_HOME-rooted paths must be returned in redacted form, not the resolved path.
+        home = os.environ['PIXELTABLE_HOME']
+        for key in ('home', 'media_dir', 'file_cache_dir'):
+            val = out.get(key)
+            if val is not None:
+                assert home not in val, f'{key}={val!r} leaks PIXELTABLE_HOME ({home!r})'
+                assert val.startswith('$PIXELTABLE_HOME'), f'{key}={val!r} not redacted'
 
     def test_env(self, pcli: PcliRunner) -> None:
         out = pcli('env', '--json').json
