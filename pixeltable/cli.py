@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import errno
 import json
+import os
 import sys
 from typing import Any
 
@@ -274,6 +275,9 @@ def _deploy(args: argparse.Namespace) -> None:
 
 
 def _serve(args: argparse.Namespace) -> None:
+    cwd = os.getcwd()
+    if cwd not in sys.path:
+        sys.path.insert(0, cwd)
     if args.config is not None:
         config.Config.init({}, additional_config_files=[args.config])
     if hasattr(args, 'service'):
