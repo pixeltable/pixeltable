@@ -6,6 +6,7 @@ SKIP_NOTEBOOKS=(
     working-with-bfl                # [PXT-1111] Out of credits
     working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
     working-with-fiftyone           # [PXT-1117] Voxel51 is currently omitted from our dev env for security reasons
+    working-with-fireworks          # [PXT-1160] Model not found, inaccessible, and/or not deployed
     working-with-tigris             # [PXT-1122] Hard-codes getpass() calls for credentials and bucket
     working-with-reve               # [PXT-1116] Out of credits
     working-with-runwayml           # [PXT-1120] RunwayML integration is very broken

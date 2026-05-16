@@ -279,7 +279,7 @@ view.add_embedding_index(
 3. **Use `FastAPIRouter` as your base router.** You get media serving and background jobs for free.
 4. **Keep complex orchestration hand-written.** Multi-table inserts and conditional logic stay as `@router.post()`.
 5. **Type your `@pxt.query` parameters** (`uuid.UUID`, `int`, `float`, `str`). Pydantic coerces the incoming JSON; Pixeltable handles the rest.
-6. **Prototype with TOML first.** [`pxt serve`](/howto/deployment/serving) with a `service.toml` is the fastest way to test a new route before wiring it into your app.
+6. **Prototype with TOML first.** [`pxt serve`](/howto/deployment/serving) with `[[tool.pixeltable.service.routes]]` in `pyproject.toml` is the fastest way to test a new route before wiring it into your app.
 
 ---
 
@@ -290,7 +290,7 @@ view.add_embedding_index(
     TOML config, CLI, Python API, background jobs
   </Card>
   <Card title="Deployment Overview" icon="server" href="/howto/deployment/overview">
-    Full backend vs. orchestration layer
+    Full backend, batch processing, and declarative serving
   </Card>
   <Card title="Production Operations" icon="gauge" href="/howto/deployment/operations">
     Concurrency, error handling, sync endpoints

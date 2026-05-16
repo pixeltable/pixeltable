@@ -356,17 +356,17 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         # Embeddings as computed columns
-        t.add_computed_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
+        t.add_computed_column(embed1=embeddings(model='text-embedding-3-large', input=t.input))
         t.add_computed_column(
-            text_3=embeddings(
+            embed2=embeddings(
                 model='text-embedding-3-small', input=t.input, model_kwargs={'dimensions': 1024, 'user': 'pixeltable'}
             )
         )
         type_info = t._get_schema()
-        assert isinstance(type_info['ada_embed'], ts.ArrayType)
-        assert type_info['ada_embed'].shape == (1536,)
-        assert isinstance(type_info['text_3'], ts.ArrayType)
-        assert type_info['text_3'].shape == (1024,)
+        assert isinstance(type_info['embed1'], ts.ArrayType)
+        assert type_info['embed1'].shape == (3072,)
+        assert isinstance(type_info['embed2'], ts.ArrayType)
+        assert type_info['embed2'].shape == (1024,)
         validate_update_status(t.insert(input='Say something interesting.'), 1)
 
         # Via add_embedding_index()

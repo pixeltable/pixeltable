@@ -48,6 +48,12 @@ class Parameter:
     def has_default(self) -> bool:
         return self.default is not None
 
+    @property
+    def default_value(self) -> Any:
+        """Unwrapped Python value of this parameter's default. Caller must check has_default()."""
+        assert self.default is not None
+        return self.default.val
+
     def as_dict(self) -> dict[str, Any]:
         return {
             'name': self.name,
