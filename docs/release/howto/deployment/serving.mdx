@@ -19,16 +19,18 @@ pip install 'fastapi[standard]'
 
 ## Quickstart (TOML)
 
-Create a file `service.toml`:
+Add a `[tool.pixeltable]` section to your `pyproject.toml`:
 
 ```toml
-[[service]]
+# pyproject.toml
+[[tool.pixeltable.service]]
 name = "my-service"
 port = 8000
+modules = ["schema"]   # Python modules to import (creates tables/views)
 
-[[service.routes]]
+[[tool.pixeltable.service.routes]]
 type = "insert"
-table = "my_dir/my_table"
+table = "my_dir.my_table"
 path = "/insert"
 inputs = ["prompt"]
 outputs = ["prompt", "result"]
@@ -37,8 +39,12 @@ outputs = ["prompt", "result"]
 Start the service:
 
 ```bash
-pxt serve my-service --config service.toml
+pxt serve my-service
 ```
+
+<Note>
+You can also use a standalone TOML file (`pxt serve my-service --config service.toml`) with the same route syntax but `[[service]]` and `[[service.routes]]` as top-level keys. The `pyproject.toml` format is preferred for new projects.
+</Note>
 
 The service is now running at `http://localhost:8000` with auto-generated
 [OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs) at `/docs`.

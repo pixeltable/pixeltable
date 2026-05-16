@@ -233,15 +233,19 @@ This means:
 
 **Deployment-Specific Storage Patterns:**
 
-*Approach 1 (Orchestration Layer):*
+*Batch Processing:*
 - Pixeltable storage can be ephemeral (re-computable).
-- Processing results exported to external RDBMS and blob storage.
+- Processing results exported to external RDBMS via `export_sql` and media to blob storage via `destination`.
 - Reference input media from S3/GCS/Azure URIs.
 
-*Approach 2 (Full Backend):*
+*Full Backend:*
 - Pixeltable IS the RDBMS (embedded PostgreSQL, not replaceable).
 - Requires persistent volume at `~/.pixeltable` (pgdata, media, file_cache).
 - Media Store configurable to S3/GCS/Azure buckets for generated files.
+
+*Declarative Serving (`pxt serve`):*
+- Same persistent storage as Full Backend.
+- API routes declared in `pyproject.toml`, no hand-written endpoint code.
 
 All [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) deployment configs set `PIXELTABLE_HOME=/data/pixeltable` pointing to persistent storage (Docker volumes, K8s PVCs, or EFS). For large media workloads, configure external blob storage:
 
