@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import argparse
 import errno
+import io
 import json
+import os
 import sys
+import tarfile
+import urllib.request
+from pathlib import Path
 from typing import Any
 
 import pydantic
@@ -57,6 +62,19 @@ To deploy a configured deployment:
   pxt deploy <deployment-name>
 """
 
+_EPILOG_INIT = """\
+Scaffold a new Pixeltable project from the Starter Kit:
+  pxt init myapp                   # default: serving pattern
+  pxt init myapp --serving         # declarative API from TOML config
+  pxt init myapp --backend         # full FastAPI + React web app
+  pxt init myapp --batch           # batch processing script
+"""
+
+_INIT_PATTERNS = ('serving', 'backend', 'batch')
+_STARTER_KIT_URL = 'https://github.com/pixeltable/pixeltable-starter-kit/archive/refs/heads/main.tar.gz'
+_SKIP_FILES = {'uv.lock', '.DS_Store'}
+_SKIP_DIRS = {'deploy'}
+
 
 def main() -> None:
     parser = _Parser(
@@ -93,6 +111,18 @@ def main() -> None:
     deploy_parser.add_argument('deployment', help='Name of the target deployment')
     deploy_parser.add_argument('--json', action='store_true', dest='json', help='Emit machine-readable JSON output')
 
+    init_parser = subparsers.add_parser(
+        'init',
+        help='Scaffold a new Pixeltable project from the Starter Kit',
+        epilog=_EPILOG_INIT,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    init_parser.add_argument('project_name', help='Name of the project directory to create')
+    init_group = init_parser.add_mutually_exclusive_group()
+    init_group.add_argument('--serving', action='store_const', const='serving', dest='pattern', help='Serving pattern')
+    init_group.add_argument('--backend', action='store_const', const='backend', dest='pattern', help='Backend pattern')
+    init_group.add_argument('--batch', action='store_const', const='batch', dest='pattern', help='Batch pattern')
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -104,8 +134,10 @@ def main() -> None:
             _serve(args)
         elif args.command == 'deploy':
             _deploy(args)
+        elif args.command == 'init':
+            _init(args)
     except pxt.Error as e:
-        _emit_error(str(e), args.json)
+        _emit_error(str(e), getattr(args, 'json', False))
         sys.exit(1)
 
 
@@ -428,3 +460,93 @@ def _run(config: config.ServiceConfig, app: Any, json_output: bool = False) -> N
                 print(f'pxt: error: {message}', file=sys.stderr)
             sys.exit(1)
         raise
+
+
+# ── pxt init ──────────────────────────────────────────────────────────
+
+
+def _fetch_starter_kit_tarball(url: str = _STARTER_KIT_URL) -> bytes:
+    with urllib.request.urlopen(url) as resp:
+        return resp.read()
+
+
+def _extract_pattern(tar_bytes: bytes, pattern: str, dest: Path) -> list[str]:
+    """Extract a pattern directory from the starter kit tarball into *dest*."""
+    created: list[str] = []
+    buf = io.BytesIO(tar_bytes)
+    with tarfile.open(fileobj=buf, mode='r:gz') as tar:
+        prefix: str | None = None
+        for member in tar.getmembers():
+            parts = member.name.split('/', 2)
+            if prefix is None:
+                prefix = parts[0]
+            if len(parts) < 2 or parts[1] != pattern:
+                continue
+            rel = '/'.join(parts[2:]) if len(parts) > 2 else ''
+            if not rel:
+                continue
+            base = rel.split('/')[0]
+            if base in _SKIP_DIRS:
+                continue
+            if os.path.basename(rel) in _SKIP_FILES:
+                continue
+            target = dest / rel
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+            elif member.isfile():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                f = tar.extractfile(member)
+                if f is not None:
+                    target.write_bytes(f.read())
+                    created.append(rel)
+    return created
+
+
+def _substitute_project_name(dest: Path, project_name: str) -> None:
+    """Replace starter-kit placeholders with the actual project name."""
+    for name in ('pyproject.toml', 'README.md'):
+        path = dest / name
+        if path.exists():
+            text = path.read_text()
+            text = text.replace('pixeltable-starter-kit', project_name)
+            text = text.replace('pixeltable_starter_kit', project_name.replace('-', '_'))
+            path.write_text(text)
+
+
+def _init(args: argparse.Namespace) -> None:
+    pattern: str = args.pattern or 'serving'
+    if pattern not in _INIT_PATTERNS:
+        print(f'pxt: error: unknown pattern {pattern!r}; choose from {_INIT_PATTERNS}', file=sys.stderr)
+        sys.exit(1)
+
+    dest = Path(args.project_name).resolve()
+    if dest.exists():
+        print(f'pxt: error: directory {dest} already exists', file=sys.stderr)
+        sys.exit(1)
+
+    print(f'Scaffolding {pattern} project into {dest.name}/ ...')
+    try:
+        tar_bytes = _fetch_starter_kit_tarball()
+    except Exception as e:
+        print(f'pxt: error: failed to download starter kit: {e}', file=sys.stderr)
+        sys.exit(1)
+
+    dest.mkdir(parents=True)
+    created = _extract_pattern(tar_bytes, pattern, dest)
+    _substitute_project_name(dest, dest.name)
+
+    print(f'  Created {len(created)} files')
+    print()
+    print('Next steps:')
+    print(f'  cd {dest.name}')
+    if pattern == 'serving':
+        print('  pip install pixeltable')
+        print('  python schema.py')
+        print('  pxt serve <service-name>')
+    elif pattern == 'backend':
+        print('  pip install -r requirements.txt')
+        print('  python schema.py')
+        print('  uvicorn main:app --reload')
+    elif pattern == 'batch':
+        print('  pip install pixeltable')
+        print('  python pipeline.py')
