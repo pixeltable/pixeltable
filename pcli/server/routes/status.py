@@ -1,9 +1,9 @@
 import os
-from pathlib import Path
 
 import sqlalchemy as sa
 from fastapi import APIRouter
 
+from pcli._paths import redact_home
 from pcli.models import StatusResponse
 from pcli.server.routes.health import _STARTED_AT
 
@@ -11,16 +11,15 @@ router = APIRouter()
 
 
 def _dir_size(path: str | None) -> int | None:
-    if path is None:
-        return None
-    p = Path(path)
-    if not p.exists():
+    if path is None or not os.path.isdir(path):
         return None
     total = 0
-    for entry in p.rglob('*'):
-        if entry.is_file():
+    # os.walk + onerror gives best-effort traversal: permission errors or files vanishing
+    # mid-scan are swallowed rather than turning `?sizes=1` into a 500.
+    for root, _dirs, files in os.walk(path, onerror=lambda _e: None):
+        for name in files:
             try:
-                total += entry.stat().st_size
+                total += os.stat(os.path.join(root, name)).st_size
             except OSError:
                 pass
     return total
@@ -48,10 +47,10 @@ def status(sizes: bool = False) -> StatusResponse:
         pxt_version=s['version'],
         pid=os.getpid(),
         started_at=_STARTED_AT,
-        home=cfg.get('home'),
+        home=redact_home(cfg.get('home')),
         db_url=_redact_db_url(cfg.get('db_url')),
-        media_dir=media_dir,
-        file_cache_dir=file_cache_dir,
+        media_dir=redact_home(media_dir),
+        file_cache_dir=redact_home(file_cache_dir),
         media_size_bytes=_dir_size(media_dir) if sizes else None,
         file_cache_size_bytes=_dir_size(file_cache_dir) if sizes else None,
         total_tables=s['total_tables'],
