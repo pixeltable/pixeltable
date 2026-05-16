@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
@@ -117,12 +117,12 @@ class StatusResponse(BaseModel):
     pid: int
     started_at: str
     home: str | None
-    db_url: str | None
-    """Database URL with credentials redacted."""
+    db_url: str | None = Field(default=None, description='Database URL with credentials redacted.')
     media_dir: str | None
     file_cache_dir: str | None
-    media_size_bytes: int | None = None
-    """Populated only when the client requests sizes=1; otherwise None."""
+    media_size_bytes: int | None = Field(
+        default=None, description='Populated only when the client requests sizes=1; otherwise None.'
+    )
     file_cache_size_bytes: int | None = None
     total_tables: int
     total_errors: int
@@ -131,8 +131,9 @@ class StatusResponse(BaseModel):
 class EnvResponse(BaseModel):
     env_vars: dict[str, str]
     config_file: str | None
-    credentials_present: dict[str, bool]
-    """Presence-only map for agent-relevant credential vars (no values)."""
+    credentials_present: dict[str, bool] = Field(
+        description='Presence-only map for agent-relevant credential vars (no values).'
+    )
 
 
 class CountRequest(BaseModel):
