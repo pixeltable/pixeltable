@@ -104,15 +104,13 @@ class TestPcliSmoke:
 
     def test_status(self, pcli: PcliRunner) -> None:
         out = pcli('status', '--json').json
-        assert out['pxt_version']
+        assert out['pxt_version'] != ''
         assert out['pid'] > 0
         # PIXELTABLE_HOME-rooted paths must be returned in redacted form, not the resolved path.
         home = os.environ['PIXELTABLE_HOME']
-        for key in ('home', 'media_dir', 'file_cache_dir'):
-            val = out.get(key)
-            if val is not None:
-                assert home not in val, f'{key}={val!r} leaks PIXELTABLE_HOME ({home!r})'
-                assert val.startswith('$PIXELTABLE_HOME'), f'{key}={val!r} not redacted'
+        path_keys = ('home', 'media_dir', 'file_cache_dir')
+        assert all(out.get(k) is None or home not in out[k] for k in path_keys)
+        assert all(out.get(k) is None or out[k].startswith('$PIXELTABLE_HOME') for k in path_keys)
 
     def test_env(self, pcli: PcliRunner) -> None:
         out = pcli('env', '--json').json

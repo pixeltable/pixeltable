@@ -1,4 +1,4 @@
-"""`python -m pcli.server.daemon` — pcli FastAPI daemon."""
+"""`python -m pcli.server.daemon` - pcli FastAPI daemon."""
 
 import atexit
 import os

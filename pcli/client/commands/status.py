@@ -33,12 +33,15 @@ def run(argv: list[str]) -> None:
         print(json.dumps(s, indent=2))
         return
 
+    def or_dash(v: str | None) -> str:
+        return v if v is not None else '-'
+
     print(f'pxt_version     {s["pxt_version"]}')
     print(f'daemon_pid      {s["pid"]}')
     print(f'daemon_started  {s["started_at"]}')
-    print(f'home            {s["home"] or "-"}')
-    print(f'db_url          {s["db_url"] or "-"}')
-    print(f'media_dir       {s["media_dir"] or "-"}  ({_fmt_size(s["media_size_bytes"])})')
-    print(f'file_cache_dir  {s["file_cache_dir"] or "-"}  ({_fmt_size(s["file_cache_size_bytes"])})')
+    print(f'home            {or_dash(s["home"])}')
+    print(f'db_url          {or_dash(s["db_url"])}')
+    print(f'media_dir       {or_dash(s["media_dir"])}  ({_fmt_size(s["media_size_bytes"])})')
+    print(f'file_cache_dir  {or_dash(s["file_cache_dir"])}  ({_fmt_size(s["file_cache_size_bytes"])})')
     print(f'total_tables    {s["total_tables"]}')
     print(f'total_errors    {s["total_errors"]}')

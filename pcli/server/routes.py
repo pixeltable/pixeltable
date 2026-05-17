@@ -120,7 +120,8 @@ def _to_entry(node: Any, details: bool) -> LsEntry:
             cols = md.get('columns') or {}
             idxs = md.get('indices') or {}
             entry.num_cols = len(cols)
-            entry.flags = ('c' if any(c.get('is_computed') for c in cols.values()) else '') + ('i' if idxs else '')
+            has_computed = any(c.get('is_computed') for c in cols.values())
+            entry.flags = ('c' if has_computed else '') + ('i' if len(idxs) > 0 else '')
     return entry
 
 
@@ -128,7 +129,7 @@ def _fill_counts(entries: list[LsEntry]) -> None:
     # Resolve and count in the worker thread: pxt.get_table() returns a thread-local handle
     # that raises if reused across threads.
     targets = [e for e in entries if e.kind != 'dir']
-    if not targets:
+    if len(targets) == 0:
         return
     paths = [e.path for e in targets]
     with ThreadPoolExecutor(max_workers=min(_COUNT_POOL_WORKERS, len(targets))) as pool:
@@ -165,7 +166,7 @@ def errors(req: ErrorsRequest) -> ErrorsResponse:
     md = t.get_metadata()
 
     pk_names = md.get('primary_key')
-    if not pk_names:
+    if pk_names is None or len(pk_names) == 0:
         raise HTTPException(400, f'{req.path}: no primary key declared; pcli errors requires one')
 
     # errortype/errormsg are only addressable on stored computed columns; an unstored one
@@ -175,12 +176,12 @@ def errors(req: ErrorsRequest) -> ErrorsResponse:
         for name, c in md['columns'].items()
         if c['is_computed'] and c.get('is_stored') and (req.col is None or name == req.col)
     ]
-    if not computed:
+    if len(computed) == 0:
         return ErrorsResponse(entries=[])
 
     where = None
     for col in computed:
-        cond = t[col].errortype != None  # pxt overrides `!=` to return an Expr
+        cond = t[col].errortype != None  # pxt overrides != to return an Expr
         where = cond if where is None else where | cond
 
     select_args: list = [t[c] for c in pk_names]
@@ -211,7 +212,7 @@ def history(req: HistoryRequest) -> HistoryResponse:
 
 
 # ---------------------------------------------------------------------------
-# columns / idxs (share `_all_tables`)
+# columns / idxs (share _all_tables)
 # ---------------------------------------------------------------------------
 
 
@@ -294,7 +295,7 @@ def rows(req: RowsRequest) -> RowsResponse:
     cols_md = t.get_metadata()['columns']
     if req.cols is not None:
         missing = [c for c in req.cols if c not in cols_md]
-        if missing:
+        if len(missing) > 0:
             raise HTTPException(400, f'unknown columns: {",".join(missing)}')
         columns_list = list(req.cols)
     else:
@@ -320,7 +321,7 @@ def get(req: GetRequest) -> GetResponse:
     t = pxt.get_table(req.path)
     md = t.get_metadata()
     pk_names = md.get('primary_key')
-    if not pk_names:
+    if pk_names is None or len(pk_names) == 0:
         raise HTTPException(400, f'{req.path}: no primary key declared; pcli get requires one')
     if len(req.pk) != len(pk_names):
         raise HTTPException(400, f'{req.path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(req.pk)}')
@@ -328,7 +329,7 @@ def get(req: GetRequest) -> GetResponse:
     cols_md = md['columns']
     if req.cols is not None:
         missing = [c for c in req.cols if c not in cols_md]
-        if missing:
+        if len(missing) > 0:
             raise HTTPException(400, f'unknown columns: {",".join(missing)}')
         cols = list(req.cols)
     else:
@@ -380,7 +381,7 @@ def _dir_size(path: str | None) -> int | None:
         return None
     total = 0
     # os.walk + onerror gives best-effort traversal: permission errors or files vanishing
-    # mid-scan are swallowed rather than turning `?sizes=1` into a 500.
+    # mid-scan are swallowed rather than turning ?sizes=1 into a 500.
     for root, _dirs, files in os.walk(path, onerror=lambda _e: None):
         for name in files:
             try:
@@ -402,6 +403,8 @@ def _redact_db_url(url: str | None) -> str | None:
 @router.get('/pcli/v0/status', response_model=StatusResponse)
 def status(sizes: bool = False) -> StatusResponse:
     """Status snapshot. Pass `?sizes=1` to include media/file_cache disk usage (scans the directories)."""
+    # Local import: pixeltable.dashboard.bridge pulls a heavy import chain that we don't
+    # want on every daemon process start - only the status endpoint needs it.
     from pixeltable.dashboard import bridge
 
     s = bridge.get_status()

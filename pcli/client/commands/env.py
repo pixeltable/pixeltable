@@ -20,13 +20,14 @@ def run(argv: list[str]) -> None:
         print(json.dumps(resp, indent=2))
         return
 
-    print(f'config_file  {resp["config_file"] or "-"}')
+    config_file = resp['config_file'] if resp['config_file'] is not None else '-'
+    print(f'config_file  {config_file}')
     for k in sorted(resp['env_vars']):
         print(f'{k}={resp["env_vars"][k]}')
     creds = resp.get('credentials_present') or {}
     present = sorted(k for k, v in creds.items() if v)
     missing = sorted(k for k, v in creds.items() if not v)
-    if present:
+    if len(present) > 0:
         print(f'credentials  set: {", ".join(present)}')
-    if missing:
+    if len(missing) > 0:
         print(f'credentials  unset: {", ".join(missing)}')

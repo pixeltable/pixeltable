@@ -10,7 +10,7 @@ description: "Inspect, query, and manage Pixeltable catalogs from the terminal. 
 pip install 'pixeltable[cli]'
 ```
 
-The `[cli]` extra pulls in `fastapi[standard]` (which provides `uvicorn`). The pcli client itself is stdlib-only — the extra is required only to run the daemon.
+The `[cli]` extra pulls in `fastapi[standard]` (which provides `uvicorn`). The pcli client itself is stdlib-only; the extra is required only to run the daemon.
 
 Verify the installation:
 
@@ -191,7 +191,7 @@ pcli rows my_dir/my_table --cols id,text,score
 
 ### `pcli get`
 
-Look up a single row by primary key. PK values are auto-coerced: int → float → JSON literal → string. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
+Look up a single row by primary key. PK values are auto-coerced: int, then float, then JSON literal, then string. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
 
 | Flag | Description |
 |---|---|

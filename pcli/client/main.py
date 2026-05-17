@@ -3,7 +3,7 @@ import sys
 from collections.abc import Callable
 
 # Single source of truth for both the top-level help message and shell-mode dispatch.
-# Each key names a module under `pcli.client.commands.*` exposing `run(argv: list[str]) -> None`.
+# Each key names a module under pcli.client.commands.* exposing run(argv: list[str]) -> None.
 COMMANDS: dict[str, str] = {
     'health': 'show daemon info',
     'ls': 'list catalog entries',
