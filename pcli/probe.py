@@ -137,7 +137,24 @@ def wait_for_health(timeout: float = 15.0) -> None:
     raise RuntimeError(msg)
 
 
+def _pid_alive(pid: int) -> bool:
+    """signal 0 is the 'are you there?' probe: doesn't kill, just raises if the PID is gone."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # PID exists but is owned by another user; treat as alive (we can't kill it anyway).
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def _kill_and_wait(pid: int, timeout: float = 5.0) -> None:
+    # Wait on the PID itself (not /health) so a hung-but-alive daemon that still holds the
+    # listen socket is detected and SIGKILLed; otherwise the next spawn would fail with
+    # 'address already in use' because we returned early on the health probe.
     # Windows has no SIGKILL; os.kill(pid, SIGTERM) calls TerminateProcess, which is
     # already a hard kill, so the fallback below is a no-op there.
     sigkill = getattr(signal, 'SIGKILL', signal.SIGTERM)
@@ -147,7 +164,7 @@ def _kill_and_wait(pid: int, timeout: float = 5.0) -> None:
         return
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if not is_running():
+        if not _pid_alive(pid):
             return
         time.sleep(0.1)
     try:

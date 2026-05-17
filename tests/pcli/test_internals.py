@@ -258,19 +258,40 @@ class TestProbe:
         assert 'address already in use' in str(ei.value)
 
     def test_kill_and_wait_falls_through_to_sigkill(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """If SIGTERM doesn't bring the daemon down, _kill_and_wait must follow up with SIGKILL."""
+        """If SIGTERM doesn't bring the daemon down, _kill_and_wait must follow up with SIGKILL.
+
+        Liveness is checked via os.kill(pid, 0), not /health, so a hung-but-alive daemon
+        still holding the listen socket gets SIGKILLed instead of leaving the socket bound.
+        """
         calls: list[int] = []
 
         def fake_kill(pid: int, sig: int) -> None:
+            # never raises -> _pid_alive returns True every iteration, deadline expires
             calls.append(sig)
 
         monkeypatch.setattr(probe.os, 'kill', fake_kill)
-        # is_running stays True so the deadline expires and we reach the SIGKILL fallthrough.
-        monkeypatch.setattr(probe, 'is_running', lambda timeout=0.3: True)
         probe._kill_and_wait(12345, timeout=0.2)
         assert signal.SIGTERM in calls
         # On non-Windows we have a real SIGKILL; on Windows it falls back to SIGTERM.
         assert getattr(signal, 'SIGKILL', signal.SIGTERM) in calls
+
+    def test_kill_and_wait_returns_when_pid_exits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """SIGTERM goes through, then the PID exits -> return without escalating to SIGKILL."""
+        calls: list[int] = []
+
+        def fake_kill(pid: int, sig: int) -> None:
+            calls.append(sig)
+            # signal 0 is the liveness probe: raise to simulate the PID being gone
+            if sig == 0:
+                raise ProcessLookupError
+
+        monkeypatch.setattr(probe.os, 'kill', fake_kill)
+        probe._kill_and_wait(12345, timeout=1.0)
+        sigkill = getattr(signal, 'SIGKILL', signal.SIGTERM)
+        assert signal.SIGTERM in calls
+        # On platforms where SIGKILL != SIGTERM, it must NOT have been issued.
+        if sigkill != signal.SIGTERM:
+            assert sigkill not in calls
 
     def test_kill_and_wait_no_such_process(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(pid: int, sig: int) -> None:
@@ -279,6 +300,33 @@ class TestProbe:
         monkeypatch.setattr(probe.os, 'kill', boom)
         # Should return cleanly without raising
         probe._kill_and_wait(99999)
+
+    def test_pid_alive_dead(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(pid: int, sig: int) -> None:
+            raise ProcessLookupError
+
+        monkeypatch.setattr(probe.os, 'kill', boom)
+        assert probe._pid_alive(99999) is False
+
+    def test_pid_alive_alive(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(probe.os, 'kill', lambda pid, sig: None)
+        assert probe._pid_alive(12345) is True
+
+    def test_pid_alive_permission_denied(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """PermissionError means the PID exists but is owned by another user; treat as alive."""
+
+        def boom(pid: int, sig: int) -> None:
+            raise PermissionError
+
+        monkeypatch.setattr(probe.os, 'kill', boom)
+        assert probe._pid_alive(1) is True
+
+    def test_pid_alive_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(pid: int, sig: int) -> None:
+            raise OSError('einval')
+
+        monkeypatch.setattr(probe.os, 'kill', boom)
+        assert probe._pid_alive(0) is False
 
 
 class TestPaths:
