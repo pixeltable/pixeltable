@@ -11,7 +11,7 @@ Examples:
   pcli rows my_dir/my_table -n 50 --json
 
 Notes:
-  --cols takes a comma-separated list with no spaces.
+  --cols takes a comma-separated list.
   Use 'pcli describe <table>' to discover column names first.
   Unstored computed columns are skipped by default (selecting one would force
   evaluation, which may be slow or invoke external services); pass them
