@@ -2,7 +2,6 @@
 
 Covers things that aren't reachable through the daemon smoke tests:
   - probe.py spawn / restart / kill safety paths (monkeypatched)
-  - paths.py edge cases (no $PIXELTABLE_HOME, OSError on realpath)
   - the confirm.py interactive prompt
   - parser.py / main.py error and help paths
   - http.py client error branches
@@ -28,7 +27,7 @@ from typing_extensions import Self
 pytest.importorskip('fastapi')
 pytest.importorskip('uvicorn')
 
-from pcli import paths, probe
+from pcli import probe
 from pcli.client import confirm, http, main as client_main, parser as client_parser
 from pcli.client.commands import shell as shell_cmd, status as status_cmd
 from pcli.server import daemon as server_daemon, routes as server_routes
@@ -327,54 +326,6 @@ class TestProbe:
 
         monkeypatch.setattr(probe.os, 'kill', boom)
         assert probe._pid_alive(0) is False
-
-
-class TestPaths:
-    def test_redact_home_none(self) -> None:
-        assert paths.redact_home(None) is None
-
-    def test_redact_home_outside(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        assert paths.redact_home('/etc/hosts') == '/etc/hosts'
-
-    def test_redact_home_exact(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        assert paths.redact_home(str(tmp_path)) == '$PIXELTABLE_HOME'
-
-    def test_redact_home_prefix(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        assert paths.redact_home(f'{tmp_path}/media/x.jpg') == '$PIXELTABLE_HOME/media/x.jpg'
-
-    def test_redact_home_realpath_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def boom(p: str) -> str:
-            raise OSError('symlink loop')
-
-        monkeypatch.setattr(paths.os.path, 'realpath', boom)
-        # Both internal realpath calls raise -> caller receives the original path unchanged.
-        assert paths.redact_home('/some/path') == '/some/path'
-
-    def test_redact_home_target_realpath_oserror(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Home resolves, but realpath on the target path raises -> return unchanged."""
-        real_realpath = os.path.realpath
-        target = '/some/dangling/path'
-
-        def selective(p: str) -> str:
-            if p == target:
-                raise OSError('boom')
-            return real_realpath(p)
-
-        monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        monkeypatch.setattr(paths.os.path, 'realpath', selective)
-        assert paths.redact_home(target) == target
-
-    def test_redact_home_in_text(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        text = f'error opening {tmp_path}/media/x: ENOENT'
-        assert paths.redact_home_in_text(text) == 'error opening $PIXELTABLE_HOME/media/x: ENOENT'
-
-    def test_redact_home_in_text_no_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(paths, '_resolved_home', lambda: None)
-        assert paths.redact_home_in_text('hello') == 'hello'
 
 
 class TestConfirm:
@@ -696,17 +647,17 @@ class TestServerRouteHelpers:
         # the failing file is skipped; the walk still completes
         assert server_routes._dir_size(str(tmp_path)) == 0
 
-    def test_redact_db_url_none(self) -> None:
-        assert server_routes._redact_db_url(None) is None
+    def test_redact_db_password_none(self) -> None:
+        assert server_routes._redact_db_password(None) is None
 
-    def test_redact_db_url_hides_password(self) -> None:
-        out = server_routes._redact_db_url('postgresql://user:secret@host/db')
+    def test_redact_db_password_hides_password(self) -> None:
+        out = server_routes._redact_db_password('postgresql://user:secret@host/db')
         assert out is not None
         assert 'secret' not in out
 
-    def test_redact_db_url_unparseable(self) -> None:
+    def test_redact_db_password_unparseable(self) -> None:
         # malformed URL -> caught and returns None rather than 500ing /status
-        assert server_routes._redact_db_url('::: not a url :::') is None
+        assert server_routes._redact_db_password('::: not a url :::') is None
 
     def test_safe_count_swallows_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from pixeltable import exceptions as excs
@@ -717,46 +668,3 @@ class TestServerRouteHelpers:
 
         monkeypatch.setattr(server_routes.pxt, 'get_table', lambda p: FakeT())
         assert server_routes._tbl_count('any/path') is None
-
-    def test_redact_user_home_redacts_paths(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Path-like inputs under $HOME are rewritten to $HOME/...; absolute paths and ~ both
-        count as path-like."""
-        monkeypatch.delenv('PIXELTABLE_HOME', raising=False)
-        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
-        home = os.path.realpath(os.path.expanduser('~'))
-        # exact match -> $HOME
-        assert server_routes._redact_user_home(home) == '$HOME'
-        # prefix match -> $HOME/...
-        assert server_routes._redact_user_home(f'{home}/projects/x').startswith('$HOME/')
-        # ~ expands; either it resolves under $HOME (prefix match) or falls through if expanduser
-        # produced something unexpected (very unusual setup)
-        out = server_routes._redact_user_home('~/projects')
-        assert out.startswith('$HOME') or out == '~/projects'
-
-    def test_redact_user_home_passes_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Inputs the predicate skips (bare scalars, URLs, relative paths) and inputs that
-        are path-like but not under $HOME (e.g. /etc/hosts) come back verbatim. realpath()
-        failures fall through to the unchanged value rather than raising."""
-        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
-        # bare scalars, markers, empty - never path-like
-        for v in ('false', '1', '<redacted>', 'WARNING', ''):
-            assert server_routes._redact_user_home(v) == v
-        # URLs contain '/' but aren't filesystem paths; predicate must exclude them so
-        # realpath('s3://bucket/x') doesn't expand to $cwd/s3:/bucket/x
-        for v in ('s3://bucket/x', 'http://example.com/path', 'https://example.com', 'postgres://u@h/db'):
-            assert server_routes._redact_user_home(v) == v
-        # relative paths aren't absolute - predicate skips them
-        assert server_routes._redact_user_home('some/relative/path') == 'some/relative/path'
-        # absolute path outside $HOME - reaches realpath but isn't under user_home
-        assert server_routes._redact_user_home('/etc/hosts') == '/etc/hosts'
-
-    def test_redact_user_home_realpath_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """If realpath() raises (e.g. broken symlinks), return the unchanged value rather
-        than failing the whole /env response."""
-        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
-
-        def boom(p: str) -> str:
-            raise OSError('symlink loop')
-
-        monkeypatch.setattr(server_routes.os.path, 'realpath', boom)
-        assert server_routes._redact_user_home('/some/path') == '/some/path'

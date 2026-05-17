@@ -1,6 +1,7 @@
 import datetime
 import os
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 import PIL.Image
 import sqlalchemy as sa
@@ -9,8 +10,9 @@ from fastapi.encoders import jsonable_encoder
 
 import pixeltable as pxt
 from pcli import models
-from pcli.paths import redact_home
 from pixeltable import exceptions as excs
+from pixeltable.config import Config
+from pixeltable.env import Env
 from pixeltable.types import TreeNode
 
 router = APIRouter()
@@ -235,8 +237,8 @@ def count(req: models.CountRequest) -> models.CountResponse:
 @router.get('/pcli/v0/status')
 def status(sizes: bool = False) -> models.StatusResponse:
     """Status snapshot. Pass sizes=1 to include media/file_cache disk usage (scans the directories)."""
-    # Local import: pixeltable.dashboard.bridge pulls a heavy import chain that we don't
-    # want on every daemon process start - only the status endpoint needs it.
+    # bridge import is local: pixeltable.dashboard.bridge pulls a heavy chain that we don't
+    # want on every daemon process start.
     from pixeltable.dashboard import bridge
 
     s = bridge.get_status()
@@ -247,10 +249,10 @@ def status(sizes: bool = False) -> models.StatusResponse:
         pxt_version=s['version'],
         pid=os.getpid(),
         started_at=_STARTED_AT,
-        home=redact_home(cfg.get('home')),
-        db_url=_redact_db_url(cfg.get('db_url')),
-        media_dir=redact_home(media_dir),
-        file_cache_dir=redact_home(file_cache_dir),
+        home=cfg.get('home'),
+        db_url=_redact_db_password(cfg.get('db_url')),
+        media_dir=media_dir,
+        file_cache_dir=file_cache_dir,
         media_size_bytes=_dir_size(media_dir) if sizes else None,
         file_cache_size_bytes=_dir_size(file_cache_dir) if sizes else None,
         total_tables=s['total_tables'],
@@ -258,20 +260,33 @@ def status(sizes: bool = False) -> models.StatusResponse:
     )
 
 
-@router.get('/pcli/v0/env')
-def env() -> models.EnvResponse:
-    reported_keys = [k for k in os.environ if k.startswith('PIXELTABLE_') or k == 'PCLI_PORT']
-    env_vars: dict[str, str] = {}
-    for k in reported_keys:
-        raw = os.environ[k]
-        env_vars[k] = '<redacted>' if _is_sensitive(k) else _redact_user_home(raw)
-    credentials_present = {k: k in os.environ for k in _CREDENTIAL_VARS}
-    config_file = os.environ.get('PIXELTABLE_CONFIG')
-    return models.EnvResponse(
-        env_vars=env_vars,
-        config_file=_redact_user_home(config_file) if config_file is not None else None,
-        credentials_present=credentials_present,
-    )
+@router.get('/pcli/v0/config')
+def config() -> models.ConfigResponse:
+    """Resolved-configuration view: every documented setting with its current value
+    (env var or config.toml) and which layer it came from. Credentials show '<redacted>'
+    when set; the source field reveals whether they're configured even when redacted."""
+    sensitive = set(Env._CREDENTIAL_PARAM_NAMES)
+    entries: list[models.ConfigEntry] = []
+    for ck in Config.get().config_keys():
+        source = Config.get().get_value_source(ck.key, section=ck.section)
+        if source == 'unset':
+            value: str | None = None
+        elif ck.key in sensitive:
+            value = '<redacted>'
+        else:
+            raw: Any = Config.get().get_value(ck.key, ck.expected_type, section=ck.section)
+            value = None if raw is None else str(raw)
+        entries.append(
+            models.ConfigEntry(
+                section=ck.section,
+                key=ck.key,
+                value=value,
+                source=source,
+                description=ck.description,
+                expected_type=getattr(ck.expected_type, '__name__', str(ck.expected_type)),
+            )
+        )
+    return models.ConfigResponse(config_file=str(Config.get().config_file), entries=entries)
 
 
 @router.post('/pcli/v0/drop_table')
@@ -393,66 +408,11 @@ def _dir_size(path: str | None) -> int | None:
     return total
 
 
-def _redact_db_url(url: str | None) -> str | None:
+def _redact_db_password(url: str | None) -> str | None:
+    """Replace the password in a SQLAlchemy URL with '***'. Returns None if the URL can't be parsed."""
     if url is None:
         return None
     try:
         return sa.make_url(url).render_as_string(hide_password=True)
     except Exception:
         return None
-
-
-# Vars reported value-redacted. Match by suffix to catch provider-specific names
-# (e.g. PIXELTABLE_DB_CONNECT_STR, plus any *_API_KEY / *_TOKEN / *_SECRET / *_PASSWORD).
-_SENSITIVE_NAMES = {'PIXELTABLE_DB_CONNECT_STR'}
-_SENSITIVE_SUFFIXES = ('_API_KEY', '_TOKEN', '_SECRET', '_PASSWORD')
-
-# Common credential vars reported as presence-only (true/false) regardless of prefix.
-_CREDENTIAL_VARS = (
-    'OPENAI_API_KEY',
-    'ANTHROPIC_API_KEY',
-    'GEMINI_API_KEY',
-    'GOOGLE_API_KEY',
-    'MISTRAL_API_KEY',
-    'GROQ_API_KEY',
-    'COHERE_API_KEY',
-    'TOGETHER_API_KEY',
-    'HF_TOKEN',
-    'HUGGINGFACE_API_KEY',
-    'REPLICATE_API_TOKEN',
-    'FIREWORKS_API_KEY',
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
-)
-
-
-def _is_sensitive(name: str) -> bool:
-    return name in _SENSITIVE_NAMES or any(name.endswith(s) for s in _SENSITIVE_SUFFIXES)
-
-
-def _redact_user_home(value: str) -> str:
-    """Layer $HOME redaction on top of the shared $PIXELTABLE_HOME redaction.
-
-    PIXELTABLE_HOME is typically nested under $HOME, so we run redact_home() first; a remaining absolute path inside
-    $HOME (e.g. a custom file_cache_dir outside the pxt home) then becomes $HOME/.... Both sides go through realpath
-    so symlinked layouts (macOS /private/Users/me) match.
-    """
-    after_pxt = redact_home(value) or value
-    if after_pxt.startswith('$PIXELTABLE_HOME'):
-        return after_pxt
-    # Only treat absolute paths and ~-prefixed paths as redactable. Anything else (bare scalars
-    # like 'false'/'1', URLs like 's3://bucket', relative tokens) passes through untouched -
-    # otherwise realpath() would expand them under $cwd and a wrong match to $HOME/... could
-    # corrupt the reported value.
-    if not (after_pxt.startswith('~') or os.path.isabs(after_pxt)):
-        return after_pxt
-    try:
-        user_home = os.path.realpath(os.path.expanduser('~'))
-        target = os.path.realpath(after_pxt)
-    except OSError:
-        return after_pxt
-    if target == user_home:
-        return '$HOME'
-    if target.startswith(user_home + os.sep):
-        return '$HOME' + target[len(user_home) :]
-    return after_pxt

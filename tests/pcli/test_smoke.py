@@ -397,38 +397,100 @@ class TestCount:
 
 class TestStatus:
     def test_basics(self, pcli: PcliRunner) -> None:
-        # --json: redaction holds for every home-rooted path
+        # --json: paths are reported raw (no redaction)
         out = pcli('status', '--json').json
         assert out['pxt_version'] != ''
         assert out['pid'] > 0
         home = os.environ['PIXELTABLE_HOME']
+        # PIXELTABLE_HOME-rooted paths come through verbatim - users want to see their actual layout
+        assert out['home'] == home
         path_keys = ('home', 'media_dir', 'file_cache_dir')
-        assert all(out.get(k) is None or home not in out[k] for k in path_keys)
-        assert all(out.get(k) is None or out[k].startswith('$PIXELTABLE_HOME') for k in path_keys)
+        assert all(out.get(k) is None or '$PIXELTABLE_HOME' not in out[k] for k in path_keys)
+        assert all(out.get(k) is None or '$HOME' not in out[k] for k in path_keys)
 
-        # text: header lines for each field
+        # db_url password is still redacted: that's value protection, not path obfuscation
+        if out.get('db_url') is not None:
+            assert 'password' not in out['db_url'].lower() or '***' in out['db_url']
+
+        # text: header lines for each field. Without --sizes, no size parenthetical is
+        # emitted - the scan is skipped so there's nothing to report.
         text = pcli('status').stdout
         assert all(h in text for h in ('pxt_version', 'daemon_pid', 'home'))
-        # the '-' placeholder appears for unset fields when sizes weren't requested
-        assert '-' in text
+        assert '(-)' not in text
+        media_line = next(ln for ln in text.splitlines() if ln.startswith('media_dir'))
+        assert '(' not in media_line
 
         # --sizes: _fmt_size renders a B/KB/MB suffix once sizes are populated
         sized = pcli('status', '--sizes').stdout
         assert any(unit in sized for unit in ('B)', 'KB)', 'MB)', 'GB)'))
 
 
-class TestEnv:
+class TestConfig:
     def test_basics(self, pcli: PcliRunner) -> None:
-        # --json: PIXELTABLE_DB is always set by init_env
-        out = pcli('env', '--json').json
-        assert 'PIXELTABLE_DB' in out['env_vars']
+        """pcli config reports every documented configuration setting with its resolved value and
+        source (env / file / unset). Credentials show '<redacted>' when set; the source
+        field reveals presence even when the value is masked."""
+        out = pcli('config', '--json').json
+        assert out['config_file'].endswith('config.toml')
+        entries = out['entries']
 
-        # text: config_file and PIXELTABLE_DB= lines plus credentials summary
-        text = pcli('env').stdout
+        # every entry has the expected shape
+        expected_keys = {'section', 'key', 'value', 'source', 'description', 'expected_type'}
+        assert all(set(e.keys()) == expected_keys for e in entries)
+        # source is one of the three documented values
+        assert all(e['source'] in ('env', 'file', 'unset') for e in entries)
+
+        # the registry covers the top-level 'pixeltable' section plus per-provider sections
+        sections = {e['section'] for e in entries}
+        assert 'pixeltable' in sections
+        assert 'openai' in sections
+
+        # openai.api_key is a known credential entry
+        openai_key = next(e for e in entries if e['section'] == 'openai' and e['key'] == 'api_key')
+        # if it's set in the test environment's config.toml, value is '<redacted>'; if not, None
+        if openai_key['source'] != 'unset':
+            assert openai_key['value'] == '<redacted>'
+        else:
+            assert openai_key['value'] is None
+
+        # text mode: set entries in aligned table, unset entries collapsed into a "not set" line.
+        # Defining keys section by section avoids the noise of one-per-line for things at default.
+        text = pcli('config').stdout
         assert 'config_file' in text
-        assert 'PIXELTABLE_DB=' in text
-        # one of the _CREDENTIAL_VARS subsets (set or unset) is always present
-        assert 'credentials' in text
+        # openai.api_key appears either in the aligned table (if set) or in the not-set list
+        assert 'openai.api_key' in text
+        # the unset bucket is summarized on a single line; the legacy '(unset)' marker is gone
+        assert '(unset)' not in text
+
+        # -v: descriptions inline under each entry, and unset entries get full table rows
+        # (with '-' as the value) so the description has somewhere to land.
+        verbose = pcli('config', '-v').stdout
+        assert 'config_file' in verbose
+        assert 'not set:' not in verbose
+        assert '[unset]' in verbose
+        # at least one description (every entry in the registry has one)
+        openai_key = next(
+            e for e in pcli('config', '--json').json['entries'] if e['section'] == 'openai' and e['key'] == 'api_key'
+        )
+        assert openai_key['description'] in verbose
+
+    def test_filters(self, pcli: PcliRunner) -> None:
+        """--section filters to one section; --source filters by where the value comes from."""
+        out = pcli('config', '--section', 'openai', '--json').json
+        assert all(e['section'] == 'openai' for e in out['entries'])
+
+        out = pcli('config', '--source', 'unset', '--json').json
+        assert all(e['source'] == 'unset' for e in out['entries'])
+
+        # --source unset text mode collapses everything into the "not set" line - no table header
+        text = pcli('config', '--source', 'unset').stdout
+        assert 'not set:' in text
+        # no per-entry table rows when everything is unset
+        assert '[unset]' not in text
+
+        # invalid source value rejected by argparse
+        r = pcli('config', '--source', 'nope', check=False)
+        assert r.returncode == 2
 
 
 class TestErrors:

@@ -150,12 +150,20 @@ class StatusResponse(BaseModel):
     total_errors: int
 
 
-class EnvResponse(BaseModel):
-    env_vars: dict[str, str]
-    config_file: str | None
-    credentials_present: dict[str, bool] = Field(
-        description='Presence-only map for agent-relevant credential vars (no values).'
+class ConfigEntry(BaseModel):
+    section: str
+    key: str
+    value: str | None = Field(
+        description="Resolved value as a string, or None if unset. '<redacted>' for sensitive keys."
     )
+    source: Literal['env', 'file', 'unset']
+    description: str
+    expected_type: str
+
+
+class ConfigResponse(BaseModel):
+    config_file: str
+    entries: list[ConfigEntry]
 
 
 class CountRequest(BaseModel):

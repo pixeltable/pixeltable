@@ -16,7 +16,7 @@ COMMANDS: dict[str, str] = {
     'get': 'look up a single row by primary key',
     'count': 'count rows in a table',
     'status': 'show daemon/runtime state',
-    'env': 'show pixeltable env vars and active config file',
+    'config': 'show resolved configuration: every documented setting, its value, and its source',
     'computed': "list computed columns (alias for 'columns --computed')",
     'drop': "drop a table or view (use 'rm' for directories)",
     'rm': "remove a directory (use 'drop' for tables/views)",

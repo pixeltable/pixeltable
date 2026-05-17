@@ -165,15 +165,15 @@ pcli status
 pcli status --sizes --json
 ```
 
-### `pcli env`
+### `pcli config`
 
-Reported `PIXELTABLE_*` environment variables, the active config file, and a presence-only map for common credential variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `HF_TOKEN`, `AWS_*`, etc.).
+Every documented configuration setting with its current value and source (`env`, `file`, or `unset`). Credentials show `<redacted>` when set; the `source` column reveals presence even when the value is masked.
 
 ```bash
-pcli env
+pcli config
+pcli config --section openai
+pcli config --source env
 ```
-
-Values matching `*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, or `PIXELTABLE_DB_CONNECT_STR` are redacted. Home-rooted paths are rewritten as `$PIXELTABLE_HOME/...` or `$HOME/...`.
 
 ## Query commands
 
