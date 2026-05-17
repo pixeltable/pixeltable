@@ -43,7 +43,7 @@ These flags work the same way across the commands that support them and are not 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Every command except `shell` | Emit machine-readable JSON instead of human-aligned text |
+| `--json` | Every command with a human-formatted default output | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL) or `health` (always JSON). |
 | `-n`, `--dry-run` | Every mutation (`drop`, `rm`, `rename`, `mv`, `revert`) | Print the intended action; don't execute |
 | `-f`, `--force` | Mutations that need confirmation (`drop`, `rm`, `revert`) | Skip the `[y/N]` prompt. Required in non-interactive contexts |
 
@@ -312,7 +312,7 @@ Inside the shell, every pcli command is available unmodified. Errors from one co
 
 ## Output and scripting
 
-Every command supports `--json` for stable, machine-readable output:
+Most commands accept `--json` for stable, machine-readable output (exceptions: `shell` is interactive, `health` is already JSON):
 
 ```bash
 pcli ls --json | jq '.entries[] | select(.kind == "table")'
