@@ -33,7 +33,7 @@ def run(argv: list[str]) -> None:
 
     confirm_or_exit(f'drop table {args.path}?', args.force)
 
-    resp = post('/pcli/v0/drop', {'path': args.path, 'cascade': args.cascade, 'is_dir': False})
+    resp = post('/pcli/v0/drop_table', {'path': args.path, 'cascade': args.cascade})
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:

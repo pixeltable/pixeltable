@@ -32,7 +32,7 @@ def run(argv: list[str]) -> None:
 
     confirm_or_exit(f'remove directory {args.path}?', args.force)
 
-    resp = post('/pcli/v0/drop', {'path': args.path, 'cascade': args.recursive, 'is_dir': True})
+    resp = post('/pcli/v0/drop_dir', {'path': args.path, 'cascade': args.recursive})
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:

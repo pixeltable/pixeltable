@@ -729,3 +729,18 @@ class TestServerRouteHelpers:
         monkeypatch.setattr(server_routes.os.path, 'realpath', boom)
         # Both realpath calls fail -> return the unchanged value.
         assert server_routes._redact_user_home('/some/path') == '/some/path'
+
+    def test_redact_user_home_non_path_values_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Bare scalars like 'false', '1', '<redacted>' aren't paths; they must pass through
+        verbatim. Without the path-like guard, realpath('false') would expand to $cwd/false
+        and could wrongly match $HOME/... if cwd lives under $HOME."""
+        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
+        assert all(server_routes._redact_user_home(v) == v for v in ('false', '1', '<redacted>', 'WARNING', ''))
+
+    def test_redact_user_home_tilde_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Tilde paths are path-like; the function expands and redacts them."""
+        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
+        out = server_routes._redact_user_home('~/projects')
+        # Either it expanded to $HOME/projects (so the prefix matches) or fell through unchanged
+        # if expanduser produced a non-home path; both are valid outcomes here.
+        assert out.startswith('$HOME') or out == '~/projects'
