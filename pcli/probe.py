@@ -80,7 +80,7 @@ def _check_daemon_deps() -> None:
     """Fail fast if the optional `cli` deps aren't installed."""
     missing = [m for m in ('fastapi', 'uvicorn') if importlib.util.find_spec(m) is None]
     if len(missing) > 0:
-        raise RuntimeError(f'pcli daemon requires {", ".join(missing)} (install with: pip install pixeltable[cli])')
+        raise RuntimeError(f"pcli daemon requires {', '.join(missing)} (install with: pip install 'pixeltable[cli]')")
 
 
 def spawn_detached() -> None:
