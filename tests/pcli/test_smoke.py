@@ -585,6 +585,32 @@ class TestPcliErrorPaths:
         assert r.returncode != 0
         assert 'relative' in r.stderr
 
+    def test_path_rejects_trailing_slash(self, pcli: PcliRunner) -> None:
+        r = pcli('describe', 'x/', check=False)
+        assert r.returncode != 0
+        assert "must not end with '/'" in r.stderr
+
+    def test_path_rejects_double_slash(self, pcli: PcliRunner) -> None:
+        r = pcli('describe', 'a//b', check=False)
+        assert r.returncode != 0
+        assert 'empty components' in r.stderr
+
+    def test_errors_unknown_col(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_err', if_exists='ignore')
+        pxt.create_table('pcli_err.errcol', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        r = pcli('errors', 'pcli_err/errcol', '--col', 'nope', check=False)
+        assert r.returncode != 0
+        assert 'unknown column' in r.stderr
+
+    def test_errors_col_not_stored_computed(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_err', if_exists='ignore')
+        pxt.create_table(
+            'pcli_err.errcol2', {'k': pxt.Required[pxt.Int], 'plain': pxt.String}, primary_key='k', if_exists='replace'
+        )
+        r = pcli('errors', 'pcli_err/errcol2', '--col', 'plain', check=False)
+        assert r.returncode != 0
+        assert 'stored computed column' in r.stderr
+
     def test_unknown_command(self, pcli: PcliRunner) -> None:
         r = pcli('not_a_command', check=False)
         assert r.returncode == 2

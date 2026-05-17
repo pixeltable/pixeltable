@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from pcli._paths import redact_home_in_text
+from pcli.paths import redact_home_in_text
 from pixeltable import exceptions as excs
 
 from .routes import router

@@ -11,7 +11,7 @@ import time
 import urllib.error
 import urllib.request
 
-from pcli._paths import redact_home, redact_home_in_text
+from pcli.paths import redact_home, redact_home_in_text
 
 DEFAULT_PORT = 22089
 _IS_WINDOWS = os.name == 'nt'
