@@ -11,7 +11,7 @@ import time
 import urllib.error
 import urllib.request
 
-from pcli._paths import redact_home
+from pcli._paths import redact_home, redact_home_in_text
 
 DEFAULT_PORT = 22089
 _IS_WINDOWS = os.name == 'nt'
@@ -99,13 +99,20 @@ def spawn_detached() -> None:
         raise RuntimeError(f'pcli daemon log unavailable ({redact_home(log_path)}): {reason}') from None
 
 
+_TAIL_BYTES = 64 * 1024  # plenty of headroom for n_lines while bounding memory on huge logs
+
+
 def _tail_daemon_log(n_lines: int = 10) -> str:
     try:
-        with open(_daemon_log_path(), encoding='utf-8') as f:
-            lines = f.readlines()
+        with open(_daemon_log_path(), 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - _TAIL_BYTES))
+            data = f.read()
     except OSError:
         return ''
-    return ''.join(lines[-n_lines:]).rstrip()
+    lines = data.decode('utf-8', errors='replace').splitlines()
+    return '\n'.join(lines[-n_lines:]).rstrip()
 
 
 def wait_for_health(timeout: float = 15.0) -> None:
@@ -119,7 +126,7 @@ def wait_for_health(timeout: float = 15.0) -> None:
     if tail != '':
         # Daemon log lines often embed resolved paths under PIXELTABLE_HOME; rewrite them
         # so user-facing CLI errors don't leak the operator's filesystem layout.
-        msg += f'\n--- daemon log tail ---\n{redact_home(tail) or tail}'
+        msg += f'\n--- daemon log tail ---\n{redact_home_in_text(tail)}'
     raise RuntimeError(msg)
 
 
