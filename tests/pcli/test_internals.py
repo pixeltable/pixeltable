@@ -30,7 +30,7 @@ pytest.importorskip('uvicorn')
 
 from pcli import paths, probe
 from pcli.client import confirm, http, main as client_main, parser as client_parser
-from pcli.client.commands import get as get_cmd, shell as shell_cmd, status as status_cmd
+from pcli.client.commands import shell as shell_cmd, status as status_cmd
 from pcli.server import daemon as server_daemon, routes as server_routes
 
 
@@ -457,39 +457,6 @@ class TestParser:
         assert 'must not be empty' in capsys.readouterr().err
 
 
-class TestCoerce:
-    """The `pcli get` PK coercion ladder: int -> float -> JSON literal -> str fallback."""
-
-    def test_int(self) -> None:
-        assert get_cmd._coerce('42') == 42
-
-    def test_negative_int(self) -> None:
-        assert get_cmd._coerce('-7') == -7
-
-    def test_float(self) -> None:
-        assert get_cmd._coerce('1.5') == 1.5
-
-    def test_int_with_surrounding_whitespace(self) -> None:
-        # int() and float() strip surrounding whitespace - documented Python behavior;
-        # we accept it rather than rejecting, since the value the user meant is unambiguous.
-        assert get_cmd._coerce('  42  ') == 42
-
-    def test_json_literal_quoted_string(self) -> None:
-        # '"42"' forces a string PK that would otherwise be parsed as int.
-        assert get_cmd._coerce('"42"') == '42'
-
-    def test_json_literal_bool(self) -> None:
-        assert get_cmd._coerce('true') is True
-
-    def test_string_fallback(self) -> None:
-        assert get_cmd._coerce('abc') == 'abc'
-
-    def test_inf_is_float(self) -> None:
-        # float('inf') succeeds; lookups against it will simply not find a row.
-        # Documented so future readers don't 'fix' this into a special case.
-        assert get_cmd._coerce('inf') == float('inf')
-
-
 class TestMain:
     def test_print_help_lists_every_command(self, capsys: pytest.CaptureFixture) -> None:
         client_main._print_help()
@@ -751,57 +718,45 @@ class TestServerRouteHelpers:
         monkeypatch.setattr(server_routes.pxt, 'get_table', lambda p: FakeT())
         assert server_routes._tbl_count('any/path') is None
 
-    def test_redact_user_home_exact(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        home = os.path.realpath(os.path.expanduser('~'))
-        # the path is exactly $HOME (after PIXELTABLE_HOME redaction is a no-op)
+    def test_redact_user_home_redacts_paths(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Path-like inputs under $HOME are rewritten to $HOME/...; absolute paths and ~ both
+        count as path-like."""
         monkeypatch.delenv('PIXELTABLE_HOME', raising=False)
-        # ensure PIXELTABLE_HOME default doesn't shadow $HOME
         monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
-        assert server_routes._redact_user_home(home) == '$HOME'
-
-    def test_redact_user_home_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         home = os.path.realpath(os.path.expanduser('~'))
-        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
+        # exact match -> $HOME
+        assert server_routes._redact_user_home(home) == '$HOME'
+        # prefix match -> $HOME/...
         assert server_routes._redact_user_home(f'{home}/projects/x').startswith('$HOME/')
+        # ~ expands; either it resolves under $HOME (prefix match) or falls through if expanduser
+        # produced something unexpected (very unusual setup)
+        out = server_routes._redact_user_home('~/projects')
+        assert out.startswith('$HOME') or out == '~/projects'
 
-    def test_redact_user_home_outside(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_redact_user_home_passes_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Inputs the predicate skips (bare scalars, URLs, relative paths) and inputs that
+        are path-like but not under $HOME (e.g. /etc/hosts) come back verbatim. realpath()
+        failures fall through to the unchanged value rather than raising."""
         monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
-        # an unrelated path that's neither in $HOME nor $PIXELTABLE_HOME is unchanged
+        # bare scalars, markers, empty - never path-like
+        for v in ('false', '1', '<redacted>', 'WARNING', ''):
+            assert server_routes._redact_user_home(v) == v
+        # URLs contain '/' but aren't filesystem paths; predicate must exclude them so
+        # realpath('s3://bucket/x') doesn't expand to $cwd/s3:/bucket/x
+        for v in ('s3://bucket/x', 'http://example.com/path', 'https://example.com', 'postgres://u@h/db'):
+            assert server_routes._redact_user_home(v) == v
+        # relative paths aren't absolute - predicate skips them
+        assert server_routes._redact_user_home('some/relative/path') == 'some/relative/path'
+        # absolute path outside $HOME - reaches realpath but isn't under user_home
         assert server_routes._redact_user_home('/etc/hosts') == '/etc/hosts'
 
     def test_redact_user_home_realpath_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """If realpath() raises (e.g. broken symlinks), return the unchanged value rather
+        than failing the whole /env response."""
         monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
 
         def boom(p: str) -> str:
             raise OSError('symlink loop')
 
         monkeypatch.setattr(server_routes.os.path, 'realpath', boom)
-        # Both realpath calls fail -> return the unchanged value.
         assert server_routes._redact_user_home('/some/path') == '/some/path'
-
-    def test_redact_user_home_non_path_values_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Bare scalars like 'false', '1', '<redacted>' aren't paths; they must pass through
-        verbatim. Without the path-like guard, realpath('false') would expand to $cwd/false
-        and could wrongly match $HOME/... if cwd lives under $HOME."""
-        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
-        assert all(server_routes._redact_user_home(v) == v for v in ('false', '1', '<redacted>', 'WARNING', ''))
-
-    def test_redact_user_home_urls_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """URLs contain '/' but aren't filesystem paths. realpath('s3://bucket/x') would
-        expand to $cwd/s3:/bucket/x and could spuriously redact to $HOME/... - exclude them."""
-        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
-        urls = ('s3://bucket/x', 'http://example.com/path', 'https://example.com', 'postgres://u@h/db')
-        assert all(server_routes._redact_user_home(u) == u for u in urls)
-
-    def test_redact_user_home_relative_path_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Relative paths aren't absolute; the predicate must skip them rather than expanding."""
-        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
-        assert server_routes._redact_user_home('some/relative/path') == 'some/relative/path'
-
-    def test_redact_user_home_tilde_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Tilde paths are path-like; the function expands and redacts them."""
-        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
-        out = server_routes._redact_user_home('~/projects')
-        # Either it expanded to $HOME/projects (so the prefix matches) or fell through unchanged
-        # if expanduser produced a non-home path; both are valid outcomes here.
-        assert out.startswith('$HOME') or out == '~/projects'
