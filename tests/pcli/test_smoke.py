@@ -622,6 +622,64 @@ class TestPcliErrorPaths:
         assert r.returncode != 0
         assert 'unknown column' in r.stderr
 
+    def test_rows_cols_trailing_comma(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_err', if_exists='ignore')
+        pxt.create_table('pcli_err.tc1', {'a': pxt.Int}, if_exists='replace')
+        r = pcli('rows', 'pcli_err/tc1', '--cols', 'a,', check=False)
+        assert r.returncode != 0
+        assert 'must not be empty' in r.stderr
+
+    def test_rows_cols_leading_comma(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_err', if_exists='ignore')
+        pxt.create_table('pcli_err.tc2', {'a': pxt.Int}, if_exists='replace')
+        r = pcli('rows', 'pcli_err/tc2', '--cols', ',a', check=False)
+        assert r.returncode != 0
+        assert 'must not be empty' in r.stderr
+
+    def test_rows_cols_double_comma(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_err', if_exists='ignore')
+        pxt.create_table('pcli_err.tc3', {'a': pxt.Int, 'b': pxt.Int}, if_exists='replace')
+        r = pcli('rows', 'pcli_err/tc3', '--cols', 'a,,b', check=False)
+        assert r.returncode != 0
+        assert 'must not be empty' in r.stderr
+
+    def test_get_pk_empty_rejected(self, pcli: PcliRunner) -> None:
+        """An empty PK token almost certainly indicates a typo; reject rather than silently
+        returning 'no row found' for PK=''."""
+        pxt.create_dir('pcli_err', if_exists='ignore')
+        pxt.create_table('pcli_err.gpkempty', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        r = pcli('get', 'pcli_err/gpkempty', '', check=False)
+        assert r.returncode != 0
+        assert 'empty or whitespace' in r.stderr
+
+    def test_get_pk_whitespace_rejected(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_err', if_exists='ignore')
+        pxt.create_table('pcli_err.gpkws', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        r = pcli('get', 'pcli_err/gpkws', '   ', check=False)
+        assert r.returncode != 0
+        assert 'empty or whitespace' in r.stderr
+
+    def test_get_composite_pk_one_empty_rejected(self, pcli: PcliRunner) -> None:
+        """Only one slot empty is enough to reject; the user gets a clear error before
+        a partial composite lookup runs against the server."""
+        pxt.create_dir('pcli_err', if_exists='ignore')
+        pxt.create_table(
+            'pcli_err.gpkc',
+            {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.String]},
+            primary_key=['a', 'b'],
+            if_exists='replace',
+        )
+        r = pcli('get', 'pcli_err/gpkc', '1', '', check=False)
+        assert r.returncode != 0
+        assert 'empty or whitespace' in r.stderr
+
+    def test_get_cols_trailing_comma(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_err', if_exists='ignore')
+        pxt.create_table('pcli_err.gc', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        r = pcli('get', 'pcli_err/gc', '1', '--cols', 'k,', check=False)
+        assert r.returncode != 0
+        assert 'must not be empty' in r.stderr
+
     def test_errors_col_not_stored_computed(self, pcli: PcliRunner) -> None:
         pxt.create_dir('pcli_err', if_exists='ignore')
         pxt.create_table(

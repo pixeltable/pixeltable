@@ -16,3 +16,14 @@ class Parser(argparse.ArgumentParser):
         if self.epilog is not None:
             sys.stderr.write(f'\n{self.epilog}\n')
         sys.exit(2)
+
+
+def parse_cols(arg: str | None, parser: Parser) -> list[str] | None:
+    """Parse a comma-separated --cols value, rejecting empty tokens so 'a,' or 'a,,b'
+    don't sneak a '' through to the server and produce a misleading 'unknown columns: '."""
+    if arg is None:
+        return None
+    parts = [c.strip() for c in arg.split(',')]
+    if any(p == '' for p in parts):
+        parser.error(f'--cols token must not be empty; got {arg!r}')
+    return parts

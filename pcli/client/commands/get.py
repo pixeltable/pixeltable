@@ -1,7 +1,7 @@
 import json
 
 from ..http import post
-from ..parser import Parser
+from ..parser import Parser, parse_cols
 
 
 def _coerce(s: str) -> object:
@@ -45,8 +45,12 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
+    # Reject empty/whitespace-only PK tokens: argparse accepts `pcli get t ''` (or a stray
+    # space), and an empty PK would silently produce a 'no row found' that masks the typo.
+    if any(v.strip() == '' for v in args.pk):
+        ap.error('PK values must not be empty or whitespace-only')
     pk_values = [_coerce(v) for v in args.pk]
-    cols = [c.strip() for c in args.cols.split(',')] if args.cols is not None else None
+    cols = parse_cols(args.cols, ap)
     resp = post('/pcli/v0/get', {'path': args.path, 'pk': pk_values, 'cols': cols})
 
     if args.as_json:

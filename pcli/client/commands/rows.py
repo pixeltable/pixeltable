@@ -1,7 +1,7 @@
 import json
 
 from ..http import post
-from ..parser import Parser
+from ..parser import Parser, parse_cols
 
 EPILOG = """\
 Examples:
@@ -28,7 +28,7 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    cols = [c.strip() for c in args.cols.split(',')] if args.cols is not None else None
+    cols = parse_cols(args.cols, ap)
     resp = post('/pcli/v0/rows', {'path': args.path, 'n': args.n, 'cols': cols})
 
     if args.as_json:

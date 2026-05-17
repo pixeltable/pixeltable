@@ -435,10 +435,11 @@ def _redact_user_home(value: str) -> str:
     after_pxt = redact_home(value) or value
     if after_pxt.startswith('$PIXELTABLE_HOME'):
         return after_pxt
-    # Skip non-path-like values: realpath('false') would expand to $cwd/false, which then
-    # spuriously matches $HOME/... when cwd lives under $HOME. Bare scalars (`1`, `false`,
-    # `<redacted>`) stay untouched.
-    if not (after_pxt.startswith('~') or os.path.isabs(after_pxt) or os.sep in after_pxt):
+    # Only treat absolute paths and ~-prefixed paths as redactable. Anything else (bare scalars
+    # like 'false'/'1', URLs like 's3://bucket', relative tokens) passes through untouched -
+    # otherwise realpath() would expand them under $cwd and a wrong match to $HOME/... could
+    # corrupt the reported value.
+    if not (after_pxt.startswith('~') or os.path.isabs(after_pxt)):
         return after_pxt
     try:
         user_home = os.path.realpath(os.path.expanduser('~'))
