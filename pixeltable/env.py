@@ -21,7 +21,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, ClassVar, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
@@ -94,6 +94,8 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
     _dbms: Dbms | None
+
+    _CREDENTIAL_PARAM_NAMES: ClassVar[tuple[str, ...]] = ('api_key', 'api_token', 'api_secret', 'auth_token')
 
     @classmethod
     def get(cls) -> Env:
@@ -669,6 +671,22 @@ class Env:
         client = client_factory.init_fn(**init_kwargs)
         self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
         return client
+
+    def get_client_credential_params(self) -> dict[str, list[str]]:
+        """Return the credential-bearing init params for each registered API client.
+
+        Returns:
+            Mapping from provider name to its credential param names in registration order
+            (eg, 'openai' -> ['api_key'], 'replicate' -> ['api_token']). Providers with no
+            credential param are omitted.
+        """
+        out: dict[str, list[str]] = {}
+        with _client_factories_lock:
+            for name, factory in _client_factories.items():
+                cred_params = [p for p in factory.params if p in self._CREDENTIAL_PARAM_NAMES]
+                if len(cred_params) > 0:
+                    out[name] = cred_params
+        return out
 
     def _start_web_server(self) -> None:
         """

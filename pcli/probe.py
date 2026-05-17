@@ -11,8 +11,6 @@ import time
 import urllib.error
 import urllib.request
 
-from pcli.paths import redact_home, redact_home_in_text
-
 # TODO: move to 22089 when consolidating pcli with pxt
 DEFAULT_PORT = 22090
 _IS_WINDOWS = os.name == 'nt'
@@ -101,10 +99,8 @@ def spawn_detached() -> None:
         with open(log_path, 'a', encoding='utf-8') as log:
             subprocess.Popen([sys.executable, '-m', 'pcli.server.daemon'], stdout=log, stderr=log, **popen_kwargs)
     except OSError as e:
-        # don't surface the resolved home path (which often appears in e.strerror); use the
-        # redacted form so users see $PIXELTABLE_HOME/logs/... instead.
         reason = e.strerror or e.__class__.__name__
-        raise RuntimeError(f'pcli daemon log unavailable ({redact_home(log_path)}): {reason}') from None
+        raise RuntimeError(f'pcli daemon log unavailable ({log_path}): {reason}') from None
 
 
 _TAIL_BYTES = 64 * 1024  # plenty of headroom for n_lines while bounding memory on huge logs
@@ -132,9 +128,7 @@ def wait_for_health(timeout: float = 15.0) -> None:
     tail = _tail_daemon_log()
     msg = f'pcli daemon did not come up within {timeout}s'
     if tail != '':
-        # Daemon log lines often embed resolved paths under PIXELTABLE_HOME; rewrite them
-        # so user-facing CLI errors don't leak the operator's filesystem layout.
-        msg += f'\n--- daemon log tail ---\n{redact_home_in_text(tail)}'
+        msg += f'\n--- daemon log tail ---\n{tail}'
     raise RuntimeError(msg)
 
 
