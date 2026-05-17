@@ -325,9 +325,16 @@ def get(req: GetRequest) -> GetResponse:
     if len(req.pk) != len(pk_names):
         raise HTTPException(400, f'{req.path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(req.pk)}')
 
-    # Skip unstored computed columns: a PK lookup shouldn't silently trigger arbitrary
-    # computation (LLM calls, model inference, etc.).
-    cols = [name for name, c in md['columns'].items() if c.get('is_stored', True)]
+    cols_md = md['columns']
+    if req.cols is not None:
+        missing = [c for c in req.cols if c not in cols_md]
+        if missing:
+            raise HTTPException(400, f'unknown columns: {",".join(missing)}')
+        cols = list(req.cols)
+    else:
+        # Skip unstored computed columns: a PK lookup shouldn't silently trigger arbitrary
+        # computation (LLM calls, model inference, etc.). User opts in via --cols.
+        cols = [name for name, c in cols_md.items() if c.get('is_stored', True)]
 
     where = None
     for name, val in zip(pk_names, req.pk):
@@ -513,6 +520,11 @@ def revert(req: RevertRequest) -> RevertResponse:
         raise HTTPException(400, 'steps must be >= 1')
     t = pxt.get_table(req.path)
     from_version = t.get_metadata()['version']
+    # Validate up front so the operation is all-or-nothing: without this, a multi-step
+    # revert past version 0 would partially succeed before failing, leaving the table
+    # at an intermediate version with no clean way for the caller to roll back.
+    if req.steps > from_version:
+        raise HTTPException(400, f'cannot revert {req.steps} step(s): {req.path} is at version {from_version}')
     for _ in range(req.steps):
         t.revert()
     to_version = pxt.get_table(req.path).get_metadata()['version']
