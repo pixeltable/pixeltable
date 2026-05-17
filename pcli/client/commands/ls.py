@@ -80,10 +80,12 @@ def _print_aligned(headers: list[str], rows: list[list[str]], right_align: set[i
 
 
 def _print_tree(node: dict, prefix: str = '') -> None:
+    # ASCII glyphs (matches `tree --charset=ascii`): unicode box-drawing chars break on
+    # Windows consoles using cp1252 by default.
     entries = node.get('entries', [])
     for i, child in enumerate(entries):
         last = i == len(entries) - 1
-        bar = '└── ' if last else '├── '
+        bar = '\\-- ' if last else '|-- '
         print(f'{prefix}{bar}{child["name"]}  {child["kind"]}')
         if child['kind'] == 'directory':
-            _print_tree({'entries': child.get('entries', [])}, prefix + ('    ' if last else '│   '))
+            _print_tree({'entries': child.get('entries', [])}, prefix + ('    ' if last else '|   '))
