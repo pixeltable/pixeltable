@@ -271,7 +271,7 @@ class TestIceberg:
         t = pxt.create_table('test_iceberg_bad_json', {'c_json': pxt.Json})
         catalog = TestIceberg._catalog(tmp_path)
 
-        # Mixed struct and list shapes across rows: pa.infer_type can't unify them.
+        # Mixed struct and list shapes across rows: pa.infer_type() can't unify them.
         t.insert([{'c_json': {'a': 1}}, {'c_json': [1, 2, 3]}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='mixed types'):
             pxt.io.export_iceberg(t, catalog, 'pxt.bad_json')
