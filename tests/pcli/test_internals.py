@@ -30,7 +30,7 @@ pytest.importorskip('uvicorn')
 
 from pcli import paths, probe
 from pcli.client import confirm, http, main as client_main, parser as client_parser
-from pcli.client.commands import shell as shell_cmd, status as status_cmd
+from pcli.client.commands import get as get_cmd, shell as shell_cmd, status as status_cmd
 from pcli.server import daemon as server_daemon, routes as server_routes
 
 
@@ -440,6 +440,55 @@ class TestParser:
         assert 'pcli foo' in err
         assert 'Examples:' in err
 
+    def test_parse_cols_none(self) -> None:
+        p = client_parser.Parser(prog='pcli x')
+        assert client_parser.parse_cols(None, p) is None
+
+    def test_parse_cols_valid(self) -> None:
+        p = client_parser.Parser(prog='pcli x')
+        assert client_parser.parse_cols('a,b, c', p) == ['a', 'b', 'c']
+
+    @pytest.mark.parametrize('arg', ['a,', ',a', 'a,,b', ',', '  ,a'])
+    def test_parse_cols_rejects_empty_tokens(self, arg: str, capsys: pytest.CaptureFixture) -> None:
+        p = client_parser.Parser(prog='pcli x')
+        with pytest.raises(SystemExit) as ei:
+            client_parser.parse_cols(arg, p)
+        assert ei.value.code == 2
+        assert 'must not be empty' in capsys.readouterr().err
+
+
+class TestCoerce:
+    """The `pcli get` PK coercion ladder: int -> float -> JSON literal -> str fallback."""
+
+    def test_int(self) -> None:
+        assert get_cmd._coerce('42') == 42
+
+    def test_negative_int(self) -> None:
+        assert get_cmd._coerce('-7') == -7
+
+    def test_float(self) -> None:
+        assert get_cmd._coerce('1.5') == 1.5
+
+    def test_int_with_surrounding_whitespace(self) -> None:
+        # int() and float() strip surrounding whitespace - documented Python behavior;
+        # we accept it rather than rejecting, since the value the user meant is unambiguous.
+        assert get_cmd._coerce('  42  ') == 42
+
+    def test_json_literal_quoted_string(self) -> None:
+        # '"42"' forces a string PK that would otherwise be parsed as int.
+        assert get_cmd._coerce('"42"') == '42'
+
+    def test_json_literal_bool(self) -> None:
+        assert get_cmd._coerce('true') is True
+
+    def test_string_fallback(self) -> None:
+        assert get_cmd._coerce('abc') == 'abc'
+
+    def test_inf_is_float(self) -> None:
+        # float('inf') succeeds; lookups against it will simply not find a row.
+        # Documented so future readers don't 'fix' this into a special case.
+        assert get_cmd._coerce('inf') == float('inf')
+
 
 class TestMain:
     def test_print_help_lists_every_command(self, capsys: pytest.CaptureFixture) -> None:
@@ -736,6 +785,18 @@ class TestServerRouteHelpers:
         and could wrongly match $HOME/... if cwd lives under $HOME."""
         monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
         assert all(server_routes._redact_user_home(v) == v for v in ('false', '1', '<redacted>', 'WARNING', ''))
+
+    def test_redact_user_home_urls_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """URLs contain '/' but aren't filesystem paths. realpath('s3://bucket/x') would
+        expand to $cwd/s3:/bucket/x and could spuriously redact to $HOME/... - exclude them."""
+        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
+        urls = ('s3://bucket/x', 'http://example.com/path', 'https://example.com', 'postgres://u@h/db')
+        assert all(server_routes._redact_user_home(u) == u for u in urls)
+
+    def test_redact_user_home_relative_path_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Relative paths aren't absolute; the predicate must skip them rather than expanding."""
+        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
+        assert server_routes._redact_user_home('some/relative/path') == 'some/relative/path'
 
     def test_redact_user_home_tilde_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Tilde paths are path-like; the function expands and redacts them."""
