@@ -99,6 +99,9 @@ override-dependencies = [
     "ruff>=0.14",  # Required because 'fireworks-ai' hard-codes 'ruff<10'
     "protobuf>=5.29.6",  # Required because 'fireworks-ai' hard-codes 'protobuf==5.29.4'
     "huggingface-hub>=1",  # Required due to 'whisperx'
+    # torchcodec has no aarch64 wheels until 0.11, but our pin is <0.8 (torch 2.8 compat).
+    # Override pyannote-audio's unconditional torchcodec dep to skip linux-aarch64.
+    "torchcodec<0.8 ; python_version < '3.14' and (sys_platform != 'linux' or platform_machine != 'aarch64')",
 ]
 
 [tool.uv-dynamic-versioning]
@@ -143,7 +146,7 @@ dev = [
     "torch>=2.8",
     "torchaudio>=2.8",
     "torchvision>=0.22",
-    "torchcodec<0.8 ; python_version < '3.14'",  # Pinned for compatibility with torch 2.8
+    "torchcodec<0.8 ; python_version < '3.14' and (sys_platform != 'linux' or platform_machine != 'aarch64')",  # Pinned for compatibility with torch 2.8; no aarch64 wheels until 0.11
     "soundfile>=0.13",
     "openai>=2",
     "anthropic>=0.53.0",

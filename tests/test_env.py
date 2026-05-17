@@ -1,3 +1,5 @@
+import pytest
+
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
@@ -15,11 +17,17 @@ def _reset_env(reinit: bool, db_name: str) -> None:
     Env._init_env(reinit_db=reinit)
 
 
+def _skip_if_non_local() -> None:
+    if not Env.get().is_local:
+        pytest.skip('Env reset tests require a local (file-backed) Pixeltable database')
+
+
 class TestEnvReset:
     """Run tests for env reset"""
 
     def test_basic(self, uses_db: None) -> None:
         """Test basic env clear functionality."""
+        _skip_if_non_local()
         # Set environment
         dbname = 'test_basic_db'
         _reset_env(reinit=True, db_name=dbname)
@@ -45,6 +53,7 @@ class TestEnvReset:
 
     def test_switch_environments(self, uses_db: None) -> None:
         """Test switching between two environments."""
+        _skip_if_non_local()
         dbname1 = 'test_switch_environments_db1'
         dbname2 = 'test_switch_environments_db2'
 
@@ -84,6 +93,7 @@ class TestEnvReset:
 
     def test_metadata_persistence(self, uses_db: None) -> None:
         """Test that metadata persists across environment switches."""
+        _skip_if_non_local()
         metadata_db = 'test_metadata_persistence_db'
         # Environment 1 setup
         _reset_env(reinit=True, db_name=metadata_db)

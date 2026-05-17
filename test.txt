@@ -1,0 +1,643 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.20, pytest-9.0.3, pluggy-1.6.0 -- /opt/miniforge/envs/pxt/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /workspaces/pixeltable
+configfile: pyproject.toml
+plugins: rerunfailures-15.1, Faker-37.4.0, anyio-4.9.0, requests-mock-1.12.1, langsmith-0.7.33, xdist-3.8.0, benchmark-5.2.3, nbmake-1.5.5
+created: 6/6 workers
+6 workers [854 items]
+
+scheduling tests via LoadGroupScheduling
+
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_project@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/functions/test_ollama.py::TestOllama::test_generate@ollama <- ../../Users/cpestano/pixeltable/tests/functions/test_ollama.py 
+tests/dashboard/test_bridge.py::TestBridge::test_directory_tree 
+[gw0] [  0%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_project@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_fiftyone.py::TestFiftyone::test_export_images@fiftyone <- ../../Users/cpestano/pixeltable/tests/io/test_fiftyone.py 
+[gw4] [  0%] SKIPPED tests/io/test_fiftyone.py::TestFiftyone::test_export_images@fiftyone <- ../../Users/cpestano/pixeltable/tests/io/test_fiftyone.py 
+tests/dashboard/test_bridge.py::TestBridge::test_table_metadata_basic 
+tests/dashboard/test_bridge.py::TestBridge::test_directory_tree_empty 
+tests/io/test_fiftyone.py::TestFiftyone::test_export_images_errors@fiftyone <- ../../Users/cpestano/pixeltable/tests/io/test_fiftyone.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_images[post-image_col]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw4] [  0%] SKIPPED tests/io/test_fiftyone.py::TestFiftyone::test_export_images_errors@fiftyone <- ../../Users/cpestano/pixeltable/tests/io/test_fiftyone.py 
+[gw0] [  0%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_images[post-image_col]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_images[file-image_col]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  0%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_images[file-image_col]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/dashboard/test_bridge.py::TestBridge::test_table_metadata_view 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_images[url-image_col]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  0%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_images[url-image_col]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_images[post-rot_image_col]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  0%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_images[post-rot_image_col]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_images[file-rot_image_col]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  0%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_images[file-rot_image_col]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_videos[post]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  1%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_videos[post]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_videos[url]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  1%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_videos[url]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_audio[post]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  1%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_audio[post]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_audio[url]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  1%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_audio[url]@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_preannotations@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  1%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_preannotations@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_to_base_table@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  1%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_to_base_table@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_complex@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  1%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_complex@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_errors@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+[gw0] [  1%] SKIPPED tests/io/test_label_studio.py::TestLabelStudio::test_label_studio_sync_errors@label_studio <- ../../Users/cpestano/pixeltable/tests/io/test_label_studio.py 
+tests/dashboard/test_bridge.py::TestBridge::test_table_data_computed_column 
+[gw1] [  1%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_directory_tree_empty 
+tests/dashboard/test_bridge.py::TestBridge::test_table_metadata_indices 
+[gw2] [  2%] SKIPPED tests/functions/test_ollama.py::TestOllama::test_generate@ollama <- ../../Users/cpestano/pixeltable/tests/functions/test_ollama.py 
+tests/functions/test_ollama.py::TestOllama::test_chat@ollama <- ../../Users/cpestano/pixeltable/tests/functions/test_ollama.py 
+[gw2] [  2%] SKIPPED tests/functions/test_ollama.py::TestOllama::test_chat@ollama <- ../../Users/cpestano/pixeltable/tests/functions/test_ollama.py 
+tests/functions/test_ollama.py::TestOllama::test_embed@ollama <- ../../Users/cpestano/pixeltable/tests/functions/test_ollama.py 
+[gw2] [  2%] SKIPPED tests/functions/test_ollama.py::TestOllama::test_embed@ollama <- ../../Users/cpestano/pixeltable/tests/functions/test_ollama.py 
+tests/dashboard/test_bridge.py::TestBridge::test_export_csv_empty 
+[gw1] [  2%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_table_metadata_indices 
+tests/dashboard/test_bridge.py::TestBridge::test_export_csv 
+[gw0] [  2%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_table_data_computed_column 
+tests/dashboard/test_bridge.py::TestBridge::test_table_data_nulls 
+[gw2] [  2%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_export_csv_empty 
+tests/dashboard/test_bridge.py::TestBridge::test_export_csv_limit 
+[gw4] [  2%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_table_metadata_view 
+tests/dashboard/test_bridge.py::TestBridge::test_table_data_pagination 
+[gw1] [  2%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_export_csv 
+tests/dashboard/test_bridge.py::TestBridge::test_search_empty_db 
+[gw1] [  3%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_search_empty_db 
+tests/dashboard/test_bridge.py::TestBridge::test_pipeline 
+[gw2] [  3%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_export_csv_limit 
+tests/dashboard/test_bridge.py::TestBridge::test_export_csv_json_column 
+[gw0] [  3%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_table_data_nulls 
+tests/dashboard/test_bridge.py::TestBridge::test_table_data_json 
+[gw1] [  3%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_pipeline 
+tests/dashboard/test_bridge.py::TestBridge::test_pipeline_view_edge 
+[gw4] [  3%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_table_data_pagination 
+tests/dashboard/test_bridge.py::TestBridge::test_table_data_order_by 
+[gw2] [  3%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_export_csv_json_column 
+tests/dashboard/test_bridge.py::TestBridge::test_search_case_insensitive 
+[gw5] [  3%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_table_metadata_basic 
+tests/dashboard/test_bridge.py::TestBridge::test_table_data_empty 
+[gw3] [  3%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_directory_tree 
+tests/dashboard/test_bridge.py::TestBridge::test_table_data_basic 
+[gw2] [  3%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_search_case_insensitive 
+tests/dashboard/test_bridge.py::TestBridge::test_pipeline_computed_columns 
+[gw0] [  4%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_table_data_json 
+tests/dashboard/test_bridge.py::TestBridge::test_search_finds_dir_table_column 
+[gw5] [  4%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_table_data_empty 
+tests/functions/test_date.py::TestDate::test_date_arith <- ../../Users/cpestano/pixeltable/tests/functions/test_date.py 
+[gw4] [  4%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_table_data_order_by 
+tests/dashboard/test_bridge.py::TestBridge::test_search_limit 
+[gw3] [  4%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_table_data_basic 
+tests/functions/test_globals.py::TestGlobals::test_aggregators <- ../../Users/cpestano/pixeltable/tests/functions/test_globals.py 
+[gw0] [  4%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_search_finds_dir_table_column 
+tests/dashboard/test_bridge.py::TestBridge::test_status 
+[gw0] [  4%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_status 
+tests/functions/test_huggingface.py::TestHuggingface::test_sentence_transformer <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  4%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_sentence_transformer <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw1] [  4%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_pipeline_view_edge 
+tests/dashboard/test_bridge.py::TestBridge::test_status_table_count 
+tests/functions/test_huggingface.py::TestHuggingface::test_detr_for_segmentation <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  5%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_detr_for_segmentation <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_vit_for_image_classification <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  5%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_vit_for_image_classification <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_speech2text_for_conditional_generation <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  5%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_speech2text_for_conditional_generation <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_text_classification <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  5%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_text_classification <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_summarization <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  5%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_summarization <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_question_answering <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  5%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_question_answering <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_translation <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  5%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_translation <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_named_entity_recognition <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  5%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_named_entity_recognition <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_automatic_speech_recognition <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  5%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_automatic_speech_recognition <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_text_to_speech <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw0] [  6%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_text_to_speech <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_image.py::TestImage::test_image <- ../../Users/cpestano/pixeltable/tests/functions/test_image.py 
+[gw5] [  6%] PASSED tests/functions/test_date.py::TestDate::test_date_arith <- ../../Users/cpestano/pixeltable/tests/functions/test_date.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_cross_encoder <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw5] [  6%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_cross_encoder <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_image.py::TestImage::test_tile_iterator_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_image.py 
+[gw5] [  6%] PASSED tests/functions/test_image.py::TestImage::test_tile_iterator_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_image.py 
+tests/functions/test_json.py::TestJson::test_list_iterator <- ../../Users/cpestano/pixeltable/tests/functions/test_json.py 
+[gw1] [  6%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_status_table_count 
+tests/functions/test_huggingface.py::TestHuggingface::test_text_generation <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw1] [  6%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_text_generation <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_json.py::TestJson::test_list_iterator_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_json.py 
+[gw3] [  6%] PASSED tests/functions/test_globals.py::TestGlobals::test_aggregators <- ../../Users/cpestano/pixeltable/tests/functions/test_globals.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_detr_for_object_detection <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw3] [  6%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_detr_for_object_detection <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_math.py::TestMath::test_methods[Annotated0] <- ../../Users/cpestano/pixeltable/tests/functions/test_math.py 
+[gw1] [  7%] PASSED tests/functions/test_json.py::TestJson::test_list_iterator_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_json.py 
+tests/functions/test_llama_cpp.py::TestLlamaCpp::test_create_chat_completions <- ../../Users/cpestano/pixeltable/tests/functions/test_llama_cpp.py 
+[gw2] [  7%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_pipeline_computed_columns 
+tests/functions/test_date.py::TestDate::test_date_make <- ../../Users/cpestano/pixeltable/tests/functions/test_date.py 
+[gw3] [  7%] PASSED tests/functions/test_math.py::TestMath::test_methods[Annotated0] <- ../../Users/cpestano/pixeltable/tests/functions/test_math.py 
+tests/functions/test_math.py::TestMath::test_methods[Annotated1] <- ../../Users/cpestano/pixeltable/tests/functions/test_math.py 
+[gw0] [  7%] PASSED tests/functions/test_image.py::TestImage::test_image <- ../../Users/cpestano/pixeltable/tests/functions/test_image.py 
+tests/functions/test_image.py::TestImage::test_return_types <- ../../Users/cpestano/pixeltable/tests/functions/test_image.py 
+[gw2] [  7%] PASSED tests/functions/test_date.py::TestDate::test_date_make <- ../../Users/cpestano/pixeltable/tests/functions/test_date.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_hf_function <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw2] [  7%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_hf_function <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_runwayml.py::TestRunwayML::test_serialize_result <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+[gw2] [  7%] PASSED tests/functions/test_runwayml.py::TestRunwayML::test_serialize_result <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+tests/functions/test_runwayml.py::TestRunwayML::test_text_to_video_signatures <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+[gw4] [  7%] PASSED tests/dashboard/test_bridge.py::TestBridge::test_search_limit 
+tests/functions/test_date.py::TestDate::test_date_methods <- ../../Users/cpestano/pixeltable/tests/functions/test_date.py 
+[gw3] [  7%] PASSED tests/functions/test_math.py::TestMath::test_methods[Annotated1] <- ../../Users/cpestano/pixeltable/tests/functions/test_math.py 
+tests/functions/test_runwayml.py::TestRunwayML::test_image_to_video_signatures <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+[gw4] [  8%] PASSED tests/functions/test_date.py::TestDate::test_date_methods <- ../../Users/cpestano/pixeltable/tests/functions/test_date.py 
+tests/functions/test_huggingface.py::TestHuggingface::test_clip <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+[gw4] [  8%] SKIPPED tests/functions/test_huggingface.py::TestHuggingface::test_clip <- ../../Users/cpestano/pixeltable/tests/functions/test_huggingface.py 
+tests/functions/test_string.py::TestString::test_removeprefix 
+[gw0] [  8%] PASSED tests/functions/test_image.py::TestImage::test_return_types <- ../../Users/cpestano/pixeltable/tests/functions/test_image.py 
+tests/functions/test_image.py::TestImage::test_tile_iterator <- ../../Users/cpestano/pixeltable/tests/functions/test_image.py 
+[gw2] [  8%] PASSED tests/functions/test_runwayml.py::TestRunwayML::test_text_to_video_signatures <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+tests/functions/test_runwayml.py::TestRunwayML::test_video_to_video_signatures <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+[gw4] [  8%] PASSED tests/functions/test_string.py::TestString::test_removeprefix 
+tests/functions/test_string.py::TestString::test_replace 
+[gw2] [  8%] PASSED tests/functions/test_runwayml.py::TestRunwayML::test_video_to_video_signatures <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+tests/functions/test_string.py::TestString::test_all 
+[gw0] [  8%] PASSED tests/functions/test_image.py::TestImage::test_tile_iterator <- ../../Users/cpestano/pixeltable/tests/functions/test_image.py 
+tests/functions/test_runwayml.py::TestRunwayML::test_text_to_image_signatures <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+[gw3] [  8%] PASSED tests/functions/test_runwayml.py::TestRunwayML::test_image_to_video_signatures <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+tests/functions/test_string.py::TestString::test_removesuffix 
+[gw2] [  9%] PASSED tests/functions/test_string.py::TestString::test_all 
+tests/functions/test_string.py::TestString::test_rpartition 
+[gw5] [  9%] PASSED tests/functions/test_json.py::TestJson::test_list_iterator <- ../../Users/cpestano/pixeltable/tests/functions/test_json.py 
+tests/functions/test_json.py::TestJson::test_list_iterator_appl <- ../../Users/cpestano/pixeltable/tests/functions/test_json.py 
+[gw0] [  9%] PASSED tests/functions/test_runwayml.py::TestRunwayML::test_text_to_image_signatures <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+tests/functions/test_string.py::TestString::test_partition 
+[gw3] [  9%] PASSED tests/functions/test_string.py::TestString::test_removesuffix 
+tests/functions/test_string.py::TestString::test_fullmatch 
+[gw4] [  9%] PASSED tests/functions/test_string.py::TestString::test_replace 
+tests/functions/test_string.py::TestString::test_slice_replace 
+[gw2] [  9%] PASSED tests/functions/test_string.py::TestString::test_rpartition 
+tests/functions/test_string.py::TestString::test_slice 
+[gw3] [  9%] PASSED tests/functions/test_string.py::TestString::test_fullmatch 
+tests/functions/test_string.py::TestString::test_contains 
+[gw0] [  9%] PASSED tests/functions/test_string.py::TestString::test_partition 
+tests/functions/test_string.py::TestString::test_match 
+[gw4] [  9%] PASSED tests/functions/test_string.py::TestString::test_slice_replace 
+tests/functions/test_string.py::TestString::test_wrap 
+[gw2] [ 10%] PASSED tests/functions/test_string.py::TestString::test_slice 
+tests/functions/test_string.py::TestString::test_pad 
+[gw3] [ 10%] PASSED tests/functions/test_string.py::TestString::test_contains 
+tests/functions/test_string.py::TestString::test_string_splitter 
+[gw1] [ 10%] PASSED tests/functions/test_llama_cpp.py::TestLlamaCpp::test_create_chat_completions <- ../../Users/cpestano/pixeltable/tests/functions/test_llama_cpp.py 
+tests/functions/test_runwayml.py::TestRunwayML::test_image_to_data_uri <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+[gw1] [ 10%] PASSED tests/functions/test_runwayml.py::TestRunwayML::test_image_to_data_uri <- ../../Users/cpestano/pixeltable/tests/functions/test_runwayml.py 
+tests/functions/test_timestamp.py::TestTimestamp::test_timestamp_zones <- ../../Users/cpestano/pixeltable/tests/functions/test_timestamp.py 
+[gw0] [ 10%] PASSED tests/functions/test_string.py::TestString::test_match 
+tests/functions/test_string.py::TestString::test_repeat 
+[gw4] [ 10%] PASSED tests/functions/test_string.py::TestString::test_wrap 
+tests/functions/test_string.py::TestString::test_index 
+[gw2] [ 10%] PASSED tests/functions/test_string.py::TestString::test_pad 
+tests/functions/test_string.py::TestString::test_format 
+[gw0] [ 10%] PASSED tests/functions/test_string.py::TestString::test_repeat 
+tests/functions/test_string.py::TestString::test_unicode_case 
+[gw4] [ 11%] PASSED tests/functions/test_string.py::TestString::test_index 
+tests/functions/test_string.py::TestString::test_unicode_contains_and_filter 
+[gw5] [ 11%] PASSED tests/functions/test_json.py::TestJson::test_list_iterator_appl <- ../../Users/cpestano/pixeltable/tests/functions/test_json.py 
+tests/functions/test_string.py::TestString::test_normalize 
+[gw3] [ 11%] PASSED tests/functions/test_string.py::TestString::test_string_splitter 
+tests/functions/test_timestamp.py::TestTimestamp::test_timestamp_methods <- ../../Users/cpestano/pixeltable/tests/functions/test_timestamp.py 
+[gw4] [ 11%] PASSED tests/functions/test_string.py::TestString::test_unicode_contains_and_filter 
+tests/functions/test_uuid.py::TestUuid::test_uuid_methods <- ../../Users/cpestano/pixeltable/tests/functions/test_uuid.py 
+[gw0] [ 11%] PASSED tests/functions/test_string.py::TestString::test_unicode_case 
+tests/functions/test_timestamp.py::TestTimestamp::test_timestamp_make <- ../../Users/cpestano/pixeltable/tests/functions/test_timestamp.py 
+[gw5] [ 11%] PASSED tests/functions/test_string.py::TestString::test_normalize 
+tests/functions/test_vision.py::TestVision::test_bboxes_resize_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw3] [ 11%] PASSED tests/functions/test_timestamp.py::TestTimestamp::test_timestamp_methods <- ../../Users/cpestano/pixeltable/tests/functions/test_timestamp.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_resize_degenerate <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw0] [ 11%] PASSED tests/functions/test_timestamp.py::TestTimestamp::test_timestamp_make <- ../../Users/cpestano/pixeltable/tests/functions/test_timestamp.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_draw <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw4] [ 11%] PASSED tests/functions/test_uuid.py::TestUuid::test_uuid_methods <- ../../Users/cpestano/pixeltable/tests/functions/test_uuid.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_resize <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw2] [ 12%] PASSED tests/functions/test_string.py::TestString::test_format 
+tests/functions/test_string.py::TestString::test_computed_column_vs_live_select_unicode 
+[gw3] [ 12%] PASSED tests/functions/test_vision.py::TestVision::test_bboxes_resize_degenerate <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_pad <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw5] [ 12%] PASSED tests/functions/test_vision.py::TestVision::test_bboxes_resize_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_scale_degenerate <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw2] [ 12%] PASSED tests/functions/test_string.py::TestString::test_computed_column_vs_live_select_unicode 
+tests/functions/test_vision.py::TestVision::test_eval <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw1] [ 12%] PASSED tests/functions/test_timestamp.py::TestTimestamp::test_timestamp_zones <- ../../Users/cpestano/pixeltable/tests/functions/test_timestamp.py 
+tests/functions/test_timestamp.py::TestTimestamp::test_timestamp_zone_in_literals <- ../../Users/cpestano/pixeltable/tests/functions/test_timestamp.py 
+[gw5] [ 12%] PASSED tests/functions/test_vision.py::TestVision::test_bboxes_scale_degenerate <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_clip_to_canvas <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw0] [ 12%] FAILED tests/functions/test_vision.py::TestVision::test_bboxes_draw <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_scale_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw0] [ 12%] PASSED tests/functions/test_vision.py::TestVision::test_bboxes_scale_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_pad_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw1] [ 12%] PASSED tests/functions/test_timestamp.py::TestTimestamp::test_timestamp_zone_in_literals <- ../../Users/cpestano/pixeltable/tests/functions/test_timestamp.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_clip_to_canvas_degenerate <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw2] [ 13%] FAILED tests/functions/test_vision.py::TestVision::test_eval <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_convert <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw4] [ 13%] FAILED tests/functions/test_vision.py::TestVision::test_bboxes_resize <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw4] [ 13%] ERROR tests/functions/test_vision.py::TestVision::test_bboxes_resize <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_scale <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw4] [ 13%] ERROR tests/functions/test_vision.py::TestVision::test_bboxes_scale <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_pad_degenerate <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw4] [ 13%] ERROR tests/functions/test_vision.py::TestVision::test_bboxes_pad_degenerate <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+tests/functions/test_vision.py::TestVision::test_bboxes_resize_canvas_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+[gw4] [ 13%] ERROR tests/functions/test_vision.py::TestVision::test_bboxes_resize_canvas_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_vision.py 
+tests/functions/test_whisper.py::TestWhisper::test_whisper <- ../../Users/cpestano/pixeltable/tests/functions/test_whisper.py 
+[gw4] [ 13%] SKIPPED tests/functions/test_whisper.py::TestWhisper::test_whisper <- ../../Users/cpestano/pixeltable/tests/functions/test_whisper.py 
+tests/functions/test_whisperx.py::TestWhisperx::test_transcription <- ../../Users/cpestano/pixeltable/tests/functions/test_whisperx.py 
+[gw4] [ 13%] SKIPPED tests/functions/test_whisperx.py::TestWhisperx::test_transcription <- ../../Users/cpestano/pixeltable/tests/functions/test_whisperx.py 
+tests/functions/test_whisperx.py::TestWhisperx::test_diarization <- ../../Users/cpestano/pixeltable/tests/functions/test_whisperx.py 
+[gw4] [ 13%] SKIPPED tests/functions/test_whisperx.py::TestWhisperx::test_diarization <- ../../Users/cpestano/pixeltable/tests/functions/test_whisperx.py 
+tests/functions/test_whisperx.py::TestWhisperx::test_whisperx_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_whisperx.py 
+[gw4] [ 14%] SKIPPED tests/functions/test_whisperx.py::TestWhisperx::test_whisperx_errors <- ../../Users/cpestano/pixeltable/tests/functions/test_whisperx.py 
+tests/functions/test_yolox.py::TestYolox::test_yolox <- ../../Users/cpestano/pixeltable/tests/functions/test_yolox.py 
+[gw4] [ 14%] ERROR tests/functions/test_yolox.py::TestYolox::test_yolox <- ../../Users/cpestano/pixeltable/tests/functions/test_yolox.py 
+tests/io/test_csv.py::TestCsv::test_export_all_types <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+[gw4] [ 14%] ERROR tests/io/test_csv.py::TestCsv::test_export_all_types <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+tests/io/test_csv.py::TestCsv::test_export_round_trip <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+[gw4] [ 14%] ERROR tests/io/test_csv.py::TestCsv::test_export_round_trip <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+tests/io/test_csv.py::TestCsv::test_export_exact_output <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+[gw4] [ 14%] ERROR tests/io/test_csv.py::TestCsv::test_export_exact_output <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+tests/io/test_csv.py::TestCsv::test_export_with_nulls <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+[gw4] [ 14%] ERROR tests/io/test_csv.py::TestCsv::test_export_with_nulls <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+tests/io/test_csv.py::TestCsv::test_export_with_query <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+[gw4] [ 14%] ERROR tests/io/test_csv.py::TestCsv::test_export_with_query <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+tests/io/test_csv.py::TestCsv::test_export_custom_delimiter[\t] <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+[gw4] [ 14%] ERROR tests/io/test_csv.py::TestCsv::test_export_custom_delimiter[\t] <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+tests/io/test_csv.py::TestCsv::test_export_custom_delimiter[;] <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+[gw4] [ 14%] ERROR tests/io/test_csv.py::TestCsv::test_export_custom_delimiter[;] <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+tests/io/test_csv.py::TestCsv::test_export_custom_delimiter[|] <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+[gw4] [ 15%] ERROR tests/io/test_csv.py::TestCsv::test_export_custom_delimiter[|] <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+tests/io/test_csv.py::TestCsv::test_export_non_serializable_json_errors <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+[gw4] [ 15%] ERROR tests/io/test_csv.py::TestCsv::test_export_non_serializable_json_errors <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+tests/io/test_csv.py::TestCsv::test_export_computed_media_with_destination <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+[gw4] [ 15%] ERROR tests/io/test_csv.py::TestCsv::test_export_computed_media_with_destination <- ../../Users/cpestano/pixeltable/tests/io/test_csv.py 
+tests/io/test_hf_datasets.py::TestHfDatasets::test_import_hf_dataset <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+[gw4] [ 15%] SKIPPED tests/io/test_hf_datasets.py::TestHfDatasets::test_import_hf_dataset <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+tests/io/test_hf_datasets.py::TestHfDatasets::test_insert_hf_dataset <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+[gw4] [ 15%] SKIPPED tests/io/test_hf_datasets.py::TestHfDatasets::test_insert_hf_dataset <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+tests/io/test_hf_datasets.py::TestHfDatasets::test_import_hf_dataset_invalid <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+[gw4] [ 15%] SKIPPED tests/io/test_hf_datasets.py::TestHfDatasets::test_import_hf_dataset_invalid <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+tests/io/test_hf_datasets.py::TestHfDatasets::test_import_images[False] <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+[gw4] [ 15%] SKIPPED tests/io/test_hf_datasets.py::TestHfDatasets::test_import_images[False] <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+tests/io/test_hf_datasets.py::TestHfDatasets::test_import_images[True] <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+[gw4] [ 15%] SKIPPED tests/io/test_hf_datasets.py::TestHfDatasets::test_import_images[True] <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+tests/io/test_hf_datasets.py::TestHfDatasets::test_import_audio_small[False] <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+[gw4] [ 16%] SKIPPED tests/io/test_hf_datasets.py::TestHfDatasets::test_import_audio_small[False] <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+tests/io/test_hf_datasets.py::TestHfDatasets::test_import_audio_small[True] <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+[gw4] [ 16%] SKIPPED tests/io/test_hf_datasets.py::TestHfDatasets::test_import_audio_small[True] <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+tests/io/test_hf_datasets.py::TestHfDatasets::test_import_audio[True] <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+[gw4] [ 16%] SKIPPED tests/io/test_hf_datasets.py::TestHfDatasets::test_import_audio[True] <- ../../Users/cpestano/pixeltable/tests/io/test_hf_datasets.py 
+tests/io/test_import.py::TestImport::test_import_rows <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+[gw4] [ 16%] ERROR tests/io/test_import.py::TestImport::test_import_rows <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+tests/io/test_import.py::TestImport::test_insert_rows <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+[gw4] [ 16%] ERROR tests/io/test_import.py::TestImport::test_insert_rows <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+tests/io/test_import.py::TestImport::test_import_json <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+[gw4] [ 16%] ERROR tests/io/test_import.py::TestImport::test_import_json <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+tests/io/test_import.py::TestImport::test_import_json_from_remote[https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/example.json] <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+[gw4] [ 16%] ERROR tests/io/test_import.py::TestImport::test_import_json_from_remote[https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/example.json] <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+tests/io/test_import.py::TestImport::test_import_json_from_remote[s3://pxt-test/pytest-resources/example.json] <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+[gw4] [ 16%] ERROR tests/io/test_import.py::TestImport::test_import_json_from_remote[s3://pxt-test/pytest-resources/example.json] <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+tests/io/test_import.py::TestImport::test_insert_json <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+[gw4] [ 16%] ERROR tests/io/test_import.py::TestImport::test_insert_json <- ../../Users/cpestano/pixeltable/tests/io/test_import.py 
+tests/io/test_json.py::TestJson::test_export_all_types <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+[gw4] [ 17%] ERROR tests/io/test_json.py::TestJson::test_export_all_types <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+tests/io/test_json.py::TestJson::test_export_non_serializable_json_errors <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+[gw4] [ 17%] ERROR tests/io/test_json.py::TestJson::test_export_non_serializable_json_errors <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+tests/io/test_json.py::TestJson::test_export_with_nulls <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+[gw4] [ 17%] ERROR tests/io/test_json.py::TestJson::test_export_with_nulls <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+tests/io/test_json.py::TestJson::test_export_with_query <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+[gw4] [ 17%] ERROR tests/io/test_json.py::TestJson::test_export_with_query <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+tests/io/test_json.py::TestJson::test_export_non_ascii <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+[gw4] [ 17%] ERROR tests/io/test_json.py::TestJson::test_export_non_ascii <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+tests/io/test_json.py::TestJson::test_round_trip <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+[gw4] [ 17%] ERROR tests/io/test_json.py::TestJson::test_round_trip <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+tests/io/test_json.py::TestJson::test_round_trip_media <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+[gw4] [ 17%] ERROR tests/io/test_json.py::TestJson::test_round_trip_media <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+tests/io/test_json.py::TestJson::test_export_remote_urls <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+[gw4] [ 17%] ERROR tests/io/test_json.py::TestJson::test_export_remote_urls <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+tests/io/test_json.py::TestJson::test_export_unstored_media_expression_errors <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+[gw4] [ 18%] ERROR tests/io/test_json.py::TestJson::test_export_unstored_media_expression_errors <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+tests/io/test_json.py::TestJson::test_export_computed_media_with_destination <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+[gw4] [ 18%] ERROR tests/io/test_json.py::TestJson::test_export_computed_media_with_destination <- ../../Users/cpestano/pixeltable/tests/io/test_json.py 
+tests/io/test_lancedb.py::TestLanceDb::test_export <- ../../Users/cpestano/pixeltable/tests/io/test_lancedb.py 
+[gw4] [ 18%] ERROR tests/io/test_lancedb.py::TestLanceDb::test_export <- ../../Users/cpestano/pixeltable/tests/io/test_lancedb.py 
+tests/io/test_pandas.py::TestPandas::test_import_pandas_types <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 18%] ERROR tests/io/test_pandas.py::TestPandas::test_import_pandas_types <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_insert_pandas_types <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 18%] ERROR tests/io/test_pandas.py::TestPandas::test_insert_pandas_types <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_import_pandas_csv <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 18%] ERROR tests/io/test_pandas.py::TestPandas::test_import_pandas_csv <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_import_csv_from_remote[https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/onlinefoods.csv] <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 18%] ERROR tests/io/test_pandas.py::TestPandas::test_import_csv_from_remote[https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/onlinefoods.csv] <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_import_csv_from_remote[s3://pxt-test/pytest-resources/onlinefoods.csv] <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 18%] ERROR tests/io/test_pandas.py::TestPandas::test_import_csv_from_remote[s3://pxt-test/pytest-resources/onlinefoods.csv] <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_insert_pandas_csv <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 18%] ERROR tests/io/test_pandas.py::TestPandas::test_insert_pandas_csv <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_pandas_images <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 19%] ERROR tests/io/test_pandas.py::TestPandas::test_pandas_images <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_import_excel_from_remote[https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/Financial%20Sample.xlsx] <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 19%] ERROR tests/io/test_pandas.py::TestPandas::test_import_excel_from_remote[https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/Financial%20Sample.xlsx] <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_import_excel_from_remote[s3://pxt-test/pytest-resources/Financial Sample.xlsx] <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 19%] ERROR tests/io/test_pandas.py::TestPandas::test_import_excel_from_remote[s3://pxt-test/pytest-resources/Financial Sample.xlsx] <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_import_pandas_excel <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 19%] ERROR tests/io/test_pandas.py::TestPandas::test_import_pandas_excel <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_insert_pandas_excel <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 19%] ERROR tests/io/test_pandas.py::TestPandas::test_insert_pandas_excel <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_pandas.py::TestPandas::test_pandas_errors <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+[gw4] [ 19%] ERROR tests/io/test_pandas.py::TestPandas::test_pandas_errors <- ../../Users/cpestano/pixeltable/tests/io/test_pandas.py 
+tests/io/test_parquet.py::TestParquet::test_import_parquet_examples <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 19%] ERROR tests/io/test_parquet.py::TestParquet::test_import_parquet_examples <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_parquet.py::TestParquet::test_import_parquet_from_remote[https://raw.githubusercontent.com/apache/parquet-testing/master/data/alltypes_plain.parquet] <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 19%] ERROR tests/io/test_parquet.py::TestParquet::test_import_parquet_from_remote[https://raw.githubusercontent.com/apache/parquet-testing/master/data/alltypes_plain.parquet] <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_parquet.py::TestParquet::test_import_parquet_from_remote[s3://pxt-test/pytest-resources/alltypes_plain.parquet] <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 20%] ERROR tests/io/test_parquet.py::TestParquet::test_import_parquet_from_remote[s3://pxt-test/pytest-resources/alltypes_plain.parquet] <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_parquet.py::TestParquet::test_import_parquet <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 20%] ERROR tests/io/test_parquet.py::TestParquet::test_import_parquet <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_parquet.py::TestParquet::test_insert_parquet <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 20%] ERROR tests/io/test_parquet.py::TestParquet::test_insert_parquet <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_parquet.py::TestParquet::test_export_parquet_simple <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 20%] ERROR tests/io/test_parquet.py::TestParquet::test_export_parquet_simple <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_parquet.py::TestParquet::test_export_parquet <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 20%] ERROR tests/io/test_parquet.py::TestParquet::test_export_parquet <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_parquet.py::TestParquet::test_export_parquet_image <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 20%] ERROR tests/io/test_parquet.py::TestParquet::test_export_parquet_image <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_parquet.py::TestParquet::test_import_images <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 20%] ERROR tests/io/test_parquet.py::TestParquet::test_import_images <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_parquet.py::TestParquet::test_export_array <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 20%] ERROR tests/io/test_parquet.py::TestParquet::test_export_array <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_parquet.py::TestParquet::test_export_ragged_array <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+[gw4] [ 20%] ERROR tests/io/test_parquet.py::TestParquet::test_export_ragged_array <- ../../Users/cpestano/pixeltable/tests/io/test_parquet.py 
+tests/io/test_project.py::TestProject::test_validation <- ../../Users/cpestano/pixeltable/tests/io/test_project.py 
+[gw4] [ 21%] ERROR tests/io/test_project.py::TestProject::test_validation <- ../../Users/cpestano/pixeltable/tests/io/test_project.py 
+tests/io/test_project.py::TestProject::test_stored_proxies[False] <- ../../Users/cpestano/pixeltable/tests/io/test_project.py 
+[gw4] [ 21%] ERROR tests/io/test_project.py::TestProject::test_stored_proxies[False] <- ../../Users/cpestano/pixeltable/tests/io/test_project.py 
+tests/io/test_project.py::TestProject::test_stored_proxies[True] <- ../../Users/cpestano/pixeltable/tests/io/test_project.py 
+[gw4] [ 21%] ERROR tests/io/test_project.py::TestProject::test_stored_proxies[True] <- ../../Users/cpestano/pixeltable/tests/io/test_project.py 
+tests/io/test_sql.py::TestSql::test_export_sqlite 
+[gw4] [ 21%] ERROR tests/io/test_sql.py::TestSql::test_export_sqlite 
+tests/io/test_sql.py::TestSql::test_export_postgresql 
+[gw4] [ 21%] ERROR tests/io/test_sql.py::TestSql::test_export_postgresql 
+tests/io/test_sql.py::TestSql::test_errors 
+[gw4] [ 21%] ERROR tests/io/test_sql.py::TestSql::test_errors 
+tests/serving/test_config.py::TestConfig::test_load_valid_config 
+[gw4] [ 21%] ERROR tests/serving/test_config.py::TestConfig::test_load_valid_config 
+tests/serving/test_config.py::TestConfig::test_query_route_from_config 
+[gw4] [ 21%] ERROR tests/serving/test_config.py::TestConfig::test_query_route_from_config 
+tests/serving/test_config.py::TestConfig::test_validation_errors 
+[gw4] [ 22%] PASSED tests/serving/test_config.py::TestConfig::test_validation_errors 
+tests/serving/test_config.py::TestConfig::test_create_app_errors 
+[gw4] [ 22%] PASSED tests/serving/test_config.py::TestConfig::test_create_app_errors 
+tests/serving/test_deploy.py::TestDeploy::test_deploy_bundle 
+[gw4] [ 22%] ERROR tests/serving/test_deploy.py::TestDeploy::test_deploy_bundle 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_scalars 
+[gw4] [ 22%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_scalars 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_video[True] 
+[gw4] [ 22%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_video[True] 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_video[False] 
+[gw4] [ 22%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_video[False] 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_image[True] 
+[gw4] [ 22%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_image[True] 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_image[False] 
+[gw4] [ 22%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_image[False] 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_audio[True] 
+[gw4] [ 22%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_audio[True] 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_audio[False] 
+[gw4] [ 23%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_audio[False] 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_video_bg[True] 
+[gw4] [ 23%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_video_bg[True] 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_video_bg[False] 
+[gw4] [ 23%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_video_bg[False] 
+tests/serving/test_fastapi.py::TestFastAPI::test_openapi 
+[gw4] [ 23%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_openapi 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_scalars 
+[gw4] [ 23%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_scalars 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_single_column 
+[gw4] [ 23%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_single_column 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_one_row 
+[gw4] [ 23%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_one_row 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_image 
+[gw4] [ 23%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_image 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_image_transform 
+[gw4] [ 24%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_image_transform 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_errors 
+[gw4] [ 24%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_query_route_errors 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_errors 
+[gw4] [ 24%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_insert_route_errors 
+tests/serving/test_fastapi.py::TestFastAPI::test_insert_route 
+[gw4] [ 24%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_insert_route 
+tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_type_validation 
+[gw4] [ 24%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_type_validation 
+tests/serving/test_fastapi.py::TestFastAPI::test_update_route_type_validation 
+[gw4] [ 24%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_update_route_type_validation 
+tests/serving/test_fastapi.py::TestFastAPI::test_route_decorators_future_annotations 
+[gw4] [ 24%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_route_decorators_future_annotations 
+tests/serving/test_fastapi.py::TestFastAPI::test_route_decorators_unresolvable_annotation 
+[gw4] [ 24%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_route_decorators_unresolvable_annotation 
+tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_image 
+[gw4] [ 24%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_image 
+tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_uploadfile[True] 
+[gw4] [ 25%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_uploadfile[True] 
+tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_uploadfile[False] 
+[gw4] [ 25%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_uploadfile[False] 
+tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_background 
+[gw4] [ 25%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_background 
+tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_errors 
+[gw4] [ 25%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_insert_route_errors 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_update_route 
+[gw4] [ 25%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_update_route 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_update_route_errors 
+[gw4] [ 25%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_update_route_errors 
+tests/serving/test_fastapi.py::TestFastAPI::test_update_route 
+[gw4] [ 25%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_update_route 
+tests/serving/test_fastapi.py::TestFastAPI::test_update_route_errors 
+[gw4] [ 25%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_update_route_errors 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_delete_route 
+[gw4] [ 25%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_delete_route 
+tests/serving/test_fastapi.py::TestFastAPI::test_add_delete_route_errors 
+[gw4] [ 26%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_add_delete_route_errors 
+tests/serving/test_fastapi.py::TestFastAPI::test_schema_change[add_column-insert-first_body0-retry_body0] 
+[gw4] [ 26%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_schema_change[add_column-insert-first_body0-retry_body0] 
+tests/serving/test_fastapi.py::TestFastAPI::test_schema_change[add_column-delete-first_body1-retry_body1] 
+[gw4] [ 26%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_schema_change[add_column-delete-first_body1-retry_body1] 
+tests/serving/test_fastapi.py::TestFastAPI::test_schema_change[drop-insert-first_body0-retry_body0] 
+[gw4] [ 26%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_schema_change[drop-insert-first_body0-retry_body0] 
+tests/serving/test_fastapi.py::TestFastAPI::test_schema_change[drop-delete-first_body1-retry_body1] 
+[gw4] [ 26%] ERROR tests/serving/test_fastapi.py::TestFastAPI::test_schema_change[drop-delete-first_body1-retry_body1] 
+tests/share/test_packager.py::TestPackager::test_packager 
+[gw4] [ 26%] ERROR tests/share/test_packager.py::TestPackager::test_packager 
+tests/share/test_packager.py::TestPackager::test_packager_with_views 
+[gw4] [ 26%] ERROR tests/share/test_packager.py::TestPackager::test_packager_with_views 
+tests/share/test_packager.py::TestPackager::test_media_packager 
+[gw4] [ 26%] ERROR tests/share/test_packager.py::TestPackager::test_media_packager 
+tests/share/test_packager.py::TestPackager::test_round_trip 
+[gw4] [ 27%] SKIPPED tests/share/test_packager.py::TestPackager::test_round_trip 
+tests/share/test_packager.py::TestPackager::test_non_snapshot_round_trip 
+[gw4] [ 27%] SKIPPED tests/share/test_packager.py::TestPackager::test_non_snapshot_round_trip 
+tests/share/test_packager.py::TestPackager::test_media_round_trip 
+[gw4] [ 27%] SKIPPED tests/share/test_packager.py::TestPackager::test_media_round_trip 
+tests/share/test_packager.py::TestPackager::test_array_round_trip 
+[gw4] [ 27%] SKIPPED tests/share/test_packager.py::TestPackager::test_array_round_trip 
+tests/share/test_packager.py::TestPackager::test_json_round_trip 
+[gw4] [ 27%] SKIPPED tests/share/test_packager.py::TestPackager::test_json_round_trip 
+tests/share/test_packager.py::TestPackager::test_views_round_trip 
+[gw4] [ 27%] SKIPPED tests/share/test_packager.py::TestPackager::test_views_round_trip 
+tests/share/test_packager.py::TestPackager::test_restricted_view_round_trip 
+[gw4] [ 27%] SKIPPED tests/share/test_packager.py::TestPackager::test_restricted_view_round_trip 
+tests/share/test_packager.py::TestPackager::test_iterator_view_round_trip 
+[gw4] [ 27%] SKIPPED tests/share/test_packager.py::TestPackager::test_iterator_view_round_trip 
+tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_1 
+[gw4] [ 27%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_1 
+tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_2 
+[gw4] [ 28%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_2 
+tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_3[False] 
+[gw4] [ 28%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_3[False] 
+tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_3[True] 
+[gw4] [ 28%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_3[True] 
+tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_4[False] 
+[gw4] [ 28%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_4[False] 
+tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_4[True] 
+[gw4] [ 28%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_4[True] 
+tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_5 
+[gw4] [ 28%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_5 
+tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_6 
+[gw4] [ 28%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_view_round_trip_6 
+tests/share/test_packager.py::TestPackager::test_interleaved_non_snapshots 
+[gw4] [ 28%] SKIPPED tests/share/test_packager.py::TestPackager::test_interleaved_non_snapshots 
+tests/share/test_packager.py::TestPackager::test_multi_view_non_snapshot_round_trip 
+[gw4] [ 29%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_view_non_snapshot_round_trip 
+tests/share/test_packager.py::TestPackager::test_replica_ops 
+[gw4] [ 29%] SKIPPED tests/share/test_packager.py::TestPackager::test_replica_ops 
+tests/share/test_packager.py::TestPackager::test_drop_replica 
+[gw4] [ 29%] SKIPPED tests/share/test_packager.py::TestPackager::test_drop_replica 
+tests/share/test_packager.py::TestPackager::test_deep_view_hierarchy 
+[gw4] [ 29%] SKIPPED tests/share/test_packager.py::TestPackager::test_deep_view_hierarchy 
+tests/share/test_packager.py::TestPackager::test_older_versions_round_trip 
+[gw4] [ 29%] SKIPPED tests/share/test_packager.py::TestPackager::test_older_versions_round_trip 
+tests/share/test_packager.py::TestPackager::test_view_over_snapshot_round_trip 
+[gw4] [ 29%] SKIPPED tests/share/test_packager.py::TestPackager::test_view_over_snapshot_round_trip 
+tests/share/test_packager.py::TestPackager::test_embedding_index[fp16] 
+[gw4] [ 29%] SKIPPED tests/share/test_packager.py::TestPackager::test_embedding_index[fp16] 
+tests/share/test_packager.py::TestPackager::test_embedding_index[fp32] 
+[gw4] [ 29%] SKIPPED tests/share/test_packager.py::TestPackager::test_embedding_index[fp32] 
+tests/share/test_packager.py::TestPackager::test_multi_version_embedding_index[fp16] 
+[gw4] [ 29%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_version_embedding_index[fp16] 
+tests/share/test_packager.py::TestPackager::test_multi_version_embedding_index[fp32] 
+[gw4] [ 30%] SKIPPED tests/share/test_packager.py::TestPackager::test_multi_version_embedding_index[fp32] 
+tests/share/test_packager.py::TestPackager::test_replicating_view_with_existing_base_tbl 
+[gw4] [ 30%] SKIPPED tests/share/test_packager.py::TestPackager::test_replicating_view_with_existing_base_tbl 
+tests/share/test_publish.py::TestPublish::test_publish_round_trip[pxt-test] <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+[gw4] [ 30%] ERROR tests/share/test_publish.py::TestPublish::test_publish_round_trip[pxt-test] <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+tests/share/test_publish.py::TestPublish::test_publish_round_trip[pxt-test:main] <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+[gw4] [ 30%] ERROR tests/share/test_publish.py::TestPublish::test_publish_round_trip[pxt-test:main] <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+tests/share/test_publish.py::TestPublish::test_publish_round_trip[pxt-test:my-db] <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+[gw4] [ 30%] ERROR tests/share/test_publish.py::TestPublish::test_publish_round_trip[pxt-test:my-db] <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+tests/share/test_publish.py::TestPublish::test_push_pull <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+[gw4] [ 30%] ERROR tests/share/test_publish.py::TestPublish::test_push_pull <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+tests/share/test_publish.py::TestPublish::test_push_pull_errors <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+[gw4] [ 30%] ERROR tests/share/test_publish.py::TestPublish::test_push_pull_errors <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+tests/share/test_publish.py::TestPublish::test_remote_tbl_ops_errors <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+[gw4] [ 30%] ERROR tests/share/test_publish.py::TestPublish::test_remote_tbl_ops_errors <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+tests/share/test_publish.py::TestPublish::test_replicate_public_dataset_without_api_key <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+[gw4] [ 31%] ERROR tests/share/test_publish.py::TestPublish::test_replicate_public_dataset_without_api_key <- ../../Users/cpestano/pixeltable/tests/share/test_publish.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_path_uris[pxt://org_name/table_name-org_name-None-table_name-None-None] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 31%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_path_uris[pxt://org_name/table_name-org_name-None-table_name-None-None] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_path_uris[pxt://org_name:db_name/table_name-org_name-db_name-table_name-None-None] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 31%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_path_uris[pxt://org_name:db_name/table_name-org_name-db_name-table_name-None-None] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_path_uris[pxt://org_name:db_name/table_name:5-org_name-db_name-table_name-None-5] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 31%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_path_uris[pxt://org_name:db_name/table_name:5-org_name-db_name-table_name-None-5] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_uuid_uris[pxt://org_name/550e8400-e29b-41d4-a716-446655440000-None-None] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 31%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_uuid_uris[pxt://org_name/550e8400-e29b-41d4-a716-446655440000-None-None] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_uuid_uris[pxt://org_name:db_name/550e8400-e29b-41d4-a716-446655440000-db_name-None] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 31%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_uuid_uris[pxt://org_name:db_name/550e8400-e29b-41d4-a716-446655440000-db_name-None] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_uuid_uris[pxt://org_name:db_name/550e8400-e29b-41d4-a716-446655440000:10-db_name-10] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 31%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_uuid_uris[pxt://org_name:db_name/550e8400-e29b-41d4-a716-446655440000:10-db_name-10] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_root_path <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 31%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_root_path <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_nested_path <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 31%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_nested_path <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_path_with_invalid_version <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 32%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_path_with_invalid_version <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_from_dict_input <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 32%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_from_dict_input <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_invalid_scheme <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 32%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_invalid_scheme <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_missing_org_slug <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 32%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_missing_org_slug <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_missing_path <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 32%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_missing_path <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_invalid_data_type <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 32%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_invalid_data_type <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_parse_dict_missing_uri_key <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 32%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_parse_dict_missing_uri_key <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_from_components_validation[kwargs0-Either path or id must be provided] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 32%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_from_components_validation[kwargs0-Either path or id must be provided] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_from_components_validation[kwargs1-Cannot specify both path and id] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 33%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_from_components_validation[kwargs1-Cannot specify both path and id] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_str_returns_original_uri <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 33%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_str_returns_original_uri <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_version <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 33%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_version <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_version_in_from_components <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 33%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_version_in_from_components <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[https://pixeltable.com/t/pixeltable:fiftyone/coco_mini_2017-pxt://pixeltable:fiftyone/coco_mini_2017-pixeltable-fiftyone-coco_mini_2017] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 33%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[https://pixeltable.com/t/pixeltable:fiftyone/coco_mini_2017-pxt://pixeltable:fiftyone/coco_mini_2017-pixeltable-fiftyone-coco_mini_2017] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[https://www.pixeltable.com/t/pixeltable:fiftyone/coco_mini_2017-pxt://pixeltable:fiftyone/coco_mini_2017-pixeltable-fiftyone-coco_mini_2017] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 33%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[https://www.pixeltable.com/t/pixeltable:fiftyone/coco_mini_2017-pxt://pixeltable:fiftyone/coco_mini_2017-pixeltable-fiftyone-coco_mini_2017] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[http://pixeltable.com/t/myorg/mytable-pxt://myorg/mytable-myorg-None-mytable] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 33%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[http://pixeltable.com/t/myorg/mytable-pxt://myorg/mytable-myorg-None-mytable] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[http://www.pixeltable.com/t/myorg/mytable-pxt://myorg/mytable-myorg-None-mytable] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 33%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[http://www.pixeltable.com/t/myorg/mytable-pxt://myorg/mytable-myorg-None-mytable] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[https://pixeltable.com/t/org:db/dir/subdir/table-pxt://org:db/dir/subdir/table-org-db-dir/subdir/table] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 33%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[https://pixeltable.com/t/org:db/dir/subdir/table-pxt://org:db/dir/subdir/table-org-db-dir/subdir/table] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[https://pixeltable.com/t/org:db/table:5-pxt://org:db/table:5-org-db-table] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 34%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_https_url[https://pixeltable.com/t/org:db/table:5-pxt://org:db/table:5-org-db-table] <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_preserves_version <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 34%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_preserves_version <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_uuid_url <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 34%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_normalize_uuid_url <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_normalized_uri_stored_not_original_url <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 34%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_normalized_uri_stored_not_original_url <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_dict_input_with_https_url <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 34%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_dict_input_with_https_url <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/share/test_pxt_uri.py::TestPxtUri::test_reject_invalid_urls <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+[gw4] [ 34%] PASSED tests/share/test_pxt_uri.py::TestPxtUri::test_reject_invalid_urls <- ../../Users/cpestano/pixeltable/tests/share/test_pxt_uri.py 
+tests/test_array_type.py::TestArrayType::test_array_dtypes[no_reload_catalog] <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 34%] ERROR tests/test_array_type.py::TestArrayType::test_array_dtypes[no_reload_catalog] <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_array_dtypes[reload_catalog] <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 34%] ERROR tests/test_array_type.py::TestArrayType::test_array_dtypes[reload_catalog] <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_non_parameterized_array_accepts_all_dtypes <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 35%] ERROR tests/test_array_type.py::TestArrayType::test_non_parameterized_array_accepts_all_dtypes <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_array_shape_validation[no_reload_catalog] <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 35%] ERROR tests/test_array_type.py::TestArrayType::test_array_shape_validation[no_reload_catalog] <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_array_shape_validation[reload_catalog] <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 35%] ERROR tests/test_array_type.py::TestArrayType::test_array_shape_validation[reload_catalog] <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_supertype <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 35%] PASSED tests/test_array_type.py::TestArrayType::test_supertype <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_is_supertype_of <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 35%] PASSED tests/test_array_type.py::TestArrayType::test_is_supertype_of <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_matches <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 35%] PASSED tests/test_array_type.py::TestArrayType::test_matches <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_array_unsupported_dtypes <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 35%] PASSED tests/test_array_type.py::TestArrayType::test_array_unsupported_dtypes <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_array_literal <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 35%] PASSED tests/test_array_type.py::TestArrayType::test_array_literal <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_bad_array_shape <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 35%] PASSED tests/test_array_type.py::TestArrayType::test_bad_array_shape <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_repr <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 36%] PASSED tests/test_array_type.py::TestArrayType::test_repr <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_json_schema <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 36%] PASSED tests/test_array_type.py::TestArrayType::test_json_schema <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_to_dict <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 36%] PASSED tests/test_array_type.py::TestArrayType::test_to_dict <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_array_type.py::TestArrayType::test_to_from_dict <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+[gw4] [ 36%] PASSED tests/test_array_type.py::TestArrayType::test_to_from_dict <- ../../Users/cpestano/pixeltable/tests/test_array_type.py 
+tests/test_audio.py::TestAudio::test_basic <- ../../Users/cpestano/pixeltable/tests/test_audio.py 
+[gw4] [ 36%] ERROR tests/test_audio.py::TestAudio::test_basic <- ../../Users/cpestano/pixeltable/tests/test_audio.py 
+tests/test_audio.py::TestAudio::test_extract <- ../../Users/cpestano/pixeltable/tests/test_audio.py 

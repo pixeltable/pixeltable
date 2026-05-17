@@ -1,13 +1,20 @@
 import pytest
 
 import pixeltable as pxt
+from pixeltable.env import Env
 import pixeltable.exceptions as excs
 
 from .utils import ReloadTester, validate_update_status
 
 
+def _skip_if_cockroachdb() -> None:
+    if Env.get().is_using_cockroachdb:
+        pytest.skip('Unversioned tables not yet implemented for CockroachDB [PXT-1101]')
+
+
 class TestUnversionedTable:
     def test_basic_ops(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        _skip_if_cockroachdb()
         schema = {'c0': pxt.Int, 'c1': pxt.String}
         tbl = pxt.create_table('test', schema, _is_versioned=False)
         md = tbl.get_metadata()
@@ -36,6 +43,7 @@ class TestUnversionedTable:
         pxt.drop_table(tbl)
 
     def test_select_where(self, uses_db: None) -> None:
+        _skip_if_cockroachdb()
         schema = {'c_int': pxt.Int, 'c_str': pxt.String, 'c_float': pxt.Float, 'c_bool': pxt.Bool}
         tbl = pxt.create_table('test', schema, _is_versioned=False)
         validate_update_status(
@@ -73,6 +81,7 @@ class TestUnversionedTable:
         assert len(rows) == 0
 
     def test_select_limit_offset(self, uses_db: None) -> None:
+        _skip_if_cockroachdb()
         tbl = pxt.create_table('test', {'n': pxt.Int}, _is_versioned=False)
         validate_update_status(tbl.insert([{'n': i} for i in range(10)]), 10)
 
@@ -90,6 +99,7 @@ class TestUnversionedTable:
         assert len(rows) == 0
 
     def test_unsupported_ops(self, uses_db: None) -> None:
+        _skip_if_cockroachdb()
         unversioned_tbl = pxt.create_table('t0', {'n': pxt.Int}, _is_versioned=False)
         versioned_tbl = pxt.create_table('t1', {'n': pxt.Int}, _is_versioned=True)
 

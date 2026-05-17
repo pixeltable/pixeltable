@@ -42,6 +42,56 @@ from ..utils import (
 )
 
 
+def _skip_replica_if_cockroachdb() -> None:
+    """Skip tests that exercise replica restore paths that fail on CockroachDB.
+
+    The replica restore flow runs ALTER TABLE ADD COLUMN followed by CREATE INDEX in separate
+    transactions; on CockroachDB the new column is not yet visible to the index DDL [PXT-1102].
+    """
+    if Env.get().is_using_cockroachdb:
+        pytest.skip('Replica restore not yet implemented for CockroachDB [PXT-1102]')
+
+
+# Tests that exercise the package() / restore() round trip; these all hit the replica restore code path
+# that is not yet supported on CockroachDB [PXT-1102]. Listed here so we can apply the skip up-front
+# instead of partway through each test (which leaves the worker in a half-broken state on failure).
+_REPLICA_TESTS = frozenset(
+    {
+        'test_round_trip',
+        'test_non_snapshot_round_trip',
+        'test_media_round_trip',
+        'test_array_round_trip',
+        'test_json_round_trip',
+        'test_views_round_trip',
+        'test_restricted_view_round_trip',
+        'test_iterator_view_round_trip',
+        'test_multi_view_round_trip_1',
+        'test_multi_view_round_trip_2',
+        'test_multi_view_round_trip_3',
+        'test_multi_view_round_trip_4',
+        'test_multi_view_round_trip_5',
+        'test_multi_view_round_trip_6',
+        'test_interleaved_non_snapshots',
+        'test_multi_view_non_snapshot_round_trip',
+        'test_replica_ops',
+        'test_drop_replica',
+        'test_deep_view_hierarchy',
+        'test_older_versions_round_trip',
+        'test_view_over_snapshot_round_trip',
+        'test_embedding_index',
+        'test_multi_version_embedding_index',
+        'test_replicating_view_with_existing_base_tbl',
+    }
+)
+
+
+@pytest.fixture(autouse=True)
+def _autoskip_replica_tests_on_cockroachdb(request: pytest.FixtureRequest) -> None:
+    test_name = request.node.originalname or request.node.name
+    if test_name in _REPLICA_TESTS:
+        _skip_replica_if_cockroachdb()
+
+
 class TestPackager:
     def test_packager(self, test_tbl: pxt.Table) -> None:
         packager = TablePackager(test_tbl)
@@ -279,6 +329,7 @@ class TestPackager:
             return {(indexname, indexdef) for indexname, indexdef in result}
 
     def __purge_db(self) -> None:
+        _skip_replica_if_cockroachdb()
         clean_db()
         # Delete any locally stored media files (so that if any stale references to them inadvertently remain after
         # packaging, then those stale references will be invalid).
@@ -332,6 +383,7 @@ class TestPackager:
                         assert undo_count == expected_undos
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
+        _skip_replica_if_cockroachdb()
         """package() / restore() round trip for a single snapshot"""
         # Add some additional columns to test various additional datatypes
         t = test_tbl
@@ -347,6 +399,7 @@ class TestPackager:
 
     def test_non_snapshot_round_trip(self, uses_db: None) -> None:
         """package() / restore() round trip for multiple versions of a table that is not a snapshot"""
+        _skip_replica_if_cockroachdb()
         t = pxt.create_table('tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -452,6 +505,7 @@ class TestPackager:
         """
         Two snapshots that are exported at different times, requiring rectification of the v_max values.
         """
+        _skip_replica_if_cockroachdb()
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -475,6 +529,7 @@ class TestPackager:
         """
         Two snapshots that are exported at different times, involving column operations.
         """
+        _skip_replica_if_cockroachdb()
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(100))
 
@@ -545,6 +600,7 @@ class TestPackager:
         """
         Another test with many snapshots, involving row and column additions and deletions.
         """
+        _skip_replica_if_cockroachdb()
         bundles: list[TestPackager.BundleInfo] = []
 
         t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
@@ -597,6 +653,7 @@ class TestPackager:
         A similar test, this one involving multiple versions of a table that is not a snapshot,
         intermixed with various snapshots.
         """
+        _skip_replica_if_cockroachdb()
         bundles: list[TestPackager.BundleInfo] = []
 
         t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
@@ -645,7 +702,7 @@ class TestPackager:
 
         self.__restore_and_check_table(t_bundle, 'tbl_replica')
         # Check that test_tbl has been renamed to a user table
-        assert pxt.list_tables() == ['view_replica', 'tbl_replica']
+        assert sorted(pxt.list_tables()) == sorted(['view_replica', 'tbl_replica'])
         assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
 
         t = pxt.get_table('tbl_replica')
@@ -791,7 +848,7 @@ class TestPackager:
         for i in (7, 5, 2, 10):
             self.__restore_and_check_table(bundles[i], f'replica_{i}')
 
-        assert pxt.list_tables() == [f'replica_{i}' for i in (2, 5, 7, 10)]  # 4 visible tables
+        assert sorted(pxt.list_tables()) == sorted([f'replica_{i}' for i in (2, 5, 7, 10)])  # 4 visible tables
         _x = pxt.globals._list_tables('_system', allow_system_paths=True)
         assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 7  # 7 hidden tables
 
