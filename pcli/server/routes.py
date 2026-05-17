@@ -1,37 +1,25 @@
-"""All pcli HTTP routes in a single module.
-
-Each route is registered on the shared `router` and mounted at `/pcli/v0/*`. Routes come
-first; module-private helpers (`_*`) follow at the bottom.
-"""
-
 import datetime
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 
 import PIL.Image
 import sqlalchemy as sa
 from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
 
-import pixeltable
 import pixeltable as pxt
 from pcli import models
 from pcli.paths import redact_home
 from pixeltable import exceptions as excs
+from pixeltable.types import TreeNode
 
 router = APIRouter()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-# ---------------------------------------------------------------------------
-# routes
-# ---------------------------------------------------------------------------
-
-
 @router.get('/pcli/v0/health')
 def pcli_health() -> models.HealthResponse:
-    return models.HealthResponse(ok=True, pxt_version=pixeltable.__version__, pid=os.getpid(), started_at=_STARTED_AT)
+    return models.HealthResponse(ok=True, pxt_version=pxt.__version__, pid=os.getpid(), started_at=_STARTED_AT)
 
 
 @router.get('/api/pixeltable-health')
@@ -43,7 +31,7 @@ def dashboard_health() -> dict:
 @router.post('/pcli/v0/ls')
 def ls(req: models.LsRequest) -> models.LsResponse:
     tree = pxt.get_dir_tree()
-    nodes = _descend(tree, req.path)
+    nodes = _collect_path_children(tree, req.path)
     if req.tree:
         return models.LsResponse(entries=[], tree={'path': req.path, 'entries': nodes})
 
@@ -68,7 +56,7 @@ def errors(req: models.ErrorsRequest) -> models.ErrorsResponse:
     if pk_names is None or len(pk_names) == 0:
         raise HTTPException(400, f'{req.path}: no primary key declared; pcli errors requires one')
 
-    # Validate req.col up front so a typo'd `--col` returns a 400 instead of a misleading
+    # Validate req.col up front so a typo'd --col returns a 400 instead of a misleading
     # empty result; matches the unknown-column behavior of /rows and /get.
     if req.col is not None:
         col_md = md['columns'].get(req.col)
@@ -77,8 +65,7 @@ def errors(req: models.ErrorsRequest) -> models.ErrorsResponse:
         if not (col_md['is_computed'] and col_md.get('is_stored')):
             raise HTTPException(400, f'{req.col}: not a stored computed column (pcli errors only addresses those)')
 
-    # errortype/errormsg are only addressable on stored computed columns; an unstored one
-    # would raise UNSUPPORTED_OPERATION and fail the whole request.
+    # errortype/errormsg only apply to stored computed columns
     computed = [
         name
         for name, c in md['columns'].items()
@@ -152,15 +139,15 @@ def idxs(req: models.IdxsRequest) -> models.IdxsResponse:
         for name, idx in md['indices'].items():
             if req.embedding_only and idx['index_type'] != 'embedding':
                 continue
-            params: Any = idx.get('parameters') or {}
+            params = idx.get('parameters')
             entries.append(
                 models.IdxEntry(
                     table=path,
                     name=name,
                     columns=idx['columns'],
                     index_type=idx['index_type'],
-                    metric=params.get('metric'),
-                    embedding=params.get('embedding'),
+                    metric=params['metric'] if params is not None else None,
+                    embedding=params['embedding'] if params is not None else None,
                 )
             )
     return models.IdxsResponse(entries=entries)
@@ -178,8 +165,8 @@ def rows(req: models.RowsRequest) -> models.RowsResponse:
             raise HTTPException(400, f'unknown columns: {",".join(missing)}')
         columns_list = list(req.cols)
     else:
-        # Skip unstored computed columns by default: selecting one forces evaluation, which
-        # can be slow or expensive (LLM calls, etc.). The user opts in via --cols.
+        # skip unstored computed columns unless the user explicitly asked for them: evaluation can take
+        # an unbounded amount of time
         columns_list = [name for name, c in cols_md.items() if c.get('is_stored', True)]
     result = t.select(*[t[c] for c in columns_list]).limit(req.n).collect()
     out_rows: list[dict] = []
@@ -212,8 +199,8 @@ def get(req: models.GetRequest) -> models.GetResponse:
             raise HTTPException(400, f'unknown columns: {",".join(missing)}')
         cols = list(req.cols)
     else:
-        # Skip unstored computed columns: a PK lookup shouldn't silently trigger arbitrary
-        # computation (LLM calls, model inference, etc.). User opts in via --cols.
+        # skip unstored computed columns unless the user explicitly asked for them: evaluation can take
+        # an unbounded amount of time
         cols = [name for name, c in cols_md.items() if c.get('is_stored', True)]
 
     where = None
@@ -247,7 +234,7 @@ def count(req: models.CountRequest) -> models.CountResponse:
 
 @router.get('/pcli/v0/status')
 def status(sizes: bool = False) -> models.StatusResponse:
-    """Status snapshot. Pass `?sizes=1` to include media/file_cache disk usage (scans the directories)."""
+    """Status snapshot. Pass sizes=1 to include media/file_cache disk usage (scans the directories)."""
     # Local import: pixeltable.dashboard.bridge pulls a heavy import chain that we don't
     # want on every daemon process start - only the status endpoint needs it.
     from pixeltable.dashboard import bridge
@@ -308,9 +295,6 @@ def revert(req: models.RevertRequest) -> models.RevertResponse:
         raise HTTPException(400, 'steps must be >= 1')
     t = pxt.get_table(req.path)
     from_version = t.get_metadata()['version']
-    # Validate up front so the operation is all-or-nothing: without this, a multi-step
-    # revert past version 0 would partially succeed before failing, leaving the table
-    # at an intermediate version with no clean way for the caller to roll back.
     if req.steps > from_version:
         raise HTTPException(400, f'cannot revert {req.steps} step(s): {req.path} is at version {from_version}')
     for _ in range(req.steps):
@@ -319,21 +303,13 @@ def revert(req: models.RevertRequest) -> models.RevertResponse:
     return models.RevertResponse(path=req.path, from_version=from_version, to_version=to_version)
 
 
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
-
-
 # count() is SQL-bound (GIL-released during the query), so going wider than the DB can
 # serve in parallel just queues. 16 is comfortably below pixeltable's default connection-pool ceiling.
 _COUNT_POOL_WORKERS = 16
 
 
-def _descend(tree: list[Any], path: str) -> list[Any]:
-    """Find children of `path` (slash-separated). Empty path = root.
-
-    Path validation lives in pcli.models._slash_only, so empty components can't appear here.
-    """
+def _collect_path_children(tree: list[TreeNode], path: str) -> list[TreeNode]:
+    """Find children of path (empty path = root)."""
     parts = path.split('/') if path else []
     cur = tree
     for part in parts:
@@ -346,19 +322,18 @@ def _descend(tree: list[Any], path: str) -> list[Any]:
     return cur
 
 
-def _to_entry(node: Any, details: bool) -> models.LsEntry:
+def _to_entry(node: TreeNode, details: bool) -> models.LsEntry:
     # pxt kinds: 'directory' | 'table' | 'view' | 'snapshot' | 'replica' (see pixeltable.types.TableKind)
-    kind = 'dir' if node['kind'] == 'directory' else node['kind']
-    entry = models.LsEntry(path=node['path'], kind=kind)
-    if kind != 'dir':
-        entry.last_version = node.get('version')
-        if details:
-            md = pxt.get_table(node['path']).get_metadata()
-            cols = md.get('columns') or {}
-            idxs = md.get('indices') or {}
-            entry.num_cols = len(cols)
-            has_computed = any(c.get('is_computed') for c in cols.values())
-            entry.flags = ('c' if has_computed else '') + ('i' if len(idxs) > 0 else '')
+    if node['kind'] == 'directory':
+        return models.LsEntry(path=node['path'], kind='dir')
+    entry = models.LsEntry(path=node['path'], kind=node['kind'], last_version=node['version'])
+    if details:
+        md = pxt.get_table(node['path']).get_metadata()
+        cols = md.get('columns') or {}
+        idxs = md.get('indices') or {}
+        entry.num_cols = len(cols)
+        has_computed = any(c.get('is_computed') for c in cols.values())
+        entry.flags = ('c' if has_computed else '') + ('i' if len(idxs) > 0 else '')
     return entry
 
 
@@ -384,7 +359,7 @@ def _tbl_count(path: str) -> int | None:
 def _collect_table_paths() -> list[str]:
     paths: list[str] = []
 
-    def collect(nodes: list[Any]) -> None:
+    def collect(nodes: list[TreeNode]) -> None:
         for n in nodes:
             if n['kind'] == 'directory':
                 collect(n['entries'])
@@ -450,10 +425,9 @@ def _is_sensitive(name: str) -> bool:
 def _redact_user_home(value: str) -> str:
     """Layer $HOME redaction on top of the shared $PIXELTABLE_HOME redaction.
 
-    PIXELTABLE_HOME is typically nested under $HOME, so we run redact_home() first; a
-    remaining absolute path inside $HOME (e.g. a custom file_cache_dir outside the pxt
-    home) then becomes `$HOME/...`. Both sides go through realpath so symlinked layouts
-    (macOS `/private/Users/me`) match.
+    PIXELTABLE_HOME is typically nested under $HOME, so we run redact_home() first; a remaining absolute path inside
+    $HOME (e.g. a custom file_cache_dir outside the pxt home) then becomes $HOME/.... Both sides go through realpath
+    so symlinked layouts (macOS /private/Users/me) match.
     """
     after_pxt = redact_home(value) or value
     if after_pxt.startswith('$PIXELTABLE_HOME'):

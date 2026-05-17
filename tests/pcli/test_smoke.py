@@ -231,6 +231,26 @@ class TestPcliTextOutput:
         assert 'kind' in out
         assert 'pcli_text/t' in out
 
+    def test_ls_json_is_cheap_by_default(self, pcli: PcliRunner) -> None:
+        """Bare --json must NOT trigger per-entry get_metadata(): num_cols/flags stay None/''.
+        Users who want full schema info in JSON pass `-l --json`."""
+        pxt.create_dir('pcli_text', if_exists='ignore')
+        pxt.create_table('pcli_text.cheap', {'a': pxt.Int}, if_exists='replace')
+        entries = pcli('ls', 'pcli_text', '--json').json['entries']
+        row = next(e for e in entries if e['path'] == 'pcli_text/cheap')
+        assert row['num_cols'] is None
+        assert row['flags'] == ''
+
+    def test_ls_long_json_includes_details(self, pcli: PcliRunner) -> None:
+        """-l --json: the explicit opt-in, num_cols/flags get populated."""
+        pxt.create_dir('pcli_text', if_exists='ignore')
+        t = pxt.create_table('pcli_text.detailed', {'a': pxt.Int}, if_exists='replace')
+        t.add_computed_column(b=t.a * 2)
+        entries = pcli('ls', 'pcli_text', '-l', '--json').json['entries']
+        row = next(e for e in entries if e['path'] == 'pcli_text/detailed')
+        assert row['num_cols'] is not None and row['num_cols'] >= 2
+        assert 'c' in row['flags']
+
     def test_ls_long(self, pcli: PcliRunner) -> None:
         pxt.create_dir('pcli_text', if_exists='ignore')
         t = pxt.create_table('pcli_text.tl', {'a': pxt.Int}, if_exists='replace')

@@ -29,8 +29,9 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    details = args.long or args.as_json  # plain text ls is path+kind only, skip metadata fetch
-    resp = post('/pcli/v0/ls', {'path': args.path, 'tree': args.tree, 'details': details, 'counts': args.counts})
+    # Only -l/--long triggers the per-entry get_metadata() fetch. JSON consumers who want
+    # the full schema info pass `-l --json`; bare `--json` stays cheap on large catalogs.
+    resp = post('/pcli/v0/ls', {'path': args.path, 'tree': args.tree, 'details': args.long, 'counts': args.counts})
 
     if args.as_json:
         print(json.dumps(resp, indent=2))
