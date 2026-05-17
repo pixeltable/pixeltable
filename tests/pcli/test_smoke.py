@@ -38,9 +38,13 @@ class TestHealth:
         out = pcli('health').json
         assert out['ok'] is True
         assert out['pid'] > 0
-        # legacy dashboard probe lives at /api/pixeltable-health; not reachable through the CLI
+        # legacy dashboard probe lives at /api/pixeltable-health; not reachable through the CLI.
+        # The shape matches pixeltable.dashboard.server's response: status + version, so existing
+        # clients (which read both fields) keep working.
         with urllib.request.urlopen(f'http://127.0.0.1:{pcli_daemon}/api/pixeltable-health') as r:
-            assert json.loads(r.read()) == {'status': 'ok'}
+            body = json.loads(r.read())
+        assert body['status'] == 'ok'
+        assert body['version'] == pxt.__version__
 
 
 class TestLs:

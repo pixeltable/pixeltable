@@ -31,7 +31,7 @@ Use `pcli <command> --help` for per-subcommand flags and examples.
 
 | Category | Commands |
 |---|---|
-| **Inspection** | `ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `env` |
+| **Inspection** | `ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config` |
 | **Query** | `rows`, `get`, `count`, `errors` |
 | **Mutation** | `drop`, `rm`, `rename`, `mv`, `revert` |
 | **Interactive** | `shell` |
@@ -193,7 +193,7 @@ pcli rows my_dir/my_table --cols id,text,score
 
 ### `pcli get`
 
-Look up a single row by primary key. PK values are auto-coerced: int, then float, then JSON literal, then string. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
+Look up a single row by primary key. A numeric-looking PK token is coerced to int or float; everything else stays a string. There is no quoting escape for a string-typed PK whose value looks numeric — if your PK column is a string but the value is `42`, the server will reject the type mismatch. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
 
 | Flag | Description |
 |---|---|
@@ -204,7 +204,6 @@ pcli get my_dir/my_table 42                    # single-column PK, int
 pcli get my_dir/my_table some_string_id        # single-column PK, string
 pcli get my_dir/my_table 42 abc                # composite PK, in declared order
 pcli get my_dir/my_table 42 --cols id,text     # restrict to listed columns
-pcli get my_dir/my_table '"42"'                # force string for numeric-looking key
 ```
 
 ### `pcli count`
