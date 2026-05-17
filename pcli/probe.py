@@ -10,6 +10,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from typing import Any
 
 # TODO: move to 22089 when consolidating pcli with pxt
 DEFAULT_PORT = 22090
@@ -17,7 +18,7 @@ _IS_WINDOWS = os.name == 'nt'
 
 
 def _daemon_log_path() -> str:
-    """Resolve at call time so tests / users that set PIXELTABLE_HOME mid-run are honored."""
+    """Resolve PIXELTABLE_HOME on every call so the path tracks env changes between calls."""
     home = os.environ.get('PIXELTABLE_HOME') or os.path.expanduser('~/.pixeltable')
     return os.path.join(home, 'logs', 'pcli-daemon.log')
 
@@ -27,7 +28,8 @@ def get_port() -> int:
 
 
 def pidfile_path() -> str:
-    """Per-port pidfile: lets parallel pcli test workers (each on its own port) coexist."""
+    """Per-port pidfile path. The port parameterization isolates daemons running on
+    different ports so they don't read or stomp each other's PID."""
     home = os.environ.get('PIXELTABLE_HOME') or os.path.expanduser('~/.pixeltable')
     return os.path.join(home, f'pcli-daemon-{get_port()}.pid')
 
@@ -48,7 +50,7 @@ def health_url() -> str:
     return f'{base_url()}/pcli/v0/health'
 
 
-def _fetch_health(timeout: float = 0.3) -> dict | None:
+def _fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
     try:
         with urllib.request.urlopen(health_url(), timeout=timeout) as r:
             body = json.loads(r.read())
@@ -89,7 +91,7 @@ def spawn_detached() -> None:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         # POSIX: setsid() detaches from the controlling terminal; Windows: a new process
         # group + DETACHED_PROCESS gives the same "survive the parent shell" property.
-        popen_kwargs: dict = {'stdin': subprocess.DEVNULL}
+        popen_kwargs: dict[str, Any] = {'stdin': subprocess.DEVNULL}
         if _IS_WINDOWS:
             popen_kwargs['creationflags'] = (
                 subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]

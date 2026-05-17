@@ -5,7 +5,7 @@ from ..parser import Parser, parse_cols
 
 
 def _coerce(s: str) -> object:
-    """Try int, then float, then JSON literal; fall back to the raw string."""
+    """Coerce numeric-looking PK tokens to int or float; everything else stays a string."""
     try:
         return int(s)
     except ValueError:
@@ -13,10 +13,6 @@ def _coerce(s: str) -> object:
     try:
         return float(s)
     except ValueError:
-        pass
-    try:
-        return json.loads(s)
-    except json.JSONDecodeError:
         return s
 
 
@@ -29,9 +25,10 @@ Examples:
   pcli get my_dir/my_table 42 --json
 
 Notes:
-  PK values are auto-coerced: int -> float -> JSON literal -> string.
-  To force a string that looks like a number, pass a JSON literal: pcli get t '"42"'
-  Use 'pcli describe <table>' to see the table's primary_key columns and their order.
+  PK values are coerced to int or float when they parse as numbers; otherwise they stay
+  as strings. There is no way to force a string PK that looks like a number; if your PK
+  column is typed as string but the value is '42', the server will reject the type mismatch.
+  Use 'pcli describe <table>' to see the primary_key columns and their order.
   Unstored computed columns are skipped by default; pass them explicitly via --cols to
   include them.
   The table must have a primary key declared."""
@@ -45,7 +42,7 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    # Reject empty/whitespace-only PK tokens: argparse accepts `pcli get t ''` (or a stray
+    # Reject empty/whitespace-only PK tokens: argparse accepts pcli get t '' (or a stray
     # space), and an empty PK would silently produce a 'no row found' that masks the typo.
     if any(v.strip() == '' for v in args.pk):
         ap.error('PK values must not be empty or whitespace-only')

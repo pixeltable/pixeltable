@@ -27,7 +27,7 @@ def run(argv: list[str]) -> None:
 
     if args.dry_run:
         suffix = ' (recursive: contained tables/subdirs also removed)' if args.recursive else ''
-        print(f'would remove directory {args.path}{suffix}')
+        print(f'would remove {args.path} (if it is a directory){suffix}')
         return
 
     confirm_or_exit(f'remove directory {args.path}?', args.force)

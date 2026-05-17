@@ -8,6 +8,7 @@ Covers things that aren't reachable through the daemon smoke tests:
   - the interactive shell REPL (driven via subprocess.Popen)
 """
 
+import importlib.metadata
 import io
 import json
 import os
@@ -16,6 +17,7 @@ import signal
 import socket
 import subprocess
 import sys
+import urllib.error
 from collections.abc import Iterator
 from email.message import Message
 
@@ -30,6 +32,7 @@ from pcli import probe
 from pcli.client import confirm, http, main as client_main, parser as client_parser
 from pcli.client.commands import shell as shell_cmd, status as status_cmd
 from pcli.server import daemon as server_daemon, routes as server_routes
+from pixeltable import exceptions as excs
 
 
 def _pick_port() -> int:
@@ -97,7 +100,7 @@ class TestProbe:
         monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: foreign_responder)
         monkeypatch.setattr(probe, '_client_pxt_version', lambda: 'NEW')
         monkeypatch.setattr(probe, '_read_pidfile', lambda: 12345)
-        killed: list = []
+        killed: list[int | str] = []
         monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         monkeypatch.setattr(probe, 'spawn_detached', lambda: killed.append('spawn'))
 
@@ -106,8 +109,8 @@ class TestProbe:
         assert killed == []
 
     def test_version_mismatch_restart_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Happy restart: matching pidfile + version mismatch causes kill, spawn, and a
-        post-restart cross-verify against the new responder."""
+        """Matching pidfile + version mismatch: ensure_running kills the old daemon, spawns
+        a new one, and cross-verifies the post-restart responder reports our version."""
         responses = iter(
             [
                 {'ok': True, 'service': 'pcli', 'pxt_version': 'OLD', 'pid': 100, 'started_at': 'a'},
@@ -117,7 +120,7 @@ class TestProbe:
         monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
         monkeypatch.setattr(probe, '_client_pxt_version', lambda: 'NEW')
         monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
-        actions: list = []
+        actions: list[tuple[str, ...] | tuple[str, int]] = []
         monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
         monkeypatch.setattr(probe, 'spawn_detached', lambda: actions.append(('spawn',)))
         monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
@@ -190,8 +193,6 @@ class TestProbe:
         assert probe._fetch_health() is None
 
     def test_fetch_health_url_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import urllib.error
-
         def boom(*a: object, **kw: object) -> None:
             raise urllib.error.URLError('refused')
 
@@ -199,8 +200,6 @@ class TestProbe:
         assert probe._fetch_health() is None
 
     def test_client_pxt_version_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import importlib.metadata
-
         def boom(name: str) -> str:
             raise importlib.metadata.PackageNotFoundError(name)
 
@@ -440,8 +439,6 @@ class TestHttp:
         assert 'cannot spawn daemon' in capsys.readouterr().err
 
     def test_http_error_with_detail(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        import urllib.error
-
         monkeypatch.setattr(http, 'ensure_running', lambda: 'http://127.0.0.1:1')
 
         def raise_http(*a: object, **kw: object) -> None:
@@ -457,8 +454,6 @@ class TestHttp:
         assert 'n must be > 0' in err
 
     def test_http_error_unparseable_body(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        import urllib.error
-
         monkeypatch.setattr(http, 'ensure_running', lambda: 'http://127.0.0.1:1')
 
         def raise_http(*a: object, **kw: object) -> None:
@@ -475,8 +470,6 @@ class TestHttp:
         assert 'Internal Server Error' in err
 
     def test_url_error_unreachable(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        import urllib.error
-
         monkeypatch.setattr(http, 'ensure_running', lambda: 'http://127.0.0.1:1')
 
         def boom(*a: object, **kw: object) -> None:
@@ -580,10 +573,8 @@ class TestShell:
         shell_cmd._print_help(client_main.COMMANDS)
         out = capsys.readouterr().out
         # shell suppresses its own entry; every other command appears
-        assert 'shell' not in [line.split()[0] for line in out.splitlines() if line.strip()]
-        for cmd in client_main.COMMANDS:
-            if cmd != 'shell':
-                assert cmd in out
+        assert 'shell' not in [line.split()[0] for line in out.splitlines() if line.strip() != '']
+        assert all(cmd in out for cmd in client_main.COMMANDS if cmd != 'shell')
 
 
 class TestStatusFmtSize:
@@ -654,8 +645,6 @@ class TestServerRouteHelpers:
         assert server_routes._redact_db_password('::: not a url :::') is None
 
     def test_safe_count_swallows_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pixeltable import exceptions as excs
-
         class FakeT:
             def count(self) -> int:
                 raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, 'catalog gone')

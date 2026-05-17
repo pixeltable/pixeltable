@@ -27,8 +27,10 @@ def run(argv: list[str]) -> None:
     args = ap.parse_args(argv)
 
     if args.dry_run:
+        # Don't claim 'table' - we haven't validated the path's kind. The server's drop_table
+        # call is the one that enforces it, and we're skipping the round-trip in dry-run mode.
         suffix = ' (cascade: dependent views also dropped)' if args.cascade else ''
-        print(f'would drop table {args.path}{suffix}')
+        print(f'would drop {args.path} (if it is a table or view){suffix}')
         return
 
     confirm_or_exit(f'drop table {args.path}?', args.force)

@@ -15,7 +15,7 @@ from typing import Any
 from pcli.probe import ensure_running
 
 
-def _request(method: str, path: str, body: dict | None = None) -> Any:
+def _request(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
     try:
         base = ensure_running()
     except RuntimeError as e:
@@ -47,5 +47,5 @@ def get(path: str) -> Any:
     return _request('GET', path)
 
 
-def post(path: str, body: dict) -> Any:
+def post(path: str, body: dict[str, Any]) -> Any:
     return _request('POST', path, body)

@@ -25,7 +25,7 @@ def pcli_health() -> models.HealthResponse:
 
 
 @router.get('/api/pixeltable-health')
-def dashboard_health() -> dict:
+def dashboard_health() -> dict[str, str]:
     # compat for the existing dashboard probe
     return {'status': 'ok'}
 
@@ -81,7 +81,7 @@ def errors(req: models.ErrorsRequest) -> models.ErrorsResponse:
         cond = t[col].errortype != None  # pxt overrides != to return an Expr
         where = cond if where is None else where | cond
 
-    select_args: list = [t[c] for c in pk_names]
+    select_args: list[Any] = [t[c] for c in pk_names]
     for col in computed:
         select_args += [t[col].errortype, t[col].errormsg]
     rows = t.where(where).select(*select_args).collect()
@@ -105,13 +105,14 @@ def history(req: models.HistoryRequest) -> models.HistoryResponse:
 
 @router.post('/pcli/v0/columns')
 def columns(req: models.ColumnsRequest) -> models.ColumnsResponse:
-    paths = [req.path] if req.path else _collect_table_paths()
+    paths = [req.path] if req.path is not None and req.path != '' else _collect_table_paths()
     entries: list[models.ColumnEntry] = []
     for path in paths:
         try:
             md = pxt.get_table(path).get_metadata()
-        except excs.Error:
-            # skip tables whose metadata can't be loaded; other exceptions propagate as 500s
+        except excs.NotFoundError:
+            # a table can disappear between dir-tree traversal and metadata fetch; other
+            # pixeltable errors propagate as 500s so real bugs surface
             continue
         for name, c in md['columns'].items():
             if req.computed_only and not c['is_computed']:
@@ -131,12 +132,12 @@ def columns(req: models.ColumnsRequest) -> models.ColumnsResponse:
 
 @router.post('/pcli/v0/idxs')
 def idxs(req: models.IdxsRequest) -> models.IdxsResponse:
-    paths = [req.path] if req.path else _collect_table_paths()
+    paths = [req.path] if req.path is not None and req.path != '' else _collect_table_paths()
     entries: list[models.IdxEntry] = []
     for path in paths:
         try:
             md = pxt.get_table(path).get_metadata()
-        except excs.Error:
+        except excs.NotFoundError:
             continue
         for name, idx in md['indices'].items():
             if req.embedding_only and idx['index_type'] != 'embedding':
@@ -157,8 +158,6 @@ def idxs(req: models.IdxsRequest) -> models.IdxsResponse:
 
 @router.post('/pcli/v0/rows')
 def rows(req: models.RowsRequest) -> models.RowsResponse:
-    if req.n <= 0:
-        raise HTTPException(400, 'n must be > 0')
     t = pxt.get_table(req.path)
     cols_md = t.get_metadata()['columns']
     if req.cols is not None:
@@ -171,9 +170,9 @@ def rows(req: models.RowsRequest) -> models.RowsResponse:
         # an unbounded amount of time
         columns_list = [name for name, c in cols_md.items() if c.get('is_stored', True)]
     result = t.select(*[t[c] for c in columns_list]).limit(req.n).collect()
-    out_rows: list[dict] = []
+    out_rows: list[dict[str, Any]] = []
     for r in result:
-        row: dict = {}
+        row: dict[str, Any] = {}
         for c in columns_list:
             v = r[c]
             if isinstance(v, PIL.Image.Image):
@@ -218,7 +217,7 @@ def get(req: models.GetRequest) -> models.GetResponse:
         )
 
     r = result[0]
-    row: dict = {}
+    row: dict[str, Any] = {}
     for c in cols:
         v = r[c]
         if isinstance(v, PIL.Image.Image):
@@ -236,13 +235,12 @@ def count(req: models.CountRequest) -> models.CountResponse:
 
 @router.get('/pcli/v0/status')
 def status(sizes: bool = False) -> models.StatusResponse:
-    """Status snapshot. Pass sizes=1 to include media/file_cache disk usage (scans the directories)."""
     # bridge import is local: pixeltable.dashboard.bridge pulls a heavy chain that we don't
     # want on every daemon process start.
     from pixeltable.dashboard import bridge
 
     s = bridge.get_status()
-    cfg = s.get('config') or {}
+    cfg = s['config']
     media_dir = cfg.get('media_dir')
     file_cache_dir = cfg.get('file_cache_dir')
     return models.StatusResponse(
@@ -262,10 +260,7 @@ def status(sizes: bool = False) -> models.StatusResponse:
 
 @router.get('/pcli/v0/config')
 def config() -> models.ConfigResponse:
-    """Resolved-configuration view: every documented setting with its current value
-    (env var or config.toml) and which layer it came from. Credentials show '<redacted>'
-    when set; the source field reveals whether they're configured even when redacted."""
-    sensitive = set(Env._CREDENTIAL_PARAM_NAMES)
+    sensitive: set[str] = {p for params in Env.get().get_client_credential_params().values() for p in params}
     entries: list[models.ConfigEntry] = []
     for ck in Config.get().config_keys():
         source = Config.get().get_value_source(ck.key, section=ck.section)
@@ -352,11 +347,11 @@ def _to_entry(node: TreeNode, details: bool) -> models.LsEntry:
     entry = models.LsEntry(path=node['path'], kind=node['kind'], last_version=node['version'])
     if details:
         md = pxt.get_table(node['path']).get_metadata()
-        cols = md.get('columns') or {}
-        idxs = md.get('indices') or {}
+        cols = md['columns']
+        indices = md['indices']
         entry.num_cols = len(cols)
-        has_computed = any(c.get('is_computed') for c in cols.values())
-        entry.flags = ('c' if has_computed else '') + ('i' if len(idxs) > 0 else '')
+        has_computed = any(c['is_computed'] for c in cols.values())
+        entry.flags = ('c' if has_computed else '') + ('i' if len(indices) > 0 else '')
     return entry
 
 

@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
@@ -50,7 +50,7 @@ class LsRequest(BaseModel):
 
 class LsResponse(BaseModel):
     entries: list[LsEntry]
-    tree: dict | None = None
+    tree: dict[str, Any] | None = None
 
 
 class DescribeRequest(BaseModel):
@@ -59,7 +59,7 @@ class DescribeRequest(BaseModel):
 
 class DescribeResponse(BaseModel):
     text: str
-    metadata: dict
+    metadata: dict[str, Any]
 
 
 class ErrorsRequest(BaseModel):
@@ -68,7 +68,7 @@ class ErrorsRequest(BaseModel):
 
 
 class ErrorEntry(BaseModel):
-    pk: dict
+    pk: dict[str, Any]
     column: str
     errortype: str
     errormsg: str | None
@@ -84,7 +84,7 @@ class HistoryRequest(BaseModel):
 
 
 class HistoryResponse(BaseModel):
-    versions: list[dict]  # raw VersionMetadata; client formats
+    versions: list[dict[str, Any]]  # raw VersionMetadata; client formats
 
 
 class ColumnsRequest(BaseModel):
@@ -125,13 +125,15 @@ class IdxsResponse(BaseModel):
 
 class RowsRequest(BaseModel):
     path: PcliPath
-    n: int = 10
-    cols: list[str] | None = None
+    # 1000-row cap: rows() truncates Image values to a descriptive string, so payload size
+    # is bounded by columns x 1000, well within reasonable JSON limits.
+    n: int = Field(default=10, ge=1, le=1000)
+    cols: list[str] | None = Field(default=None, max_length=1000)
 
 
 class RowsResponse(BaseModel):
     columns: list[str]
-    rows: list[dict]
+    rows: list[dict[str, Any]]
 
 
 class StatusResponse(BaseModel):
@@ -177,13 +179,13 @@ class CountResponse(BaseModel):
 
 class GetRequest(BaseModel):
     path: PcliPath
-    pk: list  # values in PK column order
+    pk: list[Any]  # values in PK column order
     cols: list[str] | None = None
 
 
 class GetResponse(BaseModel):
     pk_columns: list[str]
-    row: dict | None
+    row: dict[str, Any] | None
 
 
 class DropRequest(BaseModel):

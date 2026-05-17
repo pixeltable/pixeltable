@@ -9,9 +9,11 @@ import os
 import urllib.error
 import urllib.request
 
+import numpy as np
 import pytest
 
 import pixeltable as pxt
+from tests.utils import get_image_files
 
 from .conftest import PcliRunner
 
@@ -22,6 +24,12 @@ def _boom_on_zero(x: int) -> int:
     if x == 0:
         raise ValueError('boom')
     return x
+
+
+@pxt.udf
+def _trivial_embed(s: str) -> pxt.Array[(8,), np.float32]:
+    """Module-level embedder for embedding-index tests: deterministic, no model download."""
+    return np.zeros(8, dtype=np.float32)
 
 
 class TestHealth:
@@ -47,7 +55,8 @@ class TestLs:
 
         # plain text lists the headers + path + kind
         text = pcli('ls', 'pcli_ls').stdout
-        assert 'path' in text and 'kind' in text
+        assert 'path' in text
+        assert 'kind' in text
         assert 'pcli_ls/t' in text
 
         # an empty dir is still a valid listing target
@@ -74,7 +83,8 @@ class TestLs:
         # -l --json: details populated
         entries = pcli('ls', 'pcli_ls_long', '-l', '--json').json['entries']
         row = next(e for e in entries if e['path'] == 'pcli_ls_long/t')
-        assert row['num_cols'] is not None and row['num_cols'] >= 2
+        assert row['num_cols'] is not None
+        assert row['num_cols'] >= 2
         assert 'c' in row['flags']
 
         # bare --json: cheap-by-default, no metadata fetch
@@ -84,8 +94,8 @@ class TestLs:
         assert row['flags'] == ''
 
     def test_tree_and_counts(self, pcli: PcliRunner) -> None:
-        """--tree formats the nested catalog with box-drawing chars. --counts populates
-        num_rows in both text and JSON; a dirs-only target short-circuits the count pool."""
+        """--tree formats the nested catalog with ASCII prefixes. --counts populates
+        num_rows in both text and JSON; a dirs-only target skips the count pool entirely."""
         pxt.create_dir('pcli_ls_tree', if_exists='ignore')
         pxt.create_dir('pcli_ls_tree.sub', if_exists='ignore')
         pxt.create_table('pcli_ls_tree.sub.leaf', {'a': pxt.Int}, if_exists='replace')
@@ -104,7 +114,8 @@ class TestLs:
 
         # --counts text: includes the 'rows' column header
         counts_text = pcli('ls', 'pcli_ls_tree', '--counts').stdout
-        assert 'rows' in counts_text and '4' in counts_text
+        assert 'rows' in counts_text
+        assert '4' in counts_text
 
         # --counts on a dirs-only target: _fill_counts sees an empty target list and short-circuits
         pxt.create_dir('pcli_ls_dirs', if_exists='ignore')
@@ -148,7 +159,8 @@ class TestDescribe:
 
         # text is repr(table) which lists the columns
         text = pcli('describe', 'pcli_desc/t').stdout
-        assert 'a' in text and 'b' in text
+        assert 'a' in text
+        assert 'b' in text
 
     def test_errors(self, pcli: PcliRunner) -> None:
         r = pcli('describe', 'does_not_exist', check=False)
@@ -169,7 +181,8 @@ class TestColumns:
 
         # text format: stored vs computed flag
         text = pcli('columns', 'pcli_cols/t').stdout
-        assert 'a' in text and 'stored' in text
+        assert 'a' in text
+        assert 'stored' in text
 
         # `pcli computed` is the --computed shorthand
         entries = pcli('computed', 'pcli_cols/t', '--json').json
@@ -185,7 +198,7 @@ class TestColumns:
 
 class TestIdxs:
     def test_lists(self, pcli: PcliRunner) -> None:
-        """idxs runs against one table or globally; the no-path form walks _all_tables."""
+        """idxs runs against one table or globally; the no-path form walks every table."""
         pxt.create_dir('pcli_idx', if_exists='ignore')
         pxt.create_table('pcli_idx.t', {'a': pxt.Int}, if_exists='replace')
 
@@ -199,20 +212,40 @@ class TestIdxs:
         # no-path: walks every table; smoke check only since auto-indexes vary
         assert pcli('idxs', '--json').returncode == 0
 
+    def test_embedding_filter(self, pcli: PcliRunner) -> None:
+        """--embedding filters to embedding indexes only; a table with both a btree-style
+        index and an embedding index reports one entry each, then only the embedding under
+        --embedding."""
+        pxt.create_dir('pcli_idx_emb', if_exists='ignore')
+        t = pxt.create_table('pcli_idx_emb.t', {'s': pxt.String}, if_exists='replace')
+        t.add_embedding_index('s', idx_name='emb_idx', string_embed=_trivial_embed)
+
+        all_entries = pcli('idxs', 'pcli_idx_emb/t', '--json').json
+        emb_only = pcli('idxs', 'pcli_idx_emb/t', '--embedding', '--json').json
+        assert any(e['name'] == 'emb_idx' and e['index_type'] == 'embedding' for e in all_entries)
+        assert all(e['index_type'] == 'embedding' for e in emb_only)
+        assert any(e['name'] == 'emb_idx' for e in emb_only)
+
 
 class TestHistory:
     def test_basics(self, pcli: PcliRunner) -> None:
         pxt.create_dir('pcli_hist', if_exists='ignore')
         t = pxt.create_table('pcli_hist.t', {'a': pxt.Int}, if_exists='replace')
-        t.insert([{'a': 1}])
+        for i in range(4):
+            t.insert([{'a': i}])
 
-        # --json: at least the create + insert versions
+        # --json: every committed version
         versions = pcli('history', 'pcli_hist/t', '--json').json
-        assert len(versions) >= 2
+        assert len(versions) >= 5  # create + 4 inserts
+
+        # -n caps the result count to the last N versions
+        capped = pcli('history', 'pcli_hist/t', '-n', '2', '--json').json
+        assert len(capped) == 2
 
         # text: tab-separated header
         text = pcli('history', 'pcli_hist/t').stdout
-        assert 'version' in text and 'change_type' in text
+        assert 'version' in text
+        assert 'change_type' in text
 
 
 class TestRows:
@@ -232,7 +265,8 @@ class TestRows:
 
         # text contains the inserted values
         text = pcli('rows', 'pcli_rows/t').stdout
-        assert 'row0' in text and 'row4' in text
+        assert 'row0' in text
+        assert 'row4' in text
 
         # null cell renders as empty, not the literal 'None'
         t2 = pxt.create_table('pcli_rows.nulls', {'a': pxt.Int, 's': pxt.String}, if_exists='replace')
@@ -242,8 +276,6 @@ class TestRows:
     def test_image_column(self, pcli: PcliRunner) -> None:
         """Image cells must render as `<Image WxH MODE>` in both text and JSON modes -
         not as raw bytes, base64, or a PIL repr."""
-        from tests.utils import get_image_files
-
         img_paths = get_image_files()[:2]
         pxt.create_dir('pcli_img', if_exists='ignore')
         t = pxt.create_table(
@@ -256,7 +288,8 @@ class TestRows:
 
         rows_json = pcli('rows', 'pcli_img/t', '-n', '5', '--json').json
         assert len(rows_json) == 2
-        assert all(r['img'].startswith('<Image ') and r['img'].endswith('>') for r in rows_json)
+        assert all(r['img'].startswith('<Image ') for r in rows_json)
+        assert all(r['img'].endswith('>') for r in rows_json)
 
         rows_text = pcli('rows', 'pcli_img/t').stdout
         assert '<Image ' in rows_text
@@ -273,10 +306,15 @@ class TestRows:
         pxt.create_dir('pcli_rows_err', if_exists='ignore')
         pxt.create_table('pcli_rows_err.t', {'a': pxt.Int}, if_exists='replace')
 
-        # n must be > 0
+        # n must be >= 1 (pydantic Field constraint on RowsRequest.n)
         r = pcli('rows', 'pcli_rows_err/t', '-n', '0', check=False)
         assert r.returncode != 0
-        assert 'n must be > 0' in r.stderr
+        assert 'greater than or equal to 1' in r.stderr
+
+        # n upper bound: pydantic Field(le=1000)
+        r = pcli('rows', 'pcli_rows_err/t', '-n', '10001', check=False)
+        assert r.returncode != 0
+        assert 'less than or equal to 1000' in r.stderr
 
         # unknown column
         r = pcli('rows', 'pcli_rows_err/t', '--cols', 'nope', check=False)
@@ -314,12 +352,12 @@ class TestGet:
         assert out['row'] == {'a': 100}
 
     def test_pk_coercion(self, pcli: PcliRunner) -> None:
-        """The PK token goes through int -> float -> JSON literal -> str fallback.
-        Each scenario looks up a row whose stored PK matches the coerced value."""
+        """A numeric-looking PK token is coerced to int or float; everything else stays a
+        string. There is no quoting escape for a string PK that looks like a number."""
         pxt.create_dir('pcli_get_coerce', if_exists='ignore')
 
-        # float PK; '1.5' -> float; whitespace around a numeric token is stripped by float()
-        # (documented Python behavior) and the lookup still finds the row.
+        # float PK: '1.5' coerces to float; whitespace around the numeric token is stripped
+        # by float() (documented Python behavior) and the lookup still finds the row.
         t = pxt.create_table(
             'pcli_get_coerce.f', {'k': pxt.Required[pxt.Float], 'v': pxt.String}, primary_key='k', if_exists='replace'
         )
@@ -327,14 +365,12 @@ class TestGet:
         assert pcli('get', 'pcli_get_coerce/f', '1.5', '--json').json['row']['v'] == 'one-and-a-half'
         assert pcli('get', 'pcli_get_coerce/f', '  1.5  ', '--json').json['row']['v'] == 'one-and-a-half'
 
-        # string PK; bare 'alpha' falls through to str; '"42"' forces a string that would
-        # otherwise be parsed as int via the JSON-literal step.
+        # string PK: a token that doesn't parse as a number stays a string.
         t = pxt.create_table(
             'pcli_get_coerce.s', {'k': pxt.Required[pxt.String], 'v': pxt.Int}, primary_key='k', if_exists='replace'
         )
-        t.insert([{'k': 'alpha', 'v': 1}, {'k': '42', 'v': 99}])
+        t.insert([{'k': 'alpha', 'v': 1}])
         assert pcli('get', 'pcli_get_coerce/s', 'alpha', '--json').json['row']['v'] == 1
-        assert pcli('get', 'pcli_get_coerce/s', '"42"', '--json').json['row']['v'] == 99
 
     def test_errors(self, pcli: PcliRunner) -> None:
         """No-PK rejection, PK count mismatch, unknown col, empty/whitespace PK, empty --cols token."""
@@ -365,17 +401,21 @@ class TestGet:
 
         # empty/whitespace PK token rejected client-side
         r = pcli('get', 'pcli_get_err/t', '', check=False)
-        assert r.returncode != 0 and 'empty or whitespace' in r.stderr
+        assert r.returncode != 0
+        assert 'empty or whitespace' in r.stderr
         r = pcli('get', 'pcli_get_err/t', '   ', check=False)
-        assert r.returncode != 0 and 'empty or whitespace' in r.stderr
+        assert r.returncode != 0
+        assert 'empty or whitespace' in r.stderr
 
         # composite PK: even one slot empty is enough to reject
         r = pcli('get', 'pcli_get_err/tc', '1', '', check=False)
-        assert r.returncode != 0 and 'empty or whitespace' in r.stderr
+        assert r.returncode != 0
+        assert 'empty or whitespace' in r.stderr
 
         # empty --cols token
         r = pcli('get', 'pcli_get_err/t', '1', '--cols', 'k,', check=False)
-        assert r.returncode != 0 and 'must not be empty' in r.stderr
+        assert r.returncode != 0
+        assert 'must not be empty' in r.stderr
 
 
 class TestCount:
@@ -504,15 +544,26 @@ class TestErrors:
         pxt.create_table('pcli_errs.ok', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
         assert pcli('errors', 'pcli_errs/ok', '--json').json == []
         r = pcli('errors', 'pcli_errs/ok')
-        assert r.returncode == 0 and r.stdout.strip() == ''
+        assert r.returncode == 0
+        assert r.stdout.strip() == ''
 
         # Computed column that raises for k=0: row 0 shows up in the errors listing
         t = pxt.create_table('pcli_errs.bad', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
         t.add_computed_column(b=_boom_on_zero(t.k), on_error='ignore')
+        t.add_computed_column(c=_boom_on_zero(t.k), on_error='ignore')
         t.insert([{'k': 0}, {'k': 1}], on_error='ignore')
         text = pcli('errors', 'pcli_errs/bad').stdout
         assert 'k: 0' in text
         assert 'b' in text
+
+        # --col filters to one stored computed column: an existing column with errors comes back,
+        # and asking for the other computed column also returns its errors.
+        out_b = pcli('errors', 'pcli_errs/bad', '--col', 'b', '--json').json
+        assert len(out_b) == 1
+        assert out_b[0]['column'] == 'b'
+        out_c = pcli('errors', 'pcli_errs/bad', '--col', 'c', '--json').json
+        assert len(out_c) == 1
+        assert out_c[0]['column'] == 'c'
 
     def test_errors(self, pcli: PcliRunner) -> None:
         """No-PK rejection, unknown --col, --col on a non-stored-computed column."""
@@ -524,15 +575,18 @@ class TestErrors:
 
         # no PK -> 400
         r = pcli('errors', 'pcli_errs_err/no_pk', check=False)
-        assert r.returncode != 0 and 'primary key' in r.stderr.lower()
+        assert r.returncode != 0
+        assert 'primary key' in r.stderr.lower()
 
         # unknown --col
         r = pcli('errors', 'pcli_errs_err/t', '--col', 'nope', check=False)
-        assert r.returncode != 0 and 'unknown column' in r.stderr
+        assert r.returncode != 0
+        assert 'unknown column' in r.stderr
 
         # --col on a column that isn't a stored computed column
         r = pcli('errors', 'pcli_errs_err/t', '--col', 'plain', check=False)
-        assert r.returncode != 0 and 'stored computed column' in r.stderr
+        assert r.returncode != 0
+        assert 'stored computed column' in r.stderr
 
 
 class TestDrop:
@@ -577,7 +631,25 @@ class TestDrop:
         r = pcli('rm', 'pcli_drop_dr', '-n')
         assert 'would remove' in r.stdout
         r = pcli('rm', 'pcli_drop_dr', '-n', '-r')
-        assert 'would remove' in r.stdout and 'recursive' in r.stdout
+        assert 'would remove' in r.stdout
+        assert 'recursive' in r.stdout
+
+    def test_cascade(self, pcli: PcliRunner) -> None:
+        """--cascade maps to force=True server-side: drops a table that has dependent views.
+        Without --cascade, dropping a table with a view fails."""
+        pxt.create_dir('pcli_drop_csc', if_exists='ignore')
+        t = pxt.create_table('pcli_drop_csc.base', {'a': pxt.Int}, if_exists='replace')
+        pxt.create_view('pcli_drop_csc.dep_view', t, if_exists='replace')
+
+        # without --cascade: drop fails because of the dependent view
+        r = pcli('drop', 'pcli_drop_csc/base', '-f', check=False)
+        assert r.returncode != 0
+        assert pxt.get_table('pcli_drop_csc/base', if_not_exists='ignore') is not None
+
+        # with --cascade: both base table and dependent view are dropped
+        assert pcli('drop', 'pcli_drop_csc/base', '--cascade', '-f', '--json').json['dropped'] is True
+        assert pxt.get_table('pcli_drop_csc/base', if_not_exists='ignore') is None
+        assert pxt.get_table('pcli_drop_csc/dep_view', if_not_exists='ignore') is None
 
     def test_errors(self, pcli: PcliRunner) -> None:
         # no -f, no TTY: refuse to proceed
@@ -651,6 +723,11 @@ class TestMv:
         r = pcli('mv', 'pcli_mv/dr', 'pcli_mv', '-n')
         assert 'would move' in r.stdout
 
+    def test_errors(self, pcli: PcliRunner) -> None:
+        # nonexistent source path
+        r = pcli('mv', 'pcli_mv_err/missing', 'pcli_mv_err', check=False)
+        assert r.returncode != 0
+
 
 class TestRevert:
     def test_basics(self, pcli: PcliRunner) -> None:
@@ -668,7 +745,8 @@ class TestRevert:
 
         # text: 'reverted ... -> ...'
         text = pcli('revert', 'pcli_rv/txt', '-f').stdout
-        assert 'reverted' in text and '->' in text
+        assert 'reverted' in text
+        assert '->' in text
 
         # dry-run: 'would revert', no side effect
         assert 'would revert' in pcli('revert', 'pcli_rv/dr', '-n').stdout
@@ -711,16 +789,20 @@ class TestPathValidator:
     def test_rejects_bad_shapes(self, pcli: PcliRunner) -> None:
         # '.' is reserved (pxt's legacy separator)
         r = pcli('describe', 'a.b', check=False)
-        assert r.returncode != 0 and ("'/'" in r.stderr or 'separator' in r.stderr)
+        assert r.returncode != 0
+        assert "'/'" in r.stderr or 'separator' in r.stderr
         # leading '/' would create an empty leading component
         r = pcli('describe', '/x', check=False)
-        assert r.returncode != 0 and 'relative' in r.stderr
+        assert r.returncode != 0
+        assert 'relative' in r.stderr
         # trailing '/' would create an empty trailing component
         r = pcli('describe', 'x/', check=False)
-        assert r.returncode != 0 and "must not end with '/'" in r.stderr
+        assert r.returncode != 0
+        assert "must not end with '/'" in r.stderr
         # '//' produces an empty internal component
         r = pcli('describe', 'a//b', check=False)
-        assert r.returncode != 0 and 'empty components' in r.stderr
+        assert r.returncode != 0
+        assert 'empty components' in r.stderr
 
 
 class TestColsValidator:
@@ -731,11 +813,12 @@ class TestColsValidator:
         pxt.create_dir('pcli_colsv', if_exists='ignore')
         pxt.create_table('pcli_colsv.r', {'a': pxt.Int, 'b': pxt.Int}, if_exists='replace')
         pxt.create_table('pcli_colsv.g', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        for bad in ('a,', ',a', 'a,,b'):
-            r = pcli('rows', 'pcli_colsv/r', '--cols', bad, check=False)
-            assert r.returncode != 0 and 'must not be empty' in r.stderr
+        results = [pcli('rows', 'pcli_colsv/r', '--cols', bad, check=False) for bad in ('a,', ',a', 'a,,b')]
+        assert all(r.returncode != 0 for r in results)
+        assert all('must not be empty' in r.stderr for r in results)
         r = pcli('get', 'pcli_colsv/g', '1', '--cols', 'k,', check=False)
-        assert r.returncode != 0 and 'must not be empty' in r.stderr
+        assert r.returncode != 0
+        assert 'must not be empty' in r.stderr
 
 
 class TestCli:
