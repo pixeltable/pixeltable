@@ -53,9 +53,16 @@ def _fetch_health(timeout: float = 0.3) -> dict | None:
     try:
         with urllib.request.urlopen(health_url(), timeout=timeout) as r:
             body = json.loads(r.read())
-        return body if body.get('ok') else None
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError):
         return None
+    # Verify this is actually our daemon and not some other service on the same port that
+    # happens to return `{"ok": true}`. Require both the pcli service marker and the full
+    # set of identity fields the version-mismatch / kill logic relies on.
+    if not isinstance(body, dict) or body.get('service') != 'pcli' or not body.get('ok'):
+        return None
+    if not all(k in body for k in ('pxt_version', 'pid', 'started_at')):
+        return None
+    return body
 
 
 def is_running(timeout: float = 0.3) -> bool:

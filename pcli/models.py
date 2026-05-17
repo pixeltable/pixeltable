@@ -21,6 +21,7 @@ OptionalPcliPath = Annotated[str | None, AfterValidator(_slash_only)]
 
 class HealthResponse(BaseModel):
     ok: bool
+    service: Literal['pcli'] = 'pcli'
     pxt_version: str
     pid: int
     started_at: str
