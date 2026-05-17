@@ -26,8 +26,9 @@ def pcli_health() -> models.HealthResponse:
 
 @router.get('/api/pixeltable-health')
 def dashboard_health() -> dict[str, str]:
-    # compat for the existing dashboard probe
-    return {'status': 'ok'}
+    # Compat shape for the legacy dashboard probe: existing clients read both 'status' and
+    # 'version', so omitting 'version' would break them.
+    return {'status': 'ok', 'version': pxt.__version__}
 
 
 @router.post('/pcli/v0/ls')
@@ -260,13 +261,19 @@ def status(sizes: bool = False) -> models.StatusResponse:
 
 @router.get('/pcli/v0/config')
 def config() -> models.ConfigResponse:
-    sensitive: set[str] = {p for params in Env.get().get_client_credential_params().values() for p in params}
+    # Two-layer redaction so a new sensitive key never silently leaks:
+    #   1. params from registered API client factories (eg openai.api_key, replicate.api_token)
+    #   2. name-suffix match for keys that aren't tied to an Env-registered client
+    #      (eg azure.storage_account_key, anything ending in _password)
+    client_creds: set[str] = {p for params in Env.get().get_client_credential_params().values() for p in params}
+    sensitive_suffixes = ('_key', '_token', '_secret', '_password')
     entries: list[models.ConfigEntry] = []
     for ck in Config.get().config_keys():
         source = Config.get().get_value_source(ck.key, section=ck.section)
+        is_sensitive = ck.key in client_creds or any(ck.key.endswith(s) for s in sensitive_suffixes)
         if source == 'unset':
             value: str | None = None
-        elif ck.key in sensitive:
+        elif is_sensitive:
             value = '<redacted>'
         else:
             raw: Any = Config.get().get_value(ck.key, ck.expected_type, section=ck.section)
