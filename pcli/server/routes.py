@@ -1,8 +1,7 @@
 """All pcli HTTP routes in a single module.
 
-Each route is registered on the shared `router` and mounted at `/pcli/v0/*`. Module-private
-helpers (`_*`) live next to the routes that use them; route handlers consume them directly
-rather than crossing module boundaries.
+Each route is registered on the shared `router` and mounted at `/pcli/v0/*`. Routes come
+first; module-private helpers (`_*`) follow at the bottom.
 """
 
 import datetime
@@ -17,49 +16,22 @@ from fastapi.encoders import jsonable_encoder
 
 import pixeltable
 import pixeltable as pxt
-from pcli._paths import redact_home
-from pcli.models import (
-    ColumnEntry,
-    ColumnsRequest,
-    ColumnsResponse,
-    CountRequest,
-    CountResponse,
-    DescribeRequest,
-    DescribeResponse,
-    DropRequest,
-    DropResponse,
-    EnvResponse,
-    ErrorEntry,
-    ErrorsRequest,
-    ErrorsResponse,
-    GetRequest,
-    GetResponse,
-    HealthResponse,
-    HistoryRequest,
-    HistoryResponse,
-    IdxEntry,
-    IdxsRequest,
-    IdxsResponse,
-    LsEntry,
-    LsRequest,
-    LsResponse,
-    MoveRequest,
-    MoveResponse,
-    RevertRequest,
-    RevertResponse,
-    RowsRequest,
-    RowsResponse,
-    StatusResponse,
-)
+from pcli import models
+from pcli.paths import redact_home
 from pixeltable import exceptions as excs
 
 router = APIRouter()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
+# ---------------------------------------------------------------------------
+# routes
+# ---------------------------------------------------------------------------
+
+
 @router.get('/pcli/v0/health')
-def pcli_health() -> HealthResponse:
-    return HealthResponse(ok=True, pxt_version=pixeltable.__version__, pid=os.getpid(), started_at=_STARTED_AT)
+def pcli_health() -> models.HealthResponse:
+    return models.HealthResponse(ok=True, pxt_version=pixeltable.__version__, pid=os.getpid(), started_at=_STARTED_AT)
 
 
 @router.get('/api/pixeltable-health')
@@ -68,87 +40,42 @@ def dashboard_health() -> dict:
     return {'status': 'ok'}
 
 
-# count() is SQL-bound (GIL-released during the query), so going wider than the DB can
-# serve in parallel just queues. 16 is comfortably below pixeltable's default connection-pool ceiling.
-_COUNT_POOL_WORKERS = 16
-
-
 @router.post('/pcli/v0/ls')
-def ls(req: LsRequest) -> LsResponse:
+def ls(req: models.LsRequest) -> models.LsResponse:
     tree = pxt.get_dir_tree()
     nodes = _descend(tree, req.path)
     if req.tree:
-        return LsResponse(entries=[], tree={'path': req.path, 'entries': nodes})
+        return models.LsResponse(entries=[], tree={'path': req.path, 'entries': nodes})
 
     entries = [_to_entry(n, details=req.details) for n in nodes]
     if req.counts:
         _fill_counts(entries)
-    return LsResponse(entries=entries)
-
-
-def _descend(tree: list[Any], path: str) -> list[Any]:
-    """Find children of `path` (slash-separated). Empty path = root."""
-    parts = [p for p in path.split('/') if p]
-    cur = tree
-    for part in parts:
-        for node in cur:
-            if node['name'] == part and node['kind'] == 'directory':
-                cur = node['entries']
-                break
-        else:
-            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Path {path!r} does not exist.')
-    return cur
-
-
-def _to_entry(node: Any, details: bool) -> LsEntry:
-    # pxt kinds: 'directory' | 'table' | 'view' | 'snapshot' | 'replica' (see pixeltable.types.TableKind)
-    kind = 'dir' if node['kind'] == 'directory' else node['kind']
-    entry = LsEntry(path=node['path'], kind=kind)
-    if kind != 'dir':
-        entry.last_version = node.get('version')
-        if details:
-            md = pxt.get_table(node['path']).get_metadata()
-            cols = md.get('columns') or {}
-            idxs = md.get('indices') or {}
-            entry.num_cols = len(cols)
-            has_computed = any(c.get('is_computed') for c in cols.values())
-            entry.flags = ('c' if has_computed else '') + ('i' if len(idxs) > 0 else '')
-    return entry
-
-
-def _fill_counts(entries: list[LsEntry]) -> None:
-    # Resolve and count in the worker thread: pxt.get_table() returns a thread-local handle
-    # that raises if reused across threads.
-    targets = [e for e in entries if e.kind != 'dir']
-    if len(targets) == 0:
-        return
-    paths = [e.path for e in targets]
-    with ThreadPoolExecutor(max_workers=min(_COUNT_POOL_WORKERS, len(targets))) as pool:
-        for e, n in zip(targets, pool.map(_safe_count, paths)):
-            e.num_rows = n
-
-
-def _safe_count(path: str) -> int | None:
-    try:
-        return pxt.get_table(path).count()
-    except excs.Error:
-        return None
+    return models.LsResponse(entries=entries)
 
 
 @router.post('/pcli/v0/describe')
-def describe(req: DescribeRequest) -> DescribeResponse:
+def describe(req: models.DescribeRequest) -> models.DescribeResponse:
     t = pxt.get_table(req.path)
-    return DescribeResponse(text=repr(t), metadata=jsonable_encoder(t.get_metadata()))
+    return models.DescribeResponse(text=repr(t), metadata=jsonable_encoder(t.get_metadata()))
 
 
 @router.post('/pcli/v0/errors')
-def errors(req: ErrorsRequest) -> ErrorsResponse:
+def errors(req: models.ErrorsRequest) -> models.ErrorsResponse:
     t = pxt.get_table(req.path)
     md = t.get_metadata()
 
     pk_names = md.get('primary_key')
     if pk_names is None or len(pk_names) == 0:
         raise HTTPException(400, f'{req.path}: no primary key declared; pcli errors requires one')
+
+    # Validate req.col up front so a typo'd `--col` returns a 400 instead of a misleading
+    # empty result; matches the unknown-column behavior of /rows and /get.
+    if req.col is not None:
+        col_md = md['columns'].get(req.col)
+        if col_md is None:
+            raise HTTPException(400, f'unknown column: {req.col}')
+        if not (col_md['is_computed'] and col_md.get('is_stored')):
+            raise HTTPException(400, f'{req.col}: not a stored computed column (pcli errors only addresses those)')
 
     # errortype/errormsg are only addressable on stored computed columns; an unstored one
     # would raise UNSUPPORTED_OPERATION and fail the whole request.
@@ -158,7 +85,7 @@ def errors(req: ErrorsRequest) -> ErrorsResponse:
         if c['is_computed'] and c.get('is_stored') and (req.col is None or name == req.col)
     ]
     if len(computed) == 0:
-        return ErrorsResponse(entries=[])
+        return models.ErrorsResponse(entries=[])
 
     where = None
     for col in computed:
@@ -170,41 +97,27 @@ def errors(req: ErrorsRequest) -> ErrorsResponse:
         select_args += [t[col].errortype, t[col].errormsg]
     rows = t.where(where).select(*select_args).collect()
 
-    entries: list[ErrorEntry] = []
+    entries: list[models.ErrorEntry] = []
     for r in rows:
         pk = {name: r[name] for name in pk_names}
         for col in computed:
             etype = r[f'{col}_errortype']
             emsg = r[f'{col}_errormsg']
             if etype is not None:
-                entries.append(ErrorEntry(pk=pk, column=col, errortype=etype, errormsg=emsg))
-    return ErrorsResponse(entries=entries)
+                entries.append(models.ErrorEntry(pk=pk, column=col, errortype=etype, errormsg=emsg))
+    return models.ErrorsResponse(entries=entries)
 
 
 @router.post('/pcli/v0/history')
-def history(req: HistoryRequest) -> HistoryResponse:
+def history(req: models.HistoryRequest) -> models.HistoryResponse:
     versions = pxt.get_table(req.path).get_versions(req.n)
-    return HistoryResponse(versions=jsonable_encoder(versions))
-
-
-def _all_tables() -> list[str]:
-    paths: list[str] = []
-
-    def walk(nodes: list[Any]) -> None:
-        for n in nodes:
-            if n['kind'] == 'directory':
-                walk(n['entries'])
-            else:
-                paths.append(n['path'])
-
-    walk(pxt.get_dir_tree())
-    return paths
+    return models.HistoryResponse(versions=jsonable_encoder(versions))
 
 
 @router.post('/pcli/v0/columns')
-def columns(req: ColumnsRequest) -> ColumnsResponse:
-    paths = [req.path] if req.path else _all_tables()
-    entries: list[ColumnEntry] = []
+def columns(req: models.ColumnsRequest) -> models.ColumnsResponse:
+    paths = [req.path] if req.path else _collect_table_paths()
+    entries: list[models.ColumnEntry] = []
     for path in paths:
         try:
             md = pxt.get_table(path).get_metadata()
@@ -215,7 +128,7 @@ def columns(req: ColumnsRequest) -> ColumnsResponse:
             if req.computed_only and not c['is_computed']:
                 continue
             entries.append(
-                ColumnEntry(
+                models.ColumnEntry(
                     table=path,
                     column=name,
                     is_computed=c['is_computed'],
@@ -224,13 +137,13 @@ def columns(req: ColumnsRequest) -> ColumnsResponse:
                     depends_on=c['depends_on'],
                 )
             )
-    return ColumnsResponse(entries=entries)
+    return models.ColumnsResponse(entries=entries)
 
 
 @router.post('/pcli/v0/idxs')
-def idxs(req: IdxsRequest) -> IdxsResponse:
-    paths = [req.path] if req.path else _all_tables()
-    entries: list[IdxEntry] = []
+def idxs(req: models.IdxsRequest) -> models.IdxsResponse:
+    paths = [req.path] if req.path else _collect_table_paths()
+    entries: list[models.IdxEntry] = []
     for path in paths:
         try:
             md = pxt.get_table(path).get_metadata()
@@ -241,7 +154,7 @@ def idxs(req: IdxsRequest) -> IdxsResponse:
                 continue
             params: Any = idx.get('parameters') or {}
             entries.append(
-                IdxEntry(
+                models.IdxEntry(
                     table=path,
                     name=name,
                     columns=idx['columns'],
@@ -250,11 +163,11 @@ def idxs(req: IdxsRequest) -> IdxsResponse:
                     embedding=params.get('embedding'),
                 )
             )
-    return IdxsResponse(entries=entries)
+    return models.IdxsResponse(entries=entries)
 
 
 @router.post('/pcli/v0/rows')
-def rows(req: RowsRequest) -> RowsResponse:
+def rows(req: models.RowsRequest) -> models.RowsResponse:
     if req.n <= 0:
         raise HTTPException(400, 'n must be > 0')
     t = pxt.get_table(req.path)
@@ -279,11 +192,11 @@ def rows(req: RowsRequest) -> RowsResponse:
             else:
                 row[c] = v
         out_rows.append(row)
-    return RowsResponse(columns=columns_list, rows=jsonable_encoder(out_rows))
+    return models.RowsResponse(columns=columns_list, rows=jsonable_encoder(out_rows))
 
 
 @router.post('/pcli/v0/get')
-def get(req: GetRequest) -> GetResponse:
+def get(req: models.GetRequest) -> models.GetResponse:
     t = pxt.get_table(req.path)
     md = t.get_metadata()
     pk_names = md.get('primary_key')
@@ -309,7 +222,7 @@ def get(req: GetRequest) -> GetResponse:
         where = cond if where is None else where & cond
     result = t.where(where).select(*[t[c] for c in cols]).limit(2).collect()
     if len(result) == 0:
-        return GetResponse(pk_columns=pk_names, row=None)
+        return models.GetResponse(pk_columns=pk_names, row=None)
     if len(result) > 1:
         raise HTTPException(
             500, f'{req.path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?'
@@ -323,13 +236,163 @@ def get(req: GetRequest) -> GetResponse:
             row[c] = f'<Image {v.size[0]}x{v.size[1]} {v.mode}>'
         else:
             row[c] = v
-    return GetResponse(pk_columns=pk_names, row=jsonable_encoder(row))
+    return models.GetResponse(pk_columns=pk_names, row=jsonable_encoder(row))
 
 
 @router.post('/pcli/v0/count')
-def count(req: CountRequest) -> CountResponse:
+def count(req: models.CountRequest) -> models.CountResponse:
     n = pxt.get_table(req.path).count()
-    return CountResponse(path=req.path, count=n)
+    return models.CountResponse(path=req.path, count=n)
+
+
+@router.get('/pcli/v0/status')
+def status(sizes: bool = False) -> models.StatusResponse:
+    """Status snapshot. Pass `?sizes=1` to include media/file_cache disk usage (scans the directories)."""
+    # Local import: pixeltable.dashboard.bridge pulls a heavy import chain that we don't
+    # want on every daemon process start - only the status endpoint needs it.
+    from pixeltable.dashboard import bridge
+
+    s = bridge.get_status()
+    cfg = s.get('config') or {}
+    media_dir = cfg.get('media_dir')
+    file_cache_dir = cfg.get('file_cache_dir')
+    return models.StatusResponse(
+        pxt_version=s['version'],
+        pid=os.getpid(),
+        started_at=_STARTED_AT,
+        home=redact_home(cfg.get('home')),
+        db_url=_redact_db_url(cfg.get('db_url')),
+        media_dir=redact_home(media_dir),
+        file_cache_dir=redact_home(file_cache_dir),
+        media_size_bytes=_dir_size(media_dir) if sizes else None,
+        file_cache_size_bytes=_dir_size(file_cache_dir) if sizes else None,
+        total_tables=s['total_tables'],
+        total_errors=s['total_errors'],
+    )
+
+
+@router.get('/pcli/v0/env')
+def env() -> models.EnvResponse:
+    reported_keys = [k for k in os.environ if k.startswith('PIXELTABLE_') or k == 'PCLI_PORT']
+    env_vars: dict[str, str] = {}
+    for k in reported_keys:
+        raw = os.environ[k]
+        env_vars[k] = '<redacted>' if _is_sensitive(k) else _redact_user_home(raw)
+    credentials_present = {k: k in os.environ for k in _CREDENTIAL_VARS}
+    config_file = os.environ.get('PIXELTABLE_CONFIG')
+    return models.EnvResponse(
+        env_vars=env_vars,
+        config_file=_redact_user_home(config_file) if config_file is not None else None,
+        credentials_present=credentials_present,
+    )
+
+
+@router.post('/pcli/v0/drop')
+def drop(req: models.DropRequest) -> models.DropResponse:
+    if req.is_dir:
+        pxt.drop_dir(req.path, force=req.cascade)
+    else:
+        pxt.drop_table(req.path, force=req.cascade)
+    return models.DropResponse(path=req.path, dropped=True)
+
+
+@router.post('/pcli/v0/move')
+def move(req: models.MoveRequest) -> models.MoveResponse:
+    pxt.move(req.path, req.new_path)
+    return models.MoveResponse(path=req.path, new_path=req.new_path)
+
+
+@router.post('/pcli/v0/revert')
+def revert(req: models.RevertRequest) -> models.RevertResponse:
+    if req.steps < 1:
+        raise HTTPException(400, 'steps must be >= 1')
+    t = pxt.get_table(req.path)
+    from_version = t.get_metadata()['version']
+    # Validate up front so the operation is all-or-nothing: without this, a multi-step
+    # revert past version 0 would partially succeed before failing, leaving the table
+    # at an intermediate version with no clean way for the caller to roll back.
+    if req.steps > from_version:
+        raise HTTPException(400, f'cannot revert {req.steps} step(s): {req.path} is at version {from_version}')
+    for _ in range(req.steps):
+        t.revert()
+    to_version = pxt.get_table(req.path).get_metadata()['version']
+    return models.RevertResponse(path=req.path, from_version=from_version, to_version=to_version)
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+
+# count() is SQL-bound (GIL-released during the query), so going wider than the DB can
+# serve in parallel just queues. 16 is comfortably below pixeltable's default connection-pool ceiling.
+_COUNT_POOL_WORKERS = 16
+
+
+def _descend(tree: list[Any], path: str) -> list[Any]:
+    """Find children of `path` (slash-separated). Empty path = root.
+
+    Path validation lives in pcli.models._slash_only, so empty components can't appear here.
+    """
+    parts = path.split('/') if path else []
+    cur = tree
+    for part in parts:
+        for node in cur:
+            if node['name'] == part and node['kind'] == 'directory':
+                cur = node['entries']
+                break
+        else:
+            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Path {path!r} does not exist.')
+    return cur
+
+
+def _to_entry(node: Any, details: bool) -> models.LsEntry:
+    # pxt kinds: 'directory' | 'table' | 'view' | 'snapshot' | 'replica' (see pixeltable.types.TableKind)
+    kind = 'dir' if node['kind'] == 'directory' else node['kind']
+    entry = models.LsEntry(path=node['path'], kind=kind)
+    if kind != 'dir':
+        entry.last_version = node.get('version')
+        if details:
+            md = pxt.get_table(node['path']).get_metadata()
+            cols = md.get('columns') or {}
+            idxs = md.get('indices') or {}
+            entry.num_cols = len(cols)
+            has_computed = any(c.get('is_computed') for c in cols.values())
+            entry.flags = ('c' if has_computed else '') + ('i' if len(idxs) > 0 else '')
+    return entry
+
+
+def _fill_counts(entries: list[models.LsEntry]) -> None:
+    # Resolve and count in the worker thread: pxt.get_table() returns a thread-local handle
+    # that raises if reused across threads.
+    targets = [e for e in entries if e.kind != 'dir']
+    if len(targets) == 0:
+        return
+    paths = [e.path for e in targets]
+    with ThreadPoolExecutor(max_workers=min(_COUNT_POOL_WORKERS, len(targets))) as pool:
+        for e, n in zip(targets, pool.map(_tbl_count, paths)):
+            e.num_rows = n
+
+
+def _tbl_count(path: str) -> int | None:
+    try:
+        return pxt.get_table(path).count()
+    except excs.Error:
+        return None
+
+
+def _collect_table_paths() -> list[str]:
+    paths: list[str] = []
+
+    def collect(nodes: list[Any]) -> None:
+        for n in nodes:
+            if n['kind'] == 'directory':
+                collect(n['entries'])
+            else:
+                paths.append(n['path'])
+
+    collect(pxt.get_dir_tree())
+    return paths
 
 
 def _dir_size(path: str | None) -> int | None:
@@ -354,32 +417,6 @@ def _redact_db_url(url: str | None) -> str | None:
         return sa.make_url(url).render_as_string(hide_password=True)
     except Exception:
         return None
-
-
-@router.get('/pcli/v0/status')
-def status(sizes: bool = False) -> StatusResponse:
-    """Status snapshot. Pass `?sizes=1` to include media/file_cache disk usage (scans the directories)."""
-    # Local import: pixeltable.dashboard.bridge pulls a heavy import chain that we don't
-    # want on every daemon process start - only the status endpoint needs it.
-    from pixeltable.dashboard import bridge
-
-    s = bridge.get_status()
-    cfg = s.get('config') or {}
-    media_dir = cfg.get('media_dir')
-    file_cache_dir = cfg.get('file_cache_dir')
-    return StatusResponse(
-        pxt_version=s['version'],
-        pid=os.getpid(),
-        started_at=_STARTED_AT,
-        home=redact_home(cfg.get('home')),
-        db_url=_redact_db_url(cfg.get('db_url')),
-        media_dir=redact_home(media_dir),
-        file_cache_dir=redact_home(file_cache_dir),
-        media_size_bytes=_dir_size(media_dir) if sizes else None,
-        file_cache_size_bytes=_dir_size(file_cache_dir) if sizes else None,
-        total_tables=s['total_tables'],
-        total_errors=s['total_errors'],
-    )
 
 
 # Vars reported value-redacted. Match by suffix to catch provider-specific names
@@ -431,51 +468,3 @@ def _redact_user_home(value: str) -> str:
     if target.startswith(user_home + os.sep):
         return '$HOME' + target[len(user_home) :]
     return after_pxt
-
-
-@router.get('/pcli/v0/env')
-def env() -> EnvResponse:
-    reported_keys = [k for k in os.environ if k.startswith('PIXELTABLE_') or k == 'PCLI_PORT']
-    env_vars: dict[str, str] = {}
-    for k in reported_keys:
-        raw = os.environ[k]
-        env_vars[k] = '<redacted>' if _is_sensitive(k) else _redact_user_home(raw)
-    credentials_present = {k: k in os.environ for k in _CREDENTIAL_VARS}
-    config_file = os.environ.get('PIXELTABLE_CONFIG')
-    return EnvResponse(
-        env_vars=env_vars,
-        config_file=_redact_user_home(config_file) if config_file is not None else None,
-        credentials_present=credentials_present,
-    )
-
-
-@router.post('/pcli/v0/drop')
-def drop(req: DropRequest) -> DropResponse:
-    if req.is_dir:
-        pxt.drop_dir(req.path, force=req.cascade)
-    else:
-        pxt.drop_table(req.path, force=req.cascade)
-    return DropResponse(path=req.path, dropped=True)
-
-
-@router.post('/pcli/v0/move')
-def move(req: MoveRequest) -> MoveResponse:
-    pxt.move(req.path, req.new_path)
-    return MoveResponse(path=req.path, new_path=req.new_path)
-
-
-@router.post('/pcli/v0/revert')
-def revert(req: RevertRequest) -> RevertResponse:
-    if req.steps < 1:
-        raise HTTPException(400, 'steps must be >= 1')
-    t = pxt.get_table(req.path)
-    from_version = t.get_metadata()['version']
-    # Validate up front so the operation is all-or-nothing: without this, a multi-step
-    # revert past version 0 would partially succeed before failing, leaving the table
-    # at an intermediate version with no clean way for the caller to roll back.
-    if req.steps > from_version:
-        raise HTTPException(400, f'cannot revert {req.steps} step(s): {req.path} is at version {from_version}')
-    for _ in range(req.steps):
-        t.revert()
-    to_version = pxt.get_table(req.path).get_metadata()['version']
-    return RevertResponse(path=req.path, from_version=from_version, to_version=to_version)

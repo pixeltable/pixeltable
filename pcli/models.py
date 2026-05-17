@@ -5,13 +5,18 @@ from pydantic import AfterValidator, BaseModel, Field
 
 def _slash_only(v: str | None) -> str | None:
     # pcli paths are slash-separated and relative. '.' is reserved (pixeltable's legacy
-    # separator); a leading '/' would create an empty path component that pixeltable rejects.
+    # separator); leading/trailing '/' or '//' would yield empty components that pixeltable
+    # rejects later with a generic "Invalid path" error - reject them here for a clear message.
     if v is None or v == '':
         return v
     if '.' in v:
         raise ValueError(f"pcli paths use '/' as the separator; got {v!r}")
     if v.startswith('/'):
         raise ValueError(f"pcli paths are relative; drop the leading '/' (use '' for root). Got {v!r}")
+    if v.endswith('/'):
+        raise ValueError(f"pcli paths must not end with '/'; got {v!r}")
+    if '//' in v:
+        raise ValueError(f"pcli paths must not contain empty components ('//'); got {v!r}")
     return v
 
 

@@ -2,7 +2,7 @@
 
 Covers things that aren't reachable through the daemon smoke tests:
   - probe.py spawn / restart / kill safety paths (monkeypatched)
-  - _paths.py edge cases (no $PIXELTABLE_HOME, OSError on realpath)
+  - paths.py edge cases (no $PIXELTABLE_HOME, OSError on realpath)
   - the confirm.py interactive prompt
   - parser.py / main.py error and help paths
   - http.py client error branches
@@ -28,7 +28,7 @@ from typing_extensions import Self
 pytest.importorskip('fastapi')
 pytest.importorskip('uvicorn')
 
-from pcli import _paths, probe
+from pcli import paths, probe
 from pcli.client import confirm, http, main as client_main, parser as client_parser
 from pcli.client.commands import shell as shell_cmd, status as status_cmd
 from pcli.server import daemon as server_daemon, routes as server_routes
@@ -283,27 +283,27 @@ class TestProbe:
 
 class TestPaths:
     def test_redact_home_none(self) -> None:
-        assert _paths.redact_home(None) is None
+        assert paths.redact_home(None) is None
 
     def test_redact_home_outside(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        assert _paths.redact_home('/etc/hosts') == '/etc/hosts'
+        assert paths.redact_home('/etc/hosts') == '/etc/hosts'
 
     def test_redact_home_exact(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        assert _paths.redact_home(str(tmp_path)) == '$PIXELTABLE_HOME'
+        assert paths.redact_home(str(tmp_path)) == '$PIXELTABLE_HOME'
 
     def test_redact_home_prefix(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        assert _paths.redact_home(f'{tmp_path}/media/x.jpg') == '$PIXELTABLE_HOME/media/x.jpg'
+        assert paths.redact_home(f'{tmp_path}/media/x.jpg') == '$PIXELTABLE_HOME/media/x.jpg'
 
     def test_redact_home_realpath_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(p: str) -> str:
             raise OSError('symlink loop')
 
-        monkeypatch.setattr(_paths.os.path, 'realpath', boom)
+        monkeypatch.setattr(paths.os.path, 'realpath', boom)
         # Both internal realpath calls raise -> caller receives the original path unchanged.
-        assert _paths.redact_home('/some/path') == '/some/path'
+        assert paths.redact_home('/some/path') == '/some/path'
 
     def test_redact_home_target_realpath_oserror(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Home resolves, but realpath on the target path raises -> return unchanged."""
@@ -316,17 +316,17 @@ class TestPaths:
             return real_realpath(p)
 
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        monkeypatch.setattr(_paths.os.path, 'realpath', selective)
-        assert _paths.redact_home(target) == target
+        monkeypatch.setattr(paths.os.path, 'realpath', selective)
+        assert paths.redact_home(target) == target
 
     def test_redact_home_in_text(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
         text = f'error opening {tmp_path}/media/x: ENOENT'
-        assert _paths.redact_home_in_text(text) == 'error opening $PIXELTABLE_HOME/media/x: ENOENT'
+        assert paths.redact_home_in_text(text) == 'error opening $PIXELTABLE_HOME/media/x: ENOENT'
 
     def test_redact_home_in_text_no_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(_paths, '_resolved_home', lambda: None)
-        assert _paths.redact_home_in_text('hello') == 'hello'
+        monkeypatch.setattr(paths, '_resolved_home', lambda: None)
+        assert paths.redact_home_in_text('hello') == 'hello'
 
 
 class TestConfirm:
@@ -652,28 +652,28 @@ class TestServerRouteHelpers:
                 raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, 'catalog gone')
 
         monkeypatch.setattr(server_routes.pxt, 'get_table', lambda p: FakeT())
-        assert server_routes._safe_count('any/path') is None
+        assert server_routes._tbl_count('any/path') is None
 
     def test_redact_user_home_exact(self, monkeypatch: pytest.MonkeyPatch) -> None:
         home = os.path.realpath(os.path.expanduser('~'))
         # the path is exactly $HOME (after PIXELTABLE_HOME redaction is a no-op)
         monkeypatch.delenv('PIXELTABLE_HOME', raising=False)
         # ensure PIXELTABLE_HOME default doesn't shadow $HOME
-        monkeypatch.setattr(_paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
+        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
         assert server_routes._redact_user_home(home) == '$HOME'
 
     def test_redact_user_home_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         home = os.path.realpath(os.path.expanduser('~'))
-        monkeypatch.setattr(_paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
+        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
         assert server_routes._redact_user_home(f'{home}/projects/x').startswith('$HOME/')
 
     def test_redact_user_home_outside(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(_paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
+        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
         # an unrelated path that's neither in $HOME nor $PIXELTABLE_HOME is unchanged
         assert server_routes._redact_user_home('/etc/hosts') == '/etc/hosts'
 
     def test_redact_user_home_realpath_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(_paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
+        monkeypatch.setattr(paths, '_resolved_home', lambda: '/nonexistent-pxt-home')
 
         def boom(p: str) -> str:
             raise OSError('symlink loop')
