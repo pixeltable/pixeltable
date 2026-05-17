@@ -22,10 +22,10 @@ def _coerce(s: str) -> object:
 
 EPILOG = """\
 Examples:
-  pcli get my_dir.my_table 42                    # single-column PK, int value
-  pcli get my_dir.my_table some_string_id        # single-column PK, string value
-  pcli get my_dir.my_table 42 abc                # composite PK (2 cols), in declared PK order
-  pcli get my_dir.my_table 42 --json
+  pcli get my_dir/my_table 42                    # single-column PK, int value
+  pcli get my_dir/my_table some_string_id        # single-column PK, string value
+  pcli get my_dir/my_table 42 abc                # composite PK (2 cols), in declared PK order
+  pcli get my_dir/my_table 42 --json
 
 Notes:
   PK values are auto-coerced: int -> float -> JSON literal -> string.

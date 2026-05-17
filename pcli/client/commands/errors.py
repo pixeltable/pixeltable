@@ -5,9 +5,9 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli errors my_dir.my_table
-  pcli errors my_dir.my_table --col embedding
-  pcli errors my_dir.my_table --json
+  pcli errors my_dir/my_table
+  pcli errors my_dir/my_table --col embedding
+  pcli errors my_dir/my_table --json
 
 Note: the table must have a primary key (declared via primary_key= and pxt.Required[...])."""
 

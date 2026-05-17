@@ -29,8 +29,8 @@ def ls(req: LsRequest) -> LsResponse:
 
 
 def _descend(tree: list[Any], path: str) -> list[Any]:
-    """Find children of `path` (`.` or `/` separated). Empty path = root."""
-    parts = [p for p in path.replace('/', '.').split('.') if p]
+    """Find children of `path` (slash-separated). Empty path = root."""
+    parts = [p for p in path.split('/') if p]
     cur = tree
     for part in parts:
         for node in cur:

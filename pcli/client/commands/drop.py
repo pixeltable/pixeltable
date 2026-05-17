@@ -6,10 +6,10 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli drop my_dir.my_table -f                  # drop a table (no confirmation)
-  pcli drop my_dir.my_table -n                  # dry-run: print what would happen, don't act
-  pcli drop my_dir.my_table --cascade -f        # also drop dependent views
-  pcli drop my_dir.my_table --json -f
+  pcli drop my_dir/my_table -f                  # drop a table (no confirmation)
+  pcli drop my_dir/my_table -n                  # dry-run: print what would happen, don't act
+  pcli drop my_dir/my_table --cascade -f        # also drop dependent views
+  pcli drop my_dir/my_table --json -f
 
 Notes:
   Refuses directories; use 'pcli rm' for those.

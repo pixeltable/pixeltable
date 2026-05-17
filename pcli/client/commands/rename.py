@@ -5,11 +5,12 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli rename my_dir.old_name new_name
+  pcli rename my_dir/old_name new_name
   pcli rename my_dir/old_name new_name -n         # dry-run
 
 Notes:
-  Renames in place: parent directory is preserved. Use 'pcli mv' to move across directories.
+  Paths are slash-separated. Renames in place: parent directory is preserved.
+  Use 'pcli mv' to move across directories.
   <new_name> is just the new leaf name, not a full path."""
 
 
@@ -24,8 +25,7 @@ def run(argv: list[str]) -> None:
     if '/' in args.new_name or '.' in args.new_name:
         ap.error(f'new_name must be a leaf name (no "/" or "."); got {args.new_name!r}')
 
-    src = args.path.replace('.', '/')
-    parent = src.rsplit('/', 1)[0] if '/' in src else ''
+    parent = args.path.rsplit('/', 1)[0] if '/' in args.path else ''
     dst = f'{parent}/{args.new_name}' if parent else args.new_name
 
     if args.dry_run:

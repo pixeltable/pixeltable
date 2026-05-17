@@ -6,7 +6,7 @@ from ..parser import Parser
 EPILOG = """\
 Examples:
   pcli computed                          # every computed column across every table
-  pcli computed my_dir.my_table          # computed columns of one table
+  pcli computed my_dir/my_table          # computed columns of one table
   pcli computed --json
 
 This is equivalent to 'pcli columns --computed [path]' but easier to remember."""

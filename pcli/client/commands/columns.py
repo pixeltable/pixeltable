@@ -6,9 +6,9 @@ from ..parser import Parser
 EPILOG = """\
 Examples:
   pcli columns                          # every column across every table
-  pcli columns my_dir.my_table          # columns of one table
+  pcli columns my_dir/my_table          # columns of one table
   pcli columns --computed               # only computed columns, all tables
-  pcli columns my_dir.my_table --computed --json"""
+  pcli columns my_dir/my_table --computed --json"""
 
 
 def run(argv: list[str]) -> None:

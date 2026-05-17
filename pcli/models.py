@@ -1,6 +1,17 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+
+def _slash_only(v: str | None) -> str | None:
+    # pcli paths are slash-separated; '.' is reserved (pixeltable's legacy separator).
+    if v is not None and '.' in v:
+        raise ValueError(f"pcli paths use '/' as the separator; got {v!r}")
+    return v
+
+
+PcliPath = Annotated[str, AfterValidator(_slash_only)]
+OptionalPcliPath = Annotated[str | None, AfterValidator(_slash_only)]
 
 
 class HealthResponse(BaseModel):
@@ -20,7 +31,7 @@ class LsEntry(BaseModel):
 
 
 class LsRequest(BaseModel):
-    path: str = '/'
+    path: PcliPath = '/'
     tree: bool = False
     details: bool = False  # populate num_cols/flags (one get_metadata() per entry)
     counts: bool = False  # opt-in: row counts run queries, so off by default
@@ -32,7 +43,7 @@ class LsResponse(BaseModel):
 
 
 class DescribeRequest(BaseModel):
-    path: str
+    path: PcliPath
 
 
 class DescribeResponse(BaseModel):
@@ -41,7 +52,7 @@ class DescribeResponse(BaseModel):
 
 
 class ErrorsRequest(BaseModel):
-    path: str
+    path: PcliPath
     col: str | None = None
 
 
@@ -57,7 +68,7 @@ class ErrorsResponse(BaseModel):
 
 
 class HistoryRequest(BaseModel):
-    path: str
+    path: PcliPath
     n: int | None = None
 
 
@@ -66,7 +77,7 @@ class HistoryResponse(BaseModel):
 
 
 class ColumnsRequest(BaseModel):
-    path: str | None = None
+    path: OptionalPcliPath = None
     computed_only: bool = False
 
 
@@ -84,7 +95,7 @@ class ColumnsResponse(BaseModel):
 
 
 class IdxsRequest(BaseModel):
-    path: str | None = None
+    path: OptionalPcliPath = None
     embedding_only: bool = False
 
 
@@ -102,7 +113,7 @@ class IdxsResponse(BaseModel):
 
 
 class RowsRequest(BaseModel):
-    path: str
+    path: PcliPath
     n: int = 10
     cols: list[str] | None = None
 
@@ -137,7 +148,7 @@ class EnvResponse(BaseModel):
 
 
 class CountRequest(BaseModel):
-    path: str
+    path: PcliPath
 
 
 class CountResponse(BaseModel):
@@ -146,7 +157,7 @@ class CountResponse(BaseModel):
 
 
 class GetRequest(BaseModel):
-    path: str
+    path: PcliPath
     pk: list  # values in PK column order
 
 
@@ -156,7 +167,7 @@ class GetResponse(BaseModel):
 
 
 class DropRequest(BaseModel):
-    path: str
+    path: PcliPath
     cascade: bool = False  # drops dependent views (tables) or recurses (dirs)
     is_dir: bool  # client tells us which API to call
 
@@ -167,8 +178,8 @@ class DropResponse(BaseModel):
 
 
 class MoveRequest(BaseModel):
-    path: str
-    new_path: str
+    path: PcliPath
+    new_path: PcliPath
 
 
 class MoveResponse(BaseModel):
@@ -177,7 +188,7 @@ class MoveResponse(BaseModel):
 
 
 class RevertRequest(BaseModel):
-    path: str
+    path: PcliPath
     steps: int = 1  # number of consecutive revert() calls
 
 

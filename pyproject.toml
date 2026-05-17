@@ -350,7 +350,7 @@ builtins-ignorelist = ["format", "input"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
-known-first-party = ["pixeltable"]
+known-first-party = ["pcli", "pixeltable"]
 split-on-trailing-comma = false
 
 [tool.ruff.format]

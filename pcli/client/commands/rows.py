@@ -5,15 +5,19 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli rows my_dir.my_table
-  pcli rows my_dir.my_table -n 3
-  pcli rows my_dir.my_table --cols id,text,score
+  pcli rows my_dir/my_table
+  pcli rows my_dir/my_table -n 3
+  pcli rows my_dir/my_table --cols id,text,score
   pcli rows my_dir/my_table -n 50 --json
 
 Notes:
   --cols takes a comma-separated list with no spaces.
   Use 'pcli describe <table>' to discover column names first.
-  Image cells are stringified as '<Image WxH MODE>'; other media columns return their file URL."""
+  Unstored computed columns are skipped by default (selecting one would force
+  evaluation, which may be slow or invoke external services); pass them
+  explicitly via --cols to include them.
+  Image cells are stringified as '<Image WxH MODE>'; other media cells return
+  their stored representation (a local path for stored media, or a URL)."""
 
 
 def run(argv: list[str]) -> None:
