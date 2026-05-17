@@ -4,9 +4,14 @@ from pydantic import AfterValidator, BaseModel, Field
 
 
 def _slash_only(v: str | None) -> str | None:
-    # pcli paths are slash-separated; '.' is reserved (pixeltable's legacy separator).
-    if v is not None and '.' in v:
+    # pcli paths are slash-separated and relative. '.' is reserved (pixeltable's legacy
+    # separator); a leading '/' would create an empty path component that pixeltable rejects.
+    if v is None or v == '':
+        return v
+    if '.' in v:
         raise ValueError(f"pcli paths use '/' as the separator; got {v!r}")
+    if v.startswith('/'):
+        raise ValueError(f"pcli paths are relative; drop the leading '/' (use '' for root). Got {v!r}")
     return v
 
 
@@ -31,7 +36,7 @@ class LsEntry(BaseModel):
 
 
 class LsRequest(BaseModel):
-    path: PcliPath = '/'
+    path: PcliPath = ''
     tree: bool = False
     details: bool = False  # populate num_cols/flags (one get_metadata() per entry)
     counts: bool = False  # opt-in: row counts run queries, so off by default

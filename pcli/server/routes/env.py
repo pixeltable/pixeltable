@@ -34,11 +34,33 @@ def _is_sensitive(name: str) -> bool:
     return name in _SENSITIVE_NAMES or any(name.endswith(s) for s in _SENSITIVE_SUFFIXES)
 
 
+def _redact_home(value: str | None) -> str | None:
+    """Replace user-specific home-directory prefixes with tokens, so output is portable
+    and doesn't disclose the operator's identity (esp. when daemon output is shared)."""
+    if value is None:
+        return None
+    pxt_home = os.environ.get('PIXELTABLE_HOME') or os.path.expanduser('~/.pixeltable')
+    user_home = os.path.expanduser('~')
+    # Longest-prefix first: PIXELTABLE_HOME is typically nested under $HOME.
+    for prefix, token in ((pxt_home, '$PIXELTABLE_HOME'), (user_home, '$HOME')):
+        if prefix and value.startswith(prefix):
+            return token + value[len(prefix) :]
+    return value
+
+
 @router.get('/pcli/v0/env', response_model=EnvResponse)
 def env() -> EnvResponse:
     reported_keys = [k for k in os.environ if k.startswith('PIXELTABLE_') or k == 'PCLI_PORT']
-    env_vars = {k: ('<redacted>' if _is_sensitive(k) else os.environ[k]) for k in reported_keys}
+    env_vars: dict[str, str] = {}
+    for k in reported_keys:
+        raw = os.environ[k]
+        if _is_sensitive(k):
+            env_vars[k] = '<redacted>'
+        else:
+            env_vars[k] = _redact_home(raw) or raw
     credentials_present = {k: k in os.environ for k in _CREDENTIAL_VARS}
     return EnvResponse(
-        env_vars=env_vars, config_file=os.environ.get('PIXELTABLE_CONFIG'), credentials_present=credentials_present
+        env_vars=env_vars,
+        config_file=_redact_home(os.environ.get('PIXELTABLE_CONFIG')),
+        credentials_present=credentials_present,
     )
