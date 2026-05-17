@@ -43,7 +43,7 @@ def run(argv: list[str]) -> None:
             continue
 
         line = line.strip()
-        if not line:
+        if line == '':
             continue
         if line in ('exit', 'quit'):
             return

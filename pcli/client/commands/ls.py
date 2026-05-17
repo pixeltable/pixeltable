@@ -57,14 +57,15 @@ def run(argv: list[str]) -> None:
         if args.long:
             row.append('' if e.get('num_cols') is None else str(e['num_cols']))
             row.append('' if e.get('last_version') is None else str(e['last_version']))
-            row.append(e.get('flags') or '-')
+            flags = e.get('flags')
+            row.append(flags if flags is not None and flags != '' else '-')
         rows.append(row)
 
     _print_aligned(headers, rows, right_align)
 
 
 def _print_aligned(headers: list[str], rows: list[list[str]], right_align: set[int]) -> None:
-    if not rows:
+    if len(rows) == 0:
         return
     widths = [max(len(c) for c in col) for col in zip(headers, *rows)]
 

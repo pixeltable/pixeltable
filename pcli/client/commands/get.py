@@ -46,7 +46,7 @@ def run(argv: list[str]) -> None:
     args = ap.parse_args(argv)
 
     pk_values = [_coerce(v) for v in args.pk]
-    cols = [c.strip() for c in args.cols.split(',')] if args.cols else None
+    cols = [c.strip() for c in args.cols.split(',')] if args.cols is not None else None
     resp = post('/pcli/v0/get', {'path': args.path, 'pk': pk_values, 'cols': cols})
 
     if args.as_json:

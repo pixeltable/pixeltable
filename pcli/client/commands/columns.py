@@ -27,5 +27,5 @@ def run(argv: list[str]) -> None:
 
     for e in entries:
         flag = 'computed' if e['is_computed'] else 'stored'
-        expr = e.get('computed_with') or ''
+        expr = e['computed_with'] if e.get('computed_with') is not None else ''
         print(f'{e["table"]}\t{e["column"]}\t{e["type_"]}\t{flag}\t{expr}')

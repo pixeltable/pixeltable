@@ -4,7 +4,7 @@ import sys
 def _stdin_is_real_tty() -> bool:
     """Like `sys.stdin.isatty()`, but on Windows distinguishes real consoles from NUL/other
     character devices. msvcrt's `isatty` returns nonzero for any char device, so `subprocess.DEVNULL`
-    (which maps to NUL) is misreported as a TTY — `GetConsoleMode` succeeds only on real consoles.
+    (which maps to NUL) is misreported as a TTY; GetConsoleMode() succeeds only on real consoles.
     """
     if not sys.stdin.isatty():
         return False

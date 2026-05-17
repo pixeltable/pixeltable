@@ -26,5 +26,5 @@ def run(argv: list[str]) -> None:
         return
 
     for e in entries:
-        expr = e.get('computed_with') or ''
+        expr = e['computed_with'] if e.get('computed_with') is not None else ''
         print(f'{e["table"]}\t{e["column"]}\t{e["type_"]}\t{expr}')

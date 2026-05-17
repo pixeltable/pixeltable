@@ -72,7 +72,7 @@ def _client_pxt_version() -> str | None:
 def _check_daemon_deps() -> None:
     """Fail fast if the optional `cli` deps aren't installed."""
     missing = [m for m in ('fastapi', 'uvicorn') if importlib.util.find_spec(m) is None]
-    if missing:
+    if len(missing) > 0:
         raise RuntimeError(f'pcli daemon requires {", ".join(missing)} (install with: pip install pixeltable[cli])')
 
 
@@ -94,7 +94,7 @@ def spawn_detached() -> None:
             subprocess.Popen([sys.executable, '-m', 'pcli.server.daemon'], stdout=log, stderr=log, **popen_kwargs)
     except OSError as e:
         # don't surface the resolved home path (which often appears in e.strerror); use the
-        # redacted form so users see `$PIXELTABLE_HOME/logs/...` instead.
+        # redacted form so users see $PIXELTABLE_HOME/logs/... instead.
         reason = e.strerror or e.__class__.__name__
         raise RuntimeError(f'pcli daemon log unavailable ({redact_home(log_path)}): {reason}') from None
 
@@ -116,7 +116,7 @@ def wait_for_health(timeout: float = 15.0) -> None:
         time.sleep(0.1)
     tail = _tail_daemon_log()
     msg = f'pcli daemon did not come up within {timeout}s'
-    if tail:
+    if tail != '':
         # Daemon log lines often embed resolved paths under PIXELTABLE_HOME; rewrite them
         # so user-facing CLI errors don't leak the operator's filesystem layout.
         msg += f'\n--- daemon log tail ---\n{redact_home(tail) or tail}'
@@ -148,7 +148,7 @@ def ensure_running() -> str:
         client_ver = _client_pxt_version()
         if client_ver and health.get('pxt_version') and client_ver != health['pxt_version']:
             # version mismatch: restart, but only kill a PID we wrote ourselves. We compare
-            # the pidfile against the responder's self-reported PID — if they disagree, the
+            # the pidfile against the responder's self-reported PID - if they disagree, the
             # responder is not our daemon and we refuse to SIGTERM an unrelated process.
             tracked_pid = _read_pidfile()
             reported_pid = health.get('pid')
