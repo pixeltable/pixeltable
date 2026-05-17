@@ -2,6 +2,7 @@ import os
 
 from fastapi import APIRouter
 
+from pcli._paths import redact_home
 from pcli.models import EnvResponse
 
 router = APIRouter()
@@ -34,18 +35,27 @@ def _is_sensitive(name: str) -> bool:
     return name in _SENSITIVE_NAMES or any(name.endswith(s) for s in _SENSITIVE_SUFFIXES)
 
 
-def _redact_home(value: str | None) -> str | None:
-    """Replace user-specific home-directory prefixes with tokens, so output is portable
-    and doesn't disclose the operator's identity (esp. when daemon output is shared)."""
-    if value is None:
-        return None
-    pxt_home = os.environ.get('PIXELTABLE_HOME') or os.path.expanduser('~/.pixeltable')
-    user_home = os.path.expanduser('~')
-    # Longest-prefix first: PIXELTABLE_HOME is typically nested under $HOME.
-    for prefix, token in ((pxt_home, '$PIXELTABLE_HOME'), (user_home, '$HOME')):
-        if prefix and value.startswith(prefix):
-            return token + value[len(prefix) :]
-    return value
+def _redact_user_home(value: str) -> str:
+    """Layer $HOME redaction on top of the shared $PIXELTABLE_HOME redaction.
+
+    PIXELTABLE_HOME is typically nested under $HOME, so we run redact_home() first; a
+    remaining absolute path inside $HOME (e.g. a custom file_cache_dir outside the pxt
+    home) then becomes `$HOME/...`. Both sides go through realpath so symlinked layouts
+    (macOS `/private/Users/me`) match.
+    """
+    after_pxt = redact_home(value) or value
+    if after_pxt.startswith('$PIXELTABLE_HOME'):
+        return after_pxt
+    try:
+        user_home = os.path.realpath(os.path.expanduser('~'))
+        target = os.path.realpath(after_pxt)
+    except OSError:
+        return after_pxt
+    if target == user_home:
+        return '$HOME'
+    if target.startswith(user_home + os.sep):
+        return '$HOME' + target[len(user_home) :]
+    return after_pxt
 
 
 @router.get('/pcli/v0/env', response_model=EnvResponse)
@@ -54,13 +64,11 @@ def env() -> EnvResponse:
     env_vars: dict[str, str] = {}
     for k in reported_keys:
         raw = os.environ[k]
-        if _is_sensitive(k):
-            env_vars[k] = '<redacted>'
-        else:
-            env_vars[k] = _redact_home(raw) or raw
+        env_vars[k] = '<redacted>' if _is_sensitive(k) else _redact_user_home(raw)
     credentials_present = {k: k in os.environ for k in _CREDENTIAL_VARS}
+    config_file = os.environ.get('PIXELTABLE_CONFIG')
     return EnvResponse(
         env_vars=env_vars,
-        config_file=_redact_home(os.environ.get('PIXELTABLE_CONFIG')),
+        config_file=_redact_user_home(config_file) if config_file is not None else None,
         credentials_present=credentials_present,
     )

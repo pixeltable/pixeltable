@@ -117,7 +117,9 @@ def wait_for_health(timeout: float = 15.0) -> None:
     tail = _tail_daemon_log()
     msg = f'pcli daemon did not come up within {timeout}s'
     if tail:
-        msg += f'\n--- daemon log tail ---\n{tail}'
+        # Daemon log lines often embed resolved paths under PIXELTABLE_HOME; rewrite them
+        # so user-facing CLI errors don't leak the operator's filesystem layout.
+        msg += f'\n--- daemon log tail ---\n{redact_home(tail) or tail}'
     raise RuntimeError(msg)
 
 
