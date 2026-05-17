@@ -95,7 +95,7 @@ class TestLs:
         # --tree: nested entries and a box-drawing prefix
         tree_text = pcli('ls', 'pcli_ls_tree', '--tree').stdout
         assert all(marker in tree_text for marker in ('sub', 'leaf'))
-        assert any(box in tree_text for box in ('├──', '└──'))
+        assert any(prefix in tree_text for prefix in ('|--', '\\--'))
 
         # --counts json: num_rows populated for the table
         entries = pcli('ls', 'pcli_ls_tree', '--counts', '--json').json['entries']

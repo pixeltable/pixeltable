@@ -16,7 +16,6 @@ import signal
 import socket
 import subprocess
 import sys
-import time
 from collections.abc import Iterator
 from email.message import Message
 
@@ -50,16 +49,11 @@ def fresh_port(init_env: None) -> Iterator[int]:
     finally:
         pid = probe._read_pidfile()
         if pid is not None:
+            # Reuse the production kill helper: it already handles the SIGKILL fallback
+            # and the Windows quirks around os.kill(pid, 0). Cleanup is best-effort.
             try:
-                os.kill(pid, signal.SIGTERM)
-                # give the daemon a moment to exit so its pidfile gets removed
-                for _ in range(30):
-                    try:
-                        os.kill(pid, 0)
-                    except ProcessLookupError:
-                        break
-                    time.sleep(0.1)
-            except (ProcessLookupError, PermissionError, OSError):
+                probe._kill_and_wait(pid, timeout=3.0)
+            except Exception:
                 pass
         if prior is None:
             os.environ.pop('PCLI_PORT', None)

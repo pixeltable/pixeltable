@@ -141,7 +141,9 @@ def _pid_alive(pid: int) -> bool:
     except PermissionError:
         # PID exists but is owned by another user; treat as alive (we can't kill it anyway).
         return True
-    except OSError:
+    except (OSError, SystemError):
+        # SystemError surfaces on Windows when os.kill(pid, 0) hits an internal CPython
+        # result-handling edge case for an unknown PID; treat the same as OSError ("gone").
         return False
     return True
 
