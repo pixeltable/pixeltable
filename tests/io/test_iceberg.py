@@ -11,7 +11,7 @@ from ..utils import (
     create_all_datatypes_tbl,
     pxt_raises,
     skip_test_if_not_installed,
-    sqlite_catalog,
+    iceberg_catalog,
     validate_update_status,
 )
 
@@ -55,7 +55,7 @@ class _MidStreamFailingCatalog:
 
 class TestIceberg:
     def _catalog(self, tmp_path: pathlib.Path) -> Any:
-        return sqlite_catalog(tmp_path / 'warehouse')
+        return iceberg_catalog(tmp_path / 'warehouse')
 
     def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Export a table with every supported type and verify the Iceberg output."""
