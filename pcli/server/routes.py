@@ -62,7 +62,7 @@ _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 # ---------------------------------------------------------------------------
 
 
-@router.get('/pcli/v0/health', response_model=HealthResponse)
+@router.get('/pcli/v0/health')
 def pcli_health() -> HealthResponse:
     return HealthResponse(ok=True, pxt_version=pixeltable.__version__, pid=os.getpid(), started_at=_STARTED_AT)
 
@@ -82,7 +82,7 @@ def dashboard_health() -> dict:
 _COUNT_POOL_WORKERS = 16
 
 
-@router.post('/pcli/v0/ls', response_model=LsResponse)
+@router.post('/pcli/v0/ls')
 def ls(req: LsRequest) -> LsResponse:
     tree = pxt.get_dir_tree()
     nodes = _descend(tree, req.path)
@@ -149,7 +149,7 @@ def _safe_count(path: str) -> int | None:
 # ---------------------------------------------------------------------------
 
 
-@router.post('/pcli/v0/describe', response_model=DescribeResponse)
+@router.post('/pcli/v0/describe')
 def describe(req: DescribeRequest) -> DescribeResponse:
     t = pxt.get_table(req.path)
     return DescribeResponse(text=repr(t), metadata=jsonable_encoder(t.get_metadata()))
@@ -160,7 +160,7 @@ def describe(req: DescribeRequest) -> DescribeResponse:
 # ---------------------------------------------------------------------------
 
 
-@router.post('/pcli/v0/errors', response_model=ErrorsResponse)
+@router.post('/pcli/v0/errors')
 def errors(req: ErrorsRequest) -> ErrorsResponse:
     t = pxt.get_table(req.path)
     md = t.get_metadata()
@@ -205,7 +205,7 @@ def errors(req: ErrorsRequest) -> ErrorsResponse:
 # ---------------------------------------------------------------------------
 
 
-@router.post('/pcli/v0/history', response_model=HistoryResponse)
+@router.post('/pcli/v0/history')
 def history(req: HistoryRequest) -> HistoryResponse:
     versions = pxt.get_table(req.path).get_versions(req.n)
     return HistoryResponse(versions=jsonable_encoder(versions))
@@ -230,7 +230,7 @@ def _all_tables() -> list[str]:
     return paths
 
 
-@router.post('/pcli/v0/columns', response_model=ColumnsResponse)
+@router.post('/pcli/v0/columns')
 def columns(req: ColumnsRequest) -> ColumnsResponse:
     paths = [req.path] if req.path else _all_tables()
     entries: list[ColumnEntry] = []
@@ -256,7 +256,7 @@ def columns(req: ColumnsRequest) -> ColumnsResponse:
     return ColumnsResponse(entries=entries)
 
 
-@router.post('/pcli/v0/idxs', response_model=IdxsResponse)
+@router.post('/pcli/v0/idxs')
 def idxs(req: IdxsRequest) -> IdxsResponse:
     paths = [req.path] if req.path else _all_tables()
     entries: list[IdxEntry] = []
@@ -287,7 +287,7 @@ def idxs(req: IdxsRequest) -> IdxsResponse:
 # ---------------------------------------------------------------------------
 
 
-@router.post('/pcli/v0/rows', response_model=RowsResponse)
+@router.post('/pcli/v0/rows')
 def rows(req: RowsRequest) -> RowsResponse:
     if req.n <= 0:
         raise HTTPException(400, 'n must be > 0')
@@ -316,7 +316,7 @@ def rows(req: RowsRequest) -> RowsResponse:
     return RowsResponse(columns=columns_list, rows=jsonable_encoder(out_rows))
 
 
-@router.post('/pcli/v0/get', response_model=GetResponse)
+@router.post('/pcli/v0/get')
 def get(req: GetRequest) -> GetResponse:
     t = pxt.get_table(req.path)
     md = t.get_metadata()
@@ -365,7 +365,7 @@ def get(req: GetRequest) -> GetResponse:
 # ---------------------------------------------------------------------------
 
 
-@router.post('/pcli/v0/count', response_model=CountResponse)
+@router.post('/pcli/v0/count')
 def count(req: CountRequest) -> CountResponse:
     n = pxt.get_table(req.path).count()
     return CountResponse(path=req.path, count=n)
@@ -400,7 +400,7 @@ def _redact_db_url(url: str | None) -> str | None:
         return None
 
 
-@router.get('/pcli/v0/status', response_model=StatusResponse)
+@router.get('/pcli/v0/status')
 def status(sizes: bool = False) -> StatusResponse:
     """Status snapshot. Pass `?sizes=1` to include media/file_cache disk usage (scans the directories)."""
     # Local import: pixeltable.dashboard.bridge pulls a heavy import chain that we don't
@@ -481,7 +481,7 @@ def _redact_user_home(value: str) -> str:
     return after_pxt
 
 
-@router.get('/pcli/v0/env', response_model=EnvResponse)
+@router.get('/pcli/v0/env')
 def env() -> EnvResponse:
     reported_keys = [k for k in os.environ if k.startswith('PIXELTABLE_') or k == 'PCLI_PORT']
     env_vars: dict[str, str] = {}
@@ -502,7 +502,7 @@ def env() -> EnvResponse:
 # ---------------------------------------------------------------------------
 
 
-@router.post('/pcli/v0/drop', response_model=DropResponse)
+@router.post('/pcli/v0/drop')
 def drop(req: DropRequest) -> DropResponse:
     if req.is_dir:
         pxt.drop_dir(req.path, force=req.cascade)
@@ -511,13 +511,13 @@ def drop(req: DropRequest) -> DropResponse:
     return DropResponse(path=req.path, dropped=True)
 
 
-@router.post('/pcli/v0/move', response_model=MoveResponse)
+@router.post('/pcli/v0/move')
 def move(req: MoveRequest) -> MoveResponse:
     pxt.move(req.path, req.new_path)
     return MoveResponse(path=req.path, new_path=req.new_path)
 
 
-@router.post('/pcli/v0/revert', response_model=RevertResponse)
+@router.post('/pcli/v0/revert')
 def revert(req: RevertRequest) -> RevertResponse:
     if req.steps < 1:
         raise HTTPException(400, 'steps must be >= 1')
