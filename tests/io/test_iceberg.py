@@ -54,7 +54,8 @@ class _MidStreamFailingCatalog:
 
 
 class TestIceberg:
-    def _catalog(self, tmp_path: pathlib.Path) -> Any:
+    @classmethod
+    def _catalog(cls, tmp_path: pathlib.Path) -> Any:
         return iceberg_catalog(tmp_path / 'warehouse')
 
     def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
@@ -83,7 +84,7 @@ class TestIceberg:
         )
 
         rows = query.collect()
-        catalog = self._catalog(tmp_path)
+        catalog = TestIceberg._catalog(tmp_path)
         pxt.io.export_iceberg(query, catalog, 'pxt.all_types')
 
         iceberg_tbl = catalog.load_table('pxt.all_types')
@@ -119,7 +120,7 @@ class TestIceberg:
     def test_export_fixed_shape_tensor_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Fixed-shape array columns should raise; Iceberg has no analogous type."""
         skip_test_if_not_installed('pyiceberg')
-        catalog = self._catalog(tmp_path)
+        catalog = TestIceberg._catalog(tmp_path)
 
         fixed = pxt.create_table('test_iceberg_tensor', {'c_array': pxt.Array[(4,), pxt.Float]})  # type: ignore[misc]
         fixed.insert([{'c_array': np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)}])
@@ -137,7 +138,7 @@ class TestIceberg:
             ]
         )
 
-        catalog = self._catalog(tmp_path)
+        catalog = TestIceberg._catalog(tmp_path)
         pxt.io.export_iceberg(variable, catalog, 'pxt.tensor_var')
 
         exported = catalog.load_table('pxt.tensor_var').scan().to_arrow().to_pylist()
@@ -163,7 +164,7 @@ class TestIceberg:
             ]
         )
 
-        catalog = self._catalog(tmp_path)
+        catalog = TestIceberg._catalog(tmp_path)
         pxt.io.export_iceberg(t, catalog, 'pxt.nulls')
 
         iceberg_tbl = catalog.load_table('pxt.nulls')
@@ -187,7 +188,7 @@ class TestIceberg:
         rows = [{'c_int': i, 'c_string': f'row_{i}'} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
 
-        catalog = self._catalog(tmp_path)
+        catalog = TestIceberg._catalog(tmp_path)
 
         # Filtered
         pxt.io.export_iceberg(t.where(t.c_int < 5), catalog, 'pxt.filtered')
@@ -207,7 +208,7 @@ class TestIceberg:
         t = pxt.create_table('test_iceberg_if_exists', {'c_int': pxt.Int, 'c_string': pxt.String})
         t.insert([{'c_int': i, 'c_string': f'row_{i}'} for i in range(5)])
 
-        catalog = self._catalog(tmp_path)
+        catalog = TestIceberg._catalog(tmp_path)
 
         pxt.io.export_iceberg(t, catalog, 'pxt.if_exists')
         assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 5
@@ -257,7 +258,7 @@ class TestIceberg:
         t = pxt.create_table('test_iceberg_mismatch', {'c_int': pxt.Int, 'c_string': pxt.String, 'c_float': pxt.Float})
         t.insert([{'c_int': 1, 'c_string': 'a', 'c_float': 1.0}])
 
-        catalog = self._catalog(tmp_path)
+        catalog = TestIceberg._catalog(tmp_path)
         pxt.io.export_iceberg(t, catalog, 'pxt.mismatch')
 
         # Subset of columns: missing 'c_float'
@@ -268,7 +269,7 @@ class TestIceberg:
         """JSON columns whose values cannot be reduced to a single arrow type must be rejected."""
         skip_test_if_not_installed('pyiceberg')
         t = pxt.create_table('test_iceberg_bad_json', {'c_json': pxt.Json})
-        catalog = self._catalog(tmp_path)
+        catalog = TestIceberg._catalog(tmp_path)
 
         # Mixed struct and list shapes across rows: pa.infer_type can't unify them.
         t.insert([{'c_json': {'a': 1}}, {'c_json': [1, 2, 3]}])
@@ -291,7 +292,7 @@ class TestIceberg:
     def test_schema_override(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """`schema_overrides` pins arrow types for specified columns."""
         skip_test_if_not_installed('pyiceberg')
-        catalog = self._catalog(tmp_path)
+        catalog = TestIceberg._catalog(tmp_path)
 
         # Null-only JSON field: an explicit struct override pins the column type so the export succeeds.
         t = pxt.create_table('test_iceberg_override_null', {'c_json': pxt.Json})
@@ -322,7 +323,7 @@ class TestIceberg:
         t = pxt.create_table('test_iceberg_ns', {'c_int': pxt.Int})
         t.insert([{'c_int': 1}, {'c_int': 2}])
 
-        catalog = self._catalog(tmp_path)
+        catalog = TestIceberg._catalog(tmp_path)
         pxt.io.export_iceberg(t, catalog, 'fresh_ns.tbl')
 
         assert catalog.load_table('fresh_ns.tbl').scan().to_arrow().num_rows == 2
