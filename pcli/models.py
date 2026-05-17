@@ -164,6 +164,7 @@ class CountResponse(BaseModel):
 class GetRequest(BaseModel):
     path: PcliPath
     pk: list  # values in PK column order
+    cols: list[str] | None = None
 
 
 class GetResponse(BaseModel):
