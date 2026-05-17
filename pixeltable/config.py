@@ -166,11 +166,12 @@ class ConfigKey(NamedTuple):
     section: str
     # top-level config section
     key: str
-    # Option name within the section
+    # option name within the section
     description: str
     # human-readable summary for help output
-    expected_type: type
-    # the type get_value() should coerce to; defaults to str for entries whose schema is a bare description string
+    expected_type: Any
+    # type get_value() should coerce to; defaults to str. May be a parameterized generic
+    # (eg list[ServiceConfig]) rather than a plain type, so we widen to Any.
 
 
 class Config:

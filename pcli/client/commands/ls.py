@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from ..http import post
 from ..parser import Parser
@@ -30,7 +31,7 @@ def run(argv: list[str]) -> None:
     args = ap.parse_args(argv)
 
     # Only -l/--long triggers the per-entry get_metadata() fetch. JSON consumers who want
-    # the full schema info pass `-l --json`; bare `--json` stays cheap on large catalogs.
+    # the full schema info pass -l --json; bare --json stays cheap on large catalogs.
     resp = post('/pcli/v0/ls', {'path': args.path, 'tree': args.tree, 'details': args.long, 'counts': args.counts})
 
     if args.as_json:
@@ -79,8 +80,8 @@ def _print_aligned(headers: list[str], rows: list[list[str]], right_align: set[i
         print(fmt(r))
 
 
-def _print_tree(node: dict, prefix: str = '') -> None:
-    # ASCII glyphs (matches `tree --charset=ascii`): unicode box-drawing chars break on
+def _print_tree(node: dict[str, Any], prefix: str = '') -> None:
+    # ASCII glyphs (matches tree --charset=ascii): unicode box-drawing chars break on
     # Windows consoles using cp1252 by default.
     entries = node.get('entries', [])
     for i, child in enumerate(entries):

@@ -29,5 +29,7 @@ def run(argv: list[str]) -> None:
         cols = ','.join(e['columns'])
         extra = ''
         if e['index_type'] == 'embedding':
-            extra = f'\t{e.get("metric") or ""}\t{e.get("embedding") or ""}'
+            metric = e['metric'] if e.get('metric') is not None else ''
+            embedding = e['embedding'] if e.get('embedding') is not None else ''
+            extra = f'\t{metric}\t{embedding}'
         print(f'{e["table"]}\t{e["name"]}\t{e["index_type"]}\t{cols}{extra}')

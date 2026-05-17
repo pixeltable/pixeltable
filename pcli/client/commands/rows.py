@@ -23,7 +23,7 @@ Notes:
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pcli rows', epilog=EPILOG)
     ap.add_argument('path')
-    ap.add_argument('-n', type=int, default=10, help='number of rows (default 10)')
+    ap.add_argument('-n', type=int, default=10, help='number of rows (default 10, max 1000)')
     ap.add_argument('--cols', help='comma-separated column subset')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
