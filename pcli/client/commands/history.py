@@ -5,8 +5,8 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli history my_dir.my_table
-  pcli history my_dir.my_table -n 5      # last 5 versions only
+  pcli history my_dir/my_table
+  pcli history my_dir/my_table -n 5      # last 5 versions only
   pcli history my_dir/my_table --json"""
 
 

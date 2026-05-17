@@ -6,9 +6,9 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli revert my_dir.my_table -f                 # undo the last op
-  pcli revert my_dir.my_table --steps 3 -f       # roll back 3 versions
-  pcli revert my_dir.my_table -n                 # dry-run: print the intended revert (no execution)
+  pcli revert my_dir/my_table -f                 # undo the last op
+  pcli revert my_dir/my_table --steps 3 -f       # roll back 3 versions
+  pcli revert my_dir/my_table -n                 # dry-run: print the intended revert (no execution)
 
 Notes:
   Each revert undoes exactly one op (data + schema). --steps repeats the call N times.

@@ -5,7 +5,7 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli count my_dir.my_table
+  pcli count my_dir/my_table
   pcli count my_dir/my_table --json"""
 
 

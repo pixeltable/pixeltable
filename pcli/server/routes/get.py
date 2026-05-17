@@ -18,11 +18,15 @@ def get(req: GetRequest) -> GetResponse:
     if len(req.pk) != len(pk_names):
         raise HTTPException(400, f'{req.path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(req.pk)}')
 
+    # Skip unstored computed columns: a PK lookup shouldn't silently trigger arbitrary
+    # computation (LLM calls, model inference, etc.).
+    columns = [name for name, c in md['columns'].items() if c.get('is_stored', True)]
+
     where = None
     for name, val in zip(pk_names, req.pk):
         cond = t[name] == val
         where = cond if where is None else where & cond
-    result = t.where(where).limit(2).collect()
+    result = t.where(where).select(*[t[c] for c in columns]).limit(2).collect()
     if len(result) == 0:
         return GetResponse(pk_columns=pk_names, row=None)
     if len(result) > 1:
@@ -31,7 +35,6 @@ def get(req: GetRequest) -> GetResponse:
         )
 
     r = result[0]
-    columns = list(md['columns'].keys())
     row: dict = {}
     for c in columns:
         v = r[c]

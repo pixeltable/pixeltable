@@ -6,7 +6,7 @@ from ..parser import Parser
 EPILOG = """\
 Examples:
   pcli idxs                         # every index across every table
-  pcli idxs my_dir.my_table         # indexes on one table
+  pcli idxs my_dir/my_table         # indexes on one table
   pcli idxs --embedding             # only embedding indexes (skip auto-created btrees)
   pcli idxs --json"""
 

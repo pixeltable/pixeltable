@@ -5,12 +5,13 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli mv my_dir.my_table other_dir              # move to /other_dir/my_table
+  pcli mv my_dir/my_table other_dir              # move to /other_dir/my_table
   pcli mv my_dir/my_table /                      # move to root
-  pcli mv my_dir.my_table other_dir -n           # dry-run
+  pcli mv my_dir/my_table other_dir -n           # dry-run
 
 Notes:
-  The leaf name is preserved; only the parent directory changes. Use 'pcli rename' to change the leaf name.
+  Paths are slash-separated. The leaf name is preserved; only the parent directory changes.
+  Use 'pcli rename' to change the leaf name.
   <new_dir> can be '' or '/' for the root directory."""
 
 
@@ -22,8 +23,7 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    src = args.path.replace('.', '/')
-    leaf = src.rsplit('/', 1)[-1]
+    leaf = args.path.rsplit('/', 1)[-1]
     new_dir = args.new_dir.strip('/')
     dst = f'{new_dir}/{leaf}' if new_dir else leaf
 

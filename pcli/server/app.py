@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from pixeltable import exceptions as excs
@@ -32,5 +33,11 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=exc.http_status, content={'detail': str(exc), 'error_code': exc.error_code.name}
         )
+
+    @app.exception_handler(RequestValidationError)
+    def validation_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        # Strip pydantic's structured envelope down to a single human line for CLI use.
+        msgs = [str(e.get('msg', '')).removeprefix('Value error, ') for e in exc.errors()]
+        return JSONResponse(status_code=400, content={'detail': '; '.join(msgs) or 'invalid request'})
 
     return app

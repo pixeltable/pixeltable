@@ -5,7 +5,7 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli describe my_dir.my_table
+  pcli describe my_dir/my_table
   pcli describe my_dir/my_table --json"""
 
 
