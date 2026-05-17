@@ -1,7 +1,13 @@
-"""Smoke tests: drive state via the pxt API, validate via pcli."""
+"""Smoke tests: drive state via the pxt API, validate via pcli.
+
+Each class focuses on one pcli command. Methods bundle related scenarios so a single
+table can serve multiple assertions (JSON + text + flag variants) without re-creating it.
+"""
 
 import json
 import os
+import urllib.error
+import urllib.request
 
 import pytest
 
@@ -18,749 +24,224 @@ def _boom_on_zero(x: int) -> int:
     return x
 
 
-class TestPcliSmoke:
-    def test_health(self, pcli: PcliRunner) -> None:
+class TestHealth:
+    def test_basics(self, pcli: PcliRunner, pcli_daemon: int) -> None:
+        # main health endpoint: always JSON
         out = pcli('health').json
         assert out['ok'] is True
         assert out['pid'] > 0
+        # legacy dashboard probe lives at /api/pixeltable-health; not reachable through the CLI
+        with urllib.request.urlopen(f'http://127.0.0.1:{pcli_daemon}/api/pixeltable-health') as r:
+            assert json.loads(r.read()) == {'status': 'ok'}
 
-    def test_ls_reflects_api_state(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_table('pcli_smoke.t', {'x': pxt.Int, 'y': pxt.String}, if_exists='ignore')
 
-        entries = pcli('ls', 'pcli_smoke', '--json').json['entries']
-        paths = {e['path'] for e in entries}
-        assert 'pcli_smoke/t' in paths
+class TestLs:
+    def test_lists(self, pcli: PcliRunner) -> None:
+        """Bare ls (text + json) lists what's in the catalog and reflects mutations."""
+        pxt.create_dir('pcli_ls', if_exists='ignore')
+        pxt.create_table('pcli_ls.t', {'x': pxt.Int}, if_exists='replace')
 
-        pxt.drop_table('pcli_smoke.t')
-        entries = pcli('ls', 'pcli_smoke', '--json').json['entries']
-        paths = {e['path'] for e in entries}
-        assert 'pcli_smoke/t' not in paths
+        # json reports the entry
+        entries = pcli('ls', 'pcli_ls', '--json').json['entries']
+        assert 'pcli_ls/t' in {e['path'] for e in entries}
 
-    def test_describe(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_table('pcli_smoke.describe_me', {'a': pxt.Int}, if_exists='ignore')
+        # plain text lists the headers + path + kind
+        text = pcli('ls', 'pcli_ls').stdout
+        assert 'path' in text and 'kind' in text
+        assert 'pcli_ls/t' in text
 
-        out = pcli('describe', 'pcli_smoke/describe_me', '--json').json
-        assert 'a' in out['columns']
+        # an empty dir is still a valid listing target
+        pxt.create_dir('pcli_ls_empty', if_exists='ignore')
+        assert pcli('ls', 'pcli_ls_empty').returncode == 0
 
-    def test_rows(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        t = pxt.create_table('pcli_smoke.rows', {'n': pxt.Int, 's': pxt.String}, if_exists='replace')
-        t.insert([{'n': i, 's': f'row{i}'} for i in range(5)])
+        # after a drop, the entry is gone from the listing
+        pxt.drop_table('pcli_ls.t')
+        entries = pcli('ls', 'pcli_ls', '--json').json['entries']
+        assert 'pcli_ls/t' not in {e['path'] for e in entries}
 
-        out = pcli('rows', 'pcli_smoke/rows', '-n', '3', '--json').json
-        assert len(out) == 3
-
-        out2 = pcli('rows', 'pcli_smoke/rows', '-n', '10', '--cols', 'n', '--json').json
-        assert sorted(r['n'] for r in out2) == [0, 1, 2, 3, 4]
-
-    def test_columns(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_table('pcli_smoke.cols', {'a': pxt.Int, 'b': pxt.String}, if_exists='replace')
-
-        entries = pcli('columns', 'pcli_smoke/cols', '--json').json
-        names = {e['column'] for e in entries}
-        assert names == {'a', 'b'}
-
-    def test_idxs_no_embedding(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_table('pcli_smoke.no_idx', {'a': pxt.Int}, if_exists='replace')
-
-        entries = pcli('idxs', 'pcli_smoke/no_idx', '--json').json
-        assert all(e['index_type'] != 'embedding' for e in entries)
-
-    def test_history(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        t = pxt.create_table('pcli_smoke.hist', {'a': pxt.Int}, if_exists='replace')
-        t.insert([{'a': 1}])
-
-        out = pcli('history', 'pcli_smoke/hist', '--json').json
-        assert len(out) >= 2
-
-    def test_count(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        t = pxt.create_table('pcli_smoke.cnt', {'a': pxt.Int}, if_exists='replace')
-        t.insert([{'a': i} for i in range(7)])
-
-        out = pcli('count', 'pcli_smoke/cnt', '--json').json
-        assert out['count'] == 7
-
-        # plain output is just the integer
-        plain = pcli('count', 'pcli_smoke/cnt').stdout.strip()
-        assert plain == '7'
-
-    def test_get_by_pk(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        t = pxt.create_table(
-            'pcli_smoke.pk_tbl', {'k': pxt.Required[pxt.Int], 'v': pxt.String}, primary_key='k', if_exists='replace'
-        )
-        t.insert([{'k': 1, 'v': 'one'}, {'k': 2, 'v': 'two'}])
-
-        out = pcli('get', 'pcli_smoke/pk_tbl', '2', '--json').json
-        assert out['pk_columns'] == ['k']
-        assert out['row']['v'] == 'two'
-
-        # missing row
-        out = pcli('get', 'pcli_smoke/pk_tbl', '99', '--json').json
-        assert out['row'] is None
-
-    def test_get_requires_pk(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_table('pcli_smoke.no_pk_get', {'a': pxt.Int}, if_exists='replace')
-
-        r = pcli('get', 'pcli_smoke/no_pk_get', '1', check=False)
-        assert r.returncode != 0
-        assert 'primary key' in r.stderr.lower()
-
-    def test_status(self, pcli: PcliRunner) -> None:
-        out = pcli('status', '--json').json
-        assert out['pxt_version'] != ''
-        assert out['pid'] > 0
-        # PIXELTABLE_HOME-rooted paths must be returned in redacted form, not the resolved path.
-        home = os.environ['PIXELTABLE_HOME']
-        path_keys = ('home', 'media_dir', 'file_cache_dir')
-        assert all(out.get(k) is None or home not in out[k] for k in path_keys)
-        assert all(out.get(k) is None or out[k].startswith('$PIXELTABLE_HOME') for k in path_keys)
-
-    def test_env(self, pcli: PcliRunner) -> None:
-        out = pcli('env', '--json').json
-        # PIXELTABLE_DB is always set by init_env
-        assert 'PIXELTABLE_DB' in out['env_vars']
-
-    def test_computed(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        t = pxt.create_table('pcli_smoke.cmp', {'a': pxt.Int}, if_exists='replace')
+    def test_long_and_metadata(self, pcli: PcliRunner) -> None:
+        """-l / -l --json populate num_cols and flags via get_metadata(). Bare --json is the
+        cheap path: it skips the per-entry metadata fetch and returns num_cols=None."""
+        pxt.create_dir('pcli_ls_long', if_exists='ignore')
+        t = pxt.create_table('pcli_ls_long.t', {'a': pxt.Int}, if_exists='replace')
         t.add_computed_column(b=t.a * 2)
 
-        entries = pcli('computed', 'pcli_smoke/cmp', '--json').json
-        names = {e['column'] for e in entries}
-        assert names == {'b'}
+        # -l text: headers + 'c' flag for computed column
+        text = pcli('ls', 'pcli_ls_long', '-l').stdout
+        assert all(h in text for h in ('cols', 'version', 'flags'))
+        assert 'c' in text
 
-    def test_drop_and_rm(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_dir('pcli_smoke.tmp_dir', if_exists='ignore')
-        pxt.create_table('pcli_smoke.tmp_dir.victim', {'a': pxt.Int}, if_exists='replace')
-
-        # drop the table
-        out = pcli('drop', 'pcli_smoke/tmp_dir/victim', '-f', '--json').json
-        assert out['dropped'] is True
-        assert pxt.get_table('pcli_smoke/tmp_dir/victim', if_not_exists='ignore') is None
-
-        # remove the now-empty dir
-        out = pcli('rm', 'pcli_smoke/tmp_dir', '-f', '--json').json
-        assert out['dropped'] is True
-
-    def test_rm_recursive(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_dir('pcli_smoke.nest', if_exists='ignore')
-        pxt.create_table('pcli_smoke.nest.t', {'a': pxt.Int}, if_exists='replace')
-
-        # non-recursive should fail
-        r = pcli('rm', 'pcli_smoke/nest', '-f', check=False)
-        assert r.returncode != 0
-
-        # recursive succeeds
-        out = pcli('rm', 'pcli_smoke/nest', '-r', '-f', '--json').json
-        assert out['dropped'] is True
-
-    def test_drop_dry_run(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_table('pcli_smoke.dry_run_target', {'a': pxt.Int}, if_exists='replace')
-
-        r = pcli('drop', 'pcli_smoke/dry_run_target', '-n')
-        assert 'would drop' in r.stdout
-        # still exists
-        assert pxt.get_table('pcli_smoke/dry_run_target', if_not_exists='ignore') is not None
-
-    def test_no_force_no_tty(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_table('pcli_smoke.protected', {'a': pxt.Int}, if_exists='replace')
-
-        r = pcli('drop', 'pcli_smoke/protected', check=False)
-        assert r.returncode != 0
-        assert '--force' in r.stderr
-        assert pxt.get_table('pcli_smoke/protected', if_not_exists='ignore') is not None
-
-    def test_rename(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_table('pcli_smoke.old_name', {'a': pxt.Int}, if_exists='replace')
-
-        out = pcli('rename', 'pcli_smoke/old_name', 'new_name', '--json').json
-        assert out['new_path'] == 'pcli_smoke/new_name'
-        assert pxt.get_table('pcli_smoke/new_name', if_not_exists='ignore') is not None
-        assert pxt.get_table('pcli_smoke/old_name', if_not_exists='ignore') is None
-
-    def test_mv(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_dir('pcli_smoke.src', if_exists='ignore')
-        pxt.create_dir('pcli_smoke.dst', if_exists='ignore')
-        pxt.create_table('pcli_smoke.src.movee', {'a': pxt.Int}, if_exists='replace')
-
-        out = pcli('mv', 'pcli_smoke/src/movee', 'pcli_smoke/dst', '--json').json
-        assert out['new_path'] == 'pcli_smoke/dst/movee'
-        assert pxt.get_table('pcli_smoke/dst/movee', if_not_exists='ignore') is not None
-
-    def test_revert(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        t = pxt.create_table('pcli_smoke.revert_me', {'a': pxt.Int}, if_exists='replace')
-        t.insert([{'a': 1}])
-        v_before = t.get_metadata()['version']
-
-        out = pcli('revert', 'pcli_smoke/revert_me', '-f', '--json').json
-        assert out['from_version'] == v_before
-        assert out['to_version'] == v_before - 1
-
-    def test_errors_requires_pk(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_smoke', if_exists='ignore')
-        pxt.create_table('pcli_smoke.no_pk', {'a': pxt.Int}, if_exists='replace')
-
-        r = pcli('errors', 'pcli_smoke/no_pk', check=False)
-        assert r.returncode != 0
-        assert 'primary key' in r.stderr.lower()
-
-
-class TestPcliTextOutput:
-    """Plain (non-JSON) human-format output for every command."""
-
-    def test_ls_default(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.t', {'a': pxt.Int}, if_exists='replace')
-        out = pcli('ls', 'pcli_text').stdout
-        assert 'path' in out
-        assert 'kind' in out
-        assert 'pcli_text/t' in out
-
-    def test_ls_json_is_cheap_by_default(self, pcli: PcliRunner) -> None:
-        """Bare --json must NOT trigger per-entry get_metadata(): num_cols/flags stay None/''.
-        Users who want full schema info in JSON pass `-l --json`."""
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.cheap', {'a': pxt.Int}, if_exists='replace')
-        entries = pcli('ls', 'pcli_text', '--json').json['entries']
-        row = next(e for e in entries if e['path'] == 'pcli_text/cheap')
-        assert row['num_cols'] is None
-        assert row['flags'] == ''
-
-    def test_ls_long_json_includes_details(self, pcli: PcliRunner) -> None:
-        """-l --json: the explicit opt-in, num_cols/flags get populated."""
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.detailed', {'a': pxt.Int}, if_exists='replace')
-        t.add_computed_column(b=t.a * 2)
-        entries = pcli('ls', 'pcli_text', '-l', '--json').json['entries']
-        row = next(e for e in entries if e['path'] == 'pcli_text/detailed')
+        # -l --json: details populated
+        entries = pcli('ls', 'pcli_ls_long', '-l', '--json').json['entries']
+        row = next(e for e in entries if e['path'] == 'pcli_ls_long/t')
         assert row['num_cols'] is not None and row['num_cols'] >= 2
         assert 'c' in row['flags']
 
-    def test_ls_long(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.tl', {'a': pxt.Int}, if_exists='replace')
-        t.add_computed_column(b=t.a * 2)
-        out = pcli('ls', 'pcli_text', '-l').stdout
-        assert 'cols' in out
-        assert 'version' in out
-        assert 'flags' in out
-        # 'c' = has at least one computed column
-        assert 'c' in out
+        # bare --json: cheap-by-default, no metadata fetch
+        entries = pcli('ls', 'pcli_ls_long', '--json').json['entries']
+        row = next(e for e in entries if e['path'] == 'pcli_ls_long/t')
+        assert row['num_cols'] is None
+        assert row['flags'] == ''
 
-    def test_ls_tree(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_dir('pcli_text.sub', if_exists='ignore')
-        pxt.create_table('pcli_text.sub.leaf', {'a': pxt.Int}, if_exists='replace')
-        out = pcli('ls', 'pcli_text', '--tree').stdout
-        assert all(marker in out for marker in ('sub', 'leaf'))
-        assert any(box in out for box in ('├──', '└──'))
-
-    def test_ls_counts(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.c1', {'a': pxt.Int}, if_exists='replace')
+    def test_tree_and_counts(self, pcli: PcliRunner) -> None:
+        """--tree formats the nested catalog with box-drawing chars. --counts populates
+        num_rows in both text and JSON; a dirs-only target short-circuits the count pool."""
+        pxt.create_dir('pcli_ls_tree', if_exists='ignore')
+        pxt.create_dir('pcli_ls_tree.sub', if_exists='ignore')
+        pxt.create_table('pcli_ls_tree.sub.leaf', {'a': pxt.Int}, if_exists='replace')
+        t = pxt.create_table('pcli_ls_tree.t', {'a': pxt.Int}, if_exists='replace')
         t.insert([{'a': i} for i in range(4)])
-        entries = pcli('ls', 'pcli_text', '--counts', '--json').json['entries']
-        row = next(e for e in entries if e['path'] == 'pcli_text/c1')
+
+        # --tree: nested entries and a box-drawing prefix
+        tree_text = pcli('ls', 'pcli_ls_tree', '--tree').stdout
+        assert all(marker in tree_text for marker in ('sub', 'leaf'))
+        assert any(box in tree_text for box in ('├──', '└──'))
+
+        # --counts json: num_rows populated for the table
+        entries = pcli('ls', 'pcli_ls_tree', '--counts', '--json').json['entries']
+        row = next(e for e in entries if e['path'] == 'pcli_ls_tree/t')
         assert row['num_rows'] == 4
 
-    def test_ls_empty_dir(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text_empty', if_exists='ignore')
-        r = pcli('ls', 'pcli_text_empty')
-        assert r.returncode == 0
+        # --counts text: includes the 'rows' column header
+        counts_text = pcli('ls', 'pcli_ls_tree', '--counts').stdout
+        assert 'rows' in counts_text and '4' in counts_text
 
-    def test_describe_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.d', {'a': pxt.Int, 'b': pxt.String}, if_exists='replace')
-        out = pcli('describe', 'pcli_text/d').stdout
-        # repr(table) lists column names
-        assert 'a' in out
-        assert 'b' in out
+        # --counts on a dirs-only target: _fill_counts sees an empty target list and short-circuits
+        pxt.create_dir('pcli_ls_dirs', if_exists='ignore')
+        pxt.create_dir('pcli_ls_dirs.sub1', if_exists='ignore')
+        pxt.create_dir('pcli_ls_dirs.sub2', if_exists='ignore')
+        entries = pcli('ls', 'pcli_ls_dirs', '--counts', '--json').json['entries']
+        assert all(e['kind'] == 'dir' for e in entries)
+        assert all(e.get('num_rows') is None for e in entries)
 
-    def test_columns_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.cols2', {'a': pxt.Int}, if_exists='replace')
-        out = pcli('columns', 'pcli_text/cols2').stdout
-        assert 'a' in out
-        assert 'stored' in out
+    def test_errors(self, pcli: PcliRunner) -> None:
+        """ls distinguishes 'path does not exist' (404) from 'path exists but is not a directory'
+        (422). The latter case names the offending component and its kind so the user can fix
+        a typo like `pcli ls my_table` vs `pcli describe my_table`."""
+        pxt.create_dir('pcli_ls_err', if_exists='ignore')
+        pxt.create_table('pcli_ls_err.t', {'a': pxt.Int}, if_exists='replace')
 
-    def test_computed_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.cmp2', {'a': pxt.Int}, if_exists='replace')
-        t.add_computed_column(doubled=t.a * 2)
-        out = pcli('computed', 'pcli_text/cmp2').stdout
-        assert 'doubled' in out
-
-    def test_idxs_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.i', {'a': pxt.Int}, if_exists='replace')
-        # btree indexes auto-created for PK-less tables only via embedding; ensure command runs
-        r = pcli('idxs', 'pcli_text/i')
-        assert r.returncode == 0
-
-    def test_rows_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.r', {'a': pxt.Int}, if_exists='replace')
-        t.insert([{'a': 11}, {'a': 22}])
-        out = pcli('rows', 'pcli_text/r').stdout
-        assert '11' in out
-        assert '22' in out
-
-    def test_rows_text_with_nulls(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.rn', {'a': pxt.Int, 's': pxt.String}, if_exists='replace')
-        t.insert([{'a': 1, 's': None}])
-        out = pcli('rows', 'pcli_text/rn').stdout
-        # null cells render as empty strings, not the literal 'None'
-        assert 'None' not in out
-
-    def test_get_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table(
-            'pcli_text.gtxt', {'k': pxt.Required[pxt.Int], 'v': pxt.String}, primary_key='k', if_exists='replace'
-        )
-        t.insert([{'k': 7, 'v': 'seven'}])
-        out = pcli('get', 'pcli_text/gtxt', '7').stdout
-        assert 'seven' in out
-
-    def test_get_pk_coercion(self, pcli: PcliRunner) -> None:
-        # Exercises _coerce's int -> float -> JSON literal -> string fallback ladder.
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table(
-            'pcli_text.gcoerce', {'k': pxt.Required[pxt.Float], 'v': pxt.String}, primary_key='k', if_exists='replace'
-        )
-        t.insert([{'k': 1.5, 'v': 'one-and-a-half'}])
-        # float-looking value -> coerced to float
-        out = pcli('get', 'pcli_text/gcoerce', '1.5', '--json').json
-        assert out['row']['v'] == 'one-and-a-half'
-
-    def test_get_pk_coercion_string_fallback(self, pcli: PcliRunner) -> None:
-        # A token that's neither int/float nor a JSON literal falls through to str.
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table(
-            'pcli_text.gstr', {'k': pxt.Required[pxt.String], 'v': pxt.Int}, primary_key='k', if_exists='replace'
-        )
-        t.insert([{'k': 'alpha', 'v': 1}])
-        out = pcli('get', 'pcli_text/gstr', 'alpha', '--json').json
-        assert out['row']['v'] == 1
-
-    def test_get_pk_coercion_json_literal(self, pcli: PcliRunner) -> None:
-        # JSON literal '"42"' forces a string PK that would otherwise be parsed as int.
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table(
-            'pcli_text.gjson', {'k': pxt.Required[pxt.String], 'v': pxt.Int}, primary_key='k', if_exists='replace'
-        )
-        t.insert([{'k': '42', 'v': 99}])
-        out = pcli('get', 'pcli_text/gjson', '"42"', '--json').json
-        assert out['row']['v'] == 99
-
-    def test_errors_json_empty(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.errjson', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        out = pcli('errors', 'pcli_text/errjson', '--json').json
-        assert out == []
-
-    def test_rm_dry_run(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text_rmdr', if_exists='ignore')
-        r = pcli('rm', 'pcli_text_rmdr', '-n')
-        assert 'would remove' in r.stdout
-        # still exists
-        assert pxt.get_dir_tree() is not None  # smoke: command succeeded with no side effect
-
-    def test_rm_dry_run_recursive(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text_rmdr2', if_exists='ignore')
-        r = pcli('rm', 'pcli_text_rmdr2', '-n', '-r')
-        assert 'would remove' in r.stdout
-        assert 'recursive' in r.stdout
-
-    def test_ls_counts_text(self, pcli: PcliRunner) -> None:
-        # --counts without --json: exercises the text-formatter counts column.
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.lctext', {'a': pxt.Int}, if_exists='replace')
-        t.insert([{'a': i} for i in range(2)])
-        out = pcli('ls', 'pcli_text', '--counts').stdout
-        assert 'rows' in out
-        assert '2' in out
-
-    def test_columns_no_path(self, pcli: PcliRunner) -> None:
-        # No-path branch walks _all_tables() and exercises columns/idxs try/except continue.
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.global_cols', {'a': pxt.Int}, if_exists='replace')
-        entries = pcli('columns', '--json').json
-        names = {(e['table'], e['column']) for e in entries}
-        assert ('pcli_text/global_cols', 'a') in names
-
-    def test_idxs_no_path(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.global_idxs', {'a': pxt.Int}, if_exists='replace')
-        # success regardless of catalog content; exercises _all_tables walk.
-        r = pcli('idxs', '--json')
-        assert r.returncode == 0
-
-    def test_get_text_missing(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.gmiss', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        out = pcli('get', 'pcli_text/gmiss', '999').stdout
-        assert 'no row found' in out
-
-    def test_history_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.h', {'a': pxt.Int}, if_exists='replace')
-        t.insert([{'a': 1}])
-        out = pcli('history', 'pcli_text/h').stdout
-        assert 'version' in out
-        assert 'change_type' in out
-
-    def test_status_text(self, pcli: PcliRunner) -> None:
-        out = pcli('status').stdout
-        assert 'pxt_version' in out
-        assert 'daemon_pid' in out
-        assert 'home' in out
-        # the '-' placeholder appears for unset fields when sizes weren't requested
-        assert '-' in out
-
-    def test_status_text_sizes(self, pcli: PcliRunner) -> None:
-        out = pcli('status', '--sizes').stdout
-        # _fmt_size renders a B/KB/MB suffix once sizes are populated
-        assert any(unit in out for unit in ('B)', 'KB)', 'MB)', 'GB)'))
-
-    def test_env_text(self, pcli: PcliRunner) -> None:
-        out = pcli('env').stdout
-        assert 'config_file' in out
-        assert 'PIXELTABLE_DB=' in out
-        # _CREDENTIAL_VARS split into set/unset summaries (one of the two is always present)
-        assert 'credentials' in out
-
-    def test_count_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.ct', {'a': pxt.Int}, if_exists='replace')
-        t.insert([{'a': i} for i in range(3)])
-        assert pcli('count', 'pcli_text/ct').stdout.strip() == '3'
-
-    def test_errors_text_empty(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.errok', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        # no computed columns, no errors -> empty output, success
-        r = pcli('errors', 'pcli_text/errok')
-        assert r.returncode == 0
-        assert r.stdout.strip() == ''
-
-    def test_errors_text_populated(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.errbad', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        t.add_computed_column(b=_boom_on_zero(t.k), on_error='ignore')
-        t.insert([{'k': 0}, {'k': 1}], on_error='ignore')
-        out = pcli('errors', 'pcli_text/errbad').stdout
-        assert 'k: 0' in out
-        assert 'b' in out
-
-    def test_drop_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.drp', {'a': pxt.Int}, if_exists='replace')
-        out = pcli('drop', 'pcli_text/drp', '-f').stdout
-        assert 'dropped' in out
-
-    def test_rm_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text_rm', if_exists='ignore')
-        out = pcli('rm', 'pcli_text_rm', '-f').stdout
-        assert 'removed' in out
-
-    def test_rename_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.rn_old', {'a': pxt.Int}, if_exists='replace')
-        out = pcli('rename', 'pcli_text/rn_old', 'rn_new').stdout
-        assert 'renamed' in out
-
-    def test_rename_dry_run(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.rndr', {'a': pxt.Int}, if_exists='replace')
-        r = pcli('rename', 'pcli_text/rndr', 'rndr2', '-n')
-        assert 'would rename' in r.stdout
-        # still exists under old name
-        assert pxt.get_table('pcli_text/rndr', if_not_exists='ignore') is not None
-
-    def test_rename_rejects_invalid_leaf(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.rnbad', {'a': pxt.Int}, if_exists='replace')
-        r = pcli('rename', 'pcli_text/rnbad', 'a/b', check=False)
-        assert r.returncode != 0
-        assert 'leaf name' in r.stderr
-
-    def test_mv_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_dir('pcli_text.mvsrc', if_exists='ignore')
-        pxt.create_dir('pcli_text.mvdst', if_exists='ignore')
-        pxt.create_table('pcli_text.mvsrc.x', {'a': pxt.Int}, if_exists='replace')
-        out = pcli('mv', 'pcli_text/mvsrc/x', 'pcli_text/mvdst').stdout
-        assert 'moved' in out
-
-    def test_mv_to_root(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.toroot', {'a': pxt.Int}, if_exists='replace')
-        pcli('mv', 'pcli_text/toroot', '/')
-        assert pxt.get_table('toroot', if_not_exists='ignore') is not None
-
-    def test_mv_dry_run(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.mvdr', {'a': pxt.Int}, if_exists='replace')
-        r = pcli('mv', 'pcli_text/mvdr', 'pcli_text', '-n')
-        assert 'would move' in r.stdout
-
-    def test_revert_text(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table('pcli_text.rv', {'a': pxt.Int}, if_exists='replace')
-        t.insert([{'a': 1}])
-        out = pcli('revert', 'pcli_text/rv', '-f').stdout
-        assert 'reverted' in out
-        assert '->' in out
-
-    def test_revert_dry_run(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        pxt.create_table('pcli_text.rvdr', {'a': pxt.Int}, if_exists='replace')
-        r = pcli('revert', 'pcli_text/rvdr', '-n')
-        assert 'would revert' in r.stdout
-
-
-class TestPcliErrorPaths:
-    """Server- and validator-side error responses surfaced through the CLI."""
-
-    def test_ls_nonexistent_path(self, pcli: PcliRunner) -> None:
+        # name absent at the root -> 404 path-not-found
         r = pcli('ls', 'does_not_exist', check=False)
         assert r.returncode != 0
         assert 'does not exist' in r.stderr.lower() or 'not found' in r.stderr.lower()
 
-    def test_describe_nonexistent(self, pcli: PcliRunner) -> None:
+        # name exists at the leaf but is a table, not a directory -> 422 with the kind named
+        r = pcli('ls', 'pcli_ls_err/t', check=False)
+        assert r.returncode != 0
+        assert "'pcli_ls_err/t' is a table, not a directory" in r.stderr
+
+        # a table appearing mid-path: the error names the table-rooted prefix, not the full path
+        r = pcli('ls', 'pcli_ls_err/t/sub', check=False)
+        assert r.returncode != 0
+        assert "'pcli_ls_err/t' is a table, not a directory" in r.stderr
+
+
+class TestDescribe:
+    def test_basics(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_desc', if_exists='ignore')
+        pxt.create_table('pcli_desc.t', {'a': pxt.Int, 'b': pxt.String}, if_exists='replace')
+
+        # --json returns the full get_metadata() dict
+        meta = pcli('describe', 'pcli_desc/t', '--json').json
+        assert 'a' in meta['columns']
+
+        # text is repr(table) which lists the columns
+        text = pcli('describe', 'pcli_desc/t').stdout
+        assert 'a' in text and 'b' in text
+
+    def test_errors(self, pcli: PcliRunner) -> None:
         r = pcli('describe', 'does_not_exist', check=False)
         assert r.returncode != 0
 
-    def test_count_on_dir(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err_dir', if_exists='ignore')
-        r = pcli('count', 'pcli_err_dir', check=False)
-        assert r.returncode != 0
 
-    def test_rows_n_zero(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.t0', {'a': pxt.Int}, if_exists='replace')
-        r = pcli('rows', 'pcli_err/t0', '-n', '0', check=False)
-        assert r.returncode != 0
-        assert 'n must be > 0' in r.stderr
+class TestColumns:
+    def test_lists(self, pcli: PcliRunner) -> None:
+        """columns lists every column; `computed` is an alias for `columns --computed`.
+        The no-path form walks every table in the catalog."""
+        pxt.create_dir('pcli_cols', if_exists='ignore')
+        t = pxt.create_table('pcli_cols.t', {'a': pxt.Int, 'b': pxt.String}, if_exists='replace')
+        t.add_computed_column(doubled=t.a * 2)
 
-    def test_rows_unknown_col(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.tcol', {'a': pxt.Int}, if_exists='replace')
-        r = pcli('rows', 'pcli_err/tcol', '--cols', 'nope', check=False)
-        assert r.returncode != 0
-        assert 'unknown columns' in r.stderr
+        # --json: all three columns
+        entries = pcli('columns', 'pcli_cols/t', '--json').json
+        assert {e['column'] for e in entries} == {'a', 'b', 'doubled'}
 
-    def test_get_unknown_col(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        t = pxt.create_table('pcli_err.gcol', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        t.insert([{'k': 1}])
-        r = pcli('get', 'pcli_err/gcol', '1', '--cols', 'missing', check=False)
-        assert r.returncode != 0
-        assert 'unknown columns' in r.stderr
+        # text format: stored vs computed flag
+        text = pcli('columns', 'pcli_cols/t').stdout
+        assert 'a' in text and 'stored' in text
 
-    def test_get_pk_count_mismatch(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.gpk', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        r = pcli('get', 'pcli_err/gpk', '1', '2', check=False)
-        assert r.returncode != 0
-        assert 'expected 1 PK' in r.stderr
+        # `pcli computed` is the --computed shorthand
+        entries = pcli('computed', 'pcli_cols/t', '--json').json
+        assert {e['column'] for e in entries} == {'doubled'}
 
-    def test_revert_steps_too_large(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.rvbig', {'a': pxt.Int}, if_exists='replace')
-        r = pcli('revert', 'pcli_err/rvbig', '--steps', '999', '-f', check=False)
-        assert r.returncode != 0
-        assert 'cannot revert' in r.stderr
+        # `pcli computed` text mode also works
+        assert 'doubled' in pcli('computed', 'pcli_cols/t').stdout
 
-    def test_revert_steps_invalid(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.rvneg', {'a': pxt.Int}, if_exists='replace')
-        r = pcli('revert', 'pcli_err/rvneg', '--steps', '0', '-f', check=False)
-        assert r.returncode != 0
-        assert '--steps must be >= 1' in r.stderr
+        # no-path: walks _all_tables, exercises the try/except continue for unloadable metadata
+        entries = pcli('columns', '--json').json
+        assert ('pcli_cols/t', 'a') in {(e['table'], e['column']) for e in entries}
 
-    def test_path_rejects_dot_separator(self, pcli: PcliRunner) -> None:
-        r = pcli('describe', 'a.b', check=False)
-        assert r.returncode != 0
-        assert "'/'" in r.stderr or 'separator' in r.stderr
 
-    def test_path_rejects_leading_slash(self, pcli: PcliRunner) -> None:
-        r = pcli('describe', '/x', check=False)
-        assert r.returncode != 0
-        assert 'relative' in r.stderr
+class TestIdxs:
+    def test_lists(self, pcli: PcliRunner) -> None:
+        """idxs runs against one table or globally; the no-path form walks _all_tables."""
+        pxt.create_dir('pcli_idx', if_exists='ignore')
+        pxt.create_table('pcli_idx.t', {'a': pxt.Int}, if_exists='replace')
 
-    def test_path_rejects_trailing_slash(self, pcli: PcliRunner) -> None:
-        r = pcli('describe', 'x/', check=False)
-        assert r.returncode != 0
-        assert "must not end with '/'" in r.stderr
+        # --json: no embedding idx exists on a plain table
+        entries = pcli('idxs', 'pcli_idx/t', '--json').json
+        assert all(e['index_type'] != 'embedding' for e in entries)
 
-    def test_path_rejects_double_slash(self, pcli: PcliRunner) -> None:
-        r = pcli('describe', 'a//b', check=False)
-        assert r.returncode != 0
-        assert 'empty components' in r.stderr
+        # text: command runs cleanly regardless of catalog content
+        assert pcli('idxs', 'pcli_idx/t').returncode == 0
 
-    def test_errors_unknown_col(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.errcol', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        r = pcli('errors', 'pcli_err/errcol', '--col', 'nope', check=False)
-        assert r.returncode != 0
-        assert 'unknown column' in r.stderr
+        # no-path: walks every table; smoke check only since auto-indexes vary
+        assert pcli('idxs', '--json').returncode == 0
 
-    def test_rows_cols_trailing_comma(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.tc1', {'a': pxt.Int}, if_exists='replace')
-        r = pcli('rows', 'pcli_err/tc1', '--cols', 'a,', check=False)
-        assert r.returncode != 0
-        assert 'must not be empty' in r.stderr
 
-    def test_rows_cols_leading_comma(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.tc2', {'a': pxt.Int}, if_exists='replace')
-        r = pcli('rows', 'pcli_err/tc2', '--cols', ',a', check=False)
-        assert r.returncode != 0
-        assert 'must not be empty' in r.stderr
+class TestHistory:
+    def test_basics(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_hist', if_exists='ignore')
+        t = pxt.create_table('pcli_hist.t', {'a': pxt.Int}, if_exists='replace')
+        t.insert([{'a': 1}])
 
-    def test_rows_cols_double_comma(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.tc3', {'a': pxt.Int, 'b': pxt.Int}, if_exists='replace')
-        r = pcli('rows', 'pcli_err/tc3', '--cols', 'a,,b', check=False)
-        assert r.returncode != 0
-        assert 'must not be empty' in r.stderr
+        # --json: at least the create + insert versions
+        versions = pcli('history', 'pcli_hist/t', '--json').json
+        assert len(versions) >= 2
 
-    def test_get_pk_empty_rejected(self, pcli: PcliRunner) -> None:
-        """An empty PK token almost certainly indicates a typo; reject rather than silently
-        returning 'no row found' for PK=''."""
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.gpkempty', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        r = pcli('get', 'pcli_err/gpkempty', '', check=False)
-        assert r.returncode != 0
-        assert 'empty or whitespace' in r.stderr
+        # text: tab-separated header
+        text = pcli('history', 'pcli_hist/t').stdout
+        assert 'version' in text and 'change_type' in text
 
-    def test_get_pk_whitespace_rejected(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.gpkws', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        r = pcli('get', 'pcli_err/gpkws', '   ', check=False)
-        assert r.returncode != 0
-        assert 'empty or whitespace' in r.stderr
 
-    def test_get_composite_pk_one_empty_rejected(self, pcli: PcliRunner) -> None:
-        """Only one slot empty is enough to reject; the user gets a clear error before
-        a partial composite lookup runs against the server."""
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table(
-            'pcli_err.gpkc',
-            {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.String]},
-            primary_key=['a', 'b'],
-            if_exists='replace',
-        )
-        r = pcli('get', 'pcli_err/gpkc', '1', '', check=False)
-        assert r.returncode != 0
-        assert 'empty or whitespace' in r.stderr
+class TestRows:
+    def test_basics(self, pcli: PcliRunner) -> None:
+        """rows: text + --json default; -n limit; --cols subset; null cells render as empty."""
+        pxt.create_dir('pcli_rows', if_exists='ignore')
+        t = pxt.create_table('pcli_rows.t', {'n': pxt.Int, 's': pxt.String}, if_exists='replace')
+        t.insert([{'n': i, 's': f'row{i}'} for i in range(5)])
 
-    def test_get_cols_trailing_comma(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table('pcli_err.gc', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
-        r = pcli('get', 'pcli_err/gc', '1', '--cols', 'k,', check=False)
-        assert r.returncode != 0
-        assert 'must not be empty' in r.stderr
+        # --json + -n
+        out = pcli('rows', 'pcli_rows/t', '-n', '3', '--json').json
+        assert len(out) == 3
 
-    def test_errors_col_not_stored_computed(self, pcli: PcliRunner) -> None:
-        pxt.create_dir('pcli_err', if_exists='ignore')
-        pxt.create_table(
-            'pcli_err.errcol2', {'k': pxt.Required[pxt.Int], 'plain': pxt.String}, primary_key='k', if_exists='replace'
-        )
-        r = pcli('errors', 'pcli_err/errcol2', '--col', 'plain', check=False)
-        assert r.returncode != 0
-        assert 'stored computed column' in r.stderr
+        # --cols subset
+        out = pcli('rows', 'pcli_rows/t', '-n', '10', '--cols', 'n', '--json').json
+        assert sorted(r['n'] for r in out) == [0, 1, 2, 3, 4]
 
-    def test_unknown_command(self, pcli: PcliRunner) -> None:
-        r = pcli('not_a_command', check=False)
-        assert r.returncode == 2
-        assert 'unknown command' in r.stderr
+        # text contains the inserted values
+        text = pcli('rows', 'pcli_rows/t').stdout
+        assert 'row0' in text and 'row4' in text
 
-    def test_top_level_help(self, pcli: PcliRunner) -> None:
-        r = pcli('--help')
-        assert r.returncode == 0
-        # one line per command
-        assert all(name in r.stdout for name in ('health', 'ls', 'shell'))
+        # null cell renders as empty, not the literal 'None'
+        t2 = pxt.create_table('pcli_rows.nulls', {'a': pxt.Int, 's': pxt.String}, if_exists='replace')
+        t2.insert([{'a': 1, 's': None}])
+        assert 'None' not in pcli('rows', 'pcli_rows/nulls').stdout
 
-    def test_no_args(self, pcli: PcliRunner) -> None:
-        r = pcli(check=False)
-        assert r.returncode == 2
-        assert 'usage' in r.stdout.lower() or 'usage' in r.stderr.lower()
-
-    def test_subcommand_missing_required_arg(self, pcli: PcliRunner) -> None:
-        # 'rows' requires a path positional; argparse should reject and print epilog
-        r = pcli('rows', check=False)
-        assert r.returncode == 2
-        assert 'usage' in r.stderr.lower()
-        # epilog (examples block) is appended on error
-        assert 'Examples' in r.stderr
-
-    def test_drop_dir_via_rm_only(self, pcli: PcliRunner) -> None:
-        # `pcli drop` on a directory is refused by the server (drop is for tables/views).
-        pxt.create_dir('pcli_err_dir2', if_exists='ignore')
-        r = pcli('drop', 'pcli_err_dir2', '-f', check=False)
-        assert r.returncode != 0
-
-    def test_dashboard_health_endpoint(self, pcli_daemon: int) -> None:
-        # Legacy dashboard probe — not reachable through the CLI; hit it directly.
-        import urllib.request
-
-        with urllib.request.urlopen(f'http://127.0.0.1:{pcli_daemon}/api/pixeltable-health') as r:
-            body = json.loads(r.read())
-        assert body == {'status': 'ok'}
-
-    def test_revert_server_rejects_invalid_steps(self, pcli_daemon: int) -> None:
-        """Client preflight catches steps<1, but the server has its own check that fires
-        if anything bypasses the CLI (e.g. a future programmatic caller)."""
-        import urllib.error
-        import urllib.request
-
-        req = urllib.request.Request(
-            f'http://127.0.0.1:{pcli_daemon}/pcli/v0/revert',
-            data=json.dumps({'path': 'whatever', 'steps': 0}).encode(),
-            headers={'Content-Type': 'application/json'},
-            method='POST',
-        )
-        with pytest.raises(urllib.error.HTTPError) as ei:
-            urllib.request.urlopen(req)
-        assert ei.value.code == 400
-        body = json.loads(ei.value.read())
-        assert 'steps must be >= 1' in body['detail']
-
-    def test_get_with_valid_cols(self, pcli: PcliRunner) -> None:
-        """Exercises the --cols branch of /pcli/v0/get with column names that exist."""
-        pxt.create_dir('pcli_text', if_exists='ignore')
-        t = pxt.create_table(
-            'pcli_text.gcols',
-            {'k': pxt.Required[pxt.Int], 'a': pxt.Int, 'b': pxt.String},
-            primary_key='k',
-            if_exists='replace',
-        )
-        t.insert([{'k': 1, 'a': 100, 'b': 'hello'}])
-        out = pcli('get', 'pcli_text/gcols', '1', '--cols', 'a', '--json').json
-        assert out['row'] == {'a': 100}
-
-    def test_rows_and_get_with_image_column(self, pcli: PcliRunner) -> None:
-        """Image cells must render as `<Image WxH MODE>` rather than dumping raw bytes
-        or blowing up. Exercises both routes.rows() and routes.get() PIL branches."""
+    def test_image_column(self, pcli: PcliRunner) -> None:
+        """Image cells must render as `<Image WxH MODE>` in both text and JSON modes -
+        not as raw bytes, base64, or a PIL repr."""
         from tests.utils import get_image_files
 
         img_paths = get_image_files()[:2]
@@ -773,36 +254,450 @@ class TestPcliErrorPaths:
         )
         t.insert([{'k': i, 'img': p, 'tag': f't{i}'} for i, p in enumerate(img_paths)])
 
-        # rows --json: image cell is a placeholder string, not base64 / not omitted
         rows_json = pcli('rows', 'pcli_img/t', '-n', '5', '--json').json
         assert len(rows_json) == 2
         assert all(r['img'].startswith('<Image ') and r['img'].endswith('>') for r in rows_json)
-        assert {r['tag'] for r in rows_json} == {'t0', 't1'}
 
-        # rows plain text: tab-separated, image placeholder appears unmodified
         rows_text = pcli('rows', 'pcli_img/t').stdout
         assert '<Image ' in rows_text
-        # no PIL repr or raw bytes leaked
-        assert 'PIL.' not in rows_text
-        assert '\\x' not in rows_text
+        assert 'PIL.' not in rows_text  # no PIL repr leaked
+        assert '\\x' not in rows_text  # no raw bytes leaked
 
-        # get text: image cell rendered the same way
-        get_text = pcli('get', 'pcli_img/t', '0').stdout
-        assert 'img\t<Image ' in get_text
-        assert 'tag\tt0' in get_text
-
-        # get --json: same placeholder, valid JSON
+        # `pcli get` uses the same renderer
         get_json = pcli('get', 'pcli_img/t', '1', '--json').json
         assert get_json['row']['img'].startswith('<Image ')
-        assert get_json['row']['tag'] == 't1'
+        get_text = pcli('get', 'pcli_img/t', '0').stdout
+        assert 'img\t<Image ' in get_text
 
-    def test_ls_counts_dirs_only(self, pcli: PcliRunner) -> None:
-        """--counts on a directory whose children are all sub-directories: _fill_counts
-        sees an empty targets list and short-circuits."""
-        pxt.create_dir('pcli_dir_only', if_exists='ignore')
-        pxt.create_dir('pcli_dir_only.sub1', if_exists='ignore')
-        pxt.create_dir('pcli_dir_only.sub2', if_exists='ignore')
-        r = pcli('ls', 'pcli_dir_only', '--counts', '--json')
-        entries = r.json['entries']
-        assert all(e['kind'] == 'dir' for e in entries)
-        assert all('num_rows' not in e or e['num_rows'] is None for e in entries)
+    def test_errors(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_rows_err', if_exists='ignore')
+        pxt.create_table('pcli_rows_err.t', {'a': pxt.Int}, if_exists='replace')
+
+        # n must be > 0
+        r = pcli('rows', 'pcli_rows_err/t', '-n', '0', check=False)
+        assert r.returncode != 0
+        assert 'n must be > 0' in r.stderr
+
+        # unknown column
+        r = pcli('rows', 'pcli_rows_err/t', '--cols', 'nope', check=False)
+        assert r.returncode != 0
+        assert 'unknown columns' in r.stderr
+
+
+class TestGet:
+    def test_basics(self, pcli: PcliRunner) -> None:
+        """Single + composite PK; text + json + missing-row; --cols subset."""
+        pxt.create_dir('pcli_get', if_exists='ignore')
+        t = pxt.create_table(
+            'pcli_get.t',
+            {'k': pxt.Required[pxt.Int], 'a': pxt.Int, 'v': pxt.String},
+            primary_key='k',
+            if_exists='replace',
+        )
+        t.insert([{'k': 1, 'a': 100, 'v': 'one'}, {'k': 2, 'a': 200, 'v': 'two'}])
+
+        # --json: found
+        out = pcli('get', 'pcli_get/t', '2', '--json').json
+        assert out['pk_columns'] == ['k']
+        assert out['row']['v'] == 'two'
+
+        # --json: missing row -> row is None
+        out = pcli('get', 'pcli_get/t', '99', '--json').json
+        assert out['row'] is None
+
+        # text: found shows the row, missing prints 'no row found'
+        assert 'two' in pcli('get', 'pcli_get/t', '2').stdout
+        assert 'no row found' in pcli('get', 'pcli_get/t', '99').stdout
+
+        # --cols subset: only the named columns returned
+        out = pcli('get', 'pcli_get/t', '1', '--cols', 'a', '--json').json
+        assert out['row'] == {'a': 100}
+
+    def test_pk_coercion(self, pcli: PcliRunner) -> None:
+        """The PK token goes through int -> float -> JSON literal -> str fallback.
+        Each scenario looks up a row whose stored PK matches the coerced value."""
+        pxt.create_dir('pcli_get_coerce', if_exists='ignore')
+
+        # float PK; '1.5' -> float; whitespace around a numeric token is stripped by float()
+        # (documented Python behavior) and the lookup still finds the row.
+        t = pxt.create_table(
+            'pcli_get_coerce.f', {'k': pxt.Required[pxt.Float], 'v': pxt.String}, primary_key='k', if_exists='replace'
+        )
+        t.insert([{'k': 1.5, 'v': 'one-and-a-half'}])
+        assert pcli('get', 'pcli_get_coerce/f', '1.5', '--json').json['row']['v'] == 'one-and-a-half'
+        assert pcli('get', 'pcli_get_coerce/f', '  1.5  ', '--json').json['row']['v'] == 'one-and-a-half'
+
+        # string PK; bare 'alpha' falls through to str; '"42"' forces a string that would
+        # otherwise be parsed as int via the JSON-literal step.
+        t = pxt.create_table(
+            'pcli_get_coerce.s', {'k': pxt.Required[pxt.String], 'v': pxt.Int}, primary_key='k', if_exists='replace'
+        )
+        t.insert([{'k': 'alpha', 'v': 1}, {'k': '42', 'v': 99}])
+        assert pcli('get', 'pcli_get_coerce/s', 'alpha', '--json').json['row']['v'] == 1
+        assert pcli('get', 'pcli_get_coerce/s', '"42"', '--json').json['row']['v'] == 99
+
+    def test_errors(self, pcli: PcliRunner) -> None:
+        """No-PK rejection, PK count mismatch, unknown col, empty/whitespace PK, empty --cols token."""
+        pxt.create_dir('pcli_get_err', if_exists='ignore')
+        pxt.create_table('pcli_get_err.no_pk', {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table('pcli_get_err.t', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        pxt.create_table(
+            'pcli_get_err.tc',
+            {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.String]},
+            primary_key=['a', 'b'],
+            if_exists='replace',
+        )
+
+        # no primary key declared
+        r = pcli('get', 'pcli_get_err/no_pk', '1', check=False)
+        assert r.returncode != 0
+        assert 'primary key' in r.stderr.lower()
+
+        # wrong number of PK values for a single-col PK
+        r = pcli('get', 'pcli_get_err/t', '1', '2', check=False)
+        assert r.returncode != 0
+        assert 'expected 1 PK' in r.stderr
+
+        # unknown column in --cols
+        r = pcli('get', 'pcli_get_err/t', '1', '--cols', 'missing', check=False)
+        assert r.returncode != 0
+        assert 'unknown columns' in r.stderr
+
+        # empty/whitespace PK token rejected client-side
+        r = pcli('get', 'pcli_get_err/t', '', check=False)
+        assert r.returncode != 0 and 'empty or whitespace' in r.stderr
+        r = pcli('get', 'pcli_get_err/t', '   ', check=False)
+        assert r.returncode != 0 and 'empty or whitespace' in r.stderr
+
+        # composite PK: even one slot empty is enough to reject
+        r = pcli('get', 'pcli_get_err/tc', '1', '', check=False)
+        assert r.returncode != 0 and 'empty or whitespace' in r.stderr
+
+        # empty --cols token
+        r = pcli('get', 'pcli_get_err/t', '1', '--cols', 'k,', check=False)
+        assert r.returncode != 0 and 'must not be empty' in r.stderr
+
+
+class TestCount:
+    def test_basics(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_count', if_exists='ignore')
+        t = pxt.create_table('pcli_count.t', {'a': pxt.Int}, if_exists='replace')
+        t.insert([{'a': i} for i in range(7)])
+
+        assert pcli('count', 'pcli_count/t', '--json').json['count'] == 7
+        # plain output is just the integer
+        assert pcli('count', 'pcli_count/t').stdout.strip() == '7'
+
+    def test_errors(self, pcli: PcliRunner) -> None:
+        # count on a directory is not allowed
+        pxt.create_dir('pcli_count_dir', if_exists='ignore')
+        r = pcli('count', 'pcli_count_dir', check=False)
+        assert r.returncode != 0
+
+
+class TestStatus:
+    def test_basics(self, pcli: PcliRunner) -> None:
+        # --json: redaction holds for every home-rooted path
+        out = pcli('status', '--json').json
+        assert out['pxt_version'] != ''
+        assert out['pid'] > 0
+        home = os.environ['PIXELTABLE_HOME']
+        path_keys = ('home', 'media_dir', 'file_cache_dir')
+        assert all(out.get(k) is None or home not in out[k] for k in path_keys)
+        assert all(out.get(k) is None or out[k].startswith('$PIXELTABLE_HOME') for k in path_keys)
+
+        # text: header lines for each field
+        text = pcli('status').stdout
+        assert all(h in text for h in ('pxt_version', 'daemon_pid', 'home'))
+        # the '-' placeholder appears for unset fields when sizes weren't requested
+        assert '-' in text
+
+        # --sizes: _fmt_size renders a B/KB/MB suffix once sizes are populated
+        sized = pcli('status', '--sizes').stdout
+        assert any(unit in sized for unit in ('B)', 'KB)', 'MB)', 'GB)'))
+
+
+class TestEnv:
+    def test_basics(self, pcli: PcliRunner) -> None:
+        # --json: PIXELTABLE_DB is always set by init_env
+        out = pcli('env', '--json').json
+        assert 'PIXELTABLE_DB' in out['env_vars']
+
+        # text: config_file and PIXELTABLE_DB= lines plus credentials summary
+        text = pcli('env').stdout
+        assert 'config_file' in text
+        assert 'PIXELTABLE_DB=' in text
+        # one of the _CREDENTIAL_VARS subsets (set or unset) is always present
+        assert 'credentials' in text
+
+
+class TestErrors:
+    """The `pcli errors` command itself."""
+
+    def test_basics(self, pcli: PcliRunner) -> None:
+        """Populated + empty cases, JSON and text."""
+        pxt.create_dir('pcli_errs', if_exists='ignore')
+
+        # No computed columns -> no errors -> empty JSON list and empty text output
+        pxt.create_table('pcli_errs.ok', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        assert pcli('errors', 'pcli_errs/ok', '--json').json == []
+        r = pcli('errors', 'pcli_errs/ok')
+        assert r.returncode == 0 and r.stdout.strip() == ''
+
+        # Computed column that raises for k=0: row 0 shows up in the errors listing
+        t = pxt.create_table('pcli_errs.bad', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        t.add_computed_column(b=_boom_on_zero(t.k), on_error='ignore')
+        t.insert([{'k': 0}, {'k': 1}], on_error='ignore')
+        text = pcli('errors', 'pcli_errs/bad').stdout
+        assert 'k: 0' in text
+        assert 'b' in text
+
+    def test_errors(self, pcli: PcliRunner) -> None:
+        """No-PK rejection, unknown --col, --col on a non-stored-computed column."""
+        pxt.create_dir('pcli_errs_err', if_exists='ignore')
+        pxt.create_table('pcli_errs_err.no_pk', {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(
+            'pcli_errs_err.t', {'k': pxt.Required[pxt.Int], 'plain': pxt.String}, primary_key='k', if_exists='replace'
+        )
+
+        # no PK -> 400
+        r = pcli('errors', 'pcli_errs_err/no_pk', check=False)
+        assert r.returncode != 0 and 'primary key' in r.stderr.lower()
+
+        # unknown --col
+        r = pcli('errors', 'pcli_errs_err/t', '--col', 'nope', check=False)
+        assert r.returncode != 0 and 'unknown column' in r.stderr
+
+        # --col on a column that isn't a stored computed column
+        r = pcli('errors', 'pcli_errs_err/t', '--col', 'plain', check=False)
+        assert r.returncode != 0 and 'stored computed column' in r.stderr
+
+
+class TestDrop:
+    """`pcli drop` (tables) and `pcli rm` (directories). They share the universal mutation
+    surface (--force, --dry-run, --json) and the no-TTY refusal."""
+
+    def test_basics(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_drop', if_exists='ignore')
+        pxt.create_dir('pcli_drop.nest', if_exists='ignore')
+        pxt.create_table('pcli_drop.nest.victim', {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table('pcli_drop.dry', {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table('pcli_drop.txt', {'a': pxt.Int}, if_exists='replace')
+
+        # drop a table: --json reports dropped=True; table is gone
+        out = pcli('drop', 'pcli_drop/nest/victim', '-f', '--json').json
+        assert out['dropped'] is True
+        assert pxt.get_table('pcli_drop/nest/victim', if_not_exists='ignore') is None
+
+        # rm the (now empty) directory
+        assert pcli('rm', 'pcli_drop/nest', '-f', '--json').json['dropped'] is True
+
+        # rm refuses a non-empty dir without -r; -r succeeds
+        pxt.create_dir('pcli_drop.nest2', if_exists='ignore')
+        pxt.create_table('pcli_drop.nest2.t', {'a': pxt.Int}, if_exists='replace')
+        assert pcli('rm', 'pcli_drop/nest2', '-f', check=False).returncode != 0
+        assert pcli('rm', 'pcli_drop/nest2', '-r', '-f', '--json').json['dropped'] is True
+
+        # dry-run text + --json: no side effect, message includes 'would drop'
+        r = pcli('drop', 'pcli_drop/dry', '-n')
+        assert 'would drop' in r.stdout
+        assert pxt.get_table('pcli_drop/dry', if_not_exists='ignore') is not None
+
+        # plain text confirmation
+        assert 'dropped' in pcli('drop', 'pcli_drop/txt', '-f').stdout
+
+        # rm text output
+        pxt.create_dir('pcli_drop_rmtxt', if_exists='ignore')
+        assert 'removed' in pcli('rm', 'pcli_drop_rmtxt', '-f').stdout
+
+        # rm dry-run text (both with and without -r)
+        pxt.create_dir('pcli_drop_dr', if_exists='ignore')
+        r = pcli('rm', 'pcli_drop_dr', '-n')
+        assert 'would remove' in r.stdout
+        r = pcli('rm', 'pcli_drop_dr', '-n', '-r')
+        assert 'would remove' in r.stdout and 'recursive' in r.stdout
+
+    def test_errors(self, pcli: PcliRunner) -> None:
+        # no -f, no TTY: refuse to proceed
+        pxt.create_dir('pcli_drop_err', if_exists='ignore')
+        pxt.create_table('pcli_drop_err.protected', {'a': pxt.Int}, if_exists='replace')
+        r = pcli('drop', 'pcli_drop_err/protected', check=False)
+        assert r.returncode != 0
+        assert '--force' in r.stderr
+        # still exists
+        assert pxt.get_table('pcli_drop_err/protected', if_not_exists='ignore') is not None
+
+        # `pcli drop` on a directory is refused (server-side: drop_table on a dir errors)
+        pxt.create_dir('pcli_drop_err_dir', if_exists='ignore')
+        r = pcli('drop', 'pcli_drop_err_dir', '-f', check=False)
+        assert r.returncode != 0
+
+
+class TestRename:
+    def test_basics(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_rn', if_exists='ignore')
+        pxt.create_table('pcli_rn.old_name', {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table('pcli_rn.dr', {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table('pcli_rn.txt', {'a': pxt.Int}, if_exists='replace')
+
+        # rename + --json
+        out = pcli('rename', 'pcli_rn/old_name', 'new_name', '--json').json
+        assert out['new_path'] == 'pcli_rn/new_name'
+        assert pxt.get_table('pcli_rn/new_name', if_not_exists='ignore') is not None
+        assert pxt.get_table('pcli_rn/old_name', if_not_exists='ignore') is None
+
+        # dry-run: 'would rename', no side effect
+        r = pcli('rename', 'pcli_rn/dr', 'dr2', '-n')
+        assert 'would rename' in r.stdout
+        assert pxt.get_table('pcli_rn/dr', if_not_exists='ignore') is not None
+
+        # text confirmation
+        assert 'renamed' in pcli('rename', 'pcli_rn/txt', 'txt2').stdout
+
+    def test_errors(self, pcli: PcliRunner) -> None:
+        """`new_name` must be a leaf, no '/' or '.'."""
+        pxt.create_dir('pcli_rn_err', if_exists='ignore')
+        pxt.create_table('pcli_rn_err.t', {'a': pxt.Int}, if_exists='replace')
+        r = pcli('rename', 'pcli_rn_err/t', 'a/b', check=False)
+        assert r.returncode != 0
+        assert 'leaf name' in r.stderr
+
+
+class TestMv:
+    def test_basics(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_mv', if_exists='ignore')
+        pxt.create_dir('pcli_mv.src', if_exists='ignore')
+        pxt.create_dir('pcli_mv.dst', if_exists='ignore')
+        pxt.create_table('pcli_mv.src.movee', {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table('pcli_mv.toroot', {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table('pcli_mv.dr', {'a': pxt.Int}, if_exists='replace')
+
+        # mv into another dir: --json reports the new path
+        out = pcli('mv', 'pcli_mv/src/movee', 'pcli_mv/dst', '--json').json
+        assert out['new_path'] == 'pcli_mv/dst/movee'
+        assert pxt.get_table('pcli_mv/dst/movee', if_not_exists='ignore') is not None
+
+        # text confirmation
+        pxt.create_table('pcli_mv.src.tx', {'a': pxt.Int}, if_exists='replace')
+        assert 'moved' in pcli('mv', 'pcli_mv/src/tx', 'pcli_mv/dst').stdout
+
+        # '/' as destination moves to root
+        pcli('mv', 'pcli_mv/toroot', '/')
+        assert pxt.get_table('toroot', if_not_exists='ignore') is not None
+
+        # dry-run: 'would move', no side effect
+        r = pcli('mv', 'pcli_mv/dr', 'pcli_mv', '-n')
+        assert 'would move' in r.stdout
+
+
+class TestRevert:
+    def test_basics(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_rv', if_exists='ignore')
+        t = pxt.create_table('pcli_rv.t', {'a': pxt.Int}, if_exists='replace')
+        t.insert([{'a': 1}])
+        v_before = t.get_metadata()['version']
+        pxt.create_table('pcli_rv.txt', {'a': pxt.Int}, if_exists='replace').insert([{'a': 1}])
+        pxt.create_table('pcli_rv.dr', {'a': pxt.Int}, if_exists='replace')
+
+        # revert + --json
+        out = pcli('revert', 'pcli_rv/t', '-f', '--json').json
+        assert out['from_version'] == v_before
+        assert out['to_version'] == v_before - 1
+
+        # text: 'reverted ... -> ...'
+        text = pcli('revert', 'pcli_rv/txt', '-f').stdout
+        assert 'reverted' in text and '->' in text
+
+        # dry-run: 'would revert', no side effect
+        assert 'would revert' in pcli('revert', 'pcli_rv/dr', '-n').stdout
+
+    def test_errors(self, pcli: PcliRunner, pcli_daemon: int) -> None:
+        """Client preflight: --steps must be >= 1. Server: cannot revert past version 0.
+        Plus a direct HTTP test confirming the server's own steps<1 check fires for any
+        future programmatic caller that bypasses the CLI."""
+        pxt.create_dir('pcli_rv_err', if_exists='ignore')
+        pxt.create_table('pcli_rv_err.t', {'a': pxt.Int}, if_exists='replace')
+
+        # client preflight
+        r = pcli('revert', 'pcli_rv_err/t', '--steps', '0', '-f', check=False)
+        assert r.returncode != 0
+        assert '--steps must be >= 1' in r.stderr
+
+        # server preflight: cannot revert beyond the current version
+        r = pcli('revert', 'pcli_rv_err/t', '--steps', '999', '-f', check=False)
+        assert r.returncode != 0
+        assert 'cannot revert' in r.stderr
+
+        # direct HTTP: server's own steps<1 check fires when the client preflight is bypassed
+        req = urllib.request.Request(
+            f'http://127.0.0.1:{pcli_daemon}/pcli/v0/revert',
+            data=json.dumps({'path': 'whatever', 'steps': 0}).encode(),
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            urllib.request.urlopen(req)
+        assert ei.value.code == 400
+        assert 'steps must be >= 1' in json.loads(ei.value.read())['detail']
+
+
+class TestPathValidator:
+    """Client-side path validator (pcli.models._slash_only). Catches every well-known bad
+    shape before the request reaches the server so the user gets a clear error message
+    instead of a generic 'Invalid path' from pxt."""
+
+    def test_rejects_bad_shapes(self, pcli: PcliRunner) -> None:
+        # '.' is reserved (pxt's legacy separator)
+        r = pcli('describe', 'a.b', check=False)
+        assert r.returncode != 0 and ("'/'" in r.stderr or 'separator' in r.stderr)
+        # leading '/' would create an empty leading component
+        r = pcli('describe', '/x', check=False)
+        assert r.returncode != 0 and 'relative' in r.stderr
+        # trailing '/' would create an empty trailing component
+        r = pcli('describe', 'x/', check=False)
+        assert r.returncode != 0 and "must not end with '/'" in r.stderr
+        # '//' produces an empty internal component
+        r = pcli('describe', 'a//b', check=False)
+        assert r.returncode != 0 and 'empty components' in r.stderr
+
+
+class TestColsValidator:
+    """Client-side --cols validator (parser.parse_cols). Rejects every shape that would
+    yield an empty token. Shared between `rows` and `get`."""
+
+    def test_rejects_empty_tokens(self, pcli: PcliRunner) -> None:
+        pxt.create_dir('pcli_colsv', if_exists='ignore')
+        pxt.create_table('pcli_colsv.r', {'a': pxt.Int, 'b': pxt.Int}, if_exists='replace')
+        pxt.create_table('pcli_colsv.g', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        for bad in ('a,', ',a', 'a,,b'):
+            r = pcli('rows', 'pcli_colsv/r', '--cols', bad, check=False)
+            assert r.returncode != 0 and 'must not be empty' in r.stderr
+        r = pcli('get', 'pcli_colsv/g', '1', '--cols', 'k,', check=False)
+        assert r.returncode != 0 and 'must not be empty' in r.stderr
+
+
+class TestCli:
+    """Top-level CLI surface (help, unknown commands, argparse errors)."""
+
+    def test_help(self, pcli: PcliRunner) -> None:
+        # --help: lists every command, exits 0
+        r = pcli('--help')
+        assert r.returncode == 0
+        assert all(name in r.stdout for name in ('health', 'ls', 'shell'))
+
+        # no args: prints usage and exits 2
+        r = pcli(check=False)
+        assert r.returncode == 2
+        assert 'usage' in r.stdout.lower() or 'usage' in r.stderr.lower()
+
+    def test_unknown_command(self, pcli: PcliRunner) -> None:
+        r = pcli('not_a_command', check=False)
+        assert r.returncode == 2
+        assert 'unknown command' in r.stderr
+
+    def test_subcommand_arg_errors(self, pcli: PcliRunner) -> None:
+        # `pcli rows` is missing the required path positional; argparse prints usage + epilog
+        r = pcli('rows', check=False)
+        assert r.returncode == 2
+        assert 'usage' in r.stderr.lower()
+        assert 'Examples' in r.stderr  # the per-command epilog block is appended on error

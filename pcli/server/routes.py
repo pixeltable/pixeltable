@@ -31,7 +31,7 @@ def dashboard_health() -> dict:
 @router.post('/pcli/v0/ls')
 def ls(req: models.LsRequest) -> models.LsResponse:
     tree = pxt.get_dir_tree()
-    nodes = _collect_path_children(tree, req.path)
+    nodes = _get_dir_children(tree, req.path)
     if req.tree:
         return models.LsResponse(entries=[], tree={'path': req.path, 'entries': nodes})
 
@@ -311,17 +311,22 @@ def revert(req: models.RevertRequest) -> models.RevertResponse:
 _COUNT_POOL_WORKERS = 16
 
 
-def _collect_path_children(tree: list[TreeNode], path: str) -> list[TreeNode]:
-    """Find children of path (empty path = root)."""
-    parts = path.split('/') if path else []
+def _get_dir_children(tree: list[TreeNode], dir_path: str) -> list[TreeNode]:
+    """Find children of dir_path (empty path = root)."""
+    parts = dir_path.split('/') if dir_path else []
     cur = tree
+    traversed: list[str] = []
     for part in parts:
-        for node in cur:
-            if node['name'] == part and node['kind'] == 'directory':
-                cur = node['entries']
-                break
-        else:
-            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Path {path!r} does not exist.')
+        traversed.append(part)
+        match = next((n for n in cur if n['name'] == part), None)
+        if match is None:
+            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Path {dir_path!r} does not exist.')
+        if match['kind'] != 'directory':
+            joined = '/'.join(traversed)
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'{joined!r} is a {match["kind"]}, not a directory'
+            )
+        cur = match['entries']
     return cur
 
 

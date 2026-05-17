@@ -184,7 +184,7 @@ Show the first N rows of a table. Unstored computed columns are skipped by defau
 | Flag | Description |
 |---|---|
 | `-n N` | Number of rows (default 10) |
-| `--cols a,b,c` | Comma-separated column subset (no spaces). Default: all stored columns |
+| `--cols a,b,c` | Comma-separated column subset. Default: all stored columns |
 
 ```bash
 pcli rows my_dir/my_table -n 3
@@ -197,7 +197,7 @@ Look up a single row by primary key. PK values are auto-coerced: int, then float
 
 | Flag | Description |
 |---|---|
-| `--cols a,b,c` | Comma-separated column subset (no spaces). Default: all stored columns |
+| `--cols a,b,c` | Comma-separated column subset. Default: all stored columns |
 
 ```bash
 pcli get my_dir/my_table 42                    # single-column PK, int
