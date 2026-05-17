@@ -161,20 +161,16 @@ class DeploymentConfig(pydantic.BaseModel):
 
 
 class ConfigKey(NamedTuple):
-    """One documented configuration setting from the known-schema registry.
-
-    Attributes:
-        section: Top-level config section (eg, 'pixeltable', 'openai').
-        key: Option name within the section (eg, 'home', 'api_key').
-        description: Short human-readable summary for help output.
-        expected_type: The type get_value() should coerce to. Defaults to str for entries
-            whose schema is a bare description string.
-    """
+    """An individual configuration setting from the known-schema registry."""
 
     section: str
+    # top-level config section
     key: str
+    # Option name within the section
     description: str
+    # human-readable summary for help output
     expected_type: type
+    # the type get_value() should coerce to; defaults to str for entries whose schema is a bare description string
 
 
 class Config:
@@ -466,12 +462,7 @@ class Config:
         return self.get_value(key, list, section)
 
     def config_keys(self) -> Iterable[ConfigKey]:
-        """Yield every documented configuration setting from the known-schema registry.
-
-        Entries cover both the top-level 'pixeltable' section and per-provider sections.
-        Bare description strings in the schema yield ConfigKey with expected_type=str;
-        (description, type) tuples yield ConfigKey with the explicit type.
-        """
+        """Return all configuration setting from the known-schema registry."""
         for section, options in KNOWN_CONFIG_OPTIONS.items():
             for key, info in options.items():
                 if isinstance(info, tuple):
@@ -481,11 +472,10 @@ class Config:
                 yield ConfigKey(section=section, key=key, description=description, expected_type=expected_type)
 
     def get_value_source(self, key: str, section: str = 'pixeltable') -> Literal['env', 'file', 'unset']:
-        """Return where get_value() would resolve a value from.
-
-        'env' means an environment variable (or programmatic config override) is set;
-        'file' means only the config.toml has it; 'unset' means neither layer carries it
-        and the consumer will fall back to its own default.
+        """Return source of config value returned by get_value():
+        - env: environment variable (or programmatic config override) is set
+        - file: only the config.toml has it
+        - unset: neither layer carries it
         """
         if self.lookup_env(section, key) is not None:
             return 'env'

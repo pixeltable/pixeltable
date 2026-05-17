@@ -673,12 +673,9 @@ class Env:
         return client
 
     def get_client_credential_params(self) -> dict[str, list[str]]:
-        """Return the credential-bearing init params for each registered API client.
+        """Return the credential-bearing init params for each registered API client with credentials.
 
-        Returns:
-            Mapping from provider name to its credential param names in registration order
-            (eg, 'openai' -> ['api_key'], 'replicate' -> ['api_token']). Providers with no
-            credential param are omitted.
+        Returns: Mapping from provider name to its credential param names in registration order.
         """
         out: dict[str, list[str]] = {}
         with _client_factories_lock:
