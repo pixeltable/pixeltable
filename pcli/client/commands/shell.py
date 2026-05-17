@@ -70,9 +70,9 @@ def run(argv: list[str]) -> None:
             traceback.print_exc()
 
 
-def _print_help(commands: dict[str, tuple[str, str]]) -> None:
+def _print_help(commands: dict[str, str]) -> None:
     width = max(len(c) for c in commands)
-    for cmd, (_, help_text) in commands.items():
+    for cmd, help_text in commands.items():
         if cmd == 'shell':
             continue
         print(f'  {cmd.ljust(width)}  {help_text}')
