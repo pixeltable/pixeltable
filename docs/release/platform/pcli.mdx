@@ -228,7 +228,7 @@ pcli errors my_dir/my_table --col embedding
 
 ## Mutation commands
 
-Every mutation accepts the universal `-f`/`--force`, `-n`/`--dry-run`, and `--json` flags. With a TTY they prompt `[y/N]`; in non-interactive contexts they refuse to proceed without `-f`.
+Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `rm`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they refuse to proceed without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
 
 ### `pcli drop`
 
