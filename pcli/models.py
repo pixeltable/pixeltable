@@ -180,8 +180,7 @@ class GetResponse(BaseModel):
 
 class DropRequest(BaseModel):
     path: PcliPath
-    cascade: bool = False  # drops dependent views (tables) or recurses (dirs)
-    is_dir: bool  # client tells us which API to call
+    cascade: bool = False  # drops dependent views (/drop_table) or recurses (/drop_dir)
 
 
 class DropResponse(BaseModel):

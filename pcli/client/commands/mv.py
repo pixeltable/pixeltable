@@ -5,7 +5,7 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli mv my_dir/my_table other_dir              # move to /other_dir/my_table
+  pcli mv my_dir/my_table other_dir              # move to other_dir/my_table
   pcli mv my_dir/my_table /                      # move to root
   pcli mv my_dir/my_table other_dir -n           # dry-run
 

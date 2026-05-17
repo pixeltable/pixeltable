@@ -13,7 +13,8 @@ import urllib.request
 
 from pcli.paths import redact_home, redact_home_in_text
 
-DEFAULT_PORT = 22089
+# TODO: move to 22089 when consolidating pcli with pxt
+DEFAULT_PORT = 22090
 _IS_WINDOWS = os.name == 'nt'
 
 

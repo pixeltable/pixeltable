@@ -274,12 +274,15 @@ def env() -> models.EnvResponse:
     )
 
 
-@router.post('/pcli/v0/drop')
-def drop(req: models.DropRequest) -> models.DropResponse:
-    if req.is_dir:
-        pxt.drop_dir(req.path, force=req.cascade)
-    else:
-        pxt.drop_table(req.path, force=req.cascade)
+@router.post('/pcli/v0/drop_table')
+def drop_table(req: models.DropRequest) -> models.DropResponse:
+    pxt.drop_table(req.path, force=req.cascade)
+    return models.DropResponse(path=req.path, dropped=True)
+
+
+@router.post('/pcli/v0/drop_dir')
+def drop_dir(req: models.DropRequest) -> models.DropResponse:
+    pxt.drop_dir(req.path, force=req.cascade)
     return models.DropResponse(path=req.path, dropped=True)
 
 
@@ -431,6 +434,11 @@ def _redact_user_home(value: str) -> str:
     """
     after_pxt = redact_home(value) or value
     if after_pxt.startswith('$PIXELTABLE_HOME'):
+        return after_pxt
+    # Skip non-path-like values: realpath('false') would expand to $cwd/false, which then
+    # spuriously matches $HOME/... when cwd lives under $HOME. Bare scalars (`1`, `false`,
+    # `<redacted>`) stay untouched.
+    if not (after_pxt.startswith('~') or os.path.isabs(after_pxt) or os.sep in after_pxt):
         return after_pxt
     try:
         user_home = os.path.realpath(os.path.expanduser('~'))
