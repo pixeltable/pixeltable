@@ -148,7 +148,7 @@ def export_iceberg(
             raise
         except Exception as e:
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                excs.ErrorCode.INTERNAL_ERROR,
                 f'export_iceberg(): failed to append to Iceberg table {table_name!r}: {e}',
             ) from e
         return
@@ -168,7 +168,7 @@ def export_iceberg(
     except Exception as e:
         catalog.drop_table(temp_name)
         raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, f'export_iceberg(): failed to write Iceberg table {table_name!r}: {e}'
+            excs.ErrorCode.INTERNAL_ERROR, f'export_iceberg(): failed to write Iceberg table {table_name!r}: {e}'
         ) from e
 
     if existing_tbl is not None:
