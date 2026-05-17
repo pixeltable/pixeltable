@@ -26,7 +26,9 @@ def _remove_pidfile() -> None:
 
 def main() -> None:
     _write_pidfile()
-    uvicorn.run(create_app(), host='127.0.0.1', port=get_port(), log_config=None)
+    # access_log=False is the hard guarantee the daemon log won't grow per-request; log_config=None
+    # also currently produces a silent access logger, but the explicit flag is robust to upstream changes.
+    uvicorn.run(create_app(), host='127.0.0.1', port=get_port(), log_config=None, access_log=False)
 
 
 if __name__ == '__main__':

@@ -57,11 +57,6 @@ router = APIRouter()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-# ---------------------------------------------------------------------------
-# health
-# ---------------------------------------------------------------------------
-
-
 @router.get('/pcli/v0/health')
 def pcli_health() -> HealthResponse:
     return HealthResponse(ok=True, pxt_version=pixeltable.__version__, pid=os.getpid(), started_at=_STARTED_AT)
@@ -72,10 +67,6 @@ def dashboard_health() -> dict:
     # compat for the existing dashboard probe
     return {'status': 'ok'}
 
-
-# ---------------------------------------------------------------------------
-# ls
-# ---------------------------------------------------------------------------
 
 # count() is SQL-bound (GIL-released during the query), so going wider than the DB can
 # serve in parallel just queues. 16 is comfortably below pixeltable's default connection-pool ceiling.
@@ -144,20 +135,10 @@ def _safe_count(path: str) -> int | None:
         return None
 
 
-# ---------------------------------------------------------------------------
-# describe
-# ---------------------------------------------------------------------------
-
-
 @router.post('/pcli/v0/describe')
 def describe(req: DescribeRequest) -> DescribeResponse:
     t = pxt.get_table(req.path)
     return DescribeResponse(text=repr(t), metadata=jsonable_encoder(t.get_metadata()))
-
-
-# ---------------------------------------------------------------------------
-# errors
-# ---------------------------------------------------------------------------
 
 
 @router.post('/pcli/v0/errors')
@@ -200,20 +181,10 @@ def errors(req: ErrorsRequest) -> ErrorsResponse:
     return ErrorsResponse(entries=entries)
 
 
-# ---------------------------------------------------------------------------
-# history
-# ---------------------------------------------------------------------------
-
-
 @router.post('/pcli/v0/history')
 def history(req: HistoryRequest) -> HistoryResponse:
     versions = pxt.get_table(req.path).get_versions(req.n)
     return HistoryResponse(versions=jsonable_encoder(versions))
-
-
-# ---------------------------------------------------------------------------
-# columns / idxs (share _all_tables)
-# ---------------------------------------------------------------------------
 
 
 def _all_tables() -> list[str]:
@@ -280,11 +251,6 @@ def idxs(req: IdxsRequest) -> IdxsResponse:
                 )
             )
     return IdxsResponse(entries=entries)
-
-
-# ---------------------------------------------------------------------------
-# rows / get (both default to stored columns to avoid surprising compute)
-# ---------------------------------------------------------------------------
 
 
 @router.post('/pcli/v0/rows')
@@ -360,20 +326,10 @@ def get(req: GetRequest) -> GetResponse:
     return GetResponse(pk_columns=pk_names, row=jsonable_encoder(row))
 
 
-# ---------------------------------------------------------------------------
-# count
-# ---------------------------------------------------------------------------
-
-
 @router.post('/pcli/v0/count')
 def count(req: CountRequest) -> CountResponse:
     n = pxt.get_table(req.path).count()
     return CountResponse(path=req.path, count=n)
-
-
-# ---------------------------------------------------------------------------
-# status
-# ---------------------------------------------------------------------------
 
 
 def _dir_size(path: str | None) -> int | None:
@@ -425,10 +381,6 @@ def status(sizes: bool = False) -> StatusResponse:
         total_errors=s['total_errors'],
     )
 
-
-# ---------------------------------------------------------------------------
-# env
-# ---------------------------------------------------------------------------
 
 # Vars reported value-redacted. Match by suffix to catch provider-specific names
 # (e.g. PIXELTABLE_DB_CONNECT_STR, plus any *_API_KEY / *_TOKEN / *_SECRET / *_PASSWORD).
@@ -495,11 +447,6 @@ def env() -> EnvResponse:
         config_file=_redact_user_home(config_file) if config_file is not None else None,
         credentials_present=credentials_present,
     )
-
-
-# ---------------------------------------------------------------------------
-# mutations: drop, move, revert
-# ---------------------------------------------------------------------------
 
 
 @router.post('/pcli/v0/drop')

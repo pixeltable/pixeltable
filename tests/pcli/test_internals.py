@@ -216,7 +216,7 @@ class TestProbe:
 
     def test_check_daemon_deps_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(probe.importlib.util, 'find_spec', lambda name: None)
-        with pytest.raises(RuntimeError, match=r'pip install pixeltable\[cli\]'):
+        with pytest.raises(RuntimeError, match=r"pip install 'pixeltable\[cli\]'"):
             probe._check_daemon_deps()
 
     def test_spawn_detached_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
