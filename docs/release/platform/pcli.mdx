@@ -1,0 +1,335 @@
+---
+title: "Catalog CLI Reference"
+sidebarTitle: "Catalog CLI (pcli)"
+description: "Inspect, query, and manage Pixeltable catalogs from the terminal. Designed for fast iteration and agentic workflows."
+---
+
+<Info>
+`pcli` is a daemon-backed CLI for catalog inspection and lightweight ops. The daemon stays hot between commands; each invocation is a thin HTTP RPC. Designed so agents and humans can ask "what's in the catalog?", "show me 5 rows", or "what failed?" without paying Python startup per query.
+</Info>
+
+## Installation
+
+```bash
+pip install 'pixeltable[cli]'
+```
+
+The `[cli]` extra pulls in `fastapi[standard]` (which provides `uvicorn`). The pcli client itself is stdlib-only — the extra is required only to run the daemon.
+
+Verify the installation:
+
+```bash
+pcli --help
+pcli health
+```
+
+On the first command, pcli auto-spawns a daemon bound to `127.0.0.1:22089`. The daemon survives across shells and stays warm for subsequent commands.
+
+## Command structure
+
+```text
+pcli <command> [args...]
+```
+
+Use `pcli <command> --help` for per-subcommand flags and examples.
+
+| Category | Commands |
+|---|---|
+| **Inspection** | `ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `env` |
+| **Query** | `rows`, `get`, `count`, `errors` |
+| **Mutation** | `drop`, `rm`, `rename`, `mv`, `revert` |
+| **Interactive** | `shell` |
+
+## Quick reference
+
+```bash
+# inspect
+pcli ls -l                          # everything under root, with metadata
+pcli ls some_dir --counts           # row counts (parallelized)
+pcli describe my_dir/my_table       # schema
+pcli rows my_dir/my_table -n 5      # first 5 stored cells
+
+# query
+pcli get my_dir/my_table 42         # PK lookup
+pcli count my_dir/my_table          # row count
+pcli errors my_dir/my_table         # rows where a computed column failed
+
+# ops
+pcli drop my_dir/my_table -f
+pcli mv my_dir/my_table other_dir
+pcli revert my_dir/my_table --steps 3 -f
+
+# interactive
+pcli shell
+```
+
+## Inspection commands
+
+### `pcli ls`
+
+List entries under a directory.
+
+| Flag | Description |
+|---|---|
+| `-l`, `--long` | Include column count, last version, and flags |
+| `--counts` | Include row counts (runs `count()` per table, parallelized) |
+| `--tree` | Tree view |
+| `--json` | Machine-readable JSON output |
+
+```bash
+pcli ls                            # root
+pcli ls some_dir                   # contents of some_dir
+pcli ls -l some_dir                # with metadata
+pcli ls --counts                   # with row counts
+```
+
+```text Output (pcli ls -l)
+path                kind   cols  version  flags
+agent_demo          dir                       -
+audio_chunks        view      9        3  ci
+chess_vids          table     3        3  ci
+chk                 table     2        1  i
+```
+
+Flag letters: `c` = has at least one computed column, `i` = has at least one index.
+
+### `pcli describe`
+
+Show a table's schema and metadata.
+
+```bash
+pcli describe my_dir/my_table
+pcli describe my_dir/my_table --json
+```
+
+The plain form is human-readable; `--json` returns the full `get_metadata()` dict.
+
+### `pcli columns` / `pcli computed`
+
+List columns across one or all tables.
+
+```bash
+pcli columns                       # every column in the catalog
+pcli columns my_dir/my_table       # one table
+pcli computed                      # computed columns only (alias for --computed)
+```
+
+### `pcli idxs`
+
+List indexes. Embedding indexes coexist with auto-created btree indexes; the `--embedding` flag filters to just the embedding ones.
+
+```bash
+pcli idxs                          # every index
+pcli idxs my_dir/my_table          # indexes on one table
+pcli idxs --embedding              # only embedding indexes
+```
+
+### `pcli history`
+
+Show a table's version timeline.
+
+```bash
+pcli history my_dir/my_table
+pcli history my_dir/my_table -n 5  # last 5 versions
+```
+
+### `pcli status`
+
+Daemon and runtime state: pxt version, daemon PID, configured paths, total tables, total errors. Pass `--sizes` to also report media and file-cache disk usage (slower; scans the directories).
+
+```bash
+pcli status
+pcli status --sizes --json
+```
+
+### `pcli env`
+
+Reported `PIXELTABLE_*` environment variables, the active config file, and a presence-only map for common credential variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `HF_TOKEN`, `AWS_*`, etc.).
+
+```bash
+pcli env
+```
+
+Values matching `*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, or `PIXELTABLE_DB_CONNECT_STR` are redacted. Home-rooted paths are rewritten as `$PIXELTABLE_HOME/...` or `$HOME/...`.
+
+## Query commands
+
+### `pcli rows`
+
+Peek the first N rows of a table.
+
+| Flag | Description |
+|---|---|
+| `-n N` | Number of rows (default 10) |
+| `--cols a,b,c` | Comma-separated column subset (no spaces) |
+| `--json` | Machine-readable output |
+
+```bash
+pcli rows my_dir/my_table -n 3
+pcli rows my_dir/my_table --cols id,text,score
+```
+
+<Warning>
+By default, `pcli rows` skips **unstored computed columns**. Selecting one would force evaluation, which can invoke LLMs or other expensive operations on every visible row. Opt in explicitly:
+
+```bash
+pcli rows my_dir/my_table --cols id,embedding   # forces evaluation of `embedding`
+```
+</Warning>
+
+### `pcli get`
+
+Look up a single row by primary key. PK values are auto-coerced: int → float → JSON literal → string.
+
+```bash
+pcli get my_dir/my_table 42                    # single-column PK, int
+pcli get my_dir/my_table some_string_id        # single-column PK, string
+pcli get my_dir/my_table 42 abc                # composite PK, in declared order
+pcli get my_dir/my_table '"42"'                # force string for numeric-looking key
+```
+
+The table must declare a primary key. As with `rows`, unstored computed columns are skipped unless requested explicitly.
+
+### `pcli count`
+
+```bash
+pcli count my_dir/my_table         # prints the integer
+pcli count my_dir/my_table --json
+```
+
+### `pcli errors`
+
+List rows where a stored computed column failed.
+
+```bash
+pcli errors my_dir/my_table
+pcli errors my_dir/my_table --col embedding
+```
+
+The table must have a primary key (so each failing row can be identified).
+
+## Mutation commands
+
+All mutations refuse to proceed in non-interactive contexts unless `-f`/`--force` is passed. With a TTY, they prompt `[y/N]`. All accept `-n`/`--dry-run` (print the intended action, don't execute) and `--json`.
+
+### `pcli drop`
+
+Drop a table or view. Use `pcli rm` for directories.
+
+```bash
+pcli drop my_dir/my_table -f                 # drop a table
+pcli drop my_dir/my_table --cascade -f       # also drop dependent views
+pcli drop my_dir/my_table -n                 # dry-run
+```
+
+### `pcli rm`
+
+Remove a directory. Use `pcli drop` for tables/views.
+
+```bash
+pcli rm my_dir -f                  # remove an empty directory
+pcli rm my_dir -r -f               # recursive: also remove contained tables/subdirs
+```
+
+### `pcli rename`
+
+Rename in place; the parent directory is preserved.
+
+```bash
+pcli rename my_dir/old_name new_name
+```
+
+### `pcli mv`
+
+Move a table/view/dir under a different directory; the leaf name is preserved.
+
+```bash
+pcli mv my_dir/my_table other_dir              # -> other_dir/my_table
+pcli mv my_dir/my_table /                      # move to root
+```
+
+### `pcli revert`
+
+Undo recent ops on a table. Each revert undoes one op; `--steps` repeats.
+
+```bash
+pcli revert my_dir/my_table -f                 # undo the last op
+pcli revert my_dir/my_table --steps 3 -f       # roll back 3 versions
+```
+
+<Warning>
+Revert is irreversible. Run `pcli history <table>` first to see what would be undone.
+</Warning>
+
+## Interactive shell
+
+For agentic or scripted workloads that issue many commands in sequence, `pcli shell` amortizes Python startup over the session:
+
+```text
+$ pcli shell
+pcli> ls
+path                kind
+agent_demo          dir
+chess_vids          table
+...
+pcli> describe chess_vids
+...
+pcli> exit
+```
+
+Inside the shell, every pcli command is available unmodified. Errors from one command don't kill the session. Use `help`, `exit`, `quit`, or Ctrl-D to leave.
+
+## Output and scripting
+
+Every command supports `--json` for stable, machine-readable output:
+
+```bash
+pcli ls --json | jq '.entries[] | select(.kind == "table")'
+pcli get my_dir/my_table 42 --json | jq '.row'
+pcli count my_dir/my_table --json | jq '.count'
+```
+
+Without `--json`, output is human-aligned columnar text suitable for `grep`, `awk`, or eyeball inspection.
+
+## Path conventions
+
+Paths use `/` as the separator. The legacy `.` separator is **rejected** with a clear error. A leading `/` is also rejected — paths are relative. Use `''` (empty) for the root directory.
+
+| Input | Behavior |
+|---|---|
+| `pcli ls` | Root |
+| `pcli ls my_dir` | `my_dir` |
+| `pcli describe my_dir/t` | `my_dir/t` |
+| `pcli describe /my_dir/t` | **Error**: `pcli paths are relative; drop the leading '/'` |
+| `pcli describe my_dir.t` | **Error**: `pcli paths use '/' as the separator` |
+
+## Safety defaults
+
+pcli is designed to avoid surprises. The user stays in control.
+
+| Default | Why |
+|---|---|
+| **`rows` and `get` skip unstored computed columns** | A `peek` command should never silently trigger LLM calls or arbitrary compute. Opt in with `--cols`. |
+| **Mutations require `-f` in non-interactive contexts** | `drop`, `rm`, `revert` refuse to proceed without a TTY unless explicitly forced. |
+| **`--counts` is opt-in** | Row counts run queries; the default `ls` returns instantly. |
+| **`--sizes` on `status` is opt-in** | Disk-usage scans can be slow on large media directories. |
+| **Sensitive values redacted in `env`** | API keys, DB connect strings, and home-rooted paths never appear verbatim. |
+| **Path validation at the HTTP boundary** | Misuse is rejected before reaching pixeltable, with messages a human can act on. |
+
+## How it works
+
+A small FastAPI daemon on `127.0.0.1:22089` holds the pixeltable session warm. The `pcli` client is a thin stdlib-only HTTP wrapper (no `httpx`, no `pydantic`); cold-start cost is ~40ms on Linux. Successive commands skip Python interpreter init by virtue of the daemon staying alive.
+
+| Component | Lives in |
+|---|---|
+| Client | `pcli.client.main`, stdlib only |
+| Daemon | `pcli.server.daemon`, requires the `[cli]` extra |
+| Wire protocol | `/pcli/v0/*`, JSON over HTTP (private; not a stable API) |
+
+Set `PCLI_PORT` to use a non-default port. The daemon writes a pidfile to `$PIXELTABLE_HOME/pcli-daemon-<port>.pid` so parallel test workers and concurrent users can coexist.
+
+## What's next
+
+- [Configuration](/platform/configuration): `PIXELTABLE_HOME`, `PCLI_PORT`, and other environment settings
+- [Catalog CLI (pxt)](/platform/cli): the complementary `pxt serve` / `pxt deploy` toolchain for HTTP services
+- [Dashboard](/platform/dashboard): browser UI sharing the same daemon
