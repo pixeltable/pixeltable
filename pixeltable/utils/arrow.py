@@ -151,7 +151,7 @@ def _to_record_batch(
                 pa_arrays.append(pa.array(column_vals[field.name], type=field.type))
             except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError) as e:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    excs.ErrorCode.TYPE_MISMATCH,
                     f'schema_overrides type {field.type} does not fit the data for column {field.name!r}: {e}',
                 ) from e
         elif isinstance(field.type, pa.FixedShapeTensorType):
