@@ -229,7 +229,7 @@ In about 5 minutes, you'll have a multimodal table, a few computed columns, and 
     ```python
     # `get_metadata` works directly on the image object
     # you do not need to pass in an image path or URL
-    t.add_computed_column(metadata=t.image.get_metadata())
+    t.add_computed_column(metadata=t.image.get_metadata(), if_exists='replace')
     ```
 
     **Output:**
