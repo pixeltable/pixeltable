@@ -258,31 +258,24 @@ def clean_db(drop_md_tables: bool = False) -> None:
             if drop_md_tables:
                 # Drop existing metadata tables
                 conn.execute(text(f'DROP TABLE IF EXISTS {table_names} CASCADE'))
-            else:
+            elif Env.get().is_using_cockroachdb:
                 # Truncate existing metadata tables.
                 # CockroachDB sometimes rejects TRUNCATE when other in-flight statements are
                 # dropping indexes on the same table; fall back to ordered DELETEs that respect FKs.
-                if Env.get().is_using_cockroachdb:
-                    # Delete child tables first, then parents. dirs has a self-referential FK
-                    # so we null out parent_id before deleting.
-                    fk_order = [
-                        'pendingtableops',
-                        'tableversions',
-                        'tableschemaversions',
-                        'functions',
-                        'tables',
-                    ]
-                    for t in fk_order:
-                        if t in existing_md_names:
-                            conn.execute(text(f'DELETE FROM "{t}"'))
-                    if 'dirs' in existing_md_names:
-                        conn.execute(text('UPDATE "dirs" SET parent_id = NULL WHERE parent_id IS NOT NULL'))
-                        conn.execute(text('DELETE FROM "dirs"'))
-                    remaining = existing_md_names - set(fk_order) - {'dirs'}
-                    for t in remaining:
+                # Delete child tables first, then parents. dirs has a self-referential FK
+                # so we null out parent_id before deleting.
+                fk_order = ['pendingtableops', 'tableversions', 'tableschemaversions', 'functions', 'tables']
+                for t in fk_order:
+                    if t in existing_md_names:
                         conn.execute(text(f'DELETE FROM "{t}"'))
-                else:
-                    conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))
+                if 'dirs' in existing_md_names:
+                    conn.execute(text('UPDATE "dirs" SET parent_id = NULL WHERE parent_id IS NOT NULL'))
+                    conn.execute(text('DELETE FROM "dirs"'))
+                remaining = existing_md_names - set(fk_order) - {'dirs'}
+                for t in remaining:
+                    conn.execute(text(f'DELETE FROM "{t}"'))
+            else:
+                conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))
         conn.commit()
 
 
