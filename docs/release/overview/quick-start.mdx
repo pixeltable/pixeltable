@@ -224,7 +224,7 @@ In about 5 minutes, you'll have a multimodal table, a few computed columns, and 
   <Step title="Add a Computed Column">
     Computed columns let you declare transformations that run automatically whenever data is inserted or updated.
     Pixeltable ships with built-in functions for common multimodal operations.
-    Here we [extract image metadata via Pillow](https://docs.pixeltable.com/sdk/latest/image), using `.get_metadata()`
+    Here we [extract image metadata via Pillow](https://docs.pixeltable.com/sdk/latest/image), using `.get_metadata()`.
 
     ```python
     # `get_metadata` works directly on the image object
@@ -346,7 +346,7 @@ In about 5 minutes, you'll have a multimodal table, a few computed columns, and 
 Pixeltable automatically:
 
 1. Created a persistent multimodal table
-2. Image downloads cached on disk
+2. Downloaded and cached your images on disk
 3. Every computed column applied to every row, in order
 4. Stored all results (including computed columns) for instant retrieval
 5. Incrementally process any new images you insert
