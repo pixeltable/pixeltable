@@ -1119,6 +1119,13 @@ class FastAPIRouter(fastapi.APIRouter):
                 pxt.ErrorCode.TYPE_MISMATCH,
                 f'add_query_route(): `query` must be a @pxt.query or retrieval_udf, not {type(query).__name__}',
             )
+        if not query.template_query.has_select_list:
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                'add_query_route(): the query must use an explicit select list '
+                '(e.g., .select(t.col_a, t.col_b)); an implicit all-columns selection would dynamically change the '
+                'response schema when columns are added to or dropped from the table',
+            )
         if return_fileresponse and background:
             raise pxt.RequestError(
                 pxt.ErrorCode.INVALID_ARGUMENT,

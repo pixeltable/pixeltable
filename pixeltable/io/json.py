@@ -78,7 +78,8 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path) ->
     else:
         query = table_or_query
 
-    query = query._replace_select_list(replace_media_with_fileurl(query._select_list_exprs))
+    select_list_exprs = [e for e, _ in query._effective_select_list]
+    query = query._replace_select_list(replace_media_with_fileurl(select_list_exprs))
 
     cursor = query.cursor()
 

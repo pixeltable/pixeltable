@@ -132,8 +132,9 @@ def _to_record_batch(
 
 
 def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.RecordBatch]:
+    schema = query.schema
     arrow_schema: pa.Schema | None = None  # initialized after first batch, when we have data to infer struct schemas
-    batch_columns: dict[str, list[Any]] = {k: [] for k in query.schema}
+    batch_columns: dict[str, list[Any]] = {k: [] for k in schema}
     current_byte_estimate = 0
     num_batch_rows = 0
     json_val_size: dict[str, int] = {}  # key: col_name, value: average size of corresponding pa.struct
@@ -144,7 +145,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
         if arrow_schema is not None:
             return
         pa_column_types: dict[str, pa.DataType] = {}
-        for col_name, col_type in query.schema.items():
+        for col_name, col_type in schema.items():
             if col_type.is_json_type():
                 try:
                     pa_type = pa.infer_type(batch_columns[col_name], mask=None)
@@ -160,7 +161,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
     try:
         for data_row in query.cursor():
             num_batch_rows += 1
-            for col_name, col_type in query.schema.items():
+            for col_name, col_type in schema.items():
                 val = data_row[col_name]
                 val_size_bytes: int
                 if val is None:
@@ -225,9 +226,9 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                         col_name: json_batch_size[col_name] // num_batch_rows for col_name in json_batch_size
                     }
                 create_arrow_schema()
-                record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
+                record_batch = _to_record_batch(batch_columns, arrow_schema, schema)
                 yield record_batch
-                batch_columns = {k: [] for k in query.schema}
+                batch_columns = {k: [] for k in schema}
                 current_byte_estimate = 0
                 num_batch_rows = 0
 
@@ -236,7 +237,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
 
     if num_batch_rows > 0:
         create_arrow_schema()
-        record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
+        record_batch = _to_record_batch(batch_columns, arrow_schema, schema)
         yield record_batch
 
 

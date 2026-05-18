@@ -285,10 +285,20 @@ class ResultCursor(Iterable[Row]):
         ...             break  # resources are released on exit
     """
 
+    _query: Query
+    _row_iterator: Generator[list[Any], None, None] | None
+    _schema: dict[str, ColumnType]
+    _columns: dict[str, int]  # column name -> position
+    _closed: bool
+
     def __init__(self, query: Query):
         self._query = query
-        self._row_iterator: Generator[list[Any], None, None] | None = None
-        self._columns: dict[str, int] = {name: i for i, name in enumerate(query.schema)}
+        self._row_iterator = None
+        # TODO: fix the race condition:
+        # - we set _schema/_columns here
+        # - a schema change takes places subsequently, but before open()
+        self._schema = query.schema
+        self._columns = {name: i for i, name in enumerate(self._schema)}
         self._closed = False
 
     def open(self) -> None:
@@ -337,13 +347,9 @@ class ResultCursor(Iterable[Row]):
         assert self._row_iterator is not None
         try:
             for data in self._row_iterator:
-                yield Row(data, self._columns, self._query.schema)
+                yield Row(data, self._columns, self._schema)
         finally:
             self.close()
-
-    @property
-    def _schema(self) -> dict[str, ColumnType]:
-        return self._query.schema
 
     def __repr__(self) -> str:
         if self._closed:
@@ -365,9 +371,13 @@ class Query:
 
     # immutable after init()
     _from_clause: plan.FromClause
-    _select_list_exprs: list[exprs.Expr]
-    _schema: dict[str, ts.ColumnType]
+
     select_list: list[tuple[exprs.Expr, str | None]] | None
+    # construction-time snapshot of the resolved select list; None if select_list is None
+    _select_list_exprs: list[exprs.Expr] | None
+    # construction-time snapshot of the resolved schema; None if select_list is None
+    _schema: dict[str, ts.ColumnType] | None
+
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
     grouping_tbl: catalog.TableVersionHandle | None
@@ -395,14 +405,16 @@ class Query:
         self._from_clause = from_clause
 
         # exprs contain execution state and therefore cannot be shared
-        select_list = copy.deepcopy(select_list)
-        select_list_exprs, column_names = Query._normalize_select_list(self._from_clause.tbls, select_list)
-        # check select list after expansion to catch early
-        # the following two lists are always non empty, even if select list is None.
-        assert len(column_names) == len(select_list_exprs)
-        self._select_list_exprs = select_list_exprs
-        self._schema = {column_names[i]: select_list_exprs[i].col_type for i in range(len(column_names))}
-        self.select_list = select_list
+        self.select_list = copy.deepcopy(select_list)
+        if self.select_list is None:
+            self._select_list_exprs = None
+            self._schema = None
+        else:
+            select_list_exprs, column_names = Query._normalize_select_list(self._from_clause.tbls, self.select_list)
+            # check select list after expansion to catch early
+            assert len(column_names) == len(select_list_exprs)
+            self._select_list_exprs = select_list_exprs
+            self._schema = {column_names[i]: select_list_exprs[i].col_type for i in range(len(column_names))}
 
         self.where_clause = copy.deepcopy(where_clause)
         assert group_by_clause is None or grouping_tbl is None
@@ -454,20 +466,31 @@ class Query:
         return out_exprs, out_names
 
     @property
+    def has_select_list(self) -> bool:
+        """Returns True if the query has an explicit select list (constructed with `select()`)."""
+        return self.select_list is not None
+
+    @property
     def _first_tbl(self) -> catalog.TableVersionPath:
         return self._from_clause._first_tbl
 
     @property
     def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
         """Return the select list that would get materialized by collect()."""
-        return list(zip(self._select_list_exprs, self._schema.keys()))
+        if self.select_list is not None:
+            return list(zip(self._select_list_exprs, self._schema.keys()))
+        # SELECT * case: re-resolve against the current table schema
+        select_list_exprs, column_names = Query._normalize_select_list(self._from_clause.tbls, None)
+        return list(zip(select_list_exprs, column_names))
 
     def _vars(self) -> dict[str, exprs.Variable]:
         """
         Return a dict mapping variable name to Variable for all Variables contained in any component of the Query
         """
         all_exprs: list[exprs.Expr] = []
-        all_exprs.extend(self._select_list_exprs)
+        if self._select_list_exprs is not None:
+            # _select_list_exprs is None: no Variables without an explicit select list
+            all_exprs.extend(self._select_list_exprs)
         if self.where_clause is not None:
             all_exprs.append(self.where_clause)
         if self.group_by_clause is not None:
@@ -623,10 +646,12 @@ class Query:
             assert num_rowid_cols <= len(first_tbl.tbl_version.get().store_tbl.rowid_columns())
             group_by_clause = Planner.rowid_columns(first_tbl.tbl_version, num_rowid_cols)
 
-        select_list = list(self._select_list_exprs)
+        select_list = self._effective_select_list
+        select_list_exprs = [e for e, _ in select_list]
+        select_list_schema = {n: e.col_type for e, n in select_list}
         root = Planner.create_query_plan(
             self._from_clause,
-            select_list,
+            select_list_exprs,
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause,
@@ -638,8 +663,8 @@ class Query:
         return exec.ExecPlan(
             root,
             root.ctx,
-            select_list_exprs=select_list,
-            select_list_schema=self._schema,
+            select_list_exprs=select_list_exprs,
+            select_list_schema=select_list_schema,
             compile_versions=compile_versions,
         )
 
@@ -715,15 +740,20 @@ class Query:
     @property
     def schema(self) -> dict[str, ColumnType]:
         """Column names and types in this Query."""
-        return self._schema
+        if self.select_list is not None:
+            return self._schema
+        else:
+            # need to re-resolve select list
+            return {name: e.col_type for e, name in self._effective_select_list}
 
     def _replace_select_list(self, new_exprs: list[exprs.Expr]) -> Query:
         """Return a new Query with the given select-list exprs.
 
         All other clauses are cloned either here or in __init__().
         """
-        assert len(new_exprs) == len(self._schema)
-        select_list = list(zip(new_exprs, self._schema.keys()))
+        select_list = self._effective_select_list
+        assert len(new_exprs) == len(select_list)
+        select_list = [(e, n) for e, (_, n) in zip(new_exprs, select_list)]
         return Query(
             from_clause=self._from_clause,
             select_list=select_list,
@@ -764,7 +794,8 @@ class Query:
         if self._referenced_tbl_ids is not None:
             return self._referenced_tbl_ids
         all_exprs = itertools.chain(
-            self._select_list_exprs,
+            # _select_list_exprs is None: no external ColumnRefs without an explicit select list
+            self._select_list_exprs or [],
             [] if self.where_clause is None else [self.where_clause],
             self.group_by_clause or [],
             [] if self.order_by_clause is None else (e for e, _ in self.order_by_clause),
@@ -797,11 +828,12 @@ class Query:
         return self._collect()
 
     def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
+        schema = self.schema
         if args is None:
-            return ResultSet(list(self.cursor()), self.schema)
-        columns = {name: i for i, name in enumerate(self.schema)}
-        rows = [Row(tuple(data), columns, self.schema) for data in self._output_row_iterator(args=args)]
-        return ResultSet(rows, self.schema)
+            return ResultSet(list(self.cursor()), schema)
+        columns = {name: i for i, name in enumerate(schema)}
+        rows = [Row(tuple(data), columns, schema) for data in self._output_row_iterator(args=args)]
+        return ResultSet(rows, schema)
 
     def cursor(self) -> ResultCursor:
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.
@@ -814,14 +846,15 @@ class Query:
         # this can only be called in the context of a running transaction
         assert get_runtime().in_xact
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
-        columns = {name: i for i, name in enumerate(self.schema)}
+        schema = self.schema
+        columns = {name: i for i, name in enumerate(schema)}
         try:
             planned_exprs = self._compiled_select_list()
             result = [
-                Row(tuple(row[e.slot_idx] for e in planned_exprs), columns, self.schema)
+                Row(tuple(row[e.slot_idx] for e in planned_exprs), columns, schema)
                 async for row in self._aexec(args=args)
             ]
-            return ResultSet(result, self.schema)
+            return ResultSet(result, schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
         except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
@@ -878,6 +911,7 @@ class Query:
         return helper
 
     def _col_descriptor(self) -> pd.DataFrame:
+        select_list = self._effective_select_list
         return pd.DataFrame(
             [
                 {
@@ -885,7 +919,7 @@ class Query:
                     'Type': expr.col_type._to_str(as_schema=True),
                     'Expression': expr.display_str(inline=False),
                 }
-                for name, expr in zip(self.schema.keys(), self._select_list_exprs)
+                for expr, name in select_list
             ]
         )
 
