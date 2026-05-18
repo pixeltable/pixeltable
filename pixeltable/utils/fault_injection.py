@@ -12,6 +12,7 @@ class FaultLocation(Enum):
     CATALOG_FINALIZE_PENDING_OPS_NON_XACT = auto()
     CATALOG_LOAD_VIEW_OP_EXEC = auto()
     SCHEDULER_RATE_LIMITS_AEXEC = auto()
+    TEST = auto()
 
 
 def create_fault_manager() -> Any:
