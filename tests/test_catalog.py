@@ -9,9 +9,10 @@ import pixeltable.exceptions as excs
 from pixeltable.catalog import Path, is_valid_identifier
 from pixeltable.runtime import get_runtime
 from pixeltable.share.packager import TablePackager, TableRestorer
-from pixeltable.utils.fault_injection import BlockFault, ExceptionFault, FaultLocation
+from pixeltable.utils.fault_injection import FaultLocation
 from tests.conftest import clean_db
 from tests.coordinator import MultiThreadedScenario
+from tests.fault_injection import BlockFault, ExceptionFault
 from tests.utils import pxt_raises, reload_catalog
 
 
@@ -247,7 +248,7 @@ class TestCatalog:
         assert op.needs_xact  # now a ClassVar
         assert 'needs_xact' not in op.to_dict()
 
-    def test_finalize_pending_ops_retriable_error(self, uses_db: None) -> None:
+    def test_finalize_pending_ops_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int})
         exc = sql_exc.DBAPIError('', {}, orig=psycopg.errors.SerializationFailure())
         fault = ExceptionFault(exc)
@@ -256,7 +257,7 @@ class TestCatalog:
         fault.assert_count(1)
         _ = t.select(t.b).collect()
 
-    def test_finalize_pending_ops_non_retriable_error(self, uses_db: None) -> None:
+    def test_finalize_pending_ops_non_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int})
         # Inject a non-retriable error into LoadViewOp. LoadViewOp is the last of 3 ops that constitute a view creation.
         # Upon catching the injected error, the catalog should abort view creation, and undo the first two ops that
@@ -274,7 +275,7 @@ class TestCatalog:
         assert len(ls) == 1, ls
         assert ls['Name'][0] == 'test', ls
 
-    def test_concurrent_add_column_insert(self, uses_db: None) -> None:
+    def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None) -> None:
         """Concurrent insert while add_column is blocked mid-finalize"""
         t = pxt.create_table('test', {'a': pxt.Int})
         fault = BlockFault()

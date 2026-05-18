@@ -13,7 +13,7 @@ from rich.progress import Progress
 from sqlalchemy import orm
 
 from pixeltable.env import Env
-from pixeltable.utils.fault_injection import FaultManager, create_fault_manager
+from pixeltable.utils import fault_injection
 
 if TYPE_CHECKING:
     from pixeltable._query import Query
@@ -42,7 +42,7 @@ class Runtime:
     _progress: Progress | None
     _event_loop: asyncio.AbstractEventLoop | None  # event loop for this thread
     _run_coro_executor: concurrent.futures.ThreadPoolExecutor | None
-    fault_manager: FaultManager
+    fault_manager: Any
 
     # True if this thread's runtime was populated from another thread via copy_db_context()
     context_inherited: bool
@@ -67,7 +67,7 @@ class Runtime:
         self._run_coro_executor = None
         self._clients = {}
         self.context_inherited = False
-        self.fault_manager = create_fault_manager()
+        self.fault_manager = fault_injection.create_fault_manager()
         self.plan_cache = WeakKeyDictionary()
 
     def copy_db_context(self, other: Runtime) -> None:

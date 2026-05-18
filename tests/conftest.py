@@ -159,10 +159,19 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
 
 
 @pytest.fixture(autouse=True)
-def clear_armed_faults() -> Iterator[None]:
-    """Disarms any faults that the test left behind"""
-    yield
-    get_runtime().fault_manager.clear_faults()
+def fault_injection() -> Iterator[None]:
+    """Enables fault injection"""
+    import pixeltable.utils.fault_injection as prod_fault_injection
+    import tests.fault_injection as test_fault_injection
+
+    # Monkey patch fault injection to product
+    prod_fault_injection.process_fault = test_fault_injection.process_fault
+    prod_fault_injection.create_fault_manager = test_fault_injection.create_fault_manager
+
+    try:
+        yield
+    finally:
+        get_runtime().fault_manager.clear_faults()
 
 
 @pytest.fixture(scope='function')

@@ -5,7 +5,8 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.fault_injection import ExceptionFault, FaultLocation
+from pixeltable.utils.fault_injection import FaultLocation
+from tests.fault_injection import ExceptionFault
 
 
 class DummyError(Exception):
