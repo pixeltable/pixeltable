@@ -6,6 +6,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, TypeVar
+from weakref import WeakKeyDictionary
 
 import sqlalchemy as sql
 from rich.progress import Progress
@@ -15,12 +16,14 @@ from pixeltable.env import Env
 from pixeltable.utils.fault_injection import FaultManager, create_fault_manager
 
 if TYPE_CHECKING:
+    from pixeltable._query import Query
     from pixeltable.catalog.catalog import Catalog
+    from pixeltable.exec import ExecPlan
 
 _logger = logging.getLogger('pixeltable')
 _thread_local = threading.local()
 
-SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
+_XACT_ISOLATION_LEVEL = 'READ COMMITTED'
 
 _T = TypeVar('_T')
 
@@ -48,6 +51,10 @@ class Runtime:
     # clients which are tied to an event loop)
     _clients: dict[str, Any]
 
+    # Per-thread cache of compiled query plans, keyed by Query identity. Entries auto-expire when the Query is
+    # garbage-collected.
+    plan_cache: WeakKeyDictionary[Query, ExecPlan]
+
     def __init__(self) -> None:
         # Catalog is created lazily to avoid circular initialization:
         # Catalog.__init__() calls _init_store() which needs begin_xact() which calls get_runtime().
@@ -61,6 +68,7 @@ class Runtime:
         self._clients = {}
         self.context_inherited = False
         self.fault_manager = create_fault_manager()
+        self.plan_cache = WeakKeyDictionary()
 
     def copy_db_context(self, other: Runtime) -> None:
         """Copy the db-related state from another Runtime instance."""
@@ -103,7 +111,7 @@ class Runtime:
             # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
             self._event_loop.slow_callback_duration = 3600
 
-        if _logger.isEnabledFor(logging.DEBUG):
+        if Env.get().logging_is_enabled_for(logging.DEBUG, 'runtime'):
             self._event_loop.set_debug(True)
 
     def get_client(self, name: str) -> Any:
@@ -133,7 +141,7 @@ class Runtime:
         Prefer Catalog.begin_xact() unless there is a specific reason to call this directly.
 
         Args:
-            for_write: if True, uses serializable isolation; if False, uses repeatable_read
+            for_write: unused (TODO use or remove)
 
         TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
         that avoids tripping over any pending ops
@@ -143,7 +151,7 @@ class Runtime:
         if not self.in_xact:
             assert self.session is None
             try:
-                self.isolation_level = SERIALIZABLE_ISOLATION_LEVEL
+                self.isolation_level = _XACT_ISOLATION_LEVEL
                 with (
                     Env.get().engine.connect().execution_options(isolation_level=self.isolation_level) as conn,
                     orm.Session(conn) as session,
@@ -158,7 +166,7 @@ class Runtime:
                 self.isolation_level = None
         else:
             assert self.session is not None
-            assert self.isolation_level == SERIALIZABLE_ISOLATION_LEVEL or not for_write
+            assert self.isolation_level == _XACT_ISOLATION_LEVEL or not for_write
             yield self.conn
 
     def start_progress(self, create_fn: Callable[[], Progress]) -> Progress:
