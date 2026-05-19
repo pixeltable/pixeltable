@@ -49,10 +49,10 @@ def pcli_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Ite
     prior_port = os.environ.get('PCLI_PORT')
     with open(log_path, 'w', encoding='utf-8') as log:
         proc = subprocess.Popen(
-            [sys.executable, '-m', 'pcli.server.daemon'], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL
+            [sys.executable, '-m', 'pxt_cli.server.daemon'], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL
         )
     try:
-        from pcli.probe import is_running
+        from pxt_cli.probe import is_running
 
         os.environ['PCLI_PORT'] = str(port)
         deadline = time.time() + 15

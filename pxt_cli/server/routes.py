@@ -9,11 +9,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
 
 import pixeltable as pxt
-from pcli import models, probe
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
+from pxt_cli import models, probe
 
 router = APIRouter()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()

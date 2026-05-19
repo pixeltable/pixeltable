@@ -1,12 +1,12 @@
-"""`python -m pcli.server.daemon` - pcli FastAPI daemon."""
+"""`python -m pxt_cli.server.daemon` - pcli FastAPI daemon."""
 
 import atexit
 import os
 
 import uvicorn
 
-from pcli.probe import get_port, pidfile_path
-from pcli.server.app import create_app
+from pxt_cli.probe import get_port, pidfile_path
+from pxt_cli.server.app import create_app
 
 
 def _write_pidfile() -> None:

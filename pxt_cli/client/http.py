@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from pcli.probe import ensure_running
+from pxt_cli.probe import ensure_running
 
 
 def _request(method: str, path: str, body: dict[str, Any] | None = None) -> Any:

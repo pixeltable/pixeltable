@@ -786,7 +786,7 @@ class TestRevert:
 
 
 class TestPathValidator:
-    """Client-side path validator (pcli.models._slash_only). Catches every well-known bad
+    """Client-side path validator (pxt_cli.models._slash_only). Catches every well-known bad
     shape before the request reaches the server so the user gets a clear error message
     instead of a generic 'Invalid path' from pxt."""
 

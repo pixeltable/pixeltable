@@ -3,7 +3,7 @@ import sys
 from collections.abc import Callable
 
 # Single source of truth for both the top-level help message and shell-mode dispatch.
-# Each key names a module under pcli.client.commands.* exposing run(argv: list[str]) -> None.
+# Each key names a module under pxt_cli.client.commands.* exposing run(argv: list[str]) -> None.
 COMMANDS: dict[str, str] = {
     'health': 'show daemon info',
     'ls': 'list catalog entries',
@@ -28,7 +28,7 @@ COMMANDS: dict[str, str] = {
 
 
 def _resolve(cmd: str) -> Callable[[list[str]], None]:
-    mod = importlib.import_module(f'pcli.client.commands.{cmd}')
+    mod = importlib.import_module(f'pxt_cli.client.commands.{cmd}')
     return mod.run
 
 
