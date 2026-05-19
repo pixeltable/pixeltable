@@ -509,7 +509,8 @@ def main() -> None:
     # Initialize Pixeltable before the actual test
     print('Running pxt.init()...')
     result = subprocess.run(
-        ['python', '-c', f'from tool.random_ops import run; run(0, False, None, None, {config_str}, init_only=True)'], check=False
+        ['python', '-c', f'from tool.random_ops import run; run(0, False, None, None, {config_str}, init_only=True)'],
+        check=False,
     )
     if result.returncode != 0:
         print('Init failed')
