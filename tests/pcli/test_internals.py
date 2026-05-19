@@ -41,6 +41,41 @@ def _pick_port() -> int:
         return s.getsockname()[1]
 
 
+# A canonical identity dict used by the probe tests below. Real values are too tied to the
+# host environment to assert against; tests pin the dict via _patch_identity and pass
+# matching responses (or override one field to provoke a mismatch).
+_DEFAULT_IDENTITY: dict[str, object] = {
+    'pxt_version': 'NEW',
+    'pxt_install_dir': '/opt/site-packages/pixeltable',
+    'python_executable': '/opt/conda/envs/pxt/bin/python',
+    'pixeltable_home': '/home/u/.pixeltable',
+    'pixeltable_pgdata': '/home/u/.pixeltable/pgdata',
+    'pixeltable_config_file': '/home/u/.pixeltable/config.toml',
+    'pixeltable_env': {},
+}
+
+
+def _patch_identity(monkeypatch: pytest.MonkeyPatch, overrides: dict[str, object]) -> dict[str, object]:
+    """Pin probe.identity() to a known dict so tests don't depend on the host environment."""
+    ident = {**_DEFAULT_IDENTITY, **overrides}
+    monkeypatch.setattr(probe, 'identity', lambda: dict(ident))
+    return ident
+
+
+def _health_payload(*, pid: int = 100, started_at: str = 'a', **identity_overrides: object) -> dict[str, object]:
+    """Build a /health response dict shaped like the real daemon's, with identity fields
+    matching _DEFAULT_IDENTITY by default. Override any field to simulate drift."""
+    body: dict[str, object] = {
+        'ok': True,
+        'service': 'pcli',
+        'pid': pid,
+        'started_at': started_at,
+        **_DEFAULT_IDENTITY,
+        **identity_overrides,
+    }
+    return body
+
+
 @pytest.fixture
 def fresh_port(init_env: None) -> Iterator[int]:
     """Allocate a port no daemon is using, and tear down any daemon left running on it."""
@@ -87,18 +122,12 @@ class TestProbe:
         # the spawned daemon's pidfile should now exist and contain that PID
         assert probe._read_pidfile() == body['pid']
 
-    def test_version_mismatch_refuses_unknown_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Safety: if a responder reports a different version AND its PID doesn't match our
-        pidfile, refuse to SIGTERM it. It might be an unrelated process on the same port."""
-        foreign_responder = {
-            'ok': True,
-            'service': 'pcli',
-            'pxt_version': 'OLD',
-            'pid': 99999,
-            'started_at': '2026-01-01',
-        }
+    def test_identity_mismatch_refuses_unknown_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Safety: if a responder reports a different identity AND its PID doesn't match
+        our pidfile, refuse to SIGTERM it. It might be an unrelated process on the same port."""
+        _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
+        foreign_responder = _health_payload(pxt_version='OLD', pid=99999)
         monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: foreign_responder)
-        monkeypatch.setattr(probe, '_client_pxt_version', lambda: 'NEW')
         monkeypatch.setattr(probe, '_read_pidfile', lambda: 12345)
         killed: list[int | str] = []
         monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
@@ -108,17 +137,12 @@ class TestProbe:
             probe.ensure_running()
         assert killed == []
 
-    def test_version_mismatch_restart_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Matching pidfile + version mismatch: ensure_running kills the old daemon, spawns
-        a new one, and cross-verifies the post-restart responder reports our version."""
-        responses = iter(
-            [
-                {'ok': True, 'service': 'pcli', 'pxt_version': 'OLD', 'pid': 100, 'started_at': 'a'},
-                {'ok': True, 'service': 'pcli', 'pxt_version': 'NEW', 'pid': 200, 'started_at': 'b'},
-            ]
-        )
+    def test_identity_mismatch_restart_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Matching pidfile + identity drift: ensure_running kills the old daemon, spawns a
+        new one, and cross-verifies the post-restart responder's identity matches ours."""
+        _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
+        responses = iter([_health_payload(pxt_version='OLD', pid=100), _health_payload(pxt_version='NEW', pid=200)])
         monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, '_client_pxt_version', lambda: 'NEW')
         monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
         actions: list[tuple[str, ...] | tuple[str, int]] = []
         monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
@@ -129,24 +153,65 @@ class TestProbe:
         assert url.startswith('http://127.0.0.1:')
         assert actions == [('kill', 100), ('spawn',)]
 
-    def test_version_mismatch_restart_verify_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_identity_mismatch_restart_verify_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Post-restart cross-verify: if the new responder still reports the killed PID,
         fail loudly instead of silently routing to whatever it is."""
-        responses = iter(
-            [
-                {'ok': True, 'service': 'pcli', 'pxt_version': 'OLD', 'pid': 100, 'started_at': 'a'},
-                {'ok': True, 'service': 'pcli', 'pxt_version': 'NEW', 'pid': 100, 'started_at': 'a'},
-            ]
-        )
+        _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
+        responses = iter([_health_payload(pxt_version='OLD', pid=100), _health_payload(pxt_version='NEW', pid=100)])
         monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, '_client_pxt_version', lambda: 'NEW')
         monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
         monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: None)
         monkeypatch.setattr(probe, 'spawn_detached', lambda: None)
         monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
 
-        with pytest.raises(RuntimeError, match='did not produce a matching-version responder'):
+        with pytest.raises(RuntimeError, match='did not produce a matching responder'):
             probe.ensure_running()
+
+    def test_identity_match_no_restart(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """All identity fields match: ensure_running returns the base URL without killing
+        or respawning anything."""
+        _patch_identity(monkeypatch, {})
+        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: _health_payload(pid=100))
+        actions: list[str] = []
+        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
+        monkeypatch.setattr(probe, 'spawn_detached', lambda: actions.append('spawn'))
+
+        url = probe.ensure_running()
+        assert url.startswith('http://127.0.0.1:')
+        assert actions == []
+
+    @pytest.mark.parametrize(
+        'drift_key,drift_value',
+        [
+            ('pxt_install_dir', '/elsewhere/site-packages/pixeltable'),
+            ('python_executable', '/elsewhere/bin/python'),
+            ('pixeltable_home', '/tmp/alt-home'),
+            ('pixeltable_pgdata', '/tmp/alt-pgdata'),
+            ('pixeltable_config_file', '/tmp/alt-config.toml'),
+            ('pixeltable_env', {'PIXELTABLE_TIME_ZONE': 'America/New_York'}),
+        ],
+    )
+    def test_each_identity_field_triggers_restart(
+        self, monkeypatch: pytest.MonkeyPatch, drift_key: str, drift_value: object
+    ) -> None:
+        """Drift in any single identity field is sufficient to trigger a daemon restart.
+        Locks in the per-field coverage so a future refactor can't silently drop one."""
+        _patch_identity(monkeypatch, {})
+        # Build the drifted payload by mutating after construction: spreading an
+        # object-typed dict into **kwargs can't satisfy the str-typed started_at parameter
+        # under mypy.
+        drifted = _health_payload(pid=100)
+        drifted[drift_key] = drift_value
+        responses = iter([drifted, _health_payload(pid=200)])
+        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
+        actions: list[tuple[str, ...] | tuple[str, int]] = []
+        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
+        monkeypatch.setattr(probe, 'spawn_detached', lambda: actions.append(('spawn',)))
+        monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
+
+        probe.ensure_running()
+        assert actions == [('kill', 100), ('spawn',)]
 
     def test_pidfile_malformed(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(probe, 'pidfile_path', lambda: str(tmp_path / 'bogus.pid'))
@@ -179,6 +244,9 @@ class TestProbe:
 
     def test_fetch_health_missing_identity_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeResp:
+            def __init__(self, body: bytes) -> None:
+                self._body = body
+
             def __enter__(self) -> Self:
                 return self
 
@@ -186,11 +254,33 @@ class TestProbe:
                 pass
 
             def read(self) -> bytes:
-                return b'{"ok": true, "service": "pcli"}'
+                return self._body
+
+        # legacy daemon shape (pre-identity): missing pxt_install_dir etc. -> rejected
+        legacy = json.dumps({'ok': True, 'service': 'pcli', 'pxt_version': '1.0', 'pid': 1, 'started_at': 'a'}).encode()
+        monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(legacy))
+        assert probe._fetch_health() is None
+        # absent service marker / no fields at all -> also rejected
+        monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(b'{"ok": true, "service": "pcli"}'))
+        assert probe._fetch_health() is None
+
+    def test_fetch_health_accepts_complete_identity(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """All identity fields present alongside pid/started_at -> accepted."""
+
+        class FakeResp:
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *a: object) -> None:
+                pass
+
+            def read(self) -> bytes:
+                return json.dumps(_health_payload()).encode()
 
         monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp())
-        # missing pxt_version/pid/started_at -> rejected
-        assert probe._fetch_health() is None
+        body = probe._fetch_health()
+        assert body is not None
+        assert all(k in body for k in probe._IDENTITY_KEYS)
 
     def test_fetch_health_url_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(*a: object, **kw: object) -> None:
@@ -319,6 +409,127 @@ class TestProbe:
 
         monkeypatch.setattr(probe.os, 'kill', boom)
         assert probe._pid_alive(0) is False
+
+
+class TestIdentity:
+    """The identity fingerprint helpers used by ensure_running() to detect installation
+    or environment drift between client and daemon."""
+
+    def test_resolve_pixeltable_home_uses_env_var(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+    ) -> None:
+        monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
+        assert probe._resolve_pixeltable_home() == str(tmp_path.resolve())
+
+    def test_resolve_pixeltable_home_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv('PIXELTABLE_HOME', raising=False)
+        assert probe._resolve_pixeltable_home() == str(pathlib.Path('~/.pixeltable').expanduser().resolve())
+
+    def test_resolve_pgdata_uses_env_var(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+        monkeypatch.setenv('PIXELTABLE_PGDATA', str(tmp_path / 'pg'))
+        assert probe._resolve_pixeltable_pgdata('/ignored') == str((tmp_path / 'pg').resolve())
+
+    def test_resolve_pgdata_default(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+        monkeypatch.delenv('PIXELTABLE_PGDATA', raising=False)
+        assert probe._resolve_pixeltable_pgdata(str(tmp_path)) == str((tmp_path / 'pgdata').resolve())
+
+    def test_resolve_config_file_uses_env_var(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(tmp_path / 'custom.toml'))
+        assert probe._resolve_pixeltable_config_file('/ignored') == str((tmp_path / 'custom.toml').resolve())
+
+    def test_resolve_config_file_default(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+        monkeypatch.delenv('PIXELTABLE_CONFIG', raising=False)
+        assert probe._resolve_pixeltable_config_file(str(tmp_path)) == str((tmp_path / 'config.toml').resolve())
+
+    @pytest.mark.parametrize(
+        'name,is_sensitive',
+        [
+            ('PIXELTABLE_HOME', False),
+            ('PIXELTABLE_TIME_ZONE', False),
+            ('PIXELTABLE_DB_CONNECT_STR', True),
+            ('PIXELTABLE_OPENAI_API_KEY', True),
+            ('PIXELTABLE_FOO_TOKEN', True),
+            ('PIXELTABLE_BAR_SECRET', True),
+            ('PIXELTABLE_PG_PASSWORD', True),
+            ('PIXELTABLE_PG_PASSWD', True),
+            # case-insensitive: lowercase still matches
+            ('pixeltable_token', True),
+        ],
+    )
+    def test_is_sensitive_env_name(self, name: str, is_sensitive: bool) -> None:
+        assert probe._is_sensitive_env_name(name) is is_sensitive
+
+    def test_redact_env_value_passthrough_for_plain(self) -> None:
+        assert probe._redact_env_value('PIXELTABLE_HOME', '/x/y/z') == '/x/y/z'
+
+    def test_redact_env_value_hashes_sensitive(self) -> None:
+        v1 = probe._redact_env_value('PIXELTABLE_DB_CONNECT_STR', 'postgres://u:p@h/db')
+        v2 = probe._redact_env_value('PIXELTABLE_DB_CONNECT_STR', 'postgres://u:p@h/db')
+        v3 = probe._redact_env_value('PIXELTABLE_DB_CONNECT_STR', 'postgres://u:p2@h/db')
+        assert v1.startswith('sha256:')
+        assert 'postgres' not in v1
+        # equal plaintexts -> equal hashes (the comparison invariant the client relies on)
+        assert v1 == v2
+        # different plaintexts -> different hashes (the drift detection invariant)
+        assert v1 != v3
+
+    def test_snapshot_filters_to_pixeltable_prefix(self) -> None:
+        env = {'PIXELTABLE_HOME': '/h', 'PATH': '/usr/bin', 'OPENAI_API_KEY': 'sk-leak'}
+        snap = probe._snapshot_pixeltable_env(env)
+        assert snap == {'PIXELTABLE_HOME': '/h'}
+
+    def test_snapshot_redacts_credentials(self) -> None:
+        env = {'PIXELTABLE_HOME': '/h', 'PIXELTABLE_DB_CONNECT_STR': 'postgres://u:p@h/db'}
+        snap = probe._snapshot_pixeltable_env(env)
+        assert snap['PIXELTABLE_HOME'] == '/h'
+        assert snap['PIXELTABLE_DB_CONNECT_STR'].startswith('sha256:')
+        # secret value must not appear anywhere in the snapshot
+        assert 'postgres' not in json.dumps(snap)
+
+    def test_snapshot_is_deterministic(self) -> None:
+        env_a = {'PIXELTABLE_B': '2', 'PIXELTABLE_A': '1'}
+        env_b = {'PIXELTABLE_A': '1', 'PIXELTABLE_B': '2'}
+        # Equal dicts regardless of insertion order; the comparison in ensure_running()
+        # relies on this.
+        assert probe._snapshot_pixeltable_env(env_a) == probe._snapshot_pixeltable_env(env_b)
+
+    def test_identity_dict_round_trips_through_json(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+    ) -> None:
+        """A daemon serializes identity through JSON before the client sees it; a Python dict
+        and the JSON-round-tripped equivalent must compare equal so equality drives the
+        restart decision rather than serialization artifacts."""
+        monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
+        monkeypatch.setenv('PIXELTABLE_TIME_ZONE', 'America/Los_Angeles')
+        ident = probe.identity()
+        assert json.loads(json.dumps(ident)) == ident
+
+    def test_identity_diff_lists_only_changed_keys(self) -> None:
+        client = dict(_DEFAULT_IDENTITY)
+        daemon = {**_DEFAULT_IDENTITY, 'pixeltable_home': '/elsewhere'}
+        assert probe._identity_diff(client, daemon) == ['pixeltable_home']
+
+    def test_identity_diff_treats_missing_daemon_key_as_drift(self) -> None:
+        """An old daemon that doesn't report a given identity key is treated as 'differs',
+        so an outdated daemon is restarted instead of trusted."""
+        client = dict(_DEFAULT_IDENTITY)
+        daemon = {k: v for k, v in _DEFAULT_IDENTITY.items() if k != 'python_executable'}
+        assert probe._identity_diff(client, daemon) == ['python_executable']
+
+    def test_client_pxt_install_dir_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(name: str) -> object:
+            raise importlib.metadata.PackageNotFoundError(name)
+
+        monkeypatch.setattr(probe.importlib.metadata, 'distribution', boom)
+        assert probe._client_pxt_install_dir() is None
+
+    def test_identity_includes_all_keys(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+        """Smoke-test: identity() returns exactly the set of keys the comparison logic
+        reads. A future field added to _IDENTITY_KEYS without populating it in identity()
+        would silently always-mismatch; this test catches that."""
+        monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
+        ident = probe.identity()
+        assert set(ident.keys()) == set(probe._IDENTITY_KEYS)
 
 
 class TestConfirm:

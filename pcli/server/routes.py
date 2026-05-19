@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
 
 import pixeltable as pxt
-from pcli import models
+from pcli import models, probe
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -18,10 +18,14 @@ from pixeltable.types import TreeNode
 router = APIRouter()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+# Freeze the identity fingerprint at import time so /health reports what the daemon was
+# launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
+_IDENTITY: dict[str, Any] = probe.identity()
+
 
 @router.get('/pcli/v0/health')
 def pcli_health() -> models.HealthResponse:
-    return models.HealthResponse(ok=True, pxt_version=pxt.__version__, pid=os.getpid(), started_at=_STARTED_AT)
+    return models.HealthResponse(ok=True, pid=os.getpid(), started_at=_STARTED_AT, **_IDENTITY)
 
 
 @router.get('/api/pixeltable-health')
