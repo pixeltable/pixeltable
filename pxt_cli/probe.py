@@ -2,7 +2,6 @@
 
 import hashlib
 import importlib.metadata
-import importlib.util
 import json
 import os
 import signal
@@ -161,14 +160,7 @@ def _identity_diff(client: dict[str, Any], daemon: dict[str, Any]) -> list[str]:
     return [k for k in _IDENTITY_KEYS if client.get(k) != daemon.get(k)]
 
 
-def _check_daemon_deps() -> None:
-    missing = [m for m in ('fastapi', 'uvicorn') if importlib.util.find_spec(m) is None]
-    if len(missing) > 0:
-        raise RuntimeError(f"pxt daemon requires {', '.join(missing)} (install with: pip install 'pixeltable[cli]')")
-
-
 def spawn_detached() -> None:
-    _check_daemon_deps()
     log_path = _daemon_log_path()
     try:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)

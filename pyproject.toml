@@ -75,9 +75,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Runtime deps for the `pcli` daemon. The pcli client itself is stdlib-only, but
-# `pcli` commands auto-spawn the daemon which needs fastapi + uvicorn.
-cli = ["fastapi[standard]>=0.120.0"]
+# `pxt serve` hosts a user-defined FastAPI app and shells out to uvicorn; the daemon
+# behind `pxt ls`/`pxt describe`/etc. is stdlib-only and does not need this extra.
+serve = ["fastapi[standard]>=0.120.0"]
 
 [project.urls]
 homepage = "https://pixeltable.com/"
@@ -197,6 +197,7 @@ dev = [
     "mdformat>=1.0.0",
     "nbqa>=1.9.1",
     "snowflake-sqlalchemy>=1.7.0",
+    # fastapi powers `pxt serve` (user-defined services); the pxt daemon itself is stdlib-only
     "fastapi[standard]>=0.120.0",
     "imagehash>=4.3",
     "scipy ; python_version < '3.14'",
@@ -346,11 +347,6 @@ preview = true
 
 [tool.ruff.lint.flake8-builtins]
 builtins-ignorelist = ["format", "input"]
-
-[tool.ruff.lint.flake8-bugbear]
-# FastAPI dependency-injection helpers are designed to be called in argument defaults;
-# silencing B008 for those follows ruff's documented escape hatch.
-extend-immutable-calls = ["fastapi.Query", "fastapi.Body", "fastapi.Path", "fastapi.Depends"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

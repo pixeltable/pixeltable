@@ -18,11 +18,6 @@ from typing import Any
 
 import pytest
 
-# The pxt daemon is behind the `pixeltable[cli]` extra. In CI profiles that don't
-# install it (`minimal`), skip the whole pxt-CLI test module rather than fail to spawn.
-pytest.importorskip('fastapi')
-pytest.importorskip('uvicorn')
-
 
 def _pick_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
