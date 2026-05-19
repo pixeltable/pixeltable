@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any, TypeVar, overload
 
 import pydantic
 
@@ -56,11 +56,13 @@ class Request:
             return default
         return vals[0]
 
-    def query_int(self, name: str, default: int | None = None, *, ge: int | None = None, le: int | None = None) -> int:
+    @overload
+    def query_int(self, name: str, *, default: None, ge: int | None = None, le: int | None = None) -> int | None: ...
+    @overload
+    def query_int(self, name: str, *, default: int, ge: int | None = None, le: int | None = None) -> int: ...
+    def query_int(self, name: str, *, default: int | None, ge: int | None = None, le: int | None = None) -> int | None:
         raw = self.query_str(name)
         if raw is None:
-            if default is None:
-                raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, f"missing required query parameter '{name}'")
             value = default
         else:
             try:
@@ -69,6 +71,8 @@ class Request:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT, f"'{name}' must be an integer; got {raw!r}"
                 ) from None
+        if value is None:
+            return None
         if ge is not None and value < ge:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"'{name}' must be >= {ge}; got {value}")
         if le is not None and value > le:

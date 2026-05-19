@@ -910,6 +910,18 @@ class TestServerRouteHelpers:
         monkeypatch.setattr(server_routes.pxt, 'get_table', lambda p: FakeT())
         assert server_routes._tbl_count('any/path') is None
 
+    def test_validate_path_rejects_control_chars(self) -> None:
+        # Defense in depth: every ASCII control character (including LF, which the
+        # route-matching regex already filters out) must be rejected at the validator level
+        # so future code paths that bypass the router can't smuggle them through.
+        for ch in ('\n', '\r', '\x00', '\x01', '\x1f', '\x7f'):
+            with pytest.raises(excs.RequestError) as ei:
+                server_routes._validate_path(f'foo{ch}bar')
+            assert 'control characters' in str(ei.value)
+        # plain printable paths still pass through
+        assert server_routes._validate_path('foo/bar') == 'foo/bar'
+        assert server_routes._validate_path('') == ''
+
 
 class TestDaemonCmd:
     """`pxt daemon start|stop|restart|status`. The action handlers in

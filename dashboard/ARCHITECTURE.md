@@ -4,17 +4,18 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 
 ## Stack
 
-**Backend:** FastAPI on the pxt daemon (`pxt_cli/server/`). Same `127.0.0.1:22089` port the CLI uses.
+**Backend:** stdlib `http.server.ThreadingHTTPServer` on the pxt daemon (`pxt_cli/server/`). Same `127.0.0.1:22089` port the CLI uses. Stdlib-only so the daemon ships in the base wheel without an extras install.
 **Frontend:** React 18 + Vite + TypeScript + Tailwind. `@xyflow/react` + `dagre` for DAGs. No state library.
 
 ## Backend
 
 | File | Role |
 |------|------|
-| `pxt_cli/server/app.py` | FastAPI app factory: CORS, dashboard feature gate, StaticFiles SPA mount |
+| `pxt_cli/server/app.py` | ThreadingHTTPServer host: dispatch loop, CORS headers, dashboard feature gate, static-file fallback for the SPA |
+| `pxt_cli/server/router.py` | Regex-based router with FastAPI-style `{name:path}` converters; pydantic body validation via `Request.body()` |
 | `pxt_cli/server/routes.py` | All `/api/*` endpoints, including `/api/dashboard/*` |
 | `pxt_cli/server/state.py` | In-process `dashboard_enabled` flag |
-| `pixeltable/dashboard/bridge.py` | Pixeltable to JSON. `_build_select`, `_resolve_fileurl`, `get_pipeline`, `get_table_data`, `export_table_csv`, `search`, `get_status` |
+| `pxt_cli/server/bridge.py` | Pixeltable to JSON. `_build_select`, `_resolve_fileurl`, `get_pipeline`, `get_table_data`, `export_table_csv`, `search`, `get_status` |
 
 ## Frontend (`dashboard/src/`)
 
