@@ -102,11 +102,6 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         except excs.Error as e:
             self._send_json({'detail': str(e), 'error_code': e.error_code.name}, e.http_status)
             return
-        except pydantic.ValidationError as e:
-            msgs = [str(err.get('msg', '')).removeprefix('Value error, ') for err in e.errors()]
-            detail = '; '.join(m for m in msgs if m != '') or 'invalid request'
-            self._send_json({'detail': detail}, http.HTTPStatus.BAD_REQUEST)
-            return
         except Exception:
             _logger.exception('Unhandled error in %s %s', method, url_path)
             self._send_json({'detail': 'internal server error'}, http.HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -158,7 +153,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
     def _serve_static(self, url_path: str) -> None:
         if url_path != '/':
             file_path = (_STATIC_DIR / url_path.lstrip('/')).resolve()
-            # Containment check defends against `..`/symlink escapes from the static root.
+            # Containment check defends against path traversal and symlink escapes from the static root.
             if _STATIC_DIR.resolve() in file_path.parents and file_path.is_file():
                 self._send_file(file_path)
                 return

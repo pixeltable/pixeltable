@@ -1,5 +1,3 @@
-"""`pxt daemon start|stop|restart|status` — control the local pxt daemon process."""
-
 from __future__ import annotations
 
 import json

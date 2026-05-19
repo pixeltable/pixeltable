@@ -1,10 +1,3 @@
-"""`pxt serve` — run a user-defined HTTP service over a pixeltable table.
-
-Two invocation styles:
-  pxt serve <service-name>                 (look up a named service in config.toml)
-  pxt serve insert|update|delete|query ... (inline route definition)
-"""
-
 from __future__ import annotations
 
 import argparse

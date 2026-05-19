@@ -665,8 +665,8 @@ class TestMain:
         assert 'commands:' in capsys.readouterr().out
 
     def test_main_no_args(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        # No command: print help and exit 0 (matches the prior `pxt` behavior so users who
-        # run the script with no args get the command list, not a non-zero error code).
+        # No command: print help and exit 0 so users who run the script with no args get
+        # the command list, not a non-zero error code.
         monkeypatch.setattr(client_main.sys, 'argv', ['pxt'])
         with pytest.raises(SystemExit) as ei:
             client_main.main()
@@ -777,7 +777,7 @@ class TestShell:
             check=False,
         )
         assert r.returncode == 0
-        # bad command produces a stderr line, but the follow-up `health` still runs
+        # bad command produces a stderr line, but the follow-up health command still runs
         assert 'unknown command' in r.stderr
         assert '"service": "pxt"' in r.stdout
 
@@ -795,7 +795,7 @@ class TestShell:
             ['pxt', 'shell'], input='help\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
         )
         assert r.returncode == 0
-        # `help` lists every non-shell command
+        # help lists every non-shell command
         assert all(c in r.stdout for c in ('health', 'ls', 'describe'))
 
     def test_shell_empty_line(self, pxt_daemon: int) -> None:
@@ -1051,7 +1051,7 @@ class TestDaemonCmd:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
     ) -> None:
         # First cycle: daemon present with matching pids; stop kills it, then start spawns
-        # a new one. fetch_health returns a daemon for stop, then a daemon (different PID)
+        # a new one. fetch_health() returns a daemon for stop, then a daemon (different PID)
         # after start.
         states = iter(
             [

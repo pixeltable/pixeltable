@@ -1,5 +1,3 @@
-"""`pxt dashboard start|stop|restart|open` -- control the dashboard SPA hosted by the daemon."""
-
 from __future__ import annotations
 
 import sys
@@ -65,8 +63,9 @@ def _do_stop(ok_if_absent: bool) -> None:
 
 
 def _do_open() -> None:
-    # Match `start`: spawn the daemon if it isn't already up so the browser doesn't land
-    # on a connection error. The flag stays where it was; `open` is URL-launch, not control.
+    # Match the start subcommand: spawn the daemon if it isn't already up so the browser
+    # doesn't land on a connection error. The flag stays where it was; open is URL-launch,
+    # not control.
     try:
         probe.ensure_running()
     except RuntimeError as e:
