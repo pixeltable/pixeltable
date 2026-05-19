@@ -13,6 +13,7 @@ from .catalog import (
     InsertableTable,
     Table,
     TableMetadata,
+    TableModel,
     UpdateStatus,
     VersionMetadata,
     View,
