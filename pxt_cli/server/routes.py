@@ -75,7 +75,7 @@ def config(_req: Request) -> models.ConfigResponse:
     #   1. params from registered API client factories (eg openai.api_key, replicate.api_token)
     #   2. name-suffix match for keys that aren't tied to an Env-registered client
     #      (eg azure.storage_account_key, anything ending in _password)
-    client_creds: set[str] = {p for params in Env.get().get_client_credential_params().values() for p in params}
+    client_creds: set[str] = set(Env.get().get_client_credential_params().values())
     sensitive_suffixes = ('_key', '_token', '_secret', '_password')
     entries: list[models.ConfigEntry] = []
     for ck in Config.get().config_keys():

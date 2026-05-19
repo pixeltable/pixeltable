@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from mistralai.client import Mistral
 
 
-@register_client('mistral')
+@register_client('mistral', credential_param='api_key')
 def _(api_key: str) -> 'Mistral':
     from mistralai.client import Mistral
 

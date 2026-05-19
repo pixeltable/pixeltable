@@ -21,7 +21,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import Any, Callable, ClassVar, TypeVar
+from typing import Any, Callable, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
@@ -92,8 +92,6 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
     _dbms: Dbms | None
-
-    _CREDENTIAL_PARAM_NAMES: ClassVar[tuple[str, ...]] = ('api_key', 'api_token', 'api_secret', 'auth_token')
 
     @classmethod
     def get(cls) -> Env:
@@ -665,17 +663,17 @@ class Env:
         self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
         return client
 
-    def get_client_credential_params(self) -> dict[str, list[str]]:
-        """Return the credential-bearing init params for each registered API client with credentials.
+    def get_client_credential_params(self) -> dict[str, str]:
+        """Return the credential-bearing init param for each registered API client.
 
-        Returns: Mapping from provider name to its credential param names in registration order.
+        Returns: Mapping from provider name to its credential param name; clients with no
+        credential param (eg object-store factories) are omitted.
         """
-        out: dict[str, list[str]] = {}
+        out: dict[str, str] = {}
         with _client_factories_lock:
             for name, factory in _client_factories.items():
-                cred_params = [p for p in factory.params if p in self._CREDENTIAL_PARAM_NAMES]
-                if len(cred_params) > 0:
-                    out[name] = cred_params
+                if factory.credential_param is not None:
+                    out[name] = factory.credential_param
         return out
 
     def _start_web_server(self) -> None:
@@ -962,7 +960,7 @@ class Env:
         self._managed_logging_handlers.clear()
 
 
-def register_client(name: str) -> Callable:
+def register_client(name: str, *, credential_param: str | None) -> Callable:
     """Decorator that registers a third-party API client for use by Pixeltable.
 
     The decorated function is an initialization wrapper for the client, and can have
@@ -984,14 +982,21 @@ def register_client(name: str) -> Callable:
     otherwise it throws an exception.
 
     Args:
-        - name (str): The name of the API client (e.g., 'openai' or 'label-studio').
+        name: The name of the API client (e.g., 'openai' or 'label_studio').
+        credential_param: The factory parameter whose value must be treated as a secret, or
+            None for factories whose parameters carry no credentials (e.g. object-store clients
+            that read their auth from the surrounding AWS_*/GCS_* environment).
     """
 
     def decorator(fn: Callable) -> None:
         sig = inspect.signature(fn)
         params = dict(sig.parameters)
+        if credential_param is not None and credential_param not in params:
+            raise ValueError(
+                f'register_client({name!r}): credential_param {credential_param!r} is not a factory parameter'
+            )
         with _client_factories_lock:
-            _client_factories[name] = ApiClientFactory(init_fn=fn, params=params)
+            _client_factories[name] = ApiClientFactory(init_fn=fn, params=params, credential_param=credential_param)
 
     return decorator
 
@@ -1004,6 +1009,7 @@ _client_factories: dict[str, ApiClientFactory] = {}
 class ApiClientFactory:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
+    credential_param: str | None
 
 
 @dataclass
