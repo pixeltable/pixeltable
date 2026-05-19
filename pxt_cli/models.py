@@ -23,9 +23,6 @@ def _slash_only(v: str | None) -> str | None:
 PxtPath = Annotated[str, AfterValidator(_slash_only)]
 
 
-# === Health / identity ========================================================================
-
-
 class HealthResponse(BaseModel):
     ok: bool
     service: Literal['pxt'] = 'pxt'
@@ -49,7 +46,69 @@ class HealthResponse(BaseModel):
     pixeltable_env: dict[str, str]
 
 
-# === Status / config ==========================================================================
+class LsEntry(BaseModel):
+    path: str
+    kind: Literal['table', 'view', 'snapshot', 'replica', 'dir']
+    num_rows: int | None = None
+    num_cols: int | None = None
+    last_version: int | None = None
+    flags: str = ''
+
+
+class LsResponse(BaseModel):
+    entries: list[LsEntry]
+    tree: dict[str, Any] | None = None
+
+
+class DescribeResponse(BaseModel):
+    text: str
+    metadata: dict[str, Any]
+
+
+class ErrorEntry(BaseModel):
+    pk: dict[str, Any]
+    column: str
+    errortype: str
+    errormsg: str | None
+
+
+class ErrorsResponse(BaseModel):
+    entries: list[ErrorEntry]
+
+
+class HistoryResponse(BaseModel):
+    versions: list[dict[str, Any]]  # raw VersionMetadata; client formats
+
+
+class ColumnEntry(BaseModel):
+    table: str
+    column: str
+    is_computed: bool
+    type_: str
+    computed_with: str | None = None
+    depends_on: list[tuple[str, str]] | None = None
+
+
+class ColumnsResponse(BaseModel):
+    entries: list[ColumnEntry]
+
+
+class IdxEntry(BaseModel):
+    table: str
+    name: str
+    columns: list[str]
+    index_type: str
+    metric: str | None = None
+    embedding: str | None = None
+
+
+class IdxsResponse(BaseModel):
+    entries: list[IdxEntry]
+
+
+class RowsResponse(BaseModel):
+    columns: list[str]
+    rows: list[dict[str, Any]]
 
 
 class StatusResponse(BaseModel):
@@ -84,91 +143,14 @@ class ConfigResponse(BaseModel):
     entries: list[ConfigEntry]
 
 
-# === Directories ==============================================================================
-
-
-class LsEntry(BaseModel):
-    path: str
-    kind: Literal['table', 'view', 'snapshot', 'replica', 'dir']
-    num_rows: int | None = None
-    num_cols: int | None = None
-    last_version: int | None = None
-    flags: str = ''
-
-
-class LsResponse(BaseModel):
-    entries: list[LsEntry]
-    tree: dict[str, Any] | None = None
-
-
-# === Tables ===================================================================================
-
-
-class DescribeResponse(BaseModel):
-    text: str
-    metadata: dict[str, Any]
-
-
-class RowsResponse(BaseModel):
-    columns: list[str]
-    rows: list[dict[str, Any]]
-
-
-class GetResponse(BaseModel):
-    pk_columns: list[str]
-    row: dict[str, Any] | None
-
-
 class CountResponse(BaseModel):
     path: str
     count: int
 
 
-class ErrorEntry(BaseModel):
-    pk: dict[str, Any]
-    column: str
-    errortype: str
-    errormsg: str | None
-
-
-class ErrorsResponse(BaseModel):
-    entries: list[ErrorEntry]
-
-
-class HistoryResponse(BaseModel):
-    versions: list[dict[str, Any]]  # raw VersionMetadata; client formats
-
-
-# === Cross-table aggregates ===================================================================
-
-
-class ColumnEntry(BaseModel):
-    table: str
-    column: str
-    is_computed: bool
-    type_: str
-    computed_with: str | None = None
-    depends_on: list[tuple[str, str]] | None = None
-
-
-class ColumnsResponse(BaseModel):
-    entries: list[ColumnEntry]
-
-
-class IdxEntry(BaseModel):
-    table: str
-    name: str
-    columns: list[str]
-    index_type: str
-    metric: str | None = None
-    embedding: str | None = None
-
-
-class IdxsResponse(BaseModel):
-    entries: list[IdxEntry]
-
-
-# === Mutator request bodies ===================================================================
+class GetResponse(BaseModel):
+    pk_columns: list[str]
+    row: dict[str, Any] | None
 
 
 class DropBody(BaseModel):
@@ -178,16 +160,6 @@ class DropBody(BaseModel):
 class DropResponse(BaseModel):
     path: str
     dropped: bool
-
-
-class RevertBody(BaseModel):
-    steps: int = 1  # number of consecutive revert() calls
-
-
-class RevertResponse(BaseModel):
-    path: str
-    from_version: int
-    to_version: int
 
 
 class MoveBody(BaseModel):
@@ -200,7 +172,14 @@ class MoveResponse(BaseModel):
     new_path: str
 
 
-# === Dashboard control ========================================================================
+class RevertBody(BaseModel):
+    steps: int = 1  # number of consecutive revert() calls
+
+
+class RevertResponse(BaseModel):
+    path: str
+    from_version: int
+    to_version: int
 
 
 class DashboardControlBody(BaseModel):
