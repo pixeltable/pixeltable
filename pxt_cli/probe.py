@@ -47,7 +47,7 @@ def pidfile_path() -> str:
     return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{get_port()}.pid')
 
 
-def _read_pidfile() -> int | None:
+def read_pidfile() -> int | None:
     try:
         with open(pidfile_path(), encoding='utf-8') as f:
             return int(f.read().strip())
@@ -75,7 +75,7 @@ _IDENTITY_KEYS: tuple[str, ...] = (
 )
 
 
-def _fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
+def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
     try:
         with urllib.request.urlopen(health_url(), timeout=timeout) as r:
             body = json.loads(r.read())
@@ -93,7 +93,7 @@ def _fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
 
 
 def is_running(timeout: float = 0.3) -> bool:
-    return _fetch_health(timeout) is not None
+    return fetch_health(timeout) is not None
 
 
 def _client_pxt_version() -> str | None:
@@ -233,7 +233,7 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _kill_and_wait(pid: int, timeout: float = 5.0) -> None:
+def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
     # Wait on the PID itself (not /health) so a hung-but-alive daemon that still holds the
     # listen socket is detected and SIGKILLed; otherwise the next spawn would fail with
     # 'address already in use' because we returned early on the health probe.
@@ -256,7 +256,7 @@ def _kill_and_wait(pid: int, timeout: float = 5.0) -> None:
 
 
 def ensure_running() -> str:
-    health = _fetch_health()
+    health = fetch_health()
     if health is not None:
         client_identity = identity()
         diff = _identity_diff(client_identity, health)
@@ -266,20 +266,20 @@ def ensure_running() -> str:
             # ourselves. We compare the pidfile against the responder's self-reported PID -
             # if they disagree, the responder is not our daemon and we refuse to SIGTERM an
             # unrelated process.
-            tracked_pid = _read_pidfile()
+            tracked_pid = read_pidfile()
             reported_pid = health.get('pid')
             if tracked_pid is None or tracked_pid != reported_pid:
                 raise RuntimeError(
                     f'a process on port {get_port()} is responding to /api/health but does not match '
                     f'our pidfile (pidfile={tracked_pid}, responder={reported_pid}); refusing to terminate it'
                 )
-            _kill_and_wait(tracked_pid)
+            kill_and_wait(tracked_pid)
             spawn_detached()
             wait_for_health()
             # Cross-verify: the new responder must have a fresh PID and an identity that
             # fully matches the client. Anything else means the restart did not actually
             # swap in a daemon belonging to this install/env.
-            new_health = _fetch_health()
+            new_health = fetch_health()
             if new_health is None:
                 reason = 'new daemon did not respond to /pcli/v0/health'
             elif new_health.get('pid') == tracked_pid:
