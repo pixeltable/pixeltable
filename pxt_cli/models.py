@@ -198,3 +198,14 @@ class MoveBody(BaseModel):
 class MoveResponse(BaseModel):
     path: str
     new_path: str
+
+
+# === Dashboard control ========================================================================
+
+
+class DashboardControlBody(BaseModel):
+    action: Literal['enable', 'disable']
+
+
+class DashboardControlResponse(BaseModel):
+    enabled: bool

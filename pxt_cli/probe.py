@@ -14,8 +14,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-# TODO: move to 22089 when consolidating pcli with pxt
-DEFAULT_PORT = 22090
+DEFAULT_PORT = 22089
 _IS_WINDOWS = os.name == 'nt'
 
 
@@ -35,17 +34,17 @@ def _resolve_pixeltable_config_file(home: str) -> str:
 
 
 def _daemon_log_path() -> str:
-    return os.path.join(_resolve_pixeltable_home(), 'logs', 'pcli-daemon.log')
+    return os.path.join(_resolve_pixeltable_home(), 'logs', 'pxt-daemon.log')
 
 
 def get_port() -> int:
-    return int(os.environ.get('PCLI_PORT') or DEFAULT_PORT)
+    return int(os.environ.get('PXT_PORT') or DEFAULT_PORT)
 
 
 def pidfile_path() -> str:
     """Per-port pidfile path. The port parameterization isolates daemons running on
     different ports so they don't read or stomp each other's PID."""
-    return os.path.join(_resolve_pixeltable_home(), f'pcli-daemon-{get_port()}.pid')
+    return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{get_port()}.pid')
 
 
 def _read_pidfile() -> int | None:
@@ -165,7 +164,7 @@ def _identity_diff(client: dict[str, Any], daemon: dict[str, Any]) -> list[str]:
 def _check_daemon_deps() -> None:
     missing = [m for m in ('fastapi', 'uvicorn') if importlib.util.find_spec(m) is None]
     if len(missing) > 0:
-        raise RuntimeError(f"pcli daemon requires {', '.join(missing)} (install with: pip install 'pixeltable[cli]')")
+        raise RuntimeError(f"pxt daemon requires {', '.join(missing)} (install with: pip install 'pixeltable[cli]')")
 
 
 def spawn_detached() -> None:
@@ -186,7 +185,7 @@ def spawn_detached() -> None:
             subprocess.Popen([sys.executable, '-m', 'pxt_cli.server.daemon'], stdout=log, stderr=log, **popen_kwargs)
     except OSError as e:
         reason = e.strerror or e.__class__.__name__
-        raise RuntimeError(f'pcli daemon log unavailable ({log_path}): {reason}') from None
+        raise RuntimeError(f'pxt daemon log unavailable ({log_path}): {reason}') from None
 
 
 _TAIL_BYTES = 64 * 1024  # plenty of headroom for n_lines while bounding memory on huge logs
@@ -212,7 +211,7 @@ def wait_for_health(timeout: float = 15.0) -> None:
             return
         time.sleep(0.1)
     tail = _tail_daemon_log()
-    msg = f'pcli daemon did not come up within {timeout}s'
+    msg = f'pxt daemon did not come up within {timeout}s'
     if tail != '':
         msg += f'\n--- daemon log tail ---\n{tail}'
     raise RuntimeError(msg)
@@ -271,7 +270,7 @@ def ensure_running() -> str:
             reported_pid = health.get('pid')
             if tracked_pid is None or tracked_pid != reported_pid:
                 raise RuntimeError(
-                    f'a process on port {get_port()} is responding to /pcli/v0/health but does not match '
+                    f'a process on port {get_port()} is responding to /api/health but does not match '
                     f'our pidfile (pidfile={tracked_pid}, responder={reported_pid}); refusing to terminate it'
                 )
             _kill_and_wait(tracked_pid)
@@ -293,7 +292,7 @@ def ensure_running() -> str:
                     reason = ''
             if reason != '':
                 raise RuntimeError(
-                    f'pcli daemon restart did not produce a matching responder on port {get_port()}: {reason}'
+                    f'pxt daemon restart did not produce a matching responder on port {get_port()}: {reason}'
                 )
     else:
         spawn_detached()

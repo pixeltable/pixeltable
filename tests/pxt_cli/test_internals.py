@@ -1,4 +1,4 @@
-"""Unit tests for pcli internals.
+"""Unit tests for cli internals.
 
 Covers things that aren't reachable through the daemon smoke tests:
   - probe.py spawn / restart / kill safety paths (monkeypatched)
@@ -80,8 +80,8 @@ def _health_payload(*, pid: int = 100, started_at: str = 'a', **identity_overrid
 def fresh_port(init_env: None) -> Iterator[int]:
     """Allocate a port no daemon is using, and tear down any daemon left running on it."""
     port = _pick_port()
-    prior = os.environ.get('PCLI_PORT')
-    os.environ['PCLI_PORT'] = str(port)
+    prior = os.environ.get('PXT_PORT')
+    os.environ['PXT_PORT'] = str(port)
     try:
         yield port
     finally:
@@ -94,17 +94,17 @@ def fresh_port(init_env: None) -> Iterator[int]:
             except Exception:
                 pass
         if prior is None:
-            os.environ.pop('PCLI_PORT', None)
+            os.environ.pop('PXT_PORT', None)
         else:
-            os.environ['PCLI_PORT'] = prior
+            os.environ['PXT_PORT'] = prior
 
 
 class TestProbe:
     """Spawn / restart / kill safety paths."""
 
     def test_auto_spawn_when_no_daemon_running(self, fresh_port: int) -> None:
-        """Cold start: no daemon on the port, the pcli client spawns one and routes the command."""
-        env = {**os.environ, 'PCLI_PORT': str(fresh_port)}
+        """Cold start: no daemon on the port, the cli client spawns one and routes the command."""
+        env = {**os.environ, 'PXT_PORT': str(fresh_port)}
         r = subprocess.run(
             [sys.executable, '-m', 'pxt_cli.client.main', 'health'],
             capture_output=True,
@@ -253,7 +253,7 @@ class TestProbe:
         monkeypatch.setattr(probe, 'pidfile_path', lambda: str(tmp_path / 'missing.pid'))
         assert probe._read_pidfile() is None
 
-    def test_fetch_health_rejects_non_pcli_marker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_fetch_health_rejects_non_cli_marker(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A responder that returns {ok: true} but isn't us is not our daemon."""
 
         class FakeResp:
@@ -338,7 +338,7 @@ class TestProbe:
             raise OSError('disk full')
 
         monkeypatch.setattr(probe.os, 'makedirs', boom)
-        with pytest.raises(RuntimeError, match='pcli daemon log unavailable'):
+        with pytest.raises(RuntimeError, match='pxt daemon log unavailable'):
             probe.spawn_detached()
 
     def test_tail_daemon_log_missing(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -630,26 +630,26 @@ class TestConfirm:
 
 class TestParser:
     def test_error_exits_with_epilog(self, capsys: pytest.CaptureFixture) -> None:
-        p = client_parser.Parser(prog='pcli foo', epilog='Examples:\n  pcli foo bar')
+        p = client_parser.Parser(prog='cli foo', epilog='Examples:\n  cli foo bar')
         p.add_argument('required')
         with pytest.raises(SystemExit) as ei:
             p.parse_args([])
         assert ei.value.code == 2
         err = capsys.readouterr().err
-        assert 'pcli foo' in err
+        assert 'cli foo' in err
         assert 'Examples:' in err
 
     def test_parse_cols_none(self) -> None:
-        p = client_parser.Parser(prog='pcli x')
+        p = client_parser.Parser(prog='cli x')
         assert client_parser.parse_cols(None, p) is None
 
     def test_parse_cols_valid(self) -> None:
-        p = client_parser.Parser(prog='pcli x')
+        p = client_parser.Parser(prog='cli x')
         assert client_parser.parse_cols('a,b, c', p) == ['a', 'b', 'c']
 
     @pytest.mark.parametrize('arg', ['a,', ',a', 'a,,b', ',', '  ,a'])
     def test_parse_cols_rejects_empty_tokens(self, arg: str, capsys: pytest.CaptureFixture) -> None:
-        p = client_parser.Parser(prog='pcli x')
+        p = client_parser.Parser(prog='cli x')
         with pytest.raises(SystemExit) as ei:
             client_parser.parse_cols(arg, p)
         assert ei.value.code == 2
@@ -754,8 +754,8 @@ class TestHttp:
 class TestShell:
     """Exercise the REPL via subprocess to cover input/eof/error branches."""
 
-    def test_shell_runs_health_then_exits(self, pcli_daemon: int) -> None:
-        env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
+    def test_shell_runs_health_then_exits(self, pxt_daemon: int) -> None:
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', 'shell'], input='health\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
         )
@@ -763,8 +763,8 @@ class TestShell:
         # the health response is JSON; should appear in stdout between two prompts
         assert '"service": "pxt"' in r.stdout
 
-    def test_shell_eof_exits_cleanly(self, pcli_daemon: int) -> None:
-        env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
+    def test_shell_eof_exits_cleanly(self, pxt_daemon: int) -> None:
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', 'shell'],
             input='',  # immediate EOF
@@ -776,8 +776,8 @@ class TestShell:
         )
         assert r.returncode == 0
 
-    def test_shell_unknown_command_does_not_kill_session(self, pcli_daemon: int) -> None:
-        env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
+    def test_shell_unknown_command_does_not_kill_session(self, pxt_daemon: int) -> None:
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', 'shell'],
             input='not_a_cmd\nhealth\nexit\n',
@@ -792,16 +792,16 @@ class TestShell:
         assert 'unknown command' in r.stderr
         assert '"service": "pxt"' in r.stdout
 
-    def test_shell_rejects_nested_shell(self, pcli_daemon: int) -> None:
-        env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
+    def test_shell_rejects_nested_shell(self, pxt_daemon: int) -> None:
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', 'shell'], input='shell\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
         )
         assert r.returncode == 0
         assert 'already in shell' in r.stderr
 
-    def test_shell_help(self, pcli_daemon: int) -> None:
-        env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
+    def test_shell_help(self, pxt_daemon: int) -> None:
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', 'shell'], input='help\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
         )
@@ -809,8 +809,8 @@ class TestShell:
         # `help` lists every non-shell command
         assert all(c in r.stdout for c in ('health', 'ls', 'describe'))
 
-    def test_shell_empty_line(self, pcli_daemon: int) -> None:
-        env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
+    def test_shell_empty_line(self, pxt_daemon: int) -> None:
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', 'shell'],
             input='\n\nhealth\nexit\n',
@@ -823,8 +823,8 @@ class TestShell:
         assert r.returncode == 0
         assert '"service": "pxt"' in r.stdout
 
-    def test_shell_parse_error(self, pcli_daemon: int) -> None:
-        env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
+    def test_shell_parse_error(self, pxt_daemon: int) -> None:
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         # unterminated quote -> shlex.split raises ValueError
         r = subprocess.run(
             ['pxt', 'shell'],

@@ -248,7 +248,7 @@ exclude = [
     "/tool",
 ]
 artifacts = [
-    "pixeltable/dashboard/static/**",
+    "pxt_cli/server/static/**",
 ]
 
 [tool.isort]

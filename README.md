@@ -430,17 +430,14 @@ old_version = pxt.get_table('my_table:472')  # Query a specific version
 <summary><b>Inspect:</b> Local Dashboard</summary>
 <br>
 
-Pixeltable ships with a built-in local dashboard that launches automatically when you start a session. Browse tables, inspect schemas, view media with lightbox navigation, visualize your full data pipeline as a DAG, and track computation errors, all from your browser.
+Pixeltable ships with a built-in local dashboard. Browse tables, inspect schemas, view media with lightbox navigation, visualize your full data pipeline as a DAG, and track computation errors, all from your browser.
 
-```python
-import pixeltable as pxt
+```bash
+# Start the dashboard at http://localhost:22089
+pxt dashboard start
 
-# Dashboard launches automatically at http://localhost:22089
-pxt.init()
-
-# Disable if needed
-pxt.init(config_overrides={'start_dashboard': False})
-# Or set environment variable: PIXELTABLE_START_DASHBOARD=false
+# Stop it
+pxt dashboard stop
 ```
 
 **Highlights:** Table browser with sorting & filtering · Media preview (images, video, audio) · Column lineage visualization · Pipeline graph · Per-column error tracking · CSV export · Auto-refresh
