@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import random
+import subprocess
 import sys
 import time
 from argparse import ArgumentParser
@@ -416,22 +417,22 @@ def init(config: RandomTableOpsConfig) -> None:
 
 
 def run(
-    worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str
+    worker_id: int,
+    read_only: bool,
+    include_only_ops: list[str] | None,
+    exclude_ops: list[str] | None,
+    config_str: str,
+    *,
+    init_only: bool = False,
 ) -> None:
     """Entrypoint for a worker process."""
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
     config = RandomTableOpsConfig(**json.loads(config_str))
 
-    # In order to localize initialization to a single process, we call pxt.init() only from worker 0. The timings are
-    # adjusted so that all workers start issuing operations at approximately the same time.
-    # TODO: Do we want pxt.init() to be concurrency-safe (the first time it is called, when setting up the DB)?
-    if worker_id == 0:
-        t = time.monotonic()
+    if init_only:
         init(config)
-        time.sleep(5 - time.monotonic() + t)  # Sleep until 5 seconds after init
-    else:
-        time.sleep(5)
+        return
 
     try:
         RandomTableOps(worker_id, read_only, include_only_ops or [], exclude_ops or [], config).run()
@@ -504,6 +505,15 @@ def main() -> None:
                 sys.exit(1)
 
     config_str = repr(json.dumps(dataclasses.asdict(config)))
+
+    # Initialize Pixeltable before the actual test
+    print('Running pxt.init()...')
+    result = subprocess.run(
+        ['python', '-c', f'from tool.random_ops import run; run(0, False, None, None, {config_str}, init_only=True)'], check=False
+    )
+    if result.returncode != 0:
+        print('Init failed')
+        sys.exit(result.returncode)
 
     worker_args = [
         [
