@@ -411,7 +411,7 @@ class RandomTableOps:
 
 
 def init(config: RandomTableOpsConfig) -> None:
-    """Initialization. This will ONLY be run once (globally), on Worker 0."""
+    """Initialization. This will only be run once before test workers are started."""
     print(json.dumps(dataclasses.asdict(config), indent=4))
     pxt.init()
 
