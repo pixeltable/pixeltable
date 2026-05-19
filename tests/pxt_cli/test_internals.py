@@ -669,17 +669,31 @@ class TestMain:
         assert 'unknown command' in capsys.readouterr().err
 
     def test_main_help_flag(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(client_main.sys, 'argv', ['pcli', '--help'])
+        monkeypatch.setattr(client_main.sys, 'argv', ['pxt', '--help'])
         with pytest.raises(SystemExit) as ei:
             client_main.main()
         assert ei.value.code == 0
         assert 'commands:' in capsys.readouterr().out
 
-    def test_main_no_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(client_main.sys, 'argv', ['pcli'])
+    def test_main_no_args(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        # No command: print help and exit 0 (matches the prior `pxt` behavior so users who
+        # run the script with no args get the command list, not a non-zero error code).
+        monkeypatch.setattr(client_main.sys, 'argv', ['pxt'])
         with pytest.raises(SystemExit) as ei:
             client_main.main()
-        assert ei.value.code == 2
+        assert ei.value.code == 0
+        assert 'commands:' in capsys.readouterr().out
+
+    def test_main_version_flag(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        monkeypatch.setattr(client_main.sys, 'argv', ['pxt', '--version'])
+        with pytest.raises(SystemExit) as ei:
+            client_main.main()
+        assert ei.value.code == 0
+        out = capsys.readouterr().out
+        # importlib.metadata produces the installed version; just verify the prefix is right
+        # and a version-looking dotted string follows
+        assert out.startswith('pxt ')
+        assert '.' in out
 
 
 class TestHttp:
@@ -743,7 +757,7 @@ class TestShell:
     def test_shell_runs_health_then_exits(self, pcli_daemon: int) -> None:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
         r = subprocess.run(
-            ['pcli', 'shell'], input='health\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
+            ['pxt', 'shell'], input='health\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
         )
         assert r.returncode == 0, r.stderr
         # the health response is JSON; should appear in stdout between two prompts
@@ -752,7 +766,7 @@ class TestShell:
     def test_shell_eof_exits_cleanly(self, pcli_daemon: int) -> None:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
         r = subprocess.run(
-            ['pcli', 'shell'],
+            ['pxt', 'shell'],
             input='',  # immediate EOF
             capture_output=True,
             text=True,
@@ -765,7 +779,7 @@ class TestShell:
     def test_shell_unknown_command_does_not_kill_session(self, pcli_daemon: int) -> None:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
         r = subprocess.run(
-            ['pcli', 'shell'],
+            ['pxt', 'shell'],
             input='not_a_cmd\nhealth\nexit\n',
             capture_output=True,
             text=True,
@@ -781,7 +795,7 @@ class TestShell:
     def test_shell_rejects_nested_shell(self, pcli_daemon: int) -> None:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
         r = subprocess.run(
-            ['pcli', 'shell'], input='shell\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
+            ['pxt', 'shell'], input='shell\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
         )
         assert r.returncode == 0
         assert 'already in shell' in r.stderr
@@ -789,7 +803,7 @@ class TestShell:
     def test_shell_help(self, pcli_daemon: int) -> None:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
         r = subprocess.run(
-            ['pcli', 'shell'], input='help\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
+            ['pxt', 'shell'], input='help\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
         )
         assert r.returncode == 0
         # `help` lists every non-shell command
@@ -798,7 +812,7 @@ class TestShell:
     def test_shell_empty_line(self, pcli_daemon: int) -> None:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
         r = subprocess.run(
-            ['pcli', 'shell'],
+            ['pxt', 'shell'],
             input='\n\nhealth\nexit\n',
             capture_output=True,
             text=True,
@@ -813,7 +827,7 @@ class TestShell:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
         # unterminated quote -> shlex.split raises ValueError
         r = subprocess.run(
-            ['pcli', 'shell'],
+            ['pxt', 'shell'],
             input='ls "unterminated\nexit\n',
             capture_output=True,
             text=True,

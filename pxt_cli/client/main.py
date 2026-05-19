@@ -1,4 +1,5 @@
 import importlib
+import importlib.metadata
 import sys
 from collections.abc import Callable
 
@@ -24,6 +25,8 @@ COMMANDS: dict[str, str] = {
     'mv': 'move a table/view/dir to a different directory',
     'revert': 'undo the last op(s) on a table',
     'shell': 'interactive REPL (avoids per-command Python startup)',
+    'serve': 'run a user-defined HTTP service (insert/update/delete/query)',
+    'deploy': 'deploy a service to Pixeltable cloud',
 }
 
 
@@ -33,16 +36,16 @@ def _resolve(cmd: str) -> Callable[[list[str]], None]:
 
 
 def _print_help() -> None:
-    sys.stdout.write('usage: pcli <command> [args...]\n\ncommands:\n')
+    sys.stdout.write('usage: pxt <command> [args...]\n\ncommands:\n')
     width = max(len(c) for c in COMMANDS)
     for cmd, help_text in COMMANDS.items():
         sys.stdout.write(f'  {cmd.ljust(width)}  {help_text}\n')
-    sys.stdout.write("\nUse 'pcli <command> --help' for subcommand options.\n")
+    sys.stdout.write("\nUse 'pxt <command> --help' for subcommand options.\n")
 
 
 def dispatch(cmd: str, argv: list[str]) -> None:
     if cmd not in COMMANDS:
-        print(f'pcli: unknown command: {cmd}', file=sys.stderr)
+        print(f'pxt: unknown command: {cmd}', file=sys.stderr)
         sys.exit(2)
     _resolve(cmd)(argv)
 
@@ -50,7 +53,11 @@ def dispatch(cmd: str, argv: list[str]) -> None:
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help'):
         _print_help()
-        sys.exit(0 if len(sys.argv) >= 2 else 2)
+        sys.exit(0)
+    if sys.argv[1] == '--version':
+        # importlib.metadata is stdlib; avoids importing pixeltable just to read its version
+        print(f'pxt {importlib.metadata.version("pixeltable")}')
+        sys.exit(0)
     dispatch(sys.argv[1], sys.argv[2:])
 
 
