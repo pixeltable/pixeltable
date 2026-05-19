@@ -5,9 +5,9 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli status
-  pcli status --sizes               # also report media/file_cache disk usage (slower)
-  pcli status --json"""
+  pxt status
+  pxt status --sizes               # also report media/file_cache disk usage (slower)
+  pxt status --json"""
 
 
 def _fmt_size(n: int | None) -> str:
@@ -22,12 +22,12 @@ def _fmt_size(n: int | None) -> str:
 
 
 def run(argv: list[str]) -> None:
-    ap = Parser(prog='pcli status', epilog=EPILOG)
+    ap = Parser(prog='pxt status', epilog=EPILOG)
     ap.add_argument('--sizes', action='store_true', help='include media/file_cache directory sizes')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    s = get('/pcli/v0/status' + ('?sizes=1' if args.sizes else ''))
+    s = get('/api/status', params={'sizes': args.sizes or None})
 
     if args.as_json:
         print(json.dumps(s, indent=2))

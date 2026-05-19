@@ -1,18 +1,18 @@
 import json
 
-from ..http import post
+from ..http import get, quote_path
 from ..parser import Parser, parse_cols
 
 EPILOG = """\
 Examples:
-  pcli rows my_dir/my_table
-  pcli rows my_dir/my_table -n 3
-  pcli rows my_dir/my_table --cols id,text,score
-  pcli rows my_dir/my_table -n 50 --json
+  pxt rows my_dir/my_table
+  pxt rows my_dir/my_table -n 3
+  pxt rows my_dir/my_table --cols id,text,score
+  pxt rows my_dir/my_table -n 50 --json
 
 Notes:
   --cols takes a comma-separated list.
-  Use 'pcli describe <table>' to discover column names first.
+  Use 'pxt describe <table>' to discover column names first.
   Unstored computed columns are skipped by default (selecting one would force
   evaluation, which may be slow or invoke external services); pass them
   explicitly via --cols to include them.
@@ -21,7 +21,7 @@ Notes:
 
 
 def run(argv: list[str]) -> None:
-    ap = Parser(prog='pcli rows', epilog=EPILOG)
+    ap = Parser(prog='pxt rows', epilog=EPILOG)
     ap.add_argument('path')
     ap.add_argument('-n', type=int, default=10, help='number of rows (default 10, max 1000)')
     ap.add_argument('--cols', help='comma-separated column subset')
@@ -29,7 +29,8 @@ def run(argv: list[str]) -> None:
     args = ap.parse_args(argv)
 
     cols = parse_cols(args.cols, ap)
-    resp = post('/pcli/v0/rows', {'path': args.path, 'n': args.n, 'cols': cols})
+    cols_csv = ','.join(cols) if cols is not None else None
+    resp = get(f'/api/tables/{quote_path(args.path)}/rows', params={'n': args.n, 'cols': cols_csv})
 
     if args.as_json:
         print(json.dumps(resp['rows'], indent=2, default=str))

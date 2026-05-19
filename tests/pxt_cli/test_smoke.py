@@ -34,17 +34,11 @@ def _trivial_embed(s: str) -> pxt.Array[(8,), np.float32]:
 
 class TestHealth:
     def test_basics(self, pcli: PcliRunner, pcli_daemon: int) -> None:
-        # main health endpoint: always JSON
         out = pcli('health').json
         assert out['ok'] is True
         assert out['pid'] > 0
-        # legacy dashboard probe lives at /api/pixeltable-health; not reachable through the CLI.
-        # The shape matches pixeltable.dashboard.server's response: status + version, so existing
-        # clients (which read both fields) keep working.
-        with urllib.request.urlopen(f'http://127.0.0.1:{pcli_daemon}/api/pixeltable-health') as r:
-            body = json.loads(r.read())
-        assert body['status'] == 'ok'
-        assert body['version'] == pxt.__version__
+        assert out['service'] == 'pxt'
+        assert out['pxt_version'] == pxt.__version__
 
 
 class TestLs:
@@ -774,8 +768,8 @@ class TestRevert:
 
         # direct HTTP: server's own steps<1 check fires when the client preflight is bypassed
         req = urllib.request.Request(
-            f'http://127.0.0.1:{pcli_daemon}/pcli/v0/revert',
-            data=json.dumps({'path': 'whatever', 'steps': 0}).encode(),
+            f'http://127.0.0.1:{pcli_daemon}/api/tables/whatever/revert',
+            data=json.dumps({'steps': 0}).encode(),
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
@@ -786,8 +780,8 @@ class TestRevert:
 
 
 class TestPathValidator:
-    """Client-side path validator (pxt_cli.models._slash_only). Catches every well-known bad
-    shape before the request reaches the server so the user gets a clear error message
+    """Client-side path validator (pxt_cli.client.http.quote_path). Catches every well-known
+    bad shape before the request reaches the server so the user gets a clear error message
     instead of a generic 'Invalid path' from pxt."""
 
     def test_rejects_bad_shapes(self, pcli: PcliRunner) -> None:

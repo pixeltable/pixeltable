@@ -1,23 +1,23 @@
 import json
 
-from ..http import post
+from ..http import get, quote_path
 from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli history my_dir/my_table
-  pcli history my_dir/my_table -n 5      # last 5 versions only
-  pcli history my_dir/my_table --json"""
+  pxt history my_dir/my_table
+  pxt history my_dir/my_table -n 5      # last 5 versions only
+  pxt history my_dir/my_table --json"""
 
 
 def run(argv: list[str]) -> None:
-    ap = Parser(prog='pcli history', epilog=EPILOG)
+    ap = Parser(prog='pxt history', epilog=EPILOG)
     ap.add_argument('path')
     ap.add_argument('-n', type=int, default=None, help='show at most N most recent versions')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    resp = post('/pcli/v0/history', {'path': args.path, 'n': args.n})
+    resp = get(f'/api/tables/{quote_path(args.path)}/history', params={'n': args.n})
     versions = resp['versions']
 
     if args.as_json:

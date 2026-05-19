@@ -347,6 +347,11 @@ preview = true
 [tool.ruff.lint.flake8-builtins]
 builtins-ignorelist = ["format", "input"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency-injection helpers are designed to be called in argument defaults;
+# silencing B008 for those follows ruff's documented escape hatch.
+extend-immutable-calls = ["fastapi.Query", "fastapi.Body", "fastapi.Path", "fastapi.Depends"]
+
 [tool.ruff.lint.isort]
 combine-as-imports = true
 known-first-party = ["pxt_cli", "pixeltable"]
