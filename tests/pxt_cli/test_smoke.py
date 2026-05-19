@@ -489,8 +489,8 @@ class TestConfig:
         # every entry has the expected shape
         expected_keys = {'section', 'key', 'value', 'source', 'description', 'expected_type'}
         assert all(set(e.keys()) == expected_keys for e in entries)
-        # source is 'env', 'unset', or an absolute file path (a string starting with '/')
-        assert all(e['source'] in ('env', 'unset') or e['source'].startswith('/') for e in entries)
+        # source is 'env', 'unset', or an absolute file path
+        assert all(e['source'] in ('env', 'unset') or os.path.isabs(e['source']) for e in entries)
 
         # the registry covers the top-level 'pixeltable' section plus per-provider sections
         sections = {e['section'] for e in entries}

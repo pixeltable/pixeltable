@@ -7,10 +7,10 @@ description: "Inspect, query, and serve Pixeltable catalogs from the terminal wi
 The `pxt` CLI ships with the `pixeltable` package. It covers two surfaces:
 
 - **Catalog operations** -- inspect, query, and manage tables, views, and directories. Backed by a long-lived local daemon so each command takes ~40 ms after the first invocation.
-- **Service deployment** -- turn tables, computed columns, and `@pxt.query` functions into HTTP endpoints with `pxt serve`, and publish them with `pxt deploy`. `pxt serve` requires `fastapi[standard]`:
+- **Service deployment** -- turn tables, computed columns, and `@pxt.query` functions into HTTP endpoints with `pxt serve`, and publish them with `pxt deploy`. `pxt serve` requires the `serve` extra (which pulls in `fastapi[standard]` and `uvicorn`):
 
   ```bash
-  pip install 'fastapi[standard]'
+  pip install 'pixeltable[serve]'
   ```
 
 Verify the installation:
