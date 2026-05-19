@@ -133,7 +133,10 @@ class ConfigEntry(BaseModel):
     value: str | None = Field(
         description="Resolved value as a string, or None if unset. '<redacted>' for sensitive keys."
     )
-    source: Literal['env', 'file', 'unset']
+    source: str = Field(
+        description="'env' if the value came from an environment variable or programmatic override, "
+        "'unset' if no source carries it, or the absolute path of the file the value was loaded from."
+    )
     description: str
     expected_type: str
 
