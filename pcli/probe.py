@@ -64,7 +64,7 @@ def health_url() -> str:
     return f'{base_url()}/pcli/v0/health'
 
 
-# Identity fingerprint keys. Comparison is by dict equality, so the order matters.
+# Identity fingerprint keys
 _IDENTITY_KEYS: tuple[str, ...] = (
     'pxt_version',
     'pxt_install_dir',
@@ -136,10 +136,19 @@ def _snapshot_pixeltable_env(environ: dict[str, str] | None = None) -> dict[str,
 
 
 def identity() -> dict[str, Any]:
+    pxt_version = _client_pxt_version()
+    pxt_install_dir = _client_pxt_install_dir()
+    # Surfacing this here turns a broken pixeltable install into one clear error instead
+    # of a daemon that 500s on every /health call and respawns in a tight loop.
+    if pxt_version is None or pxt_install_dir is None:
+        raise RuntimeError(
+            "pixeltable package metadata not found (importlib.metadata can't locate the "
+            "'pixeltable' distribution). Reinstall with: pip install --force-reinstall pixeltable"
+        )
     home = _resolve_pixeltable_home()
     return {
-        'pxt_version': _client_pxt_version(),
-        'pxt_install_dir': _client_pxt_install_dir(),
+        'pxt_version': pxt_version,
+        'pxt_install_dir': pxt_install_dir,
         'python_executable': sys.executable,
         'pixeltable_home': home,
         'pixeltable_pgdata': _resolve_pixeltable_pgdata(home),
@@ -272,11 +281,19 @@ def ensure_running() -> str:
             # fully matches the client. Anything else means the restart did not actually
             # swap in a daemon belonging to this install/env.
             new_health = _fetch_health()
-            new_diff = _identity_diff(client_identity, new_health) if new_health is not None else _IDENTITY_KEYS
-            if new_health is None or new_health.get('pid') == tracked_pid or len(new_diff) > 0:
+            if new_health is None:
+                reason = 'new daemon did not respond to /pcli/v0/health'
+            elif new_health.get('pid') == tracked_pid:
+                reason = f'new daemon kept the killed PID {tracked_pid}'
+            else:
+                new_diff = _identity_diff(client_identity, new_health)
+                if len(new_diff) > 0:
+                    reason = f'new daemon still differs in: {", ".join(new_diff)}'
+                else:
+                    reason = ''
+            if reason != '':
                 raise RuntimeError(
-                    f'pcli daemon restart did not produce a matching responder on port {get_port()} '
-                    f'(triggered by identity drift in: {", ".join(diff)})'
+                    f'pcli daemon restart did not produce a matching responder on port {get_port()}: {reason}'
                 )
     else:
         spawn_detached()
