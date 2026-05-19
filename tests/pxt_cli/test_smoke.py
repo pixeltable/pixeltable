@@ -132,7 +132,7 @@ class TestLs:
     def test_errors(self, pcli: PcliRunner) -> None:
         """ls distinguishes 'path does not exist' (404) from 'path exists but is not a directory'
         (422). The latter case names the offending component and its kind so the user can fix
-        a typo like `pcli ls my_table` vs `pcli describe my_table`."""
+        a typo like `pxt ls my_table` vs `pxt describe my_table`."""
         pxt.create_dir('pcli_ls_err', if_exists='ignore')
         pxt.create_table('pcli_ls_err.t', {'a': pxt.Int}, if_exists='replace')
 
@@ -834,9 +834,9 @@ class TestCli:
         assert r.returncode == 0
         assert all(name in r.stdout for name in ('health', 'ls', 'shell'))
 
-        # no args: prints usage and exits 2
+        # no args: prints usage and exits 0 (matches the prior `pxt` behavior)
         r = pcli(check=False)
-        assert r.returncode == 2
+        assert r.returncode == 0
         assert 'usage' in r.stdout.lower() or 'usage' in r.stderr.lower()
 
     def test_unknown_command(self, pcli: PcliRunner) -> None:
@@ -845,7 +845,7 @@ class TestCli:
         assert 'unknown command' in r.stderr
 
     def test_subcommand_arg_errors(self, pcli: PcliRunner) -> None:
-        # `pcli rows` is missing the required path positional; argparse prints usage + epilog
+        # `pxt rows` is missing the required path positional; argparse prints usage + epilog
         r = pcli('rows', check=False)
         assert r.returncode == 2
         assert 'usage' in r.stderr.lower()

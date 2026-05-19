@@ -54,11 +54,11 @@ def run(argv: list[str]) -> None:
         try:
             parts = shlex.split(line)
         except ValueError as e:
-            print(f'pcli: parse error: {e}', file=sys.stderr)
+            print(f'pxt: parse error: {e}', file=sys.stderr)
             continue
         cmd, args = parts[0], parts[1:]
         if cmd == 'shell':
-            print('pcli: already in shell', file=sys.stderr)
+            print('pxt: already in shell', file=sys.stderr)
             continue
         # Subcommands call sys.exit() on argparse errors / failed RPCs; intercept so
         # one bad command doesn't kill the session.

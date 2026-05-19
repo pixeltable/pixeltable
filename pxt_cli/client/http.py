@@ -19,7 +19,7 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
     try:
         base = ensure_running()
     except RuntimeError as e:
-        print(f'pcli: {e}', file=sys.stderr)
+        print(f'pxt: {e}', file=sys.stderr)
         sys.exit(1)
     url = f'{base}{path}'
     headers = {'X-Cwd': os.getcwd()}
@@ -36,10 +36,10 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
             detail = (json.loads(e.read() or b'null') or {}).get('detail') or e.reason
         except (ValueError, AttributeError):
             detail = e.reason
-        print(f'pcli: {e.code} {detail}', file=sys.stderr)
+        print(f'pxt: {e.code} {detail}', file=sys.stderr)
         sys.exit(1)
     except urllib.error.URLError as e:
-        print(f'pcli: cannot reach daemon at {url}: {e.reason}', file=sys.stderr)
+        print(f'pxt: cannot reach daemon at {url}: {e.reason}', file=sys.stderr)
         sys.exit(1)
 
 

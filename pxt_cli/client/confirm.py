@@ -23,7 +23,7 @@ def confirm_or_exit(prompt: str, force: bool) -> None:
     if force:
         return
     if not _stdin_is_real_tty():
-        print(f'pcli: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
+        print(f'pxt: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
         sys.exit(2)
     sys.stderr.write(f'{prompt} [y/N] ')
     sys.stderr.flush()

@@ -87,7 +87,7 @@ def pcli(pcli_daemon: int, uses_db: None) -> PcliRunner:
     def _run(*args: str, check: bool = True) -> PcliResult:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
         r = subprocess.run(
-            ['pcli', *args], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL
+            ['pxt', *args], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL
         )
         if check and r.returncode != 0:
             raise AssertionError(f'pcli {args} failed (rc={r.returncode}): {r.stderr}')
