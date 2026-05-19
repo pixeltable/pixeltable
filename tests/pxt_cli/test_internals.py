@@ -28,11 +28,11 @@ from typing_extensions import Self
 pytest.importorskip('fastapi')
 pytest.importorskip('uvicorn')
 
-from pcli import probe
-from pcli.client import confirm, http, main as client_main, parser as client_parser
-from pcli.client.commands import shell as shell_cmd, status as status_cmd
-from pcli.server import daemon as server_daemon, routes as server_routes
 from pixeltable import exceptions as excs
+from pxt_cli import probe
+from pxt_cli.client import confirm, http, main as client_main, parser as client_parser
+from pxt_cli.client.commands import shell as shell_cmd, status as status_cmd
+from pxt_cli.server import daemon as server_daemon, routes as server_routes
 
 
 def _pick_port() -> int:
@@ -106,7 +106,7 @@ class TestProbe:
         """Cold start: no daemon on the port, the pcli client spawns one and routes the command."""
         env = {**os.environ, 'PCLI_PORT': str(fresh_port)}
         r = subprocess.run(
-            [sys.executable, '-m', 'pcli.client.main', 'health'],
+            [sys.executable, '-m', 'pxt_cli.client.main', 'health'],
             capture_output=True,
             text=True,
             env=env,

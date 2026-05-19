@@ -183,7 +183,7 @@ def spawn_detached() -> None:
         else:
             popen_kwargs['start_new_session'] = True
         with open(log_path, 'a', encoding='utf-8') as log:
-            subprocess.Popen([sys.executable, '-m', 'pcli.server.daemon'], stdout=log, stderr=log, **popen_kwargs)
+            subprocess.Popen([sys.executable, '-m', 'pxt_cli.server.daemon'], stdout=log, stderr=log, **popen_kwargs)
     except OSError as e:
         reason = e.strerror or e.__class__.__name__
         raise RuntimeError(f'pcli daemon log unavailable ({log_path}): {reason}') from None

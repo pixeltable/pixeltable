@@ -86,7 +86,7 @@ documentation = "https://docs.pixeltable.com/"
 
 [project.scripts]
 pxt = "pixeltable.cli:main"
-pcli = "pcli.client.main:main"
+pcli = "pxt_cli.client.main:main"
 
 [project.entry-points."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
@@ -238,7 +238,7 @@ exclude = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["pixeltable", "pcli"]
+packages = ["pixeltable", "pxt_cli"]
 exclude = [
     ".pytest_cache",
     ".pytype",
@@ -350,7 +350,7 @@ builtins-ignorelist = ["format", "input"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
-known-first-party = ["pcli", "pixeltable"]
+known-first-party = ["pxt_cli", "pixeltable"]
 split-on-trailing-comma = false
 
 [tool.ruff.format]
