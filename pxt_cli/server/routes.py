@@ -93,7 +93,7 @@ def config(_req: Request) -> models.ConfigResponse:
                 section=ck.section,
                 key=ck.key,
                 value=value,
-                source=source,
+                source=str(source),
                 description=ck.description,
                 expected_type=getattr(ck.expected_type, '__name__', str(ck.expected_type)),
             )

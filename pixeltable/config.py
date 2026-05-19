@@ -185,7 +185,9 @@ class Config:
     __home: Path
     __config_file: Path
     __config_overrides: dict[str, Any]
-    __config_dict: dict[str, Any]
+
+    # section -> key -> (value, source_path); source_path is None for settings that don't come from a file
+    __config_dict: dict[str, dict[str, tuple[Any, Path | None]]]
 
     def __init__(self, config_overrides: dict[str, Any], additional_config_files: list[str]) -> None:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
@@ -220,7 +222,7 @@ class Config:
 
         self.__config_dict = {}
 
-        # Load lowest precedence first (for additional configs, last specified = highest precedence)
+        # Load lowest precedence first (for additional configs, last specified = highest precedence).
         for source in (user_config, pyproject_config, project_config, *additional_configs):
             self.__merge_config(self.__config_dict, source)
 
@@ -276,14 +278,22 @@ class Config:
             ) from exc
 
     @classmethod
-    def __load_project_config(cls, path: Path) -> dict[str, Any]:
+    def __add_path(cls, config_dict: dict[str, Any], path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
+        """Augment config_dict with path"""
+        return {
+            section: {key: (value, path) for key, value in section_dict.items()}
+            for section, section_dict in config_dict.items()
+        }
+
+    @classmethod
+    def __load_project_config(cls, path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load ./pixeltable.toml, if it exists. Same structure as the user config file."""
         config_dict = cls.__read_toml_file(path)
         cls.__validate_config(config_dict, path)
-        return config_dict
+        return cls.__add_path(config_dict, path)
 
     @classmethod
-    def __load_pyproject_config(cls, path: Path) -> dict[str, Any]:
+    def __load_pyproject_config(cls, path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the `[tool.pixeltable]` table from ./pyproject.toml, if it exists.
 
         Subsections are expressed as `[tool.pixeltable.<section>]` (e.g. `[tool.pixeltable.openai]`).
@@ -297,14 +307,14 @@ class Config:
                 excs.ErrorCode.INVALID_CONFIGURATION, f"Expected a table for '[tool.pixeltable]' in config file: {path}"
             )
         cls.__validate_config(config_dict, path)
-        return config_dict
+        return cls.__add_path(config_dict, path)
 
-    def __load_user_config(self) -> dict[str, Any]:
+    def __load_user_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the user's config file, creating a default one if it does not exist."""
         if self.__config_file.exists():
             config_dict = self.__read_toml_file(self.__config_file)
             self.__validate_config(config_dict, self.__config_file)
-            return config_dict
+            return self.__add_path(config_dict, self.__config_file)
 
         else:
             config_dict = self.__create_default_config(self.__config_file)
@@ -316,7 +326,7 @@ class Config:
                         excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
                     ) from exc
             _logger.info(f'Created default config file at: {self.__config_file}')
-            return config_dict
+            return self.__add_path(config_dict, self.__config_file)
 
     @classmethod
     def __validate_config(cls, config_dict: dict[str, Any], source: Path) -> None:
@@ -393,13 +403,12 @@ class Config:
         return validated_config
 
     @classmethod
-    def __merge_config(cls, base: dict[str, Any], overlay: dict[str, Any]) -> None:
+    def __merge_config(
+        cls, base: dict[str, dict[str, tuple[Any, Path | None]]], overlay: dict[str, dict[str, tuple[Any, Path]]]
+    ) -> None:
         """Merge `overlay` into `base` at the section.key level; `overlay` values take precedence."""
         for section, section_dict in overlay.items():
-            if section in base and isinstance(base[section], dict) and isinstance(section_dict, dict):
-                base[section].update(section_dict)
-            else:
-                base[section] = dict(section_dict) if isinstance(section_dict, dict) else section_dict
+            base.setdefault(section, {}).update(section_dict)
 
     def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
         override_var = f'{section}.{key}'
@@ -414,16 +423,10 @@ class Config:
         value: Any = self.lookup_env(section, key)  # Try to get from environment first
         # Next try the config file
         if value is None:
-            # Resolve nested section dicts
-            lookup_elems = [*section.split('.'), key]
-            value = self.__config_dict
-            for el in lookup_elems:
-                if isinstance(value, dict):
-                    if el not in value:
-                        return None
-                    value = value[el]
-                else:
-                    return None
+            entry = self.__config_dict.get(section, {}).get(key)
+            if entry is None:
+                return None
+            value = entry[0]
 
         if value is None:
             return None  # Not specified
@@ -473,15 +476,20 @@ class Config:
                 result.append(ConfigKey(section=section, key=key, description=description, expected_type=expected_type))
         return result
 
-    def get_value_source(self, key: str, section: str = 'pixeltable') -> Literal['env', 'file', 'unset']:
-        """Return source of config value returned by get_value():
-        - env: environment variable (or programmatic config override) is set
-        - file: only the config.toml has it
-        - unset: neither layer carries it
+    def get_value_source(self, key: str, section: str = 'pixeltable') -> Path | Literal['env', 'unset']:
+        """Return the source of the config value returned by get_value():
+        - 'env': environment variable (or programmatic config override) is set
+        - Path: the file the value came from (one of user config, project pixeltable.toml,
+          pyproject.toml, or one of additional_config_files)
+        - 'unset': no layer carries the value
         """
         if self.lookup_env(section, key) is not None:
             return 'env'
-        return 'file' if self.__config_dict.get(section, {}).get(key) is not None else 'unset'
+        entry = self.__config_dict.get(section, {}).get(key)
+        if entry is None:
+            return 'unset'
+        path = entry[1]
+        return path if path is not None else 'unset'
 
 
 KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {

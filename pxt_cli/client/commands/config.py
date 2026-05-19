@@ -9,14 +9,15 @@ Examples:
   pxt config -v                             # include description and expected type
   pxt config --section openai               # one section
   pxt config --source env                   # only values set via env var
-  pxt config --source file                  # only values set in config.toml
   pxt config --source unset                 # only values that fall back to defaults
+  pxt config --source /path/to/config.toml  # only values loaded from a specific file
   pxt config --json
 
 Notes:
   Source 'env' means an environment variable (or programmatic override) supplies the value.
-  Source 'file' means the value comes from config.toml only.
-  Source 'unset' means neither layer carries the value; pixeltable falls back to its own default.
+  A file path means the value came from that file (one of the user config, project
+  pixeltable.toml, pyproject.toml's [tool.pixeltable], or an additional_config_files entry).
+  Source 'unset' means no layer carries the value; pixeltable falls back to its own default.
   Credential values (api_key, api_token, api_secret, auth_token) show '<redacted>' when set;
   use the source field to tell set from unset for sensitive keys."""
 
@@ -24,7 +25,7 @@ Notes:
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pxt config', epilog=EPILOG)
     ap.add_argument('--section', help='filter to one section (e.g. openai)')
-    ap.add_argument('--source', choices=['env', 'file', 'unset'], help='filter by where the value comes from')
+    ap.add_argument('--source', help="filter by source: 'env', 'unset', or an exact file path")
     ap.add_argument('-v', '--verbose', action='store_true', help='include description and expected type for each entry')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)

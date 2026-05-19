@@ -469,8 +469,8 @@ class TestStatus:
 class TestConfig:
     def test_basics(self, cli: PxtRunner) -> None:
         """cli config reports every documented configuration setting with its resolved value and
-        source (env / file / unset). Credentials show '<redacted>' when set; the source
-        field reveals presence even when the value is masked."""
+        source ('env', 'unset', or the path of the file the value came from). Credentials show
+        '<redacted>' when set; the source field reveals presence even when the value is masked."""
         out = cli('config', '--json').json
         assert out['config_file'].endswith('config.toml')
         entries = out['entries']
@@ -478,8 +478,8 @@ class TestConfig:
         # every entry has the expected shape
         expected_keys = {'section', 'key', 'value', 'source', 'description', 'expected_type'}
         assert all(set(e.keys()) == expected_keys for e in entries)
-        # source is one of the three documented values
-        assert all(e['source'] in ('env', 'file', 'unset') for e in entries)
+        # source is 'env', 'unset', or an absolute file path (a string starting with '/')
+        assert all(e['source'] in ('env', 'unset') or e['source'].startswith('/') for e in entries)
 
         # the registry covers the top-level 'pixeltable' section plus per-provider sections
         sections = {e['section'] for e in entries}
@@ -516,7 +516,8 @@ class TestConfig:
         assert openai_key['description'] in verbose
 
     def test_filters(self, cli: PxtRunner) -> None:
-        """--section filters to one section; --source filters by where the value comes from."""
+        """--section filters to one section; --source filters by exact source string ('env',
+        'unset', or a file path)."""
         out = cli('config', '--section', 'openai', '--json').json
         assert all(e['section'] == 'openai' for e in out['entries'])
 
@@ -529,9 +530,9 @@ class TestConfig:
         # no per-entry table rows when everything is unset
         assert '[unset]' not in text
 
-        # invalid source value rejected by argparse
-        r = cli('config', '--source', 'nope', check=False)
-        assert r.returncode == 2
+        # an unmatched source string returns no entries but exits cleanly
+        out = cli('config', '--source', 'no-such-path', '--json').json
+        assert out['entries'] == []
 
 
 class TestErrors:
