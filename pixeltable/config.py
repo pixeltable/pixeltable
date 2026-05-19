@@ -279,10 +279,13 @@ class Config:
 
     @classmethod
     def __add_path(cls, config_dict: dict[str, Any], path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
-        """Augment config_dict with path"""
+        """Augment config_dict with path."""
+        for _, section_dict in config_dict.items():
+            assert isinstance(section_dict, dict)
         return {
             section: {key: (value, path) for key, value in section_dict.items()}
             for section, section_dict in config_dict.items()
+            if isinstance(section_dict, dict)
         }
 
     @classmethod

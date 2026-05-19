@@ -118,7 +118,7 @@ class TestLs:
         assert 'rows' in counts_text
         assert '4' in counts_text
 
-        # --counts on a dirs-only target: _fill_counts sees an empty target list and short-circuits
+        # --counts on a dirs-only target: directories report no row count
         pxt.create_dir('cli_ls_dirs', if_exists='ignore')
         pxt.create_dir('cli_ls_dirs.sub1', if_exists='ignore')
         pxt.create_dir('cli_ls_dirs.sub2', if_exists='ignore')
@@ -185,11 +185,11 @@ class TestColumns:
         assert 'a' in text
         assert 'stored' in text
 
-        # `cli computed` is the --computed shorthand
+        # the computed subcommand is the --computed shorthand
         entries = cli('computed', 'cli_cols/t', '--json').json
         assert {e['column'] for e in entries} == {'doubled'}
 
-        # `cli computed` text mode also works
+        # text mode also works
         assert 'doubled' in cli('computed', 'cli_cols/t').stdout
 
         # no-path: walks _all_tables, exercises the try/except continue for unloadable metadata
@@ -297,7 +297,7 @@ class TestRows:
         assert 'PIL.' not in rows_text  # no PIL repr leaked
         assert '\\x' not in rows_text  # no raw bytes leaked
 
-        # `cli get` uses the same renderer
+        # the get subcommand uses the same renderer
         get_json = cli('get', 'cli_img/t', '1', '--json').json
         assert get_json['row']['img'].startswith('<Image ')
         get_text = cli('get', 'cli_img/t', '0').stdout
@@ -500,7 +500,7 @@ class TestConfig:
         assert 'config_file' in text
         # openai.api_key appears either in the aligned table (if set) or in the not-set list
         assert 'openai.api_key' in text
-        # the unset bucket is summarized on a single line; the legacy '(unset)' marker is gone
+        # the unset bucket is summarized on a single line; the per-row '(unset)' marker is gone
         assert '(unset)' not in text
 
         # -v: descriptions inline under each entry, and unset entries get full table rows
@@ -663,7 +663,7 @@ class TestDrop:
         # still exists
         assert pxt.get_table('cli_drop_err/protected', if_not_exists='ignore') is not None
 
-        # `cli drop` on a directory is refused (server-side: drop_table on a dir errors)
+        # drop on a directory is refused (server-side: drop_table on a dir errors)
         pxt.create_dir('cli_drop_err_dir', if_exists='ignore')
         r = cli('drop', 'cli_drop_err_dir', '-f', check=False)
         assert r.returncode != 0
@@ -833,7 +833,7 @@ class TestCli:
         assert r.returncode == 0
         assert all(name in r.stdout for name in ('health', 'ls', 'shell'))
 
-        # no args: prints usage and exits 0 (matches the prior `pxt` behavior)
+        # no args: prints usage and exits 0 (matches the prior pxt behavior)
         r = cli(check=False)
         assert r.returncode == 0
         assert 'usage' in r.stdout.lower() or 'usage' in r.stderr.lower()
@@ -844,7 +844,7 @@ class TestCli:
         assert 'unknown command' in r.stderr
 
     def test_subcommand_arg_errors(self, cli: PxtRunner) -> None:
-        # `pxt rows` is missing the required path positional; argparse prints usage + epilog
+        # rows is missing the required path positional; argparse prints usage + epilog
         r = cli('rows', check=False)
         assert r.returncode == 2
         assert 'usage' in r.stderr.lower()
@@ -1014,7 +1014,7 @@ class TestColdStartBudget:
 
     def test_pixeltable_not_imported_by_pxt_ls(self, cli: PxtRunner, pxt_daemon: int) -> None:
         # Use sys.executable so the subprocess runs under the same interpreter as the test,
-        # not whatever `python` resolves to on PATH.
+        # not whatever python resolves to on PATH.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             [sys.executable, '-X', 'importtime', '-m', 'pxt_cli.client.main', 'ls'],
@@ -1024,11 +1024,11 @@ class TestColdStartBudget:
             check=False,
             stdin=subprocess.DEVNULL,
         )
-        # We only inspect the import log; the underlying `ls` call may pass or fail
+        # We only inspect the import log; the underlying ls call may pass or fail
         # depending on catalog state, which is irrelevant here.
         imported = [line for line in r.stderr.splitlines() if line.startswith('import time:')]
-        # Each `import time:` line ends with the dotted module name; we want to catch
-        # the top-level package alone, not e.g. a stdlib `numbers` module sharing a prefix.
+        # Each line of the form 'import time: ...' ends with the dotted module name; we want to catch
+        # the top-level package alone, not e.g. a stdlib numbers module sharing a prefix.
         forbidden = ('pixeltable', 'sqlalchemy', 'pandas', 'numpy')
         offenders: dict[str, str] = {}
         for line in imported:

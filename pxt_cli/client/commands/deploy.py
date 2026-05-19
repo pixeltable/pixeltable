@@ -1,5 +1,3 @@
-"""`pxt deploy` — publish a configured service to Pixeltable cloud."""
-
 from __future__ import annotations
 
 import argparse
