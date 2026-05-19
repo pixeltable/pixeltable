@@ -6077,7 +6077,7 @@ dev = [
     { name = "torchcodec", marker = "python_full_version < '3.14'", specifier = "<0.8" },
     { name = "torchvision", specifier = ">=0.22" },
     { name = "transformers", specifier = ">=5" },
-    { name = "twelvelabs", specifier = ">=1.1.0" },
+    { name = "twelvelabs", specifier = ">=1.2.0" },
     { name = "types-beautifulsoup4", specifier = ">=4.2" },
     { name = "types-deprecated", specifier = ">=1.2.15" },
     { name = "types-jmespath", specifier = ">=1.0" },
@@ -10185,7 +10185,7 @@ wheels = [
 
 [[package]]
 name = "twelvelabs"
-version = "1.1.0"
+version = "1.2.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -10193,9 +10193,9 @@ dependencies = [
     { name = "pydantic-core" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bf/68/06faac86aa679ca609597b4fcd8a0d9d642314df79ad8c5b93985088da61/twelvelabs-1.1.0.tar.gz", hash = "sha256:02a26542606fcc4c0ee20fd09b335e664cc79269970d22fc9abfdac443ccd066", size = 141368, upload-time = "2025-11-18T01:40:50.964Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/85/514cbf14973969150f6492c0ae6791f29cfec6f1e1e6cd471103fd228244/twelvelabs-1.2.4.tar.gz", hash = "sha256:337fd826906061c092f63107a94df87cdfcc404c9cb2d006d8644712c6d0104f", size = 160775, upload-time = "2026-05-07T09:56:13.612Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/0b/61c8da90f83430732265b3a76172c6946bd642030703be5e37804f5c0531/twelvelabs-1.1.0-py3-none-any.whl", hash = "sha256:01074eb18f8035d3cb860ecb50080220c9b9f42b1cc5114f027e6b8e3589b78a", size = 285767, upload-time = "2025-11-18T01:40:49.776Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/f0/5d91ed7a6c5b1bea8b9fd1b717dab49e609ef99c6382fb91e2873d1f9d9d/twelvelabs-1.2.4-py3-none-any.whl", hash = "sha256:e3953786b7f746bac27ad3860c7c987674d08c172561300376845bcd4d820a45", size = 342958, upload-time = "2026-05-07T09:56:12.15Z" },
 ]
 
 [[package]]
