@@ -31,7 +31,7 @@ pytest.importorskip('uvicorn')
 from pixeltable import exceptions as excs
 from pxt_cli import probe
 from pxt_cli.client import confirm, http, main as client_main, parser as client_parser
-from pxt_cli.client.commands import shell as shell_cmd, status as status_cmd
+from pxt_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
 from pxt_cli.server import daemon as server_daemon, routes as server_routes
 
 
@@ -920,3 +920,183 @@ class TestServerRouteHelpers:
 
         monkeypatch.setattr(server_routes.pxt, 'get_table', lambda p: FakeT())
         assert server_routes._tbl_count('any/path') is None
+
+
+class TestDaemonCmd:
+    """`pxt daemon start|stop|restart|status`. The action handlers in
+    pxt_cli/client/commands/daemon.py thread through probe.* helpers; tests mock those at
+    the boundary so they verify the command's decision logic without spawning real daemons."""
+
+    def test_start_calls_ensure_running_and_prints(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', lambda: 'http://127.0.0.1:22090')
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: {'pid': 4242})
+        daemon_cmd.run(['start'])
+        out = capsys.readouterr().out
+        assert 'http://127.0.0.1:22090' in out
+        assert '4242' in out
+
+    def test_start_propagates_runtime_error(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        def boom() -> str:
+            raise RuntimeError('cannot spawn daemon: missing fastapi')
+
+        monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', boom)
+        with pytest.raises(SystemExit) as ei:
+            daemon_cmd.run(['start'])
+        assert ei.value.code == 1
+        assert 'cannot spawn daemon' in capsys.readouterr().err
+
+    def test_stop_kills_when_pid_matches(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
+    ) -> None:
+        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: 4242)
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: {'pid': 4242})
+        monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        killed: list[int] = []
+        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        daemon_cmd.run(['stop'])
+        assert killed == [4242]
+        assert 'PID 4242' in capsys.readouterr().out
+
+    def test_stop_no_daemon_exits_1(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: None)
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: None)
+        with pytest.raises(SystemExit) as ei:
+            daemon_cmd.run(['stop'])
+        assert ei.value.code == 1
+        assert 'no daemon running' in capsys.readouterr().err
+
+    def test_stop_pidfile_but_no_responder_kills_tracked_pid(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
+    ) -> None:
+        # Daemon hung or crashed: pidfile points somewhere, /health silent. _kill_and_wait
+        # is idempotent on a dead PID, so the kill attempt is safe either way.
+        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: 9999)
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: None)
+        monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        killed: list[int] = []
+        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        daemon_cmd.run(['stop'])
+        assert killed == [9999]
+        assert 'PID 9999' in capsys.readouterr().out
+
+    def test_stop_pid_mismatch_refuses_without_force(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: 100)
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: {'pid': 200})
+        killed: list[int] = []
+        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        with pytest.raises(SystemExit) as ei:
+            daemon_cmd.run(['stop'])
+        assert ei.value.code == 1
+        assert 'does not match pidfile' in capsys.readouterr().err
+        assert killed == []
+
+    def test_stop_pid_mismatch_force_kills_responder(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
+    ) -> None:
+        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: 100)
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: {'pid': 200})
+        monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        killed: list[int] = []
+        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        daemon_cmd.run(['stop', '--force'])
+        # --force on mismatch kills the responder, not the tracked pidfile PID
+        assert killed == [200]
+
+    def test_stop_responder_without_pidfile_refuses_without_force(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: None)
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: {'pid': 200})
+        killed: list[int] = []
+        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        with pytest.raises(SystemExit) as ei:
+            daemon_cmd.run(['stop'])
+        assert ei.value.code == 1
+        assert 'no pidfile' in capsys.readouterr().err
+        assert killed == []
+
+    def test_status_prints_identity_text(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        monkeypatch.setattr(
+            daemon_cmd.probe,
+            '_fetch_health',
+            lambda: {
+                'pid': 4242,
+                'started_at': '2026-05-18T12:00:00+00:00',
+                'service': 'pxt',
+                'pxt_version': '1.2.3',
+                'pxt_install_dir': '/p/dir',
+                'python_executable': '/p/bin/python',
+                'pixeltable_home': '/p/home',
+                'pixeltable_pgdata': '/p/home/pgdata',
+                'pixeltable_config_file': '/p/home/config.toml',
+                'pixeltable_env': {'PIXELTABLE_TIME_ZONE': 'America/Los_Angeles'},
+            },
+        )
+        daemon_cmd.run(['status'])
+        out = capsys.readouterr().out
+        assert 'PID' in out
+        assert '4242' in out
+        assert '1.2.3' in out
+        assert 'PIXELTABLE_TIME_ZONE' in out
+
+    def test_status_json_is_raw_dict(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        payload = {'pid': 4242, 'service': 'pxt', 'pixeltable_env': {}}
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: payload)
+        daemon_cmd.run(['status', '--json'])
+        assert json.loads(capsys.readouterr().out) == payload
+
+    def test_status_no_daemon_exits_1(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: None)
+        with pytest.raises(SystemExit) as ei:
+            daemon_cmd.run(['status'])
+        assert ei.value.code == 1
+        assert 'no daemon running' in capsys.readouterr().err
+
+    def test_restart_stops_then_starts(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
+    ) -> None:
+        # First cycle: daemon present with matching pids; stop kills it, then start spawns
+        # a new one. fetch_health returns a daemon for stop, then a daemon (different PID)
+        # after start.
+        states = iter(
+            [
+                {'pid': 100},  # for the stop branch
+                {'pid': 200},  # for the start branch's post-spawn lookup
+            ]
+        )
+        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: 100)
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: next(states))
+        monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        actions: list[str] = []
+        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: actions.append(f'kill:{pid}'))
+
+        def fake_ensure_running() -> str:
+            actions.append('spawn')
+            return 'http://127.0.0.1:22090'
+
+        monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', fake_ensure_running)
+
+        daemon_cmd.run(['restart'])
+        assert actions == ['kill:100', 'spawn']
+        out = capsys.readouterr().out
+        assert 'http://127.0.0.1:22090' in out
+        assert '200' in out
+
+    def test_restart_with_no_existing_daemon(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
+    ) -> None:
+        # Nothing to stop initially; restart should still proceed to start without erroring.
+        states = iter([None, {'pid': 200}])
+        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: None)
+        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: next(states))
+        monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', lambda: 'http://127.0.0.1:22090')
+        monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        daemon_cmd.run(['restart'])
+        out = capsys.readouterr().out
+        assert 'http://127.0.0.1:22090' in out
