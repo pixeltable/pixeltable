@@ -5,13 +5,13 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli config                                # every documented setting
-  pcli config -v                             # include description and expected type
-  pcli config --section openai               # one section
-  pcli config --source env                   # only values set via env var
-  pcli config --source file                  # only values set in config.toml
-  pcli config --source unset                 # only values that fall back to defaults
-  pcli config --json
+  pxt config                                # every documented setting
+  pxt config -v                             # include description and expected type
+  pxt config --section openai               # one section
+  pxt config --source env                   # only values set via env var
+  pxt config --source file                  # only values set in config.toml
+  pxt config --source unset                 # only values that fall back to defaults
+  pxt config --json
 
 Notes:
   Source 'env' means an environment variable (or programmatic override) supplies the value.
@@ -22,14 +22,14 @@ Notes:
 
 
 def run(argv: list[str]) -> None:
-    ap = Parser(prog='pcli config', epilog=EPILOG)
+    ap = Parser(prog='pxt config', epilog=EPILOG)
     ap.add_argument('--section', help='filter to one section (e.g. openai)')
     ap.add_argument('--source', choices=['env', 'file', 'unset'], help='filter by where the value comes from')
     ap.add_argument('-v', '--verbose', action='store_true', help='include description and expected type for each entry')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    resp = get('/pcli/v0/config')
+    resp = get('/api/config')
     entries = resp['entries']
     if args.section is not None:
         entries = [e for e in entries if e['section'] == args.section]

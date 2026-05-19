@@ -61,7 +61,7 @@ def base_url() -> str:
 
 
 def health_url() -> str:
-    return f'{base_url()}/pcli/v0/health'
+    return f'{base_url()}/api/health'
 
 
 # Identity fingerprint keys
@@ -83,9 +83,9 @@ def _fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError):
         return None
     # Verify this is actually our daemon and not some other service on the same port that
-    # happens to return `{"ok": true}`. Require both the pcli service marker and the full
+    # happens to return `{"ok": true}`. Require both the pxt service marker and the full
     # set of identity fields the mismatch / kill logic relies on.
-    if not isinstance(body, dict) or body.get('service') != 'pcli' or not body.get('ok'):
+    if not isinstance(body, dict) or body.get('service') != 'pxt' or not body.get('ok'):
         return None
     required = ('pid', 'started_at', *_IDENTITY_KEYS)
     if not all(k in body for k in required):

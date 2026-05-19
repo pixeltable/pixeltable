@@ -5,17 +5,17 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli rename my_dir/old_name new_name
-  pcli rename my_dir/old_name new_name -n         # dry-run
+  pxt rename my_dir/old_name new_name
+  pxt rename my_dir/old_name new_name -n         # dry-run
 
 Notes:
   Paths are slash-separated. Renames in place: parent directory is preserved.
-  Use 'pcli mv' to move across directories.
+  Use 'pxt mv' to move across directories.
   <new_name> is just the new leaf name, not a full path."""
 
 
 def run(argv: list[str]) -> None:
-    ap = Parser(prog='pcli rename', epilog=EPILOG)
+    ap = Parser(prog='pxt rename', epilog=EPILOG)
     ap.add_argument('path')
     ap.add_argument('new_name', help='new leaf name (no slashes or dots)')
     ap.add_argument('-n', '--dry-run', action='store_true', dest='dry_run')
@@ -32,7 +32,7 @@ def run(argv: list[str]) -> None:
         print(f'would rename {args.path} -> {dst}')
         return
 
-    resp = post('/pcli/v0/move', {'path': args.path, 'new_path': dst})
+    resp = post('/api/move', {'path': args.path, 'new_path': dst})
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:

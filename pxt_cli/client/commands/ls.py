@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from ..http import post
+from ..http import get, quote_path
 from ..parser import Parser
 
 EPILOG = """\
@@ -13,16 +13,16 @@ Columns under -l:
             'i' = has at least one index
 
 Examples:
-  pcli ls
-  pcli ls some_dir
-  pcli ls --tree
-  pcli ls -l some_dir
-  pcli ls --counts                 # include row counts (runs queries)
-  pcli ls some_dir --json"""
+  pxt ls
+  pxt ls some_dir
+  pxt ls --tree
+  pxt ls -l some_dir
+  pxt ls --counts                 # include row counts (runs queries)
+  pxt ls some_dir --json"""
 
 
 def run(argv: list[str]) -> None:
-    ap = Parser(prog='pcli ls', epilog=EPILOG)
+    ap = Parser(prog='pxt ls', epilog=EPILOG)
     ap.add_argument('path', nargs='?', default='')
     ap.add_argument('--tree', action='store_true')
     ap.add_argument('-l', '--long', action='store_true')
@@ -32,7 +32,8 @@ def run(argv: list[str]) -> None:
 
     # Only -l/--long triggers the per-entry get_metadata() fetch. JSON consumers who want
     # the full schema info pass -l --json; bare --json stays cheap on large catalogs.
-    resp = post('/pcli/v0/ls', {'path': args.path, 'tree': args.tree, 'details': args.long, 'counts': args.counts})
+    url = '/api/dirs' if args.path == '' else f'/api/dirs/{quote_path(args.path)}'
+    resp = get(url, params={'tree': args.tree or None, 'details': args.long or None, 'counts': args.counts or None})
 
     if args.as_json:
         print(json.dumps(resp, indent=2))

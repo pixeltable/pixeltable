@@ -1,6 +1,6 @@
 """Interactive REPL.
 
-Each line is parsed as a pcli command and dispatched in-process, amortizing
+Each line is parsed as a pxt command and dispatched in-process, amortizing
 Python interpreter + module import cost across the session.
 """
 
@@ -12,15 +12,15 @@ from ..parser import Parser
 
 EPILOG = """\
 Inside the shell:
-  <command> [args...]      run a pcli command (e.g. `ls -l`)
+  <command> [args...]      run a pxt command (e.g. `ls -l`)
   help                     list available commands
   exit | quit | Ctrl-D     leave the shell"""
 
-_PROMPT = 'pcli> '
+_PROMPT = 'pxt> '
 
 
 def run(argv: list[str]) -> None:
-    ap = Parser(prog='pcli shell', epilog=EPILOG)
+    ap = Parser(prog='pxt shell', epilog=EPILOG)
     ap.parse_args(argv)
 
     # Lazy: only touch readline if it's available (POSIX); Windows users get a

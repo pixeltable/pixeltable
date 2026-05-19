@@ -67,7 +67,7 @@ def _health_payload(*, pid: int = 100, started_at: str = 'a', **identity_overrid
     matching _DEFAULT_IDENTITY by default. Override any field to simulate drift."""
     body: dict[str, object] = {
         'ok': True,
-        'service': 'pcli',
+        'service': 'pxt',
         'pid': pid,
         'started_at': started_at,
         **_DEFAULT_IDENTITY,
@@ -114,9 +114,9 @@ class TestProbe:
             stdin=subprocess.DEVNULL,
             timeout=30,
         )
-        assert r.returncode == 0, f'pcli health failed (rc={r.returncode}): {r.stderr}'
+        assert r.returncode == 0, f'pxt health failed (rc={r.returncode}): {r.stderr}'
         body = json.loads(r.stdout)
-        assert body['service'] == 'pcli'
+        assert body['service'] == 'pxt'
         assert body['ok'] is True
         assert body['pid'] > 0
         # the spawned daemon's pidfile should now exist and contain that PID
@@ -287,11 +287,11 @@ class TestProbe:
                 return self._body
 
         # legacy daemon shape (pre-identity): missing pxt_install_dir etc. -> rejected
-        legacy = json.dumps({'ok': True, 'service': 'pcli', 'pxt_version': '1.0', 'pid': 1, 'started_at': 'a'}).encode()
+        legacy = json.dumps({'ok': True, 'service': 'pxt', 'pxt_version': '1.0', 'pid': 1, 'started_at': 'a'}).encode()
         monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(legacy))
         assert probe._fetch_health() is None
         # absent service marker / no fields at all -> also rejected
-        monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(b'{"ok": true, "service": "pcli"}'))
+        monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(b'{"ok": true, "service": "pxt"}'))
         assert probe._fetch_health() is None
 
     def test_fetch_health_accepts_complete_identity(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -703,7 +703,7 @@ class TestHttp:
 
         monkeypatch.setattr(http, 'ensure_running', boom)
         with pytest.raises(SystemExit) as ei:
-            http.get('/pcli/v0/health')
+            http.get('/api/health')
         assert ei.value.code == 1
         assert 'cannot spawn daemon' in capsys.readouterr().err
 
@@ -716,7 +716,7 @@ class TestHttp:
 
         monkeypatch.setattr(http.urllib.request, 'urlopen', raise_http)
         with pytest.raises(SystemExit) as ei:
-            http.post('/pcli/v0/rows', {'path': 't', 'n': 0, 'cols': None})
+            http.post('/api/tables/t/rows', {'n': 0, 'cols': None})
         assert ei.value.code == 1
         err = capsys.readouterr().err
         assert '400' in err
@@ -732,7 +732,7 @@ class TestHttp:
 
         monkeypatch.setattr(http.urllib.request, 'urlopen', raise_http)
         with pytest.raises(SystemExit) as ei:
-            http.get('/pcli/v0/health')
+            http.get('/api/health')
         assert ei.value.code == 1
         err = capsys.readouterr().err
         # falls back to e.reason when the body isn't JSON
@@ -746,7 +746,7 @@ class TestHttp:
 
         monkeypatch.setattr(http.urllib.request, 'urlopen', boom)
         with pytest.raises(SystemExit) as ei:
-            http.get('/pcli/v0/health')
+            http.get('/api/health')
         assert ei.value.code == 1
         assert 'cannot reach daemon' in capsys.readouterr().err
 
@@ -761,7 +761,7 @@ class TestShell:
         )
         assert r.returncode == 0, r.stderr
         # the health response is JSON; should appear in stdout between two prompts
-        assert '"service": "pcli"' in r.stdout
+        assert '"service": "pxt"' in r.stdout
 
     def test_shell_eof_exits_cleanly(self, pcli_daemon: int) -> None:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
@@ -790,7 +790,7 @@ class TestShell:
         assert r.returncode == 0
         # bad command produces a stderr line, but the follow-up `health` still runs
         assert 'unknown command' in r.stderr
-        assert '"service": "pcli"' in r.stdout
+        assert '"service": "pxt"' in r.stdout
 
     def test_shell_rejects_nested_shell(self, pcli_daemon: int) -> None:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
@@ -821,7 +821,7 @@ class TestShell:
             check=False,
         )
         assert r.returncode == 0
-        assert '"service": "pcli"' in r.stdout
+        assert '"service": "pxt"' in r.stdout
 
     def test_shell_parse_error(self, pcli_daemon: int) -> None:
         env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}

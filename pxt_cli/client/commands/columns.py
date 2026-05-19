@@ -1,24 +1,24 @@
 import json
 
-from ..http import post
+from ..http import get
 from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pcli columns                          # every column across every table
-  pcli columns my_dir/my_table          # columns of one table
-  pcli columns --computed               # only computed columns, all tables
-  pcli columns my_dir/my_table --computed --json"""
+  pxt columns                          # every column across every table
+  pxt columns my_dir/my_table          # columns of one table
+  pxt columns --computed               # only computed columns, all tables
+  pxt columns my_dir/my_table --computed --json"""
 
 
 def run(argv: list[str]) -> None:
-    ap = Parser(prog='pcli columns', epilog=EPILOG)
+    ap = Parser(prog='pxt columns', epilog=EPILOG)
     ap.add_argument('path', nargs='?', default=None, help='if omitted: every table in the catalog')
     ap.add_argument('--computed', action='store_true', dest='computed_only')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    resp = post('/pcli/v0/columns', {'path': args.path, 'computed_only': args.computed_only})
+    resp = get('/api/columns', params={'path': args.path or None, 'computed': args.computed_only or None})
     entries = resp['entries']
 
     if args.as_json:
