@@ -153,9 +153,8 @@ class TestProbe:
         assert url.startswith('http://127.0.0.1:')
         assert actions == [('kill', 100), ('spawn',)]
 
-    def test_identity_mismatch_restart_verify_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Post-restart cross-verify: if the new responder still reports the killed PID,
-        fail loudly instead of silently routing to whatever it is."""
+    def test_cross_verify_kept_killed_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Post-restart cross-verify: the new responder still reports the killed PID."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
         responses = iter([_health_payload(pxt_version='OLD', pid=100), _health_payload(pxt_version='NEW', pid=100)])
         monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
@@ -164,7 +163,38 @@ class TestProbe:
         monkeypatch.setattr(probe, 'spawn_detached', lambda: None)
         monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
 
-        with pytest.raises(RuntimeError, match='did not produce a matching responder'):
+        with pytest.raises(RuntimeError, match='new daemon kept the killed PID 100'):
+            probe.ensure_running()
+
+    def test_cross_verify_no_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Post-restart cross-verify: the new daemon never responds to /health."""
+        _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
+        responses = iter([_health_payload(pxt_version='OLD', pid=100), None])
+        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
+        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: None)
+        monkeypatch.setattr(probe, 'spawn_detached', lambda: None)
+        monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
+
+        with pytest.raises(RuntimeError, match='new daemon did not respond'):
+            probe.ensure_running()
+
+    def test_cross_verify_identity_still_differs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Post-restart cross-verify: a fresh PID came up but still has the wrong identity."""
+        _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
+        responses = iter(
+            [
+                _health_payload(pxt_version='OLD', pid=100),
+                _health_payload(pxt_version='OLD', pid=200),  # fresh PID, still wrong version
+            ]
+        )
+        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
+        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: None)
+        monkeypatch.setattr(probe, 'spawn_detached', lambda: None)
+        monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
+
+        with pytest.raises(RuntimeError, match='new daemon still differs in: pxt_version'):
             probe.ensure_running()
 
     def test_identity_match_no_restart(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -530,6 +560,20 @@ class TestIdentity:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
         ident = probe.identity()
         assert set(ident.keys()) == set(probe._IDENTITY_KEYS)
+
+    def test_identity_fails_fast_on_missing_metadata(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """If importlib.metadata can't find the pixeltable distribution (broken install),
+        identity() raises a clear error instead of returning a partially-None dict that
+        would later cause /health to 500 and trigger a respawn loop."""
+        monkeypatch.setattr(probe, '_client_pxt_version', lambda: None)
+        monkeypatch.setattr(probe, '_client_pxt_install_dir', lambda: '/some/path')
+        with pytest.raises(RuntimeError, match='pixeltable package metadata not found'):
+            probe.identity()
+
+        monkeypatch.setattr(probe, '_client_pxt_version', lambda: '1.0')
+        monkeypatch.setattr(probe, '_client_pxt_install_dir', lambda: None)
+        with pytest.raises(RuntimeError, match='pixeltable package metadata not found'):
+            probe.identity()
 
 
 class TestConfirm:
