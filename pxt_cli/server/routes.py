@@ -9,12 +9,11 @@ import sqlalchemy as sa
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.dashboard import bridge
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
 from pxt_cli import models, probe
 
-from . import state
+from . import bridge, state
 from .router import RawResponse, Request, Router
 
 router = Router()
