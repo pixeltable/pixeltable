@@ -307,15 +307,15 @@ class TestRows:
         pxt.create_dir('cli_rows_err', if_exists='ignore')
         pxt.create_table('cli_rows_err.t', {'a': pxt.Int}, if_exists='replace')
 
-        # n must be >= 1 (pydantic Field constraint on RowsRequest.n)
+        # n must be >= 1
         r = cli('rows', 'cli_rows_err/t', '-n', '0', check=False)
         assert r.returncode != 0
-        assert 'greater than or equal to 1' in r.stderr
+        assert "'n' must be >= 1" in r.stderr
 
-        # n upper bound: pydantic Field(le=1000)
+        # n must be <= 1000
         r = cli('rows', 'cli_rows_err/t', '-n', '10001', check=False)
         assert r.returncode != 0
-        assert 'less than or equal to 1000' in r.stderr
+        assert "'n' must be <= 1000" in r.stderr
 
         # unknown column
         r = cli('rows', 'cli_rows_err/t', '--cols', 'nope', check=False)
@@ -778,7 +778,8 @@ class TestRevert:
         )
         with pytest.raises(urllib.error.HTTPError) as ei:
             urllib.request.urlopen(req)
-        assert ei.value.code == 400
+        # 422: server-side semantic validation (excs.ErrorCode.INVALID_ARGUMENT)
+        assert ei.value.code == 422
         assert 'steps must be >= 1' in json.loads(ei.value.read())['detail']
 
 

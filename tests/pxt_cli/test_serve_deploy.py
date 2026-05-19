@@ -379,7 +379,7 @@ class TestCLI:
                 ['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins'],
                 capsys,
                 exit_code=1,
-                stderr='fastapi[standard]',
+                stderr='pixeltable[serve]',
             )
 
         # IPv6 host: URL is bracket-formatted in --json startup record

@@ -340,7 +340,7 @@ def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None
     except ImportError as e:
         raise excs.RequestError(
             excs.ErrorCode.MISSING_REQUIRED,
-            "uvicorn is required for `pxt serve`; install it with `pip install 'fastapi[standard]'`",
+            "uvicorn is required for `pxt serve`; install it with `pip install 'pixeltable[serve]'`",
         ) from e
 
     host, port = cfg.host, cfg.port

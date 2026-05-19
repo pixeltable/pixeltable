@@ -24,10 +24,6 @@ from email.message import Message
 import pytest
 from typing_extensions import Self
 
-# The daemon requires the `cli` extra; skip the whole module on `minimal` installs.
-pytest.importorskip('fastapi')
-pytest.importorskip('uvicorn')
-
 from pixeltable import exceptions as excs
 from pxt_cli import probe
 from pxt_cli.client import confirm, http, main as client_main, parser as client_parser
@@ -326,14 +322,7 @@ class TestProbe:
         monkeypatch.setattr(probe.importlib.metadata, 'version', boom)
         assert probe._client_pxt_version() is None
 
-    def test_check_daemon_deps_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(probe.importlib.util, 'find_spec', lambda name: None)
-        with pytest.raises(RuntimeError, match=r"pip install 'pixeltable\[cli\]'"):
-            probe._check_daemon_deps()
-
     def test_spawn_detached_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(probe, '_check_daemon_deps', lambda: None)
-
         def boom(*a: object, **kw: object) -> None:
             raise OSError('disk full')
 
@@ -699,7 +688,7 @@ class TestMain:
 class TestHttp:
     def test_ensure_running_failure(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         def boom() -> str:
-            raise RuntimeError('cannot spawn daemon: missing fastapi')
+            raise RuntimeError('cannot spawn daemon: simulated failure')
 
         monkeypatch.setattr(http, 'ensure_running', boom)
         with pytest.raises(SystemExit) as ei:
@@ -941,7 +930,7 @@ class TestDaemonCmd:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
         def boom() -> str:
-            raise RuntimeError('cannot spawn daemon: missing fastapi')
+            raise RuntimeError('cannot spawn daemon: simulated failure')
 
         monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', boom)
         with pytest.raises(SystemExit) as ei:

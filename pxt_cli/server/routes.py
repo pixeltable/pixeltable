@@ -5,9 +5,6 @@ from typing import Any
 
 import PIL.Image
 import sqlalchemy as sa
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.encoders import jsonable_encoder
-from fastapi.responses import Response
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
@@ -18,36 +15,42 @@ from pixeltable.types import TreeNode
 from pxt_cli import models, probe
 
 from . import state
+from .router import RawResponse, Request, Router
 
-router = APIRouter()
+router = Router()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
 _IDENTITY: dict[str, Any] = probe.identity()
 
 
-# Path validation: paths in URLs come straight from the FastAPI {path:path} converter, which
-# accepts anything. Reject the same shapes the request-model validator used to reject so a
-# bad path gives a clear 400 instead of bubbling out of pixeltable as a generic error.
 def _validate_path(path: str) -> str:
+    """Reject URL paths whose shape pixeltable would later reject with a generic error.
+
+    The router's {path:path} converter accepts anything between the static prefix and
+    suffix, including the empty string and shapes pixeltable's own path parser refuses.
+    """
     if path == '':
         return path
     if '.' in path:
-        raise HTTPException(400, f"path uses '/' as the separator; got {path!r}")
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"path uses '/' as the separator; got {path!r}")
     if path.endswith('/'):
-        raise HTTPException(400, f"path must not end with '/'; got {path!r}")
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"path must not end with '/'; got {path!r}")
     if '//' in path:
-        raise HTTPException(400, f"path must not contain empty components ('//'); got {path!r}")
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f"path must not contain empty components ('//'); got {path!r}"
+        )
     return path
 
 
 @router.get('/api/health')
-def health() -> models.HealthResponse:
+def health(_req: Request) -> models.HealthResponse:
     return models.HealthResponse(ok=True, pid=os.getpid(), started_at=_STARTED_AT, **_IDENTITY)
 
 
 @router.get('/api/status')
-def status(sizes: bool = False) -> models.StatusResponse:
+def status(req: Request) -> models.StatusResponse:
+    sizes = req.query_bool('sizes')
     s = bridge.get_status()
     cfg = s['config']
     media_dir = cfg.get('media_dir')
@@ -68,7 +71,7 @@ def status(sizes: bool = False) -> models.StatusResponse:
 
 
 @router.get('/api/config')
-def config() -> models.ConfigResponse:
+def config(_req: Request) -> models.ConfigResponse:
     # Two-layer redaction so a new sensitive key never silently leaks:
     #   1. params from registered API client factories (eg openai.api_key, replicate.api_token)
     #   2. name-suffix match for keys that aren't tied to an Env-registered client
@@ -103,14 +106,18 @@ def config() -> models.ConfigResponse:
 
 
 @router.get('/api/dirs')
-def list_root(tree: bool = False, details: bool = False, counts: bool = False) -> models.LsResponse:
-    return _list_dir('', tree=tree, details=details, counts=counts)
+def list_root(req: Request) -> models.LsResponse:
+    return _list_dir(
+        '', tree=req.query_bool('tree'), details=req.query_bool('details'), counts=req.query_bool('counts')
+    )
 
 
 @router.get('/api/dirs/{path:path}')
-def list_dir(path: str, tree: bool = False, details: bool = False, counts: bool = False) -> models.LsResponse:
-    _validate_path(path)
-    return _list_dir(path, tree=tree, details=details, counts=counts)
+def list_dir(req: Request) -> models.LsResponse:
+    path = _validate_path(req.path_params['path'])
+    return _list_dir(
+        path, tree=req.query_bool('tree'), details=req.query_bool('details'), counts=req.query_bool('counts')
+    )
 
 
 def _list_dir(path: str, *, tree: bool, details: bool, counts: bool) -> models.LsResponse:
@@ -128,18 +135,19 @@ def _list_dir(path: str, *, tree: bool, details: bool, counts: bool) -> models.L
 
 
 @router.get('/api/tables/{path:path}/rows')
-def table_rows(path: str, n: int = Query(default=10, ge=1, le=1000), cols: str | None = None) -> models.RowsResponse:
-    _validate_path(path)
-    cols_list = _split_csv(cols)
+def table_rows(req: Request) -> models.RowsResponse:
+    path = _validate_path(req.path_params['path'])
+    n = req.query_int('n', default=10, ge=1, le=1000)
+    cols_list = _split_csv(req.query_str('cols'))
     if cols_list is not None and len(cols_list) > 1000:
-        raise HTTPException(400, 'too many columns requested (max 1000)')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'too many columns requested (max 1000)')
 
     t = pxt.get_table(path)
     cols_md = t.get_metadata()['columns']
     if cols_list is not None:
         missing = [c for c in cols_list if c not in cols_md]
         if len(missing) > 0:
-            raise HTTPException(400, f'unknown columns: {",".join(missing)}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'unknown columns: {",".join(missing)}')
         columns_list = list(cols_list)
     else:
         # skip unstored computed columns unless the user explicitly asked for them: evaluation can take
@@ -156,38 +164,40 @@ def table_rows(path: str, n: int = Query(default=10, ge=1, le=1000), cols: str |
             else:
                 row[c] = v
         out_rows.append(row)
-    return models.RowsResponse(columns=columns_list, rows=jsonable_encoder(out_rows))
+    return models.RowsResponse(columns=columns_list, rows=out_rows)
 
 
 @router.get('/api/tables/{path:path}/row')
-def table_row(
-    path: str,
-    pk: list[str] = Query(..., description='PK values in column order; repeat ?pk= per value'),
-    cols: str | None = None,
-) -> models.GetResponse:
-    _validate_path(path)
+def table_row(req: Request) -> models.GetResponse:
+    path = _validate_path(req.path_params['path'])
+    pk = req.query_list('pk')
     if len(pk) == 0:
-        raise HTTPException(400, "missing or empty 'pk' query parameter")
+        raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, "missing or empty 'pk' query parameter")
     # PK values arrive as strings over HTTP; coerce numeric-looking ones to int/float so a
     # PK column typed as Int compares correctly. String-typed PK columns whose values look
     # like numbers (eg the string '42') are a documented limitation - there's no way to
     # force a string interpretation from the URL.
     pk_values: list[Any] = [_coerce_pk(v) for v in pk]
-    cols_list = _split_csv(cols)
+    cols_list = _split_csv(req.query_str('cols'))
 
     t = pxt.get_table(path)
     md = t.get_metadata()
     pk_names = md.get('primary_key')
     if pk_names is None or len(pk_names) == 0:
-        raise HTTPException(400, f'{path}: no primary key declared; row lookup requires one')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key declared; row lookup requires one'
+        )
     if len(pk_values) != len(pk_names):
-        raise HTTPException(400, f'{path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(pk_values)}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'{path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(pk_values)}',
+        )
 
     cols_md = md['columns']
     if cols_list is not None:
         missing = [c for c in cols_list if c not in cols_md]
         if len(missing) > 0:
-            raise HTTPException(400, f'unknown columns: {",".join(missing)}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'unknown columns: {",".join(missing)}')
         cols_to_fetch = list(cols_list)
     else:
         # skip unstored computed columns unless the user explicitly asked for them: evaluation can take
@@ -202,7 +212,7 @@ def table_row(
     if len(result) == 0:
         return models.GetResponse(pk_columns=pk_names, row=None)
     if len(result) > 1:
-        raise HTTPException(500, f'{path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?')
+        raise RuntimeError(f'{path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?')
 
     r = result[0]
     row: dict[str, Any] = {}
@@ -212,33 +222,39 @@ def table_row(
             row[c] = f'<Image {v.size[0]}x{v.size[1]} {v.mode}>'
         else:
             row[c] = v
-    return models.GetResponse(pk_columns=pk_names, row=jsonable_encoder(row))
+    return models.GetResponse(pk_columns=pk_names, row=row)
 
 
 @router.get('/api/tables/{path:path}/count')
-def table_count(path: str) -> models.CountResponse:
-    _validate_path(path)
+def table_count(req: Request) -> models.CountResponse:
+    path = _validate_path(req.path_params['path'])
     return models.CountResponse(path=path, count=pxt.get_table(path).count())
 
 
 @router.get('/api/tables/{path:path}/errors')
-def table_errors(path: str, col: str | None = None) -> models.ErrorsResponse:
-    _validate_path(path)
+def table_errors(req: Request) -> models.ErrorsResponse:
+    path = _validate_path(req.path_params['path'])
+    col = req.query_str('col')
     t = pxt.get_table(path)
     md = t.get_metadata()
 
     pk_names = md.get('primary_key')
     if pk_names is None or len(pk_names) == 0:
-        raise HTTPException(400, f'{path}: no primary key declared; errors view requires one')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key declared; errors view requires one'
+        )
 
-    # Validate col up front so a typo'd --col returns a 400 instead of a misleading
+    # Validate col up front so a typo'd --col returns a clear error instead of a misleading
     # empty result; matches the unknown-column behavior of /rows and /row.
     if col is not None:
         col_md = md['columns'].get(col)
         if col_md is None:
-            raise HTTPException(400, f'unknown column: {col}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'unknown column: {col}')
         if not (col_md['is_computed'] and col_md.get('is_stored')):
-            raise HTTPException(400, f'{col}: not a stored computed column (errors view only addresses those)')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{col}: not a stored computed column (errors view only addresses those)',
+            )
 
     # errortype/errormsg only apply to stored computed columns
     computed = [
@@ -271,32 +287,38 @@ def table_errors(path: str, col: str | None = None) -> models.ErrorsResponse:
 
 
 @router.get('/api/tables/{path:path}/history')
-def table_history(path: str, n: int | None = None) -> models.HistoryResponse:
-    _validate_path(path)
+def table_history(req: Request) -> models.HistoryResponse:
+    path = _validate_path(req.path_params['path'])
+    n_raw = req.query_str('n')
+    n = int(n_raw) if n_raw is not None else None
     versions = pxt.get_table(path).get_versions(n)
-    return models.HistoryResponse(versions=jsonable_encoder(versions))
+    return models.HistoryResponse(versions=[dict(v) for v in versions])
 
 
 # --- table-scoped mutators (POST) ------------------------------------------------------------
 
 
 @router.post('/api/tables/{path:path}/drop')
-def drop_table(path: str, req: models.DropBody) -> models.DropResponse:
-    _validate_path(path)
-    pxt.drop_table(path, force=req.cascade)
+def drop_table(req: Request) -> models.DropResponse:
+    path = _validate_path(req.path_params['path'])
+    body = req.body(models.DropBody)
+    pxt.drop_table(path, force=body.cascade)
     return models.DropResponse(path=path, dropped=True)
 
 
 @router.post('/api/tables/{path:path}/revert')
-def revert(path: str, req: models.RevertBody) -> models.RevertResponse:
-    _validate_path(path)
-    if req.steps < 1:
-        raise HTTPException(400, 'steps must be >= 1')
+def revert(req: Request) -> models.RevertResponse:
+    path = _validate_path(req.path_params['path'])
+    body = req.body(models.RevertBody)
+    if body.steps < 1:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'steps must be >= 1')
     t = pxt.get_table(path)
     from_version = t.get_metadata()['version']
-    if req.steps > from_version:
-        raise HTTPException(400, f'cannot revert {req.steps} step(s): {path} is at version {from_version}')
-    for _ in range(req.steps):
+    if body.steps > from_version:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'cannot revert {body.steps} step(s): {path} is at version {from_version}'
+        )
+    for _ in range(body.steps):
         t.revert()
     to_version = pxt.get_table(path).get_metadata()['version']
     return models.RevertResponse(path=path, from_version=from_version, to_version=to_version)
@@ -306,17 +328,19 @@ def revert(path: str, req: models.RevertBody) -> models.RevertResponse:
 
 
 @router.get('/api/tables/{path:path}')
-def describe_table(path: str) -> models.DescribeResponse:
-    _validate_path(path)
+def describe_table(req: Request) -> models.DescribeResponse:
+    path = _validate_path(req.path_params['path'])
     t = pxt.get_table(path)
-    return models.DescribeResponse(text=repr(t), metadata=jsonable_encoder(t.get_metadata()))
+    return models.DescribeResponse(text=repr(t), metadata=dict(t.get_metadata()))
 
 
 # --- cross-table aggregates --------------------------------------------------------------------
 
 
 @router.get('/api/columns')
-def columns(path: str | None = None, computed: bool = False) -> models.ColumnsResponse:
+def columns(req: Request) -> models.ColumnsResponse:
+    path = req.query_str('path')
+    computed = req.query_bool('computed')
     if path is not None:
         _validate_path(path)
     paths = [path] if path is not None and path != '' else _collect_table_paths()
@@ -345,7 +369,9 @@ def columns(path: str | None = None, computed: bool = False) -> models.ColumnsRe
 
 
 @router.get('/api/indexes')
-def indexes(path: str | None = None, embedding: bool = False) -> models.IdxsResponse:
+def indexes(req: Request) -> models.IdxsResponse:
+    path = req.query_str('path')
+    embedding = req.query_bool('embedding')
     if path is not None:
         _validate_path(path)
     paths = [path] if path is not None and path != '' else _collect_table_paths()
@@ -376,79 +402,83 @@ def indexes(path: str | None = None, embedding: bool = False) -> models.IdxsResp
 
 
 @router.post('/api/dirs/{path:path}/drop')
-def drop_dir(path: str, req: models.DropBody) -> models.DropResponse:
-    _validate_path(path)
-    pxt.drop_dir(path, force=req.cascade)
+def drop_dir(req: Request) -> models.DropResponse:
+    path = _validate_path(req.path_params['path'])
+    body = req.body(models.DropBody)
+    pxt.drop_dir(path, force=body.cascade)
     return models.DropResponse(path=path, dropped=True)
 
 
 @router.post('/api/move')
-def move(req: models.MoveBody) -> models.MoveResponse:
-    pxt.move(req.path, req.new_path)
-    return models.MoveResponse(path=req.path, new_path=req.new_path)
+def move(req: Request) -> models.MoveResponse:
+    body = req.body(models.MoveBody)
+    pxt.move(body.path, body.new_path)
+    return models.MoveResponse(path=body.path, new_path=body.new_path)
 
 
 # --- dashboard control + SPA-facing routes ----------------------------------------------------
 
 
 @router.post('/api/dashboard/control')
-def dashboard_control(req: models.DashboardControlBody) -> models.DashboardControlResponse:
-    state.set_dashboard_enabled(req.action == 'enable')
+def dashboard_control(req: Request) -> models.DashboardControlResponse:
+    body = req.body(models.DashboardControlBody)
+    state.set_dashboard_enabled(body.action == 'enable')
     return models.DashboardControlResponse(enabled=state.dashboard_enabled())
 
 
 @router.get('/api/dashboard/search')
-def dashboard_search(q: str = '', limit: int = Query(default=50, ge=1, le=100)) -> dict[str, Any]:
+def dashboard_search(req: Request) -> dict[str, Any]:
+    q = req.query_str('q', default='') or ''
+    limit = req.query_int('limit', default=50, ge=1, le=100)
     if q == '':
         return {'query': '', 'directories': [], 'tables': [], 'columns': []}
     return bridge.search(q, limit=limit)
 
 
 @router.get('/api/dashboard/tables/{path:path}/meta')
-def dashboard_table_meta(path: str) -> dict[str, Any]:
-    _validate_path(path)
+def dashboard_table_meta(req: Request) -> dict[str, Any]:
+    path = _validate_path(req.path_params['path'])
     return dict(pxt.get_table(path).get_metadata())
 
 
 @router.get('/api/dashboard/tables/{path:path}/pipeline')
-def dashboard_pipeline(path: str) -> dict[str, Any]:
-    _validate_path(path)
+def dashboard_pipeline(req: Request) -> dict[str, Any]:
+    path = _validate_path(req.path_params['path'])
     return bridge.get_pipeline(tbl_path=path)
 
 
 @router.get('/api/dashboard/pipeline')
-def dashboard_pipeline_root() -> dict[str, Any]:
+def dashboard_pipeline_root(_req: Request) -> dict[str, Any]:
     return bridge.get_pipeline(tbl_path=None)
 
 
 @router.get('/api/dashboard/tables/{path:path}/data')
-def dashboard_table_data(
-    path: str,
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=50, ge=1, le=500),
-    order_by: str | None = None,
-    order_desc: bool = False,
-    errors_only: bool = False,
-) -> dict[str, Any]:
-    _validate_path(path)
+def dashboard_table_data(req: Request) -> dict[str, Any]:
+    path = _validate_path(req.path_params['path'])
     return bridge.get_table_data(
-        path, offset=offset, limit=limit, order_by=order_by, order_desc=order_desc, errors_only=errors_only
+        path,
+        offset=req.query_int('offset', default=0, ge=0),
+        limit=req.query_int('limit', default=50, ge=1, le=500),
+        order_by=req.query_str('order_by'),
+        order_desc=req.query_bool('order_desc'),
+        errors_only=req.query_bool('errors_only'),
     )
 
 
 @router.get('/api/dashboard/tables/{path:path}/export')
-def dashboard_table_export(path: str, limit: int = Query(default=100_000, ge=1, le=1_000_000)) -> Response:
-    _validate_path(path)
+def dashboard_table_export(req: Request) -> RawResponse:
+    path = _validate_path(req.path_params['path'])
+    limit = req.query_int('limit', default=100_000, ge=1, le=1_000_000)
     body = bridge.export_table_csv(path, limit=limit)
     filename = path.replace('/', '_') + '.csv'
-    return Response(
-        content=body,
-        media_type='text/csv; charset=utf-8',
-        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    return RawResponse(
+        body=body,
+        content_type='text/csv; charset=utf-8',
+        extra_headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
 
 
-# --- helpers (unchanged) ---------------------------------------------------------------------
+# --- helpers --------------------------------------------------------------------------------
 
 
 # count() is SQL-bound (GIL-released during the query), so going wider than the DB can
@@ -458,7 +488,9 @@ _COUNT_POOL_WORKERS = 16
 
 def _coerce_pk(s: str) -> Any:
     """Numeric-looking PK strings become int or float; everything else stays a string.
-    Mirrors the previous client-side coercion now that PK values arrive untyped over HTTP."""
+
+    PK values arrive untyped over HTTP, so we restore their natural type here.
+    """
     try:
         return int(s)
     except ValueError:
@@ -476,7 +508,9 @@ def _split_csv(s: str | None) -> list[str] | None:
         return None
     parts = [p.strip() for p in s.split(',')]
     if any(p == '' for p in parts):
-        raise HTTPException(400, f'comma-separated value contains an empty token: {s!r}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'comma-separated value contains an empty token: {s!r}'
+        )
     return parts
 
 

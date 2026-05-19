@@ -1,12 +1,10 @@
-"""`python -m pxt_cli.server.daemon` - pcli FastAPI daemon."""
+"""`python -m pxt_cli.server.daemon` - pxt daemon entry point."""
 
 import atexit
 import os
 
-import uvicorn
-
 from pxt_cli.probe import get_port, pidfile_path
-from pxt_cli.server.app import create_app
+from pxt_cli.server.app import serve
 
 
 def _write_pidfile() -> None:
@@ -26,9 +24,7 @@ def _remove_pidfile() -> None:
 
 def main() -> None:
     _write_pidfile()
-    # access_log=False is the hard guarantee the daemon log won't grow per-request; log_config=None
-    # also currently produces a silent access logger, but the explicit flag is robust to upstream changes.
-    uvicorn.run(create_app(), host='127.0.0.1', port=get_port(), log_config=None, access_log=False)
+    serve(get_port())
 
 
 if __name__ == '__main__':
