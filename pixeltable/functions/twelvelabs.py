@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from twelvelabs import AsyncTwelveLabs
 
 
-@env.register_client('twelvelabs')
+@env.register_client('twelvelabs', credential_param='api_key')
 def _(api_key: str) -> 'AsyncTwelveLabs':
     from twelvelabs import AsyncTwelveLabs
 

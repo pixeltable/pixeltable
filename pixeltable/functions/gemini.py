@@ -51,7 +51,7 @@ _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 T = TypeVar('T', bound='genai.types.Operation')
 
 
-@env.register_client('gemini')
+@env.register_client('gemini', credential_param='api_key')
 def _(api_key: str | None = None) -> 'genai.client.Client':
     from google import genai
 

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     import replicate
 
 
-@register_client('replicate')
+@register_client('replicate', credential_param='api_token')
 def _(api_token: str) -> 'replicate.Client':
     import replicate
 

@@ -6,7 +6,6 @@ import os
 import shutil
 import threading
 import typing
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, NamedTuple, TypeVar
 
@@ -462,15 +461,17 @@ class Config:
     def get_list_value(self, key: str, section: str = 'pixeltable') -> list[Any] | None:
         return self.get_value(key, list, section)
 
-    def config_keys(self) -> Iterable[ConfigKey]:
-        """Return all configuration setting from the known-schema registry."""
+    def config_keys(self) -> list[ConfigKey]:
+        """Return all configuration settings from the known-schema registry."""
+        result: list[ConfigKey] = []
         for section, options in KNOWN_CONFIG_OPTIONS.items():
             for key, info in options.items():
                 if isinstance(info, tuple):
                     description, expected_type = info
                 else:
                     description, expected_type = info, str
-                yield ConfigKey(section=section, key=key, description=description, expected_type=expected_type)
+                result.append(ConfigKey(section=section, key=key, description=description, expected_type=expected_type))
+        return result
 
     def get_value_source(self, key: str, section: str = 'pixeltable') -> Literal['env', 'file', 'unset']:
         """Return source of config value returned by get_value():
@@ -480,13 +481,7 @@ class Config:
         """
         if self.lookup_env(section, key) is not None:
             return 'env'
-        lookup_elems = [*section.split('.'), key]
-        value: Any = self.__config_dict
-        for el in lookup_elems:
-            if not isinstance(value, dict) or el not in value:
-                return 'unset'
-            value = value[el]
-        return 'file' if value is not None else 'unset'
+        return 'file' if self.__config_dict.get(section, {}).get(key) is not None else 'unset'
 
 
 KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {

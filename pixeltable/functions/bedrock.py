@@ -70,7 +70,7 @@ _DATA_URI_INPUT_MODEL_PREFIXES = (
 _IMAGE_GENERATION_MODEL_PREFIXES = ('stability.', 'us.stability.', 'amazon.nova-canvas', 'amazon.titan-image-generator')
 
 
-@env.register_client('bedrock')
+@env.register_client('bedrock', credential_param='api_key')
 def _(api_key: str | None = None, region_name: str | None = None) -> 'BaseClient':
     import boto3
 
