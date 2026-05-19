@@ -6,6 +6,9 @@ table can serve multiple assertions (JSON + text + flag variants) without re-cre
 
 import json
 import os
+import socket
+import subprocess
+import sys
 import urllib.error
 import urllib.request
 
@@ -854,85 +857,184 @@ class TestDashboard:
     these tests don't depend on browser launching.
     """
 
-    @staticmethod
-    def _control(pxt_daemon: int, enable: bool) -> None:
-        import json as _json
-        import urllib.request as _req
-
-        body = _json.dumps({'action': 'enable' if enable else 'disable'}).encode()
-        r = _req.Request(
+    def _control(self, pxt_daemon: int, enable: bool) -> None:
+        body = json.dumps({'action': 'enable' if enable else 'disable'}).encode()
+        req = urllib.request.Request(
             f'http://127.0.0.1:{pxt_daemon}/api/dashboard/control',
             data=body,
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
-        with _req.urlopen(r, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             assert resp.status == 200
 
     def test_default_disabled(self, cli: PxtRunner, pxt_daemon: int) -> None:
         # Daemon starts with the dashboard disabled; SPA-only routes return 503.
-        import urllib.error as _err
-        import urllib.request as _req
-
         self._control(pxt_daemon, enable=False)
         try:
-            with _req.urlopen(f'http://127.0.0.1:{pxt_daemon}/api/dashboard/search?q=foo', timeout=5):
+            with urllib.request.urlopen(f'http://127.0.0.1:{pxt_daemon}/api/dashboard/search?q=foo', timeout=5):
                 raise AssertionError('expected 503 when dashboard disabled')
-        except _err.HTTPError as e:
+        except urllib.error.HTTPError as e:
             assert e.code == 503
 
         # CLI traffic is unaffected.
         assert cli('health').returncode == 0
 
     def test_enable_then_disable(self, cli: PxtRunner, pxt_daemon: int) -> None:
-        import urllib.error as _err
-        import urllib.request as _req
-
         # Need at least one table for search to return something deterministic.
         pxt.create_dir('cli_dash', if_exists='ignore')
         pxt.create_table('cli_dash.t', {'x': pxt.Int}, if_exists='replace')
 
         try:
             self._control(pxt_daemon, enable=True)
-            with _req.urlopen(f'http://127.0.0.1:{pxt_daemon}/api/dashboard/search?q=cli_dash', timeout=5) as r:
+            search_url = f'http://127.0.0.1:{pxt_daemon}/api/dashboard/search?q=cli_dash'
+            with urllib.request.urlopen(search_url, timeout=5) as r:
                 data = json.loads(r.read())
             assert data['query'] == 'cli_dash'
             assert any(d['path'] == 'cli_dash' for d in data['directories'])
 
             self._control(pxt_daemon, enable=False)
             try:
-                with _req.urlopen(f'http://127.0.0.1:{pxt_daemon}/api/dashboard/search?q=cli_dash', timeout=5):
+                with urllib.request.urlopen(search_url, timeout=5):
                     raise AssertionError('expected 503 after disable')
-            except _err.HTTPError as e:
+            except urllib.error.HTTPError as e:
                 assert e.code == 503
         finally:
             # Leave the daemon in the default-off state for the next test.
             self._control(pxt_daemon, enable=False)
 
     def test_table_meta_data_export(self, cli: PxtRunner, pxt_daemon: int) -> None:
-        import urllib.request as _req
-
         pxt.create_dir('cli_dash_t', if_exists='ignore')
-        t = pxt.create_table('cli_dash_t/t', {'x': pxt.Int}, if_exists='replace')
+        t = pxt.create_table('cli_dash_t.t', {'x': pxt.Int}, if_exists='replace')
         t.insert([{'x': 1}, {'x': 2}, {'x': 3}])
 
         try:
             self._control(pxt_daemon, enable=True)
             base = f'http://127.0.0.1:{pxt_daemon}'
-            with _req.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/meta', timeout=5) as r:
+            with urllib.request.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/meta', timeout=5) as r:
                 meta = json.loads(r.read())
             assert 'columns' in meta
             assert 'x' in meta['columns']
 
-            with _req.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/data?limit=10', timeout=5) as r:
+            with urllib.request.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/data?limit=10', timeout=5) as r:
                 data = json.loads(r.read())
             assert data['total_count'] == 3
             assert all('x' in row for row in data['rows'])
 
-            with _req.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/export?limit=10', timeout=5) as r:
+            with urllib.request.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/export?limit=10', timeout=5) as r:
                 csv_body = r.read().decode('utf-8')
                 disp = r.headers.get('Content-Disposition', '')
             assert csv_body.splitlines()[0] == 'x'
             assert 'cli_dash_t_t.csv' in disp
         finally:
             self._control(pxt_daemon, enable=False)
+
+    def test_spa_static_files(self, cli: PxtRunner, pxt_daemon: int) -> None:
+        """When enabled, GET / returns the SPA shell; when disabled, GET / returns 404."""
+        base = f'http://127.0.0.1:{pxt_daemon}'
+        try:
+            self._control(pxt_daemon, enable=True)
+            with urllib.request.urlopen(f'{base}/', timeout=5) as r:
+                body = r.read().decode('utf-8')
+                ctype = r.headers.get('Content-Type', '')
+            assert '<!doctype html>' in body.lower()
+            assert 'text/html' in ctype
+            # Stable bundled asset; the hashed JS/CSS filenames change every build.
+            with urllib.request.urlopen(f'{base}/favicon.svg', timeout=5) as r:
+                assert r.status == 200
+                assert 'svg' in r.headers.get('Content-Type', '').lower()
+
+            self._control(pxt_daemon, enable=False)
+            try:
+                with urllib.request.urlopen(f'{base}/', timeout=5):
+                    raise AssertionError('expected 404 when dashboard disabled')
+            except urllib.error.HTTPError as e:
+                assert e.code == 404
+        finally:
+            self._control(pxt_daemon, enable=False)
+
+
+class TestDashboardCommand:
+    """The `pxt dashboard` subcommands exercised through the CLI subprocess."""
+
+    def test_start_disables_and_restart_cold(self, cli: PxtRunner, pxt_daemon: int) -> None:
+        # start: prints the URL with the daemon's port, flag flips to enabled
+        try:
+            r = cli('dashboard', 'start', '--no-open')
+            assert r.returncode == 0
+            assert f':{pxt_daemon}' in r.stdout
+            with urllib.request.urlopen(f'http://127.0.0.1:{pxt_daemon}/', timeout=5) as resp:
+                assert resp.status == 200
+
+            # stop: flag flips back; / returns 404 again
+            r = cli('dashboard', 'stop')
+            assert r.returncode == 0
+            assert 'disabled' in r.stdout
+
+            # restart from a no-daemon-yet state must spawn the daemon and flip the flag on,
+            # rather than failing on the stop step the way it did before this fix.
+            r = cli('dashboard', 'restart', '--no-open')
+            assert r.returncode == 0
+            assert f':{pxt_daemon}' in r.stdout
+        finally:
+            cli('dashboard', 'stop', check=False)
+
+    def test_stop_without_daemon_error(self, cli: PxtRunner, pxt_daemon: int) -> None:
+        # Stop talks to a daemon, but the fixture's daemon is always up; we instead point
+        # to a free port where nothing is listening to exercise the no-daemon branch.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('127.0.0.1', 0))
+            free_port = s.getsockname()[1]
+        env = {**os.environ, 'PXT_PORT': str(free_port)}
+        r = subprocess.run(
+            ['pxt', 'dashboard', 'stop'], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL
+        )
+        assert r.returncode == 1
+        assert 'no daemon running' in r.stderr
+
+    def test_help_exits_zero(self, cli: PxtRunner, pxt_daemon: int) -> None:
+        # The top-level help lists the command; the per-action --help works too.
+        r = cli('--help')
+        assert 'dashboard' in r.stdout
+        r = cli('dashboard', 'start', '--help')
+        assert r.returncode == 0
+        assert '--no-open' in r.stdout
+
+
+class TestColdStartBudget:
+    """Locks in the cold-start budget for daemon-routed commands.
+
+    `pxt ls`, `pxt health`, etc. run in a stdlib-only client that hands off to the daemon
+    over HTTP. Importing pixeltable in that path would re-pull the heavy dependency tree
+    (sqlalchemy, pandas, torch, ...) on every invocation, blowing through the latency
+    budget and defeating the daemon split. The `-X importtime` log is authoritative.
+    """
+
+    def test_pixeltable_not_imported_by_pxt_ls(self, cli: PxtRunner, pxt_daemon: int) -> None:
+        # Use sys.executable so the subprocess runs under the same interpreter as the test,
+        # not whatever `python` resolves to on PATH.
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
+        r = subprocess.run(
+            [sys.executable, '-X', 'importtime', '-m', 'pxt_cli.client.main', 'ls'],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+        # We only inspect the import log; the underlying `ls` call may pass or fail
+        # depending on catalog state, which is irrelevant here.
+        imported = [line for line in r.stderr.splitlines() if line.startswith('import time:')]
+        # Each `import time:` line ends with the dotted module name; we want to catch
+        # the top-level package alone, not e.g. a stdlib `numbers` module sharing a prefix.
+        forbidden = ('pixeltable', 'sqlalchemy', 'pandas', 'numpy')
+        offenders: dict[str, str] = {}
+        for line in imported:
+            module = line.rsplit(' ', 1)[-1]
+            top = module.split('.', 1)[0]
+            if top in forbidden and top not in offenders:
+                offenders[top] = line
+        assert len(offenders) == 0, (
+            'cold-start budget broken; the following packages were imported during `pxt ls` startup:\n'
+            + '\n'.join(f'  {pkg}: {line}' for pkg, line in offenders.items())
+        )

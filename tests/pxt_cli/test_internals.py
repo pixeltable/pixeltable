@@ -85,12 +85,12 @@ def fresh_port(init_env: None) -> Iterator[int]:
     try:
         yield port
     finally:
-        pid = probe._read_pidfile()
+        pid = probe.read_pidfile()
         if pid is not None:
             # Reuse the production kill helper: it already handles the SIGKILL fallback
             # and the Windows quirks around os.kill(pid, 0). Cleanup is best-effort.
             try:
-                probe._kill_and_wait(pid, timeout=3.0)
+                probe.kill_and_wait(pid, timeout=3.0)
             except Exception:
                 pass
         if prior is None:
@@ -120,17 +120,17 @@ class TestProbe:
         assert body['ok'] is True
         assert body['pid'] > 0
         # the spawned daemon's pidfile should now exist and contain that PID
-        assert probe._read_pidfile() == body['pid']
+        assert probe.read_pidfile() == body['pid']
 
     def test_identity_mismatch_refuses_unknown_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Safety: if a responder reports a different identity AND its PID doesn't match
         our pidfile, refuse to SIGTERM it. It might be an unrelated process on the same port."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
         foreign_responder = _health_payload(pxt_version='OLD', pid=99999)
-        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: foreign_responder)
-        monkeypatch.setattr(probe, '_read_pidfile', lambda: 12345)
+        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: foreign_responder)
+        monkeypatch.setattr(probe, 'read_pidfile', lambda: 12345)
         killed: list[int | str] = []
-        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         monkeypatch.setattr(probe, 'spawn_detached', lambda: killed.append('spawn'))
 
         with pytest.raises(RuntimeError, match='does not match our pidfile'):
@@ -142,10 +142,10 @@ class TestProbe:
         new one, and cross-verifies the post-restart responder's identity matches ours."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
         responses = iter([_health_payload(pxt_version='OLD', pid=100), _health_payload(pxt_version='NEW', pid=200)])
-        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
+        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(probe, 'read_pidfile', lambda: 100)
         actions: list[tuple[str, ...] | tuple[str, int]] = []
-        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
+        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
         monkeypatch.setattr(probe, 'spawn_detached', lambda: actions.append(('spawn',)))
         monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
 
@@ -157,9 +157,9 @@ class TestProbe:
         """Post-restart cross-verify: the new responder still reports the killed PID."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
         responses = iter([_health_payload(pxt_version='OLD', pid=100), _health_payload(pxt_version='NEW', pid=100)])
-        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
-        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: None)
+        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(probe, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: None)
         monkeypatch.setattr(probe, 'spawn_detached', lambda: None)
         monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
 
@@ -170,9 +170,9 @@ class TestProbe:
         """Post-restart cross-verify: the new daemon never responds to /health."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
         responses = iter([_health_payload(pxt_version='OLD', pid=100), None])
-        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
-        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: None)
+        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(probe, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: None)
         monkeypatch.setattr(probe, 'spawn_detached', lambda: None)
         monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
 
@@ -188,9 +188,9 @@ class TestProbe:
                 _health_payload(pxt_version='OLD', pid=200),  # fresh PID, still wrong version
             ]
         )
-        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
-        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: None)
+        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(probe, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: None)
         monkeypatch.setattr(probe, 'spawn_detached', lambda: None)
         monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
 
@@ -201,9 +201,9 @@ class TestProbe:
         """All identity fields match: ensure_running returns the base URL without killing
         or respawning anything."""
         _patch_identity(monkeypatch, {})
-        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: _health_payload(pid=100))
+        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: _health_payload(pid=100))
         actions: list[str] = []
-        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
+        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
         monkeypatch.setattr(probe, 'spawn_detached', lambda: actions.append('spawn'))
 
         url = probe.ensure_running()
@@ -233,10 +233,10 @@ class TestProbe:
         drifted = _health_payload(pid=100)
         drifted[drift_key] = drift_value
         responses = iter([drifted, _health_payload(pid=200)])
-        monkeypatch.setattr(probe, '_fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, '_read_pidfile', lambda: 100)
+        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(probe, 'read_pidfile', lambda: 100)
         actions: list[tuple[str, ...] | tuple[str, int]] = []
-        monkeypatch.setattr(probe, '_kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
+        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
         monkeypatch.setattr(probe, 'spawn_detached', lambda: actions.append(('spawn',)))
         monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
 
@@ -247,11 +247,11 @@ class TestProbe:
         monkeypatch.setattr(probe, 'pidfile_path', lambda: str(tmp_path / 'bogus.pid'))
         with open(probe.pidfile_path(), 'w', encoding='utf-8') as f:
             f.write('not-an-int')
-        assert probe._read_pidfile() is None
+        assert probe.read_pidfile() is None
 
     def test_pidfile_missing(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(probe, 'pidfile_path', lambda: str(tmp_path / 'missing.pid'))
-        assert probe._read_pidfile() is None
+        assert probe.read_pidfile() is None
 
     def test_fetch_health_rejects_non_cli_marker(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A responder that returns {ok: true} but isn't us is not our daemon."""
@@ -270,7 +270,7 @@ class TestProbe:
                 return self._body
 
         monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(b'{"ok": true, "service": "other"}'))
-        assert probe._fetch_health() is None
+        assert probe.fetch_health() is None
 
     def test_fetch_health_missing_identity_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeResp:
@@ -289,10 +289,10 @@ class TestProbe:
         # legacy daemon shape (pre-identity): missing pxt_install_dir etc. -> rejected
         legacy = json.dumps({'ok': True, 'service': 'pxt', 'pxt_version': '1.0', 'pid': 1, 'started_at': 'a'}).encode()
         monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(legacy))
-        assert probe._fetch_health() is None
+        assert probe.fetch_health() is None
         # absent service marker / no fields at all -> also rejected
         monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(b'{"ok": true, "service": "pxt"}'))
-        assert probe._fetch_health() is None
+        assert probe.fetch_health() is None
 
     def test_fetch_health_accepts_complete_identity(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """All identity fields present alongside pid/started_at -> accepted."""
@@ -308,7 +308,7 @@ class TestProbe:
                 return json.dumps(_health_payload()).encode()
 
         monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp())
-        body = probe._fetch_health()
+        body = probe.fetch_health()
         assert body is not None
         assert all(k in body for k in probe._IDENTITY_KEYS)
 
@@ -317,7 +317,7 @@ class TestProbe:
             raise urllib.error.URLError('refused')
 
         monkeypatch.setattr('urllib.request.urlopen', boom)
-        assert probe._fetch_health() is None
+        assert probe.fetch_health() is None
 
     def test_client_pxt_version_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(name: str) -> str:
@@ -370,7 +370,7 @@ class TestProbe:
         assert 'address already in use' in str(ei.value)
 
     def test_kill_and_wait_falls_through_to_sigkill(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """If SIGTERM doesn't bring the daemon down, _kill_and_wait must follow up with SIGKILL.
+        """If SIGTERM doesn't bring the daemon down, kill_and_wait must follow up with SIGKILL.
 
         Liveness is checked via os.kill(pid, 0), not /health, so a hung-but-alive daemon
         still holding the listen socket gets SIGKILLed instead of leaving the socket bound.
@@ -382,7 +382,7 @@ class TestProbe:
             calls.append(sig)
 
         monkeypatch.setattr(probe.os, 'kill', fake_kill)
-        probe._kill_and_wait(12345, timeout=0.2)
+        probe.kill_and_wait(12345, timeout=0.2)
         assert signal.SIGTERM in calls
         # On non-Windows we have a real SIGKILL; on Windows it falls back to SIGTERM.
         assert getattr(signal, 'SIGKILL', signal.SIGTERM) in calls
@@ -398,7 +398,7 @@ class TestProbe:
                 raise ProcessLookupError
 
         monkeypatch.setattr(probe.os, 'kill', fake_kill)
-        probe._kill_and_wait(12345, timeout=1.0)
+        probe.kill_and_wait(12345, timeout=1.0)
         sigkill = getattr(signal, 'SIGKILL', signal.SIGTERM)
         assert signal.SIGTERM in calls
         # On platforms where SIGKILL != SIGTERM, it must NOT have been issued.
@@ -411,7 +411,7 @@ class TestProbe:
 
         monkeypatch.setattr(probe.os, 'kill', boom)
         # Should return cleanly without raising
-        probe._kill_and_wait(99999)
+        probe.kill_and_wait(99999)
 
     def test_pid_alive_dead(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(pid: int, sig: int) -> None:
@@ -931,7 +931,7 @@ class TestDaemonCmd:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
         monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', lambda: 'http://127.0.0.1:22090')
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: {'pid': 4242})
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: {'pid': 4242})
         daemon_cmd.run(['start'])
         out = capsys.readouterr().out
         assert 'http://127.0.0.1:22090' in out
@@ -952,18 +952,18 @@ class TestDaemonCmd:
     def test_stop_kills_when_pid_matches(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
     ) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: 4242)
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: {'pid': 4242})
+        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: 4242)
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: {'pid': 4242})
         monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         killed: list[int] = []
-        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         daemon_cmd.run(['stop'])
         assert killed == [4242]
         assert 'PID 4242' in capsys.readouterr().out
 
     def test_stop_no_daemon_exits_1(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: None)
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: None)
+        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: None)
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: None)
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['stop'])
         assert ei.value.code == 1
@@ -972,13 +972,13 @@ class TestDaemonCmd:
     def test_stop_pidfile_but_no_responder_kills_tracked_pid(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
     ) -> None:
-        # Daemon hung or crashed: pidfile points somewhere, /health silent. _kill_and_wait
+        # Daemon hung or crashed: pidfile points somewhere, /health silent. kill_and_wait
         # is idempotent on a dead PID, so the kill attempt is safe either way.
-        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: 9999)
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: None)
+        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: 9999)
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: None)
         monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         killed: list[int] = []
-        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         daemon_cmd.run(['stop'])
         assert killed == [9999]
         assert 'PID 9999' in capsys.readouterr().out
@@ -986,10 +986,10 @@ class TestDaemonCmd:
     def test_stop_pid_mismatch_refuses_without_force(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: 100)
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: {'pid': 200})
+        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: {'pid': 200})
         killed: list[int] = []
-        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['stop'])
         assert ei.value.code == 1
@@ -999,11 +999,11 @@ class TestDaemonCmd:
     def test_stop_pid_mismatch_force_kills_responder(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
     ) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: 100)
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: {'pid': 200})
+        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: {'pid': 200})
         monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         killed: list[int] = []
-        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         daemon_cmd.run(['stop', '--force'])
         # --force on mismatch kills the responder, not the tracked pidfile PID
         assert killed == [200]
@@ -1011,10 +1011,10 @@ class TestDaemonCmd:
     def test_stop_responder_without_pidfile_refuses_without_force(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: None)
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: {'pid': 200})
+        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: None)
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: {'pid': 200})
         killed: list[int] = []
-        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['stop'])
         assert ei.value.code == 1
@@ -1024,7 +1024,7 @@ class TestDaemonCmd:
     def test_status_prints_identity_text(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         monkeypatch.setattr(
             daemon_cmd.probe,
-            '_fetch_health',
+            'fetch_health',
             lambda: {
                 'pid': 4242,
                 'started_at': '2026-05-18T12:00:00+00:00',
@@ -1047,12 +1047,12 @@ class TestDaemonCmd:
 
     def test_status_json_is_raw_dict(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         payload = {'pid': 4242, 'service': 'pxt', 'pixeltable_env': {}}
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: payload)
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: payload)
         daemon_cmd.run(['status', '--json'])
         assert json.loads(capsys.readouterr().out) == payload
 
     def test_status_no_daemon_exits_1(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: None)
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: None)
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['status'])
         assert ei.value.code == 1
@@ -1070,11 +1070,11 @@ class TestDaemonCmd:
                 {'pid': 200},  # for the start branch's post-spawn lookup
             ]
         )
-        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: 100)
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: next(states))
+        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: next(states))
         monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         actions: list[str] = []
-        monkeypatch.setattr(daemon_cmd.probe, '_kill_and_wait', lambda pid, timeout=5.0: actions.append(f'kill:{pid}'))
+        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(f'kill:{pid}'))
 
         def fake_ensure_running() -> str:
             actions.append('spawn')
@@ -1093,8 +1093,8 @@ class TestDaemonCmd:
     ) -> None:
         # Nothing to stop initially; restart should still proceed to start without erroring.
         states = iter([None, {'pid': 200}])
-        monkeypatch.setattr(daemon_cmd.probe, '_read_pidfile', lambda: None)
-        monkeypatch.setattr(daemon_cmd.probe, '_fetch_health', lambda: next(states))
+        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: None)
+        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: next(states))
         monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', lambda: 'http://127.0.0.1:22090')
         monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         daemon_cmd.run(['restart'])

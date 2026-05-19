@@ -56,15 +56,15 @@ def _do_start() -> None:
     except RuntimeError as e:
         print(f'pxt: {e}', file=sys.stderr)
         sys.exit(1)
-    health = probe._fetch_health()
+    health = probe.fetch_health()
     pid = health.get('pid') if health is not None else None
     suffix = f' (PID {pid})' if pid is not None else ''
     print(f'pxt daemon up at {base}{suffix}')
 
 
 def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
-    tracked_pid = probe._read_pidfile()
-    health = probe._fetch_health()
+    tracked_pid = probe.read_pidfile()
+    health = probe.fetch_health()
 
     if tracked_pid is None and health is None:
         if ok_if_absent:
@@ -88,7 +88,7 @@ def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
         pid_to_kill = health.get('pid')
     elif health is None and tracked_pid is not None:
         # No responder but we have a pidfile entry. Could be a hung daemon (PID alive but not
-        # listening) or a stale pidfile (PID gone). _kill_and_wait handles both: it returns
+        # listening) or a stale pidfile (PID gone). kill_and_wait handles both: it returns
         # cleanly on ProcessLookupError.
         pid_to_kill = tracked_pid
     else:
@@ -104,7 +104,7 @@ def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
         pid_to_kill = health.get('pid')
 
     if pid_to_kill is not None:
-        probe._kill_and_wait(pid_to_kill)
+        probe.kill_and_wait(pid_to_kill)
     # Daemon's atexit handler only fires on graceful exit; clean up the pidfile here so a
     # subsequent stop doesn't trip the "stale pidfile" branch.
     try:
@@ -115,7 +115,7 @@ def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
 
 
 def _do_status(as_json: bool) -> None:
-    health = probe._fetch_health()
+    health = probe.fetch_health()
     if health is None:
         print('pxt: no daemon running', file=sys.stderr)
         sys.exit(1)
