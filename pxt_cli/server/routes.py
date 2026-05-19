@@ -18,6 +18,7 @@ from .router import RawResponse, Request, Router
 
 router = Router()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
 _IDENTITY: dict[str, Any] = probe.identity()
@@ -31,6 +32,11 @@ def _validate_path(path: str) -> str:
     """
     if path == '':
         return path
+    # Reject ASCII control characters before any other check: the path is later interpolated
+    # into response headers (eg Content-Disposition in dashboard_table_export), so CR/LF/etc.
+    # in a URL-decoded path would otherwise enable response splitting / header injection.
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path):
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'path contains control characters; got {path!r}')
     if '.' in path:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"path uses '/' as the separator; got {path!r}")
     if path.endswith('/'):
@@ -72,9 +78,8 @@ def status(req: Request) -> models.StatusResponse:
 @router.get('/api/config')
 def config(_req: Request) -> models.ConfigResponse:
     # Two-layer redaction so a new sensitive key never silently leaks:
-    #   1. params from registered API client factories (eg openai.api_key, replicate.api_token)
-    #   2. name-suffix match for keys that aren't tied to an Env-registered client
-    #      (eg azure.storage_account_key, anything ending in _password)
+    # - params from registered API client factories
+    # - name-suffix match for keys that aren't tied to an Env-registered client (eg, azure.storage_account_key)
     client_creds: set[str] = set(Env.get().get_client_credential_params().values())
     sensitive_suffixes = ('_key', '_token', '_secret', '_password')
     entries: list[models.ConfigEntry] = []
@@ -101,9 +106,6 @@ def config(_req: Request) -> models.ConfigResponse:
     return models.ConfigResponse(config_file=str(Config.get().config_file), entries=entries)
 
 
-# --- directories ------------------------------------------------------------------------------
-
-
 @router.get('/api/dirs')
 def list_root(req: Request) -> models.LsResponse:
     return _list_dir(
@@ -128,9 +130,6 @@ def _list_dir(path: str, *, tree: bool, details: bool, counts: bool) -> models.L
     if counts:
         _fill_counts(entries)
     return models.LsResponse(entries=entries)
-
-
-# --- table-scoped reads (specific suffixes BEFORE the catch-all describe) ----------------------
 
 
 @router.get('/api/tables/{path:path}/rows')
@@ -243,8 +242,6 @@ def table_errors(req: Request) -> models.ErrorsResponse:
             excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key declared; errors view requires one'
         )
 
-    # Validate col up front so a typo'd --col returns a clear error instead of a misleading
-    # empty result; matches the unknown-column behavior of /rows and /row.
     if col is not None:
         col_md = md['columns'].get(col)
         if col_md is None:
@@ -288,13 +285,9 @@ def table_errors(req: Request) -> models.ErrorsResponse:
 @router.get('/api/tables/{path:path}/history')
 def table_history(req: Request) -> models.HistoryResponse:
     path = _validate_path(req.path_params['path'])
-    n_raw = req.query_str('n')
-    n = int(n_raw) if n_raw is not None else None
+    n = req.query_int('n', default=None, ge=1)
     versions = pxt.get_table(path).get_versions(n)
     return models.HistoryResponse(versions=[dict(v) for v in versions])
-
-
-# --- table-scoped mutators (POST) ------------------------------------------------------------
 
 
 @router.post('/api/tables/{path:path}/drop')
@@ -323,17 +316,11 @@ def revert(req: Request) -> models.RevertResponse:
     return models.RevertResponse(path=path, from_version=from_version, to_version=to_version)
 
 
-# --- table describe (catch-all, registered LAST so /rows, /count, etc. win) ------------------
-
-
 @router.get('/api/tables/{path:path}')
 def describe_table(req: Request) -> models.DescribeResponse:
     path = _validate_path(req.path_params['path'])
     t = pxt.get_table(path)
     return models.DescribeResponse(text=repr(t), metadata=dict(t.get_metadata()))
-
-
-# --- cross-table aggregates --------------------------------------------------------------------
 
 
 @router.get('/api/columns')
@@ -397,9 +384,6 @@ def indexes(req: Request) -> models.IdxsResponse:
     return models.IdxsResponse(entries=entries)
 
 
-# --- directory mutators + cross-cutting move --------------------------------------------------
-
-
 @router.post('/api/dirs/{path:path}/drop')
 def drop_dir(req: Request) -> models.DropResponse:
     path = _validate_path(req.path_params['path'])
@@ -413,9 +397,6 @@ def move(req: Request) -> models.MoveResponse:
     body = req.body(models.MoveBody)
     pxt.move(body.path, body.new_path)
     return models.MoveResponse(path=body.path, new_path=body.new_path)
-
-
-# --- dashboard control + SPA-facing routes ----------------------------------------------------
 
 
 @router.post('/api/dashboard/control')
@@ -475,9 +456,6 @@ def dashboard_table_export(req: Request) -> RawResponse:
         content_type='text/csv; charset=utf-8',
         extra_headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
-
-
-# --- helpers --------------------------------------------------------------------------------
 
 
 # count() is SQL-bound (GIL-released during the query), so going wider than the DB can

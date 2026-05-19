@@ -64,13 +64,7 @@ uv add pixeltable
 
 Pixeltable bundles its own transactional database, orchestration engine, and local dashboard. No Docker, no external services — one install is all you need. All data is managed in `~/.pixeltable` and accessed through the [Python SDK](https://docs.pixeltable.com/sdk/latest/pixeltable). See [Working with External Files](https://docs.pixeltable.com/platform/external-files) and [Storage Architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) for details.
 
-For terminal-based catalog inspection (`pcli ls`, `pcli describe`, `pcli rows`, …) install the optional CLI extra:
-
-```bash
-pip install 'pixeltable[cli]'
-```
-
-See the [Catalog CLI guide](https://docs.pixeltable.com/platform/pcli) for details.
+Use the CLI for terminal-based catalog inspection (`pxt ls`, `pxt describe`, `pxt rows`, …). See the [CLI guide](https://docs.pixeltable.com/platform/cli) for details.
 
 ## AI Agent Skill
 

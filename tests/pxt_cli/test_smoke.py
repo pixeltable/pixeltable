@@ -248,6 +248,17 @@ class TestHistory:
         assert 'version' in text
         assert 'change_type' in text
 
+    def test_server_rejects_malformed_n(self, pxt_daemon: int) -> None:
+        # A non-integer or out-of-range n must produce a structured 4xx, not bubble up as a
+        # generic 500. The CLI client validates -n before sending, so this exercises the
+        # programmatic-caller path.
+        for bad, expected in (('abc', 'must be an integer'), ('0', 'must be >= 1'), ('-3', 'must be >= 1')):
+            req = urllib.request.Request(f'http://127.0.0.1:{pxt_daemon}/api/tables/cli_hist/t/history?n={bad}')
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                urllib.request.urlopen(req)
+            assert ei.value.code == 422
+            assert expected in json.loads(ei.value.read())['detail']
+
 
 class TestRows:
     def test_basics(self, cli: PxtRunner) -> None:
@@ -806,6 +817,20 @@ class TestPathValidator:
         r = cli('describe', 'a//b', check=False)
         assert r.returncode != 0
         assert 'empty components' in r.stderr
+
+    def test_server_rejects_control_chars(self, pxt_daemon: int) -> None:
+        # A control character in the URL-decoded path would otherwise be interpolated into
+        # response headers (eg the Content-Disposition emitted by dashboard_table_export),
+        # enabling header injection / response splitting. The server-side validator must
+        # reject every ASCII control character before the path reaches any downstream sink.
+        # LF (%0A) is filtered out earlier by the route-matching regex; the test covers the
+        # remaining control chars that do reach _validate_path.
+        for encoded in ('foo%0Dbar', 'foo%00bar', 'foo%7Fbar', 'foo%01bar'):
+            req = urllib.request.Request(f'http://127.0.0.1:{pxt_daemon}/api/tables/{encoded}')
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                urllib.request.urlopen(req)
+            assert ei.value.code == 422
+            assert 'control characters' in json.loads(ei.value.read())['detail']
 
 
 class TestColsValidator:

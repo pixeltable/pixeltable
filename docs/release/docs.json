@@ -27,8 +27,7 @@
             "pages": [
               "overview/building-pixeltable-with-llms",
               "platform/dashboard",
-              "platform/cli",
-              "platform/pcli"
+              "platform/cli"
             ]
           },
           {

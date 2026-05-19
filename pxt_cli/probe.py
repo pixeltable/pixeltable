@@ -273,7 +273,7 @@ def ensure_running() -> str:
             # swap in a daemon belonging to this install/env.
             new_health = fetch_health()
             if new_health is None:
-                reason = 'new daemon did not respond to /pcli/v0/health'
+                reason = 'new daemon did not respond to /api/health'
             elif new_health.get('pid') == tracked_pid:
                 reason = f'new daemon kept the killed PID {tracked_pid}'
             else:
