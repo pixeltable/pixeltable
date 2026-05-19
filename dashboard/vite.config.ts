@@ -19,7 +19,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../pixeltable/dashboard/static',
+    outDir: '../pxt_cli/server/static',
     emptyOutDir: true,
     sourcemap: false,
   },

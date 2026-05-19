@@ -7,13 +7,17 @@ import PIL.Image
 import sqlalchemy as sa
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import Response
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
+from pixeltable.dashboard import bridge
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
 from pxt_cli import models, probe
+
+from . import state
 
 router = APIRouter()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -44,8 +48,6 @@ def health() -> models.HealthResponse:
 
 @router.get('/api/status')
 def status(sizes: bool = False) -> models.StatusResponse:
-    from pixeltable.dashboard import bridge
-
     s = bridge.get_status()
     cfg = s['config']
     media_dir = cfg.get('media_dir')
@@ -384,6 +386,66 @@ def drop_dir(path: str, req: models.DropBody) -> models.DropResponse:
 def move(req: models.MoveBody) -> models.MoveResponse:
     pxt.move(req.path, req.new_path)
     return models.MoveResponse(path=req.path, new_path=req.new_path)
+
+
+# --- dashboard control + SPA-facing routes ----------------------------------------------------
+
+
+@router.post('/api/dashboard/control')
+def dashboard_control(req: models.DashboardControlBody) -> models.DashboardControlResponse:
+    state.set_dashboard_enabled(req.action == 'enable')
+    return models.DashboardControlResponse(enabled=state.dashboard_enabled())
+
+
+@router.get('/api/dashboard/search')
+def dashboard_search(q: str = '', limit: int = Query(default=50, ge=1, le=100)) -> dict[str, Any]:
+    if q == '':
+        return {'query': '', 'directories': [], 'tables': [], 'columns': []}
+    return bridge.search(q, limit=limit)
+
+
+@router.get('/api/dashboard/tables/{path:path}/meta')
+def dashboard_table_meta(path: str) -> dict[str, Any]:
+    _validate_path(path)
+    return dict(pxt.get_table(path).get_metadata())
+
+
+@router.get('/api/dashboard/tables/{path:path}/pipeline')
+def dashboard_pipeline(path: str) -> dict[str, Any]:
+    _validate_path(path)
+    return bridge.get_pipeline(tbl_path=path)
+
+
+@router.get('/api/dashboard/pipeline')
+def dashboard_pipeline_root() -> dict[str, Any]:
+    return bridge.get_pipeline(tbl_path=None)
+
+
+@router.get('/api/dashboard/tables/{path:path}/data')
+def dashboard_table_data(
+    path: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=500),
+    order_by: str | None = None,
+    order_desc: bool = False,
+    errors_only: bool = False,
+) -> dict[str, Any]:
+    _validate_path(path)
+    return bridge.get_table_data(
+        path, offset=offset, limit=limit, order_by=order_by, order_desc=order_desc, errors_only=errors_only
+    )
+
+
+@router.get('/api/dashboard/tables/{path:path}/export')
+def dashboard_table_export(path: str, limit: int = Query(default=100_000, ge=1, le=1_000_000)) -> Response:
+    _validate_path(path)
+    body = bridge.export_table_csv(path, limit=limit)
+    filename = path.replace('/', '_') + '.csv'
+    return Response(
+        content=body,
+        media_type='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
 
 
 # --- helpers (unchanged) ---------------------------------------------------------------------

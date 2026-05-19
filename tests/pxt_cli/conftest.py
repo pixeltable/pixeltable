@@ -1,4 +1,4 @@
-"""pcli test fixtures.
+"""pxt CLI test fixtures.
 
 The daemon runs in a separate process, so it must inherit the per-worker
 PIXELTABLE_* env vars set by the session-scoped init_env fixture. We spawn
@@ -18,8 +18,8 @@ from typing import Any
 
 import pytest
 
-# The pcli daemon is behind the `pixeltable[cli]` extra. In CI profiles that don't
-# install it (`minimal`), skip the whole pcli test module rather than fail to spawn.
+# The pxt daemon is behind the `pixeltable[cli]` extra. In CI profiles that don't
+# install it (`minimal`), skip the whole pxt-CLI test module rather than fail to spawn.
 pytest.importorskip('fastapi')
 pytest.importorskip('uvicorn')
 
@@ -31,7 +31,7 @@ def _pick_port() -> int:
 
 
 @dataclass
-class PcliResult:
+class PxtResult:
     returncode: int
     stdout: str
     stderr: str
@@ -42,11 +42,11 @@ class PcliResult:
 
 
 @pytest.fixture(scope='session')
-def pcli_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iterator[int]:
+def pxt_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iterator[int]:
     port = _pick_port()
-    env = {**os.environ, 'PCLI_PORT': str(port)}
-    log_path = tmp_path_factory.mktemp('pcli-daemon') / 'daemon.log'
-    prior_port = os.environ.get('PCLI_PORT')
+    env = {**os.environ, 'PXT_PORT': str(port)}
+    log_path = tmp_path_factory.mktemp('pxt-daemon') / 'daemon.log'
+    prior_port = os.environ.get('PXT_PORT')
     with open(log_path, 'w', encoding='utf-8') as log:
         proc = subprocess.Popen(
             [sys.executable, '-m', 'pxt_cli.server.daemon'], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL
@@ -54,7 +54,7 @@ def pcli_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Ite
     try:
         from pxt_cli.probe import is_running
 
-        os.environ['PCLI_PORT'] = str(port)
+        os.environ['PXT_PORT'] = str(port)
         deadline = time.time() + 15
         while time.time() < deadline:
             if is_running():
@@ -69,9 +69,9 @@ def pcli_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Ite
         yield port
     finally:
         if prior_port is None:
-            os.environ.pop('PCLI_PORT', None)
+            os.environ.pop('PXT_PORT', None)
         else:
-            os.environ['PCLI_PORT'] = prior_port
+            os.environ['PXT_PORT'] = prior_port
         proc.terminate()
         try:
             proc.wait(timeout=5)
@@ -79,18 +79,18 @@ def pcli_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Ite
             proc.kill()
 
 
-PcliRunner = Callable[..., PcliResult]
+PxtRunner = Callable[..., PxtResult]
 
 
 @pytest.fixture
-def pcli(pcli_daemon: int, uses_db: None) -> PcliRunner:
-    def _run(*args: str, check: bool = True) -> PcliResult:
-        env = {**os.environ, 'PCLI_PORT': str(pcli_daemon)}
+def cli(pxt_daemon: int, uses_db: None) -> PxtRunner:
+    def _run(*args: str, check: bool = True) -> PxtResult:
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', *args], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL
         )
         if check and r.returncode != 0:
-            raise AssertionError(f'pcli {args} failed (rc={r.returncode}): {r.stderr}')
-        return PcliResult(r.returncode, r.stdout, r.stderr)
+            raise AssertionError(f'pxt {args} failed (rc={r.returncode}): {r.stderr}')
+        return PxtResult(r.returncode, r.stdout, r.stderr)
 
     return _run
