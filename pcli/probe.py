@@ -1,5 +1,6 @@
 """Stdlib-only so the client can import without pulling in pxt or pydantic."""
 
+import hashlib
 import importlib.metadata
 import importlib.util
 import json
@@ -10,6 +11,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 # TODO: move to 22089 when consolidating pcli with pxt
@@ -17,10 +19,23 @@ DEFAULT_PORT = 22090
 _IS_WINDOWS = os.name == 'nt'
 
 
+def _resolve_pixeltable_home() -> str:
+    """Client-side mirror of pixeltable.config.Config's home-directory resolution"""
+    return str(Path(os.environ.get('PIXELTABLE_HOME') or '~/.pixeltable').expanduser().resolve())
+
+
+def _resolve_pixeltable_pgdata(home: str) -> str:
+    """Mirrors env.py: PIXELTABLE_PGDATA if set, else {home}/pgdata."""
+    return str(Path(os.environ.get('PIXELTABLE_PGDATA') or f'{home}/pgdata').expanduser().resolve())
+
+
+def _resolve_pixeltable_config_file(home: str) -> str:
+    """Mirrors config.py: PIXELTABLE_CONFIG if set, else {home}/config.toml."""
+    return str(Path(os.environ.get('PIXELTABLE_CONFIG') or f'{home}/config.toml').expanduser().resolve())
+
+
 def _daemon_log_path() -> str:
-    """Resolve PIXELTABLE_HOME on every call so the path tracks env changes between calls."""
-    home = os.environ.get('PIXELTABLE_HOME') or os.path.expanduser('~/.pixeltable')
-    return os.path.join(home, 'logs', 'pcli-daemon.log')
+    return os.path.join(_resolve_pixeltable_home(), 'logs', 'pcli-daemon.log')
 
 
 def get_port() -> int:
@@ -30,8 +45,7 @@ def get_port() -> int:
 def pidfile_path() -> str:
     """Per-port pidfile path. The port parameterization isolates daemons running on
     different ports so they don't read or stomp each other's PID."""
-    home = os.environ.get('PIXELTABLE_HOME') or os.path.expanduser('~/.pixeltable')
-    return os.path.join(home, f'pcli-daemon-{get_port()}.pid')
+    return os.path.join(_resolve_pixeltable_home(), f'pcli-daemon-{get_port()}.pid')
 
 
 def _read_pidfile() -> int | None:
@@ -50,6 +64,18 @@ def health_url() -> str:
     return f'{base_url()}/pcli/v0/health'
 
 
+# Identity fingerprint keys. Comparison is by dict equality, so the order matters.
+_IDENTITY_KEYS: tuple[str, ...] = (
+    'pxt_version',
+    'pxt_install_dir',
+    'python_executable',
+    'pixeltable_home',
+    'pixeltable_pgdata',
+    'pixeltable_config_file',
+    'pixeltable_env',
+)
+
+
 def _fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
     try:
         with urllib.request.urlopen(health_url(), timeout=timeout) as r:
@@ -58,10 +84,11 @@ def _fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
         return None
     # Verify this is actually our daemon and not some other service on the same port that
     # happens to return `{"ok": true}`. Require both the pcli service marker and the full
-    # set of identity fields the version-mismatch / kill logic relies on.
+    # set of identity fields the mismatch / kill logic relies on.
     if not isinstance(body, dict) or body.get('service') != 'pcli' or not body.get('ok'):
         return None
-    if not all(k in body for k in ('pxt_version', 'pid', 'started_at')):
+    required = ('pid', 'started_at', *_IDENTITY_KEYS)
+    if not all(k in body for k in required):
         return None
     return body
 
@@ -77,8 +104,56 @@ def _client_pxt_version() -> str | None:
         return None
 
 
+def _client_pxt_install_dir() -> str | None:
+    """Stdlib-only equivalent of `Path(pixeltable.__file__).parent`. Returns None if pixeltable isn't installed."""
+    try:
+        dist = importlib.metadata.distribution('pixeltable')
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    return str(Path(str(dist.locate_file('pixeltable'))).resolve())
+
+
+# Env-var keys whose values may contain credentials and must not be returned verbatim
+_SENSITIVE_NAME_PARTS: tuple[str, ...] = ('KEY', 'TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'CONNECT_STR')
+
+
+def _is_sensitive_env_name(name: str) -> bool:
+    upper = name.upper()
+    return any(part in upper for part in _SENSITIVE_NAME_PARTS)
+
+
+def _redact_env_value(name: str, value: str) -> str:
+    if not _is_sensitive_env_name(name):
+        return value
+    digest = hashlib.sha256(value.encode('utf-8')).hexdigest()[:16]
+    return f'sha256:{digest}'
+
+
+def _snapshot_pixeltable_env(environ: dict[str, str] | None = None) -> dict[str, str]:
+    """Returns dict mapping PIXELTABLE_* env vars to their redacted values."""
+    env = os.environ if environ is None else environ
+    return {k: _redact_env_value(k, env[k]) for k in sorted(env) if k.startswith('PIXELTABLE_')}
+
+
+def identity() -> dict[str, Any]:
+    home = _resolve_pixeltable_home()
+    return {
+        'pxt_version': _client_pxt_version(),
+        'pxt_install_dir': _client_pxt_install_dir(),
+        'python_executable': sys.executable,
+        'pixeltable_home': home,
+        'pixeltable_pgdata': _resolve_pixeltable_pgdata(home),
+        'pixeltable_config_file': _resolve_pixeltable_config_file(home),
+        'pixeltable_env': _snapshot_pixeltable_env(),
+    }
+
+
+def _identity_diff(client: dict[str, Any], daemon: dict[str, Any]) -> list[str]:
+    """Return the list of identity keys whose values differ."""
+    return [k for k in _IDENTITY_KEYS if client.get(k) != daemon.get(k)]
+
+
 def _check_daemon_deps() -> None:
-    """Fail fast if the optional `cli` deps aren't installed."""
     missing = [m for m in ('fastapi', 'uvicorn') if importlib.util.find_spec(m) is None]
     if len(missing) > 0:
         raise RuntimeError(f"pcli daemon requires {', '.join(missing)} (install with: pip install 'pixeltable[cli]')")
@@ -135,8 +210,8 @@ def wait_for_health(timeout: float = 15.0) -> None:
 
 
 def _pid_alive(pid: int) -> bool:
-    """signal 0 is the 'are you there?' probe: doesn't kill, just raises if the PID is gone."""
     try:
+        # signal 0 is the 'are you there?' probe (doesn't kill, just raises if the PID is gone)
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
@@ -175,11 +250,14 @@ def _kill_and_wait(pid: int, timeout: float = 5.0) -> None:
 def ensure_running() -> str:
     health = _fetch_health()
     if health is not None:
-        client_ver = _client_pxt_version()
-        if client_ver and health.get('pxt_version') and client_ver != health['pxt_version']:
-            # version mismatch: restart, but only kill a PID we wrote ourselves. We compare
-            # the pidfile against the responder's self-reported PID - if they disagree, the
-            # responder is not our daemon and we refuse to SIGTERM an unrelated process.
+        client_identity = identity()
+        diff = _identity_diff(client_identity, health)
+        if len(diff) > 0:
+            # Identity mismatch: the daemon was launched against a different install or env
+            # snapshot than the client now sees. Restart, but only kill a PID we wrote
+            # ourselves. We compare the pidfile against the responder's self-reported PID -
+            # if they disagree, the responder is not our daemon and we refuse to SIGTERM an
+            # unrelated process.
             tracked_pid = _read_pidfile()
             reported_pid = health.get('pid')
             if tracked_pid is None or tracked_pid != reported_pid:
@@ -190,15 +268,15 @@ def ensure_running() -> str:
             _kill_and_wait(tracked_pid)
             spawn_detached()
             wait_for_health()
-            # cross-verify: the responder should now be a different PID running our version
+            # Cross-verify: the new responder must have a fresh PID and an identity that
+            # fully matches the client. Anything else means the restart did not actually
+            # swap in a daemon belonging to this install/env.
             new_health = _fetch_health()
-            if (
-                new_health is None
-                or new_health.get('pid') == tracked_pid
-                or (new_health.get('pxt_version') and new_health['pxt_version'] != client_ver)
-            ):
+            new_diff = _identity_diff(client_identity, new_health) if new_health is not None else _IDENTITY_KEYS
+            if new_health is None or new_health.get('pid') == tracked_pid or len(new_diff) > 0:
                 raise RuntimeError(
-                    f'pcli daemon restart did not produce a matching-version responder on port {get_port()}'
+                    f'pcli daemon restart did not produce a matching responder on port {get_port()} '
+                    f'(triggered by identity drift in: {", ".join(diff)})'
                 )
     else:
         spawn_detached()

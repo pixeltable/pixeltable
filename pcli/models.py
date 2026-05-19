@@ -31,6 +31,21 @@ class HealthResponse(BaseModel):
     pid: int
     started_at: str
 
+    # Identity fingerprint: every field below is captured once at daemon startup and reported
+    # verbatim on each /health call. The client computes the same fingerprint locally (without
+    # importing pixeltable) and restarts the daemon on any mismatch, so the daemon never keeps
+    # serving requests against a stale install or a stale snapshot of the environment.
+    pxt_install_dir: str
+    python_executable: str
+    pixeltable_home: str
+    pixeltable_pgdata: str
+    pixeltable_config_file: str
+
+    # PIXELTABLE_*-prefixed env vars at daemon-startup time. Values for keys naming a
+    # credential are replaced with a sha256 prefix so /health doesn't leak secrets; the
+    # client redacts the same way so equal plaintexts still produce equal entries.
+    pixeltable_env: dict[str, str]
+
 
 class LsEntry(BaseModel):
     path: str
