@@ -27,6 +27,7 @@ COMMANDS: dict[str, str] = {
     'shell': 'interactive REPL (avoids per-command Python startup)',
     'serve': 'run a user-defined HTTP service (insert/update/delete/query)',
     'deploy': 'deploy a service to Pixeltable cloud',
+    'daemon': 'control the daemon (start/stop/restart/status)',
 }
 
 
