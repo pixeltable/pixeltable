@@ -1193,3 +1193,46 @@ class TestQuery:
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
+
+    def test_query_after_schema_change(self, uses_db: None) -> None:
+        t = pxt.create_table('t_add', {'c1': pxt.Int})
+        q_c1 = t.where(t.c1 > 1).select(t.c1)
+        q_where = t.where(t.c1 > 1)
+        q_select = t.where(t.c1 > 1).select()
+        t.insert([{'c1': 1}, {'c1': 2}])
+
+        assert list(q_c1.schema.keys()) == ['c1']
+        assert list(q_where.schema.keys()) == ['c1']
+        assert list(q_select.schema.keys()) == ['c1']
+
+        t.add_column(c2=pxt.Int)
+        t.add_computed_column(c3=t.c1 * 10)
+
+        for q in (q_where, q_select):
+            assert list(q.schema.keys()) == ['c1', 'c2', 'c3']
+            res = q.collect()
+            assert list(res.schema.keys()) == ['c1', 'c2', 'c3']
+            assert len(res) == 1
+            assert res[0] == {'c1': 2, 'c2': None, 'c3': 20}
+
+        assert list(q_c1.schema.keys()) == ['c1']
+        res = q_c1.collect()
+        assert list(res.schema.keys()) == ['c1']
+        assert len(res) == 1
+        assert res[0] == {'c1': 2}
+
+    def test_order_by_after_schema_change(self, uses_db: None) -> None:
+        # Confirm where/order_by/limit clauses don't capture stale select-list state.
+        t = pxt.create_table('t_add_ob', {'c1': pxt.Int, 'c2': pxt.Int})
+        t.insert([{'c1': i, 'c2': 5 - i} for i in range(5)])
+        q = t.where(t.c1 >= 1).order_by(t.c2)
+        assert list(q.schema.keys()) == ['c1', 'c2']
+
+        t.add_computed_column(c3=t.c1 * 10)
+        res = q.collect()
+        assert list(res.schema.keys()) == ['c1', 'c2', 'c3']
+        assert len(res) == 4
+
+        t.drop_column(t.c2)
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
+            _ = q.collect()

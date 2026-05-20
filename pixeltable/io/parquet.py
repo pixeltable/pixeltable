@@ -67,7 +67,8 @@ def export_parquet(
     else:
         query = table_or_query
 
-    for col_name, col_type in query.schema.items():
+    schema = query.schema
+    for col_name, col_type in schema.items():
         if col_type.is_image_type() and not inline_images:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -82,7 +83,7 @@ def export_parquet(
     with transactional_directory(parquet_path) as temp_path:
         if _write_md:
             json.dump(query.as_dict(), (temp_path / '.pixeltable.json').open('w'))
-            type_dict = {k: v.as_dict() for k, v in query.schema.items()}
+            type_dict = {k: v.as_dict() for k, v in schema.items()}
             json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
 
         for batch_num, record_batch in enumerate(to_record_batches(query, partition_size_bytes)):

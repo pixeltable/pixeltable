@@ -58,6 +58,10 @@ class QueryTemplateFunction(Function):
         name: str | None = None,
         comment: str | None = None,
     ):
+        # TODO:
+        # - assign a correct return type, based on the query's schema
+        # - re-resolve schema at execution time if this is a SELECT *
+
         schema = template_query.schema
         # return_scalar == True: single-column queries return a variadic list of that column's type directly, rather
         # than wrapping each row in a single-field dict.
