@@ -26,7 +26,7 @@ _logger = logging.getLogger('pixeltable')
 client_lock = threading.Lock()
 
 
-@env.register_client('azure_blob')
+@env.register_client('azure_blob', credential_param=None)
 def _() -> dict[str, 'BlobServiceClient']:
     return {}
 

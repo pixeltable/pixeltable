@@ -5859,6 +5859,11 @@ dependencies = [
     { name = "tzlocal" },
 ]
 
+[package.optional-dependencies]
+serve = [
+    { name = "fastapi", extra = ["standard"] },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "accelerate" },
@@ -5975,6 +5980,7 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.10" },
     { name = "cloudpickle", specifier = ">=2.2.1" },
     { name = "deprecated", specifier = ">=1.2.15" },
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'serve'", specifier = ">=0.120.0" },
     { name = "ftfy", specifier = ">=6.2.0" },
     { name = "httpcore", specifier = ">=1.0.3" },
     { name = "httpx", specifier = ">=0.27" },
@@ -6003,6 +6009,7 @@ requires-dist = [
     { name = "toml", specifier = ">=0.10" },
     { name = "tzlocal", specifier = ">=5.0" },
 ]
+provides-extras = ["serve"]
 
 [package.metadata.requires-dev]
 dev = [

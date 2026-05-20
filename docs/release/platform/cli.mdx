@@ -1,45 +1,354 @@
 ---
-title: CLI Reference
-sidebarTitle: CLI (pxt)
-description: Serve tables and queries as HTTP endpoints directly from the terminal with the pxt command.
+title: "CLI Reference"
+sidebarTitle: "CLI (pxt)"
+description: "Inspect, query, and serve Pixeltable catalogs from the terminal with the pxt command."
 ---
 
-The `pxt` CLI ships with the `pixeltable` package. It turns tables, computed columns, and `@pxt.query` functions into HTTP endpoints, no Python application code required.
+The `pxt` CLI ships with the `pixeltable` package. It covers two surfaces:
 
-```bash
-pip install pixeltable 'fastapi[standard]'
-```
+- **Catalog operations** -- inspect, query, and manage tables, views, and directories. Backed by a long-lived local daemon so each command takes ~40 ms after the first invocation.
+- **Service deployment** -- turn tables, computed columns, and `@pxt.query` functions into HTTP endpoints with `pxt serve`, and publish them with `pxt deploy`. `pxt serve` requires the `serve` extra (which pulls in `fastapi[standard]` and `uvicorn`):
+
+  ```bash
+  pip install 'pixeltable[serve]'
+  ```
 
 Verify the installation:
 
 ```bash
-pxt --version
+pxt --help
+pxt health
 ```
+
+On the first catalog command, `pxt` auto-spawns a daemon bound to `127.0.0.1:22089`. The daemon survives across shells and stays warm for subsequent commands. Override the port with `PXT_PORT`.
+
+## Command structure
+
+```text
+pxt <command> [args...]
+```
+
+Use `pxt <command> --help` for per-subcommand flags and examples.
+
+| Category | Commands |
+|---|---|
+| **Inspection** | `ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config` |
+| **Query** | `rows`, `get`, `count`, `errors` |
+| **Mutation** | `drop`, `rm`, `rename`, `mv`, `revert` |
+| **Interactive** | `shell` |
+| **Serving** | `serve`, `deploy` |
+| **Lifecycle** | `daemon`, `dashboard`, `health` |
+
+### Universal flags
+
+These flags work the same way across the catalog commands that support them and are not repeated in the per-command tables below.
+
+| Flag | Available on | Description |
+|---|---|---|
+| `-h`, `--help` | Every command | Print the command's usage and examples |
+| `--json` | Every command with a human-formatted default output | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL) or `health` (always JSON). |
+| `-n`, `--dry-run` | Every catalog mutation (`drop`, `rm`, `rename`, `mv`, `revert`) and `serve` | Print the intended action; don't execute |
+| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `rm`, `revert`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
+
+## Quick reference
+
+```bash
+# inspect
+pxt ls -l                          # everything under root, with metadata
+pxt ls some_dir --counts           # row counts (parallelized)
+pxt describe my_dir/my_table       # schema
+pxt rows my_dir/my_table -n 5      # first 5 stored cells
+
+# query
+pxt get my_dir/my_table 42         # PK lookup
+pxt count my_dir/my_table          # row count
+pxt errors my_dir/my_table         # rows where a computed column failed
+
+# ops
+pxt drop my_dir/my_table -f
+pxt mv my_dir/my_table other_dir
+pxt revert my_dir/my_table --steps 3 -f
+
+# interactive
+pxt shell
+
+# serve & deploy
+pxt serve my-service --config service.toml
+pxt deploy production
+```
+
+## Inspection commands
+
+### `pxt ls`
+
+List entries under a directory.
+
+| Flag | Description |
+|---|---|
+| `-l`, `--long` | Include column count, last version, and flags |
+| `--counts` | Include row counts (runs `count()` per table, parallelized) |
+| `--tree` | Tree view |
+
+```bash
+pxt ls                            # root
+pxt ls some_dir                   # contents of some_dir
+pxt ls -l some_dir                # with metadata
+pxt ls --counts                   # with row counts
+```
+
+Output of `pxt ls -l`:
+
+```text
+path                kind   cols  version  flags
+agent_demo          dir                       -
+audio_chunks        view      9        3  ci
+chess_vids          table     3        3  ci
+chk                 table     2        1  i
+```
+
+Flag letters: `c` = has at least one computed column, `i` = has at least one index.
+
+### `pxt describe`
+
+Show a table's schema and metadata. The plain form is human-readable; `--json` returns the full `get_metadata()` dict.
+
+```bash
+pxt describe my_dir/my_table
+pxt describe my_dir/my_table --json
+```
+
+### `pxt columns` / `pxt computed`
+
+List columns across one or all tables. `pxt computed` is shorthand for `pxt columns --computed`.
+
+| Flag | Description |
+|---|---|
+| `--computed` | Restrict to computed columns (no effect for `pxt computed`, which always sets it) |
+
+```bash
+pxt columns                       # every column in the catalog
+pxt columns my_dir/my_table       # one table
+pxt columns --computed            # computed columns across every table
+pxt computed                      # same as above
+```
+
+### `pxt idxs`
+
+List indexes. Shows both B-tree and embedding indexes by default; the `--embedding` flag restricts to embedding indexes.
+
+| Flag | Description |
+|---|---|
+| `--embedding` | Restrict to embedding indexes |
+
+```bash
+pxt idxs                          # every index
+pxt idxs my_dir/my_table          # indexes on one table
+pxt idxs --embedding              # only embedding indexes
+```
+
+### `pxt history`
+
+Show a table's version timeline.
+
+| Flag | Description |
+|---|---|
+| `-n N` | Show at most N most recent versions |
+
+```bash
+pxt history my_dir/my_table
+pxt history my_dir/my_table -n 5  # last 5 versions
+```
+
+### `pxt status`
+
+Daemon and runtime state: pxt version, daemon PID, configured paths, total tables, total errors.
+
+| Flag | Description |
+|---|---|
+| `--sizes` | Also report media and file-cache disk usage (slower; scans the directories) |
+
+```bash
+pxt status
+pxt status --sizes --json
+```
+
+### `pxt config`
+
+Every documented configuration setting with its current value and source (`env`, `file`, or `unset`). Credentials show `<redacted>` when set; the `source` column reveals presence even when the value is masked.
+
+```bash
+pxt config
+pxt config --section openai
+pxt config --source env
+```
+
+## Query commands
+
+### `pxt rows`
+
+Show the first N rows of a table. Unstored computed columns are skipped by default (selecting one forces evaluation, which can invoke LLMs or expensive compute); pass them explicitly via `--cols` to include them.
+
+| Flag | Description |
+|---|---|
+| `-n N` | Number of rows (default 10) |
+| `--cols a,b,c` | Comma-separated column subset. Default: all stored columns |
+
+```bash
+pxt rows my_dir/my_table -n 3
+pxt rows my_dir/my_table --cols id,text,score
+```
+
+### `pxt get`
+
+Look up a single row by primary key. A numeric-looking PK token is coerced to int or float; everything else stays a string. There is no quoting escape for a string-typed PK whose value looks numeric -- if your PK column is a string but the value is `42`, the server will reject the type mismatch. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
+
+| Flag | Description |
+|---|---|
+| `--cols a,b,c` | Comma-separated column subset. Default: all stored columns |
+
+```bash
+pxt get my_dir/my_table 42                    # single-column PK, int
+pxt get my_dir/my_table some_string_id        # single-column PK, string
+pxt get my_dir/my_table 42 abc                # composite PK, in declared order
+pxt get my_dir/my_table 42 --cols id,text     # restrict to listed columns
+```
+
+### `pxt count`
+
+```bash
+pxt count my_dir/my_table         # prints the integer
+pxt count my_dir/my_table --json
+```
+
+### `pxt errors`
+
+List rows where a stored computed column failed. The table must have a primary key (so each failing row can be identified).
+
+| Flag | Description |
+|---|---|
+| `--col NAME` | Filter to a single computed column |
+
+```bash
+pxt errors my_dir/my_table
+pxt errors my_dir/my_table --col embedding
+```
+
+## Mutation commands
+
+Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `rm`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they refuse to proceed without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
+
+### `pxt drop`
+
+Drop a table or view. Use `pxt rm` for directories.
+
+| Flag | Description |
+|---|---|
+| `--cascade` | Also drop dependent views |
+
+```bash
+pxt drop my_dir/my_table -f                 # drop a table
+pxt drop my_dir/my_table --cascade -f       # also drop dependent views
+pxt drop my_dir/my_table -n                 # dry-run
+```
+
+### `pxt rm`
+
+Remove a directory. Use `pxt drop` for tables/views.
+
+| Flag | Description |
+|---|---|
+| `-r`, `--recursive` | Also remove contained tables/views/subdirectories |
+
+```bash
+pxt rm my_dir -f                  # remove an empty directory
+pxt rm my_dir -r -f               # recursive: also remove contained tables/subdirs
+```
+
+### `pxt rename`
+
+Rename in place; the parent directory is preserved. `<new_name>` must be a single leaf name (no `/` or `.`). Takes only universal flags.
+
+```bash
+pxt rename my_dir/old_name new_name
+```
+
+### `pxt mv`
+
+Move a table/view/dir under a different directory; the leaf name is preserved. `<new_dir>` can be `''` or `/` for the root directory. Takes only universal flags.
+
+```bash
+pxt mv my_dir/my_table other_dir              # -> other_dir/my_table
+pxt mv my_dir/my_table /                      # move to root
+```
+
+### `pxt revert`
+
+Undo recent ops on a table. Each revert undoes one op; `--steps` repeats.
+
+| Flag | Description |
+|---|---|
+| `--steps N` | Number of consecutive reverts (default 1) |
+
+```bash
+pxt revert my_dir/my_table -f                 # undo the last op
+pxt revert my_dir/my_table --steps 3 -f       # roll back 3 versions
+```
+
+<Warning>
+Revert is irreversible. Run `pxt history my_dir/my_table` first to see what would be undone.
+</Warning>
+
+## Interactive shell
+
+For agentic or scripted workloads that issue many commands in sequence, `pxt shell` amortizes Python startup over the session:
+
+```text
+$ pxt shell
+pxt> ls
+path                kind
+agent_demo          dir
+chess_vids          table
+...
+pxt> describe chess_vids
+...
+pxt> exit
+```
+
+Inside the shell, every `pxt` command is available unmodified. Errors from one command don't kill the session. Use `help`, `exit`, `quit`, or Ctrl-D to leave.
+
+## Output and scripting
+
+Most catalog commands accept `--json` for stable, machine-readable output (exceptions: `shell` is interactive, `health` is already JSON):
+
+```bash
+pxt ls --json | jq '.entries[] | select(.kind == "table")'
+pxt get my_dir/my_table 42 --json | jq '.row'
+pxt count my_dir/my_table --json | jq '.count'
+```
+
+Without `--json`, output is column-aligned text.
+
+## Serving
+
+`pxt serve` turns tables, computed columns, and `@pxt.query` functions into HTTP endpoints, no application code required. The serve and deploy subcommands import `pixeltable` directly and require `fastapi[standard]`.
 
 <Info>
 `pxt serve` generates a full FastAPI application with auto-generated [OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs) at `/docs`. For programmatic control over the same endpoints, see the [Python serving API](/howto/deployment/serving#quickstart-python) using `FastAPIRouter`.
 </Info>
 
-## Command structure
-
-```text
-pxt <command> [subcommand] [flags]
-```
+### `pxt serve` subcommands
 
 | Command | Description |
 |---|---|
-| `pxt --version` | Print the installed Pixeltable version |
-| `pxt --help` | List available commands |
 | `pxt serve <service-name>` | Start a named service defined in a [TOML config](/howto/deployment/serving#toml-service-file-reference) |
 | `pxt serve insert` | Start a single insert endpoint |
 | `pxt serve update` | Start a single update endpoint |
 | `pxt serve delete` | Start a single delete endpoint |
 | `pxt serve query` | Start a single query endpoint |
-| `pxt deploy <env>` | Build a deploy bundle for the named environment |
 
-## Quick start
+### Quick start
 
-### Named service (TOML config)
+#### Named service (TOML config)
 
 Define your routes in a TOML file and start everything with one command:
 
@@ -74,7 +383,7 @@ Starting Pixeltable service: my-service
   Routes: 2
 ```
 
-### Single-endpoint mode
+#### Single-endpoint mode
 
 For quick experiments, skip the TOML file and configure one route directly:
 
@@ -89,7 +398,7 @@ pxt serve query --query myapp.queries.search_docs --path /search
 
 Single-endpoint mode is meant for development; for production or multi-route services, use the TOML config.
 
-## Global flags
+### Serve flags
 
 Every `pxt serve` subcommand accepts these flags:
 
@@ -101,8 +410,6 @@ Every `pxt serve` subcommand accepts these flags:
 | `--config` | string | | Path to an additional TOML config file to merge |
 | `--dry-run` | flag | | Print the resolved config and exit without starting the server |
 | `--json` | flag | | Emit machine-readable JSON on stdout (startup) or stderr (errors) |
-
-### Machine-readable output
 
 When `--json` is set, a successful start emits:
 
@@ -120,17 +427,6 @@ Combine `--dry-run` and `--json` to validate a config in CI without starting a s
 
 ```bash
 pxt serve my-service --config service.toml --dry-run --json
-```
-
-## Serve subcommands
-
-### `pxt serve <service-name>`
-
-Load a named service from the [TOML config](/howto/deployment/serving#toml-service-file-reference) and start the server. This is the primary way to run multi-route services in production.
-
-```bash
-pxt serve my-service --config service.toml
-pxt serve my-service --config service.toml --port 9000
 ```
 
 ### `pxt serve insert`
@@ -223,7 +519,7 @@ pxt serve query --query myapp.queries.lookup_by_id --path /lookup \
   --one-row --method get
 ```
 
-## SQL export flags
+### SQL export flags
 
 Insert and update routes can export each successful request as a row in an external SQL database. These flags mirror the [`export_sql` TOML config](/howto/deployment/serving#exporting-rows-to-an-external-database):
 
@@ -241,7 +537,7 @@ pxt serve insert --table my_dir.my_table --path /generate \
   --export-sql-table generations
 ```
 
-## Deploy
+### `pxt deploy`
 
 ```bash
 pxt deploy <env>
@@ -254,9 +550,9 @@ pxt deploy <env>
 
 Builds a deploy bundle for the specified environment. See [Deployment Overview](/howto/deployment/overview) for how environments are configured.
 
-## Patterns
+### Serve patterns
 
-### Validate a config without starting a server
+#### Validate a config without starting a server
 
 ```bash
 pxt serve my-service --config service.toml --dry-run
@@ -271,13 +567,13 @@ Routes (2):
   [query] /search
 ```
 
-### Override port for local development
+#### Override port for local development
 
 ```bash
 pxt serve my-service --config service.toml --port 9000
 ```
 
-### File upload endpoint
+#### File upload endpoint
 
 ```bash
 pxt serve insert --table my_dir.images --path /resize \
@@ -291,7 +587,7 @@ curl -X POST http://localhost:8000/resize \
   --output resized.jpg
 ```
 
-### Background processing for slow pipelines
+#### Background processing for slow pipelines
 
 ```bash
 pxt serve insert --table my_dir.videos --path /ingest --background

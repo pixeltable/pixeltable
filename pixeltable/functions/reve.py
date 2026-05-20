@@ -121,7 +121,7 @@ class _ReveClient:
                     )
 
 
-@register_client('reve')
+@register_client('reve', credential_param='api_key')
 def _(api_key: str) -> _ReveClient:
     return _ReveClient(api_key=api_key)
 

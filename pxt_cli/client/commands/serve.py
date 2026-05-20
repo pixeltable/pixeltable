@@ -1,5 +1,3 @@
-"""Pixeltable CLI entry point."""
-
 from __future__ import annotations
 
 import argparse
@@ -12,22 +10,9 @@ import pydantic
 
 import pixeltable as pxt
 from pixeltable import config, exceptions as excs
-from pixeltable.serving import deploy
 from pixeltable.serving._config import create_service_from_config, lookup_service_config
 
-
-class _Parser(argparse.ArgumentParser):
-    """ArgumentParser that appends the epilog examples to stderr on error."""
-
-    def error(self, message: str) -> None:
-        self.print_usage(sys.stderr)
-        sys.stderr.write(f'\npxt: error: {message}\n')
-        if self.epilog is not None:
-            sys.stderr.write(f'\n{self.epilog}\n')
-        sys.exit(2)
-
-
-_SERVE_SUBCOMMANDS = ('insert', 'query', 'update', 'delete')
+_SUBCOMMANDS = ('insert', 'query', 'update', 'delete')
 
 _EPILOG_SERVE = """\
 To start a configured service:
@@ -52,68 +37,16 @@ _EPILOG_QUERY = """\
 Examples:
   pxt serve query --query myapp.queries.search_docs --path /search"""
 
-_EPILOG_DEPLOY = """\
-To deploy a configured deployment:
-  pxt deploy <deployment-name>
-"""
 
+class _Parser(argparse.ArgumentParser):
+    """ArgumentParser that appends the epilog to stderr on error."""
 
-def main() -> None:
-    parser = _Parser(
-        prog='pxt',
-        description='Pixeltable command-line interface',
-        # formatter: make sure we don't remove indentation or other intentional white space
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument('--version', action='version', version=f'pxt {pxt.__version__}')
-    subparsers = parser.add_subparsers(dest='command', required=False)
-
-    serve_parser = subparsers.add_parser(
-        'serve', help='Start an HTTP service', formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-
-    # Detect whether this is `pxt serve <service-name>` or `pxt serve <subcommand>`.
-    # If the first arg after `serve` is not a known subcommand and not a flag,
-    # set up the parser for named-service mode; otherwise set up subcommand parsers.
-    argv = sys.argv[1:]
-    if len(argv) >= 2 and argv[0] == 'serve' and argv[1] not in _SERVE_SUBCOMMANDS and not argv[1].startswith('-'):
-        serve_parser.add_argument('service', help='Name of the configured service to start')
-        _add_service_args(serve_parser)
-        _add_output_args(serve_parser)
-    else:
-        serve_parser.epilog = _EPILOG_SERVE
-        _add_serve_subparsers(serve_parser)
-
-    deploy_parser = subparsers.add_parser(
-        'deploy',
-        help='Deploy the service in the specified deployment configuration to Pixeltable cloud.',
-        epilog=_EPILOG_DEPLOY,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    deploy_parser.add_argument('deployment', help='Name of the target deployment')
-    deploy_parser.add_argument('--json', action='store_true', dest='json', help='Emit machine-readable JSON output')
-
-    args = parser.parse_args()
-
-    if args.command is None:
-        parser.print_help()
-        sys.exit(0)
-
-    try:
-        if args.command == 'serve':
-            _serve(args)
-        elif args.command == 'deploy':
-            _deploy(args)
-    except pxt.Error as e:
-        _emit_error(str(e), args.json)
-        sys.exit(1)
-
-
-def _emit_error(message: str, json_output: bool) -> None:
-    if json_output:
-        print(json.dumps({'status': 'error', 'message': message}), file=sys.stderr)
-    else:
-        print(f'pxt: error: {message}', file=sys.stderr)
+    def error(self, message: str) -> None:
+        self.print_usage(sys.stderr)
+        sys.stderr.write(f'\npxt: error: {message}\n')
+        if self.epilog is not None:
+            sys.stderr.write(f'\n{self.epilog}\n')
+        sys.exit(2)
 
 
 def _add_service_args(p: argparse.ArgumentParser) -> None:
@@ -158,10 +91,9 @@ def _add_export_sql_args(p: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
+def _add_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     serve_sub = serve_parser.add_subparsers(dest='mode', required=True)
 
-    # pxt serve insert
     insert_parser = serve_sub.add_parser(
         'insert',
         help='Single insert endpoint',
@@ -190,7 +122,6 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     _add_service_args(insert_parser)
     _add_output_args(insert_parser)
 
-    # pxt serve update
     update_parser = serve_sub.add_parser(
         'update',
         help='Single update endpoint',
@@ -217,7 +148,6 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     _add_service_args(update_parser)
     _add_output_args(update_parser)
 
-    # pxt serve delete
     delete_parser = serve_sub.add_parser(
         'delete',
         help='Single delete endpoint',
@@ -237,7 +167,6 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     _add_service_args(delete_parser)
     _add_output_args(delete_parser)
 
-    # pxt serve query
     query_parser = serve_sub.add_parser(
         'query',
         help='Single query endpoint',
@@ -269,8 +198,29 @@ def _add_serve_subparsers(serve_parser: argparse.ArgumentParser) -> None:
     _add_output_args(query_parser)
 
 
-def _deploy(args: argparse.Namespace) -> None:
-    deploy.build_deploy_bundle(args.deployment)
+def run(argv: list[str]) -> None:
+    parser = _Parser(
+        prog='pxt serve', description='Start an HTTP service', formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    # Decide between named-service mode (pxt serve <service-name>) and subcommand mode
+    # (pxt serve insert|update|delete|query) by inspecting the first argument: if it's
+    # not a known subcommand and not a flag, treat it as a service name.
+    if len(argv) >= 1 and argv[0] not in _SUBCOMMANDS and not argv[0].startswith('-'):
+        parser.add_argument('service', help='Name of the configured service to start')
+        _add_service_args(parser)
+        _add_output_args(parser)
+    else:
+        parser.epilog = _EPILOG_SERVE
+        _add_subparsers(parser)
+
+    args = parser.parse_args(argv)
+
+    try:
+        _serve(args)
+    except pxt.Error as e:
+        _emit_error(str(e), args.json)
+        sys.exit(1)
 
 
 def _serve(args: argparse.Namespace) -> None:
@@ -299,19 +249,19 @@ def _serve(args: argparse.Namespace) -> None:
     _run(cfg, create_service_from_config(cfg), args.json)
 
 
-def _print_dry_run(config: config.ServiceConfig, json_output: bool) -> None:
+def _print_dry_run(cfg: config.ServiceConfig, json_output: bool) -> None:
     if json_output:
-        print(config.model_dump_json(indent=2))
-    else:
-        print(f'Service:  {config.name}')
-        print(f'  Host:   {config.host}')
-        print(f'  Port:   {config.port}')
-        if config.prefix:
-            print(f'  Prefix: {config.prefix}')
-        print(f'Routes ({len(config.routes)}):')
-        for route in config.routes:
-            d = route.model_dump()
-            print(f'  [{d["type"]}] {d["path"]}')
+        print(cfg.model_dump_json(indent=2))
+        return
+    print(f'Service:  {cfg.name}')
+    print(f'  Host:   {cfg.host}')
+    print(f'  Port:   {cfg.port}')
+    if cfg.prefix:
+        print(f'  Prefix: {cfg.prefix}')
+    print(f'Routes ({len(cfg.routes)}):')
+    for route in cfg.routes:
+        d = route.model_dump()
+        print(f'  [{d["type"]}] {d["path"]}')
 
 
 def _create_sql_export(args: argparse.Namespace) -> config.SqlExport | None:
@@ -377,16 +327,16 @@ def _create_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
     raise AssertionError(f'unknown serve mode: {args.mode}')
 
 
-def _run(config: config.ServiceConfig, app: Any, json_output: bool = False) -> None:
+def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None:
     try:
         import uvicorn
     except ImportError as e:
         raise excs.RequestError(
             excs.ErrorCode.MISSING_REQUIRED,
-            "uvicorn is required for `pxt serve`; install it with `pip install 'fastapi[standard]'`",
+            "uvicorn is required for `pxt serve`; install it with `pip install 'pixeltable[serve]'`",
         ) from e
 
-    host, port = config.host, config.port
+    host, port = cfg.host, cfg.port
     # wildcard bind addresses aren't navigable; print localhost for the URL hints
     display_host = 'localhost' if host in ('0.0.0.0', '::', '') else host
     if ':' in display_host:
@@ -403,16 +353,16 @@ def _run(config: config.ServiceConfig, app: Any, json_output: bool = False) -> N
                     'port': port,
                     'url': url,
                     'docs_url': docs_url,
-                    'routes': len(config.routes),
+                    'routes': len(cfg.routes),
                 }
             )
         )
     else:
-        print(f'Starting Pixeltable service: {config.name}')
+        print(f'Starting Pixeltable service: {cfg.name}')
         print(f'  Bound to {host}:{port}')
         print(f'  Listening on {url}')
         print(f'  API docs at {docs_url}')
-        print(f'  Routes: {len(config.routes)}')
+        print(f'  Routes: {len(cfg.routes)}')
 
     try:
         uvicorn.run(app, host=host, port=port)
@@ -428,3 +378,10 @@ def _run(config: config.ServiceConfig, app: Any, json_output: bool = False) -> N
                 print(f'pxt: error: {message}', file=sys.stderr)
             sys.exit(1)
         raise
+
+
+def _emit_error(message: str, json_output: bool) -> None:
+    if json_output:
+        print(json.dumps({'status': 'error', 'message': message}), file=sys.stderr)
+    else:
+        print(f'pxt: error: {message}', file=sys.stderr)

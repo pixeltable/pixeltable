@@ -49,7 +49,7 @@ class _PxtStoreCacheEntry:
 
 
 # pxt_store clients are thread-local (via Runtime._clients), consistent with r2/s3/b2/tigris.
-@env.register_client('pxt_store')
+@env.register_client('pxt_store', credential_param=None)
 def _() -> S3CompatClientDict:
     return S3CompatClientDict(profile=None, clients={})
 
