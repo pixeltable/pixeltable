@@ -410,12 +410,6 @@ class RandomTableOps:
             time.sleep(random.uniform(0.1, 0.5))
 
 
-def init(config: RandomTableOpsConfig) -> None:
-    """Initialization. This will only be run once before test workers are started."""
-    print(json.dumps(dataclasses.asdict(config), indent=4))
-    pxt.init()
-
-
 def run(
     worker_id: int,
     read_only: bool,
@@ -431,7 +425,7 @@ def run(
     config = RandomTableOpsConfig(**json.loads(config_str))
 
     if init_only:
-        init(config)
+        pxt.init()
         return
 
     try:
@@ -504,7 +498,9 @@ def main() -> None:
                 )
                 sys.exit(1)
 
-    config_str = repr(json.dumps(dataclasses.asdict(config)))
+    config_dict = dataclasses.asdict(config)
+    print(json.dumps(config_dict, indent=4))
+    config_str = repr(json.dumps(config_dict))
 
     # Initialize Pixeltable before the actual test
     print('Running pxt.init()...')
