@@ -287,53 +287,44 @@ flowchart TB
 </AccordionGroup>
 
 ```python
-# Example: FastAPI endpoints backed by Pixeltable
-from pydantic import BaseModel
-from fastapi import FastAPI, UploadFile
-from datetime import datetime
+# Example: FastAPIRouter endpoints backed by Pixeltable
+import fastapi
 import pixeltable as pxt
+from pixeltable.serving import FastAPIRouter
 
-app = FastAPI()
+app = fastapi.FastAPI()
+router = FastAPIRouter(prefix="/api", tags=["documents"])
 
-class SearchResult(BaseModel):
-    document: str
-    summary: str | None
-    similarity: float
+docs = pxt.get_table('myapp/documents')
 
-@app.post("/documents/upload")
-def upload_document(file: UploadFile):
-    t = pxt.get_table('myapp/documents')
-    status = t.insert([{
-        'document': file.filename,
-        'uploaded_at': datetime.now()
-    }])
-    return {"rows_inserted": status.num_rows}
+# File upload with background processing (returns job handle)
+router.add_insert_route(docs, path="/upload",
+    uploadfile_inputs=["document"], inputs=["uploaded_at"],
+    outputs=["uuid"], background=True)
 
-@app.get("/documents/search")
-def search_documents(query: str, limit: int = 10) -> list[SearchResult]:
-    t = pxt.get_table('myapp/documents')
-    sim = t.embedding.similarity(string=query)
-    results = t.select(
-        t.document,
-        t.summary,
-        similarity=sim
-    ).order_by(sim, asc=False).limit(limit).collect()
+# Search via @pxt.query
+@pxt.query
+def search_documents(query_text: str, limit: int = 10):
+    sim = docs.embedding.similarity(string=query_text)
+    return docs.order_by(sim, asc=False).limit(limit).select(
+        docs.document, docs.summary, similarity=sim)
 
-    return list(results.to_pydantic(SearchResult))
+router.add_query_route(path="/search", query=search_documents)
 
-@app.get("/documents/{doc_id}")
-def get_document(doc_id: int):
-    t = pxt.get_table('myapp/documents')
-    result = t.where(t._rowid == doc_id).collect()
-    return result[0] if len(result) > 0 else {"error": "Not found"}
+# Delete by primary key
+router.add_delete_route(docs, path="/delete")
+
+app.include_router(router)
 ```
 
+`FastAPIRouter` auto-generates request/response schemas from column types, handles file uploads via `uploadfile_inputs`, and supports `background=True` for long-running inserts. OpenAPI docs are available at `/docs`.
+
 <Tip>
-**Use sync (`def`) endpoints, not `async def`.** FastAPI dispatches sync endpoints to a thread pool, giving each request its own thread. Pixeltable is thread-safe and handles concurrent requests automatically. Using `async def` would block the event loop and serialize all requests. See [Production Operations](/howto/deployment/operations) for details.
+**When to keep hand-written endpoints:** Use `@router.post()` for multi-table operations, conditional logic, or custom response shapes. Since `FastAPIRouter` extends `APIRouter`, hand-written and declarative routes coexist on the same router. See the [migration guide](/migrate/from-hand-written-endpoints) for details.
 </Tip>
 
 <Tip>
-**Simpler alternative for standard endpoints:** If your endpoints are straightforward insert, query, or delete operations, consider [built-in HTTP serving](/howto/deployment/serving) with `FastAPIRouter` or a TOML config. It auto-generates request/response schemas, handles media serving, and supports background jobs.
+**Use sync (`def`) endpoints, not `async def`.** FastAPI dispatches sync endpoints to a thread pool, giving each request its own thread. Pixeltable is thread-safe and handles concurrent requests automatically. Using `async def` would block the event loop and serialize all requests. See [Production Operations](/howto/deployment/operations) for details.
 </Tip>
 
 ### Approach 3: Declarative Serving (`pxt serve`)
