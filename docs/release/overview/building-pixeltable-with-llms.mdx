@@ -122,10 +122,16 @@ Connect your AI tool to Pixeltable directly via the [Model Context Protocol](htt
 
 ## Start Building
 
-Use the app template to scaffold a full-stack project. It wires up a FastAPI backend and React frontend on top of Pixeltable: document upload, cross-modal search, and a tool-calling agent, all powered by computed columns. Ask your AI tool to customize it from there.
+Scaffold a full project in one command with `pixeltable-new`. It generates a working Pixeltable project (serving, backend, or batch) with schema, configuration, and deployment configs already wired up. Ask your AI tool to customize it from there.
 
-<Card title="Pixeltable App Template" icon="github" href="https://github.com/pixeltable/pixeltable-app-template">
-  Full-stack skeleton: FastAPI + React + Pixeltable for multimodal AI workloads
+```bash
+uvx pixeltable-new myapp              # declarative serving (default)
+uvx pixeltable-new myapp --backend    # full FastAPI + React app
+uvx pixeltable-new myapp --template multimodal-rag my-kb   # vertical template
+```
+
+<Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
+  Reference implementations for all three deployment patterns, plus 7 vertical application templates
 </Card>
 
 ---
