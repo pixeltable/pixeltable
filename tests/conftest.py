@@ -158,6 +158,22 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
             _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
 
 
+@pytest.fixture(autouse=True)
+def fault_injection() -> Iterator[None]:
+    """Enables fault injection"""
+    import pixeltable.utils.fault_injection as prod_fault_injection
+    import tests.fault_injection as test_fault_injection
+
+    # Monkey patch fault injection to product
+    prod_fault_injection.process_fault = test_fault_injection.process_fault
+    prod_fault_injection.create_fault_manager = test_fault_injection.create_fault_manager
+
+    try:
+        yield
+    finally:
+        get_runtime().fault_manager.clear_faults()
+
+
 @pytest.fixture(scope='function')
 def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     """Fixture for tests that interact with the underlying store (PosgreSQL or CockroachDB).
