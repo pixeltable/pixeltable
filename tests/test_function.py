@@ -1766,6 +1766,16 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t3.insert([{'num': 1}])
 
+    def test_future_annotations_udf(self, uses_db: None) -> None:
+        """Tests that UDFs can be defined in modules with `from __future__ import annotations`."""
+        from .module_with_future_annotations import future_annotations_udf
+
+        t = pxt.create_table('test_future_annotations', {'a': pxt.Int})
+        t.add_computed_column(col=future_annotations_udf(t.a))
+        t.insert(a=1)
+        res = t.select(t.col).collect()
+        assert res[0]['col'] == 2
+
 
 def init_test_pool(pool_name: str) -> None:
     pool_info = env.Env.get().get_resource_pool_info(pool_name, env.RateLimitsInfo)

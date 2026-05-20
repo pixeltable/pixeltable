@@ -308,7 +308,7 @@ class Function(ABC):
 
         assert not self.is_polymorphic
 
-        callable_signature = inspect.signature(callable)
+        callable_signature = inspect.signature(callable, eval_str=True)
         callable_type_hints = typing.get_type_hints(callable)
         callable_args: dict[str, Any] = {}
 
@@ -353,7 +353,7 @@ class Function(ABC):
     def conditional_return_type(self, fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
         """Instance decorator for specifying a conditional return type for this function"""
         # verify that call_return_type only has parameters that are also present in the signature
-        fn_sig = inspect.signature(fn)
+        fn_sig = inspect.signature(fn, eval_str=True)
         for param in fn_sig.parameters.values():
             for self_sig in self.signatures:
                 if param.name not in self_sig.parameters:
