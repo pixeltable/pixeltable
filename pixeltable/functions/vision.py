@@ -1356,6 +1356,45 @@ def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
     return boundaries
 
 
+def _overlay_id_map(
+    img: PIL.Image.Image,
+    segmentation: np.ndarray,
+    *,
+    alpha: float,
+    background: int,
+    segment_colors: list[str] | None,
+    draw_contours: bool,
+    contour_thickness: int,
+) -> PIL.Image.Image:
+    if segmentation.shape != (img.height, img.width):
+        raise ValueError(
+            f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})'
+        )
+    segment_ids = sorted(int(sid) for sid in np.unique(segmentation) if sid != background)
+    if segment_colors is None:
+        segment_colors = []
+    missing_ids = segment_ids[len(segment_colors) :]
+    auto_colors = __create_label_colors(missing_ids)
+    color_map = {**auto_colors, **dict(zip(segment_ids, segment_colors))}
+
+    segment_alpha = int(alpha * 255)
+
+    overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
+    rgb_by_id = {id: PIL.ImageColor.getrgb(color_map[id]) for id in segment_ids}
+    for segment_id in segment_ids:
+        rgb = rgb_by_id[segment_id]
+        mask = segmentation == segment_id
+        overlay_array[mask] = (*rgb, segment_alpha)
+        if draw_contours:
+            contour_mask = _get_contours(mask, contour_thickness)
+            overlay_array[contour_mask] = (*rgb, 255)
+
+    overlay = PIL.Image.fromarray(overlay_array, mode='RGBA')
+    img_rgba = img.convert('RGBA')
+    result = PIL.Image.alpha_composite(img_rgba, overlay)
+    return result.convert('RGB')
+
+
 @pxt.udf
 def overlay_segmentation(
     img: PIL.Image.Image,
@@ -1376,12 +1415,21 @@ def overlay_segmentation(
 
     If no colors are specified, this function randomly assigns each segment a specific color based on a hash of its id.
 
+    Two input formats are supported:
+
+    - A 2D `(H, W)` int32 id-map where each pixel value is a segment id. This matches the panoptic
+        output of `detr_for_segmentation`.
+    - A 3D `(num_instances, H, W)` boolean stack with one binary mask per instance. This matches the
+        per-instance mask output of `sam_for_segmentation`. Instances are assigned ids `1..num_instances`
+        in order; where masks overlap the highest id wins.
+
     Args:
         img: Input image.
-        segmentation: 2D array of the same shape as `img` where each pixel value is a segment id.
+        segmentation: Either a 2D `(H, W)` int32 array of segment ids, or a 3D `(num_instances, H, W)`
+            boolean array of per-instance masks.
         alpha: Blend factor for the overlay (0.0 = only original image, 1.0 = only segmentation colors).
         background: Segment id to treat as background (not overlaid with color, showing the original
-            image through).
+            image through). Only meaningful for the 2D id-map form.
         segment_colors: List of colors, one per segment id. If the list is shorter than the number of segments, the
             remaining segments will be assigned colors automatically.
         draw_contours: If True, draw contours around each segment with full opacity.
@@ -1390,34 +1438,42 @@ def overlay_segmentation(
     Returns:
         The image with the colored segmentation overlay.
     """
+    return _overlay_id_map(
+        img,
+        segmentation,
+        alpha=alpha,
+        background=background,
+        segment_colors=segment_colors,
+        draw_contours=draw_contours,
+        contour_thickness=contour_thickness,
+    )
 
-    if segmentation.shape != (img.height, img.width):
-        raise ValueError(
-            f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})'
-        )
-    segment_ids = sorted(int(sid) for sid in np.unique(segmentation) if sid != background)
-    if segment_colors is None:
-        segment_colors = []
-    missing_ids = segment_ids[len(segment_colors) :]
-    auto_colors = __create_label_colors(missing_ids)
-    color_map = {**auto_colors, **dict(zip(segment_ids, segment_colors))}
 
-    segment_alpha = int(alpha * 255)
-
-    overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
-    segment_colors = {id: PIL.ImageColor.getrgb(color_map[id]) for id in segment_ids}
-    for segment_id in segment_ids:
-        rgb = segment_colors[segment_id]
-        mask = segmentation == segment_id
-        overlay_array[mask] = (*rgb, segment_alpha)
-        if draw_contours:
-            contour_mask = _get_contours(mask, contour_thickness)
-            overlay_array[contour_mask] = (*rgb, 255)
-
-    overlay = PIL.Image.fromarray(overlay_array, mode='RGBA')
-    img_rgba = img.convert('RGBA')
-    result = PIL.Image.alpha_composite(img_rgba, overlay)
-    return result.convert('RGB')
+@overlay_segmentation.overload
+def _(
+    img: PIL.Image.Image,
+    segmentation: pxt.Array[(None, None, None), pxt.Bool],
+    *,
+    alpha: float = 0.5,
+    background: int = 0,
+    segment_colors: list[str] | None = None,
+    draw_contours: bool = True,
+    contour_thickness: int = 1,
+) -> PIL.Image.Image:
+    if segmentation.shape[0] == 0:
+        id_map = np.zeros((img.height, img.width), dtype=np.int32)
+    else:
+        ids = np.arange(1, segmentation.shape[0] + 1, dtype=np.int32)[:, None, None]
+        id_map = (segmentation.astype(np.int32) * ids).max(axis=0)
+    return _overlay_id_map(
+        img,
+        id_map,
+        alpha=alpha,
+        background=background,
+        segment_colors=segment_colors,
+        draw_contours=draw_contours,
+        contour_thickness=contour_thickness,
+    )
 
 
 __all__ = local_public_names(__name__)

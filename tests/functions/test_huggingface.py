@@ -201,6 +201,54 @@ class TestHuggingface:
         assert len(result['segments_info']) > 0
         assert 'label_text' in result['segments_info'][0]
 
+    @pytest.mark.expensive
+    def test_sam_for_segmentation(self, uses_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import sam_for_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(seg=sam_for_segmentation(t.img, text='orange', threshold=0.3))
+        status = t.insert(img=SAMPLE_IMAGE_URL)
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+
+        res = t.select(height=t.img.height, width=t.img.width).collect()[0]
+        height, width = res['height'], res['width']
+        result = t.select(t.seg).collect()[0]['seg']
+        assert 'scores' in result
+        assert 'boxes' in result
+        assert 'masks' in result
+        assert isinstance(result['scores'], list)
+        assert isinstance(result['boxes'], list)
+        assert isinstance(result['masks'], np.ndarray)
+        n = len(result['scores'])
+        assert n == len(result['boxes'])
+        assert n > 0, 'Expected SAM 3 to find at least one "orange" instance in the sample image'
+        assert result['masks'].shape == (n, height, width)
+        assert result['masks'].dtype == np.bool_
+        for box in result['boxes']:
+            assert len(box) == 4
+            x1, y1, x2, y2 = box
+            assert 0.0 <= x1 < x2 <= width + 1e-3
+            assert 0.0 <= y1 < y2 <= height + 1e-3
+        for score in result['scores']:
+            assert 0.0 <= score <= 1.0
+
+    def test_sam_for_segmentation_invalid_args(self, uses_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import sam_for_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.insert(img=SAMPLE_IMAGE_URL)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At least one of'):
+            t.add_computed_column(seg=sam_for_segmentation(t.img))
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='input_boxes_labels'):
+            t.add_computed_column(
+                seg=sam_for_segmentation(t.img, input_boxes=[[1.0, 2.0, 3.0, 4.0]], input_boxes_labels=[1, 0])
+            )
+
     def test_vit_for_image_classification(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import vit_for_image_classification
