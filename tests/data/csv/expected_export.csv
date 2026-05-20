@@ -1,0 +1,4 @@
+c_int,c_string,c_float,c_bool
+1,What is the airspeed velocity of an unladen swallow?,24.0,True
+2,African or European?,11.0,False
+3,I don't know that,0.5,True

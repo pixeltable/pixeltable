@@ -278,9 +278,10 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
     try:
         target_expr = exprs.Expr.from_object(fn(exprs.json_path.RELATIVE_PATH_ROOT))
     except Exception as e:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             'Failed to evaluate map function. '
-            '(The `fn` argument to `map()` must produce a valid Pixeltable expression.)'
+            '(The `fn` argument to `map()` must produce a valid Pixeltable expression.)',
         ) from e
     return exprs.JsonMapper(expr, target_expr)
 

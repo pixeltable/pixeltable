@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -8,8 +8,8 @@ from pixeltable import Table, exprs
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
 
-if TYPE_CHECKING:
-    import fiftyone as fo  # type: ignore[import-untyped]
+# if TYPE_CHECKING:
+#     import fiftyone as fo  # type: ignore[import-untyped]
 
 
 def create_label_studio_project(
@@ -146,7 +146,7 @@ def export_images_as_fo_dataset(
     image_format: str = 'webp',
     classifications: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
     detections: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
-) -> 'fo.Dataset':
+) -> 'fo.Dataset':  # type: ignore[name-defined]  # noqa: F821
     """
     Export images from a Pixeltable table as a Voxel51 dataset. The data must consist of a single column
     (or expression) containing image data, along with optional additional columns containing labels. Currently, only
@@ -215,12 +215,15 @@ def export_images_as_fo_dataset(
     """
     Env.get().require_package('fiftyone')
 
-    import fiftyone as fo
+    import fiftyone as fo  # type: ignore[import-not-found]
 
-    from pixeltable.io.fiftyone import PxtImageDatasetImporter
+    from pixeltable.io.fiftyone import PxtImageDatasetImporter  # type: ignore[attr-defined]
 
     if not images.col_type.is_image_type():
-        raise excs.Error(f'`images` must be an expression of type Image (got {images.col_type._to_base_str()})')
+        raise excs.RequestError(
+            excs.ErrorCode.TYPE_MISMATCH,
+            f'`images` must be an expression of type Image (got {images.col_type._to_base_str()})',
+        )
 
     return fo.Dataset.from_importer(
         PxtImageDatasetImporter(tbl, images, image_format, classifications=classifications, detections=detections)

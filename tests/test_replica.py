@@ -1,4 +1,5 @@
 import pixeltable as pxt
+from pixeltable.catalog import retry_loop
 from pixeltable.catalog.path import Path
 from pixeltable.runtime import get_runtime
 from tests.utils import reload_catalog
@@ -14,9 +15,9 @@ class TestReplica:
         cat = get_runtime().catalog
 
         with cat.begin_xact(for_write=False):
-            md1 = cat.load_replica_md(pure_snapshot)
-            md2 = cat.load_replica_md(snapshot_view)
-            md3 = cat.load_replica_md(test_tbl)
+            md1 = cat.load_md_for_export(pure_snapshot, as_replica=True)
+            md2 = cat.load_md_for_export(snapshot_view, as_replica=True)
+            md3 = cat.load_md_for_export(test_tbl, as_replica=True)
 
         assert len(md1) == 2
         assert len(md2) == 2
@@ -29,9 +30,12 @@ class TestReplica:
         reload_catalog()
         cat = get_runtime().catalog
 
-        with cat.begin_xact(for_write=True):
+        @retry_loop(for_write=True)
+        def create_replicas() -> None:
             cat.create_replica(Path.parse('replica_1'), md1)
             cat.create_replica(Path.parse('replica_2'), md2)
+
+        create_replicas()
         reload_catalog()
 
         t1 = pxt.get_table('replica_1')
@@ -88,11 +92,11 @@ class TestReplica:
         s61 = pxt.create_snapshot('s61', v6)
 
         with cat.begin_xact(for_write=False):
-            s11_md = cat.load_replica_md(s11)
-            s12_md = cat.load_replica_md(s12)
-            s31_md = cat.load_replica_md(s31)
-            s51_md = cat.load_replica_md(s51)
-            s61_md = cat.load_replica_md(s61)
+            s11_md = cat.load_md_for_export(s11, as_replica=True)
+            s12_md = cat.load_md_for_export(s12, as_replica=True)
+            s31_md = cat.load_md_for_export(s31, as_replica=True)
+            s51_md = cat.load_md_for_export(s51, as_replica=True)
+            s61_md = cat.load_md_for_export(s61, as_replica=True)
 
         pxt.drop_table('base_tbl', force=True)
         reload_catalog()
@@ -100,18 +104,29 @@ class TestReplica:
 
         for i, md in enumerate(s11_md):
             print(f'\n{i}: {md}')
-        with cat.begin_xact(for_write=True):
+
+        @retry_loop(for_write=True)
+        def create_initial_replicas() -> None:
             cat.create_replica(Path.parse('replica_s11'), s11_md)
             cat.create_replica(Path.parse('replica_s12'), s12_md)
             cat.create_replica(Path.parse('replica_s31'), s31_md)
 
+        create_initial_replicas()
+
         # Intentionally create r61 first, before r51; this way we address both cases for snapshot-over-snapshot:
         # Base snapshot inserted first (r61 after r31); base snapshot inserted last (r51 after r61).
-        with cat.begin_xact(for_write=True):
+        @retry_loop(for_write=True)
+        def create_replica_s61() -> None:
             cat.create_replica(Path.parse('replica_s61'), s61_md)
+
+        create_replica_s61()
         r61 = pxt.get_table('replica_s61')
-        with cat.begin_xact(for_write=True):
+
+        @retry_loop(for_write=True)
+        def create_replica_s51() -> None:
             cat.create_replica(Path.parse('replica_s51'), s51_md)
+
+        create_replica_s51()
         r51 = pxt.get_table('replica_s51')
 
         with cat.begin_xact(for_write=False):

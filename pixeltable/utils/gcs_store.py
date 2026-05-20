@@ -5,7 +5,7 @@ import re
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import Any, Iterator
 
 from google.api_core.exceptions import GoogleAPIError
 from google.cloud import storage  # type: ignore[attr-defined]
@@ -14,10 +14,13 @@ from google.cloud.storage.client import Client  # type: ignore[import-untyped]
 
 from pixeltable import env, exceptions as excs
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
-
-if TYPE_CHECKING:
-    from pixeltable.catalog import Column
+from pixeltable.utils.object_stores import (
+    FileDestination,
+    ObjectPath,
+    ObjectStoreBase,
+    StorageObjectAddress,
+    StorageTarget,
+)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -108,26 +111,23 @@ class GCSStore(ObjectStoreBase):
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def _prepare_uri(self, col: Column, ext: str | None = None) -> str:
-        """
-        Construct a new, unique URI for a persisted media file.
-        """
-        assert col.get_tbl() is not None, 'Column must be associated with a table'
-        return self._prepare_uri_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext=ext)
-
-    def copy_local_file(self, col: Column, src_path: Path) -> str:
-        """Copy a local file, and return its new URL"""
-        new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
-        parsed = urllib.parse.urlparse(new_file_uri)
+    def resolve_destination(
+        self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
+    ) -> FileDestination:
+        url = self._prepare_uri_raw(tbl_id, col_id, tbl_version, ext=ext)
+        parsed = urllib.parse.urlparse(url)
         blob_name = parsed.path.lstrip('/')
+        return FileDestination(url=url, remote_key=blob_name)
 
+    def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
+        assert dest.remote_key is not None
         try:
             client = self.client()
             bucket = client.bucket(self.bucket_name)
-            blob = bucket.blob(blob_name)
+            blob = bucket.blob(dest.remote_key)
             blob.upload_from_filename(str(src_path))
-            _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
-            return new_file_uri
+            _logger.debug(f'Media Storage: copied {src_path} to {dest.url}')
+            return dest.url
         except GoogleAPIError as e:
             self.handle_gcs_error(e, self.bucket_name, f'upload file {src_path}')
             raise
@@ -266,7 +266,9 @@ class GCSStore(ObjectStoreBase):
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
         """Create a presigned URL for downloading an object from GCS."""
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'StorageObjectAddress does not contain an object name: {soa}'
+            )
 
         gcs_client = self.client()
         bucket = gcs_client.bucket(soa.container)
@@ -281,16 +283,34 @@ class GCSStore(ObjectStoreBase):
         if isinstance(e, NotFound):
             if ignore_404:
                 return
-            raise excs.Error(f'Bucket or object {bucket_name} not found during {operation}: {str(e)!r}')
+            raise excs.NotFoundError(
+                excs.ErrorCode.STORAGE_NOT_FOUND,
+                f'Bucket or object {bucket_name} not found during {operation}: {str(e)!r}',
+            )
         elif isinstance(e, Forbidden):
-            raise excs.Error(f'Access denied to bucket {bucket_name} during {operation}: {str(e)!r}')
+            raise excs.AuthorizationError(
+                excs.ErrorCode.INSUFFICIENT_PRIVILEGES,
+                f'Access denied to bucket {bucket_name} during {operation}: {str(e)!r}',
+            )
         elif isinstance(e, GoogleAPIError):
             # Handle other Google API errors
             error_message = str(e)
             if 'Precondition' in error_message:
-                raise excs.Error(f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}')
+                raise excs.ExternalServiceError(
+                    excs.ErrorCode.PROVIDER_ERROR,
+                    f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}',
+                    provider='gcs',
+                )
             else:
-                raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_message}')
+                raise excs.ExternalServiceError(
+                    excs.ErrorCode.PROVIDER_ERROR,
+                    f'Error during {operation} in bucket {bucket_name}: {error_message}',
+                    provider='gcs',
+                )
         else:
             # Generic error handling
-            raise excs.Error(f'Unexpected error during {operation} in bucket {bucket_name}: {str(e)!r}')
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Unexpected error during {operation} in bucket {bucket_name}: {str(e)!r}',
+                provider='gcs',
+            )

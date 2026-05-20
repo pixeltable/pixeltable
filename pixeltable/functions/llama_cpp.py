@@ -60,9 +60,13 @@ def create_chat_completion(
         model_kwargs = {}
 
     if (model_path is None) == (repo_id is None):
-        raise excs.Error('Exactly one of `model_path` or `repo_id` must be provided.')
+        raise excs.RequestError(
+            excs.ErrorCode.MISSING_REQUIRED, 'Exactly one of `model_path` or `repo_id` must be provided.'
+        )
     if (repo_id is None) and (repo_filename is not None):
-        raise excs.Error('`repo_filename` can only be provided along with `repo_id`.')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, '`repo_filename` can only be provided along with `repo_id`.'
+        )
 
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]

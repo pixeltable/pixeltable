@@ -107,7 +107,9 @@ class TableDataConduit:
             return ParquetTableDataConduit.from_tds(tds)
         if tds.is_rowdata_structure(tds.source) or isinstance(tds.source, Iterator):
             return RowDataTableDataConduit.from_tds(tds)
-        raise excs.Error(f'Unsupported data source type: {type(tds.source)}')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported data source type: {type(tds.source)}'
+        )
 
     def __post_init__(self) -> None:
         """If no extra_fields were provided, initialize to empty dict"""
@@ -158,12 +160,16 @@ class TableDataConduit:
             mapped_col_name = self.source_column_map.get(col_name, col_name)
             col_name_set.add(mapped_col_name)
             if mapped_col_name not in self.pxt_schema:
-                raise excs.Error(f'Unknown column name {mapped_col_name}')
+                raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column name {mapped_col_name}')
             if mapped_col_name in self.computed_col_names:
-                raise excs.Error(f'Value for computed column {mapped_col_name}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Value for computed column {mapped_col_name}'
+                )
         missing_cols = self.reqd_col_names - col_name_set
         if len(missing_cols) > 0:
-            raise excs.Error(f'Missing required column(s) ({", ".join(missing_cols)})')
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, f'Missing required column(s) ({", ".join(missing_cols)})'
+            )
 
 
 class QueryTableDataConduit(TableDataConduit):
@@ -240,7 +246,7 @@ class RowDataTableDataConduit(TableDataConduit):
 
     def _translate_row(self, row: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(row, dict):
-            raise excs.Error(f'row {row} is not a dictionary')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'row {row} is not a dictionary')
 
         col_names: set[str] = set()
         output_row: dict[str, Any] = {}
@@ -248,19 +254,28 @@ class RowDataTableDataConduit(TableDataConduit):
             mapped_col_name = self.source_column_map.get(col_name, col_name)
             col_names.add(mapped_col_name)
             if mapped_col_name not in self.pxt_schema:
-                raise excs.Error(f'Unknown column name {mapped_col_name} in row {row}')
+                raise excs.NotFoundError(
+                    excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column name {mapped_col_name} in row {row}'
+                )
             if mapped_col_name in self.computed_col_names:
-                raise excs.Error(f'Value for computed column {mapped_col_name} in row {row}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Value for computed column {mapped_col_name} in row {row}'
+                )
             # basic sanity checks here
             try:
                 checked_val = self.pxt_schema[mapped_col_name].create_literal(val)
             except TypeError as e:
                 msg = str(e)
-                raise excs.Error(f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}') from e
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}',
+                ) from e
             output_row[mapped_col_name] = checked_val
         missing_cols = self.reqd_col_names - col_names
         if len(missing_cols) > 0:
-            raise excs.Error(f'Missing required column(s) ({", ".join(missing_cols)}) in row {row}')
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, f'Missing required column(s) ({", ".join(missing_cols)}) in row {row}'
+            )
         return output_row
 
     def valid_row_batch(self) -> Iterator[RowData]:
@@ -358,9 +373,14 @@ def _parse_jsonl_from_path(path: Path, extra_fields: dict[str, Any]) -> list[dic
             try:
                 obj = json.loads(line, **extra_fields)
             except json.JSONDecodeError as e:
-                raise excs.Error(f'Invalid JSONL line {lineno}: {line!r}') from e
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_DATA_FORMAT, f'Invalid JSONL line {lineno}: {line!r}'
+                ) from e
             if not isinstance(obj, dict):
-                raise excs.Error(f'JSONL line {lineno} must be a JSON object, got {type(obj).__name__}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'JSONL line {lineno} must be a JSON object, got {type(obj).__name__}',
+                )
             rows.append(obj)
     return rows
 
@@ -453,9 +473,10 @@ class HFTableDataConduit(TableDataConduit):
             # Add the split column to the schema if requested
             if self.column_name_for_split is not None:
                 if self.column_name_for_split in self.src_schema:
-                    raise excs.Error(
+                    raise excs.AlreadyExistsError(
+                        excs.ErrorCode.COLUMN_ALREADY_EXISTS,
                         f'Column name `{self.column_name_for_split}` already exists in dataset schema;'
-                        f'provide a different `column_name_for_split`'
+                        f'provide a different `column_name_for_split`',
                     )
                 self.src_schema[self.column_name_for_split] = ts.StringType(nullable=True)
 
@@ -539,10 +560,15 @@ class HFTableDataConduit(TableDataConduit):
 
             arrow_type = column.type
             if not pa.types.is_struct(arrow_type):
-                raise pxt.Error(f'Expected struct type for Audio column, got {arrow_type}')
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Expected struct type for Audio column, got {arrow_type}'
+                )
             field_names = {field.name for field in arrow_type}
             if 'bytes' not in field_names or 'path' not in field_names:
-                raise pxt.Error(f"Audio struct missing required fields 'bytes' and/or 'path', has: {field_names}")
+                raise pxt.RequestError(
+                    pxt.ErrorCode.MISSING_REQUIRED,
+                    f"Audio struct missing required fields 'bytes' and/or 'path', has: {field_names}",
+                )
 
             bytes_column = pc.struct_field(column, 'bytes')
             path_column = pc.struct_field(column, 'path')
@@ -742,18 +768,23 @@ class PydanticTableDataConduit(TableDataConduit):
         # convert rows one-by-one in order to be able to print meaningful error messages
         for i, row in enumerate(rows):
             if type(row) is not model_class:
-                raise excs.Error(
-                    f'Expected an instance of `{model_class.__name__}`; got `{type(row).__name__}` (in row {i})'
+                raise excs.RequestError(
+                    excs.ErrorCode.TYPE_MISMATCH,
+                    f'Expected an instance of `{model_class.__name__}`; got `{type(row).__name__}` (in row {i})',
                 )
             try:
                 pxt_row = row.model_dump(mode='json')
             except pydantic_core.PydanticSerializationError as e:
-                raise excs.Error(f'Row {i}: error serializing pydantic model to JSON:\n{e}') from e
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Row {i}: error serializing pydantic model to JSON:\n{e}'
+                ) from e
             # explicitly check that all required columns are present and non-None in the rows,
             # because we ignore nullability when validating the pydantic model
             for col_name in sorted_reqd_cols:
                 if pxt_row.get(col_name) is None:
-                    raise excs.Error(f'Missing required column {col_name!r} in row {i}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.MISSING_REQUIRED, f'Missing required column {col_name!r} in row {i}'
+                    )
             self.pxt_rows.append(pxt_row)
 
     def _validate_pydantic_model(self, model: type[pydantic.BaseModel]) -> None:
@@ -771,23 +802,27 @@ class PydanticTableDataConduit(TableDataConduit):
 
         missing_required = self.reqd_col_names - model_field_names
         if missing_required:
-            raise excs.Error(
-                f'Pydantic model `{model.__name__}` is missing required columns: ' + ', '.join(sorted(missing_required))
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED,
+                f'Pydantic model `{model.__name__}` is missing required columns: '
+                + ', '.join(sorted(missing_required)),
             )
 
         computed_in_model = self.computed_col_names & model_field_names
         if computed_in_model:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Pydantic model `{model.__name__}` has fields for computed columns: '
-                + ', '.join(sorted(computed_in_model))
+                + ', '.join(sorted(computed_in_model)),
             )
 
         # validate type compatibility
         assert self.pxt_schema is not None, 'add_table_info must be called first'
         common_fields = model_field_names & set(self.pxt_schema.keys())
         if len(common_fields) == 0:
-            raise excs.Error(
-                f'Pydantic model `{model.__name__}` has no fields that map to columns in table {self.tbl_name!r}'
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Pydantic model `{model.__name__}` has no fields that map to columns in table {self.tbl_name!r}',
             )
         for field_name in sorted(common_fields):
             pxt_col_type = self.pxt_schema[field_name]
@@ -798,22 +833,25 @@ class PydanticTableDataConduit(TableDataConduit):
             # allow_enum=True: model_dump(mode='json') converts enums to their values
             inferred_pxt_type = ts.ColumnType.from_python_type(model_type, infer_pydantic_json=True)
             if inferred_pxt_type is None:
-                raise excs.Error(
-                    f'Pydantic model `{model.__name__}`: cannot infer Pixeltable type for column {field_name!r}'
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_TYPE,
+                    f'Pydantic model `{model.__name__}`: cannot infer Pixeltable type for column {field_name!r}',
                 )
 
             if pxt_col_type.is_media_type():
                 # media types require file paths, either as str or Path
                 if not inferred_pxt_type.is_string_type():
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Column {field_name!r} requires a `str` or `Path` field in `{model.__name__}`, but it is '
-                        f'`{model_type.__name__}`'
+                        f'`{model_type.__name__}`',
                     )
             else:
                 if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
                         f'Pydantic model `{model.__name__}` has incompatible type `{model_type.__name__}` '
-                        f'for column {field_name!r} (of Pixeltable type `{pxt_col_type}`)'
+                        f'for column {field_name!r} (of Pixeltable type `{pxt_col_type}`)',
                     )
 
                 if (
@@ -821,9 +859,10 @@ class PydanticTableDataConduit(TableDataConduit):
                     and issubclass(model_type, pydantic.BaseModel)
                     and not is_json_convertible(model_type)
                 ):
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Pydantic model `{model.__name__}` has field {field_name!r} with nested model '
-                        f'`{model_type.__name__}`, which is not JSON-convertible'
+                        f'`{model_type.__name__}`, which is not JSON-convertible',
                     )
 
     def valid_row_batch(self) -> Iterator[RowData]:

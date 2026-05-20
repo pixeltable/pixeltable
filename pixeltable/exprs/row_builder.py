@@ -192,13 +192,8 @@ class RowBuilder:
         #   iterated object changes
 
         col_refs = [e for e in self.unique_exprs if isinstance(e, ColumnRef)]
-
-        def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
-            tbl = col_ref.col.get_tbl()
-            return tbl.is_component_view and tbl.is_iterator_column(col_ref.col) and not col_ref.col.is_stored
-
-        unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
-        component_views = [col_ref.col.get_tbl() for col_ref in unstored_iter_col_refs]
+        col_refs_needing_iter_eval = [col_ref for col_ref in col_refs if col_ref.needs_iterator_evaluation]
+        component_views = [col_ref.col.get_tbl() for col_ref in col_refs_needing_iter_eval]
         unstored_iter_args = {view.id: view.iterator_args_expr() for view in component_views}
 
         # the *stored* output columns of the unstored iterators
@@ -216,7 +211,7 @@ class RowBuilder:
         }
 
         unstored_iter_col_refs = [
-            self._record_unique_expr(col_ref, recursive=True) for col_ref in unstored_iter_col_refs
+            self._record_unique_expr(col_ref, recursive=True) for col_ref in col_refs_needing_iter_eval
         ]
 
         for col_ref in unstored_iter_col_refs:
@@ -486,8 +481,27 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
+    def get_output_map(self) -> list[str | None]:
+        """
+        Returns mapping of store table row (= the output of create_store_table_row()) indices to their respective schema
+        column names (ie, the user-visible schema).
+
+        Index values are mapped to the index name. Values of system columns (eg, PK columns, cellmd) are mapped to None.
+        """
+        num_pk_cols = len(self.tbl.store_tbl.pk_columns())
+        result: list[str | None] = [None] * num_pk_cols
+        idx_map = {info.val_col.id: name for name, info in self.tbl.idxs_by_name.items()}
+        for col in self.table_columns:
+            if col.id in idx_map:
+                result.append(idx_map[col.id])
+            else:
+                result.append(col.name)
+            if col.stores_cellmd:
+                result.append(None)
+        return result
+
     def create_store_table_row(
-        self, data_row: DataRow, cols_with_excs: set[int] | None, pk: tuple[int, ...]
+        self, data_row: DataRow, cols_with_excs: set[int] | None, pk: tuple[int | UUID, ...]
     ) -> tuple[list[Any], int]:
         """Create a store table row from the slots that have an output column assigned
 

@@ -8,8 +8,9 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
+from tests.test_iterator import simple_iterator
 
-from .utils import assert_resultset_eq, get_test_video_files, reload_catalog, validate_update_status
+from .utils import assert_resultset_eq, get_test_video_files, pxt_raises, reload_catalog, validate_update_status
 
 
 class ConstantImgFrame(TypedDict):
@@ -70,7 +71,7 @@ class TestComponentView:
         video_filepaths = get_test_video_files()
 
         # bad parameter type
-        with pytest.raises(pxt.Error) as excinfo:
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=frame_iterator(1, fps=1))
         assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
 
@@ -123,7 +124,7 @@ class TestComponentView:
         validate_update_status(video_t.insert(rows))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
 
-        with pytest.raises(pxt.Error, match='Duplicate column name: annotation'):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Required[pxt.Json])
 
     def test_nondeterministic(self, uses_db: None) -> None:
@@ -189,7 +190,7 @@ class TestComponentView:
             # malformed _rowid
             view_t.batch_update([{'annotation': {'a': 1}, '_rowid': (1,)}])
 
-        with pytest.raises(pxt.Error) as excinfo:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as excinfo:
             _ = pxt.create_view(
                 'bad_view',
                 video_t,
@@ -400,13 +401,76 @@ class TestComponentView:
         assert status.num_excs == 0
 
         # view creation fails with an exception
-        with pytest.raises(pxt.Error, match='aborted'):
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='aborted'):
             _ = pxt.create_view('view', t, iterator=error_iterator(t.i, 50))
 
         # the view metadata got cleaned up
         assert 'view' not in pxt.list_tables()
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
             _ = pxt.get_table('view')
 
         # the second attempt succeeds
         _ = pxt.create_view('view', t, iterator=error_iterator(t.i, 100))
+
+    def test_update_iterator_param(self, uses_db: None) -> None:
+        """Updating a base table column used as an iterator parameter re-evaluates the iterator."""
+        t = pxt.create_table('tbl', {'n': pxt.Int})
+        v = pxt.create_view('view', t, iterator=simple_iterator(t.n, str_text='t'))
+        t.insert([{'n': 5}])
+
+        rows = v.collect()
+        assert len(rows) == 5, f'expected 5 rows, got {len(rows)}'
+        t.update({'n': 6})
+
+        rows = v.order_by(v.pos).collect()
+        assert len(rows) == 6, f'expected 6 rows after update, got {len(rows)}'
+        for row in rows:
+            assert row['n'] == 6
+        scol_values = [row['scol'] for row in rows]
+        assert scol_values == ['t 0', 't 1', 't 2', 't 3', 't 4', 't 5']
+
+    def test_update_iterator_param_with_dependent_view(self, uses_db: None) -> None:
+        """A view on an iterator view also updates when the base iterator param changes."""
+        t = pxt.create_table('tbl', {'n': pxt.Int})
+        v = pxt.create_view('iter_view', t, iterator=simple_iterator(t.n, str_text='t'))
+        # non-iterator child view: additional column references the parent iterator's scol output
+        v2 = pxt.create_view('child_view', v, additional_columns={'derived': v.scol + '_suffix'})
+        # nested iterator child view: a second iterator runs on each row of v.
+        # The inner iterator's outputs (icol/scol/acol/pos) collide with v's, so they get
+        # renamed with a _1 suffix in v3's schema.
+        v3 = pxt.create_view(
+            'child_iterator_view',
+            v,
+            iterator=simple_iterator(v.icol, str_text='s'),
+            additional_columns={'derived': v.scol + '_suffix'},
+        )
+
+        t.insert([{'n': 3}])
+
+        rows = v2.order_by(v2.pos).collect()
+        assert len(rows) == 3
+        assert [r['derived'] for r in rows] == ['t 0_suffix', 't 1_suffix', 't 2_suffix']
+
+        # v3 nested iterator: for v.icol in (0, 1, 2), yields 0 + 1 + 2 = 3 rows.
+        v3_rows = v3.order_by(v3.icol, v3.pos_1).collect()
+        assert len(v3_rows) == 3
+        assert [r['icol'] for r in v3_rows] == [1, 2, 2]
+        assert [r['icol_1'] for r in v3_rows] == [0, 0, 1]
+        assert [r['scol_1'] for r in v3_rows] == ['s 0', 's 0', 's 1']
+        assert [r['derived'] for r in v3_rows] == ['t 1_suffix', 't 2_suffix', 't 2_suffix']
+
+        t.update({'n': 2})
+
+        rows = v2.order_by(v2.pos).collect()
+        assert len(rows) == 2
+        assert [r['n'] for r in rows] == [2, 2]
+        assert [r['scol'] for r in rows] == ['t 0', 't 1']
+        assert [r['derived'] for r in rows] == ['t 0_suffix', 't 1_suffix']
+
+        # After update n=2: v has icol in (0, 1); nested iterator yields 0 + 1 = 1 row.
+        v3_rows = v3.order_by(v3.icol, v3.pos_1).collect()
+        assert len(v3_rows) == 1
+        assert [r['icol'] for r in v3_rows] == [1]
+        assert [r['icol_1'] for r in v3_rows] == [0]
+        assert [r['scol_1'] for r in v3_rows] == ['s 0']
+        assert [r['derived'] for r in v3_rows] == ['t 1_suffix']

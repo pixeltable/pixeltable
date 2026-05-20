@@ -8,6 +8,9 @@ Pixeltable supports storing media files (images, videos, audio, documents) in ex
 ## Supported providers
 
 <CardGroup cols={3}>
+  <Card title="Pixeltable Cloud" icon="cloud">
+    Free managed storage, no bucket setup required
+  </Card>
   <Card title="Amazon S3" icon="aws">
     Native S3 storage with full feature support
   </Card>
@@ -95,6 +98,67 @@ Destinations are resolved in this order:
 3. **Local storage** — fallback if no destination is configured
 
 ## Provider configuration
+
+### Pixeltable Cloud (home bucket)
+
+Every Pixeltable Cloud account includes a free managed storage bucket. No bucket creation, no credentials file, no cloud provider account needed.
+
+<Tabs>
+  <Tab title="URI Format">
+    ```
+    pxtfs://org-slug:db-slug/home
+    ```
+    Replace `org-slug` and `db-slug` with your Pixeltable Cloud organization and database names.
+  </Tab>
+  <Tab title="Authentication">
+    Set your Pixeltable API key:
+
+    ```toml
+    [pixeltable]
+    api_key = "your-pixeltable-api-key"
+    ```
+
+    Or via environment variable:
+    ```bash
+    export PIXELTABLE_API_KEY="your-pixeltable-api-key"
+    ```
+
+    Pixeltable automatically fetches and refreshes temporary credentials from the Cloud control plane.
+  </Tab>
+  <Tab title="Example">
+    ```python
+    import pixeltable as pxt
+
+    t = pxt.create_table('app/images', {'photo': pxt.Image})
+
+    t.add_computed_column(
+        thumbnail=t.photo.resize((256, 256)),
+        destination='pxtfs://myorg:mydb/home'
+    )
+    ```
+
+    Or set it as your global default in `config.toml`:
+    ```toml
+    [pixeltable]
+    output_media_dest = "pxtfs://myorg:mydb/home"
+    ```
+
+    Or as an environment variable:
+    ```bash
+    export PIXELTABLE_OUTPUT_MEDIA_DEST="pxtfs://myorg:mydb/home"
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+This is the fastest way to get cloud storage working. No AWS/GCP/Azure account required.
+</Tip>
+
+You can browse, search, and preview the contents of your home bucket directly from the [Pixeltable Cloud dashboard](https://www.pixeltable.com/dashboard). Navigate to **Storage & Buckets** in the sidebar, then select your **home** bucket to explore files by type (images, docs, video, audio), view metadata, and inspect individual objects.
+
+```
+https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
+```
 
 ### Amazon S3
 
@@ -347,12 +411,17 @@ t.add_computed_column(
 )
 
 # Add AI-generated descriptions (uses output_media_dest)
+messages = [
+    {
+        'role': 'user',
+        'content': [
+            {'type': 'text', 'text': 'Describe this image briefly.'},
+            {'type': 'image_url', 'image_url': t.photo},
+        ],
+    }
+]
 t.add_computed_column(
-    description=openai.vision(
-        prompt="Describe this image briefly.",
-        image=t.photo,
-        model='gpt-4o-mini'
-    )
+    description=openai.chat_completions(messages, model='gpt-4o-mini')
 )
 
 # Insert data — Pixeltable handles all uploads automatically

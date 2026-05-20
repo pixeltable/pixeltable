@@ -88,7 +88,9 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
             ),
         )
     if not res.data:
-        raise pxt.Error(f"Didn't receive embedding for text: {text}\n{res}")
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR, f"Didn't receive embedding for text: {text}\n{res}", provider='twelvelabs'
+        )
     vector = res.data[0].embedding
     return np.array(vector, dtype='float32')
 
@@ -106,7 +108,9 @@ async def _(image: pxt.Image, *, model_name: str) -> pxt.Array[np.float32] | Non
         image=twelvelabs.ImageInputRequest(media_source=twelvelabs.MediaSource(base_64_string=b64_str)),
     )
     if not res.data:
-        raise pxt.Error(f"Didn't receive embedding for image: {image}\n{res}")
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR, f"Didn't receive embedding for image: {image}\n{res}", provider='twelvelabs'
+        )
     vector = res.data[0].embedding
     return np.array(vector, dtype='float32')
 
@@ -137,7 +141,11 @@ async def _(
             ),
         )
         if not res.data:
-            raise pxt.Error(f"Didn't receive embedding for audio: {audio}\n{res}")
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_ERROR,
+                f"Didn't receive embedding for audio: {audio}\n{res}",
+                provider='twelvelabs',
+            )
         vector = res.data[0].embedding
         return np.array(vector, dtype='float32')
 
@@ -168,7 +176,11 @@ async def _(
             ),
         )
         if not res.data:
-            raise pxt.Error(f"Didn't receive embedding for video: {video}\n{res}")
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_ERROR,
+                f"Didn't receive embedding for video: {video}\n{res}",
+                provider='twelvelabs',
+            )
         vector = res.data[0].embedding
         return np.array(vector, dtype='float32')
 

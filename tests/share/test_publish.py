@@ -10,6 +10,7 @@ from tests.utils import (
     assert_resultset_eq,
     capture_console_output,
     get_image_files,
+    pxt_raises,
     reload_catalog,
     skip_test_if_no_pxt_credentials,
 )
@@ -123,8 +124,9 @@ class TestPublish:
         for version in range(1, 8):
             tbl.insert({'icol': i, 'scol': f'string {i}'} for i in range(version * 10, version * 10 + 10))
 
+        # TODO: convert to pxt_raises(<CODE>)
         with pytest.raises(
-            pxt.Error,
+            pxt.RequestError,
             match=(
                 r"push\(\): Table 'tbl' has not yet been published to Pixeltable Cloud. "
                 r'To publish it, use `pxt.publish\(\)` instead.'
@@ -135,14 +137,14 @@ class TestPublish:
         pxt.publish('tbl', remote_uri)
 
         with pytest.raises(
-            pxt.Error,
+            pxt.RequestError,
             match=r"pull\(\): Table 'tbl' is not a replica of a Pixeltable Cloud table \(nothing to `pull\(\)`\).",
         ):
             tbl.pull()
 
         tbl_3 = pxt.get_table('tbl:3')
         with pytest.raises(
-            pxt.Error,
+            pxt.RequestError,
             match=r'push\(\): Cannot push specific-version table handle \'tbl:3\'\. '
             'To push the latest version instead:',
         ):
@@ -153,34 +155,40 @@ class TestPublish:
 
         tbl_replica = pxt.replicate(f'{remote_uri}:7', 'tbl_replica')
         with pytest.raises(
-            pxt.Error,
+            pxt.RequestError,
             match=r'pull\(\): Cannot pull specific-version table handle \'tbl_replica:7\'\. '
             'To pull the latest version instead:',
         ):
             tbl_replica.pull()
 
         with pytest.raises(
-            pxt.Error, match=r"push\(\): Cannot push replica table 'tbl_replica'. \(Did you mean `pull\(\)`\?\)"
+            pxt.RequestError, match=r"push\(\): Cannot push replica table 'tbl_replica'. \(Did you mean `pull\(\)`\?\)"
         ):
             tbl_replica.push()
 
         tbl_replica = pxt.get_table('tbl_replica')
 
         with pytest.raises(
-            pxt.Error, match=r"push\(\): Cannot push replica table 'tbl_replica'. \(Did you mean `pull\(\)`\?\)"
+            pxt.RequestError, match=r"push\(\): Cannot push replica table 'tbl_replica'. \(Did you mean `pull\(\)`\?\)"
         ):
             tbl_replica.push()
 
         pxt.drop_table(remote_uri)
 
     def test_remote_tbl_ops_errors(self, uses_db: None) -> None:
-        with pytest.raises(pxt.Error, match=r'Cannot use `force=True` with a cloud replica URI.'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot use `force=True` with a cloud replica URI.'
+        ):
             pxt.drop_table('pxt://pxt-test/test', force=True)
-        with pytest.raises(
-            pxt.Error, match=r"`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=r"`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'",
         ):
             pxt.publish('tbl', 'not-a-uri')
-        with pytest.raises(pxt.Error, match=r"`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match=r"`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'",
+        ):
             pxt.replicate('not-a-uri', 'replica')
 
     def test_replicate_public_dataset_without_api_key(self, uses_db: None) -> None:

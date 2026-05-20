@@ -22,26 +22,18 @@ class InMemoryDataNode(ExecNode):
     tbl: catalog.TableVersionHandle
 
     input_rows: list[dict[str, Any]]
-    start_row_id: int
     output_batch: DataRowBatch | None
 
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]
 
-    def __init__(
-        self,
-        tbl: catalog.TableVersionHandle,
-        rows: list[dict[str, Any]],
-        row_builder: exprs.RowBuilder,
-        start_row_id: int,
-    ):
+    def __init__(self, tbl: catalog.TableVersionHandle, rows: list[dict[str, Any]], row_builder: exprs.RowBuilder):
         # we materialize the input slots
         output_exprs = list(row_builder.input_exprs)
         super().__init__(row_builder, output_exprs, [], None)
         assert tbl.get().is_insertable
         self.tbl = tbl
         self.input_rows = rows
-        self.start_row_id = start_row_id
         self.output_batch = None
 
     def _open(self) -> None:
@@ -67,7 +59,9 @@ class InMemoryDataNode(ExecNode):
                 col = col_info.col
                 if col.col_type.is_image_type() and isinstance(val, bytes):
                     # this is a literal media file, ie, a sequence of bytes; save it as a binary file and store the path
-                    filepath, _ = TempStore.save_media_object(val, col, format=None)
+                    filepath, _ = TempStore.save_media_object(
+                        val, col.tbl_handle.id, col.id, col.get_tbl().version, format=None
+                    )
                     output_row[col_info.slot_idx] = str(filepath)
                 else:
                     output_row[col_info.slot_idx] = val

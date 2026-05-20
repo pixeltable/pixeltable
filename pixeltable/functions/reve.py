@@ -253,7 +253,7 @@ async def remix(
         ... )
     """
     if len(images) == 0:
-        raise pxt.Error('Must include at least 1 reference image')
+        raise pxt.RequestError(pxt.ErrorCode.MISSING_REQUIRED, 'Must include at least 1 reference image')
 
     payload: dict[str, Any] = {'prompt': prompt, 'reference_images': [to_base64(img) for img in images]}
     if version is not None:

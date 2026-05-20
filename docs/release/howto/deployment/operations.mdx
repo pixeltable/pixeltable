@@ -24,6 +24,10 @@ Multi-node HA and horizontal scaling planned for Pixeltable Cloud (2026).
 
 ## Web Framework Concurrency
 
+<Tip>
+**For standard insert, query, and delete endpoints,** consider [built-in HTTP serving](/howto/deployment/serving) with `FastAPIRouter` or a TOML config before writing custom endpoint handlers. It handles request/response schemas, media serving, and background jobs automatically.
+</Tip>
+
 Pixeltable is thread-safe and works with FastAPI, Flask, Django, and other web frameworks out of the box. The key rule: **use sync (`def`) endpoint handlers**, not `async def`.
 
 ### Why Sync Endpoints
@@ -220,20 +224,21 @@ Because both columns coexist, you can A/B test retrieval quality before cutting 
 ## Deployment Patterns
 
 **Web Applications:**
-- Execute `setup_pixeltable.py` during deployment initialization
-- Web server processes connect to Pixeltable instance
-- Pixeltable uses connection pooling internally
+- For standard endpoints, use [`pxt serve`](/howto/deployment/serving) with a TOML config or [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
+- Run `python setup_pixeltable.py` once before starting workers to create tables
+- Each router calls `pxt.get_table()` directly and defines its own `@pxt.query` functions
 - Use sync (`def`) endpoint handlers for concurrent request support
 
 <Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
   Clone a production-ready FastAPI + React app with multimodal upload, search, and agent endpoints — plus deployment configs for Docker Compose, Helm, Terraform, and AWS CDK.
 </Card>
 
-**Batch Processing / Orchestration Pipeline:**
-- Schedule via `cron`, Airflow, AWS EventBridge, GCP Cloud Scheduler
+**Batch Processing:**
+- Schedule via `cron`, Airflow, AWS EventBridge, GCP Cloud Scheduler, or webhooks
+- Deploy to Cloud Run Jobs, Lambda, ECS Fargate, Kubernetes Jobs
 - Isolate batch workloads from real-time serving (separate containers/instances)
 - Use Pixeltable's incremental computation to process only new data
-- The starter kit includes an [orchestration pipeline](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/pipeline) example that uses `export_sql` and the `destination` parameter for ephemeral batch processing
+- The starter kit includes a [batch processing pipeline](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/batch) with `export_sql` and the `destination` parameter, plus ready-to-use deploy configs for Lambda, Cloud Run, ECS Fargate, and K8s Jobs
 
 **Containers:**
 - Docker provides reproducible builds across environments

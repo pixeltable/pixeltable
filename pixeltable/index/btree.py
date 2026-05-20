@@ -34,7 +34,10 @@ class BtreeIndex(IndexBase):
 
     def create_value_expr(self, c: 'catalog.Column') -> 'exprs.Expr':
         if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():
-            raise excs.Error(f'Index on column {c.name}: B-tree index requires scalar or media type, got {c.col_type}')
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'Index on column {c.name}: B-tree index requires scalar or media type, got {c.col_type}',
+            )
         value_expr: exprs.Expr
         if c.col_type.is_media_type():
             # an index on a media column is an index on the file url

@@ -184,20 +184,25 @@ This guide will help you spin up a functioning AI workload in 5 minutes.
     # Set your API key
     os.environ['OPENAI_API_KEY'] = 'your-key-here'
 
+    messages = [
+        {
+            'role': 'user',
+            'content': [
+                {'type': 'text', 'text': 'Describe this image in one sentence.'},
+                {'type': 'image_url', 'image_url': t.image},
+            ],
+        }
+    ]
     t.add_computed_column(
-        description=openai.vision(
-            prompt="Describe this image in one sentence.",
-            image=t.image,
-            model='gpt-4o-mini'
-        )
+        response=openai.chat_completions(messages, model='gpt-4o-mini')
     )
 
-    t.select(t.image, t.labels, t.description).collect()
+    t.select(t.image, t.labels, t.response.choices[0].message.content).collect()
     ```
 
     ```python
-    # See the full text of the description in row 0
-    t.select(t.description).collect()[0]
+    # See the full text of the response in row 0
+    t.select(t.response.choices[0].message.content).collect()[0]
     ```
 
     <Note>
@@ -206,21 +211,21 @@ This guide will help you spin up a functioning AI workload in 5 minutes.
     </Note>
   </Step>
 
-  <Step>
-    Insert a few more images.
-
+  <Step title="Insert More Data">
     ```python
     t.insert([
       {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000034.jpg'},
       {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000057.jpg'}
     ])
 
-    t.select(t.image, t.labels, t.description).collect()
+    t.select(t.image, t.labels).collect()
     ```
 
     <Note>
-    When new data is insterted into tables, Pixeltable incrementally runs all
+    When new data is inserted into tables, Pixeltable incrementally runs all
     computed columns against the new data, ensuring the table is up to date.
+    If you completed the optional LLM Vision step, the descriptions will also
+    be generated automatically for these new images.
     </Note>
   </Step>
 </Steps>
@@ -234,3 +239,20 @@ Pixeltable automatically:
 4. Stored all results (including computed columns) for instant retrieval
 5. Will incrementally process any new images you insert
 </Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="10-Minute Tour" icon="play" href="/overview/ten-minute-tour">
+    A deeper walkthrough with video, embeddings, and similarity search.
+  </Card>
+  <Card title="Deployment Overview" icon="rocket" href="/howto/deployment/overview">
+    Three production patterns: Full Backend (FastAPI + React), Batch Processing (export to your DB), and Declarative Serving (API from TOML).
+  </Card>
+  <Card title="HTTP Serving" icon="globe" href="/howto/deployment/serving">
+    Expose tables and queries as HTTP endpoints with `pxt serve` or `FastAPIRouter`.
+  </Card>
+  <Card title="Create a Project" icon="wand-magic-sparkles" href="https://github.com/pixeltable/pixeltable-new">
+    `uvx pixeltable-new myapp` — scaffold a full project (serving, backend, or batch) in one command.
+  </Card>
+</CardGroup>

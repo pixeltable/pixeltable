@@ -10,9 +10,12 @@ def resolve_symbol(symbol_path: str) -> object | None:
     module: ModuleType | None = None
     i = len(path_elems) - 1
     while i > 0 and module is None:
+        module_path = '.'.join(path_elems[:i])
         try:
-            module = importlib.import_module('.'.join(path_elems[:i]))
-        except ModuleNotFoundError:
+            module = importlib.import_module(module_path)
+        except ModuleNotFoundError as e:
+            if e.name != module_path and not module_path.startswith(f'{e.name}.'):
+                raise
             i -= 1
     if i == 0:
         return None  # Not resolvable
@@ -26,12 +29,15 @@ def validate_symbol_path(fn_path: str) -> None:
     path_elems = fn_path.split('.')
     fn_name = path_elems[-1]
     if any(el == '<locals>' for el in path_elems):
-        raise excs.Error(
-            f'{fn_name}(): nested functions are not supported. Move the function to the module level or into a class.'
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'{fn_name}(): nested functions are not supported. Move the function to the module level or into a class.',
         )
     if any(not el.isidentifier() for el in path_elems):
-        raise excs.Error(
-            f'{fn_name}(): cannot resolve symbol path {fn_path}. Move the function to the module level or into a class.'
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'{fn_name}(): cannot resolve symbol path {fn_path}. '
+            f'Move the function to the module level or into a class.',
         )
 
 

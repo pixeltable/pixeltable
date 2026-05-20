@@ -54,7 +54,7 @@ description: 'Process video, audio, documents, and images into training-ready da
         **Model-in-the-loop:** Auto-generate labels with AI models
 
         - **Object Detection:** [`yolox.yolox()`](/sdk/latest/yolox), [`huggingface.detr_for_object_detection()`](/sdk/latest/huggingface)
-        - **Vision LLMs:** [`openai.vision()`](/sdk/latest/openai), [`anthropic.messages()`](/sdk/latest/anthropic), [`gemini.messages()`](/sdk/latest/gemini)
+        - **Vision LLMs:** [`openai.chat_completions()`](/sdk/latest/openai), [`anthropic.messages()`](/sdk/latest/anthropic), [`gemini.generate_content()`](/sdk/latest/gemini)
         - **Classification:** [`huggingface.image_classification()`](/sdk/latest/huggingface)
 
         <CardGroup cols={2}>
@@ -138,7 +138,7 @@ description: 'Process video, audio, documents, and images into training-ready da
         </Card>
       </Step>
       <Step title="Export" icon="file-export">
-        Training formats: [`to_pytorch_dataset()`](/sdk/latest/query#method-to_pytorch_dataset), [`export_parquet()`](/sdk/latest/io#func-export_parquet), [`to_coco_dataset()`](/sdk/latest/query#method-to_coco_dataset), [`export_lancedb()`](/sdk/latest/io#func-export_lancedb)
+        Training and data formats: [`export_csv()`](/sdk/latest/io#func-export_csv), [`export_json()`](/sdk/latest/io#func-export_json), [`export_parquet()`](/sdk/latest/io#func-export_parquet), [`to_pytorch_dataset()`](/sdk/latest/query#method-to_pytorch_dataset), [`to_coco_dataset()`](/sdk/latest/query#method-to_coco_dataset), [`export_lancedb()`](/sdk/latest/io#func-export_lancedb)
 
         <CardGroup cols={2}>
           <Card title="Export to PyTorch" icon="fire" href="/howto/cookbooks/data/data-export-pytorch">

@@ -187,8 +187,45 @@ Add multimodal intelligence to applications with two deployment patterns.
   </Tab>
   <Tab title="5. Serve">
     <Steps>
-      <Step title="API Endpoints">
-        Integrate with Flask, FastAPI, or any Python web framework
+      <Step title="Built-in HTTP Serving">
+        Expose tables and queries as HTTP endpoints with a TOML config or a single CLI command
+
+        [`pxt serve`](/howto/deployment/serving), [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
+
+        ```toml
+        # service.toml
+        [[service]]
+        name = "image-service"
+        port = 8000
+
+        [[service.routes]]
+        type = "insert"
+        table = "app/images"
+        path = "/upload"
+        uploadfile_inputs = ["image"]
+        outputs = ["image", "caption"]
+
+        [[service.routes]]
+        type = "query"
+        path = "/search"
+        query = "app.queries.search_images"
+        ```
+
+        ```bash
+        pxt serve image-service --config service.toml
+        ```
+
+        <CardGroup cols={2}>
+          <Card title="HTTP Serving Guide" href="/howto/deployment/serving">
+            TOML config, CLI, Python API, background jobs
+          </Card>
+          <Card title="Deployment Overview" href="/howto/deployment/overview">
+            Full backend vs. orchestration layer
+          </Card>
+        </CardGroup>
+      </Step>
+      <Step title="Custom Endpoints">
+        For custom logic, middleware, or authentication, use Flask, FastAPI, or any Python web framework
 
         `pxt.get_table()`, `.insert()`, `.select()`, `.collect()`
 
@@ -204,16 +241,11 @@ Add multimodal intelligence to applications with two deployment patterns.
             query = request.form.get("q")
             sim = images.image.similarity(query)
             return images.order_by(sim, asc=False).limit(10).collect()
-
-        @app.route("/api/upload", methods=["POST"])
-        def upload():
-            images.insert([{"image": request.files["file"]}])
-            return {"status": "ok"}
         ```
 
         <CardGroup cols={2}>
-          <Card title="Deployment Guide" href="/howto/deployment/overview">
-            Production deployment patterns
+          <Card title="Production Operations" href="/howto/deployment/operations">
+            Concurrency, error handling, sync endpoints
           </Card>
           <Card title="Pixelbot Example" href="https://github.com/pixeltable/pixelbot">
             Full Flask app with file upload & search
@@ -226,14 +258,12 @@ Add multimodal intelligence to applications with two deployment patterns.
         `.fileurl`, pre-signed URLs for S3/GCS/Tigris
 
         ```python
-        # Get file URL from Pixeltable
         url = row["image"].fileurl
 
-        # Generate pre-signed URL for client access
         presigned = s3.generate_presigned_url(
             "get_object",
             Params={"Bucket": bucket, "Key": key},
-            ExpiresIn=3600
+            ExpiresIn=3600,
         )
         ```
 
@@ -250,25 +280,31 @@ Add multimodal intelligence to applications with two deployment patterns.
 ## Deployment Patterns
 
 <Tabs>
-  <Tab title="Orchestration Layer">
+  <Tab title="Batch Processing">
     **When:** Keep existing RDBMS + blob storage
 
     Pixeltable processes media, runs models, then exports results to your existing systems.
 
     ```python
+    from pixeltable.io.sql import export_sql
+
     # Process in Pixeltable with media stored directly to S3/GCS/Azure
     videos.add_computed_column(
         thumbnail=videos.frame.resize((256, 256)),
-        destination='s3://my-bucket/thumbnails/'  # Direct to blob storage
+        destination='s3://my-bucket/thumbnails/'
     )
 
-    # Export metadata to external RDBMS
-    df = videos.select(videos.video, videos.transcript).collect()
-    df.to_sql('video_metadata', engine, if_exists='append')  # SQLAlchemy
+    # Export structured results to serving DB
+    export_sql(
+        videos.select(videos.video, videos.transcript),
+        'video_metadata',
+        db_connect_str='postgresql+psycopg://...',
+        if_exists='replace',
+    )
     ```
 
-    <Card title="Orchestration Pattern Guide" href="/howto/deployment/overview">
-      Process → Export to your existing infrastructure
+    <Card title="Batch Processing Guide" href="/howto/deployment/overview">
+      Process with computed columns, export with `export_sql`
     </Card>
   </Tab>
   <Tab title="Full Backend">

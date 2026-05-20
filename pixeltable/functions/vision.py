@@ -2,15 +2,13 @@
 Pixeltable UDFs for Computer Vision.
 
 Example:
-```python
-import pixeltable as pxt
-from pixeltable.functions import vision as pxtv
 
-t = pxt.get_table(...)
-t.select(
-    pxtv.bboxes_draw(t.img, boxes=t.boxes, labels=t.labels)
-).collect()
-```
+>>> import pixeltable as pxt
+>>> from pixeltable.functions import vision as pxtv
+>>> t = pxt.get_table(...)
+>>> t.select(
+...     pxtv.bboxes_draw(t.img, boxes=t.boxes, labels=t.labels)
+... ).collect()
 """
 
 import colorsys
@@ -431,15 +429,18 @@ def bboxes_draw(
 def _validate_bboxes(bboxes: list, error_prefix: str, validate_range: bool = True) -> bool:
     """Check that bboxes are either all int or all float. Return True for absolute, False for relative."""
     if not all(len(b) == 4 for b in bboxes):
-        raise pxt.Error(f'{error_prefix}: each bounding box must have exactly 4 coordinates')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: each bounding box must have exactly 4 coordinates'
+        )
     is_absolute = all(
         isinstance(x, int) and (not validate_range or x >= 0) for x in itertools.chain.from_iterable(bboxes)
     )
     is_relative = all(isinstance(x, float) and (not validate_range or (0.0 <= x <= 1.0)) for box in bboxes for x in box)
     if not (is_absolute or is_relative):
-        raise pxt.Error(
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
             f'{error_prefix}: bounding box coordinates must be either all int'
-            f'{" (>= 0)" if validate_range else ""} or all float{" (in [0, 1])" if validate_range else ""}'
+            f'{" (>= 0)" if validate_range else ""} or all float{" (in [0, 1])" if validate_range else ""}',
         )
     return is_absolute
 
@@ -467,9 +468,9 @@ def bboxes_convert(
         return []
 
     if src_format not in ('xyxy', 'xywh', 'cxcywh'):
-        raise pxt.Error(f'Invalid src_format: {src_format!r}')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid src_format: {src_format!r}')
     if dst_format not in ('xyxy', 'xywh', 'cxcywh'):
-        raise pxt.Error(f'Invalid dst_format: {dst_format!r}')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid dst_format: {dst_format!r}')
     is_absolute = _validate_bboxes(bboxes, 'bboxes_convert()')
     if src_format == dst_format:
         return bboxes
@@ -536,17 +537,21 @@ def bboxes_resize(
         List of resized bounding boxes in the same format as the input.
     """
     if width is not None and width <= 0:
-        raise pxt.Error(f'width must be positive, got {width}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'width must be positive, got {width}')
     if height is not None and height <= 0:
-        raise pxt.Error(f'height must be positive, got {height}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'height must be positive, got {height}')
     aspect_f: float | None = None
     if aspect is not None:
         match = ASPECT_RATIO_RE.fullmatch(aspect)
         if match is None:
-            raise pxt.Error(f'Invalid aspect ratio: {aspect!r}; expected "W:H"')
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid aspect ratio: {aspect!r}; expected "W:H"'
+            )
         w_val, h_val = int(match.group(1)), int(match.group(2))
         if w_val == 0 or h_val == 0:
-            raise pxt.Error(f'Invalid aspect ratio: {aspect!r}; width and height must be positive')
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT, f'Invalid aspect ratio: {aspect!r}; width and height must be positive'
+            )
         aspect_f = float(w_val) / float(h_val)
     return _bboxes_resize(bboxes, format, width=width, height=height, aspect=aspect_f, aspect_mode=aspect_mode)
 
@@ -562,11 +567,11 @@ def _(
     aspect_mode: str | None = None,
 ) -> list:
     if width is not None and width <= 0:
-        raise pxt.Error(f'width must be positive, got {width}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'width must be positive, got {width}')
     if height is not None and height <= 0:
-        raise pxt.Error(f'height must be positive, got {height}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'height must be positive, got {height}')
     if aspect is not None and aspect <= 0:
-        raise pxt.Error(f'aspect must be positive, got {aspect}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'aspect must be positive, got {aspect}')
 
     return _bboxes_resize(bboxes, format, width_f=width, height_f=height, aspect=aspect, aspect_mode=aspect_mode)
 
@@ -592,24 +597,36 @@ def _bboxes_resize(
     assert height_f is None or height_f > 0
     assert aspect is None or aspect > 0
     if aspect_mode is not None and aspect_mode not in ['crop', 'pad']:
-        raise pxt.Error(f'Invalid aspect_mode: {aspect_mode!r}; expected "crop" or "pad"')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid aspect_mode: {aspect_mode!r}; expected "crop" or "pad"'
+        )
 
     has_width = width is not None or width_f is not None
     has_height = height is not None or height_f is not None
     has_aspect = aspect is not None
     if has_width + has_height + has_aspect != 1:
-        raise pxt.Error('Exactly one of width, height, or aspect must be specified')
+        raise pxt.RequestError(
+            pxt.ErrorCode.MISSING_REQUIRED, 'Exactly one of width, height, or aspect must be specified'
+        )
     if has_aspect and aspect_mode is None:
-        raise pxt.Error("aspect_mode ('crop' or 'pad') is required when aspect is specified")
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, "aspect_mode ('crop' or 'pad') is required when aspect is specified"
+        )
     if not has_aspect and aspect_mode is not None:
-        raise pxt.Error('aspect_mode is only valid when aspect is specified')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, 'aspect_mode is only valid when aspect is specified'
+        )
 
     is_absolute = _validate_bboxes(bboxes, 'bboxes_resize()')
     if is_absolute and (width_f is not None or height_f is not None):
-        raise pxt.Error('bboxes_resize(): width/height require relative coordinates, but bboxes use absolute pixels')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            'bboxes_resize(): width/height require relative coordinates, but bboxes use absolute pixels',
+        )
     if not is_absolute and (width is not None or height is not None):
-        raise pxt.Error(
-            'bboxes_resize(): width/height require absolute pixel coordinates, but bboxes use relative coordinates'
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            'bboxes_resize(): width/height require absolute pixel coordinates, but bboxes use relative coordinates',
         )
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
@@ -629,7 +646,7 @@ def _bboxes_resize(
     elif format == 'cxcywh':
         cx, cy, w, h = c0, c1, c2, c3
     else:
-        raise pxt.Error(f'Invalid format: {format!r}')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid format: {format!r}')
 
     valid = (w > 0) & (h > 0)
     orig: np.ndarray | None = None
@@ -730,15 +747,20 @@ def bboxes_scale(
     has_x = x_factor is not None
     has_y = y_factor is not None
     if not has_factor and not has_x and not has_y:
-        raise pxt.Error('bboxes_scale(): at least one of factor, x_factor, y_factor must be specified')
+        raise pxt.RequestError(
+            pxt.ErrorCode.MISSING_REQUIRED,
+            'bboxes_scale(): at least one of factor, x_factor, y_factor must be specified',
+        )
     if has_factor and (has_x or has_y):
-        raise pxt.Error('bboxes_scale(): factor is mutually exclusive with x_factor/y_factor')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_scale(): factor is mutually exclusive with x_factor/y_factor'
+        )
     if has_factor and factor <= 0:
-        raise pxt.Error('bboxes_scale(): factor must be positive')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_scale(): factor must be positive')
     if has_x and x_factor <= 0:
-        raise pxt.Error('bboxes_scale(): x_factor must be positive')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_scale(): x_factor must be positive')
     if has_y and y_factor <= 0:
-        raise pxt.Error('bboxes_scale(): y_factor must be positive')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_scale(): y_factor must be positive')
 
     is_absolute = _validate_bboxes(bboxes, 'bboxes_scale()')
     arr = np.array(bboxes, dtype=np.float64)
@@ -760,7 +782,7 @@ def bboxes_scale(
         case 'cxcywh':
             cx, cy, w, h = c0, c1, c2, c3
         case _:
-            raise pxt.Error(f'Invalid format: {format!r}')
+            raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid format: {format!r}')
 
     valid = (w > 0) & (h > 0)
     orig: np.ndarray | None = None
@@ -847,11 +869,13 @@ def bboxes_pad(
     has_top = top is not None
     has_bottom = bottom is not None
     if has_x and (has_left or has_right):
-        raise pxt.Error('bboxes_pad(): x is mutually exclusive with left/right')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_pad(): x is mutually exclusive with left/right')
     if has_y and (has_top or has_bottom):
-        raise pxt.Error('bboxes_pad(): y is mutually exclusive with top/bottom')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_pad(): y is mutually exclusive with top/bottom')
     if not (has_x or has_y or has_left or has_right or has_top or has_bottom):
-        raise pxt.Error('bboxes_pad(): at least one padding parameter must be specified')
+        raise pxt.RequestError(
+            pxt.ErrorCode.MISSING_REQUIRED, 'bboxes_pad(): at least one padding parameter must be specified'
+        )
 
     # Resolve effective padding
     pad_left = x if has_x else (left if has_left else 0)
@@ -861,12 +885,13 @@ def bboxes_pad(
 
     for name, val in [('left', pad_left), ('right', pad_right), ('top', pad_top), ('bottom', pad_bottom)]:
         if val < 0:
-            raise pxt.Error(f'bboxes_pad(): {name} padding must be >= 0')
+            raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'bboxes_pad(): {name} padding must be >= 0')
 
     is_absolute = _validate_bboxes(bboxes, 'bboxes_pad()')
     if not is_absolute:
-        raise pxt.Error(
-            'bboxes_pad(): padding requires absolute pixel coordinates, but bboxes use relative coordinates'
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            'bboxes_pad(): padding requires absolute pixel coordinates, but bboxes use relative coordinates',
         )
 
     arr = np.array(bboxes, dtype=np.float64)
@@ -879,7 +904,7 @@ def bboxes_pad(
     elif format in ('xywh', 'cxcywh'):
         valid = (c2 > 0) & (c3 > 0)
     else:
-        raise pxt.Error(f'Invalid format: {format!r}')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid format: {format!r}')
 
     orig: np.ndarray | None = None
     if not valid.all():
@@ -941,13 +966,21 @@ def bboxes_clip_to_canvas(
     is_absolute = _validate_bboxes(bboxes, 'bboxes_clip_to_canvas()', validate_range=False)
 
     if is_absolute and (width is None or height is None):
-        raise pxt.Error('bboxes_clip_to_canvas(): both width and height must be specified for absolute coordinates')
+        raise pxt.RequestError(
+            pxt.ErrorCode.MISSING_REQUIRED,
+            'bboxes_clip_to_canvas(): both width and height must be specified for absolute coordinates',
+        )
     if not is_absolute and (width is not None or height is not None):
-        raise pxt.Error('bboxes_clip_to_canvas(): width/height must not be specified for relative coordinates')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            'bboxes_clip_to_canvas(): width/height must not be specified for relative coordinates',
+        )
     if not (0.0 <= min_visibility <= 1.0):
-        raise pxt.Error('bboxes_clip_to_canvas(): min_visibility must be between 0.0 and 1.0')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_clip_to_canvas(): min_visibility must be between 0.0 and 1.0'
+        )
     if min_area < 0.0:
-        raise pxt.Error('bboxes_clip_to_canvas(): min_area must be >= 0')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_clip_to_canvas(): min_area must be >= 0')
 
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
@@ -961,7 +994,7 @@ def bboxes_clip_to_canvas(
     elif format == 'cxcywh':
         x1, y1, x2, y2 = c0 - c2 / 2, c1 - c3 / 2, c0 + c2 / 2, c1 + c3 / 2
     else:
-        raise pxt.Error(f'Invalid format: {format!r}')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid format: {format!r}')
 
     # Detect degenerate boxes (zero or negative area)
     valid = (x2 > x1) & (y2 > y1)
@@ -1049,17 +1082,21 @@ def bboxes_crop_canvas(
     is_absolute = _validate_bboxes(bboxes, 'bboxes_crop_canvas()', validate_range=False)
 
     if is_absolute and (canvas_width is None or canvas_height is None):
-        raise pxt.Error(
-            'bboxes_crop_canvas(): both canvas_width and canvas_height must be specified for absolute coordinates'
+        raise pxt.RequestError(
+            pxt.ErrorCode.MISSING_REQUIRED,
+            'bboxes_crop_canvas(): both canvas_width and canvas_height must be specified for absolute coordinates',
         )
     if not is_absolute and (canvas_width is not None or canvas_height is not None):
-        raise pxt.Error(
-            'bboxes_crop_canvas(): canvas_width/canvas_height must not be specified for relative coordinates'
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            'bboxes_crop_canvas(): canvas_width/canvas_height must not be specified for relative coordinates',
         )
 
     # Validate canvas_region
     if not isinstance(canvas_region, list) or len(canvas_region) != 4:
-        raise pxt.Error('bboxes_crop_canvas(): canvas_region must be a list of 4 coordinates')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_crop_canvas(): canvas_region must be a list of 4 coordinates'
+        )
 
     # normalize to xyxy
     rc0, rc1, rc2, rc3 = canvas_region
@@ -1070,15 +1107,23 @@ def bboxes_crop_canvas(
     elif canvas_region_format == 'cxcywh':
         rx1, ry1, rx2, ry2 = rc0 - rc2 / 2, rc1 - rc3 / 2, rc0 + rc2 / 2, rc1 + rc3 / 2
     else:
-        raise pxt.Error(f'Invalid canvas_region_format: {canvas_region_format!r}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid canvas_region_format: {canvas_region_format!r}'
+        )
 
     if rx2 <= rx1 or ry2 <= ry1:
-        raise pxt.Error('bboxes_crop_canvas(): canvas_region must have positive area')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_crop_canvas(): canvas_region must have positive area'
+        )
     if is_absolute:
         if rx1 < 0 or ry1 < 0 or rx2 > canvas_width or ry2 > canvas_height:
-            raise pxt.Error('bboxes_crop_canvas(): canvas_region extends beyond canvas bounds')
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, 'bboxes_crop_canvas(): canvas_region extends beyond canvas bounds'
+            )
     elif rx1 < 0.0 or ry1 < 0.0 or rx2 > 1.0 or ry2 > 1.0:
-        raise pxt.Error('bboxes_crop_canvas(): canvas_region extends beyond canvas bounds')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, 'bboxes_crop_canvas(): canvas_region extends beyond canvas bounds'
+        )
 
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
@@ -1096,7 +1141,7 @@ def bboxes_crop_canvas(
     elif format == 'cxcywh':
         x1, y1, x2, y2 = c0 - c2 / 2, c1 - c3 / 2, c0 + c2 / 2, c1 + c3 / 2
     else:
-        raise pxt.Error(f'Invalid format: {format!r}')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid format: {format!r}')
 
     # Detect degenerate boxes
     valid = (x2 > x1) & (y2 > y1)
@@ -1176,7 +1221,9 @@ def bboxes_resize_canvas(
 
     is_absolute = _validate_bboxes(bboxes, 'bboxes_resize_canvas()', validate_range=False)
     if not is_absolute:
-        raise pxt.Error('bboxes_resize_canvas(): requires absolute bounding boxes')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, 'bboxes_resize_canvas(): requires absolute bounding boxes'
+        )
 
     # Parameter validation
     has_new_dims = new_canvas_width is not None and new_canvas_height is not None
@@ -1185,37 +1232,51 @@ def bboxes_resize_canvas(
     has_scale_xy = canvas_scale_x is not None or canvas_scale_y is not None
 
     if not has_new_dims and not has_scale and not has_scale_xy:
-        raise pxt.Error(
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
             'bboxes_resize_canvas(): requires either all of canvas_width, canvas_height, new_canvas_width, '
-            'new_canvas_height, or at least one of canvas_scale, canvas_scale_x, canvas_scale_y to be specified'
+            'new_canvas_height, or at least one of canvas_scale, canvas_scale_x, canvas_scale_y to be specified',
         )
     if has_new_dims and not has_dims:
-        raise pxt.Error(
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
             'bboxes_resize_canvas(): new_canvas_width/new_canvas_height also require canvas_width/canvas_height '
-            'to be specified'
+            'to be specified',
         )
     if (has_new_dims or has_dims) and (has_scale or has_scale_xy):
-        raise pxt.Error(
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
             'bboxes_resize_canvas(): new_canvas_width/new_canvas_height/canvas_width/canvas_height is mutually '
-            'exclusive with canvas_scale/canvas_scale_x/canvas_scale_y'
+            'exclusive with canvas_scale/canvas_scale_x/canvas_scale_y',
         )
     if has_scale and has_scale_xy:
-        raise pxt.Error('bboxes_resize_canvas(): canvas_scale is mutually exclusive with canvas_scale_x/canvas_scale_y')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            'bboxes_resize_canvas(): canvas_scale is mutually exclusive with canvas_scale_x/canvas_scale_y',
+        )
 
     if new_canvas_width is not None and new_canvas_width <= 0:
-        raise pxt.Error('bboxes_resize_canvas(): new_canvas_width must be positive')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_resize_canvas(): new_canvas_width must be positive'
+        )
     if new_canvas_height is not None and new_canvas_height <= 0:
-        raise pxt.Error('bboxes_resize_canvas(): new_canvas_height must be positive')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_resize_canvas(): new_canvas_height must be positive'
+        )
     if canvas_scale is not None and canvas_scale <= 0:
-        raise pxt.Error('bboxes_resize_canvas(): canvas_scale must be positive')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_resize_canvas(): canvas_scale must be positive')
     if canvas_scale_x is not None and canvas_scale_x <= 0:
-        raise pxt.Error('bboxes_resize_canvas(): canvas_scale_x must be positive')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_resize_canvas(): canvas_scale_x must be positive'
+        )
     if canvas_scale_y is not None and canvas_scale_y <= 0:
-        raise pxt.Error('bboxes_resize_canvas(): canvas_scale_y must be positive')
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_resize_canvas(): canvas_scale_y must be positive'
+        )
     if canvas_width is not None and canvas_width <= 0:
-        raise pxt.Error('bboxes_resize_canvas(): canvas_width must be positive')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_resize_canvas(): canvas_width must be positive')
     if canvas_height is not None and canvas_height <= 0:
-        raise pxt.Error('bboxes_resize_canvas(): canvas_height must be positive')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_resize_canvas(): canvas_height must be positive')
 
     # Compute scale factors
     if has_new_dims:
@@ -1237,7 +1298,7 @@ def bboxes_resize_canvas(
     elif format in ('xywh', 'cxcywh'):
         valid = (c2 > 0) & (c3 > 0)
     else:
-        raise pxt.Error(f'Invalid format: {format!r}')
+        raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid format: {format!r}')
 
     orig: np.ndarray | None = None
     if not valid.all():

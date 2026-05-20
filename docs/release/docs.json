@@ -19,8 +19,15 @@
             "pages": [
               "overview/pixeltable",
               "overview/quick-start",
-              "overview/ten-minute-tour",
-              "overview/building-pixeltable-with-llms"
+              "overview/ten-minute-tour"
+            ]
+          },
+          {
+            "group": "Tools",
+            "pages": [
+              "overview/building-pixeltable-with-llms",
+              "platform/dashboard",
+              "platform/cli"
             ]
           },
           {
@@ -44,11 +51,12 @@
             "pages": [
               "platform/configuration",
               {
-                "group": "Migrating from...",
+                "group": "Migrating from ...",
                 "pages": [
                   "migrate/from-diy-data-pipeline",
                   "migrate/from-rdbms-vectordbs",
-                  "migrate/from-agent-frameworks"
+                  "migrate/from-agent-frameworks",
+                  "migrate/from-hand-written-endpoints"
                 ]
               },
               {
@@ -73,6 +81,7 @@
                   "howto/providers/working-with-pydantic",
                   "howto/providers/working-with-replicate",
                   "howto/providers/working-with-reve",
+                  "howto/providers/working-with-runwayml",
                   "howto/providers/working-with-tigris",
                   "howto/providers/working-with-together",
                   "howto/providers/working-with-twelvelabs",
@@ -87,6 +96,7 @@
                   {
                     "group": "Core Operations",
                     "pages": [
+                      "howto/cookbooks/core/multimodal_backend",
                       "howto/cookbooks/core/workflow-api-keys",
                       "howto/cookbooks/core/dev-iterative-workflow",
                       "howto/cookbooks/core/workflow-json-extraction",
@@ -94,6 +104,7 @@
                       "howto/cookbooks/core/query-join-tables",
                       "howto/cookbooks/core/version-control-history",
                       "howto/cookbooks/core/custom-aggregates-uda",
+                      "howto/cookbooks/core/custom-iterators",
                       "howto/cookbooks/core/data-split-rows",
                       "howto/cookbooks/core/time-zones"
                     ]
@@ -157,7 +168,8 @@
                       "howto/cookbooks/video/video-scene-detection",
                       "howto/cookbooks/video/video-generate-thumbnails",
                       "howto/cookbooks/video/video-add-text-overlay",
-                      "howto/cookbooks/video/video-generate-ai"
+                      "howto/cookbooks/video/video-generate-ai",
+                      "howto/cookbooks/video/video-image-slideshow"
                     ]
                   },
                   {
@@ -222,7 +234,9 @@
                       "sdk/latest/math",
                       "sdk/latest/string",
                       "sdk/latest/timestamp",
-                      "sdk/latest/video"
+                      "sdk/latest/uuid",
+                      "sdk/latest/video",
+                      "sdk/latest/vision"
                     ]
                   },
                   {
@@ -249,7 +263,6 @@
                       "sdk/latest/runwayml",
                       "sdk/latest/together",
                       "sdk/latest/twelvelabs",
-                      "sdk/latest/vision",
                       "sdk/latest/voyageai",
                       "sdk/latest/whisper",
                       "sdk/latest/whisperx",
@@ -296,6 +309,7 @@
             "group": "Deployment",
             "pages": [
               "howto/deployment/overview",
+              "howto/deployment/serving",
               "howto/deployment/infrastructure",
               "howto/deployment/operations",
               "howto/deployment/monitoring",
@@ -359,7 +373,13 @@
     }
   },
   "styling": {
-    "eyebrows": "breadcrumbs"
+    "eyebrows": "breadcrumbs",
+    "codeblocks": {
+      "theme": {
+        "light": "light-plus",
+        "dark": "dark-plus"
+      }
+    }
   },
   "appearance": {
     "default": "system",
@@ -370,6 +390,10 @@
   },
   "navbar": {
     "links": [
+      {
+        "label": "AI Skill",
+        "href": "https://github.com/pixeltable/pixeltable-skill"
+      },
       {
         "label": "Discord",
         "href": "https://discord.com/invite/QPyqFYx2UN"

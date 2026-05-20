@@ -11,6 +11,10 @@ from typing import NamedTuple
 
 OUTPUT_PCT_THRESHOLD = 50.0  # Minimum percentage of code cells that must have outputs
 
+# Temporarily excluded notebooks (matched by filename only)
+# TODO(PXT-1081): Regenerate Fabric notebook in docs with new access account
+SKIP_NOTEBOOKS = {'working-with-fabric.ipynb'}
+
 
 class NotebookStats(NamedTuple):
     path: Path
@@ -75,20 +79,26 @@ def main() -> int:
 
     failed_notebooks: list[NotebookStats] = []
 
+    skipped = 0
     for notebook_path in sorted(notebooks):
+        if notebook_path.name in SKIP_NOTEBOOKS:
+            skipped += 1
+            continue
         stats = check_notebook(notebook_path)
         if stats.has_output_pct < OUTPUT_PCT_THRESHOLD:
             failed_notebooks.append(stats)
 
     # Summary
     if failed_notebooks:
-        print('Notebook checks failed!')
+        print(f'{len(failed_notebooks)} notebook(s) failed!')
         for stats in failed_notebooks:
             print(f'  FAILED: {stats.path}')
             print(f'    Too few code cells have output: {stats.has_output_pct:.1f}% < {OUTPUT_PCT_THRESHOLD:.1f}%')
         return 1
     else:
-        print('No issues found.')
+        print(
+            f'No issues in {len(notebooks)} notebook(s).' + (f' {skipped} notebook(s) were skipped.' if skipped else '')
+        )
         return 0
 
 

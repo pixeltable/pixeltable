@@ -11,7 +11,8 @@ _logger = logging.getLogger('pixeltable')
 
 
 @pytest.mark.remote_api
-@pytest.mark.expensive
+@pytest.mark.skip(reason='[PXT-1116] Out of credits')
+@pytest.mark.very_expensive
 @rerun(reruns=3, reruns_delay=8)
 class TestReve:
     @pytest.mark.parametrize('default_params', [True, False], ids=['default_params', 'nondefault_params'])

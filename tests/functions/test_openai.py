@@ -1,4 +1,7 @@
+import logging
 import os
+import random
+import time
 
 import PIL.Image
 import pytest
@@ -6,10 +9,13 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
+from pixeltable import exceptions as excs
 from pixeltable.config import Config
 
 from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
+
+_logger = logging.getLogger('pixeltable')
 
 
 @pytest.mark.remote_api
@@ -104,9 +110,76 @@ class TestOpenai:
         # contain the string "json", it refuses the request.
         # TODO This should probably not be throwing an exception, but rather logging the error in
         # `t.chat_output_4.errormsg` etc.
-        with pytest.raises(pxt.ExprEvalError) as exc_info:
+        with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(input='Say something interesting.')
         assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
+
+    def test_responses(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import responses
+
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [{'role': 'user', 'content': t.input}]
+        # Basic responses call with instructions
+        t.add_computed_column(resp_output=responses(msgs, model='gpt-4o-mini'))
+        # test model_kwargs (temperature, max_output_tokens)
+        t.add_computed_column(
+            resp_output_2=responses(
+                msgs,
+                model='gpt-4o-mini',
+                model_kwargs={
+                    'instructions': (
+                        'You are an elementary school teacher explaining the answers to a group of students.'
+                    ),
+                    'temperature': 0.7,
+                    'max_output_tokens': 300,
+                    'store': False,
+                },
+            )
+        )
+        validate_update_status(t.insert(input='What are atoms made of?'), 1)
+        result = t.collect()
+        assert 'proton' in result['resp_output'][0]['output'][0]['content'][0]['text'].lower()
+        assert 'proton' in result['resp_output_2'][0]['output'][0]['content'][0]['text'].lower()
+
+    @rerun(reruns=6, reruns_delay=8)
+    def test_responses_tool_invocations(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions import openai
+
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
+            messages = [{'role': 'user', 'content': t.prompt}]
+            t.add_computed_column(
+                response=openai.responses(model='gpt-4o-mini', input=messages, tools=tools, tool_choice=tool_choice)
+            )
+            t.add_computed_column(tool_calls=openai.invoke_tools(tools, t.response))
+            return t
+
+        run_tool_invocations_test(make_table, test_tool_choice=True, test_individual_tool_choice=True)
+
+    def test_responses_custom_tool_invocations(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import invoke_tools, responses
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        tools = pxt.tools(
+            pxt.tool(
+                stock_price, name='banana_quantity', description='Use this to compute the banana quantity of a symbol.'
+            )
+        )
+        t.add_computed_column(response=responses(model='gpt-4o-mini', input=messages, tools=tools))
+        t.add_computed_column(output=t.response.output_text)
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        t.insert(prompt='What is the banana quantity of the symbol NVDA?')
+        res = t.select(t.output, t.tool_calls).head()
+
+        assert res[0]['output'] is None or res[0]['output'] == ''
+        assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
 
     @pytest.mark.expensive
     def test_reasoning_models(self, uses_db: None) -> None:
@@ -268,7 +341,7 @@ class TestOpenai:
         t.add_computed_column(response_2=chat_completions(msgs, model='gpt-4o-mini', model_kwargs={'max_tokens': 300}))
         with pytest.warns(
             pxt.exceptions.PixeltableDeprecationWarning,
-            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) instead',
+            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) or responses\(\) instead',
         ):
             validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()
@@ -283,17 +356,17 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         # Embeddings as computed columns
-        t.add_computed_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
+        t.add_computed_column(embed1=embeddings(model='text-embedding-3-large', input=t.input))
         t.add_computed_column(
-            text_3=embeddings(
+            embed2=embeddings(
                 model='text-embedding-3-small', input=t.input, model_kwargs={'dimensions': 1024, 'user': 'pixeltable'}
             )
         )
         type_info = t._get_schema()
-        assert isinstance(type_info['ada_embed'], ts.ArrayType)
-        assert type_info['ada_embed'].shape == (1536,)
-        assert isinstance(type_info['text_3'], ts.ArrayType)
-        assert type_info['text_3'].shape == (1024,)
+        assert isinstance(type_info['embed1'], ts.ArrayType)
+        assert type_info['embed1'].shape == (3072,)
+        assert isinstance(type_info['embed2'], ts.ArrayType)
+        assert type_info['embed2'].shape == (1024,)
         validate_update_status(t.insert(input='Say something interesting.'), 1)
 
         # Via add_embedding_index()
@@ -323,37 +396,15 @@ class TestOpenai:
         _ = t.head()
 
     @pytest.mark.expensive
-    def test_image_generations(self, uses_db: None) -> None:
-        skip_test_if_not_installed('openai')
-        skip_test_if_no_client('openai')
-        from pixeltable.functions.openai import image_generations
-
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(img=image_generations(t.input, model='dall-e-2'))
-        # Test dall-e-2 options
-        t.add_computed_column(
-            img_2=image_generations(
-                t.input, model='dall-e-2', model_kwargs={'size': '512x512', 'user': 'pixeltable', 'n': 2}
-            )
-        )
-
-        validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
-        assert t.collect()['img'][0]['data'][0].size == (1024, 1024)
-
-        # Also check that multiple images can be generated and returned in the same results dict
-        assert t.collect()['img_2'][0]['data'][0].size == (512, 512)
-        assert t.collect()['img_2'][0]['data'][1].size == (512, 512)
-
-    @pytest.mark.expensive
     def test_image_generations_gpt_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import image_generations
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(img=image_generations(t.input, model='gpt-image-1'))
+        t.add_computed_column(img=image_generations(t.input, model='gpt-image-2'))
         t.add_computed_column(
-            img_2=image_generations(t.input, model='gpt-image-1', model_kwargs={'quality': 'low', 'size': '1024x1024'})
+            img_2=image_generations(t.input, model='gpt-image-2', model_kwargs={'quality': 'low', 'size': '1024x1024'})
         )
 
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
@@ -372,7 +423,7 @@ class TestOpenai:
             edited=image_edits(
                 t.img,
                 prompt='Add a party hat on top',
-                model='gpt-image-1',
+                model='gpt-image-2',
                 model_kwargs={'quality': 'low', 'size': '1024x1024'},
             )
         )
@@ -386,7 +437,7 @@ class TestOpenai:
         """Test image_edits with a mask image specifying the edit region.
 
         The mask must have the same dimensions as the input image. Both are created
-        programmatically at 1024x1024 (a valid gpt-image-1 input size) to guarantee this.
+        programmatically at 1024x1024 (a valid gpt-image-2 input size) to guarantee this.
         """
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
@@ -394,7 +445,7 @@ class TestOpenai:
 
         from pixeltable.functions.openai import image_edits
 
-        # Source image: 1024x1024 solid color (valid gpt-image-1 input size)
+        # Source image: 1024x1024 solid color (valid gpt-image-2 input size)
         src_arr = np.full((1024, 1024, 3), fill_value=[70, 130, 180], dtype=np.uint8)  # steel blue
         src_img = PIL.Image.fromarray(src_arr, mode='RGB')
 
@@ -411,7 +462,7 @@ class TestOpenai:
                 t.img,
                 mask=t.mask,
                 prompt='Fill the top-left corner with a bright red apple',
-                model='gpt-image-1',
+                model='gpt-image-2',
                 model_kwargs={'quality': 'low', 'size': '1024x1024'},
             )
         )
@@ -420,32 +471,9 @@ class TestOpenai:
         result = t.collect()
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
 
-    @pytest.mark.expensive
-    def test_image_edits_dall_e_2(self, uses_db: None) -> None:
-        """Test image_edits with dall-e-2, which requires a square RGBA PNG."""
-        skip_test_if_not_installed('openai')
-        skip_test_if_no_client('openai')
-        import numpy as np
-
-        from pixeltable.functions.openai import image_edits
-
-        # dall-e-2 requires RGBA — the alpha channel marks which pixels to edit (alpha=0 means edit here)
-        arr = np.full((512, 512, 4), fill_value=[70, 130, 180, 255], dtype=np.uint8)  # fully opaque steel blue
-        src_img = PIL.Image.fromarray(arr, mode='RGBA')
-
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
-        t.add_computed_column(
-            edited=image_edits(
-                t.img, prompt='Add a blue sky background', model='dall-e-2', model_kwargs={'size': '512x512'}
-            )
-        )
-
-        validate_update_status(t.insert(img=src_img), 1)
-        result = t.collect()
-        assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
-        assert result['edited'][0]['data'][0].size == (512, 512)
-
-    @pytest.mark.skip(reason='Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.')
+    @pytest.mark.skip(
+        reason='[PXT-1115] Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.'
+    )
     @pytest.mark.expensive
     def test_image_variations(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -610,13 +638,55 @@ class TestOpenai:
         result = t.collect()
         assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
 
-    def test_shared_rate_limits_pool_different_signatures(self, uses_db: None) -> None:
-        """Verify that functions sharing a rate-limits pool with different get_request_resources signatures
-        don't crash the scheduler.
+    @pytest.mark.expensive
+    def test_chat_completions_scheduler(self, uses_db: None) -> None:
+        """
+        Scheduler throughput test: 20 rows through gpt-4o-mini to verify the rate-limit
+        scheduler dispatches and completes requests without errors.
 
-        The pool caches param names from chat_completions (messages, model, model_kwargs), but vision has
-        a different signature (prompt, image, model, model_kwargs). Inserting 2+ rows ensures the second
-        call hits the rate-limited path where the mismatch would previously trigger an AssertionError.
+        Meant to be used in conjunction with a rate limit enabled openai api key, to manually verify that
+        the retry logic in RateLimitsScheduler is working properly. If the test fails with a non-zero
+        number of exceptions, check the logs to see if they were 429 errors and if retries were attempted.
+        """
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import chat_completions
+
+        with open('tests/data/random_words', encoding='utf-8') as f:
+            wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
+
+        num_rows = 20
+        model = 'gpt-4o-mini'
+
+        t = pxt.create_table('scheduler_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t.add_computed_column(
+            prompt=[
+                {'role': 'system', 'content': 'You are a helpful assistant. Be concise.'},
+                {'role': 'user', 'content': 'Use ' + t.word1 + ' and ' + t.word2 + ' in one short sentence.'},
+            ]
+        )
+        t.add_computed_column(response=chat_completions(t.prompt, model=model))
+
+        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(num_rows))]
+
+        t0 = time.monotonic()
+        status = t.insert(rows, on_error='ignore')
+        elapsed = time.monotonic() - t0
+
+        succeeded = num_rows - status.num_excs
+        _logger.debug(
+            f'model={model}, rows={num_rows}, '
+            f'succeeded={succeeded}, errors={status.num_excs}, '
+            f'elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
+        )
+
+        assert status.num_excs == 0, f'{status.num_excs} rows failed permanently'
+
+    def test_shared_rate_limits_pool_different_signatures(self, uses_db: None) -> None:
+        """Verify that functions sharing a rate-limits pool with different resource estimators work correctly.
+
+        chat_completions and vision share a pool but each has its own resource_estimator with different
+        parameters. Inserting 2+ rows ensures the second call hits the rate-limited path.
         """
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
@@ -627,7 +697,7 @@ class TestOpenai:
         # Insert 2 rows: first initializes the pool synchronously, second goes through _get_request_resources
         with pytest.warns(
             pxt.exceptions.PixeltableDeprecationWarning,
-            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) instead',
+            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) or responses\(\) instead',
         ):
             validate_update_status(t.insert([{'img': SAMPLE_IMAGE_URL}, {'img': SAMPLE_IMAGE_URL}]), expected_rows=2)
         result = t.collect()

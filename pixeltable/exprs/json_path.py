@@ -77,7 +77,10 @@ class JsonPath(Expr):
         if not isinstance(col_type, ts.JsonType):
             # There are more path elements, but we've arrived at something other than JsonType;
             # fall back on general JsonType.
-            raise excs.Error(f'Invalid JsonPath: cannot resolve {cls.__errstr(el)} on primitive type `{col_type}`')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Invalid JsonPath: cannot resolve {cls.__errstr(el)} on primitive type `{col_type}`',
+            )
 
         schema = col_type.type_schema
         if schema is None:
@@ -150,9 +153,10 @@ class JsonPath(Expr):
                     new_type = ts.JsonType(ts.JsonType.TypeSchema([], variadic_type=supertype), nullable=True)
                     return cls.__resolve_type(new_type, path_elements[1:])
 
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'Invalid JsonPath: cannot resolve {cls.__errstr(el)}, '
-            f'because it does not match the expected type schema:\n{col_type}'
+            f'because it does not match the expected type schema:\n{col_type}',
         )
 
     def release(self) -> None:
@@ -214,9 +218,9 @@ class JsonPath(Expr):
         Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
         """
         if not self.is_relative_path():
-            raise excs.Error('() for an absolute path is invalid')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, '() for an absolute path is invalid')
         if len(args) != 1 or not isinstance(args[0], int) or args[0] >= 0:
-            raise excs.Error('R() requires a negative index')
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'R() requires a negative index')
         return JsonPath(None, [], args[0])
 
     def __getattr__(self, name: str) -> 'JsonPath':
@@ -226,7 +230,7 @@ class JsonPath(Expr):
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, (int, slice, str)):
             return JsonPath(self.anchor, [*self.path_elements, index])
-        raise excs.Error(f'Invalid json list index: {index}')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid json list index: {index}')
 
     def default_column_name(self) -> str | None:
         anchor_name = self.anchor.default_column_name() if self.anchor is not None else ''
