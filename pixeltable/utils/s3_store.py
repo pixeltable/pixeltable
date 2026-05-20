@@ -323,6 +323,18 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, f'downloading file {src_path!r}')
             raise
 
+    # def copy_local_file(self, tbl_id: uuid.UUID, tbl_version: int, col_md: 'schema.ColumnMd', src_path: Path) -> str:
+    #     """Copy a local file, and return its new URL"""
+    #     new_file_uri = self._prepare_uri_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
+    #     parsed = urllib.parse.urlparse(new_file_uri)
+    #     key = parsed.path.lstrip('/')
+    #     if self.soa.storage_target in {
+    #         StorageTarget.R2_STORE,
+    #         StorageTarget.B2_STORE,
+    #         StorageTarget.TIGRIS_STORE,
+    #         StorageTarget.PIXELTABLE_STORE,
+    #     }:
+    #         key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2/B2
     def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
         assert dest.remote_key is not None
         try:

@@ -17,6 +17,7 @@ from pixeltable.exec import ExecNode
 from pixeltable.index.btree import BtreeIndex
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
+from pixeltable.type_system import sa_type_from_dict
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.sql import log_explain, log_stmt
 from pixeltable.utils.uuid import uuid7
@@ -171,13 +172,22 @@ class StoreBase:
         system_cols = self._create_system_columns()
         all_cols = system_cols.copy()
         # we captured all columns, including dropped ones: they're still part of the physical table
-        for col in [c for c in tbl_version.cols if c.is_stored]:
-            # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
-            # to the last sql.Table version we created and cannot be reused
-            col.create_sa_cols()
-            all_cols.append(col.sa_col)
-            if col.stores_cellmd:
-                all_cols.append(col.sa_cellmd_col)
+        for col_md in tbl_version.tbl_md.column_md.values():
+            if not col_md.stored:
+                continue
+            assert col_md.sa_col_type is not None
+            store_name = catalog.Column.store_name_from_id(col_md.id)
+            # all storage columns are nullable (we deal with null errors in Pixeltable directly)
+            sa_col = sql.Column(store_name, sa_type_from_dict(col_md.sa_col_type), nullable=True)
+            all_cols.append(sa_col)
+            sa_cellmd_col: sql.Column | None = None
+            if col_md.stores_cellmd:
+                sa_cellmd_col = sql.Column(
+                    catalog.Column.cellmd_store_name_from_id(col_md.id), catalog.Column.sa_cellmd_type(), nullable=True
+                )
+                all_cols.append(sa_cellmd_col)
+            if col_md.id in tbl_version.cols_by_id:
+                tbl_version.cols_by_id[col_md.id].set_sa_cols(sa_col, sa_cellmd_col)
 
         if self.sa_tbl is not None:
             # if we're called in response to a schema change, we need to remove the old table first

@@ -260,6 +260,7 @@ class PxtStore(ObjectStoreBase):
                 provider=self._pxt_store_entry.storage_provider,
             ) from e
 
+    # def copy_local_file(self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str:
     def resolve_destination(
         self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
     ) -> FileDestination:
@@ -272,6 +273,7 @@ class PxtStore(ObjectStoreBase):
                 ErrorCode.STORE_UNAVAILABLE,
                 'No space left in Pixeltable store. Only read and delete operations are allowed.',
             )
+        # return self._to_logical_uri(self._store.copy_local_file(tbl_id, tbl_version, col_md, src_path))
         # Inner S3 store reads dest.remote_key for the upload and returns dest.url; since
         # dest.url is already the logical (pxtfs://) URL, we can pass dest through unchanged.
         return self._store.copy_local_file(src_path, dest)

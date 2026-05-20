@@ -144,6 +144,22 @@ class LocalStore(ObjectStoreBase):
             return None
         return file_path
 
+    # def move_local_file(self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str:
+    #     """Move a local file to this store, and return its new URL"""
+    #     # dest_path = self._prepare_path(col_md, ext=src_path.suffix)
+    #     dest_path = self._prepare_path_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
+    #     src_path.rename(dest_path)
+    #     new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
+    #     _logger.debug(f'Media Storage: moved {src_path} to {new_file_url}')
+    #     return new_file_url
+
+    # def copy_local_file(self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str:
+    #     """Copy a local file to a this store, and return its new URL"""
+    #     dest_path = self._prepare_path_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
+    #     shutil.copy2(src_path, dest_path)
+    #     new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
+    #     _logger.debug(f'Media Storage: copied {src_path} to {new_file_url}')
+    #     return new_file_url
     def resolve_destination(
         self, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None
     ) -> FileDestination:

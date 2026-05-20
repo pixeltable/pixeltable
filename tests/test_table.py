@@ -3456,6 +3456,12 @@ class TestTable:
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
         assert expected_schema == actual_schema
 
+    def test_drop_pk(self, uses_db: None) -> None:
+        # TODO this test passes on main, but fail on this branch
+        t = pxt.create_table('test', {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int]}, primary_key='id')
+        t.insert([{'id': 1, 'val': 1}])
+        t.drop_column(t.id)
+
     def test_repr(self, uses_db: None, test_tbl: pxt.Table, all_mpnet_embed: pxt.Function) -> None:
         validate_repr(
             test_tbl,

@@ -14,6 +14,8 @@ import uuid
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
+import pgvector.sqlalchemy as sql_vector  # type: ignore[import-untyped]
+
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import av
@@ -679,12 +681,11 @@ class ColumnType:
         # types that can be offloaded to file-based storage via a CellMaterializationNode
         return self.is_array_type() or self.is_json_type() or self.is_binary_type()
 
-    @classmethod
-    @abc.abstractmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
+    def to_sa_type(self) -> sql.types.TypeEngine:
         """
         Return corresponding SQLAlchemy type.
         """
+        return to_sa_type(self._type)
 
     def to_json_schema(self) -> dict[str, Any]:
         if self.nullable:
@@ -757,13 +758,32 @@ class ColumnType:
         return None
 
 
+_SA_TYPE_MAP: dict[ColumnType.Type, sql.types.TypeEngine] = {
+    ColumnType.Type.INVALID: sql.types.NullType(),
+    ColumnType.Type.STRING: sql.String(),
+    ColumnType.Type.INT: sql.BigInteger(),
+    ColumnType.Type.FLOAT: sql.Float(),
+    ColumnType.Type.BOOL: sql.Boolean(),
+    ColumnType.Type.TIMESTAMP: sql.TIMESTAMP(timezone=True),
+    ColumnType.Type.DATE: sql.Date(),
+    ColumnType.Type.UUID: sql.UUID(as_uuid=True),
+    ColumnType.Type.BINARY: sql.LargeBinary(),
+    ColumnType.Type.JSON: sql.dialects.postgresql.JSONB(),
+    ColumnType.Type.ARRAY: sql.LargeBinary(),
+    ColumnType.Type.IMAGE: sql.String(),
+    ColumnType.Type.VIDEO: sql.String(),
+    ColumnType.Type.AUDIO: sql.String(),
+    ColumnType.Type.DOCUMENT: sql.String(),
+}
+
+
+def to_sa_type(t: ColumnType.Type) -> sql.types.TypeEngine:
+    return _SA_TYPE_MAP[t]
+
+
 class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INVALID, nullable=nullable)
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.types.NullType()
 
     def print_value(self, val: Any) -> str:
         return str(val)
@@ -778,10 +798,6 @@ class StringType(ColumnType):
 
     def has_supertype(self) -> bool:
         return not self.nullable
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.String()
 
     def _to_json_schema(self) -> dict[str, Any]:
         return {'type': 'string'}
@@ -806,10 +822,6 @@ class IntType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INT, nullable=nullable)
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.BigInteger()
-
     def _to_json_schema(self) -> dict[str, Any]:
         return {'type': 'integer'}
 
@@ -823,10 +835,6 @@ class IntType(ColumnType):
 class FloatType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.FLOAT, nullable=nullable)
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.Float()
 
     def _to_json_schema(self) -> dict[str, Any]:
         return {'type': 'number'}
@@ -844,10 +852,6 @@ class FloatType(ColumnType):
 class BoolType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.BOOL, nullable=nullable)
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.Boolean()
 
     def _to_json_schema(self) -> dict[str, Any]:
         return {'type': 'boolean'}
@@ -1966,3 +1970,57 @@ ALL_PIXELTABLE_TYPES = (
     UUID,
     Binary,
 )
+
+
+def is_media_type(col_type: ColumnType.Type) -> bool:
+    return col_type in {ColumnType.Type.IMAGE, ColumnType.Type.VIDEO, ColumnType.Type.AUDIO, ColumnType.Type.DOCUMENT}
+
+
+_SA_TYPE_NAMES: dict[type, str] = {
+    sql.types.String: 'String',
+    sql.types.BigInteger: 'BigInteger',
+    sql.types.Float: 'Float',
+    sql.types.Boolean: 'Boolean',
+    sql.types.TIMESTAMP: 'Timestamp',
+    sql.types.LargeBinary: 'LargeBinary',
+    sql.types.Date: 'Date',
+    sql.types.UUID: 'UUID',
+    sql.dialects.postgresql.json.JSONB: 'JSONB',
+    sql_vector.HALFVEC: 'HalfVec',
+    sql_vector.VECTOR: 'Vector',
+}
+
+_SA_TYPE_BY_NAME: dict[str, type] = {name: t for t, name in _SA_TYPE_NAMES.items()}
+
+
+def sa_type_as_dict(t: sql.types.TypeEngine) -> dict:
+    d = {}
+    if isinstance(t, sql.types.String):
+        assert t.length is None
+    if isinstance(t, sql.types.TIMESTAMP):
+        assert t.timezone
+    if isinstance(t, sql.types.LargeBinary):
+        assert t.length is None
+    if isinstance(t, (sql_vector.HALFVEC, sql_vector.VECTOR)):
+        assert t.dim is not None
+        d['dim'] = t.dim
+    type_str = _SA_TYPE_NAMES.get(type(t))
+    if type_str is None:
+        raise AssertionError(t)
+    d['type'] = type_str
+    return d
+
+
+def sa_type_from_dict(d: dict) -> sql.types.TypeEngine:
+    type_str = d['type']
+    clazz = _SA_TYPE_BY_NAME.get(type_str)
+    assert clazz is not None, type_str
+    t: sql.types.TypeEngine
+    if clazz == sql.types.TIMESTAMP:
+        t = sql.types.TIMESTAMP(timezone=True)
+    elif clazz in (sql_vector.HALFVEC, sql_vector.VECTOR):
+        assert 'dim' in d
+        t = clazz(dim=d['dim'])
+    else:
+        t = clazz()
+    return t

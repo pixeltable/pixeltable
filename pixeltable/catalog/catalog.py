@@ -1914,7 +1914,8 @@ class Catalog:
                     dir_id=None,
                     tbl_md=tv.tbl_md,
                     version_md=tv.version_md if new_version else None,
-                    schema_version_md=tv.schema_version_md if new_version else None,
+                    # TODO either restore the schema_version_md property in TV or figure out a way to do without it here
+                    schema_version_md=tv._schema_version_md if new_version else None,
                     pending_ops=drop_ops,
                     remove_from_dir=True,
                 )
@@ -2530,6 +2531,16 @@ class Catalog:
                 assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
+                # Validate that the columns in schema_version_md are consistent with tbl_md.
+                sch_col_ids = set(schema_version_md.columns.keys())
+                for tbl_col_id, tbl_col_md in tbl_md.column_md.items():
+                    if tbl_col_md.is_live_in_version(tbl_md.current_schema_version):
+                        assert tbl_col_id in sch_col_ids, (tbl_md.tbl_id, tbl_col_id)
+                        sch_col_ids.remove(tbl_col_id)
+                assert not sch_col_ids, (tbl_md.tbl_id, sch_col_ids)
+                # TODO: validate that the positions of columns in schema_version_md are exactly (0..n-1)
+                # However there was a bug (fixed in this pr) that caused us to skip position numbers when columns are
+                # added, so a catalog migration may be needed first.
             if pending_ops is not None:
                 assert tbl_md.pending_stmt is not None
                 assert all(op.tbl_id == str(tbl_id) for op in pending_ops)

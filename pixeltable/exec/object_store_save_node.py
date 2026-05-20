@@ -310,6 +310,15 @@ class ObjectStoreSaveNode(ExecNode):
             _logger.debug(f'submitted {work_item}')
 
     def __persist_media_file(self, work_item: WorkItem) -> tuple[str | None, Exception | None]:
+        # src_path = work_item.src_path
+        # col = work_item.info.col
+        # assert col.destination == work_item.destination
+        # tbl_id = col.get_tbl().id
+        # tbl_version = col.get_tbl().version
+        # # TODO this is a hack, to_md needs to be split (back) in two functions. ColumnMd doesn't need pos
+        # col_md = col.to_md(None if col.name is None else 0)[0]
+        # try:
+        #     new_file_url = ObjectOps.put_file(tbl_id, tbl_version, col_md, src_path, work_item.destination_count == 1)
         """Move data from the TempStore to another location.
 
         Runs on a worker thread of the ThreadPoolExecutor. Performs no catalog access:

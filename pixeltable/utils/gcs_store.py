@@ -111,6 +111,17 @@ class GCSStore(ObjectStoreBase):
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
+    # def _prepare_uri(self, col: Column, ext: str | None = None) -> str:
+    #     """
+    #     Construct a new, unique URI for a persisted media file.
+    #     """
+    #     assert col.get_tbl() is not None, 'Column must be associated with a table'
+    #     return self._prepare_uri_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext=ext)
+
+    # def copy_local_file(self, tbl_id: uuid.UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str:
+    #     """Copy a local file, and return its new URL"""
+    #     new_file_uri = self._prepare_uri_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
+    #     parsed = urllib.parse.urlparse(new_file_uri)
     def resolve_destination(
         self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
     ) -> FileDestination:

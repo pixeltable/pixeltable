@@ -518,3 +518,18 @@ class TestSnapshot:
                 t,
                 additional_columns={'d': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
+
+    # TODO cleanup
+    def test_load_snapshot_with_more_cols_than_latest_ver(self, uses_db: None) -> None:
+        tbl = create_test_tbl('test')
+        pxt.create_snapshot('snap', tbl)
+
+        tbl.drop_column(tbl.c1)
+        tbl.drop_column(tbl.c1n)
+        tbl.drop_column(tbl.c8)
+
+        reload_catalog()
+
+        tbl = pxt.get_table('test')
+        snap = pxt.get_table('snap')
+        _ = snap

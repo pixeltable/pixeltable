@@ -348,6 +348,8 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
+    # def copy_local_file(self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str:
+    #     """Copy a file associated with a Column to the store, returning the file's URL within the destination.
     def resolve_destination(
         self, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None
     ) -> FileDestination:
@@ -358,6 +360,8 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
+    # def move_local_file(self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, src_path: Path) -> str | None:
+    #     """Move a file associated with a Column to the store, returning the file's URL within the destination.
     def move_local_file(self, src_path: Path, dest: FileDestination) -> str | None:
         """Worker-thread side: attempt to move a local file to the destination.
 
@@ -521,14 +525,13 @@ class ObjectOps:
         tbl_id: UUID,
         col_id: int,
         tbl_version: int,
-        col_name: str,
         src_path: Path,
         relocate_or_delete: bool,
     ) -> str:
         """Move or copy a file to the destination, returning the file's URL within the destination.
         If relocate_or_delete is True and the file is in the TempStore, the file will be deleted after the operation.
         """
-        store = cls.get_store(destination, False, col_name)
+        store = cls.get_store(destination, False, col_name=None)
         dest = store.resolve_destination(tbl_id, col_id, tbl_version, ext=src_path.suffix)
         return cls.put_file_resolved(store, src_path, dest, relocate_or_delete)
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pixeltable import catalog, exceptions as excs
+from pixeltable.type_system import sa_type_as_dict
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -67,7 +68,7 @@ class Column:
     schema_version_drop: int | None
     stores_cellmd: bool
     sa_col: sql.schema.Column | None
-    sa_col_type: sql.types.TypeEngine
+    sa_col_type: sql.types.TypeEngine | None
     sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
     _value_expr: exprs.Expr | None
     # TODO it is likely not required anymore, and with some additional work can be removed.
@@ -75,9 +76,11 @@ class Column:
     # we store a handle here in order to allow Column construction before there is a corresponding TableVersion
     tbl_handle: 'TableVersionHandle' | None
 
+    # TODO consider adding * after name
     def __init__(
         self,
         name: str | None,
+        sa_col_type: sql.types.TypeEngine | None,
         col_type: ts.ColumnType | None = None,
         computed_with: exprs.Expr | None = None,
         is_pk: bool = False,
@@ -87,7 +90,6 @@ class Column:
         col_id: int | None = None,
         schema_version_add: int | None = None,
         schema_version_drop: int | None = None,
-        sa_col_type: sql.types.TypeEngine | None = None,
         stores_cellmd: bool = False,
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
@@ -116,9 +118,8 @@ class Column:
                     f'Column {name!r}: `computed_with` needs to be a valid Pixeltable expression, '
                     f'but it is a {type(computed_with)}',
                 )
-            else:
-                self._value_expr = value_expr.copy()
-                self.col_type = self._value_expr.col_type
+            self._value_expr = value_expr.copy()
+            self.col_type = self._value_expr.col_type
         if self._value_expr is not None and self.value_expr_dict is None:
             self.value_expr_dict = self._value_expr.as_dict()
 
@@ -139,7 +140,12 @@ class Column:
 
         # column in the stored table for the values of this Column
         self.sa_col = None
-        self.sa_col_type = self.col_type.to_sa_type() if sa_col_type is None else sa_col_type
+
+        # Store column type
+        assert (sa_col_type is None) != stored, (
+            f'Column {self.name} (id={self.id}) sa_col_type: {sa_col_type}, stored: {stored}'
+        )
+        self.sa_col_type = sa_col_type
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
@@ -212,22 +218,31 @@ class Column:
         comment: str | None = None
 
         # TODO: Should we fully deprecate passing ts.ColumnType here?
+        sa_col_type: sql.types.TypeEngine = None
         if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
             col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
+            sa_col_type = col_type.to_sa_type()
         elif isinstance(spec, exprs.Expr):
             # create copy so we can modify it
             value_expr = spec.copy()
             value_expr.bind_rel_paths()
+            sa_col_type = value_expr.col_type.to_sa_type()
         elif isinstance(spec, dict):
+            stored = spec.get('stored', True)
             cls._validate_column_spec(name, spec)
-            if 'type' in spec:
-                col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
             value_expr = spec.get('value')
             if value_expr is not None and isinstance(value_expr, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = value_expr.copy()
                 value_expr.bind_rel_paths()
-            stored = spec.get('stored', True)
+                sa_col_type = value_expr.col_type.to_sa_type() if stored else None
+            elif value_expr is not None:
+                expr = exprs.Expr.from_object(value_expr)
+                assert expr is not None, type(value_expr)
+                sa_col_type = expr.col_type.to_sa_type() if stored else None
+            if 'type' in spec:
+                col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
+                sa_col_type = col_type.to_sa_type() if stored else None
             primary_key = spec.get('primary_key', False)
             media_validation_str = spec.get('media_validation')
             media_validation = (
@@ -245,6 +260,7 @@ class Column:
         column = cls(
             name,
             col_type=col_type,
+            sa_col_type=sa_col_type,
             computed_with=value_expr,
             stored=stored,
             is_pk=primary_key,
@@ -323,13 +339,19 @@ class Column:
         from pixeltable import exprs
 
         assert col.col_type.is_media_type() and not (col.is_stored and col.is_computed)
+        computed_with = exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type)
+        value_expr = exprs.Expr.from_object(computed_with)
+        assert value_expr is not None
+        col_type = value_expr.col_type
+        # TODO we already have a value expr here, can Column.__init__ take it instead of computed_with?
         proxy_col = cls(
             name=None,
             # Force images in the proxy column to be materialized inside the media store, in a normalized format.
             # TODO(aaron-siegel): This is a temporary solution and it will be replaced by a proper `destination`
             #   parameter for computed columns. Among other things, this solution does not work for video or audio.
             #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
-            computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
+            computed_with=computed_with,
+            sa_col_type=col_type.to_sa_type(),
             stored=True,
             stores_cellmd=True,
         )
@@ -346,26 +368,31 @@ class Column:
         if not is_valid_identifier(name):
             raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {name}')
 
-    def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
-        """Returns the Column and optional SchemaColumn metadata for this Column."""
+    def to_md(self, pos: int | None) -> tuple[schema.ColumnMd, schema.SchemaColumn]:
+        """Returns this column's ColumnMd, which is ts table-level metadata, and SchemaColumn, which is versioned column
+        metadata.
+
+        Args:
+            pos: index of this column within the table; None for system columns
+        """
         assert self.is_pk is not None
+        assert (pos is None) == (self.name is None), 'pos must be provided iff this is a user-visible column'
         col_md = schema.ColumnMd(
             id=self.id,
-            col_type=self.col_type.as_dict(),
-            is_pk=self.is_pk,
             schema_version_add=self.schema_version_add,
             schema_version_drop=self.schema_version_drop,
-            value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
             stores_cellmd=self.stores_cellmd,
+            data_type=self.col_type.type_enum,
             destination=self._explicit_destination,
+            sa_col_type=sa_type_as_dict(self.sa_col_type) if self.stored else None,
         )
-        if pos is None:
-            return col_md, None
-        assert self.name is not None, 'Column name must be set for user-facing columns'
         sch_md = schema.SchemaColumn(
             name=self.name,
             pos=pos,
+            col_type=self.col_type.as_dict(),
+            is_pk=self.is_pk,
+            value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
             custom_metadata=self._custom_metadata,
             comment=self._comment,
@@ -529,16 +556,9 @@ class Column:
             return
         self.value_expr.fn.source()
 
-    def create_sa_cols(self) -> None:
-        """
-        These need to be recreated for every sql.Table instance
-        """
-        assert self.is_stored
-        assert self.stores_cellmd is not None
-        # all storage columns are nullable (we deal with null errors in Pixeltable directly)
-        self.sa_col = sql.Column(self.store_name(), self.sa_col_type, nullable=True)
-        if self.stores_cellmd:
-            self.sa_cellmd_col = sql.Column(self.cellmd_store_name(), self.sa_cellmd_type(), nullable=True)
+    def set_sa_cols(self, sa_col: sql.Column, sa_cellmd_col: sql.Column | None) -> None:
+        self.sa_col = sa_col
+        self.sa_cellmd_col = sa_cellmd_col
 
     @classmethod
     def cellmd_type(cls) -> ts.ColumnType:
@@ -548,13 +568,21 @@ class Column:
     def sa_cellmd_type(cls) -> sql.types.TypeEngine:
         return cls.cellmd_type().to_sa_type()
 
+    @classmethod
+    def store_name_from_id(cls, col_id: int) -> str:
+        return f'col_{col_id}'
+
     def store_name(self) -> str:
         assert self.id is not None
         assert self.is_stored
-        return f'col_{self.id}'
+        return Column.store_name_from_id(self.id)
+
+    @classmethod
+    def cellmd_store_name_from_id(cls, col_id: int) -> str:
+        return f'{cls.store_name_from_id(col_id)}_cellmd'
 
     def cellmd_store_name(self) -> str:
-        return f'{self.store_name()}_cellmd'
+        return Column.cellmd_store_name_from_id(self.id)
 
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'

@@ -19,7 +19,6 @@ from pixeltable.utils.object_stores import FileDestination, ObjectPath, ObjectSt
 if TYPE_CHECKING:
     from azure.storage.blob import BlobProperties, BlobServiceClient
 
-
 _logger = logging.getLogger('pixeltable')
 
 
@@ -132,6 +131,9 @@ class AzureBlobStore(ObjectStoreBase):
             self.handle_azure_error(e, self.container_name, f'download file {src_path}')
             raise
 
+    # def copy_local_file(self, tbl_id: uuid.UUID, tbl_version: int, col_md: 'schema.ColumnMd', src_path: Path) -> str:
+    #     """Copy a local file to Azure Blob Storage, and return its new URL"""
+    #     prefix, filename = ObjectPath.create_prefix_raw(tbl_id, col_md.id, tbl_version, ext=src_path.suffix)
     def resolve_destination(
         self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
     ) -> FileDestination:

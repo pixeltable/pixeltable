@@ -115,11 +115,11 @@ class TablePackager:
         sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
         media_cols: set[str] = set()
         cellmd_cols: set[str] = set()
-        for col in tv.cols:
-            if col.is_stored and col.col_type.is_media_type():
-                media_cols.add(col.store_name())
-            if col.stores_cellmd:
-                cellmd_cols.add(col.cellmd_store_name())
+        for col_md in tv._tbl_md.column_md.values():
+            if col_md.stored and ts.is_media_type(col_md.data_type):
+                media_cols.add(f'col_{col_md.id}')
+            if col_md.stores_cellmd:
+                cellmd_cols.add(f'col_{col_md.id}_cellmd')
 
         parquet_schema = self.__to_parquet_schema(tv.store_tbl.sa_tbl)
         # TODO: Partition larger tables into multiple parquet files. (The parquet file naming scheme anticipates
@@ -543,7 +543,11 @@ class TableRestorer:
         # previously imported replica.
 
         system_col_names = {col.name for col in tv.store_tbl.system_columns()}
-        media_col_names = {col.store_name() for col in tv.cols if col.col_type.is_media_type() and col.is_stored}
+        media_col_names = {
+            f'col_{col_md.id}'
+            for col_md in tv._tbl_md.column_md.values()
+            if col_md.stored and ts.is_media_type(col_md.data_type)
+        }
         value_store_cols = [
             store_sa_tbl.c[col_name]
             for col_name in temp_cols
@@ -738,20 +742,26 @@ class TableRestorer:
         for col_name in pydict:
             assert col_name in tv.store_tbl.sa_tbl.columns
             sql_types[col_name] = tv.store_tbl.sa_tbl.columns[col_name].type
-        stored_cols: dict[str, catalog.Column] = {col.store_name(): col for col in tv.cols if col.is_stored}
-        stored_cols |= {col.cellmd_store_name(): col for col in tv.cols if col.stores_cellmd}
+        stored_col_mds: dict[str, schema.ColumnMd] = {}
+        for col_md in tv._tbl_md.column_md.values():
+            if col_md.stored:
+                stored_col_mds[f'col_{col_md.id}'] = col_md
+            if col_md.stores_cellmd:
+                stored_col_mds[f'col_{col_md.id}_cellmd'] = col_md
 
         row_count = len(next(iter(pydict.values())))
         rows: list[dict[str, Any]] = [{} for _ in range(row_count)]
         for col_name, col_vals in pydict.items():
             assert len(col_vals) == row_count
-            col = stored_cols.get(col_name)  # Will be None for system columns
-            is_media_col = col is not None and col.is_stored and col.col_type.is_media_type()
-            is_cellmd_col = col is not None and col.stores_cellmd and col_name == col.cellmd_store_name()
-            assert col is None or is_cellmd_col or col_name == col.store_name()
+            col_md = stored_col_mds.get(col_name)  # Will be None for system columns
+            is_media_col = col_md is not None and col_md.stored and ts.is_media_type(col_md.data_type)
+            is_cellmd_col = col_md is not None and col_md.stores_cellmd and col_name == f'col_{col_md.id}_cellmd'
+            assert col_md is None or is_cellmd_col or col_name == f'col_{col_md.id}'
 
             for i, val in enumerate(col_vals):
-                rows[i][col_name] = self.__from_pa_value(val, sql_types[col_name], col, is_media_col, is_cellmd_col)
+                rows[i][col_name] = self.__from_pa_value(
+                    val, sql_types[col_name], tv.id, tv.version, col_md, is_media_col, is_cellmd_col
+                )
 
         return rows
 
@@ -759,7 +769,9 @@ class TableRestorer:
         self,
         val: Any,
         sql_type: sql.types.TypeEngine[Any],
-        col: catalog.Column | None,
+        tbl_id: UUID,
+        tbl_version: int,
+        col_md: schema.ColumnMd | None,
         is_media_col: bool,
         is_cellmd_col: bool,
     ) -> Any:
@@ -771,17 +783,17 @@ class TableRestorer:
             assert isinstance(val, np.ndarray) and val.dtype == np.float32 and val.ndim == 1
             return val
         if is_cellmd_col:
-            assert col is not None
+            assert col_md is not None
             assert isinstance(val, str)
-            return self.__restore_cellmd(col, json.loads(val))
+            return self.__restore_cellmd(tbl_id, tbl_version, col_md, json.loads(val))
         if isinstance(sql_type, sql.JSON):
             return json.loads(val)
         if is_media_col:
-            assert col is not None
-            return self.__relocate_media_file(col, val)
+            assert col_md is not None
+            return self.__relocate_media_file(tbl_id, tbl_version, col_md, val)
         return val
 
-    def __relocate_media_file(self, media_col: catalog.Column, url: str) -> str:
+    def __relocate_media_file(self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, url: str) -> str:
         # If this is a pxtmedia:// URL, relocate it
         assert isinstance(url, str)
         parsed_url = urllib.parse.urlparse(url)
@@ -793,25 +805,26 @@ class TableRestorer:
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
                 self.media_files[url] = ObjectOps.put_file(
-                    media_col.destination,
-                    media_col.tbl_handle.id,
-                    media_col.id,
-                    media_col.get_tbl().version,
-                    media_col.name,
-                    src_path,
+                    destination=col_md.destination,
+                    tbl_id=tbl_id,
+                    col_id=col_md.id,
+                    tbl_version=tbl_version,
+                    src_path=src_path,
                     relocate_or_delete=True,
                 )
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url
 
-    def __restore_cellmd(self, col: catalog.Column, cellmd: dict[str, Any]) -> dict[str, Any]:
+    def __restore_cellmd(
+        self, tbl_id: UUID, tbl_version: int, col_md: schema.ColumnMd, cellmd: dict[str, Any]
+    ) -> dict[str, Any]:
         cellmd_ = CellMd.from_dict(cellmd)
         if cellmd_.file_urls is None:
             return cellmd  # No changes
 
         updated_urls: list[str] = []
         for url in cellmd_.file_urls:
-            updated_urls.append(self.__relocate_media_file(col, url))
+            updated_urls.append(self.__relocate_media_file(tbl_id, tbl_version, col_md, url))
         cellmd_.file_urls = updated_urls
         return cellmd_.as_dict()
