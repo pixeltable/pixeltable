@@ -106,6 +106,62 @@ def get_sa_type(col_type: 'ts.ColumnType', engine: sql.Engine) -> sql.types.Type
     return _DIALECT_TYPE.get(engine.dialect.name, _default_sa_type)(col_type)
 
 
+def _default_pxt_type(sa_type: sql.types.TypeEngine, *, nullable: bool) -> 'ts.ColumnType | None':
+    """Default mapping of SQLAlchemy type to Pixeltable ColumnType (matches sqlite/mysql)."""
+    import pixeltable.type_system as ts
+
+    if isinstance(sa_type, sql.types.Boolean):
+        return ts.BoolType(nullable=nullable)
+    if isinstance(sa_type, sql.types.Integer):
+        return ts.IntType(nullable=nullable)
+    if isinstance(sa_type, (sql.types.Numeric, sql.types.Float)):
+        return ts.FloatType(nullable=nullable)
+    if isinstance(sa_type, sql.types.Date) and not isinstance(sa_type, sql.types.DateTime):
+        return ts.DateType(nullable=nullable)
+    if isinstance(sa_type, sql.types.DateTime):
+        return ts.TimestampType(nullable=nullable)
+    if isinstance(sa_type, sql.types.Uuid):
+        return ts.UUIDType(nullable=nullable)
+    if isinstance(sa_type, sql.types.LargeBinary):
+        return ts.BinaryType(nullable=nullable)
+    if isinstance(sa_type, sql.types.JSON):
+        return ts.JsonType(nullable=nullable)
+    if isinstance(sa_type, sql.types.String):
+        return ts.StringType(nullable=nullable)
+    return None
+
+
+_PxtTypeResolver = Callable[[sql.types.TypeEngine, bool], 'ts.ColumnType | None']
+
+_PXT_DIALECT_TYPE: dict[str, _PxtTypeResolver] = {
+    # No overrides currently needed: postgresql JSONB derives from sql.types.JSON,
+    # so the default mapping handles it. Snowflake VARIANT will likely need an entry here.
+}
+
+
+def get_pxt_type(sa_type: sql.types.TypeEngine, engine: sql.Engine, *, nullable: bool) -> 'ts.ColumnType | None':
+    """Resolve a SQLAlchemy type to a Pixeltable ColumnType for the engine's dialect.
+
+    Returns None if no mapping is available; the caller is expected to either fall back to a
+    user-supplied override or raise.
+    """
+    dialect_resolver = _PXT_DIALECT_TYPE.get(engine.dialect.name)
+    if dialect_resolver is not None:
+        result = dialect_resolver(sa_type, nullable)
+        if result is not None:
+            return result
+    return _default_pxt_type(sa_type, nullable=nullable)
+
+
+def selectable_columns(selectable: sql.Selectable) -> list[sql.ColumnElement]:
+    """Return the output columns of a Selectable in their SELECT-clause order."""
+    if hasattr(selectable, 'selected_columns'):
+        # Select / TextualSelect / CompoundSelect
+        return list(selectable.selected_columns)
+    # Table / Subquery / Alias
+    return list(selectable.columns)  # type: ignore[attr-defined]
+
+
 def table_exists(engine: sql.Engine, table_name: str, schema_name: str | None = None) -> bool:
     """Check if a table exists in the database."""
     inspector = sql.inspect(engine)

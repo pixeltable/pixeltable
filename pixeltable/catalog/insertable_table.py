@@ -25,6 +25,7 @@ from .update_status import UpdateStatus
 if TYPE_CHECKING:
     from pixeltable import exprs
     from pixeltable.globals import TableDataSource
+    from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
 
 _logger = logging.getLogger('pixeltable')
@@ -203,6 +204,37 @@ class InsertableTable(Table):
                         fail_on_exception=fail_on_exception,
                         return_rows=return_rows,
                     )
+
+        Env.get().console_logger.info(status.insert_msg(start_ts))
+        FileCache.get().emit_eviction_warnings()
+        return status
+
+    def insert_sql_source(
+        self,
+        sql_source: SqlDataSource,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        return_rows: bool = False,
+    ) -> pxt.UpdateStatus:
+        """Stream a SqlDataSource into this table through a single insert plan.
+
+        Internal entry point used by `pxt.io.import_sql`; not part of the public `Table` API. Source-side
+        validation (column names, type compatibility, required columns, etc.) is the caller's responsibility.
+        """
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        start_ts = time.perf_counter()
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        ):
+            status = self._tbl_version.get().insert(
+                rows=None,
+                query=None,
+                sql_source=sql_source,
+                print_stats=print_stats,
+                fail_on_exception=fail_on_exception,
+                return_rows=return_rows,
+            )
 
         Env.get().console_logger.info(status.insert_msg(start_ts))
         FileCache.get().emit_eviction_warnings()

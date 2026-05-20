@@ -487,6 +487,7 @@
       <!-- Import/Export group -->
       <outline text="group|Import/Export">
         <outline text="module|pixeltable.io">
+          <outline text="func|pixeltable.io.import_sql" />
           <outline text="func|pixeltable.io.import_csv" />
           <outline text="func|pixeltable.io.import_excel" />
           <outline text="func|pixeltable.io.import_json" />

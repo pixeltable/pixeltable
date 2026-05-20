@@ -1,10 +1,13 @@
-from typing import Literal
+from typing import Any, Literal
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
+from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.utils import sql as sql_utils
+from pixeltable.utils.sql import selectable_columns
 
 
 def export_sql(
@@ -74,3 +77,168 @@ def export_sql(
 
     except excs.ExprEvalError as e:
         query._raise_expr_eval_err(e)
+
+
+def import_sql(
+    selectable: sql.Selectable,
+    conn: sql.Engine | sql.Connection,
+    tbl_name: str,
+    *,
+    schema_overrides: dict[str, Any] | None = None,
+    primary_key: str | list[str] | None = None,
+    comment: str | None = None,
+    custom_metadata: Any = None,
+    if_exists: Literal['error', 'append'] = 'error',
+    on_error: Literal['abort', 'ignore'] = 'abort',
+) -> pxt.Table:
+    """Import a SQL source into a Pixeltable table by streaming through a single insert plan.
+
+    `replace` is intentionally not supported, because create+insert is not atomic and a failed insert would
+    leave the user with an empty replica of the original table. To overwrite, call `pxt.drop_table(tbl_name)`
+    first and then `import_sql(..., if_exists='error')`.
+
+    Args:
+        selectable: A SQLAlchemy `Selectable` (a `Table`, a `select()` statement, or `text(...).columns(...)`)
+            describing the source rows.
+        conn: A SQLAlchemy `Engine` or `Connection` to execute `selectable` against. If a `Connection` is
+            passed, it must remain open and untouched (no commits, rollbacks, or other statements) for the
+            duration of the import; rows are streamed directly from the server-side cursor.
+        tbl_name: Pixeltable path of the destination table.
+        schema_overrides: Optional per-column overrides applied on top of the inferred schema. Keys are column
+            names; values accept any Pixeltable type spec recognized by `pxt.create_table` (eg, `pxt.Image`,
+            `pxt.Required[pxt.String]`).
+        primary_key: Forwarded to `pxt.create_table` when creating a new table.
+        comment: Forwarded to `pxt.create_table`.
+        custom_metadata: Forwarded to `pxt.create_table`.
+        if_exists: How to handle the destination table.
+
+            - `'error'`: fail if the table already exists.
+            - `'append'`: require the table to exist; verify the source schema is compatible; insert only.
+        on_error: Forwarded to `Table.insert`.
+
+    Returns:
+        The destination `pxt.Table`.
+    """
+    if if_exists not in ('error', 'append'):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f"`if_exists` must be one of 'error', 'append'; got {if_exists!r}. To overwrite an existing table, "
+            f"`pxt.drop_table(tbl_name)` first and then call `import_sql(..., if_exists='error')`.",
+        )
+
+    engine: sql.Engine = conn.engine if isinstance(conn, sql.Connection) else conn
+
+    sa_cols = selectable_columns(selectable)
+    source_names: list[str] = []
+    seen: set[str] = set()
+    for i, sa_col in enumerate(sa_cols):
+        col_name = getattr(sa_col, 'name', None) or getattr(sa_col, 'key', None)
+        if col_name is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'SQL source has an unnamed output column at position {i}; alias it via '
+                f"`expr.label('name')` so it can be matched to a Pixeltable column.",
+            )
+        if col_name in seen:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'SQL source has duplicate output column {col_name!r}; output column names must be unique.',
+            )
+        seen.add(col_name)
+        source_names.append(col_name)
+
+    inferred_schema: dict[str, Any] = {}
+    for sa_col, col_name in zip(sa_cols, source_names):
+        # SQLAlchemy uses `None` for "unknown" (eg, on labeled expressions); treat that as nullable.
+        nullable_attr = getattr(sa_col, 'nullable', True)
+        nullable = True if nullable_attr is None else nullable_attr
+        pxt_type = sql_utils.get_pxt_type(sa_col.type, engine, nullable=nullable)
+        if pxt_type is None and (schema_overrides is None or col_name not in schema_overrides):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_TYPE,
+                f'Cannot infer a Pixeltable type for SQL source column {col_name!r} (SQLAlchemy type '
+                f'`{sa_col.type}`); provide an entry in `schema_overrides` to resolve it.',
+            )
+        inferred_schema[col_name] = pxt_type  # may be None; overridden below
+
+    if schema_overrides is not None:
+        unknown = set(schema_overrides) - set(inferred_schema)
+        if unknown:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'`schema_overrides` references column(s) not in the SQL source: {", ".join(sorted(unknown))}',
+            )
+        inferred_schema.update(schema_overrides)
+
+    sql_data_source = SqlDataSource(selectable=selectable, conn=conn)
+
+    if if_exists == 'append':
+        tbl = pxt.get_table(tbl_name)
+        if not isinstance(tbl, pxt.InsertableTable):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'`import_sql` requires a base table; {tbl_name!r} is a {type(tbl).__name__.lower()}.',
+            )
+        _validate_append_compatibility(tbl, tbl_name, inferred_schema)
+        tbl.insert_sql_source(sql_data_source, on_error=on_error)
+        return tbl
+
+    tbl = pxt.create_table(
+        tbl_name,
+        inferred_schema,
+        primary_key=primary_key,
+        comment=comment,
+        custom_metadata=custom_metadata,
+        if_exists='error',
+    )
+    try:
+        tbl.insert_sql_source(sql_data_source, on_error=on_error)
+    except BaseException:
+        # If drop_table raises, Python's implicit exception chaining (PEP 3134) preserves the original
+        # insert error on `__context__` and the traceback still shows it.
+        pxt.drop_table(tbl, if_not_exists='ignore')
+        raise
+    return tbl
+
+
+def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, inferred_schema: dict[str, Any]) -> None:
+    """Verify the SQL source schema can append into an existing destination table.
+
+    Checks unknown source columns, computed-column collisions, type compatibility, and missing
+    required destination columns. Centralizing these checks here keeps `SqlSourceNode` purely a
+    runtime data path.
+    """
+    tv = tbl._tbl_version.get()
+    all_cols_by_name = tv.cols_by_name
+    existing_schema = tbl._get_schema()
+    computed_col_names = {name for name, col in all_cols_by_name.items() if col.is_computed}
+    required_col_names = {name for name, col in all_cols_by_name.items() if col.is_required_for_insert}
+
+    for col_name, src_type_any in inferred_schema.items():
+        if col_name in computed_col_names:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'SQL source column {col_name!r} maps to computed column {col_name!r} in destination table '
+                f'{tbl_name!r}; computed columns are populated automatically and cannot receive values.',
+            )
+        if col_name not in existing_schema:
+            raise excs.NotFoundError(
+                excs.ErrorCode.COLUMN_NOT_FOUND,
+                f'SQL source column {col_name!r} does not match any column in destination table {tbl_name!r}.',
+            )
+        src_type = ts.ColumnType.normalize_type(src_type_any, nullable_default=True, allow_builtin_types=False)
+        dest_type = existing_schema[col_name]
+        if not dest_type.is_supertype_of(src_type, ignore_nullable=True):
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'SQL source column {col_name!r} has type `{src_type}`, which is incompatible with '
+                f'destination column type `{dest_type}` in table {tbl_name!r}.',
+            )
+
+    missing_cols = required_col_names - set(inferred_schema)
+    if missing_cols:
+        raise excs.RequestError(
+            excs.ErrorCode.MISSING_REQUIRED,
+            f'Destination table {tbl_name!r} has required column(s) ({", ".join(sorted(missing_cols))}) '
+            f'that are not provided by the SQL source.',
+        )

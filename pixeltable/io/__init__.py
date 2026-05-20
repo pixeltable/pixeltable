@@ -10,9 +10,10 @@ from .json import export_json, import_json
 from .lancedb import export_lancedb
 from .pandas import import_excel, import_pandas
 from .parquet import export_parquet, import_parquet
+from .sql import export_sql, import_sql
 
 __default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
-__removed_symbols = {'globals', 'hf_datasets', 'pandas', 'parquet', 'datarows', 'lancedb', 'csv', 'json'}
+__removed_symbols = {'globals', 'hf_datasets', 'pandas', 'parquet', 'datarows', 'lancedb', 'csv', 'json', 'sql'}
 __all__ = sorted(__default_dir - __removed_symbols)
 
 
