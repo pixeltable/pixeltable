@@ -57,6 +57,9 @@ class JsonMapper(Expr):
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> JsonMapper:
+        return JsonMapper(self._src_expr.substitute(spec), self._target_expr.substitute(spec))
+
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         from ..exec.expr_eval.evaluators import NestedRowList
 
@@ -171,6 +174,9 @@ class JsonMapperDispatch(Expr):
 
     def __repr__(self) -> str:
         return 'JsonMapperDispatch()'
+
+    def _substitute(self, spec: dict[Expr, Expr]) -> JsonMapperDispatch:
+        return JsonMapperDispatch(self.src_expr.substitute(spec), self.target_expr.substitute(spec))
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # eval is handled by JsonMapperDispatcher

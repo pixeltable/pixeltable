@@ -260,6 +260,10 @@ class JsonPath(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('path_elements', self.path_elements)]
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> JsonPath:
+        anchor = self.anchor.substitute(spec) if self.anchor is not None else None
+        return JsonPath(anchor, self.path_elements, self.scope_idx)
+
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         """
         Postgres appears to have a bug: jsonb_path_query('{a: [{b: 0}, {b: 1}]}', '$.a.b') returns

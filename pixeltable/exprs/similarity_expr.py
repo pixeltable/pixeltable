@@ -194,6 +194,14 @@ class SimilarityExpr(Expr):
             excs.ErrorCode.UNSUPPORTED_OPERATION, 'similarity(): requires a value, not an expression'
         )
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> 'SimilarityExpr':
+        return SimilarityExpr(
+            self.components[0].substitute(spec),
+            qcol_id=self.qcol_id,
+            table_version_key=self.table_version_key,
+            idx_name=self.idx_name,
+        )
+
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         from pixeltable.index import EmbeddingIndex
 

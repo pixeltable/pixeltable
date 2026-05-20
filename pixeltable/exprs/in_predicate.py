@@ -79,6 +79,10 @@ class InPredicate(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('value_list', self.value_list)]
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> InPredicate:
+        value_set_expr = self.components[1].substitute(spec) if len(self.components) == 2 else None
+        return InPredicate(self._lhs.substitute(spec), value_set_literal=self.value_list, value_set_expr=value_set_expr)
+
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         lhs_sql_exprs = sql_elements.get(self.components[0])
         if lhs_sql_exprs is None or self.value_list is None:

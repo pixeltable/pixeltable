@@ -518,7 +518,7 @@ class Planner:
 
         # Substitute update target exprs into recomputed exprs before building select_list
         spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
-        exprs.Expr.list_substitute(eval_exprs, spec)
+        eval_exprs = exprs.Expr.list_substitute(eval_exprs, spec)
         evaluated_cols: list[Column] = list(update_targets.keys()) + eval_cols
         select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
 

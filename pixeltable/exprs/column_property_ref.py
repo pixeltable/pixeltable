@@ -80,6 +80,9 @@ class ColumnPropertyRef(Expr):
             return sql_elements.get(self.col_ref)
         return None
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> ColumnPropertyRef:
+        return ColumnPropertyRef(self.col_ref.substitute(spec), self.prop)
+
     @classmethod
     def create_cellmd_exc(cls, exc: Exception) -> dict[str, str]:
         """Create a cellmd value from an exception."""

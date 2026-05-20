@@ -105,7 +105,7 @@ class TableModelMetaclass(type):
         for col_name, col_spec in columns.items():
             expr = col_spec.get('value')
             if expr is not None:
-                realized_expr: exprs.Expr = expr.substitute(subst_dict)
+                realized_expr: exprs.Expr = expr.copy().substitute(subst_dict)
                 vars = list(realized_expr.subexprs(exprs.Variable))
                 if len(vars) > 0:
                     raise excs.RequestError(

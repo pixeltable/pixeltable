@@ -27,6 +27,9 @@ class TypeCast(Expr):
     def _op1(self) -> Expr:
         return self.components[0]
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> 'TypeCast':
+        return TypeCast(self._op1.substitute(spec), self.col_type)
+
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         """
         sql_expr() is unimplemented for now, in order to sidestep potentially thorny

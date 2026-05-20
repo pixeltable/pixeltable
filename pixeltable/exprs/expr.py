@@ -235,26 +235,23 @@ class Expr(abc.ABC):
 
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         """
-        Replace 'old' with 'new' recursively, and return a new version of the expression
-        This method must be used in the form: expr = expr.substitute(spec)
+        Replace 'old' with 'new' recursively, and return a new version of the expression.
         """
-        from .literal import Literal
-
-        if isinstance(self, Literal):
-            return self
         for old, new in spec.items():
             if self.equals(old):
                 return new.copy()
-        for i in range(len(self.components)):
-            self.components[i] = self.components[i].substitute(spec)
-        result = self.maybe_literal()
-        result.id = result._create_id()
-        return result
+        return self._substitute(spec).maybe_literal()
+
+    def _substitute(self, spec: dict[Expr, Expr]) -> Expr:
+        return self.copy()
 
     @classmethod
-    def list_substitute(cls, expr_list: list[Expr], spec: dict[Expr, Expr]) -> None:
-        for i in range(len(expr_list)):
-            expr_list[i] = expr_list[i].substitute(spec)
+    def list_substitute(cls, expr_list: list[Expr], spec: dict[Expr, Expr]) -> list[Expr]:
+        return [expr.substitute(spec) for expr in expr_list]
+
+    @classmethod
+    def dict_substitute(cls, expr_dict: dict[str, Expr], spec: dict[Expr, Expr]) -> dict[str, Expr]:
+        return {key: expr.substitute(spec) for key, expr in expr_dict.items()}
 
     def resolve_computed_cols(self, resolve_cols: set[catalog.Column] | None = None) -> Expr:
         """
@@ -514,7 +511,6 @@ class Expr(abc.ABC):
         Compute the expr value for data_row and store the result in data_row[slot_idx].
         Not called if sql_expr() != None (exception: Literal).
         """
-        pass
 
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         """
