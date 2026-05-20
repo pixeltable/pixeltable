@@ -421,13 +421,13 @@ uvx pixeltable-new myapp --batch      # batch processing script
 Or scaffold a vertical application template:
 
 ```bash
-uvx pixeltable-new myapp --template content-pipeline   # document processing + RAG
-uvx pixeltable-new myapp --template multimodal-rag      # cross-modal search (text, image, video)
-uvx pixeltable-new myapp --template agent               # tool-calling agent with memory
-uvx pixeltable-new myapp --template video-intel          # video frame analysis + search
-uvx pixeltable-new myapp --template audio-intel          # audio transcription + search
-uvx pixeltable-new myapp --template data-lab             # interactive data exploration
-uvx pixeltable-new myapp --template full-stack-showcase  # FastAPI + React video surveillance app
+uvx pixeltable-new myapp --template knowledge-base         # cross-modal search + RAG Q&A
+uvx pixeltable-new myapp --template chat-agent             # tool-calling agent with memory
+uvx pixeltable-new myapp --template audio-transcription    # audio transcription + search
+uvx pixeltable-new myapp --template full-stack-showcase    # FastAPI + React reference app
+uvx pixeltable-new myapp --template video-search           # video frame analysis + search
+uvx pixeltable-new myapp --template media-indexing         # enterprise media processing + export
+uvx pixeltable-new myapp --template image-dataset          # ML dataset auto-labeling + export
 ```
 
 Or clone the full [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) for reference implementations with Docker, Helm, Terraform, CDK, and cloud job runners.
@@ -439,7 +439,7 @@ The starter kit contains reference implementations for all three deployment patt
 | **[`backend/` + `frontend/`](https://github.com/pixeltable/pixeltable-starter-kit)** | **Full Backend** | FastAPI + React with persistent storage, multimodal upload, cross-modal search, tool-calling agent. Deployment via Docker, Helm, Terraform, CDK. |
 | **[`batch/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/batch)** | **Batch Processing** | Pure Python script: ingest, computed columns, `export_sql` to serving DB. Deploy to Cloud Run Jobs, Lambda, ECS Fargate, K8s Jobs. |
 | **[`serving/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/serving)** | **Declarative Serving** | `pxt serve` from TOML config: zero-code REST API with insert, query, search, and `export_sql` routes. |
-| **[`templates/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/templates)** | **Application Templates** | 7 vertical templates (content pipeline, RAG, agent, video, audio, data lab, full-stack showcase) scaffolded via `pixeltable-new --template`. |
+| **[`templates/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/templates)** | **Application Templates** | 7 vertical templates (knowledge base, chat agent, audio transcription, video search, media indexing, image dataset, full-stack showcase) scaffolded via `pixeltable-new --template`. |
 
 ## Next Steps
 
