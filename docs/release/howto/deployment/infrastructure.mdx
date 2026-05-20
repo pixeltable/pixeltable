@@ -127,7 +127,7 @@ docs.add_computed_column(
     if_exists='ignore',
 )
 
-docs.add_embedding_index('embedding', idx_name='docs_embed', metric='cosine', if_not_exists=True)
+docs.add_embedding_index('embedding', idx_name='docs_embed', metric='cosine', if_exists='ignore')
 ```
   </Tab>
 
