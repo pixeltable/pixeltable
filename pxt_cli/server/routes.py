@@ -1,5 +1,6 @@
 import datetime
 import os
+import typing
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -79,7 +80,11 @@ def config(_req: Request) -> models.ConfigResponse:
         elif is_sensitive:
             value = '<redacted>'
         else:
-            raw: Any = Config.get().get_value(ck.key, ck.expected_type, section=ck.section)
+            # ck.expected_type can be a parameterized generic (eg list[ServiceConfig]).
+            # Config.get_value() coerces via `expected_type(value)`, which raises TypeError
+            # for types.GenericAlias; collapse to the origin (eg list) for the lookup.
+            coerce_type = typing.get_origin(ck.expected_type) or ck.expected_type
+            raw: Any = Config.get().get_value(ck.key, coerce_type, section=ck.section)
             value = None if raw is None else str(raw)
         entries.append(
             models.ConfigEntry(

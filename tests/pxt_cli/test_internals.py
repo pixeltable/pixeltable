@@ -18,7 +18,7 @@ import socket
 import subprocess
 import sys
 import urllib.error
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from email.message import Message
 
 import pytest
@@ -1183,3 +1183,166 @@ class TestDaemonCmd:
         daemon_cmd.run(['restart'])
         out = capsys.readouterr().out
         assert 'http://127.0.0.1:22090' in out
+
+
+class TestPxtPathValidator:
+    """Pydantic validator that backs MoveBody.path / new_path."""
+
+    def test_accepts_none_and_empty(self) -> None:
+        from pxt_cli.models import _validate_pxt_path
+
+        assert _validate_pxt_path(None) is None
+        assert _validate_pxt_path('') == ''
+
+    def test_accepts_valid_path(self) -> None:
+        from pxt_cli.models import MoveBody
+
+        m = MoveBody(path='a/b', new_path='c')
+        assert m.path == 'a/b'
+        assert m.new_path == 'c'
+
+    def test_rejects_bad_shape(self) -> None:
+        import pydantic
+
+        from pxt_cli.models import MoveBody
+
+        with pytest.raises(pydantic.ValidationError):
+            MoveBody(path='/abs', new_path='c')
+        with pytest.raises(pydantic.ValidationError):
+            MoveBody(path='a/b', new_path='trailing/')
+
+
+class TestDashboardCommand:
+    """`pxt dashboard` URL launcher, in-process."""
+
+    def test_ensure_running_failure_exits(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        from pxt_cli.client.commands import dashboard as dashboard_cmd
+
+        def boom() -> None:
+            raise RuntimeError('cannot reach daemon')
+
+        monkeypatch.setattr(dashboard_cmd, 'ensure_running', boom)
+        with pytest.raises(SystemExit) as info:
+            dashboard_cmd.run([])
+        assert info.value.code == 1
+        assert 'cannot reach daemon' in capsys.readouterr().err
+
+
+class TestDeployCommand:
+    """`pxt deploy` build-bundle error handling."""
+
+    def _run_with_error(self, args: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+        import pixeltable as pxt
+        from pxt_cli.client.commands import deploy as deploy_cmd
+
+        def boom(_name: str) -> None:
+            raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'no such deployment')
+
+        monkeypatch.setattr(deploy_cmd.deploy, 'build_deploy_bundle', boom)
+        with pytest.raises(SystemExit) as info:
+            deploy_cmd.run(args)
+        assert info.value.code == 1
+
+    def test_deploy_failure_human(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        self._run_with_error(['prod'], monkeypatch)
+        assert 'no such deployment' in capsys.readouterr().err
+
+    def test_deploy_failure_json(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        self._run_with_error(['prod', '--json'], monkeypatch)
+        payload = json.loads(capsys.readouterr().err)
+        assert payload['status'] == 'error'
+        assert 'no such deployment' in payload['message']
+
+
+class TestBadPathArgRejection:
+    """Each path-taking command rejects malformed paths client-side with argparse exit 2."""
+
+    def _assert_arg_error(
+        self, runner: Callable[[list[str]], None], argv: list[str], capsys: pytest.CaptureFixture
+    ) -> None:
+        with pytest.raises(SystemExit) as info:
+            runner(argv)
+        assert info.value.code == 2
+        assert 'pxt paths' in capsys.readouterr().err
+
+    def test_columns_bad_path(self, capsys: pytest.CaptureFixture) -> None:
+        from pxt_cli.client.commands import columns as columns_cmd
+
+        self._assert_arg_error(columns_cmd.run, ['/abs'], capsys)
+
+    def test_computed_bad_path(self, capsys: pytest.CaptureFixture) -> None:
+        from pxt_cli.client.commands import computed as computed_cmd
+
+        self._assert_arg_error(computed_cmd.run, ['/abs'], capsys)
+
+    def test_idxs_bad_path(self, capsys: pytest.CaptureFixture) -> None:
+        from pxt_cli.client.commands import idxs as idxs_cmd
+
+        self._assert_arg_error(idxs_cmd.run, ['/abs'], capsys)
+
+    def test_mv_bad_source_path(self, capsys: pytest.CaptureFixture) -> None:
+        from pxt_cli.client.commands import mv as mv_cmd
+
+        self._assert_arg_error(mv_cmd.run, ['/abs', 'dst'], capsys)
+
+    def test_mv_bad_new_dir(self, capsys: pytest.CaptureFixture) -> None:
+        from pxt_cli.client.commands import mv as mv_cmd
+
+        self._assert_arg_error(mv_cmd.run, ['src/foo', 'has..dot'], capsys)
+
+    def test_rename_bad_path(self, capsys: pytest.CaptureFixture) -> None:
+        from pxt_cli.client.commands import rename as rename_cmd
+
+        self._assert_arg_error(rename_cmd.run, ['/abs', 'newname'], capsys)
+
+
+class TestIdxsEmbeddingDisplay:
+    """`pxt idxs` extra-column rendering for embedding indexes."""
+
+    def test_embedding_extra_fields(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        from pxt_cli.client.commands import idxs as idxs_cmd
+
+        resp = {
+            'entries': [
+                {
+                    'table': 'my.tbl',
+                    'name': 'idx0',
+                    'index_type': 'embedding',
+                    'columns': ['text'],
+                    'metric': 'cosine',
+                    'embedding': 'sbert',
+                }
+            ]
+        }
+        monkeypatch.setattr(idxs_cmd, 'get', lambda *a, **kw: resp)
+        idxs_cmd.run([])
+        out = capsys.readouterr().out
+        assert 'cosine' in out
+        assert 'sbert' in out
+
+
+class TestHardeningHeaders:
+    """Daemon responses carry baseline security headers (X-Content-Type-Options etc.)."""
+
+    def test_health_response_has_hardening_headers(self, pxt_daemon: int) -> None:
+        with urllib.request.urlopen(f'http://127.0.0.1:{pxt_daemon}/api/health', timeout=5) as r:
+            assert r.headers.get('X-Content-Type-Options') == 'nosniff'
+            assert r.headers.get('X-Frame-Options') == 'DENY'
+            assert r.headers.get('Referrer-Policy') == 'no-referrer'
+
+
+class TestConfigRouteWithGenericTypes:
+    """KNOWN_CONFIG_OPTIONS includes parametric-generic types (eg list[ServiceConfig]).
+    /api/config must not crash on those (a previous regression called expected_type(value)
+    on a types.GenericAlias and raised TypeError)."""
+
+    def test_config_route_handles_list_generic(self) -> None:
+        # In-process call into the route handler; doesn't require the daemon subprocess.
+        # The key signal: route returns a ConfigResponse rather than raising.
+        from pxt_cli.server.router import Request
+
+        req = Request(path_params={}, query={}, body_bytes=b'')
+        resp = server_routes.config(req)
+        # Spot-check: pixeltable.service entry is present (the generic-typed one).
+        services = [e for e in resp.entries if e.section == 'pixeltable' and e.key == 'service']
+        assert len(services) == 1

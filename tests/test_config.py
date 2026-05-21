@@ -1,4 +1,5 @@
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -12,7 +13,7 @@ class TestConfig:
         def spawn_cmd(cmd: str, expected_error_msg: str) -> None:
             cmd = cmd.replace('\\', r'\\')  # Escape backslashes for Windows compatibility
             result = subprocess.run(
-                ('python', '-c', f'import pixeltable as pxt\n{cmd}'), capture_output=True, check=False
+                (sys.executable, '-c', f'import pixeltable as pxt\n{cmd}'), capture_output=True, check=False
             )
             print(f'======= stderr from command: {cmd} =======')
             print(result.stderr.decode('utf-8'))
@@ -67,7 +68,7 @@ class TestConfig:
             # exercise it in a bare subprocess without setting up Postgres.
             cmd = cmd.replace('\\', r'\\')
             result = subprocess.run(
-                ('python', '-c', f'from pixeltable.config import Config\n{cmd}'), capture_output=True, check=False
+                (sys.executable, '-c', f'from pixeltable.config import Config\n{cmd}'), capture_output=True, check=False
             )
             assert result.returncode == 0, (
                 f'cmd failed:\nstdout:\n{result.stdout.decode("utf-8")}\nstderr:\n{result.stderr.decode("utf-8")}'

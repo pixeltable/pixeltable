@@ -129,12 +129,18 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             return None
         return self.rfile.read(length) if length > 0 else b''
 
+    def _write_hardening_headers(self) -> None:
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'DENY')
+        self.send_header('Referrer-Policy', 'no-referrer')
+
     def _send_json(self, data: Any, status: int = http.HTTPStatus.OK) -> None:
         body = json.dumps(data, default=str).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
+        self._write_hardening_headers()
         self._write_cors_headers()
         self.end_headers()
         self._safe_write(body)
@@ -144,6 +150,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', resp.content_type)
         self.send_header('Content-Length', str(len(resp.body)))
         self.send_header('Cache-Control', 'no-store')
+        self._write_hardening_headers()
         for k, v in resp.extra_headers.items():
             self.send_header(k, v)
         self._write_cors_headers()
