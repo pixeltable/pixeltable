@@ -22,7 +22,7 @@ def map_level(verbosity: int) -> int:
     if verbosity == 2:
         return logging.DEBUG
 
-    raise excs.Error(f'Invalid verbosity level: {verbosity}')
+    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid verbosity level: {verbosity}')
 
 
 class ConsoleOutputHandler(logging.StreamHandler):

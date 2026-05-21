@@ -3,7 +3,7 @@ import pytest
 import pixeltable as pxt
 
 from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
-from .tool_utils import run_tool_invocations_test
+from .tool_utils import stock_price
 
 
 @pytest.mark.remote_api
@@ -35,26 +35,20 @@ class TestGroq:
         assert 'tennessine' in results['output'][0]['choices'][0]['message']['content'].lower()
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.skip(reason='Temporarily disabled')
-    @rerun(reruns=20, reruns_delay=8)
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('groq')
         skip_test_if_no_client('groq')
         from pixeltable.functions import groq
 
-        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
-            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
-            messages = [{'role': 'user', 'content': t.prompt}]
-            t.add_computed_column(
-                response=groq.chat_completions(
-                    model='llama-3.1-8b-instant', messages=messages, tools=tools, tool_choice=tool_choice
-                )
+        tools = pxt.tools(stock_price)
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        t.add_computed_column(
+            response=groq.chat_completions(
+                model='llama-3.1-8b-instant', messages=messages, tools=tools, tool_choice=None
             )
-            t.add_computed_column(tool_calls=groq.invoke_tools(tools, t.response))
-            return t
+        )
+        t.add_computed_column(tool_calls=groq.invoke_tools(tools, t.response))
 
-        # Tool choice is implemented, but its behavior in Groq differs subtly from other LLM providers, so there
-        # are no tests currently (until we better understand Groq's behavior).
-        # Groq also seems to do something random in response to a random question (unlike OpenAI, which consistently
-        # calls no tools, as expected).
-        run_tool_invocations_test(make_table, test_non_tool_question=False)
+        tool_calls = t.insert(prompt='What is the stock price of NVDA today?', return_rows=True).rows[0]['tool_calls']
+        assert tool_calls == {'stock_price': [131.17]}, tool_calls

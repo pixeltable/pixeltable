@@ -3,8 +3,6 @@ from datetime import date
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-import pytest
-
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.env import Env
@@ -21,7 +19,7 @@ from pixeltable.functions.date import (
     year,
 )
 
-from ..utils import validate_update_status
+from ..utils import pxt_raises, validate_update_status
 
 
 class TestDate:
@@ -108,7 +106,7 @@ class TestDate:
     def test_date_arith(self, uses_db: None) -> None:
         _, t = self.make_test_table()
 
-        with pytest.raises(pxt.Error, match='requires numeric types'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='requires numeric types'):
             _ = t.select(t.dt, outp=t.dt + 1)
-        with pytest.raises(pxt.Error, match='requires numeric types'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='requires numeric types'):
             _ = t.select(t.dt, outm=t.dt - 1)

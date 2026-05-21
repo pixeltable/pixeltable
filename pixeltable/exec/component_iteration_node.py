@@ -86,9 +86,10 @@ class ComponentIterationNode(ExecNode):
             if output_info.is_pos_column:
                 continue  # this is taken care of as part of the pk
             if output_info.orig_name not in component_dict:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
                     f'Invalid output from iterator `{self.iterator_call.it.fqn}`: '
-                    f'Expected to find a field {output_info.orig_name!r}. Output:\n{component_dict}'
+                    f'Expected to find a field {output_info.orig_name!r}. Output:\n{component_dict}',
                 )
             if name not in self.refd_output_slot_idxs:
                 # we can ignore this

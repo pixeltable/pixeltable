@@ -42,7 +42,10 @@ class CallableFunction(Function):
         assert len(signatures) > 0
         assert len(signatures) == len(py_fns)
         if self_path is None and len(signatures) > 1:
-            raise excs.Error('Multiple signatures are only allowed for module UDFs (not locally defined UDFs)')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                'Multiple signatures are only allowed for module UDFs (not locally defined UDFs)',
+            )
         self.py_fns = py_fns
         self.self_name = self_name
         self.batch_size = batch_size
@@ -156,13 +159,23 @@ class CallableFunction(Function):
 
     def overload(self, fn: Callable) -> CallableFunction:
         if self.self_path is None:
-            raise excs.Error('`overload` can only be used with module UDFs (not locally defined UDFs)')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                '`overload` can only be used with module UDFs (not locally defined UDFs)',
+            )
         if self.is_method or self.is_property:
-            raise excs.Error('`overload` cannot be used with `is_method` or `is_property`')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, '`overload` cannot be used with `is_method` or `is_property`'
+            )
         if self._has_resolved_fns:
-            raise excs.Error('New `overload` not allowed after the UDF has already been called')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE, 'New `overload` not allowed after the UDF has already been called'
+            )
         if self._conditional_return_type is not None:
-            raise excs.Error('New `overload` not allowed after a conditional return type has been specified')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                'New `overload` not allowed after a conditional return type has been specified',
+            )
         sig = Signature.create(fn)
         self.signatures.append(sig)
         self.py_fns.append(fn)
@@ -210,7 +223,10 @@ class CallableFunction(Function):
                 # since in that case the FunctionCall is part of an unresolved template; the check will be done again
                 # when the template is fully resolved.
                 if param.name in bound_args and not isinstance(bound_args[param.name], (exprs.Literal, exprs.Variable)):
-                    raise ValueError(f'{self.display_name}(): parameter {param.name} must be a constant value')
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_ARGUMENT,
+                        f'{self.display_name}(): parameter {param.name} must be a constant value',
+                    )
 
     def __repr__(self) -> str:
         return f'<Pixeltable UDF {self.name}>'

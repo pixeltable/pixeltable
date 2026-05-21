@@ -107,7 +107,9 @@ class Tools(pydantic.BaseModel):
         parallel_tool_calls: bool = True,
     ) -> ToolChoice:
         if sum([auto, required, tool is not None]) != 1:
-            raise excs.Error('Exactly one of `auto`, `required`, or `tool` must be specified.')
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, 'Exactly one of `auto`, `required`, or `tool` must be specified.'
+            )
         tool_name: str | None = None
         if tool is not None:
             try:
@@ -119,7 +121,9 @@ class Tools(pydantic.BaseModel):
                 )
                 tool_name = tool_obj.name or tool_obj.fn.name
             except StopIteration:
-                raise excs.Error(f'That tool is not in the specified list of tools: {tool}') from None
+                raise excs.NotFoundError(
+                    excs.ErrorCode.FUNCTION_NOT_FOUND, f'That tool is not in the specified list of tools: {tool}'
+                ) from None
         return ToolChoice(auto=auto, required=required, tool=tool_name, parallel_tool_calls=parallel_tool_calls)
 
 

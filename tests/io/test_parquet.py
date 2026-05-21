@@ -15,6 +15,7 @@ from ..utils import (
     ensure_s3_pytest_resources_access,
     get_image_files,
     make_test_arrow_table,
+    pxt_raises,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -317,7 +318,7 @@ class TestParquet:
         tab.insert([{'c1': get_image_files()[0]}])
 
         export_path = tmp_path / 'exported_image.parquet'
-        with pytest.raises(pxt.Error, match="Cannot export image column 'c1'"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Cannot export image column 'c1'"):
             pxt.io.export_parquet(tab.select(), export_path)
 
         pxt.io.export_parquet(tab.select(), export_path, inline_images=True)
@@ -347,7 +348,7 @@ class TestParquet:
         pa_parquet.write_table(bad_data, str(bad_pq))
 
         # on_error='abort' fails
-        with pytest.raises(pxt.Error, match='Failed to download'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='Failed to download'):
             _ = pxt.create_table(
                 'bad_data_tbl',
                 source=str(bad_pq),
@@ -390,7 +391,7 @@ class TestParquet:
         pxt.io.export_parquet(t.order_by(t.idx), export_path)
         validate_parquet_files(export_path, rows)
 
-        with pytest.raises(pxt.Error, match='Cannot export array column'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot export array column'):
             u = pxt.create_table('test_array2', {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})  # type: ignore[misc]
             validate_update_status(u.insert(rows), expected_rows=len(rows))
             export_path = tmp_path / 'error.pq'

@@ -13,6 +13,7 @@ import numpy as np
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable import exceptions as excs
+from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
@@ -89,7 +90,10 @@ def encode_audio(
         ... )
     """
     if format not in av_utils.AUDIO_FORMATS:
-        raise pxt.Error(f'Only the following formats are supported: {av_utils.AUDIO_FORMATS.keys()}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            f'Only the following formats are supported: {av_utils.AUDIO_FORMATS.keys()}',
+        )
     if output_sample_rate is None:
         output_sample_rate = input_sample_rate
 
@@ -114,8 +118,9 @@ def encode_audio(
             audio_data_transformed[1::2] = audio_data[1]
             audio_data_transformed = audio_data_transformed.reshape(1, -1)
         case _:
-            raise pxt.Error(
-                f'Supported input array shapes are (N,), (1, N) for mono and (2, N) for stereo, got {audio_data.shape}'
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Supported input array shapes are (N,), (1, N) for mono and (2, N) for stereo, got {audio_data.shape}',
             )
 
     with av.open(output_path, mode='w') as output_container:
@@ -131,6 +136,200 @@ def encode_audio(
             output_container.mux(packet)
 
         return output_path
+
+
+@pxt.udf(is_method=True)
+def multiply_volume(
+    audio: pxt.Audio, *, factor: float, start_time: float | None = None, end_time: float | None = None
+) -> pxt.Audio:
+    """
+    Scale the volume of an audio clip by a constant factor using ffmpeg's volume filter.
+
+    If `start_time` and/or `end_time` are given, only the samples within that range are scaled and
+    the rest of the clip is passed through unchanged. Omit both to apply the gain to the entire clip.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        audio: Input audio.
+        factor: Volume multiplier. `1.0` leaves the audio unchanged, `0.5` halves the amplitude
+            (about -6 dB), `2.0` doubles it (about +6 dB), `0.0` mutes the affected range.
+        start_time: Start of the range to scale, in seconds. Defaults to the beginning of the clip.
+        end_time: End of the range to scale, in seconds. Defaults to the end of the clip.
+
+    Returns:
+        A new audio clip with the gain applied.
+
+    Examples:
+        Halve the volume of an entire clip:
+
+        >>> tbl.select(tbl.audio.multiply_volume(factor=0.5)).collect()
+
+        Boost only the first five seconds:
+
+        >>> tbl.select(
+        ...     tbl.audio.multiply_volume(factor=1.5, start_time=0.0, end_time=5.0)
+        ... ).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+
+    if start_time is not None and start_time < 0:
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`start_time` must be non-negative, got {start_time}')
+    if end_time is not None and end_time < 0:
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`end_time` must be non-negative, got {end_time}')
+    if start_time is not None and end_time is not None and end_time <= start_time:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'`end_time` ({end_time}) must be greater than `start_time` ({start_time})'
+        )
+
+    if start_time is None and end_time is None:
+        filter_expr = f'volume={factor}'
+    else:
+        if start_time is None:
+            gate = f'lt(t,{end_time})'
+        elif end_time is None:
+            gate = f'gte(t,{start_time})'
+        else:
+            gate = f'between(t,{start_time},{end_time})'
+        filter_expr = f"volume={factor}:enable='{gate}'"
+
+    input_path = str(audio)
+    ext = Path(input_path).suffix or '.wav'
+    output_path = str(TempStore.create_path(extension=ext))
+
+    cmd = ['-i', input_path, '-af', filter_expr]
+    return av_utils.run_ffmpeg_cmdline(cmd, output_path)
+
+
+@pxt.udf(is_method=True)
+def fade_in(audio: pxt.Audio, *, duration: float) -> pxt.Audio:
+    """
+    Apply a linear fade-in over the first `duration` seconds of an audio clip using ffmpeg's afade filter.
+
+    The volume ramps from silence at the start of the clip to full volume at time `duration`.
+    Samples past `duration` are unchanged.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        audio: Input audio.
+        duration: Length of the fade-in, in seconds. Must be positive. If it exceeds the clip's
+            duration, the entire clip is faded in.
+
+    Returns:
+        A new audio clip with the fade-in applied.
+
+    Examples:
+        Fade in over the first two seconds:
+
+        >>> tbl.select(tbl.audio.fade_in(duration=2.0)).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+    if duration <= 0:
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`duration` must be positive, got {duration}')
+
+    input_path = str(audio)
+    clip_duration = av_utils.get_audio_duration(input_path)
+    if clip_duration is None:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'cannot determine duration of audio clip: {input_path}'
+        )
+    # make sure we reach full volume by the end
+    fade_duration = min(duration, clip_duration)
+
+    ext = Path(input_path).suffix or '.wav'
+    output_path = str(TempStore.create_path(extension=ext))
+
+    cmd = ['-i', input_path, '-af', f'afade=t=in:st=0:d={fade_duration}']
+    return av_utils.run_ffmpeg_cmdline(cmd, output_path)
+
+
+@pxt.udf(is_method=True)
+def fade_out(audio: pxt.Audio, *, duration: float) -> pxt.Audio:
+    """
+    Apply a linear fade-out over the last `duration` seconds of an audio clip using ffmpeg's afade filter.
+
+    The volume ramps from full volume at time `clip_duration - duration` to silence at the end of
+    the clip. Samples before that point are unchanged.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        audio: Input audio.
+        duration: Length of the fade-out, in seconds. Must be positive. If it exceeds the clip's
+            duration, the entire clip is faded out.
+
+    Returns:
+        A new audio clip with the fade-out applied.
+
+    Examples:
+        Fade out over the last three seconds:
+
+        >>> tbl.select(tbl.audio.fade_out(duration=3.0)).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+    if duration <= 0:
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`duration` must be positive, got {duration}')
+
+    input_path = str(audio)
+    clip_duration = av_utils.get_audio_duration(input_path)
+    if clip_duration is None:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'cannot determine duration of audio clip: {input_path}'
+        )
+    fade_duration = min(duration, clip_duration)
+    start = clip_duration - fade_duration
+
+    ext = Path(input_path).suffix or '.wav'
+    output_path = str(TempStore.create_path(extension=ext))
+
+    cmd = ['-i', input_path, '-af', f'afade=t=out:st={start}:d={fade_duration}']
+    return av_utils.run_ffmpeg_cmdline(cmd, output_path)
+
+
+@pxt.udf(is_method=True)
+def normalize(audio: pxt.Audio) -> pxt.Audio:
+    """
+    Peak-normalize an audio clip so its loudest sample reaches full scale (0 dBFS) using ffmpeg's volume filter.
+
+    The whole clip is scaled by a single constant factor chosen so that the maximum absolute
+    sample value becomes 1.0. Silent clips are passed through without a gain change.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        audio: Input audio.
+
+    Returns:
+        A new audio clip with peak normalization applied.
+
+    Examples:
+        Normalize a clip:
+
+        >>> tbl.select(tbl.audio.normalize()).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+
+    input_path = str(audio)
+    # Measure the peak via ffmpeg's volumedetect filter; then apply the inverse gain in dB so
+    # the peak sits at 0 dBFS. For silent clips (None) or already-full-scale input (0 dB),
+    # `gain_db` is 0 and the second pass is a no-op re-encode.
+    max_db = av_utils.get_max_volume_db(input_path)
+    gain_db = 0.0 if max_db is None else -max_db
+
+    ext = Path(input_path).suffix or '.wav'
+    output_path = str(TempStore.create_path(extension=ext))
+
+    cmd = ['-i', input_path, '-af', f'volume={gain_db}dB']
+    return av_utils.run_ffmpeg_cmdline(cmd, output_path)
 
 
 class AudioSegment(TypedDict):
@@ -276,7 +475,9 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
             try:
                 frame = next(self.container.decode(audio=0))
             except EOFError as e:
-                raise excs.Error(f"Failed to read audio file '{self.audio_path}': {e}") from e
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_DATA_FORMAT, f"Failed to read audio file '{self.audio_path}': {e}"
+                ) from e
             except StopIteration:
                 # no more frames to scan
                 break
@@ -328,11 +529,13 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
         min_segment_duration = bound_args.get('min_segment_duration')
 
         if duration is not None and duration <= 0.0:
-            raise excs.Error('`duration` must be a positive number')
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`duration` must be a positive number')
         if duration is not None and min_segment_duration is not None and duration < min_segment_duration:
-            raise excs.Error('`duration` must be at least `min_segment_duration`')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, '`duration` must be at least `min_segment_duration`'
+            )
         if duration is not None and overlap is not None and overlap >= duration:
-            raise excs.Error('`overlap` must be strictly less than `duration`')
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`overlap` must be strictly less than `duration`')
 
 
 __all__ = local_public_names(__name__)

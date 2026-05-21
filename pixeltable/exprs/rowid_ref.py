@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any, cast
 from uuid import UUID
@@ -75,6 +76,16 @@ class RowidRef(Expr):
             ('idx', self.rowid_component_idx),
         ]
 
+    # override
+    def copy(self) -> RowidRef:
+        # deepcopy(tvh) is needed to create a copy for the local thread/catalog
+        result = super().copy()
+        if self.tbl is not None:
+            result.tbl = copy.deepcopy(self.tbl)
+        if self.normalized_base is not None:
+            result.normalized_base = copy.deepcopy(self.normalized_base)
+        return result
+
     def __repr__(self) -> str:
         # check if this is the pos column of a component view
         from pixeltable import store
@@ -90,6 +101,11 @@ class RowidRef(Expr):
         ):
             return catalog.globals._POS_COLUMN_NAME
         return ''
+
+    def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
+        # base impl checks ColumnRef subexprs and trivially returns True for RowidRef (which has none);
+        # match against our tbl_id instead so rowid refs aren't pulled into unrelated table scans in joins
+        return any(self.tbl_id == tv.id for tbl in tbls for tv in tbl.get_tbl_versions())
 
     def set_tbl(self, tbl: catalog.TableVersionPath) -> None:
         """Change the table that is being referenced.

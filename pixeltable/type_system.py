@@ -24,7 +24,6 @@ import sqlalchemy as sql
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
-from pixeltable.env import Env
 from pixeltable.utils import parse_local_file_path
 
 
@@ -424,16 +423,21 @@ class ColumnType:
         # Technically this logic will also work for semi-variadic tuples (`tuple[T1, T2, ...]`) but Python
         # doesn't allow that syntax.
         if len(type_args) == 0:
-            return JsonType(nullable=nullable_default)  # treat unparameterized tuple as untyped JSON
+            # treat unparameterized tuple as Json[(Json, ...)]
+            return JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=nullable_default)
         variadic_type = None
         if len(type_args) > 0 and type_args[-1] is Ellipsis:
             if len(type_args) == 1:
-                raise excs.Error('Invalid type schema: tuple with only `...` is not allowed')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_TYPE, 'Invalid type schema: tuple with only `...` is not allowed'
+                )
             variadic_type = type_args[-2]
             type_args = type_args[:-2]
 
         if Ellipsis in type_args:
-            raise excs.Error('Invalid type schema: `...` allowed only in last position')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_TYPE, 'Invalid type schema: `...` allowed only in last position'
+            )
 
         return JsonType(
             JsonType.TypeSchema(
@@ -445,14 +449,16 @@ class ColumnType:
 
     @classmethod
     def __from_list_type(cls, nullable_default: bool, type_args: tuple) -> JsonType:
-        if len(type_args) == 0:
-            return JsonType(nullable=nullable_default)  # treat unparameterized list as untyped JSON
         if len(type_args) > 1:
-            raise excs.Error('Invalid type schema: `list` or `Sequence` must have at most one type argument')
-        if type_args[0] is Any:
-            return JsonType(nullable=nullable_default)  # treat list[Any] as untyped JSON
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_TYPE,
+                'Invalid type schema: `list` or `Sequence` must have at most one type argument',
+            )
+        if len(type_args) == 0 or type_args[0] is Any:
+            # treat unparameterized list or list[Any] as Json[(Json, ...)]
+            return JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=nullable_default)
         return JsonType(
-            JsonType.TypeSchema(type_spec=[], variadic_type=cls.__from_python_type_or_exc(type_args[0])),
+            JsonType.TypeSchema([], variadic_type=cls.__from_python_type_or_exc(type_args[0])),
             nullable=nullable_default,
         )
 
@@ -460,7 +466,9 @@ class ColumnType:
     def __from_python_type_or_exc(cls, t: type | _GenericAlias | None) -> ColumnType:
         col_type = cls.from_python_type(t)
         if col_type is None:
-            raise excs.Error(f'Python type found in type argument is not a valid Pixeltable type: {t!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_TYPE, f'Python type found in type argument is not a valid Pixeltable type: {t!r}'
+            )
         return col_type
 
     @classmethod
@@ -470,7 +478,10 @@ class ColumnType:
         for key, value in t.__annotations__.items():
             col_type = cls.from_python_type(value)
             if col_type is None:
-                raise excs.Error(f'Field {key!r} in TypedDict `{t.__name__}` is not a valid Pixeltable type: {value!r}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_TYPE,
+                    f'Field {key!r} in TypedDict `{t.__name__}` is not a valid Pixeltable type: {value!r}',
+                )
             type_spec[key] = col_type
         return JsonType(
             JsonType.TypeSchema(type_spec=type_spec, optional_keys=getattr(t, '__optional_keys__', frozenset())),
@@ -483,9 +494,10 @@ class ColumnType:
         for name, info in t.model_fields.items():
             col_type = cls.from_python_type(info.annotation)
             if col_type is None:
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_TYPE,
                     f'Field {name!r} in Pydantic model `{t.__name__}` '
-                    f'is not a valid Pixeltable type: {info.annotation!r}'
+                    f'is not a valid Pixeltable type: {info.annotation!r}',
                 )
             fields[name] = col_type
         optional_keys = frozenset(name for name, info in t.model_fields.items() if not info.is_required())
@@ -524,8 +536,11 @@ class ColumnType:
         for builtin_type, suggestion in cls.__TYPE_SUGGESTIONS:
             if t is builtin_type or (isinstance(t, type) and issubclass(t, builtin_type)):
                 name = t.__name__ if t.__module__ == 'builtins' else f'{t.__module__}.{t.__name__}'
-                raise excs.Error(f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead')
-        raise excs.Error(f'Unknown type: {t}')
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_TYPE,
+                    f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead',
+                )
+        raise excs.RequestError(excs.ErrorCode.INVALID_TYPE, f'Unknown type: {t}')
 
     @classmethod
     def from_json_schema(cls, schema: dict[str, Any]) -> ColumnType | None:
@@ -678,7 +693,39 @@ class ColumnType:
             return self._to_json_schema()
 
     def _to_json_schema(self) -> dict[str, Any]:
-        raise excs.Error(f'Pixeltable type {self} is not a valid JSON type')
+        raise excs.RequestError(excs.ErrorCode.INVALID_TYPE, f'Pixeltable type {self} is not a valid JSON type')
+
+    def to_pydantic_type(self) -> Any:
+        """Return the nominal Python type used to represent values of this column type in a Pydantic field type."""
+        assert self._type is not self.Type.INVALID
+        py_type: Any
+        match self._type:
+            case self.Type.STRING:
+                py_type = str
+            case self.Type.INT:
+                py_type = int
+            case self.Type.FLOAT:
+                py_type = float
+            case self.Type.BOOL:
+                py_type = bool
+            case self.Type.TIMESTAMP:
+                py_type = datetime.datetime
+            case self.Type.DATE:
+                py_type = datetime.date
+            case self.Type.UUID:
+                py_type = uuid.UUID
+            case self.Type.BINARY:
+                py_type = bytes
+            case self.Type.JSON:
+                py_type = Any
+            case self.Type.ARRAY:
+                py_type = list
+            case self.Type.IMAGE | self.Type.VIDEO | self.Type.AUDIO | self.Type.DOCUMENT:
+                py_type = str
+            # leave out a catch-all to surface bugs more easily
+        if self.nullable:
+            return typing.Optional[py_type]
+        return py_type
 
     @classmethod
     def from_np_dtype(cls, dtype: np.dtype, nullable: bool) -> ColumnType | None:
@@ -831,6 +878,8 @@ class TimestampType(ColumnType):
             raise TypeError(f'Expected datetime.datetime, got {val.__class__.__name__}')
 
     def _create_literal(self, val: Any) -> Any:
+        from pixeltable.env import Env  # local import to avoid circular imports
+
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
         # Place naive timestamps in the default time zone
@@ -1167,20 +1216,25 @@ class JsonType(ColumnType):
                         raise TypeError(f'Unexpected key: {key}')
 
         def to_json_schema(self) -> dict[str, Any]:
+            json_schema: dict[str, Any]
+
             if isinstance(self.type_spec, list):
-                prefix_items_schema = [t.to_json_schema() for t in self.type_spec]
-                if self.variadic_type is None:
-                    return {'type': 'array', 'prefixItems': prefix_items_schema, 'items': False}
-                else:
-                    items_schema = self.variadic_type.to_json_schema()
-                    return {'type': 'array', 'prefixItems': prefix_items_schema, 'items': items_schema}
+                json_schema = {'type': 'array'}
+                if len(self.type_spec) > 0:
+                    json_schema['prefixItems'] = [t.to_json_schema() for t in self.type_spec]
+                json_schema['items'] = False if self.variadic_type is None else self.variadic_type.to_json_schema()
+
             else:
-                properties = {k: t.to_json_schema() for k, t in self.type_spec.items()}
+                json_schema = {
+                    'type': 'object',
+                    'properties': {k: t.to_json_schema() for k, t in self.type_spec.items()},
+                    'additionalProperties': False,
+                }
                 required = [k for k in self.type_spec if k not in self.optional_keys]
-                schema: dict[str, Any] = {'type': 'object', 'properties': properties, 'additionalProperties': False}
                 if len(required) > 0:
-                    schema['required'] = required
-                return schema
+                    json_schema['required'] = required
+
+            return json_schema
 
         def __eq__(self, other: object) -> bool:
             return (
@@ -1590,7 +1644,10 @@ class ImageType(ColumnType):
                 return img
             except Exception as exc:
                 error_msg_val = val if len(val) < 50 else val[:50] + '...'
-                raise excs.Error(f'data URL could not be decoded into a valid image: {error_msg_val}') from exc
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_DATA_FORMAT,
+                    f'data URL could not be decoded into a valid image: {error_msg_val}',
+                ) from exc
         return val
 
     def _validate_literal(self, val: Any) -> None:
@@ -1603,7 +1660,7 @@ class ImageType(ColumnType):
         try:
             _ = PIL.Image.open(val)
         except PIL.UnidentifiedImageError:
-            raise excs.Error(f'Not a valid image: {val}') from None
+            raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Not a valid image: {val}') from None
 
 
 class VideoType(ColumnType):
@@ -1623,7 +1680,7 @@ class VideoType(ColumnType):
         try:
             with av.open(val, 'r') as fh:
                 if len(fh.streams.video) == 0:
-                    raise excs.Error(f'Not a valid video: {val}')
+                    raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Not a valid video: {val}')
                 # decode a few frames to make sure it's playable
                 # TODO: decode all frames? but that's very slow
                 num_decoded = 0
@@ -1634,9 +1691,9 @@ class VideoType(ColumnType):
                         break
                 if num_decoded < 2:
                     # this is most likely an image file
-                    raise excs.Error(f'Not a valid video: {val}')
+                    raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Not a valid video: {val}')
         except av.FFmpegError:
-            raise excs.Error(f'Not a valid video: {val}') from None
+            raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Not a valid video: {val}') from None
 
 
 class AudioType(ColumnType):
@@ -1655,7 +1712,7 @@ class AudioType(ColumnType):
         try:
             with av.open(val) as container:
                 if len(container.streams.audio) == 0:
-                    raise excs.Error(f'No audio stream in file: {val}')
+                    raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'No audio stream in file: {val}')
                 audio_stream = container.streams.audio[0]
 
                 # decode everything to make sure it's playable
@@ -1664,7 +1721,7 @@ class AudioType(ColumnType):
                     for _ in packet.decode():
                         pass
         except av.FFmpegError as e:
-            raise excs.Error(f'Not a valid audio file: {val}\n{e}') from None
+            raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Not a valid audio file: {val}\n{e}') from None
 
 
 class DocumentType(ColumnType):

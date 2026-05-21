@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any, List, Literal, Mapping
@@ -20,7 +21,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, OpStatus, TableOp
+from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -83,14 +84,12 @@ class View(Table):
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,
         create_default_idxs: bool,
-        num_retained_versions: int,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
-        from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
         include_base_columns: bool = select_list is None
@@ -105,7 +104,10 @@ class View(Table):
         # verify that filters can be evaluated in the context of the base
         if predicate is not None:
             if not predicate.is_bound_by([base]):
-                raise excs.Error(f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}',
+                )
             # create a copy that we can modify and store
             predicate = predicate.copy()
         if sample_clause is not None:
@@ -113,14 +115,13 @@ class View(Table):
             if sample_clause.stratify_exprs is not None and not all(
                 stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
             ):
-                raise excs.Error(
-                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
                 )
+
             # create a copy that we can modify and store
-            sc = sample_clause
-            sample_clause = SampleClause(
-                sc.version, sc.n, sc.n_per_stratum, sc.fraction, sc.seed, sc.stratify_exprs.copy()
-            )
+            sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
 
         # same for value exprs
         for col in columns:
@@ -128,9 +129,10 @@ class View(Table):
                 continue
             # make sure that the value can be computed in the context of the base
             if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
-                raise excs.Error(
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Column {col.name!r}: Value expression cannot be computed in the context of the '
-                    f'base table {base.tbl_name()!r}'
+                    f'base table {base.tbl_name()!r}',
                 )
 
         if iterator_call is not None:
@@ -193,12 +195,12 @@ class View(Table):
         md = TableVersion.create_initial_md(
             name,
             columns,
-            num_retained_versions,
             comment,
             custom_metadata,
             media_validation=media_validation,
             view_md=view_md,
             create_default_idxs=create_default_idxs,
+            is_versioned=base.is_versioned(),
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
@@ -207,11 +209,13 @@ class View(Table):
             tbl_id = md.tbl_md.tbl_id
             key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
-            ops = [
-                CreateTableMdOp(tbl_id=tbl_id, op_sn=0, num_ops=3, status=OpStatus.PENDING),
-                CreateStoreTableOp(tbl_id=tbl_id, op_sn=1, num_ops=3, status=OpStatus.PENDING),
-                LoadViewOp(tbl_id=tbl_id, op_sn=2, num_ops=3, status=OpStatus.PENDING, view_path=view_path.as_dict()),
-            ]
+            ops = (
+                TableOpsBuilder(tbl_id, tbl_version=md.tbl_md.current_version)
+                .add(CreateTableMdOp)
+                .add(CreateStoreTableOp)
+                .add(LoadViewOp, view_path=view_path.as_dict())
+                .build()
+            )
             return md, ops
 
     @classmethod
@@ -232,7 +236,9 @@ class View(Table):
     def _verify_column(cls, col: Column) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
-            raise excs.Error(f'Column {col.name!r}: Non-computed columns in views must be nullable')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'Column {col.name!r}: Non-computed columns in views must be nullable'
+            )
         super()._verify_column(col)
 
     @classmethod
@@ -285,9 +291,13 @@ class View(Table):
             for col in columns:
                 if col.name in md['columns'] and tv.is_iterator_column(col):
                     md['columns'][col.name]['is_iterator_col'] = True
-            # Build the iterator expression string: "IteratorName(arg1=expr1, arg2=expr2)"
-            args_str = ', '.join(f'{k}={v.display_str(inline=False)}' for k, v in tv.iterator_call.bound_args.items())
-            md['iterator_call'] = f'{tv.iterator_call.it.name}({args_str})'
+            # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)"
+            arg_strs: list[str] = []
+            for arg_expr in tv.iterator_call.args:
+                arg_strs.append(arg_expr.display_str(inline=True))
+            for arg_name, arg_expr in tv.iterator_call.kwargs.items():
+                arg_strs.append(f'{arg_name}={arg_expr.display_str(inline=True)}')
+            md['iterator_call'] = f'{tv.iterator_call.it.name}({", ".join(arg_strs)})'
 
         return md
 
@@ -302,10 +312,16 @@ class View(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        raise excs.Error(f'{self._display_str()}: Cannot insert into a {self._display_name()}.')
+        self._validate_thread()
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot insert into a {self._display_name()}.'
+        )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
-        raise excs.Error(f'{self._display_str()}: Cannot delete from a {self._display_name()}.')
+        self._validate_thread()
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot delete from a {self._display_name()}.'
+        )
 
     @property
     def _base_tbl_id(self) -> UUID | None:
@@ -322,7 +338,7 @@ class View(Table):
         base_tbl_id = self._base_tbl_id
         if base_tbl_id is None:
             return None
-        with get_runtime().catalog.begin_xact(tbl_id=base_tbl_id, for_write=False):
+        with get_runtime().catalog.begin_xact(read_tbl_ids=[base_tbl_id]):
             return get_runtime().catalog.get_table_by_id(base_tbl_id)
 
     @property

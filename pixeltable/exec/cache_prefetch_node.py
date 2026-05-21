@@ -63,22 +63,25 @@ class CachePrefetchNode(ExecNode):
         super().__init__(input.row_builder, [], [], input)
         self.retain_input_order = retain_input_order
         self.file_col_info = file_col_info
-
-        self.num_returned_rows = 0
-        self.progress_reporter = None
-        self.ready_rows = deque()
-        self.in_flight_rows = {}
-        self.in_flight_requests = {}
-        self.in_flight_urls = {}
-        self.input_finished = False
-        self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
+        self._init_exec_state()
 
     @property
     def queued_work(self) -> int:
         return len(self.in_flight_requests)
 
+    def _init_exec_state(self) -> None:
+        self.num_returned_rows = 0
+        self.ready_rows = deque()
+        self.in_flight_rows = {}
+        self.in_flight_requests = {}
+        self.in_flight_urls = {}
+        self.input_finished = False
+        self.row_idx = itertools.count() if self.retain_input_order else itertools.repeat(None)
+        self.progress_reporter = None
+
     def _open(self) -> None:
+        self._init_exec_state()
         self.progress_reporter = self.ctx.add_progress_reporter('Downloads', 'objects', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
@@ -230,6 +233,6 @@ class CachePrefetchNode(ExecNode):
             return fetch_url(url), None
         except Exception as e:
             # we want to add the file url to the exception message
-            exc = excs.Error(f'Failed to download {url}: {e}')
+            exc = excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, f'Failed to download {url}: {e}')
             _logger.debug(f'Failed to download {url}: {e}', exc_info=e)
             return None, exc

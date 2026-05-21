@@ -21,7 +21,7 @@ class TestOpenRouter:
         t.add_computed_column(
             output=chat_completions(
                 messages=msgs,
-                model='openai/gpt-3.5-turbo',  # Use a widely available model
+                model='openai/gpt-5.4-mini',  # Use a widely available model
             )
         )
 
@@ -55,7 +55,7 @@ class TestOpenRouter:
             t.add_computed_column(
                 response=chat_completions(
                     messages=[{'role': 'user', 'content': t.prompt}],
-                    model='openai/gpt-4-turbo',
+                    model='openai/gpt-4.1',
                     tools=tools,
                     tool_choice=tool_choice,
                 )
@@ -76,7 +76,7 @@ class TestOpenRouter:
         t.add_computed_column(
             summary=chat_completions(
                 messages=[{'role': 'user', 'content': f'Summarize: {t.text}'}],
-                model='openai/gpt-3.5-turbo',
+                model='openai/gpt-5.4-mini',
                 transforms=['middle-out'],
             )
             .choices[0]

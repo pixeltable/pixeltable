@@ -24,7 +24,7 @@ class AggregationNode(ExecNode):
     agg_fn_eval_ctx: exprs.RowBuilder.EvalCtx
     agg_fn_calls: list[exprs.FunctionCall]
     output_batch: DataRowBatch
-    limit: int | None
+    limit: exprs.Expr | None
 
     def __init__(
         self,
@@ -44,13 +44,24 @@ class AggregationNode(ExecNode):
         self.agg_fn_eval_ctx = row_builder.create_eval_ctx(agg_fn_calls, exclude=self.input_exprs)
         # we need to make sure to refer to the same exprs that RowBuilder.eval() will use
         self.agg_fn_calls = [cast(exprs.FunctionCall, e) for e in self.agg_fn_eval_ctx.target_exprs]
-        # create output_batch here, rather than in __iter__(), so we don't need to remember tbl and row_builder
-        self.output_batch = DataRowBatch(row_builder)
         self.limit = None
+        self._init_exec_state()
 
-    def set_limit(self, limit: int) -> None:
+    def _init_exec_state(self) -> None:
+        self.output_batch = DataRowBatch(self.row_builder)
+
+    def _open(self) -> None:
+        self._init_exec_state()
+
+    def set_limit(self, limit: exprs.Expr) -> None:
         # we can't propagate the limit to our input
         self.limit = limit
+
+    def init_bindings(self) -> None:
+        self.bind_sources = (self.group_by or []) + list(self.agg_fn_calls)
+        if self.limit is not None:
+            self.bind_sources.append(self.limit)
+        super().init_bindings()
 
     def _reset_agg_state(self, row_num: int) -> None:
         for fn_call in self.agg_fn_calls:
@@ -72,11 +83,15 @@ class AggregationNode(ExecNode):
                 raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, input_vals, row_num) from exc
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+        limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
+        if limit == 0:
+            return
         prev_row: exprs.DataRow | None = None
         current_group: list[Any] | None = None  # the values of the group-by exprs
         num_input_rows = 0
         num_output_rows = 0
         async for row_batch in self.input:
+            self.set_var_slots(row_batch)
             num_input_rows += len(row_batch)
             for row in row_batch:
                 group = [row[e.slot_idx] for e in self.group_by] if self.group_by is not None else None
@@ -90,7 +105,7 @@ class AggregationNode(ExecNode):
                     self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
                     self.output_batch.add_row(prev_row)
                     num_output_rows += 1
-                    if self.limit is not None and num_output_rows == self.limit:
+                    if limit is not None and num_output_rows == limit:
                         yield self.output_batch
                         return
                     current_group = group

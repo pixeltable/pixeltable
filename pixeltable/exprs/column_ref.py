@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import warnings
 from typing import TYPE_CHECKING, Any, Iterator, Sequence, cast
 from uuid import UUID
@@ -29,34 +30,39 @@ if TYPE_CHECKING:
 
 
 class ColumnRef(Expr):
-    """A reference to a table column
+    """
+    A Pixeltable expression that references a column of a table. A `ColumnRef` is created by column access
+    on a [`Table`][pixeltable.Table], such as `t.col`.
 
-    When this reference is created in the context of a view, it can also refer to a column of the view base.
-    For that reason, a ColumnRef needs to be serialized with the qualifying table id (column ids are only
-    unique in the context of a particular table).
-
-    Media validation:
-    - media validation is potentially cpu-intensive, and it's desirable to schedule and parallelize it during
-      general expr evaluation
-    - media validation on read is done in ColumnRef.eval()
-    - a validating ColumnRef cannot be translated to SQL (because the validation is done in Python)
-    - in that case, the ColumnRef also instantiates a second non-validating ColumnRef as a component (= dependency)
-    - the non-validating ColumnRef is used for SQL translation
-
-    A ColumnRef may have an optional reference table, which carries the context of the ColumnRef resolution. Thus
-    if `v` is a view of `t` (for example), then `v.my_col` and `t.my_col` refer to the same underlying column, but
-    their reference tables will be `v` and `t`, respectively. This is to ensure correct behavior of expressions such
-    as `v.my_col.head()`.
-
-    TODO:
-    separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
-    insert them into the EvalCtxs as needed
+    Not thread-safe.
     """
 
-    col: catalog.Column  # TODO: merge with col_handle
+    # When this reference is created in the context of a view, it can also refer to a column of the view base.
+    # For that reason, a ColumnRef needs to be serialized with the qualifying table id (column ids are only
+    # unique in the context of a particular table).
+
+    # Media validation:
+    # - media validation is potentially cpu-intensive, and it's desirable to schedule and parallelize it during
+    #   general expr evaluation
+    # - media validation on read is done in ColumnRef.eval()
+    # - a validating ColumnRef cannot be translated to SQL (because the validation is done in Python)
+    # - in that case, the ColumnRef also instantiates a second non-validating ColumnRef as a component (= dependency)
+    # - the non-validating ColumnRef is used for SQL translation
+
+    # A ColumnRef may have an optional reference table, which carries the context of the ColumnRef resolution. Thus
+    # if `v` is a view of `t` (for example), then `v.my_col` and `t.my_col` refer to the same underlying column, but
+    # their reference tables will be `v` and `t`, respectively. This is to ensure correct behavior of expressions such
+    # as `v.my_col.head()`.
+
+    # TODO:
+    # separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
+    # insert them into the EvalCtxs as needed
+
+    # ColumnHandle, not a Column: avoid caching of catalog objects, they get invalidated across xact/thread boundaries
     col_handle: catalog.ColumnHandle
+
     reference_tbl: catalog.TableVersionPath | None
-    is_unstored_iter_col: bool
+    needs_iterator_evaluation: bool
     perform_validation: bool  # if True, performs media validation
     iter_arg_ctx: RowBuilder.EvalCtx | None
     iter_outputs: list[ColumnRef] | None
@@ -74,11 +80,11 @@ class ColumnRef(Expr):
         perform_validation: bool | None = None,
     ):
         super().__init__(col.col_type)
-        self.col = col
         self.reference_tbl = reference_tbl
         self.col_handle = col.handle
 
-        self.is_unstored_iter_col = col.is_iterator_col and not col.is_stored
+        # pos (id=0) is an unstored iterator column, but its value comes from the PK, not the iterator output dict
+        self.needs_iterator_evaluation = col.is_iterator_col and not col.is_stored and col.id != 0
         self.iter_arg_ctx = None
         self.iter_outputs = None
         self.base_rowid_len = 0
@@ -103,6 +109,12 @@ class ColumnRef(Expr):
             self.components = [non_validating_col_ref]
         self.id = self._create_id()
 
+    @property
+    def col(self) -> catalog.Column:
+        # re-resolve via the current Catalog when we need the actual Column, in the context of a transaction;
+        # this does *not* make ColumnRef thread-safe
+        return self.col_handle.get()
+
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
         self.iter_arg_ctx = iter_arg_ctx
         self.iter_outputs = iter_outputs
@@ -115,17 +127,27 @@ class ColumnRef(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [
             *super()._id_attrs(),
-            ('tbl_id', self.col.tbl_handle.id),
-            ('col_id', self.col.id),
+            ('tbl_id', self.col_handle.tbl_version.id),
+            ('col_id', self.col_handle.col_id),
             ('perform_validation', self.perform_validation),
         ]
 
     # override
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> ColumnRef:
-        target = tbl_versions[self.col.tbl_handle.id]
-        assert self.col.id in target.cols_by_id, f'{target}: {self.col.id} not in {list(target.cols_by_id.keys())}'
-        col = target.cols_by_id[self.col.id]
+        target = tbl_versions[self.col_handle.tbl_version.id]
+        col_id = self.col_handle.col_id
+        assert col_id in target.cols_by_id, f'{target}: {col_id} not in {list(target.cols_by_id.keys())}'
+        col = target.cols_by_id[col_id]
         return ColumnRef(col, self.reference_tbl)
+
+    # override
+    def copy(self) -> ColumnRef:
+        # deepcopy(tvh) is needed to create a copy for the local thread/catalog
+        result = super().copy()
+        result.col_handle = copy.deepcopy(self.col_handle)
+        if self.reference_tbl is not None:
+            result.reference_tbl = copy.deepcopy(self.reference_tbl)
+        return result
 
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
@@ -139,18 +161,28 @@ class ColumnRef(Expr):
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
             or name == ColumnPropertyRef.Property.ERRORMSG.name.lower()
         ):
-            is_valid = (self.col.is_computed or self.col.col_type.is_media_type()) and self.col.is_stored
+            col = self.col
+            is_valid = (col.is_computed or col.col_type.is_media_type()) and col.is_stored
             if not is_valid:
-                raise excs.Error(f'{name} only valid for a stored computed or media column: {self}')
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{name} only valid for a stored computed or media column: {self}',
+                )
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
         if (
             name == ColumnPropertyRef.Property.FILEURL.name.lower()
             or name == ColumnPropertyRef.Property.LOCALPATH.name.lower()
         ):
-            if not self.col.col_type.is_media_type():
-                raise excs.Error(f'{name} only valid for image/video/audio/document columns: {self}')
-            if self.col.is_computed and not self.col.is_stored:
-                raise excs.Error(f'{name} not valid for computed unstored columns: {self}')
+            col = self.col
+            if not col.col_type.is_media_type():
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{name} only valid for image/video/audio/document columns: {self}',
+                )
+            if col.is_computed and not col.is_stored:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'{name} not valid for computed unstored columns: {self}'
+                )
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
 
         if self.col_type.is_json_type():
@@ -163,12 +195,12 @@ class ColumnRef(Expr):
     def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
         cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(tbl=self.reference_tbl, for_write=True, lock_mutable_tree=True):
+        with cat.begin_xact(for_write=True, write_tvps=[self.reference_tbl], lock_mutable_tree=True):
             tbl_version = self.col_handle.tbl_version.get()
             if tbl_version.id != self.reference_tbl.tbl_id:
-                raise excs.Error('Cannot recompute column of a base.')
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot recompute column of a base.')
             if tbl_version.is_snapshot:
-                raise excs.Error('Cannot recompute column of a snapshot.')
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot recompute column of a snapshot.')
             col_name = self.col_handle.get().name
             status = tbl_version.recompute_columns([col_name], errors_only=errors_only, cascade=cascade)
             FileCache.get().emit_eviction_warnings()
@@ -186,6 +218,61 @@ class ColumnRef(Expr):
         vector: np.ndarray | None = None,
         idx: str | None = None,
     ) -> Expr:
+        """
+        Return a new expression representing the similarity score between the values of this column and the given
+        (constant) item. In order for this to work, there must be an embedding index defined on this column that
+        supports the modality of the given item (string, image, audio, video, document). Similarity will be scored
+        according to the metric defined by the embedding index.
+
+        Exactly one of `string`, `image`, `audio`, `video`, `document`, or `vector` must be provided. The `item`
+        parameter is deprecated and exists for backward compatibility only.
+
+        If `string`, `image`, `audio`, `video`, or `document` is provided, then an embedding vector will be computed
+        for the given input as defined by the embedding index and used to determine similarity. If `vector` is
+        provided, then it must be a 1-dimensional array of the same dimensionality as the index, and similarity will
+        be determined directly against the vector.
+
+        The optional `idx` parameter specifies the name of the embedding index to use. If there is more than one
+        embedding index defined on this column, then `idx` _must_ be provided.
+
+        Args:
+            string: A string to compare against the values of this column.
+            image: An image to compare against the values of this column (either a local file path, a URL, or an
+                in-memory `PIL.Image.Image`).
+            audio: An audio file to compare against the values of this column (a local file path or a URL).
+            video: A video file to compare against the values of this column (a local file path or a URL).
+            document: A document file to compare against the values of this column (a local file path or a URL).
+            vector: A 1-dimensional NumPy array to compare against the values of this column.
+            idx: An optional embedding index name. _Required_ if there is more than one embedding index defined on
+                this column.
+            item: **Deprecated** as of version 0.5.7.
+
+        Returns:
+            A new expression representing the similarity score between the values of this column and the given item.
+
+        Examples:
+            All of these examples assume that `t` is a table with an image column `t.image`.
+
+            Add an embedding index to `t.image` using the `clip()`
+            embedding (this only needs to be done once):
+
+            >>> from pixeltable.functions.huggingface import clip
+            ...
+            ... t.add_embedding_index(
+            ...     t.image, clip.using(model_id='openai/clip-vit-base-patch32')
+            ... )
+
+            Do a nearest neighbor search against a string (with `k=5`):
+
+            >>> sim = t.image.similarity(string='a photograph of a cat')
+            ... t.select(t.image, sim).order_by(sim, asc=False).head(5)
+
+            Do a nearest neighbor search against an image:
+
+            >>> sim = t.image.similarity(image='https://example.com/reference-cat.jpg')
+            ... t.select(t.image, sim).order_by(sim, asc=False).head(5)
+        """
+
         from .similarity_expr import SimilarityExpr
 
         if item is not None:
@@ -212,12 +299,16 @@ class ColumnRef(Expr):
         )
 
         if item is not None and arg_count != 0:
-            raise excs.Error('similarity(): `item` is deprecated and cannot be used together with modality arguments')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'similarity(): `item` is deprecated and cannot be used together with modality arguments',
+            )
 
         if arg_count > 1:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., document=...,'
-                ' vector=...'
+                ' vector=...',
             )
 
         expr: Expr
@@ -227,34 +318,49 @@ class ColumnRef(Expr):
         if item is not None:
             if isinstance(item, Expr):  # This can happen when using similarity() with @query
                 if not (item.col_type.is_string_type() or item.col_type.is_image_type()):
-                    raise excs.Error(f'similarity(): expected `String` or `Image`; got `{item.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(): expected `String` or `Image`; got `{item.col_type}`',
+                    )
                 expr = item
             else:
                 if not isinstance(item, (str, PIL.Image.Image)):
-                    raise excs.Error(f'similarity(): expected `str` or `PIL.Image.Image`; got `{type(item).__name__}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(): expected `str` or `PIL.Image.Image`; got `{type(item).__name__}`',
+                    )
                 expr = Expr.from_object(item)
                 assert expr.col_type.is_string_type() or expr.col_type.is_image_type()
 
         if string is not None:
             if isinstance(string, Expr):
                 if not string.col_type.is_string_type():
-                    raise excs.Error(f'similarity(string=...): expected `String`; got `{string.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(string=...): expected `String`; got `{string.col_type}`',
+                    )
                 expr = string
             else:
                 if not isinstance(string, str):
-                    raise excs.Error(f'similarity(string=...): expected `str`; got `{type(string).__name__}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(string=...): expected `str`; got `{type(string).__name__}`',
+                    )
                 expr = Expr.from_object(string)
                 assert expr.col_type.is_string_type()
 
         if image is not None:
             if isinstance(image, Expr):
                 if not image.col_type.is_image_type():
-                    raise excs.Error(f'similarity(image=...): expected `Image`; got `{image.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH, f'similarity(image=...): expected `Image`; got `{image.col_type}`'
+                    )
                 expr = image
             else:
                 if not isinstance(image, (str, PIL.Image.Image)):
-                    raise excs.Error(
-                        f'similarity(image=...): expected `str` or `PIL.Image.Image`; got `{type(image).__name__}`'
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(image=...): expected `str` or `PIL.Image.Image`; got `{type(image).__name__}`',
                     )
                 if isinstance(image, str):
                     image_path = fetch_url(image, allow_local_file=True)
@@ -266,12 +372,15 @@ class ColumnRef(Expr):
         if audio is not None:
             if isinstance(audio, Expr):
                 if not audio.col_type.is_audio_type():
-                    raise excs.Error(f'similarity(audio=...): expected `Audio`; got `{audio.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH, f'similarity(audio=...): expected `Audio`; got `{audio.col_type}`'
+                    )
                 expr = audio
             else:
                 if not isinstance(audio, str):
-                    raise excs.Error(
-                        f'similarity(audio=...): expected `str` (path to audio file); got `{type(audio).__name__}`'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'similarity(audio=...): expected `str` (path to audio file); got `{type(audio).__name__}`',
                     )
                 audio_path = fetch_url(audio, allow_local_file=True)
                 expr = Literal(str(audio_path), ts.AudioType())
@@ -279,12 +388,15 @@ class ColumnRef(Expr):
         if video is not None:
             if isinstance(video, Expr):
                 if not video.col_type.is_video_type():
-                    raise excs.Error(f'similarity(video=...): expected `Video`; got `{video.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH, f'similarity(video=...): expected `Video`; got `{video.col_type}`'
+                    )
                 expr = video
             else:
                 if not isinstance(video, str):
-                    raise excs.Error(
-                        f'similarity(video=...): expected `str` (path to video file); got `{type(video).__name__}`'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'similarity(video=...): expected `str` (path to video file); got `{type(video).__name__}`',
                     )
                 video_path = fetch_url(video, allow_local_file=True)
                 expr = Literal(str(video_path), ts.VideoType())
@@ -292,13 +404,17 @@ class ColumnRef(Expr):
         if document is not None:
             if isinstance(document, Expr):
                 if not document.col_type.is_document_type():
-                    raise excs.Error(f'similarity(document=...): expected `Document`; got `{document.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(document=...): expected `Document`; got `{document.col_type}`',
+                    )
                 expr = document
             else:
                 if not isinstance(document, str):
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
                         'similarity(document=...): expected `str` (path to document file); '
-                        f'got `{type(document).__name__}`'
+                        f'got `{type(document).__name__}`',
                     )
                 document_path = fetch_url(document, allow_local_file=True)
                 expr = Literal(str(document_path), ts.DocumentType())
@@ -306,19 +422,29 @@ class ColumnRef(Expr):
         if vector is not None:
             if isinstance(vector, Expr):
                 if not vector.col_type.is_array_type():
-                    raise excs.Error(f'similarity(vector=...): expected `Array`; got `{vector.col_type}`')
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'similarity(vector=...): expected `Array`; got `{vector.col_type}`',
+                    )
                 expr = vector
             else:
                 if not isinstance(vector, np.ndarray):
-                    raise excs.Error(
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'similarity(vector=...): expected `numpy.ndarray`, or array `Expr`; '
-                        f'got `{type(vector).__name__}`'
+                        f'got `{type(vector).__name__}`',
                     )
                 if vector.ndim != 1:
-                    raise excs.Error(f'similarity(vector=...): expected 1-dimensional array; got shape {vector.shape}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'similarity(vector=...): expected 1-dimensional array; got shape {vector.shape}',
+                    )
 
                 if not np.issubdtype(vector.dtype, np.floating):
-                    raise excs.Error(f'similarity(vector=...): expected float array; got dtype {vector.dtype}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'similarity(vector=...): expected float array; got dtype {vector.dtype}',
+                    )
 
                 col_type = ts.ColumnType.infer_literal_type(vector)
                 expr = Literal(vector, col_type=col_type)
@@ -326,6 +452,46 @@ class ColumnRef(Expr):
         return SimilarityExpr(expr, col_ref=self, idx_name=idx)
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
+        """
+        Return a reference to the values of an embedding index on this column.
+
+        If an embedding index is defined on a column, the usual way to use that index is via a
+        [`similarity()`][pixeltable.exprs.ColumnRef.similarity] lookup. Sometimes it is also useful to directly access
+        the index values (i.e., the embedding vectors themselves). Calling `embedding()` returns a new `ColumnRef`
+        expression of type `pxt.Array[(dim,), prec]`, where `dim` and `prec` are the dimensionality and precision
+        of the column's embedding index.
+
+        If there is more than one embedding index defined on this column, then the `idx` parameter must be provided to
+        specify which index to reference. If there is only one index, then `idx` is optional.
+
+        Args:
+            idx: An optional embedding index name. _Required_ if there is more than one embedding index defined on
+                this column.
+
+        Returns:
+            A new `ColumnRef` referencing the values of the specified embedding index on this column.
+
+        Raises:
+            `pxt.Error` if there is no embedding index defined on this column, if `idx` is not provided when there are
+            multiple embedding indices, or if `idx` does not match any embedding index defined on this column.
+
+        Examples:
+            All of these examples assume that `t` is a table with an image column `t.image`.
+
+            Add an embedding index to `t.image` using the `clip()`
+            embedding (this only needs to be done once):
+
+            >>> from pixeltable.functions.huggingface import clip
+            ...
+            ... t.add_embedding_index(
+            ...     t.image, clip.using(model_id='openai/clip-vit-base-patch32')
+            ... )
+
+            Reference the embedding index values directly:
+
+            >>> t.select(t.image, t.image.embedding())
+        """
+
         from pixeltable.index import EmbeddingIndex
 
         idx_info = self.tbl.get().get_idx(self.col, idx, EmbeddingIndex)
@@ -333,13 +499,13 @@ class ColumnRef(Expr):
 
     @property
     def tbl(self) -> catalog.TableVersionHandle:
-        return self.reference_tbl.tbl_version if self.reference_tbl is not None else self.col.tbl_handle
+        return self.reference_tbl.tbl_version if self.reference_tbl is not None else self.col_handle.tbl_version
 
     def default_column_name(self) -> str | None:
-        return self.col.name if self.col is not None else None
+        return self.col_handle.get().name
 
     def _equals(self, other: ColumnRef) -> bool:
-        return self.col == other.col and self.perform_validation == other.perform_validation
+        return self.col_handle == other.col_handle and self.perform_validation == other.perform_validation
 
     def select(self) -> 'Query':
         import pixeltable.plan as plan
@@ -347,7 +513,7 @@ class ColumnRef(Expr):
 
         if self.reference_tbl is None:
             # No reference table; use the current version of the table to which the column belongs
-            tbl = get_runtime().catalog.get_table_by_id(self.col.tbl_handle.id)
+            tbl = get_runtime().catalog.get_table_by_id(self.col_handle.tbl_version.id)
             return tbl.select(self)
         else:
             # Explicit reference table; construct a Query directly from it
@@ -370,10 +536,11 @@ class ColumnRef(Expr):
         return self.select().distinct()
 
     def __str__(self) -> str:
-        if self.col.name is None:
-            return f'<unnamed column {self.col.id}>'
+        col = self.col
+        if col.name is None:
+            return f'<unnamed column {col.id}>'
         else:
-            return self.col.name
+            return col.name
 
     def __repr__(self) -> str:
         return self._descriptors().to_string()
@@ -383,22 +550,23 @@ class ColumnRef(Expr):
 
     def _descriptors(self) -> DescriptionHelper:
         with get_runtime().catalog.begin_xact():
-            tbl = get_runtime().catalog.get_table_by_id(self.col.tbl_handle.id)
+            tbl = get_runtime().catalog.get_table_by_id(self.col_handle.tbl_version.id)
+        col = self.col
         helper = DescriptionHelper()
-        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
-        col_df, _ = tbl._col_descriptor([self.col.name])
+        helper.append(f'Column\n{col.name!r}\n(of table {tbl._path()!r})')
+        col_df, _ = tbl._col_descriptor([col.name])
         helper.append(col_df)
-        idxs = tbl._index_descriptor([self.col.name])
+        idxs = tbl._index_descriptor([col.name])
         if len(idxs) > 0:
             helper.append(idxs)
         return helper
 
-    def prepare(self) -> None:
+    def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         from pixeltable import store
 
-        if not self.is_unstored_iter_col:
+        if not self.needs_iterator_evaluation:
             return
-        col = self.col_handle.get()
+        col = self.col
         self.base_rowid_len = col.get_tbl().base.get().num_rowid_columns()
         self.base_rowid = [None] * self.base_rowid_len
         assert isinstance(col.get_tbl().store_tbl, store.StoreComponentView)
@@ -407,10 +575,10 @@ class ColumnRef(Expr):
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         if self.perform_validation:
             return None
-        self.col = self.col_handle.get()
         return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        col = self.col
         if self.perform_validation:
             # validate media file of our input ColumnRef and if successful, replicate the state of that slot
             # to our slot
@@ -424,7 +592,7 @@ class ColumnRef(Expr):
                 return
 
             try:
-                self.col.col_type.validate_media(data_row.file_paths[unvalidated_slot_idx])
+                col.col_type.validate_media(data_row.file_paths[unvalidated_slot_idx])
                 # access the value only after successful validation
                 val = data_row[unvalidated_slot_idx]
                 data_row.vals[self.slot_idx] = val
@@ -440,7 +608,7 @@ class ColumnRef(Expr):
                 row_builder.set_exc(data_row, self.slot_idx, exc)
                 return
 
-        if not self.is_unstored_iter_col:
+        if not self.needs_iterator_evaluation:
             # supply default
             data_row[self.slot_idx] = None
             return
@@ -450,24 +618,24 @@ class ColumnRef(Expr):
             assert self.iter_arg_ctx is not None
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.get_tbl().iterator_call.eval(iterator_args)
+            self.iterator = col.get_tbl().iterator_call.eval(iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
         assert all(name is not None for name in stored_outputs)
         assert isinstance(self.iterator, func.PxtIterator)  # Otherwise we could not have an unstored column
         self.iterator.seek(data_row.pk[self.pos_idx], **stored_outputs)
         res = next(self.iterator)
-        data_row[self.slot_idx] = res[self.col.name]
+        data_row[self.slot_idx] = res[col.name]
 
     def _as_dict(self) -> dict:
-        tbl_handle = self.col.tbl_handle
+        tbl_handle = self.col_handle.tbl_version
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
         assert tbl_handle.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(tbl_handle.id),
             'tbl_version': tbl_handle.effective_version,
-            'col_id': self.col.id,
+            'col_id': self.col_handle.col_id,
             'reference_tbl': self.reference_tbl.as_dict() if self.reference_tbl is not None else None,
             'perform_validation': self.perform_validation,
         }

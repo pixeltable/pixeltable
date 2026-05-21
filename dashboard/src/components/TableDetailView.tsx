@@ -1,5 +1,12 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  Panel,
+  PanelGroup,
+  PanelResizeHandle,
+  type ImperativePanelGroupHandle,
+  type ImperativePanelHandle,
+} from 'react-resizable-panels'
 import { getTableMetadata, getTableData, getPipeline } from '@/api/client'
 import { useDebounce } from '@/hooks/useDebounce'
 import type {
@@ -280,7 +287,9 @@ function JsonNode({ keyName, value, depth, expandLevel, searchMatch, path }: {
 
 // ── Expandable Cell Detail ─────────────────────────────────────────────────
 
-function CellDetail({ value, onClose }: { value: string; onClose: () => void }) {
+function CellDetail({ value, onClose, pythonHighlight = false }: {
+  value: string; onClose: () => void; pythonHighlight?: boolean
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -386,6 +395,10 @@ function CellDetail({ value, onClose }: { value: string; onClose: () => void }) 
         <div className="flex-1 overflow-auto p-3 text-[11px] font-mono leading-relaxed select-text">
           {isJson && !viewRaw ? (
             <JsonNode value={parsed} depth={0} expandLevel={expandLevel} searchMatch={searchLower} path="$" />
+          ) : pythonHighlight && !viewRaw ? (
+            <div className="whitespace-pre-wrap break-all text-foreground/90">
+              <PythonExpr code={value} />
+            </div>
           ) : (
             <pre className="whitespace-pre-wrap break-words text-foreground/90">{formatted}</pre>
           )}
@@ -403,6 +416,9 @@ const TRUNCATE_JSON_CHARS = 80
 function Cell({ value, column, error, onMediaExpand }: { value: unknown; column: DataColumn; error?: CellError; onMediaExpand?: () => void }) {
   const [expanded, setExpanded] = useState(false)
 
+  if (!column.is_stored) {
+    return <span className="text-muted-foreground/40 italic text-[11px]" title="Unstored column — value not loaded">unstored</span>
+  }
   if (error) {
     return (
       <div className="group/err relative flex items-center gap-1.5 rounded px-1.5 py-0.5 bg-destructive/10 border border-destructive/30 cursor-default" title={`${error.error_type}: ${error.error_msg}`}>
@@ -740,12 +756,97 @@ function FilterPanel({ columns, data, filters, onChange, onClose }: {
 // ── Column Chips ───────────────────────────────────────────────────────────
 
 const SCHEMA_FILTER_THRESHOLD = 20
-const SCHEMA_MAX_HEIGHT = 'max-h-[50vh]'
+
+type SchemaColKey = 'name' | 'type' | 'expr'
+type SchemaColWidths = Record<SchemaColKey, number>
+const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 160, type: 140, expr: 360 }
+const SCHEMA_COL_MIN: SchemaColWidths = { name: 80, type: 80, expr: 120 }
+const SCHEMA_COL_MAX = 800
+const SCHEMA_COLS_STORAGE_KEY = 'pxt-schema-cols'
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, n))
+}
+
+function loadSchemaColWidths(): SchemaColWidths {
+  try {
+    const raw = localStorage.getItem(SCHEMA_COLS_STORAGE_KEY)
+    if (!raw) return SCHEMA_COL_DEFAULTS
+    const parsed = JSON.parse(raw) as Partial<SchemaColWidths>
+    if (!parsed || typeof parsed !== 'object') return SCHEMA_COL_DEFAULTS
+    return {
+      name: Number.isFinite(parsed.name) ? clamp(parsed.name as number, SCHEMA_COL_MIN.name, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.name,
+      type: Number.isFinite(parsed.type) ? clamp(parsed.type as number, SCHEMA_COL_MIN.type, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.type,
+      expr: Number.isFinite(parsed.expr) ? clamp(parsed.expr as number, SCHEMA_COL_MIN.expr, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.expr,
+    }
+  } catch {
+    return SCHEMA_COL_DEFAULTS
+  }
+}
+
+function ColResizeHandle({ atMin, getStartWidth, onResize, onReset }: {
+  atMin: boolean
+  getStartWidth: () => number
+  onResize: (newWidth: number) => void
+  onReset: () => void
+}) {
+  return (
+    <div
+      onPointerDown={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const el = e.currentTarget
+        const pointerId = e.pointerId
+        el.setPointerCapture(pointerId)
+        const startX = e.clientX
+        const startW = getStartWidth()
+        const onMove = (m: PointerEvent) => onResize(startW + (m.clientX - startX))
+        const cleanup = () => {
+          el.removeEventListener('pointermove', onMove)
+          el.removeEventListener('pointerup', cleanup)
+          el.removeEventListener('pointercancel', cleanup)
+          if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId)
+        }
+        el.addEventListener('pointermove', onMove)
+        el.addEventListener('pointerup', cleanup)
+        el.addEventListener('pointercancel', cleanup)
+      }}
+      onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation(); onReset() }}
+      className="group absolute right-0 top-0 h-full w-2 cursor-col-resize select-none flex items-center justify-end"
+      title="Drag to resize · double-click to reset"
+    >
+      <div className={cn(
+        'w-px h-full transition-all',
+        atMin
+          ? 'bg-destructive/70 group-hover:bg-destructive group-hover:w-0.5'
+          : 'bg-border group-hover:bg-foreground/60 group-hover:w-0.5',
+      )} />
+    </div>
+  )
+}
 
 function ColumnChips({ columns, indices, expanded, onToggle }: {
   columns: ColumnInfo[]; indices: IndexInfo[]; expanded: boolean; onToggle: () => void
 }) {
   const [filter, setFilter] = useState('')
+  const [expandedExpr, setExpandedExpr] = useState<string | null>(null)
+  const [colWidths, setColWidths] = useState<SchemaColWidths>(() => loadSchemaColWidths())
+  useEffect(() => {
+    localStorage.setItem(SCHEMA_COLS_STORAGE_KEY, JSON.stringify(colWidths))
+  }, [colWidths])
+
+  const handleResize = useCallback(
+    (key: SchemaColKey) => (newWidth: number) =>
+      setColWidths(w => {
+        const next = clamp(newWidth, SCHEMA_COL_MIN[key], SCHEMA_COL_MAX)
+        return w[key] === next ? w : { ...w, [key]: next }
+      }),
+    [],
+  )
+  const resetCol = useCallback(
+    (key: SchemaColKey) => setColWidths(w => ({ ...w, [key]: SCHEMA_COL_DEFAULTS[key] })),
+    [],
+  )
   const sourceCount = columns.filter(c => !c.is_computed).length
   const computedCount = columns.filter(c => c.is_computed).length
   const showFilter = columns.length >= SCHEMA_FILTER_THRESHOLD
@@ -757,8 +858,8 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
   }, [columns, filter])
 
   return (
-    <div className="border-b border-border/40">
-      <div className="flex items-center gap-2 px-4 py-2">
+    <div className="border-b border-border/40 flex flex-col h-full min-h-0">
+      <div className="flex items-center gap-2 px-4 py-2 shrink-0">
         <button
           onClick={onToggle}
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
@@ -797,7 +898,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
       </div>
 
       {!expanded && (
-        <div className={cn('overflow-y-auto px-4 pb-2.5', SCHEMA_MAX_HEIGHT)}>
+        <div data-schema-scroll className="overflow-y-auto px-4 pb-2.5 flex-1 min-h-0">
           <div className="flex flex-wrap gap-1.5">
             {filtered.map(col => (
               <div
@@ -830,36 +931,77 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
       )}
 
       {expanded && (
-        <div className={cn('border-t border-border/30 overflow-y-auto', SCHEMA_MAX_HEIGHT)}>
-          <div className="px-4 py-2.5">
-            <table className="w-full text-[11px]">
+        <div data-schema-scroll className="border-t border-border/30 overflow-y-auto overflow-x-auto flex-1 min-h-0">
+          <div className="px-4 py-1">
+            <table className="w-full text-[11px] table-fixed">
+              <colgroup>
+                <col style={{ width: colWidths.name }} />
+                <col style={{ width: colWidths.type }} />
+                <col style={{ width: colWidths.expr }} />
+                <col />
+              </colgroup>
               <thead className="sticky top-0 bg-background z-10">
                 <tr className="border-b border-border/30 text-left text-muted-foreground">
-                  <th className="py-1.5 px-2 font-medium">Name</th>
-                  <th className="py-1.5 px-2 font-medium">Type</th>
-                  <th className="py-1.5 px-2 font-medium">Expression</th>
+                  <th className="relative py-1.5 px-2 font-medium overflow-visible">
+                    Name
+                    <ColResizeHandle
+                      atMin={colWidths.name <= SCHEMA_COL_MIN.name}
+                      getStartWidth={() => colWidths.name}
+                      onResize={handleResize('name')}
+                      onReset={() => resetCol('name')}
+                    />
+                  </th>
+                  <th className="relative py-1.5 px-2 font-medium overflow-visible">
+                    Type
+                    <ColResizeHandle
+                      atMin={colWidths.type <= SCHEMA_COL_MIN.type}
+                      getStartWidth={() => colWidths.type}
+                      onResize={handleResize('type')}
+                      onReset={() => resetCol('type')}
+                    />
+                  </th>
+                  <th className="relative py-1.5 px-2 font-medium overflow-visible">
+                    Expression
+                    <ColResizeHandle
+                      atMin={colWidths.expr <= SCHEMA_COL_MIN.expr}
+                      getStartWidth={() => colWidths.expr}
+                      onResize={handleResize('expr')}
+                      onReset={() => resetCol('expr')}
+                    />
+                  </th>
                   <th className="py-1.5 px-2 font-medium">Info</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(col => (
                   <tr key={col.name} className="border-b border-border/20 hover:bg-accent/20 transition-colors">
-                    <td className="py-1.5 px-2">
+                    <td className="py-1.5 px-2 overflow-hidden" title={col.name}>
                       <div className="flex items-center gap-1.5">
                         {col.is_primary_key && <Key className="h-3 w-3 text-k-yellow shrink-0" />}
                         {col.is_computed && <Zap className="h-3 w-3 text-k-yellow/60 shrink-0" />}
-                        <span className="font-mono font-medium text-foreground">{col.name}</span>
+                        <span className="font-mono font-medium text-foreground truncate">{col.name}</span>
                       </div>
                     </td>
-                    <td className="py-1.5 px-2">
+                    <td className="py-1.5 px-2 overflow-hidden" title={col.type_}>
                       <ColumnTypeBadge type={col.type_} />
                     </td>
-                    <td className="py-1.5 px-2">
-                      {col.is_computed && col.computed_with ? (
-                        <div className="bg-accent/50 px-2 py-0.5 rounded max-w-lg line-clamp-3 overflow-hidden" title={col.computed_with}>
-                          <PythonExpr code={col.computed_with} className="text-[11px] font-mono leading-relaxed break-all" />
-                        </div>
-                      ) : (
+                    <td className="py-1.5 px-2 overflow-hidden">
+                      {col.is_computed && col.computed_with ? (() => {
+                        const expr = col.computed_with
+                        const isLong = expr.length > 60
+                        return (
+                          <div
+                            className={cn(
+                              'bg-accent/50 px-2 py-0.5 rounded line-clamp-3 overflow-hidden',
+                              isLong && 'cursor-pointer hover:bg-accent/80 transition-colors',
+                            )}
+                            title={isLong ? 'Click to expand' : expr}
+                            onClick={isLong ? () => setExpandedExpr(expr) : undefined}
+                          >
+                            <PythonExpr code={expr} className="text-[11px] font-mono leading-relaxed break-all" />
+                          </div>
+                        )
+                      })() : (
                         <span className="text-muted-foreground/60 text-[11px]">—</span>
                       )}
                     </td>
@@ -943,6 +1085,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
           Showing {filtered.length} of {columns.length} columns
         </div>
       )}
+      {expandedExpr && <CellDetail value={expandedExpr} onClose={() => setExpandedExpr(null)} pythonHighlight />}
     </div>
   )
 }
@@ -981,7 +1124,7 @@ function SdkSnippet({ metadata }: { metadata: TableMetadata }) {
   )
 }
 
-function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableMetadata; onTableClick: (path: string) => void; totalErrors: number }) {
+function TableHeader({ metadata, onTableClick }: { metadata: TableMetadata; onTableClick: (path: string) => void }) {
   const [showSnippet, setShowSnippet] = useState(false)
   const kind = metadata.kind
 
@@ -1010,13 +1153,18 @@ function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableM
         )}>
           {kind}
         </span>
-        <span className="text-xs text-muted-foreground tabular-nums">v{metadata.version}</span>
-        {Object.keys(metadata.indices).length > 0 && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Info className="h-3 w-3" />
-            <span className="tabular-nums">{Object.keys(metadata.indices).length} idx</span>
-          </span>
+        {metadata.version !== null && (
+          <span className="text-xs text-muted-foreground tabular-nums">v{metadata.version}</span>
         )}
+        {(() => {
+          const embeddingIdxCount = Object.values(metadata.indices).filter(i => i.index_type === 'embedding').length
+          return embeddingIdxCount > 0 && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Info className="h-3 w-3" />
+              <span className="tabular-nums">{embeddingIdxCount} idx</span>
+            </span>
+          )
+        })()}
         {metadata.media_validation && (
           <span className="text-[10px] text-muted-foreground/70 bg-muted/30 px-1.5 py-0.5 rounded border border-border/30"
             title={`Media validation: ${metadata.media_validation}`}>
@@ -1025,12 +1173,6 @@ function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableM
         )}
         {metadata.version_created && (
           <span className="text-[11px] text-muted-foreground">{new Date(metadata.version_created).toLocaleDateString()}</span>
-        )}
-        {totalErrors > 0 && (
-          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-destructive/10 text-destructive border border-destructive/20">
-            <AlertTriangle className="h-2.5 w-2.5" />
-            {totalErrors} error{totalErrors !== 1 ? 's' : ''}
-          </span>
         )}
         <button
           onClick={() => setShowSnippet(!showSnippet)}
@@ -1121,12 +1263,7 @@ function LineagePanel({ tablePath, pipelineData, pipelineColumns, onTableClick, 
         </div>
         <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
           <span className="tabular-nums">{node.row_count.toLocaleString()} rows</span>
-          <span>v{node.version}</span>
-          {node.total_errors > 0 && (
-            <span className="text-destructive flex items-center gap-0.5">
-              <AlertTriangle className="h-2.5 w-2.5" />{node.total_errors}
-            </span>
-          )}
+          {node.version !== null && <span>v{node.version}</span>}
         </div>
         <div className="flex items-center gap-1 mt-1 text-[11px] text-muted-foreground">
           <span>{node.insertable_count} stored</span>
@@ -1319,6 +1456,18 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [schemaExpanded, setSchemaExpanded] = useState(true)
+  const schemaPanelRef = useRef<ImperativePanelHandle>(null)
+  const groupRef = useRef<ImperativePanelGroupHandle>(null)
+  const groupContainerRef = useRef<HTMLDivElement>(null)
+  const schemaContentRef = useRef<HTMLDivElement>(null)
+  const fittingRef = useRef(false)
+  const mountedRef = useRef(false)
+  const toggleSchema = useCallback(() => {
+    const p = schemaPanelRef.current
+    if (!p) return
+    if (p.isCollapsed()) p.expand()
+    else p.collapse()
+  }, [])
   const [pipelineColumns, setPipelineColumns] = useState<PipelineColumn[] | null>(null)
   const [pipelineData, setPipelineData] = useState<{ nodes: PipelineNodeType[]; edges: PipelineEdge[] } | null>(null)
   const [contentTab, setContentTab] = useState<'data' | 'lineage' | 'history'>('data')
@@ -1338,15 +1487,10 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
       .finally(() => setMetaLoading(false))
   }, [tablePath])
 
-  const totalErrors = useMemo(
-    () => pipelineData?.nodes.find(n => n.path === tablePath)?.total_errors ?? 0,
-    [pipelineData, tablePath],
-  )
-
-  // Fetch pipeline data (needed for error counts and lineage/history tabs)
+  // Fetch scoped pipeline data for the lineage/history tabs.
   useEffect(() => {
     if (pipelineData) return
-    getPipeline()
+    getPipeline(tablePath)
       .then(p => {
         setPipelineData(p)
         const node = p.nodes.find(n => n.path === tablePath)
@@ -1386,7 +1530,34 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
     setSchemaExpanded(true)
     setPipelineColumns(null); setPipelineData(null)
     setContentTab('data'); setSearchQuery('')
+    mountedRef.current = false
   }, [tablePath])
+
+  // Fit schema panel to its natural content height the first time we open this table.
+  // Subsequent visits restore the user's last drag via autoSaveId.
+  useLayoutEffect(() => {
+    if (!metadata) return
+    if (localStorage.getItem(`pxt-table-layout-customized-${metadata.id}`) === '1') return
+    const group = groupRef.current
+    const groupEl = groupContainerRef.current
+    const wrapperEl = schemaContentRef.current
+    if (!group || !groupEl || !wrapperEl) return
+    const scrollableEl = wrapperEl.querySelector<HTMLElement>('[data-schema-scroll]')
+    const contentEl = scrollableEl?.firstElementChild as HTMLElement | null
+    if (!scrollableEl || !contentEl) return
+    const groupHeight = groupEl.clientHeight
+    // The scrollable div is flex-1 and grows to fill the panel, so its scrollHeight matches the
+    // panel's allotment whenever content fits. Measure the inner block child instead — it sizes
+    // to its natural content height regardless of the panel's current size.
+    const fixedHeight = wrapperEl.clientHeight - scrollableEl.clientHeight
+    const contentHeight = contentEl.getBoundingClientRect().height
+    const naturalHeight = fixedHeight + contentHeight
+    if (groupHeight === 0 || naturalHeight === 0) return
+    const pct = Math.min(70, Math.max(5, (naturalHeight / groupHeight) * 100))
+    fittingRef.current = true
+    group.setLayout([pct, 100 - pct])
+    queueMicrotask(() => { fittingRef.current = false })
+  }, [metadata])
 
   // ⌘F shortcut → focus inline search
   useEffect(() => {
@@ -1476,16 +1647,50 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   return (
     <div className="flex flex-col h-full animate-fade-in">
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <TableHeader metadata={metadata} onTableClick={(path) => navigate(`/table/${path}`)} totalErrors={totalErrors} />
+      <TableHeader metadata={metadata} onTableClick={(path) => navigate(`/table/${path}`)} />
 
-      {/* ── Column Chips ────────────────────────────────────────────── */}
-      <ColumnChips
-        columns={Object.values(metadata.columns)}
-        indices={Object.values(metadata.indices)}
-        expanded={schemaExpanded}
-        onToggle={() => setSchemaExpanded(!schemaExpanded)}
-      />
+      <div ref={groupContainerRef} className="flex-1 min-h-0 flex flex-col">
+      <PanelGroup
+        key={metadata.id}
+        ref={groupRef}
+        direction="vertical"
+        autoSaveId={`pxt-table-layout-${metadata.id}`}
+        onLayout={() => {
+          if (!mountedRef.current) {
+            mountedRef.current = true
+            return
+          }
+          if (fittingRef.current) return
+          localStorage.setItem(`pxt-table-layout-customized-${metadata.id}`, '1')
+        }}
+        className="flex-1 min-h-0"
+      >
+        {/* ── Schema Panel ──────────────────────────────────────────── */}
+        <Panel
+          ref={schemaPanelRef}
+          defaultSize={25}
+          minSize={5}
+          maxSize={70}
+          collapsible
+          collapsedSize={5}
+          onCollapse={() => setSchemaExpanded(false)}
+          onExpand={() => setSchemaExpanded(true)}
+          className="flex flex-col min-h-0 overflow-hidden"
+        >
+          <div ref={schemaContentRef} className="flex flex-col h-full min-h-0">
+          <ColumnChips
+            columns={Object.values(metadata.columns)}
+            indices={Object.values(metadata.indices).filter(idx => idx.index_type === 'embedding')}
+            expanded={schemaExpanded}
+            onToggle={toggleSchema}
+          />
+          </div>
+        </Panel>
 
+        <PanelResizeHandle className="h-px bg-border/60 hover:h-1 hover:bg-accent transition-all data-[resize-handle-state=drag]:bg-accent data-[resize-handle-state=drag]:h-1 cursor-row-resize" />
+
+        {/* ── Data Panel ────────────────────────────────────────────── */}
+        <Panel className="flex flex-col min-h-0 overflow-hidden">
       {/* ── Content Tab Toggle + Toolbar ──────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 gap-3 shrink-0">
         {/* Left: tab toggle + row count/search */}
@@ -1501,7 +1706,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
               Data
             </button>
             <button
-              onClick={() => { setContentTab('lineage'); setSchemaExpanded(false) }}
+              onClick={() => setContentTab('lineage')}
               className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors',
                 contentTab === 'lineage' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
             >
@@ -1615,21 +1820,19 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           )}
 
           {/* Error rows only toggle */}
-          {totalErrors > 0 && (
-            <button
-              onClick={() => { setErrorsOnly(!errorsOnly); setPage(0) }}
-              className={cn(
-                'flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors',
-                errorsOnly
-                  ? 'bg-destructive/15 text-destructive border border-destructive/30'
-                  : 'hover:bg-accent text-muted-foreground',
-              )}
-              title="Show only rows with errors"
-            >
-              <AlertTriangle className="h-3 w-3" />
-              {errorsOnly && 'Errors'}
-            </button>
-          )}
+          <button
+            onClick={() => { setErrorsOnly(!errorsOnly); setPage(0) }}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors',
+              errorsOnly
+                ? 'bg-destructive/15 text-destructive border border-destructive/30'
+                : 'hover:bg-accent text-muted-foreground',
+            )}
+            title="Show only rows with errors"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            {errorsOnly && 'Errors'}
+          </button>
 
           {/* Faceted filter toggle */}
           <button
@@ -1725,16 +1928,26 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-card/95 backdrop-blur-sm z-10">
                   <tr className="border-b border-border/60">
-                    {data.columns.map(col => (
-                      <th key={col.name} onClick={() => handleSort(col.name)}
-                        className="text-left px-3.5 py-2 font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors group whitespace-nowrap font-mono">
+                    {data.columns.map(col => {
+                      const sortable = col.is_sorted
+                      return (
+                        <th
+                          key={col.name}
+                          onClick={sortable ? () => handleSort(col.name) : undefined}
+                          className={cn(
+                            'text-left px-3.5 py-2 font-medium text-muted-foreground transition-colors group whitespace-nowrap font-mono',
+                            sortable ? 'cursor-pointer hover:text-foreground' : 'cursor-default text-muted-foreground/60',
+                          )}
+                          title={sortable ? undefined : (col.is_stored ? 'Not indexed - cannot sort' : 'Unstored - cannot sort')}
+                        >
                         <div className="flex items-center gap-1">
                           <ColumnTypeIcon type={col.type} className="h-3 w-3" />
                           {col.name}
                           {orderBy === col.name && (orderDesc ? <ChevronDown className="h-3 w-3 text-k-yellow" /> : <ChevronUp className="h-3 w-3 text-k-yellow" />)}
                         </div>
-                      </th>
-                    ))}
+                        </th>
+                      )
+                    })}
                   </tr>
                 </thead>
                 <tbody>
@@ -1835,6 +2048,9 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           </div>
         </div>
       )}
+        </Panel>
+      </PanelGroup>
+      </div>
 
       {/* Media Lightbox (from clicking a media cell in table view) */}
       {lightboxCell && data && (() => {

@@ -113,7 +113,9 @@ async def text_to_image(
     task = await client.text_to_image.create(**kwargs)
     result = await task.wait_for_task_output()
     if result.status != 'SUCCEEDED':
-        raise pxt.Error(f'RunwayML task failed with status: {result.status}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, f'RunwayML task failed with status: {result.status}'
+        )
     return _serialize_result(result.to_dict())
 
 
@@ -172,7 +174,9 @@ async def text_to_video(
     task = await client.text_to_video.create(**kwargs)
     result = await task.wait_for_task_output()
     if result.status != 'SUCCEEDED':
-        raise pxt.Error(f'RunwayML task failed with status: {result.status}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, f'RunwayML task failed with status: {result.status}'
+        )
     return _serialize_result(result.to_dict())
 
 
@@ -244,7 +248,9 @@ async def image_to_video(
     task = await client.image_to_video.create(**kwargs)
     result = await task.wait_for_task_output()
     if result.status != 'SUCCEEDED':
-        raise pxt.Error(f'RunwayML task failed with status: {result.status}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, f'RunwayML task failed with status: {result.status}'
+        )
     return _serialize_result(result.to_dict())
 
 
@@ -301,7 +307,9 @@ async def video_to_video(
     task = await client.video_to_video.create(**kwargs)
     result = await task.wait_for_task_output()
     if result.status != 'SUCCEEDED':
-        raise pxt.Error(f'RunwayML task failed with status: {result.status}')
+        raise pxt.RequestError(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, f'RunwayML task failed with status: {result.status}'
+        )
     return _serialize_result(result.to_dict())
 
 

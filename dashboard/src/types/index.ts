@@ -1,13 +1,24 @@
 // API response types
 
-export interface TreeNode {
+export type TableKind = 'table' | 'view' | 'snapshot' | 'replica';
+
+export interface DirectoryNode {
   name: string;
   path: string;
-  kind: 'directory' | 'table' | 'view' | 'snapshot' | 'replica';
-  version?: number | null;
-  error_count?: number;
-  children?: TreeNode[];
+  kind: 'directory';
+  entries: TreeNode[];
 }
+
+export interface TableNode {
+  name: string;
+  path: string;
+  kind: TableKind;
+  version: number | null;
+  error_count: number;
+  base: string | null;
+}
+
+export type TreeNode = DirectoryNode | TableNode;
 
 // Matches Python ColumnMetadata TypedDict
 export interface ColumnInfo {
@@ -37,12 +48,13 @@ export interface EmbeddingIndexParams {
 export interface IndexInfo {
   name: string;
   columns: string[];
-  index_type: string;
-  parameters: EmbeddingIndexParams;
+  index_type: 'embedding' | 'btree';
+  parameters: EmbeddingIndexParams | null;
 }
 
 // Matches Python TableMetadata TypedDict
 export interface TableMetadata {
+  id: string;
   name: string;
   path: string;
   columns: Record<string, ColumnInfo>;
@@ -50,7 +62,7 @@ export interface TableMetadata {
   is_replica: boolean;
   is_view: boolean;
   is_snapshot: boolean;
-  version: number;
+  version: number | null;
   version_created: string;
   schema_version: number;
   comment: string | null;
@@ -66,6 +78,8 @@ export interface DataColumn {
   type: string;
   is_media: boolean;
   is_computed: boolean;
+  is_stored: boolean;
+  is_sorted: boolean;
 }
 
 export interface CellError {
@@ -105,7 +119,6 @@ export interface PipelineColumn {
   defined_in_self: boolean;
   func_name: string | null;
   func_type: 'builtin' | 'custom_udf' | 'query' | 'iterator' | 'unknown' | null;
-  error_count: number;
   depends_on?: string[];
   comment?: string;
 }
@@ -133,8 +146,7 @@ export interface PipelineNode extends Record<string, unknown> {
   is_view: boolean;
   base: string | null;
   row_count: number;
-  version: number;
-  total_errors: number;
+  version: number | null;
   columns: PipelineColumn[];
   indices: PipelineIndex[];
   versions: PipelineVersion[];
@@ -149,6 +161,7 @@ export interface PipelineEdge {
   target: string;
   type: string;
   label: string;
+  base_version?: number;
 }
 
 export interface PipelineResponse {

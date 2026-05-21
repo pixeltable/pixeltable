@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
+from uuid import UUID
 
 import pandas as pd
 import pydantic
@@ -17,7 +18,7 @@ from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
 from pixeltable.share.protocol import PxtUri
-from pixeltable.types import ColumnSpec
+from pixeltable.types import ColumnSpec, DirectoryNode, TableKind, TableNode, TreeNode
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -37,15 +38,16 @@ if TYPE_CHECKING:
     ]
 
 
-def init(config_overrides: dict[str, Any] | None = None) -> None:
+def init(config_overrides: dict[str, Any] | None = None, additional_config_files: list[str] | None = None) -> None:
     """Initializes the Pixeltable environment.
 
     Args:
         config_overrides: Optional dictionary of configuration overrides.
+        additional_config_files: Optional list of additional TOML config file paths to load.
     """
     if config_overrides is None:
         config_overrides = {}
-    Config.init(config_overrides)
+    Config.init(config_overrides, additional_config_files=additional_config_files)
     _ = get_runtime().catalog
 
 
@@ -59,12 +61,12 @@ def create_table(
     create_default_idxs: bool = True,
     on_error: Literal['abort', 'ignore'] = 'abort',
     primary_key: str | list[str] | None = None,
-    num_retained_versions: int = 10,
     comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     extra_args: dict[str, Any] | None = None,  # Additional arguments to data source provider
+    _is_versioned: bool = True,
 ) -> catalog.Table:
     """Create a new base table. Exactly one of `schema` or `source` must be provided.
 
@@ -95,7 +97,6 @@ def create_table(
                 corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
             table.
-        num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
         custom_metadata: Optional user-defined metadata to associate with the table. Must be a valid JSON-serializable
             object [str, int, float, bool, dict, list].
@@ -172,10 +173,12 @@ def create_table(
     from pixeltable.io.utils import normalize_primary_key_parameter
 
     if (schema is None) == (source is None):
-        raise excs.Error('Either a `schema` or a `source` must be provided (but not both)')
+        raise excs.RequestError(
+            excs.ErrorCode.MISSING_REQUIRED, 'Either a `schema` or a `source` must be provided (but not both)'
+        )
 
     if schema is not None and (len(schema) == 0 or not isinstance(schema, dict)):
-        raise excs.Error('`schema` must be a non-empty dictionary')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`schema` must be a non-empty dictionary')
 
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
@@ -184,11 +187,12 @@ def create_table(
     data_source: TableDataConduit | None = None
     if source is not None:
         if isinstance(source, str) and source.strip().startswith('pxt://'):
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'create_table(): Creating a table directly from a cloud URI is not supported.'
                 ' Please replicate the table locally first using `pxt.replicate()`:\n'
                 "replica_tbl = pxt.replicate('pxt://path/to/remote_table', 'local_replica_name')\n"
-                "pxt.create_table('new_table_name', source=replica_tbl)"
+                "pxt.create_table('new_table_name', source=replica_tbl)",
             )
         data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
         src_schema_overrides: dict[str, ts.ColumnType] = {}
@@ -196,7 +200,10 @@ def create_table(
             for col_name, py_type in schema_overrides.items():
                 col_type = ts.ColumnType.normalize_type(py_type, nullable_default=True, allow_builtin_types=False)
                 if col_type is None:
-                    raise excs.Error(f'Invalid type for column {col_name!r} in `schema_overrides`: {py_type}')
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Invalid type for column {col_name!r} in `schema_overrides`: {py_type}',
+                    )
                 src_schema_overrides[col_name] = col_type
         data_source.src_schema_overrides = src_schema_overrides
         data_source.src_pk = primary_key
@@ -208,19 +215,20 @@ def create_table(
         is_direct_query = False
 
     if len(schema) == 0 or not isinstance(schema, dict):
-        raise excs.Error(
-            'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.',
         )
 
     if comment is not None and not isinstance(comment, str):
-        raise excs.Error('`comment` must be a string or None')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`comment` must be a string or None')
     elif comment == '':
         comment = None
 
     try:
         json.dumps(custom_metadata)
     except (TypeError, ValueError) as err:
-        raise excs.Error('`custom_metadata` must be JSON-serializable') from err
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
 
     tbl, was_created = get_runtime().catalog.create_table(
         path_obj,
@@ -230,8 +238,8 @@ def create_table(
         comment=comment,
         custom_metadata=custom_metadata,
         media_validation=media_validation_,
-        num_retained_versions=num_retained_versions,
         create_default_idxs=create_default_idxs,
+        is_versioned=_is_versioned,
     )
 
     # TODO: combine data loading with table creation into a single transaction
@@ -239,7 +247,9 @@ def create_table(
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         if isinstance(data_source, QueryTableDataConduit):
             query = data_source.pxt_query
-            with get_runtime().catalog.begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            with get_runtime().catalog.begin_xact(
+                for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
+            ):
                 tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
         elif data_source is not None and not is_direct_query:
             assert isinstance(tbl, catalog.InsertableTable)
@@ -256,7 +266,6 @@ def create_view(
     is_snapshot: bool = False,
     create_default_idxs: bool = False,
     iterator: func.GeneratingFunctionCall | None = None,
-    num_retained_versions: int = 10,
     comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -278,7 +287,6 @@ def create_view(
             Cannot be `True` for snapshots.
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
-        num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
         custom_metadata: Optional user-defined JSON metadata to associate with the view.
         media_validation: Media validation policy for the view.
@@ -329,7 +337,7 @@ def create_view(
         ... )
     """
     if is_snapshot and create_default_idxs is True:
-        raise excs.Error('Cannot create default indexes on a snapshot')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot create default indexes on a snapshot')
     tbl_version_path: TableVersionPath
     select_list: list[tuple[exprs.Expr, str | None]] | None = None
     where: exprs.Expr | None = None
@@ -343,13 +351,19 @@ def create_view(
         sample_clause = base.sample_clause
         select_list = base.select_list
         if sample_clause is not None and not is_snapshot and not sample_clause.is_repeatable:
-            raise excs.Error('Non-snapshot views cannot be created with non-fractional or stratified sampling')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Non-snapshot views cannot be created with non-fractional or stratified sampling',
+            )
     else:
-        raise excs.Error('`base` must be an instance of `Table` or `Query`')
+        raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
     assert isinstance(base, (catalog.Table, Query))
 
     if tbl_version_path.is_replica():
-        raise excs.Error('Cannot create a view or snapshot on top of a replica')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot create a view or snapshot on top of a replica'
+        )
+    assert tbl_version_path.is_versioned(), 'TODO: implement for unversioned tables [PXT-1101]'
 
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
@@ -361,23 +375,26 @@ def create_view(
         # additional columns should not be in the base table
         for col_name in additional_columns:
             if col_name in [c.name for c in tbl_version_path.columns()]:
-                raise excs.Error(
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.COLUMN_ALREADY_EXISTS,
                     f'Column {col_name!r} already exists in the base table '
-                    f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
+                    f'{tbl_version_path.get_column(col_name).get_tbl().name}.',
                 )
 
     if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
-        raise excs.Error('The specified `iterator` is not a valid Pixeltable iterator')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_EXPRESSION, 'The specified `iterator` is not a valid Pixeltable iterator'
+        )
 
     if comment is not None and not isinstance(comment, str):
-        raise excs.Error('`comment` must be a string or None')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`comment` must be a string or None')
     elif comment == '':
         comment = None
 
     try:
         json.dumps(custom_metadata)
     except (TypeError, ValueError) as err:
-        raise excs.Error('`custom_metadata` must be JSON-serializable') from err
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
 
     return get_runtime().catalog.create_view(
         path_obj,
@@ -389,7 +406,6 @@ def create_view(
         is_snapshot=is_snapshot,
         create_default_idxs=create_default_idxs,
         iterator=iterator,
-        num_retained_versions=num_retained_versions,
         comment=comment,
         custom_metadata=custom_metadata,
         media_validation=media_validation_,
@@ -403,7 +419,6 @@ def create_snapshot(
     *,
     additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     iterator: func.GeneratingFunctionCall | None = None,
-    num_retained_versions: int = 10,
     comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -421,7 +436,6 @@ def create_snapshot(
             [`create_table`][pixeltable.create_table].
         iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
             the base table.
-        num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the snapshot.
         custom_metadata: Optional user-defined JSON metadata to associate with the snapshot.
         media_validation: Media validation policy for the snapshot.
@@ -478,7 +492,6 @@ def create_snapshot(
         additional_columns=additional_columns,
         iterator=iterator,
         is_snapshot=True,
-        num_retained_versions=num_retained_versions,
         comment=comment,
         custom_metadata=custom_metadata,
         media_validation=media_validation,
@@ -611,13 +624,17 @@ def move(
     """
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):
-        raise excs.Error("`if_exists` must be one of 'error' or 'ignore'")
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "`if_exists` must be one of 'error' or 'ignore'")
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     if path == new_path:
-        raise excs.Error('move(): source and destination cannot be identical')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
+        )
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.is_ancestor(new_path_obj):
-        raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'move(): cannot move {path!r} into its own subdirectory'
+        )
     get_runtime().catalog.move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
@@ -674,7 +691,9 @@ def drop_table(
         pxt_uri = PxtUri(tbl_path)
         # Remote table
         if force:
-            raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `force=True` with a cloud replica URI.'
+            )
         # TODO: Handle if_not_exists properly
         share.delete_replica(pxt_uri)
     else:
@@ -732,6 +751,91 @@ def _assemble_dir_contents(
             assert entry.table is not None
             assert not entry.dir_entries
             tables.append(path)
+
+
+def get_dir_tree() -> list['TreeNode']:
+    """Get a tree representation of the Pixeltable directory structure.
+
+    Returns:
+        A list of [`TreeNode`][pixeltable.TreeNode] dicts. Each node is either a `DirectoryNode` or a `TableNode`.
+    """
+    path_obj = catalog.Path.parse('', allow_empty_path=True)
+    catalog_entries = get_runtime().catalog.get_dir_contents(path_obj, recursive=True, with_error_counts=True)
+    path_by_id: dict[UUID, str] = {}
+    _create_path_map('', catalog_entries, path_by_id)
+    return _get_subtree('', catalog_entries, path_by_id)
+
+
+def _create_path_map(dir_path: str, catalog_entries: dict[str, Catalog.DirEntry], path_map: dict[UUID, str]) -> None:
+    """Populate path_map (table id -> table path) for every table reachable from catalog_entries."""
+    for name, entry in catalog_entries.items():
+        if name.startswith('_'):
+            continue
+        path = f'{dir_path}/{name}' if len(dir_path) > 0 else name
+        if entry.dir is not None:
+            _create_path_map(path, entry.dir_entries or {}, path_map)
+        else:
+            assert entry.table is not None
+            path_map[entry.table.id] = path
+
+
+def _get_subtree(
+    dir_path: str, catalog_entries: dict[str, Catalog.DirEntry], path_by_id: dict[UUID, str]
+) -> list['TreeNode']:
+    nodes: list[TreeNode] = []
+    for name, entry in sorted(catalog_entries.items()):
+        if name.startswith('_'):
+            continue  # Skip system paths
+        path = f'{dir_path}/{name}' if len(dir_path) > 0 else name
+
+        if entry.dir is not None:
+            nodes.append(
+                DirectoryNode(
+                    name=name,
+                    path=path,
+                    kind='directory',
+                    entries=_get_subtree(path, entry.dir_entries or {}, path_by_id),
+                )
+            )
+
+        else:
+            assert entry.table is not None
+            tbl_md = entry.table.md
+            view_md = tbl_md.get('view_md')
+            current_version = tbl_md.get('current_version')
+            kind: TableKind
+            version: int | None
+            if view_md is not None and view_md.get('is_snapshot'):
+                kind = 'snapshot'
+                version = None
+            elif view_md is not None:
+                kind = 'view'
+                version = current_version
+            elif tbl_md.get('is_replica'):
+                kind = 'replica'
+                version = current_version
+            else:
+                kind = 'table'
+                version = current_version
+
+            base: str | None = None
+            if view_md is not None:
+                base_versions = view_md['base_versions']
+                assert len(base_versions) > 0
+                base_id = UUID(base_versions[0][0])
+                base_path = path_by_id.get(base_id)
+                base_version = base_versions[0][1]
+                if base_path is not None:
+                    base = f'{base_path}:{base_version}' if base_version is not None else base_path
+
+            assert entry.table_error_count is not None
+            nodes.append(
+                TableNode(
+                    name=name, path=path, kind=kind, version=version, error_count=entry.table_error_count, base=base
+                )
+            )
+
+    return nodes
 
 
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
@@ -1051,7 +1155,7 @@ def tool(fn: func.Function, name: str | None = None, description: str | None = N
         A `Tool` instance that can be passed to an LLM tool-calling API.
     """
     if isinstance(fn, func.AggregateFunction):
-        raise excs.Error('Aggregator UDFs cannot be used as tools')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Aggregator UDFs cannot be used as tools')
 
     return func.tools.Tool(fn=fn, name=name, description=description)
 
@@ -1099,8 +1203,9 @@ def _parse_pxt_uri(uri_str: str, param_name: str) -> PxtUri:
     try:
         return PxtUri(uri_str)
     except ValueError as e:
-        raise excs.Error(
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
             f"`{param_name}` must be a remote Pixeltable URI with the prefix 'pxt://'"
             " (such as 'pxt://org:db/path/to/table') or a pixeltable.com URL"
-            ' (such as https://pixeltable.com/t/org:db/path/to/table).'
+            ' (such as https://pixeltable.com/t/org:db/path/to/table).',
         ) from e

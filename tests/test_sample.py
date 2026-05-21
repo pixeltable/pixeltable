@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import SAMPLE_IMAGE_URL, ReloadTester
+from .utils import SAMPLE_IMAGE_URL, ReloadTester, pxt_raises
 
 
 class TestSample:
@@ -30,65 +30,65 @@ class TestSample:
         t = test_tbl
 
         # ------- Test that sample is not preceded by anything unexpected
-        with pytest.raises(pxt.Error, match=r'Multiple sample\(\) clauses not allowed'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Multiple sample\(\) clauses not allowed'):
             _ = t.select().sample(n=10).sample(n=10)
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().group_by(t.c1).sample(n=10)
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().order_by(t.c1).sample(n=10)
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().limit(5).sample(n=10)
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().join(t, on=t.c1).sample(n=10)
 
         # ------- Test that sample is not followed by anything unexpected
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().sample(n=10).show()
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().sample(n=10).head()
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().sample(n=10).tail()
-        with pytest.raises(pxt.Error, match='cannot be used after'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used after'):
             _ = t.select().sample(n=10).where(t.c1 > 10)
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().sample(n=10).group_by(t.c1)
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().sample(n=10).order_by(t.c1)
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().sample(n=10).group_by(t.c1)
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().sample(n=10).limit(5)
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with'):
             _ = t.select().sample(n=10).join(t, on=t.c1)
 
         # ------- Test sample parameter correctness
-        with pytest.raises(pxt.Error, match='must be of type `Int`; got `Float`'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`; got `Float`'):
             _ = t.select().sample(n=0.01)  # type: ignore[arg-type]
-        with pytest.raises(pxt.Error, match='must be >'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >'):
             _ = t.select().sample(n=-1)
-        with pytest.raises(pxt.Error, match='must be of type `Int`; got `String`'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`; got `String`'):
             _ = t.select().sample(n_per_stratum='abc', stratify_by=t.c1)  # type: ignore[arg-type]
-        with pytest.raises(pxt.Error, match='must be >'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >'):
             _ = t.select().sample(n_per_stratum=0, stratify_by=t.c1)
-        with pytest.raises(pxt.Error, match='must be of type `Float`; got `Int`'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Float`; got `Int`'):
             _ = t.select().sample(fraction=24)
-        with pytest.raises(pxt.Error, match='parameter must be >'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='parameter must be >'):
             _ = t.select().sample(fraction=-0.5)
-        with pytest.raises(pxt.Error, match='parameter must be <'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='parameter must be <'):
             _ = t.select().sample(fraction=12.9)
-        with pytest.raises(pxt.Error, match='must be of type `Int`; got `Float`'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`; got `Float`'):
             _ = t.select().sample(n=10, seed=-123.456)  # type: ignore[arg-type]
 
         # Test invalid sample parameter combinations
-        with pytest.raises(pxt.Error, match='Exactly one of '):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='Exactly one of '):
             _ = t.select().sample()
-        with pytest.raises(pxt.Error, match='Exactly one of '):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='Exactly one of '):
             _ = t.select().sample(n=10, n_per_stratum=5, stratify_by=t.c1)
-        with pytest.raises(pxt.Error, match='Exactly one of '):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='Exactly one of '):
             _ = t.select().sample(n=10, fraction=0.10)
-        with pytest.raises(pxt.Error, match='Exactly one of '):
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='Exactly one of '):
             _ = t.select().sample(n_per_stratum=10, fraction=0.10, stratify_by=t.c1)
-        with pytest.raises(pxt.Error, match='Must specify'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Must specify'):
             _ = t.select().sample(n_per_stratum=5)
 
         # test valid parameter combinations
@@ -99,20 +99,20 @@ class TestSample:
         _ = t.select().sample(n_per_stratum=5, stratify_by=t.c1)
 
         # test stratify_by list
-        with pytest.raises(pxt.Error, match='must be a list of scalar expressions'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a list of scalar expressions'):
             _ = t.select().sample(n=10, stratify_by=47)
-        with pytest.raises(pxt.Error, match='Invalid expression'):
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid expression'):
             _ = t.select().sample(n=10, stratify_by=[None])
-        with pytest.raises(pxt.Error, match='Invalid expression'):
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid expression'):
             _ = t.select().sample(n=10, stratify_by=[123])
-        with pytest.raises(pxt.Error, match='Invalid type'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid type'):
             _ = t.select().sample(n=10, stratify_by=[t.c6])
 
         # String, Int, Float, Bool, Timestamp types
         _ = t.select().sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c3, t.c4, t.c5])
 
         # Preceding where clauses must be suitable for direct sql translation
-        with pytest.raises(pxt.Error, match='not expressible in SQL'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible in SQL'):
             t.select().where(t.c2.apply(str) == '11').sample(n=10).collect()
 
     def test_sample_display(self, test_tbl: pxt.Table) -> None:
@@ -301,11 +301,11 @@ class TestSample:
         t = self.create_sample_data(4, 6, False)
 
         query = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=0)
-        with pytest.raises(pxt.Error, match='cannot be created with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be created with'):
             _ = pxt.create_view('v1', query)
 
         query = t.select().sample(n=20, seed=0)
-        with pytest.raises(pxt.Error, match='cannot be created with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be created with'):
             _ = pxt.create_view('v1', query)
 
         query = t.select().sample(fraction=0.01, seed=0)

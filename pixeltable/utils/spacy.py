@@ -26,9 +26,10 @@ def get_spacy_model(model_name: str) -> 'spacy.Language':
         try:
             model = spacy.load(model_name)
         except OSError as e:
-            raise excs.Error(
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Failed to locate spaCy model {model_name!r}. To install it, run:\n'
-                f'    python -m spacy download {model_name}'
+                f'    python -m spacy download {model_name}',
             ) from e
         _MODEL_CACHE[model_name] = model
 

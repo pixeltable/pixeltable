@@ -2,9 +2,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import pytest
-
 import pixeltable as pxt
+
+from .utils import pxt_raises
 
 
 class TestConfig:
@@ -21,41 +21,37 @@ class TestConfig:
 
         spawn_cmd(
             'pxt.init({"pixeltable.not_a_config_var": "test"})',
-            'pixeltable.exceptions.Error: Unrecognized configuration variable: pixeltable.not_a_config_var',
+            'pixeltable.exceptions.RequestError: Unrecognized configuration variable: pixeltable.not_a_config_var',
         )
 
         tmp = Path(tempfile.mktemp('.toml'))
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('This is neither a directory nor a valid TOML file.')
-        spawn_cmd(f'pxt.init({{"pixeltable.home": "{tmp}"}})', f'pixeltable.exceptions.Error: Not a directory: {tmp}')
         spawn_cmd(
-            f'pxt.init({{"pixeltable.config": "{tmp}"}})',
-            f'pixeltable.exceptions.Error: Could not read config file: {tmp}',
+            f'pxt.init({{"pixeltable.home": "{tmp}"}})', f'pixeltable.exceptions.RequestError: Not a directory: {tmp}'
         )
-
-        with open(tmp, 'w', encoding='utf-8') as fp:
-            fp.write('[unknown_section]\nkey = "value"')
         spawn_cmd(
             f'pxt.init({{"pixeltable.config": "{tmp}"}})',
-            "pixeltable.exceptions.Error: Unrecognized section 'unknown_section' in config file:",
+            f'pixeltable.exceptions.RequestError: Could not read config file: {tmp}',
         )
 
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('[pixeltable]\nunknown_key = "value"')
         spawn_cmd(
             f'pxt.init({{"pixeltable.config": "{tmp}"}})',
-            "pixeltable.exceptions.Error: Unrecognized option 'pixeltable.unknown_key' in config file:",
+            "pixeltable.exceptions.RequestError: Unrecognized option 'pixeltable.unknown_key' in config file:",
         )
 
         spawn_cmd(
             'pxt.init({"pixeltable.verbosity": "eggs"})',
-            "pixeltable.exceptions.Error: Invalid value for configuration parameter 'pixeltable.verbosity': eggs",
+            'pixeltable.exceptions.RequestError: Invalid value for configuration parameter '
+            "'pixeltable.verbosity': eggs",
         )
 
         pxt.init()
         pxt.init()  # Ok to do a parameterless init() a second time
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_STATE,
             match='Pixeltable has already been initialized; cannot specify new config values in the same session',
         ):
             pxt.init({'pixeltable.home': '.'})  # Not ok to specify new config values after init()

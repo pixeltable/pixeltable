@@ -7,7 +7,7 @@ import tarfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -36,6 +36,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
+    pxt_raises,
     reload_catalog,
     skip_test_if_not_installed,
 )
@@ -234,8 +235,17 @@ class TestPackager:
 
         # Certain metadata properties must be identical.
         metadata = t.get_metadata()
-        for property in ('indices', 'version', 'version_created', 'schema_version', 'comment', 'media_validation'):
+        for property in ('version', 'version_created', 'schema_version', 'comment', 'media_validation'):
             assert metadata[property] == bundle_info.metadata[property]
+
+        # Btree indices auto-populate based on the underlying TableVersion's supports_idxs flag,
+        # which can flip across a bundle/restore boundary (e.g. a snapshot's tv has supports_idxs=False
+        # at the source, but the restored replica tv at head has supports_idxs=True). Embedding indices
+        # come from explicit user IndexMd that's preserved through the bundle, so they must round-trip.
+        def embedding_indices(md: pxt.TableMetadata) -> dict[str, Any]:
+            return {k: v for k, v in md['indices'].items() if v['index_type'] == 'embedding'}
+
+        assert embedding_indices(metadata) == embedding_indices(bundle_info.metadata)
 
         # Verify that the postgres schema subsumes the original.
         # (There may be additional columns in the restored table depending on the order in which different versions are
@@ -253,7 +263,7 @@ class TestPackager:
         get_runtime().catalog.validate_store()
 
     def __extract_store_col_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
-        with get_runtime().begin_xact():
+        with get_runtime().catalog.begin_xact(read_tvps=[tbl._tbl_version_path]):
             store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
             sql_text = (
                 f'SELECT column_name, data_type FROM information_schema.columns WHERE table_name = {store_tbl_name!r}'
@@ -262,7 +272,7 @@ class TestPackager:
             return {(col_name, data_type) for col_name, data_type in result}
 
     def __extract_store_idx_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
-        with get_runtime().begin_xact():
+        with get_runtime().catalog.begin_xact(read_tvps=[tbl._tbl_version_path]):
             store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
             sql_text = f'SELECT indexname, indexdef FROM pg_indexes WHERE tablename = {store_tbl_name!r}'
             result = get_runtime().conn.execute(sql.text(sql_text)).fetchall()
@@ -354,6 +364,7 @@ class TestPackager:
         self.__restore_and_check_table(bundle2, 'replica')
 
     def test_media_round_trip(self, img_tbl: pxt.Table) -> None:
+        skip_test_if_not_installed('imagehash')
         self.__do_round_trip(img_tbl)
 
     def test_array_round_trip(self, uses_db: None) -> None:
@@ -392,6 +403,7 @@ class TestPackager:
         self.__do_round_trip(v)
 
     def test_iterator_view_round_trip(self, uses_db: None) -> None:
+        skip_test_if_not_installed('imagehash')
         t = pxt.create_table('base_tbl', {'video': pxt.Video})
         t.insert({'video': video} for video in get_video_files()[:2])
 
@@ -486,6 +498,7 @@ class TestPackager:
         Snapshots that involve all the different column types. Two snapshots of the same base table will be created;
         they will snapshot either the same or different versions of the table, depending on `different_versions`.
         """
+        skip_test_if_not_installed('imagehash')
         t = all_datatypes_tbl
         snap1 = pxt.create_snapshot('snap1', t.where(t.row_id % 2 != 0))
         bundle1 = self.__package_table(snap1)
@@ -640,36 +653,52 @@ class TestPackager:
 
         for s, name in ((t, 'tbl_replica'), (v, 'view_replica')):
             display_str = f'replica {name!r}'
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot insert into a replica.'):
                 s.insert({'icol': 10, 'scol': 'string 10'})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot delete from a replica.'):
                 s.delete()
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a replica.'
+            ):
                 s.add_column(new_col=pxt.Bool)
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a replica.'
+            ):
                 s.add_columns({'new_col': pxt.Bool})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a replica.'
+            ):
                 s.add_computed_column(new_col=(t.icol + 1))
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop columns from a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot drop columns from a replica.'
+            ):
                 s.drop_column('scol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add an index to a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add an index to a replica.'
+            ):
                 s.add_embedding_index('icol', embedding=clip_embed)
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop an index from a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot drop an index from a replica.'
+            ):
                 s.drop_embedding_index(column='icol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot update a replica.'):
                 s.update({'icol': 11})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot recompute columns of a replica.'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot recompute columns of a replica.'
+            ):
                 s.recompute_columns('icol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot revert a replica.'):
                 s.revert()
 
             # TODO: Align these Query error messages with Table error messages
-            with pytest.raises(pxt.Error, match=r'Cannot use `update` on a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot use `update` on a replica.'):
                 s.where(s.icol < 5).update({'icol': 100})
-            with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot use `delete` on a replica.'):
                 s.where(s.icol < 5).delete()
 
-            with pytest.raises(pxt.Error, match='Cannot create a view or snapshot on top of a replica'):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot create a view or snapshot on top of a replica'
+            ):
                 _ = pxt.create_view(f'subview_of_{name}', s)
 
     def test_drop_replica(self, uses_db: None) -> None:
@@ -832,7 +861,7 @@ class TestPackager:
     def test_embedding_index(
         self, uses_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
-        skip_test_if_not_installed('transformers')  # needed for CLIP
+        skip_test_if_not_installed('imagehash', 'transformers')  # transformers needed for CLIP
 
         t = pxt.create_table('tbl', {'image': pxt.Image})
         images = get_image_files()[:10]
@@ -845,7 +874,7 @@ class TestPackager:
     def test_multi_version_embedding_index(
         self, uses_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
-        skip_test_if_not_installed('transformers')  # needed for CLIP
+        skip_test_if_not_installed('imagehash', 'transformers')  # transformers needed for CLIP
 
         t = pxt.create_table('tbl', {'id': pxt.Int, 'image': pxt.Image})
         images = get_image_files()
@@ -889,8 +918,8 @@ class TestPackager:
         # Drop just `v` without purging the DB
         pxt.drop_table(v)
 
-        with pytest.raises(
-            pxt.Error,
+        with pxt_raises(
+            pxt.ErrorCode.PATH_ALREADY_EXISTS,
             match=(
                 r'(?s)An attempt was made to replicate a view whose base table already exists'
                 r".*pxt.drop_table\('base_tbl'\)"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import enum
 import os
 import re
@@ -7,13 +8,24 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 from uuid import UUID
 
 from pixeltable import env, exceptions as excs
 
-if TYPE_CHECKING:
-    from pixeltable.catalog import Column
+
+@dataclasses.dataclass(frozen=True)
+class FileDestination:
+    """A file destination: the final URL plus exactly one store-specific identifier.
+
+    Self-contained (no catalog references), so instances can be passed across threads.
+    """
+
+    url: str  # final URL of the persisted file (returned to the caller on success)
+
+    # Store-specific destination identifier; exactly one is set, depending on store type.
+    local_path: Path | None = None  # LocalStore: filesystem destination
+    remote_key: str | None = None  # cloud stores: object key / blob name within the bucket / container
 
 
 class StorageTarget(enum.Enum):
@@ -27,9 +39,16 @@ class StorageTarget(enum.Enum):
     GCS_STORE = 'gs'  # Google Cloud Storage
     AZURE_STORE = 'az'  # Azure Blob Storage
     HTTP_STORE = 'http'  # HTTP/HTTPS
+    PIXELTABLE_STORE = 'pxtfs'  # Pixeltable storage
 
     def __str__(self) -> str:
         return self.value
+
+
+# S3-compatible targets that use boto3
+S3_COMPATIBLE_TARGETS = frozenset(
+    {StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}
+)
 
 
 class StorageObjectAddress(NamedTuple):
@@ -70,11 +89,14 @@ class StorageObjectAddress(NamedTuple):
             StorageTarget.GCS_STORE,
             StorageTarget.AZURE_STORE,
             StorageTarget.HTTP_STORE,
+            StorageTarget.PIXELTABLE_STORE,
         )
 
     @property
     def prefix_free_uri(self) -> str:
         """Return the URI without any prefixes."""
+        if self.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return f'{self.scheme}://{self.account}:{self.account_extension}/{self.container}/'
         if self.is_azure_scheme:
             return f'{self.scheme}://{self.container}@{self.account}.{self.account_extension}/'
         if self.account and self.account_extension:
@@ -87,6 +109,8 @@ class StorageObjectAddress(NamedTuple):
     def container_free_uri(self) -> str:
         """Return the URI without any prefixes."""
         assert not self.is_azure_scheme, 'Azure storage requires a container name'
+        if self.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return f'{self.scheme}://{self.account}:{self.account_extension}/'
         if self.account and self.account_extension:
             return f'{self.scheme}://{self.account}.{self.account_extension}/'
         if self.account_extension:
@@ -101,6 +125,11 @@ class StorageObjectAddress(NamedTuple):
 
     def __str__(self) -> str:
         """A debug aid to override default str representation. Not to be used for any purpose."""
+        if self.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return (
+                f'{self.storage_target}..{self.scheme}://{self.account}:{self.account_extension}/'
+                f'{self.container}/{self.prefix}{self.object_name}'
+            )
         return f'{self.storage_target}..{self.scheme}://{self.account}.{self.account_extension}/{self.container}/{self.prefix}{self.object_name}'
 
     def __repr__(self) -> str:
@@ -249,6 +278,30 @@ class ObjectPath:
             else:
                 account_extension = parsed.netloc
             key = key.lstrip('/')
+        elif scheme == 'pxtfs':
+            # pxtfs://org:db/<bucket>[/optional/prefix]
+            # Currently only 'home' bucket is supported.
+            # 'home' is a logical name resolved to a physical R2 bucket name at runtime via the control plane.
+            storage_target = StorageTarget.PIXELTABLE_STORE
+            netloc_parts = parsed.netloc.split(':')
+            if len(netloc_parts) != 2 or not netloc_parts[0] or not netloc_parts[1]:
+                raise ValueError(
+                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': netloc must be 'org:db', got '{src_addr}'"
+                )
+            account_name, account_extension = netloc_parts  # org slug, db slug
+            raw_path = parsed.path.lstrip('/')
+            path_parts = raw_path.split('/', 1)
+            container = path_parts[0]
+            if not container:
+                raise ValueError(
+                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': bucket segment is required, got '{src_addr}'"
+                )
+            if container != 'home':
+                raise ValueError(
+                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': only 'home' bucket is supported, "
+                    f"got '{container}'"
+                )
+            key = path_parts[1] if len(path_parts) > 1 else ''
         else:
             raise ValueError(f'Unsupported URI scheme: {parsed.scheme}')
 
@@ -295,29 +348,29 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
-    def copy_local_file(self, col: Column, src_path: Path) -> str:
-        """Copy a file associated with a Column to the store, returning the file's URL within the destination.
+    def resolve_destination(
+        self, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None
+    ) -> FileDestination:
+        """Caller-thread side: compute a destination for a new file.
 
-        Args:
-            col: The Column to which the file belongs, used to generate the URI of the stored object.
-            src_path: The Path to the local file
-
-        Returns:
-            The URI of the object in the store
+        Returns a FileDestination that captures everything a worker thread needs to
+        perform the write, with no further catalog access required.
         """
         raise AssertionError
 
-    def move_local_file(self, col: Column, src_path: Path) -> str | None:
-        """Move a file associated with a Column to the store, returning the file's URL within the destination.
+    def move_local_file(self, src_path: Path, dest: FileDestination) -> str | None:
+        """Worker-thread side: attempt to move a local file to the destination.
 
-        Args:
-            col: The Column to which the file belongs, used to generate the URI of the stored object.
-            src_path: The Path to the local file
-
-        Returns:
-            The URI of the object in the store, None if the object cannot be moved to the store
+        Returns the new file URL on success, or None if move is not supported (in which case
+        the caller should fall back to copy_local_file). The default returns None;
+        only stores that can perform an atomic move (e.g., LocalStore via filesystem rename)
+        override this.
         """
         return None
+
+    def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
+        """Worker-thread side: copy a local file to the destination, returning the new file URL."""
+        raise AssertionError
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         """Copies an object from the store to a local media file.
@@ -390,6 +443,11 @@ class ObjectOps:
         )
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
+        if soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            env.Env.get().require_package('boto3')
+            from pixeltable.utils.pxt_store import PxtStore
+
+            return PxtStore(soa)
         if soa.storage_target in (
             StorageTarget.S3_STORE,
             StorageTarget.R2_STORE,
@@ -413,8 +471,9 @@ class ObjectOps:
         if soa.storage_target == StorageTarget.HTTP_STORE and soa.is_http_readable:
             return HTTPStore(soa)
         error_col_name = f'Column {col_name!r}: ' if col_name is not None else ''
-        raise excs.Error(
-            f'{error_col_name}`destination` must be a valid reference to a supported destination, got {dest!r}'
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'{error_col_name}`destination` must be a valid reference to a supported destination, got {dest!r}',
         )
 
     @classmethod
@@ -432,13 +491,18 @@ class ObjectOps:
         if isinstance(dest, Path):
             dest = str(dest)
         if dest is not None and not isinstance(dest, str):
-            raise excs.Error(f'{error_col_str}: `destination` must be a string or path; got {dest!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH, f'{error_col_str}: `destination` must be a string or path; got {dest!r}'
+            )
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
         dest2 = store.validate(error_col_str)
         if dest2 is None:
-            raise excs.Error(f'{error_col_str}: `destination` must be a supported destination; got {dest!r}')
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{error_col_str}: `destination` must be a supported destination; got {dest!r}',
+            )
         return dest2
 
     @classmethod
@@ -451,38 +515,40 @@ class ObjectOps:
         store.copy_object_to_local_file(soa.object_name, dest_path)
 
     @classmethod
-    def put_file(cls, col: Column, src_path: Path, relocate_or_delete: bool) -> str:
+    def put_file(
+        cls,
+        destination: str | None,
+        tbl_id: UUID,
+        col_id: int,
+        tbl_version: int,
+        col_name: str,
+        src_path: Path,
+        relocate_or_delete: bool,
+    ) -> str:
         """Move or copy a file to the destination, returning the file's URL within the destination.
         If relocate_or_delete is True and the file is in the TempStore, the file will be deleted after the operation.
         """
+        store = cls.get_store(destination, False, col_name)
+        dest = store.resolve_destination(tbl_id, col_id, tbl_version, ext=src_path.suffix)
+        return cls.put_file_resolved(store, src_path, dest, relocate_or_delete)
+
+    @classmethod
+    def put_file_resolved(
+        cls, store: ObjectStoreBase, src_path: Path, dest: FileDestination, relocate_or_delete: bool
+    ) -> str:
+        """Worker-thread version of put_file: performs move-or-copy with no catalog access."""
         from pixeltable.utils.local_store import TempStore
 
         if relocate_or_delete:
             # File is temporary, used only once, so we can delete it after copy if it can't be moved
             assert TempStore.contains_path(src_path)
-        dest = col.destination
-        store = cls.get_store(dest, False, col.name)
-        # Attempt to move
-        if relocate_or_delete:
-            moved_file_url = store.move_local_file(col, src_path)
-            if moved_file_url is not None:
-                return moved_file_url
-        new_file_url = store.copy_local_file(col, src_path)
+            moved_url = store.move_local_file(src_path, dest)
+            if moved_url is not None:
+                return moved_url
+        url = store.copy_local_file(src_path, dest)
         if relocate_or_delete:
             TempStore.delete_media_file(src_path)
-        return new_file_url
-
-    @classmethod
-    def move_local_file(cls, col: Column, src_path: Path) -> str:
-        """Move a file to the destination specified by the Column, returning the file's URL within the destination."""
-        store = cls.get_store(col.destination, False, col.name)
-        return store.move_local_file(col, src_path)
-
-    @classmethod
-    def copy_local_file(cls, col: Column, src_path: Path) -> str:
-        """Copy a file to the destination specified by the Column, returning the file's URL within the destination."""
-        store = cls.get_store(col.destination, False, col.name)
-        return store.copy_local_file(col, src_path)
+        return url
 
     @classmethod
     def delete(cls, dest: str | None, tbl_id: UUID, tbl_version: int | None = None) -> int | None:
@@ -569,7 +635,9 @@ class HTTPStore(ObjectStoreBase):
             The HTTP URL as-is since it's already servable
         """
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'StorageObjectAddress does not contain an object name: {soa}'
+            )
 
         # Construct the full HTTP URL from the StorageObjectAddress
         return f'{soa.scheme}://{soa.account_extension}/{soa.key}'

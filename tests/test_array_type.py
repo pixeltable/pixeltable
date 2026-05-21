@@ -8,7 +8,7 @@ import pixeltable.exceptions as excs
 from pixeltable import type_system as ts
 from pixeltable.type_system import ArrayType, ColumnType, IntType
 
-from .utils import reload_catalog, validate_update_status
+from .utils import pxt_raises, reload_catalog, validate_update_status
 
 
 class TestArrayType:
@@ -124,29 +124,29 @@ class TestArrayType:
         t = pxt.get_table('test_numpy_dtypes')
 
         validate_update_status(t.insert(arr_1=np.ones((1,), dtype=np.uint8)), 1)
-        with pytest.raises(excs.Error, match='arr_1'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='arr_1'):
             t.insert(arr_1=np.ones((), dtype=np.uint8))
-        with pytest.raises(excs.Error, match='arr_1'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='arr_1'):
             t.insert(arr_1=np.ones((2,), dtype=np.uint8))
-        with pytest.raises(excs.Error, match='arr_1'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='arr_1'):
             t.insert(arr_1=np.ones((1, 3), dtype=np.uint8))
 
         validate_update_status(t.insert(arr_2=[[1.0, 0.0], [0.0, 5.0]]), 1)
-        with pytest.raises(excs.Error, match='arr_2'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='arr_2'):
             t.insert(arr_2=[[1.0, 0.0, 0.0], [0.0, 5.0, 0.0]])
 
         validate_update_status(t.insert(arr_3=[]), 1)
         validate_update_status(t.insert(arr_3=['']), 1)
         validate_update_status(t.insert(arr_3=['', 'a', 'b']), 1)
-        with pytest.raises(excs.Error, match='arr_3'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='arr_3'):
             t.insert(arr_3=[['a'], ['']])
 
         validate_update_status(t.insert(arr_4=np.ones((3, 1, 2), dtype=np.int32)), 1)
         validate_update_status(t.insert(arr_4=np.ones((3, 0, 2), dtype=np.int32)), 1)
         validate_update_status(t.insert(arr_4=np.ones((3, 6, 2), dtype=np.int32)), 1)
-        with pytest.raises(excs.Error, match='arr_4'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='arr_4'):
             t.insert(arr_4=np.ones((3, 2), dtype=np.int32))
-        with pytest.raises(excs.Error, match='arr_4'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='arr_4'):
             t.insert(arr_4=np.ones((3, 1, 2, 4), dtype=np.int32))
 
         validate_update_status(t.insert(arr_5=np.ones((2, 2), dtype=np.int32)), 1)
@@ -274,9 +274,9 @@ class TestArrayType:
             (int, r'use.+pxt.Int.+instead'),
         ]
         for type_, exc_regex in test_cases:
-            with pytest.raises(excs.Error, match=exc_regex):
+            with pxt_raises(excs.ErrorCode.INVALID_TYPE, match=exc_regex):
                 pxt.Array[type_]  # type: ignore[misc]
-            with pytest.raises(excs.Error, match=exc_regex):
+            with pxt_raises(excs.ErrorCode.INVALID_TYPE, match=exc_regex):
                 pxt.Array[(1,), type_]  # type: ignore[misc]
 
     def test_array_literal(self) -> None:

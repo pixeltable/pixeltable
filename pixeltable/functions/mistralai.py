@@ -17,17 +17,17 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import mistralai
+    from mistralai.client import Mistral
 
 
 @register_client('mistral')
-def _(api_key: str) -> 'mistralai.Mistral':
-    import mistralai
+def _(api_key: str) -> 'Mistral':
+    from mistralai.client import Mistral
 
-    return mistralai.Mistral(api_key=api_key)
+    return Mistral(api_key=api_key)
 
 
-def _mistralai_client() -> 'mistralai.Mistral':
+def _mistralai_client() -> 'Mistral':
     return get_runtime().get_client('mistral')
 
 
@@ -70,13 +70,13 @@ async def chat_completions(
     if model_kwargs is None:
         model_kwargs = {}
 
-    Env.get().require_package('mistralai')
+    Env.get().require_package('mistralai', [2, 0])
     result = await _mistralai_client().chat.complete_async(
         messages=messages,  # type: ignore[arg-type]
         model=model,
         **model_kwargs,
     )
-    return result.dict()
+    return result.model_dump(mode='json')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:mistral')
@@ -117,9 +117,9 @@ async def fim_completions(prompt: str, *, model: str, model_kwargs: dict[str, An
     if model_kwargs is None:
         model_kwargs = {}
 
-    Env.get().require_package('mistralai')
+    Env.get().require_package('mistralai', [2, 0])
     result = await _mistralai_client().fim.complete_async(prompt=prompt, model=model, **model_kwargs)
-    return result.dict()
+    return result.model_dump(mode='json')
 
 
 _embedding_dimensions_cache: dict[str, int] = {'mistral-embed': 1024}
@@ -148,7 +148,7 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
     Returns:
         An array representing the application of the given embedding to `input`.
     """
-    Env.get().require_package('mistralai')
+    Env.get().require_package('mistralai', [2, 0])
     result = _mistralai_client().embeddings.create(inputs=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 

@@ -6,7 +6,7 @@ from PIL import Image
 
 import pixeltable as pxt
 
-from ..utils import get_image_files, rerun, skip_test_if_not_installed
+from ..utils import get_image_files, pxt_raises, rerun, skip_test_if_not_installed
 
 
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
@@ -96,21 +96,22 @@ class TestFiftyone:
         img = get_image_files()[0]
         t.insert(id=0, image=img)
 
-        with pytest.raises(pxt.Error, match='`images` must be an expression of type Image'):
+        # TODO: convert to pxt_raises(<CODE>)
+        with pytest.raises(pxt.RequestError, match='`images` must be an expression of type Image'):
             pxt.io.export_images_as_fo_dataset(t, t.id)
 
-        with pytest.raises(pxt.Error, match='Invalid label name'):
+        with pytest.raises(pxt.RequestError, match='Invalid label name'):
             pxt.io.export_images_as_fo_dataset(t, t.image, classifications={'invalid name!@#': t.classifications})
 
-        with pytest.raises(pxt.Error, match='Duplicate label name'):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate label name'):
             pxt.io.export_images_as_fo_dataset(
                 t, t.image, classifications={'labels': t.classifications}, detections={'labels': t.detections}
             )
 
-        with pytest.raises(pxt.Error, match='Invalid classifications data'):
+        with pytest.raises(pxt.RequestError, match='Invalid classifications data'):
             t.update({'classifications': {'a': 'b'}})
             pxt.io.export_images_as_fo_dataset(t, t.image, classifications=t.classifications)
 
-        with pytest.raises(pxt.Error, match='Invalid detections data'):
+        with pytest.raises(pxt.RequestError, match='Invalid detections data'):
             t.update({'detections': {'a': 'b'}})
             pxt.io.export_images_as_fo_dataset(t, t.image, detections=t.detections)

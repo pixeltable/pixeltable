@@ -1,0 +1,6 @@
+[submodule "docs/sample-apps/pixeltable-starter-kit"]
+	path = docs/sample-apps/pixeltable-starter-kit
+	url = https://github.com/pixeltable/pixeltable-starter-kit.git
+[submodule "docs/release/.mintlify/pixeltable-skill"]
+	path = docs/release/.mintlify/pixeltable-skill
+	url = https://github.com/pixeltable/pixeltable-skill.git
