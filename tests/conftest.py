@@ -16,6 +16,8 @@ from filelock import FileLock
 from sqlalchemy import text
 
 import pixeltable as pxt
+import pixeltable.utils.fault_injection as prod_fault_injection
+import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -161,8 +163,6 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
 @pytest.fixture(autouse=True)
 def fault_injection() -> Iterator[None]:
     """Enables fault injection"""
-    import pixeltable.utils.fault_injection as prod_fault_injection
-    import tests.fault_injection as test_fault_injection
 
     # Monkey patch fault injection to product
     prod_fault_injection.process_fault = test_fault_injection.process_fault
