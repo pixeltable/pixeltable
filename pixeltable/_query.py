@@ -294,9 +294,12 @@ class ResultCursor(Iterable[Row]):
     def __init__(self, query: Query):
         self._query = query
         self._row_iterator = None
-        # TODO: fix the race condition:
-        # - we set _schema/_columns here
-        # - a schema change takes places subsequently, but before open()
+        # Known design issue: cursor construction is separated from transaction start. The
+        # transaction that reads the rows is opened later, inside _output_row_iterator, so the
+        # schema captured here has no causal link to the schema the iteration runs under. A
+        # schema mutation between __init__ and the first next() can leave _schema/_columns
+        # inconsistent with the yielded rows, especially for SELECT * queries where
+        # Query.schema re-resolves against current catalog state on each access.
         self._schema = query.schema
         self._columns = {name: i for i, name in enumerate(self._schema)}
         self._closed = False

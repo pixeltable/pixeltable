@@ -75,6 +75,9 @@ def export_csv(
     else:
         query = table_or_query
 
+    # KNOWN RACE: query._effective_select_list / query.schema are accessed here outside any
+    # xact; query.cursor() below opens its own xact and re-resolves. For SELECT * queries, a
+    # concurrent schema mutation can produce a layout mismatch.
     select_list_exprs = [e for e, _ in query._effective_select_list]
     query = query._replace_select_list(replace_media_with_fileurl(select_list_exprs))
 

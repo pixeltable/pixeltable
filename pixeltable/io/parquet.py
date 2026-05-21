@@ -67,6 +67,10 @@ def export_parquet(
     else:
         query = table_or_query
 
+    # KNOWN RACE: schema is snapshotted here, outside any xact; to_record_batches below
+    # accesses query.schema again under its own xact. For SELECT * queries, a concurrent
+    # schema mutation between the two reads can drift the validation here from what
+    # to_record_batches sees.
     schema = query.schema
     for col_name, col_type in schema.items():
         if col_type.is_image_type() and not inline_images:

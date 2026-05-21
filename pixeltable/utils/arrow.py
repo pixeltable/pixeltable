@@ -132,6 +132,9 @@ def _to_record_batch(
 
 
 def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.RecordBatch]:
+    # KNOWN RACE: schema is snapshotted here, outside any xact; query.cursor() below opens
+    # its own xact internally and re-resolves the schema. For SELECT * queries, a concurrent
+    # schema mutation between these two reads can produce a layout mismatch.
     schema = query.schema
     arrow_schema: pa.Schema | None = None  # initialized after first batch, when we have data to infer struct schemas
     batch_columns: dict[str, list[Any]] = {k: [] for k in schema}
