@@ -159,6 +159,8 @@ def table_row(req: Request) -> models.GetResponse:
     pk = req.query_list('pk')
     if len(pk) == 0:
         raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, "missing or empty 'pk' query parameter")
+    if any(v.strip() == '' for v in pk):
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'pk' query parameter contains an empty value")
     # PK values arrive as strings over HTTP; coerce numeric-looking ones to int/float so a
     # PK column typed as Int compares correctly. String-typed PK columns whose values look
     # like numbers (eg the string '42') are a documented limitation - there's no way to

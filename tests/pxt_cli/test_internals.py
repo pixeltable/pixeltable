@@ -878,6 +878,70 @@ class TestServerDaemon:
         monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: str(tmp_path / 'never-existed'))
         server_daemon._remove_pidfile_if_ours()
 
+    def test_remove_pidfile_swallows_remove_oserror(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Locks the `except OSError: pass` branch around os.remove()."""
+        path = str(tmp_path / 'pid')
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(str(os.getpid()))
+
+        def boom(_p: str) -> None:
+            raise OSError('vanished')
+
+        monkeypatch.setattr(server_daemon.os, 'remove', boom)
+        server_daemon._remove_pidfile_if_ours()  # must not raise
+
+    def test_main_bind_succeeds(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Happy path: bind succeeds -> write pidfile, register atexit, run server."""
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        monkeypatch.setattr(server_daemon, 'get_port', lambda: 12345)
+        fake_server = object()
+        bound: list[int] = []
+        ran: list[object] = []
+
+        def fake_bind(p: int) -> object:
+            bound.append(p)
+            return fake_server
+
+        monkeypatch.setattr(server_daemon, 'bind', fake_bind)
+        monkeypatch.setattr(server_daemon, 'run', lambda s: ran.append(s))
+        monkeypatch.setattr(server_daemon.atexit, 'register', lambda _fn: None)
+        server_daemon.main()
+        assert bound == [12345]
+        assert ran == [fake_server]
+
+    def test_main_defers_to_live_peer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """bind() OSError + a live pxt daemon on the port: exit 0 silently."""
+        monkeypatch.setattr(server_daemon, 'get_port', lambda: 12345)
+
+        def fail(_p: int) -> None:
+            raise OSError('address already in use')
+
+        monkeypatch.setattr(server_daemon, 'bind', fail)
+        monkeypatch.setattr(server_daemon, 'is_running', lambda: True)
+        with pytest.raises(SystemExit) as info:
+            server_daemon.main()
+        assert info.value.code == 0
+
+    def test_main_reports_unrelated_port_holder(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """bind() OSError + nobody at /api/health: print the error, exit 1."""
+        monkeypatch.setattr(server_daemon, 'get_port', lambda: 12345)
+
+        def fail(_p: int) -> None:
+            raise OSError('address already in use')
+
+        monkeypatch.setattr(server_daemon, 'bind', fail)
+        monkeypatch.setattr(server_daemon, 'is_running', lambda: False)
+        with pytest.raises(SystemExit) as info:
+            server_daemon.main()
+        assert info.value.code == 1
+        captured = capsys.readouterr()
+        assert 'bind to 127.0.0.1:12345 failed' in captured.err
+
 
 class TestServerRouteHelpers:
     """Cover routes.py helpers reachable without spinning up the daemon."""
