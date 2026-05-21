@@ -26,11 +26,7 @@ _IDENTITY: dict[str, Any] = identity()
 
 
 def _validate_path(path: str) -> str:
-    """Reject URL paths whose shape pixeltable would later reject with a generic error.
-
-    The router's {path:path} converter accepts anything between the static prefix and
-    suffix, including the empty string and shapes pixeltable's own path parser refuses.
-    """
+    """Reject URL paths whose shape pixeltable would later reject with a generic error."""
     if path == '':
         return path
     # Reject ASCII control characters before any other check: the path is later interpolated

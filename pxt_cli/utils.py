@@ -28,7 +28,13 @@ def _resolve_pixeltable_config_file(home: str) -> str:
 
 
 def get_port() -> int:
-    return int(os.environ.get('PXT_PORT') or DEFAULT_PORT)
+    raw = os.environ.get('PXT_PORT')
+    if raw is None or raw == '':
+        return DEFAULT_PORT
+    try:
+        return int(raw)
+    except ValueError:
+        raise RuntimeError(f'PXT_PORT must be an integer port; got {raw!r}') from None
 
 
 def pidfile_path() -> str:
