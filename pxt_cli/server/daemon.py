@@ -4,6 +4,7 @@ import atexit
 import os
 import sys
 
+from pxt_cli.client.utils import is_running
 from pxt_cli.server.http_server import bind, run
 from pxt_cli.utils import get_port, pidfile_path
 
@@ -33,11 +34,17 @@ def _remove_pidfile_if_ours() -> None:
 
 
 def main() -> None:
+    port = get_port()
     try:
-        server = bind(get_port())
-    except OSError:
-        # Port already taken by another daemon (or process). Defer.
-        sys.exit(0)
+        server = bind(port)
+    except OSError as e:
+        # Port held by something. If it's a peer pxt daemon, defer silently and let the
+        # client's health probe find it. Otherwise this is a real failure — log it so the
+        # client's `wait_for_health` log-tail surfaces something actionable.
+        if is_running():
+            sys.exit(0)
+        print(f'pxt daemon: bind to 127.0.0.1:{port} failed: {e}', file=sys.stderr)
+        sys.exit(1)
     _write_pidfile()
     atexit.register(_remove_pidfile_if_ours)
     run(server)
