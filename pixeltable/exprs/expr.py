@@ -631,7 +631,6 @@ class Expr(abc.ABC):
             at runtime if there are values in `t.json_col` that are not strings. It will _not_ convert those values to
             a string representation. (For that, use the [`dumps()`][pixeltable.functions.json.dumps] UDF instead.)
         """
-
         from pixeltable.exprs import TypeCast
 
         # Interpret the type argument the same way we would if given in a schema
@@ -667,13 +666,18 @@ class Expr(abc.ABC):
         raise NotImplementedError(f'Expression of type `{type(self)}` is not callable')
 
     def __getitem__(self, index: object) -> Expr:
-        if self.col_type.is_json_type():
-            from .json_path import JsonPath
+        from .array_slice import ArraySlice
+        from .json_path import JsonPath
+        from .unknown_expr import UnknownSliceExpr
 
+        if self.col_type.is_invalid_type():
+            if (not isinstance(index, (int, slice, str, tuple)) or
+                (isinstance(index, tuple) and any(not isinstance(i, (int, slice)) for i in index))):
+                 raise AttributeError(f'Invalid indices: {index}')
+            return UnknownSliceExpr(self, index)
+        if self.col_type.is_json_type():
             return JsonPath(self)[index]
         if self.col_type.is_array_type():
-            from .array_slice import ArraySlice
-
             if not isinstance(index, tuple):
                 index = (index,)
             if any(not isinstance(i, (int, slice)) for i in index):
@@ -687,7 +691,10 @@ class Expr(abc.ABC):
         """
         from .json_path import JsonPath
         from .method_ref import MethodRef
+        from .unknown_expr import UnknownAttrExpr
 
+        if self.col_type.is_invalid_type():
+            return UnknownAttrExpr(self, name)
         if self.col_type.is_json_type():
             return JsonPath(self).__getattr__(name)
         else:
@@ -750,7 +757,11 @@ class Expr(abc.ABC):
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
     def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
-        if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
+        from .unknown_expr import UnknownOpExpr
+
+        if self.col_type.is_invalid_type():
+            return UnknownOpExpr('__add__', self, other)
+        if self.col_type.is_string_type():
             return self._make_string_expr(StringOperator.CONCAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
@@ -758,7 +769,11 @@ class Expr(abc.ABC):
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
     def __mul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
-        if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
+        from .unknown_expr import UnknownOpExpr
+
+        if self.col_type.is_invalid_type():
+            return UnknownOpExpr('__mul__', self, other)
+        if self.col_type.is_string_type():
             return self._make_string_expr(StringOperator.REPEAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
@@ -772,7 +787,11 @@ class Expr(abc.ABC):
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
     def __radd__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
-        if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
+        from .unknown_expr import UnknownOpExpr
+
+        if self.col_type.is_invalid_type():
+            return UnknownOpExpr('__radd__', self, other)
+        if self.col_type.is_string_type():
             return self._rmake_string_expr(StringOperator.CONCAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
 
@@ -780,7 +799,11 @@ class Expr(abc.ABC):
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
     def __rmul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
-        if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
+        from .unknown_expr import UnknownOpExpr
+
+        if self.col_type.is_invalid_type():
+            return UnknownOpExpr('__rmul__', self, other)
+        if self.col_type.is_string_type():
             return self._rmake_string_expr(StringOperator.REPEAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
 

@@ -25,24 +25,22 @@ class StringOp(Expr):
         super().__init__(ts.StringType(nullable=op1.col_type.nullable))
         self.operator = operator
         self.components = [op1, op2]
-        assert op1.col_type.is_string_type()
-        if operator in (StringOperator.CONCAT, StringOperator.REPEAT):
-            if operator == StringOperator.CONCAT and not op2.col_type.is_string_type():
-                raise excs.RequestError(
-                    excs.ErrorCode.TYPE_MISMATCH,
-                    f'{self}: {operator} on strings requires string type, but {op2} has type {op2.col_type}',
-                )
-            if operator == StringOperator.REPEAT and not op2.col_type.is_int_type():
-                raise excs.RequestError(
-                    excs.ErrorCode.TYPE_MISMATCH,
-                    f'{self}: {operator} on strings requires int type, but {op2} has type {op2.col_type}',
-                )
-        else:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'{self}: invalid operation {operator} on strings; '
-                f'only operators {StringOperator.CONCAT} and {StringOperator.REPEAT} are supported',
-            )
+        match operator:
+            case StringOperator.CONCAT:
+                if not op1.col_type.is_string_type() or not op2.col_type.is_string_type():
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'{self}: {operator} on strings requires `String` and `String`, but operands have types `{op1.col_type}` and `{op2.col_type}`',
+                    )
+            case StringOperator.REPEAT:
+                if not (op1.col_type.is_string_type() and op2.col_type.is_int_type()) and not (
+                    op1.col_type.is_int_type() and op2.col_type.is_string_type()
+                ):
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'{self}: {operator} on strings requires `String` and `Int`, but operands have types `{op1.col_type}` and `{op2.col_type}`',
+                    )
+
         self.id = self._create_id()
 
     @property
@@ -76,7 +74,10 @@ class StringOp(Expr):
         if self.operator == StringOperator.CONCAT:
             return left.concat(right)
         if self.operator == StringOperator.REPEAT:
-            return sql.func.repeat(left.cast(sql.String), right.cast(sql.Integer))
+            if self._op1.col_type.is_string_type():
+                return sql.func.repeat(left.cast(sql.String), right.cast(sql.Integer))
+            else:
+                return sql.func.repeat(right.cast(sql.String), left.cast(sql.Integer))
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -97,12 +98,9 @@ class StringOp(Expr):
         """
         Return the result of evaluating the expression on two int/float operands
         """
-        assert self.operator in (StringOperator.CONCAT, StringOperator.REPEAT)
         if self.operator == StringOperator.CONCAT:
-            assert isinstance(op2_val, str)
             return op1_val + op2_val
         else:
-            assert isinstance(op2_val, int)
             return op1_val * op2_val
 
     def _as_dict(self) -> dict:

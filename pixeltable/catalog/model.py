@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Literal
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
@@ -9,6 +11,31 @@ from .globals import is_valid_identifier
 from .table import Table
 
 
+class _PlaceholderColumnRef(exprs.Expr):
+    """A placeholder column reference used in TableModel definitions,
+    which gets substituted with an actual ColumnRef during Table creation.
+    """
+
+    def __init__(self, name: str):
+        # Placeholders have column type `InvalidType(nullable=False)`, the universal subtype.
+
+        super().__init__(ts.InvalidType(nullable=False))
+        self.name = name
+        self.id = self._create_id()
+
+    def __repr__(self) -> str:
+        return f'Column.{self.name}'
+
+    def _id_attrs(self) -> list[tuple[str, Any]]:
+        return [*super()._id_attrs(), ('name', self.name)]
+
+    def _equals(self, other: _PlaceholderColumnRef) -> bool:
+        return self.name == other.name
+
+    def eval(self, data_row: exprs.data_row.DataRow, row_builder: exprs.row_builder.RowBuilder) -> None:
+        raise AssertionError('It should never be possible to observe a placeholder in an execution context.')
+
+
 class _PlaceholderColumnMetaclass(type):
     """Metaclass for creating placeholder column objects that can be used in TableModel definitions.
 
@@ -16,12 +43,10 @@ class _PlaceholderColumnMetaclass(type):
     a priori as actual columns.
     """
 
-    def __getattr__(cls, key: str) -> exprs.Variable:
-        # The placeholder reference is given by a variable with column type `InvalidType(nullable=False)`,
-        # the universal subtype.
+    def __getattr__(cls, key: str) -> _PlaceholderColumnRef:
         if not isinstance(key, str) or not is_valid_identifier(key):
             raise AttributeError(f'Invalid column name: {key}')
-        return exprs.Variable(name=key, col_type=ts.InvalidType(nullable=False))
+        return _PlaceholderColumnRef(key)
 
     def __hasattr__(cls, key: str) -> bool:
         return isinstance(key, str) and is_valid_identifier(key)
@@ -110,11 +135,11 @@ class TableModelMetaclass(type):
             expr = col_spec.get('value')
             if expr is not None:
                 realized_expr: exprs.Expr = expr.copy().substitute(subst_dict)
-                vars = list(realized_expr.subexprs(exprs.Variable))
-                if len(vars) > 0:
+                residual_placeholders = list(realized_expr.subexprs(_PlaceholderColumnRef))
+                if len(residual_placeholders) > 0:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_SCHEMA,
-                        f'Computed column {col_name!r} references undefined column(s): {vars}',
+                        f'Computed column {col_name!r} references undefined column(s): {residual_placeholders}',
                     )
                 tbl.add_computed_column(**{col_name: realized_expr})
                 subst_dict[getattr(Column, col_name)] = getattr(tbl, col_name)

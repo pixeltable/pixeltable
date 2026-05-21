@@ -1,3 +1,5 @@
+import numpy as np
+
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.catalog.model import Column
@@ -141,3 +143,36 @@ class TestTableModel:
             },
             tbl.get_metadata(),
         )
+
+    def test_all_table_exprs(self, uses_db: None) -> None:
+        class AllExprsTableModel(pxt.TableModel):
+            __table_name__ = 'all_exprs_table'
+
+            id: pxt.Int
+            name: pxt.String
+            value: pxt.Float
+            arr: pxt.Array
+            img: pxt.Image
+            arith_add = Column.value + 1
+            arith_radd = 1 + Column.value
+            arith_mul = Column.value * 2
+            arith_rmul = 2 * Column.value
+            # array_slice = Column.arr[:, 1:3]
+            # column_property_ref = Column.img.fileurl
+            column_ref = Column.name
+            comparison = Column.value > 0.0
+            compound_predicate = (Column.value > 0.0) & (Column.name != 'test')
+            function_call = pxtf.math.floor(Column.value)
+            # in_predicate = Column.name.isin(['Alice', 'Bob', 'Charlie'])
+            # inline_array = pxt.array([Column.value, Column.value + 1, Column.value + 2])
+            # inline_list = [Column.name, Column.img]
+            is_null = Column.name == None
+            # method_ref = Column.name.upper()
+            # similarity = Column.name.similarity('similar string')
+            string_add = Column.name + ' suffix'
+            string_radd = 'prefix ' + Column.name
+            string_mul = Column.name * 3
+            string_rmul = 3 * Column.name
+            type_cast = Column.arr.astype(pxt.Array[np.float32])
+
+        tbl = AllExprsTableModel.create()
