@@ -1,5 +1,3 @@
-import json
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.catalog.model import Column

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.types import ColumnSpec
@@ -38,6 +38,9 @@ class TableModelMetaclass(type):
     assignments become computed columns.
     """
 
+    __columns__: dict[str, ColumnSpec]
+    __table_name__: str
+
     def __new__(
         mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
     ) -> TableModelMetaclass:
@@ -64,22 +67,23 @@ class TableModelMetaclass(type):
             elif isinstance(value, dict):
                 spec = value
                 if annotation is not None:
-                    if spec.type is None:
+                    if spec['type'] is None:
                         # Fill the annotation into the ColumnSpec if it's missing
                         spec = spec.copy()
-                        spec.type = annotation
-                    elif spec.type != annotation:
+                        spec['type'] = annotation
+                    elif spec['type'] != annotation:
                         raise excs.RequestError(
                             excs.ErrorCode.INVALID_SCHEMA,
                             f'Type annotation for column {attr_name!r} conflicts with type in ColumnSpec',
                         )
-                columns[attr_name] = spec
+                columns[attr_name] = spec  # type: ignore[assignment]
             elif isinstance(value, exprs.Expr):
                 columns[attr_name] = ColumnSpec(type=annotation, value=value)
             else:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Value for column {attr_name!r} must be a `ColumnSpec` or a computed expression, but has type `{type(value).__name__}`',
+                    f'Value for column {attr_name!r} must be a `ColumnSpec` or a computed expression, '
+                    f'but has type `{type(value).__name__}`',
                 )
 
         namespace['__columns__'] = columns

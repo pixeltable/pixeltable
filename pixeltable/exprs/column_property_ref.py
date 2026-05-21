@@ -81,7 +81,9 @@ class ColumnPropertyRef(Expr):
         return None
 
     def _substitute(self, spec: dict[Expr, Expr]) -> ColumnPropertyRef:
-        return ColumnPropertyRef(self.col_ref.substitute(spec), self.prop)
+        subst = self.col_ref.substitute(spec)
+        assert isinstance(subst, ColumnRef)
+        return ColumnPropertyRef(subst, self.prop)
 
     @classmethod
     def create_cellmd_exc(cls, exc: Exception) -> dict[str, str]:
