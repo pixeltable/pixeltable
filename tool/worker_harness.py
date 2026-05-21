@@ -21,6 +21,7 @@ def run_workers(
     if script is not None:
         worker_args = [[script, str(i)] for i in range(num_workers)]
 
+    print(f'Starting {num_workers} workers to run for {duration}s...')
     processes: list[subprocess.Popen] = []
     for i in range(num_workers):
         p = subprocess.Popen(['python', *worker_args[i]])
