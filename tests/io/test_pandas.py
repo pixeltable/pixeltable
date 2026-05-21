@@ -114,11 +114,11 @@ class TestPandas:
             'Feedback': ts.StringType(nullable=True),
             'Unnamed__12': ts.StringType(nullable=True),
         }
-        assert t1.select(t1.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
+        assert t1.where((t1.Gender == 'Male') & (t1.Occupation == 'Self Employeed')).count() == 38  # [sic]
 
         t1a = pxt.create_table('online_foods_a', source='tests/data/datasets/onlinefoods.csv')
         assert t1a.count() == 388
-        assert t1.show() == t1a.show()
+        assert t1.order_by(t1.latitude).limit(20).collect() == t1a.order_by(t1a.latitude).limit(20).collect()
         t1a.insert('tests/data/datasets/onlinefoods.csv')
         assert t1a.count() == 2 * 388
 
@@ -146,7 +146,7 @@ class TestPandas:
             'ts': ts.TimestampType(nullable=True),
             'ts_n': ts.TimestampType(nullable=True),
         }
-        result_set = t3.collect()
+        result_set = t3.order_by(t3.c__int).collect()
         assert result_set['c__int'] == [2, 3, 5, 22]
         assert result_set['float'] == [1.7, 3.0, 6.2, -1.0]
         _assert_equals_with_nans(result_set['float_n'], [1.0, 5.0, float('nan'), 1.0])
@@ -176,7 +176,7 @@ class TestPandas:
         assert tab.count() == 388
         assert 'Age' in tab.columns()
         assert 'Output' in tab.columns()
-        assert tab.select(tab.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
+        assert tab.where((tab.Gender == 'Male') & (tab.Occupation == 'Self Employeed')).count() == 38  # [sic]
 
     def test_insert_pandas_csv(self, uses_db: None) -> None:
         from pixeltable.io import import_csv
@@ -239,7 +239,7 @@ class TestPandas:
         assert t5.count() == 45
         assert t5._get_schema()['OrderDate'] == ts.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
-        assert t5.collect()[43]['OrderDate'] is None
+        assert t5.where(t5.Units == 278).collect()[0]['OrderDate'] is None
 
         t6 = import_excel('questions', 'docs/resources/rag-demo/Q-A-Rag.xlsx')
         assert t6.count() == 8

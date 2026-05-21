@@ -23,12 +23,12 @@ class TestUuid:
 
         for pxt_fn, py_fn, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
-            actual = t.select(out=pxt_fn(t.id, *args, **kwargs)).collect()['out']
+            actual = t.select(out=pxt_fn(t.id, *args, **kwargs)).head(len(test_uuids))['out']
             expected = [py_fn(id, *args, **kwargs) for id in test_uuids]
             assert actual == expected
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
-            actual_py = t.select(out=pxt_fn(t.id.apply(lambda x: x, col_type=pxt.UUID), *args, **kwargs)).collect()[
-                'out'
-            ]
+            actual_py = t.select(out=pxt_fn(t.id.apply(lambda x: x, col_type=pxt.UUID), *args, **kwargs)).head(
+                len(test_uuids)
+            )['out']
             assert actual_py == expected

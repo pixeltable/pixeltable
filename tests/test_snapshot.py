@@ -194,14 +194,14 @@ class TestSnapshot:
         self.__test_create_if_exists('test_snap_t', t, s1)
         self.__test_create_if_exists('test_snap_v', v, s2)
         # sanity check persistence
-        _ = reload_tester.run_query(t.select())
-        _ = reload_tester.run_query(v.select())
+        _ = reload_tester.run_query(t.select().order_by(t.c2))
+        _ = reload_tester.run_query(v.select().order_by(v.c2))
         # get the snapshot handles again, they would be replaced at the end of __test_create_if_exists
         s1 = pxt.get_table('test_snap_t')
         s2 = pxt.get_table('test_snap_v')
         id_before = {'test_snap_t': s1._id, 'test_snap_v': s2._id}
-        _ = reload_tester.run_query(s1.select())
-        _ = reload_tester.run_query(s2.select())
+        _ = reload_tester.run_query(s1.select().order_by(s1.c2))
+        _ = reload_tester.run_query(s2.select().order_by(s2.c2))
         reload_tester.run_reload_test()
         # get the snapshot handles again after reload
         s1 = pxt.get_table('test_snap_t')

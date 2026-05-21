@@ -70,13 +70,17 @@ class TestString:
         IBM UK Scientific Centre at Peterlee - IS1 (1970-72), and its successor, PRTV (1973-79).
         """
 
-    TEST_STRS = (
-        *textwrap.dedent(TEST_STR.strip()).split('. '),
-        '   \v\t\rWhite\n\nSpace\n\f \n\n',
-        r'%%!!#__\\Symbols%%!!#\\@@__%',
-        'a',
-        ' ',
-        '',
+    TEST_STRS = tuple(
+        sorted(
+            [
+                *textwrap.dedent(TEST_STR.strip()).split('. '),
+                '   \v\t\rWhite\n\nSpace\n\f \n\n',
+                r'%%!!#__\\Symbols%%!!#\\@@__%',
+                'a',
+                ' ',
+                '',
+            ]
+        )
     )
 
     def test_all(self, uses_db: None) -> None:
@@ -126,14 +130,16 @@ class TestString:
 
         for pxt_fn, str_fn, args, kwargs in test_params:
             try:
-                actual = t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out']
+                actual = t.order_by(t.s).select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out']
                 expected = [str_fn(s, *args, **kwargs) for s in self.TEST_STRS]
                 assert actual == expected, pxt_fn
                 # Run the same query, forcing the calculations to be done in Python (not SQL)
                 # by interposing a non-SQLizable identity function
-                actual_py = t.select(
-                    out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String), *args, **kwargs)
-                ).collect()['out']
+                actual_py = (
+                    t.order_by(t.s)
+                    .select(out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String), *args, **kwargs))
+                    .collect()['out']
+                )
                 assert actual_py == expected, pxt_fn
             except Exception as e:
                 print(pxt_fn)
@@ -279,16 +285,18 @@ class TestString:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
-        assert t.select(out=t.s.contains('IBM')).collect()['out'] == ['IBM' in s for s in self.TEST_STRS]
-        assert t.select(out=t.s.contains('ibm', case=True)).collect()['out'] == ['ibm' in s for s in self.TEST_STRS]
-        assert t.select(out=t.s.contains('ibm', case=False)).collect()['out'] == [
+        assert t.order_by(t.s).select(out=t.s.contains('IBM')).collect()['out'] == ['IBM' in s for s in self.TEST_STRS]
+        assert t.order_by(t.s).select(out=t.s.contains('ibm', case=True)).collect()['out'] == [
+            'ibm' in s for s in self.TEST_STRS
+        ]
+        assert t.order_by(t.s).select(out=t.s.contains('ibm', case=False)).collect()['out'] == [
             'ibm' in s.lower() for s in self.TEST_STRS
         ]
 
-        assert t.select(out=t.s.contains_re('ibm', flags=re.IGNORECASE)).collect()['out'] == [
+        assert t.order_by(t.s).select(out=t.s.contains_re('ibm', flags=re.IGNORECASE)).collect()['out'] == [
             'ibm' in s.lower() for s in self.TEST_STRS
         ]
-        assert t.select(out=t.s.contains_re('i.m', flags=re.IGNORECASE)).collect()['out'] >= [
+        assert t.order_by(t.s).select(out=t.s.contains_re('i.m', flags=re.IGNORECASE)).collect()['out'] >= [
             'ibm' in s.lower() for s in self.TEST_STRS
         ]
 

@@ -208,9 +208,13 @@ class TestIndex:
                 .limit(5)
             )
 
-        res1 = queries.select(queries.query_text, out=top_k_chunks(queries.query_text)).collect()
+        res1 = (
+            queries.select(queries.query_text, out=top_k_chunks(queries.query_text))
+            .order_by(queries.query_text)
+            .collect()
+        )
         queries.add_computed_column(chunks=top_k_chunks(queries.query_text))
-        res2 = queries.collect()
+        res2 = queries.order_by(queries.query_text).collect()
 
         assert_resultset_eq(res1, res2)
 
@@ -228,7 +232,11 @@ class TestIndex:
                     .limit(5)
                 )
 
-        res1_deprecated = queries.select(queries.query_text, out=top_k_chunks_deprecated(queries.query_text)).collect()
+        res1_deprecated = (
+            queries.select(queries.query_text, out=top_k_chunks_deprecated(queries.query_text))
+            .order_by(queries.query_text)
+            .collect()
+        )
         assert_resultset_eq(res1, res1_deprecated)
 
         # make sure we can instantiate the query function from the metadata
@@ -597,7 +605,7 @@ class TestIndex:
         img_t.revert()
 
         # make sure we can still do DML after reloading the metadata
-        query = img_t.select()
+        query = img_t.select().order_by(img_t.img)
         _ = reload_tester.run_query(query)
         reload_tester.run_reload_test(clear=True)
         img_t = pxt.get_table(tbl_name)
@@ -689,18 +697,18 @@ class TestIndex:
         v = pxt.create_view('v', t.where(t.n % 2 == 0))
         v.add_embedding_index('s', string_embed=all_mpnet_embed)
 
-        query1 = v.select(sim1=v.s.similarity(string=sentences[1]))
+        query1 = v.select(sim1=v.s.similarity(string=sentences[1])).order_by(v.n)
         res1 = reload_tester.run_query(query1)
 
         # Now add an index to the base table, which should be independent of the view index
         t.add_embedding_index('s', string_embed=e5_embed)
-        query2 = t.where(t.n % 2 == 0).select(sim2=t.s.similarity(string=sentences[1]))
+        query2 = t.where(t.n % 2 == 0).select(sim2=t.s.similarity(string=sentences[1])).order_by(t.n)
         res2 = reload_tester.run_query(query2)
 
         # Now query the view again twice: once with the column referenced as `v.s`, and once as `t.s`
-        query3 = v.select(sim3=v.s.similarity(string=sentences[1]))
+        query3 = v.select(sim3=v.s.similarity(string=sentences[1])).order_by(v.n)
         res3 = reload_tester.run_query(query3)
-        query4 = v.select(sim4=t.s.similarity(string=sentences[1]))
+        query4 = v.select(sim4=t.s.similarity(string=sentences[1])).order_by(v.n)
         res4 = reload_tester.run_query(query4)
 
         # `v.s` should use the view index, while `t.s` should use the base table index
@@ -1005,7 +1013,7 @@ class TestIndex:
         t = pxt.create_table('array_embedding_test', {'id': pxt.Int, 'text': pxt.String})
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
 
-        precomputed_embeddings = t.select(emb=e5_embed(t.text)).collect()['emb']
+        precomputed_embeddings = t.order_by(t.id).select(emb=e5_embed(t.text)).collect()['emb']
         dim = len(precomputed_embeddings[0])
         precomputed_embeddings_f64 = [v.astype(np.float64) for v in precomputed_embeddings]
 

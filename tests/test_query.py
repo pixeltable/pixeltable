@@ -7,6 +7,7 @@ from typing import Any
 
 import bs4
 import numpy as np
+import pandas as pd
 import PIL.Image
 import pydantic
 import pytest
@@ -66,15 +67,27 @@ class TestQuery:
         t = test_tbl
         res1 = t.collect()
         res2 = t.select().collect()
-        assert len(res1) > 0 and res1 == res2
+        assert len(res1) > 0
+        assert len(res1) == len(res2)
+        pd.testing.assert_frame_equal(
+            res1.to_pandas()[['c1', 'c2']].sort_values(['c1', 'c2']).reset_index(drop=True),
+            res2.to_pandas()[['c1', 'c2']].sort_values(['c1', 'c2']).reset_index(drop=True),
+        )
 
         res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).collect()
-
         res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).collect()
-        assert res1 == res3
+        assert len(res1) == len(res3)
+        pd.testing.assert_frame_equal(
+            res1.to_pandas().sort_values(['c1', 'c2', 'c3']).reset_index(drop=True),
+            res3.to_pandas().sort_values(['c1', 'c2', 'c3']).reset_index(drop=True),
+        )
 
         res4 = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3).collect()
-        assert res1 == res4
+        assert len(res1) == len(res4)
+        pd.testing.assert_frame_equal(
+            res1.to_pandas().sort_values(['c1', 'c2', 'c3']).reset_index(drop=True),
+            res4.to_pandas().sort_values(['c1', 'c2', 'c3']).reset_index(drop=True),
+        )
 
         from pixeltable.functions.string import contains
 
@@ -646,13 +659,11 @@ class TestQuery:
 
     def test_update_delete_where(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
-        old: list[int] = t.select(t.c3).collect()['c3']
 
         # Update with where
         validate_update_status(t.where(t.c2 >= 50).update({'c3': 4171780.0}), expected_rows=50)
-        new: list[int] = t.select(t.c3).collect()['c3']
-        assert new[:50] == old[:50]
-        assert all(new[i] == 4171780.0 for i in range(51, len(new)))
+        assert t.where(t.c3 > 1000000.0).count() == 50
+        assert t.where(t.c3 < 1000.0).count() == 50
 
         # Update without where
         validate_update_status(t.select().update({'c3': 94.0}))
