@@ -106,8 +106,14 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
     # Local model inference
     t.add_computed_column(objects=yolox(t.image, model_id='yolox_s'))
     
-    # Vision analysis
-    t.add_computed_column(desc=openai.vision(prompt="Describe", image=t.image))
+    # Vision analysis (multimodal)
+    t.add_computed_column(desc=openai.chat_completions(
+        messages=[{'role': 'user', 'content': [
+            {'type': 'text', 'text': 'Describe this image'},
+            {'type': 'image_url', 'image_url': t.image},
+        ]}],
+        model='gpt-4o-mini'
+    ))
     ```
     
     <CardGroup cols={2}>

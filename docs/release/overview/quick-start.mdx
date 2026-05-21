@@ -184,20 +184,25 @@ This guide will help you spin up a functioning AI workload in 5 minutes.
     # Set your API key
     os.environ['OPENAI_API_KEY'] = 'your-key-here'
 
+    messages = [
+        {
+            'role': 'user',
+            'content': [
+                {'type': 'text', 'text': 'Describe this image in one sentence.'},
+                {'type': 'image_url', 'image_url': t.image},
+            ],
+        }
+    ]
     t.add_computed_column(
-        description=openai.vision(
-            prompt="Describe this image in one sentence.",
-            image=t.image,
-            model='gpt-4o-mini'
-        )
+        response=openai.chat_completions(messages, model='gpt-4o-mini')
     )
 
-    t.select(t.image, t.labels, t.description).collect()
+    t.select(t.image, t.labels, t.response.choices[0].message.content).collect()
     ```
 
     ```python
-    # See the full text of the description in row 0
-    t.select(t.description).collect()[0]
+    # See the full text of the response in row 0
+    t.select(t.response.choices[0].message.content).collect()[0]
     ```
 
     <Note>

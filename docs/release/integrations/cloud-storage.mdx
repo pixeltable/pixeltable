@@ -347,12 +347,17 @@ t.add_computed_column(
 )
 
 # Add AI-generated descriptions (uses output_media_dest)
+messages = [
+    {
+        'role': 'user',
+        'content': [
+            {'type': 'text', 'text': 'Describe this image briefly.'},
+            {'type': 'image_url', 'image_url': t.photo},
+        ],
+    }
+]
 t.add_computed_column(
-    description=openai.vision(
-        prompt="Describe this image briefly.",
-        image=t.photo,
-        model='gpt-4o-mini'
-    )
+    description=openai.chat_completions(messages, model='gpt-4o-mini')
 )
 
 # Insert data — Pixeltable handles all uploads automatically
