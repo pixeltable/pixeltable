@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from twelvelabs.wrapper.multipart_upload_client_wrapper import UploadResult
 
 
-TWELVELABS_INLINE_LIMIT_BYTES = 4 * 2**20
+TWELVELABS_INLINE_LIMIT_BYTES = 2 * 2**20
 
 
 @env.register_client('twelvelabs')
@@ -47,22 +47,24 @@ async def _asset_uploads(input_type: Literal['audio', 'video'], files: list[str]
     Returns:
         A list of asset IDs corresponding to the uploaded files.
     """
+    if len(files) == 0:
+        yield []
+        return
+
     client = _twelvelabs_client()
     uploaded: list[str] = []
 
     try:
-        if len(files) > 0:
-            tasks: list[Coroutine[Any, Any, 'UploadResult']] = []
-            for file in files:
-                tasks.append(client.multipart_upload.upload_file(file_path=file, file_type=input_type))  # type: ignore[attr-defined]
-            upload_results = await asyncio.gather(*tasks)
-            uploaded = [u.asset_id for u in upload_results]
+        tasks: list[Coroutine[Any, Any, 'UploadResult']] = []
+        for file in files:
+            tasks.append(client.multipart_upload.upload_file(file_path=file, file_type=input_type))  # type: ignore[attr-defined]
+        upload_results = await asyncio.gather(*tasks)
+        uploaded = [u.asset_id for u in upload_results]
 
         yield uploaded
 
     finally:
-        if len(uploaded) > 0:
-            await asyncio.gather(*[client.assets.delete(asset_id) for asset_id in uploaded], return_exceptions=True)
+        await asyncio.gather(*[client.assets.delete(asset_id) for asset_id in uploaded], return_exceptions=True)
 
 
 @pxt.udf(resource_pool='request-rate:twelvelabs')
