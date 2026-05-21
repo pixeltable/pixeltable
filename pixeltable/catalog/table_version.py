@@ -766,14 +766,23 @@ class TableVersion:
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
         assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)
-        row_count = self.store_tbl.count()
+        # row count computed on demand
+        row_count: int | None = None
         for col in cols:
-            # TODO: check this elsewhere?
-            if not col.col_type.nullable and not col.is_computed and row_count > 0:
+            if col.is_pk:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows',
+                    f'Cannot add primary key column {col.name!r} after table creation',
                 )
+            # TODO: check this elsewhere?
+            if not col.col_type.nullable and not col.is_computed:
+                if row_count is None:
+                    row_count = self.store_tbl.count()
+                if row_count > 0:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows',
+                    )
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
 
@@ -848,6 +857,11 @@ class TableVersion:
         assert all(col.stored is not None for col in cols)
         assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)
         for col in cols:
+            if col.is_pk:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot add primary key column {col.name!r} after table creation',
+                )
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
 
@@ -964,6 +978,11 @@ class TableVersion:
 
         assert self.is_mutable
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+
+        if col.is_pk:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot drop primary key column {col.name!r}'
+            )
 
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)

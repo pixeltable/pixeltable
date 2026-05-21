@@ -129,7 +129,9 @@ class RateLimitsScheduler(Scheduler):
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
         estimator = request.fn_call.fn._resource_estimator
-        param_names = [p.name for p in inspect.signature(estimator).parameters.values() if p.name != '_param_types']
+        param_names = [
+            p.name for p in inspect.signature(estimator, eval_str=True).parameters.values() if p.name != '_param_types'
+        ]
         if len(param_names) == 0:
             result = estimator()
         else:
@@ -145,7 +147,7 @@ class RateLimitsScheduler(Scheduler):
             # If the estimator declares '_param_types', inject a dict mapping param names to Pixeltable
             # ColumnTypes for the resolved overload. This lets a shared estimator on a polymorphic function
             # distinguish overloads that share the same Python types (e.g., str for Document vs Video).
-            has_param_types = '_param_types' in inspect.signature(estimator).parameters
+            has_param_types = '_param_types' in inspect.signature(estimator, eval_str=True).parameters
             if not request.is_batched:
                 if has_param_types:
                     param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
