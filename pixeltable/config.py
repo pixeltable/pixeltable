@@ -422,11 +422,34 @@ class Config:
             return os.environ[env_var]
         return default
 
+    def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
+        """Find key under section in __config_dict. Returns (value, source_path) or None."""
+        parts = section.split('.')
+        # explicit type decl for readability
+        top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
+        if top_section is None:
+            return None
+        if len(parts) == 1:
+            return top_section.get(key)
+
+        if parts[1] not in top_section:
+            return None
+        sub_section, source = top_section[parts[1]]
+        for p in parts[2:]:
+            if not isinstance(sub_section, dict):
+                return None
+            sub_section = sub_section.get(p)
+            if sub_section is None:
+                return None
+        if not isinstance(sub_section, dict) or key not in sub_section:
+            return None
+        return (sub_section[key], source)
+
     def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> T | None:
         value: Any = self.lookup_env(section, key)  # Try to get from environment first
         # Next try the config file
         if value is None:
-            entry = self.__config_dict.get(section, {}).get(key)
+            entry = self.__lookup_config_entry(section, key)
             if entry is None:
                 return None
             value = entry[0]
@@ -488,7 +511,7 @@ class Config:
         """
         if self.lookup_env(section, key) is not None:
             return 'env'
-        entry = self.__config_dict.get(section, {}).get(key)
+        entry = self.__lookup_config_entry(section, key)
         if entry is None:
             return 'unset'
         path = entry[1]
