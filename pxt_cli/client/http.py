@@ -4,7 +4,6 @@ Keeping this dependency-free reduces startup time of the client.
 """
 
 import json
-import os
 import sys
 import urllib.error
 import urllib.parse
@@ -30,7 +29,7 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
             # doseq=True expands list values into repeated params (?pk=a&pk=b).
             url += '?' + urllib.parse.urlencode(filtered, doseq=True)
 
-    headers = {'X-Cwd': os.getcwd()}
+    headers: dict[str, str] = {}
     data: bytes | None = None
     if body is not None:
         data = json.dumps(body).encode()

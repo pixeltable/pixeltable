@@ -125,6 +125,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         self.send_response(http.HTTPStatus(resp.status))
         self.send_header('Content-Type', resp.content_type)
         self.send_header('Content-Length', str(len(resp.body)))
+        self.send_header('Cache-Control', 'no-store')
         for k, v in resp.extra_headers.items():
             self.send_header(k, v)
         self._write_cors_headers()
