@@ -11,9 +11,10 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
-from pxt_cli import models, probe
+from pxt_cli import models
+from pxt_cli.utils import identity
 
-from . import bridge, state
+from . import bridge
 from .router import RawResponse, Request, Router
 
 router = Router()
@@ -21,7 +22,7 @@ _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
-_IDENTITY: dict[str, Any] = probe.identity()
+_IDENTITY: dict[str, Any] = identity()
 
 
 def _validate_path(path: str) -> str:
@@ -327,9 +328,15 @@ def describe_table(req: Request) -> models.DescribeResponse:
 def columns(req: Request) -> models.ColumnsResponse:
     path = req.query_str('path')
     computed = req.query_bool('computed')
+    # An empty `?path=` is almost always an interpolated variable resolving to empty;
+    # treat it as a bad request rather than silently dumping the full catalog.
+    if path == '':
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, "'path' query parameter is empty; omit it entirely for all tables"
+        )
     if path is not None:
         _validate_path(path)
-    paths = [path] if path is not None and path != '' else _collect_table_paths()
+    paths = [path] if path is not None else _collect_table_paths()
     entries: list[models.ColumnEntry] = []
     for p in paths:
         try:
@@ -358,9 +365,13 @@ def columns(req: Request) -> models.ColumnsResponse:
 def indexes(req: Request) -> models.IdxsResponse:
     path = req.query_str('path')
     embedding = req.query_bool('embedding')
+    if path == '':
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, "'path' query parameter is empty; omit it entirely for all tables"
+        )
     if path is not None:
         _validate_path(path)
-    paths = [path] if path is not None and path != '' else _collect_table_paths()
+    paths = [path] if path is not None else _collect_table_paths()
     entries: list[models.IdxEntry] = []
     for p in paths:
         try:
@@ -397,13 +408,6 @@ def move(req: Request) -> models.MoveResponse:
     body = req.body(models.MoveBody)
     pxt.move(body.path, body.new_path)
     return models.MoveResponse(path=body.path, new_path=body.new_path)
-
-
-@router.post('/api/dashboard/control')
-def dashboard_control(req: Request) -> models.DashboardControlResponse:
-    body = req.body(models.DashboardControlBody)
-    state.set_dashboard_enabled(body.action == 'enable')
-    return models.DashboardControlResponse(enabled=state.dashboard_enabled())
 
 
 @router.get('/api/dashboard/search')

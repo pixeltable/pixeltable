@@ -427,11 +427,8 @@ old_version = pxt.get_table('my_table:472')  # Query a specific version
 Pixeltable ships with a built-in local dashboard. Browse tables, inspect schemas, view media with lightbox navigation, visualize your full data pipeline as a DAG, and track computation errors, all from your browser.
 
 ```bash
-# Start the dashboard at http://localhost:22089
-pxt dashboard start
-
-# Stop it
-pxt dashboard stop
+# Print the dashboard URL and open it in your browser
+pxt dashboard
 ```
 
 **Highlights:** Table browser with sorting & filtering · Media preview (images, video, audio) · Column lineage visualization · Pipeline graph · Per-column error tracking · CSV export · Auto-refresh

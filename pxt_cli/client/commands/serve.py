@@ -12,6 +12,8 @@ import pixeltable as pxt
 from pixeltable import config, exceptions as excs
 from pixeltable.serving._config import create_service_from_config, lookup_service_config
 
+from ..parser import Parser
+
 _SUBCOMMANDS = ('insert', 'query', 'update', 'delete')
 
 _EPILOG_SERVE = """\
@@ -36,17 +38,6 @@ Examples:
 _EPILOG_QUERY = """\
 Examples:
   pxt serve query --query myapp.queries.search_docs --path /search"""
-
-
-class _Parser(argparse.ArgumentParser):
-    """ArgumentParser that appends the epilog to stderr on error."""
-
-    def error(self, message: str) -> None:
-        self.print_usage(sys.stderr)
-        sys.stderr.write(f'\npxt: error: {message}\n')
-        if self.epilog is not None:
-            sys.stderr.write(f'\n{self.epilog}\n')
-        sys.exit(2)
 
 
 def _add_service_args(p: argparse.ArgumentParser) -> None:
@@ -199,9 +190,7 @@ def _add_subparsers(serve_parser: argparse.ArgumentParser) -> None:
 
 
 def run(argv: list[str]) -> None:
-    parser = _Parser(
-        prog='pxt serve', description='Start an HTTP service', formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = Parser(prog='pxt serve', description='Start an HTTP service')
 
     # Decide between named-service mode (pxt serve <service-name>) and subcommand mode
     # (pxt serve insert|update|delete|query) by inspecting the first argument: if it's

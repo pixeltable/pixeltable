@@ -5,20 +5,19 @@ icon: table-layout
 description: Browse tables, inspect pipelines, preview media, and debug computed columns from a local web UI that starts automatically.
 ---
 
-The Pixeltable dashboard is a local web UI for exploring your data. It starts automatically when you use Pixeltable and runs at [http://localhost:22089](http://localhost:22089).
+The Pixeltable dashboard is a local web UI for exploring your data. It's served by the pxt daemon at [http://localhost:22089](http://localhost:22089).
 
-No extra install is needed. The dashboard ships inside the `pixeltable` package.
+No extra install is needed. The dashboard ships inside the `pixeltable` package and uses the same daemon that backs the [`pxt` CLI](/platform/cli).
 
 ## Opening the dashboard
 
-The dashboard server launches in the background the first time your script or notebook calls any Pixeltable API. To open it in a browser explicitly:
+Run `pxt dashboard` from a terminal:
 
-```python
-import pixeltable as pxt
-
-pxt.dashboard.serve()            # opens http://localhost:22089 in your default browser
-pxt.dashboard.serve(open_browser=False)  # start the server without opening a browser
+```bash
+pxt dashboard
 ```
+
+This auto-spawns the daemon if it isn't already running, prints the URL, and opens it in your default browser. The daemon survives across shells and stays warm; subsequent invocations just hand off the URL.
 
 <Info>
 The dashboard binds to `127.0.0.1` only and is not accessible from other machines on the network. For remote access to tables and queries, see [HTTP Serving](/howto/deployment/serving).
@@ -82,15 +81,12 @@ The table view includes a **Copy** button that generates the Python SDK code for
 
 | Setting | Default | Environment variable | Description |
 |---|---|---|---|
-| `start_dashboard` | `true` | `PIXELTABLE_START_DASHBOARD` | Set to `false` to prevent auto-start |
-| `dashboard_port` | `22089` | `PIXELTABLE_DASHBOARD_PORT` | Port the dashboard listens on |
+| Daemon port | `22089` | `PXT_PORT` | Port the daemon (and dashboard) listens on |
 
-You can also set these in your [Pixeltable config file](/platform/configuration):
+Set the port before invoking any `pxt` command:
 
-```toml
-[pixeltable]
-start_dashboard = false
-dashboard_port = 3000
+```bash
+PXT_PORT=3000 pxt dashboard
 ```
 
 ## Keyboard shortcuts
@@ -104,13 +100,8 @@ dashboard_port = 3000
 
 ## Troubleshooting
 
-**Port already in use**: If another process occupies port 22089, set a different port via `PIXELTABLE_DASHBOARD_PORT=3000` or the config file. The dashboard detects port conflicts and prints the alternative in the console.
+**Port already in use**: If another process occupies port 22089, set a different port via `PXT_PORT=3000`. The daemon refuses to start on a bound port and the CLI surfaces the bind error.
 
-**Dashboard not starting**: Verify the dashboard is not explicitly disabled:
-
-```python
-import pixeltable as pxt
-pxt.dashboard.serve()  # force-start and open browser
-```
+**Daemon not responding**: Check `pxt daemon status` for a quick health report. If the daemon is stuck, `pxt daemon stop` then `pxt daemon start` cycles it.
 
 **Static files missing**: The React app ships as pre-built static files inside the `pixeltable` package. If you installed from source, ensure the dashboard was built (`npm run build` in the `dashboard/` directory).

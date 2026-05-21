@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 
 import pixeltable as pxt
 from pixeltable.serving import deploy
+
+from ..parser import Parser
 
 EPILOG = """\
 To deploy a configured deployment:
@@ -13,23 +14,11 @@ To deploy a configured deployment:
 """
 
 
-class _Parser(argparse.ArgumentParser):
-    """ArgumentParser that appends the epilog to stderr on error."""
-
-    def error(self, message: str) -> None:
-        self.print_usage(sys.stderr)
-        sys.stderr.write(f'\npxt: error: {message}\n')
-        if self.epilog is not None:
-            sys.stderr.write(f'\n{self.epilog}\n')
-        sys.exit(2)
-
-
 def run(argv: list[str]) -> None:
-    parser = _Parser(
+    parser = Parser(
         prog='pxt deploy',
         description='Deploy the service in the specified deployment configuration to Pixeltable cloud.',
         epilog=EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument('deployment', help='Name of the target deployment')
     parser.add_argument('--json', action='store_true', dest='json', help='Emit machine-readable JSON output')

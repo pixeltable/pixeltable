@@ -1,7 +1,7 @@
 """Unit tests for cli internals.
 
 Covers things that aren't reachable through the daemon smoke tests:
-  - probe.py spawn / restart / kill safety paths (monkeypatched)
+  - client_utils.py spawn / restart / kill safety paths (monkeypatched)
   - the confirm.py interactive prompt
   - parser.py / main.py error and help paths
   - http.py client error branches
@@ -25,8 +25,8 @@ import pytest
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
-from pxt_cli import probe
-from pxt_cli.client import confirm, http, main as client_main, parser as client_parser
+from pxt_cli import utils
+from pxt_cli.client import confirm, http, main as client_main, parser as client_parser, utils as client_utils
 from pxt_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
 from pxt_cli.server import daemon as server_daemon, routes as server_routes
 
@@ -37,7 +37,7 @@ def _pick_port() -> int:
         return s.getsockname()[1]
 
 
-# A canonical identity dict used by the probe tests below. Real values are too tied to the
+# A canonical identity dict used by the identity-equality tests below. Real values are too tied to the
 # host environment to assert against; tests pin the dict via _patch_identity and pass
 # matching responses (or override one field to provoke a mismatch).
 _DEFAULT_IDENTITY: dict[str, object] = {
@@ -52,9 +52,9 @@ _DEFAULT_IDENTITY: dict[str, object] = {
 
 
 def _patch_identity(monkeypatch: pytest.MonkeyPatch, overrides: dict[str, object]) -> dict[str, object]:
-    """Pin probe.identity() to a known dict so tests don't depend on the host environment."""
+    """Pin utils.identity() to a known dict so tests don't depend on the host environment."""
     ident = {**_DEFAULT_IDENTITY, **overrides}
-    monkeypatch.setattr(probe, 'identity', lambda: dict(ident))
+    monkeypatch.setattr(client_utils, 'identity', lambda: dict(ident))
     return ident
 
 
@@ -81,12 +81,12 @@ def fresh_port(init_env: None) -> Iterator[int]:
     try:
         yield port
     finally:
-        pid = probe.read_pidfile()
+        pid = client_utils.read_pidfile()
         if pid is not None:
             # Reuse the production kill helper: it already handles the SIGKILL fallback
             # and the Windows quirks around os.kill(pid, 0). Cleanup is best-effort.
             try:
-                probe.kill_and_wait(pid, timeout=3.0)
+                client_utils.kill_and_wait(pid, timeout=3.0)
             except Exception:
                 pass
         if prior is None:
@@ -116,21 +116,21 @@ class TestProbe:
         assert body['ok'] is True
         assert body['pid'] > 0
         # the spawned daemon's pidfile should now exist and contain that PID
-        assert probe.read_pidfile() == body['pid']
+        assert client_utils.read_pidfile() == body['pid']
 
     def test_identity_mismatch_refuses_unknown_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Safety: if a responder reports a different identity AND its PID doesn't match
         our pidfile, refuse to SIGTERM it. It might be an unrelated process on the same port."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
         foreign_responder = _health_payload(pxt_version='OLD', pid=99999)
-        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: foreign_responder)
-        monkeypatch.setattr(probe, 'read_pidfile', lambda: 12345)
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: foreign_responder)
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 12345)
         killed: list[int | str] = []
-        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
-        monkeypatch.setattr(probe, 'spawn_detached', lambda: killed.append('spawn'))
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: killed.append('spawn'))
 
         with pytest.raises(RuntimeError, match='does not match our pidfile'):
-            probe.ensure_running()
+            client_utils.ensure_running()
         assert killed == []
 
     def test_identity_mismatch_restart_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -138,14 +138,14 @@ class TestProbe:
         new one, and cross-verifies the post-restart responder's identity matches ours."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
         responses = iter([_health_payload(pxt_version='OLD', pid=100), _health_payload(pxt_version='NEW', pid=200)])
-        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
         actions: list[tuple[str, ...] | tuple[str, int]] = []
-        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
-        monkeypatch.setattr(probe, 'spawn_detached', lambda: actions.append(('spawn',)))
-        monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append(('spawn',)))
+        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
 
-        url = probe.ensure_running()
+        url = client_utils.ensure_running()
         assert url.startswith('http://127.0.0.1:')
         assert actions == [('kill', 100), ('spawn',)]
 
@@ -153,27 +153,27 @@ class TestProbe:
         """Post-restart cross-verify: the new responder still reports the killed PID."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
         responses = iter([_health_payload(pxt_version='OLD', pid=100), _health_payload(pxt_version='NEW', pid=100)])
-        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, 'read_pidfile', lambda: 100)
-        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: None)
-        monkeypatch.setattr(probe, 'spawn_detached', lambda: None)
-        monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: None)
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: None)
+        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
 
         with pytest.raises(RuntimeError, match='new daemon kept the killed PID 100'):
-            probe.ensure_running()
+            client_utils.ensure_running()
 
     def test_cross_verify_no_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Post-restart cross-verify: the new daemon never responds to /health."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
         responses = iter([_health_payload(pxt_version='OLD', pid=100), None])
-        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, 'read_pidfile', lambda: 100)
-        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: None)
-        monkeypatch.setattr(probe, 'spawn_detached', lambda: None)
-        monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: None)
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: None)
+        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
 
         with pytest.raises(RuntimeError, match='new daemon did not respond'):
-            probe.ensure_running()
+            client_utils.ensure_running()
 
     def test_cross_verify_identity_still_differs(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Post-restart cross-verify: a fresh PID came up but still has the wrong identity."""
@@ -184,25 +184,25 @@ class TestProbe:
                 _health_payload(pxt_version='OLD', pid=200),  # fresh PID, still wrong version
             ]
         )
-        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, 'read_pidfile', lambda: 100)
-        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: None)
-        monkeypatch.setattr(probe, 'spawn_detached', lambda: None)
-        monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: None)
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: None)
+        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
 
         with pytest.raises(RuntimeError, match='new daemon still differs in: pxt_version'):
-            probe.ensure_running()
+            client_utils.ensure_running()
 
     def test_identity_match_no_restart(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """All identity fields match: ensure_running returns the base URL without killing
         or respawning anything."""
         _patch_identity(monkeypatch, {})
-        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: _health_payload(pid=100))
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: _health_payload(pid=100))
         actions: list[str] = []
-        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
-        monkeypatch.setattr(probe, 'spawn_detached', lambda: actions.append('spawn'))
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
 
-        url = probe.ensure_running()
+        url = client_utils.ensure_running()
         assert url.startswith('http://127.0.0.1:')
         assert actions == []
 
@@ -229,25 +229,25 @@ class TestProbe:
         drifted = _health_payload(pid=100)
         drifted[drift_key] = drift_value
         responses = iter([drifted, _health_payload(pid=200)])
-        monkeypatch.setattr(probe, 'fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(probe, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
         actions: list[tuple[str, ...] | tuple[str, int]] = []
-        monkeypatch.setattr(probe, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
-        monkeypatch.setattr(probe, 'spawn_detached', lambda: actions.append(('spawn',)))
-        monkeypatch.setattr(probe, 'wait_for_health', lambda timeout=15.0: None)
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append(('spawn',)))
+        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
 
-        probe.ensure_running()
+        client_utils.ensure_running()
         assert actions == [('kill', 100), ('spawn',)]
 
     def test_pidfile_malformed(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(probe, 'pidfile_path', lambda: str(tmp_path / 'bogus.pid'))
-        with open(probe.pidfile_path(), 'w', encoding='utf-8') as f:
+        monkeypatch.setattr(client_utils, 'pidfile_path', lambda: str(tmp_path / 'bogus.pid'))
+        with open(utils.pidfile_path(), 'w', encoding='utf-8') as f:
             f.write('not-an-int')
-        assert probe.read_pidfile() is None
+        assert client_utils.read_pidfile() is None
 
     def test_pidfile_missing(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(probe, 'pidfile_path', lambda: str(tmp_path / 'missing.pid'))
-        assert probe.read_pidfile() is None
+        monkeypatch.setattr(client_utils, 'pidfile_path', lambda: str(tmp_path / 'missing.pid'))
+        assert client_utils.read_pidfile() is None
 
     def test_fetch_health_rejects_non_cli_marker(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A responder that returns {ok: true} but isn't us is not our daemon."""
@@ -266,7 +266,7 @@ class TestProbe:
                 return self._body
 
         monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(b'{"ok": true, "service": "other"}'))
-        assert probe.fetch_health() is None
+        assert client_utils.fetch_health() is None
 
     def test_fetch_health_missing_identity_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeResp:
@@ -285,10 +285,10 @@ class TestProbe:
         # legacy daemon shape (pre-identity): missing pxt_install_dir etc. -> rejected
         legacy = json.dumps({'ok': True, 'service': 'pxt', 'pxt_version': '1.0', 'pid': 1, 'started_at': 'a'}).encode()
         monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(legacy))
-        assert probe.fetch_health() is None
+        assert client_utils.fetch_health() is None
         # absent service marker / no fields at all -> also rejected
         monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp(b'{"ok": true, "service": "pxt"}'))
-        assert probe.fetch_health() is None
+        assert client_utils.fetch_health() is None
 
     def test_fetch_health_accepts_complete_identity(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """All identity fields present alongside pid/started_at -> accepted."""
@@ -304,58 +304,58 @@ class TestProbe:
                 return json.dumps(_health_payload()).encode()
 
         monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp())
-        body = probe.fetch_health()
+        body = client_utils.fetch_health()
         assert body is not None
-        assert all(k in body for k in probe._IDENTITY_KEYS)
+        assert all(k in body for k in utils._IDENTITY_KEYS)
 
     def test_fetch_health_url_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(*a: object, **kw: object) -> None:
             raise urllib.error.URLError('refused')
 
         monkeypatch.setattr('urllib.request.urlopen', boom)
-        assert probe.fetch_health() is None
+        assert client_utils.fetch_health() is None
 
     def test_client_pxt_version_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(name: str) -> str:
             raise importlib.metadata.PackageNotFoundError(name)
 
-        monkeypatch.setattr(probe.importlib.metadata, 'version', boom)
-        assert probe._client_pxt_version() is None
+        monkeypatch.setattr(utils.importlib.metadata, 'version', boom)
+        assert utils._pxt_version() is None
 
     def test_spawn_detached_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(*a: object, **kw: object) -> None:
             raise OSError('disk full')
 
-        monkeypatch.setattr(probe.os, 'makedirs', boom)
+        monkeypatch.setattr(client_utils.os, 'makedirs', boom)
         with pytest.raises(RuntimeError, match='pxt daemon log unavailable'):
-            probe.spawn_detached()
+            client_utils.spawn_detached()
 
     def test_tail_daemon_log_missing(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
         # log file does not exist -> empty string, no exception
-        assert probe._tail_daemon_log() == ''
+        assert client_utils._tail_daemon_log() == ''
 
     def test_tail_daemon_log_truncates(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        log_path = probe._daemon_log_path()
+        log_path = client_utils._daemon_log_path()
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         with open(log_path, 'w', encoding='utf-8') as f:
             for i in range(50):
                 f.write(f'line {i}\n')
-        tail = probe._tail_daemon_log(n_lines=3)
+        tail = client_utils._tail_daemon_log(n_lines=3)
         assert tail.splitlines() == ['line 47', 'line 48', 'line 49']
 
     def test_wait_for_health_timeout_includes_log_tail(
         self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        log_path = probe._daemon_log_path()
+        log_path = client_utils._daemon_log_path()
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         with open(log_path, 'w', encoding='utf-8') as f:
             f.write('startup blew up: address already in use\n')
-        monkeypatch.setattr(probe, 'is_running', lambda timeout=0.3: False)
+        monkeypatch.setattr(client_utils, 'is_running', lambda timeout=0.3: False)
         with pytest.raises(RuntimeError, match='did not come up') as ei:
-            probe.wait_for_health(timeout=0.2)
+            client_utils.wait_for_health(timeout=0.2)
         assert 'address already in use' in str(ei.value)
 
     def test_kill_and_wait_falls_through_to_sigkill(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -370,8 +370,8 @@ class TestProbe:
             # never raises -> _pid_alive returns True every iteration, deadline expires
             calls.append(sig)
 
-        monkeypatch.setattr(probe.os, 'kill', fake_kill)
-        probe.kill_and_wait(12345, timeout=0.2)
+        monkeypatch.setattr(client_utils.os, 'kill', fake_kill)
+        client_utils.kill_and_wait(12345, timeout=0.2)
         assert signal.SIGTERM in calls
         # On non-Windows we have a real SIGKILL; on Windows it falls back to SIGTERM.
         assert getattr(signal, 'SIGKILL', signal.SIGTERM) in calls
@@ -386,8 +386,8 @@ class TestProbe:
             if sig == 0:
                 raise ProcessLookupError
 
-        monkeypatch.setattr(probe.os, 'kill', fake_kill)
-        probe.kill_and_wait(12345, timeout=1.0)
+        monkeypatch.setattr(client_utils.os, 'kill', fake_kill)
+        client_utils.kill_and_wait(12345, timeout=1.0)
         sigkill = getattr(signal, 'SIGKILL', signal.SIGTERM)
         assert signal.SIGTERM in calls
         # On platforms where SIGKILL != SIGTERM, it must NOT have been issued.
@@ -398,20 +398,20 @@ class TestProbe:
         def boom(pid: int, sig: int) -> None:
             raise ProcessLookupError
 
-        monkeypatch.setattr(probe.os, 'kill', boom)
+        monkeypatch.setattr(client_utils.os, 'kill', boom)
         # Should return cleanly without raising
-        probe.kill_and_wait(99999)
+        client_utils.kill_and_wait(99999)
 
     def test_pid_alive_dead(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(pid: int, sig: int) -> None:
             raise ProcessLookupError
 
-        monkeypatch.setattr(probe.os, 'kill', boom)
-        assert probe._pid_alive(99999) is False
+        monkeypatch.setattr(client_utils.os, 'kill', boom)
+        assert client_utils._pid_alive(99999) is False
 
     def test_pid_alive_alive(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(probe.os, 'kill', lambda pid, sig: None)
-        assert probe._pid_alive(12345) is True
+        monkeypatch.setattr(client_utils.os, 'kill', lambda pid, sig: None)
+        assert client_utils._pid_alive(12345) is True
 
     def test_pid_alive_permission_denied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """PermissionError means the PID exists but is owned by another user; treat as alive."""
@@ -419,15 +419,15 @@ class TestProbe:
         def boom(pid: int, sig: int) -> None:
             raise PermissionError
 
-        monkeypatch.setattr(probe.os, 'kill', boom)
-        assert probe._pid_alive(1) is True
+        monkeypatch.setattr(client_utils.os, 'kill', boom)
+        assert client_utils._pid_alive(1) is True
 
     def test_pid_alive_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(pid: int, sig: int) -> None:
             raise OSError('einval')
 
-        monkeypatch.setattr(probe.os, 'kill', boom)
-        assert probe._pid_alive(0) is False
+        monkeypatch.setattr(client_utils.os, 'kill', boom)
+        assert client_utils._pid_alive(0) is False
 
 
 class TestIdentity:
@@ -438,27 +438,27 @@ class TestIdentity:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
     ) -> None:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        assert probe._resolve_pixeltable_home() == str(tmp_path.resolve())
+        assert utils._resolve_pixeltable_home() == str(tmp_path.resolve())
 
     def test_resolve_pixeltable_home_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv('PIXELTABLE_HOME', raising=False)
-        assert probe._resolve_pixeltable_home() == str(pathlib.Path('~/.pixeltable').expanduser().resolve())
+        assert utils._resolve_pixeltable_home() == str(pathlib.Path('~/.pixeltable').expanduser().resolve())
 
     def test_resolve_pgdata_uses_env_var(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
         monkeypatch.setenv('PIXELTABLE_PGDATA', str(tmp_path / 'pg'))
-        assert probe._resolve_pixeltable_pgdata('/ignored') == str((tmp_path / 'pg').resolve())
+        assert utils._resolve_pixeltable_pgdata('/ignored') == str((tmp_path / 'pg').resolve())
 
     def test_resolve_pgdata_default(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
         monkeypatch.delenv('PIXELTABLE_PGDATA', raising=False)
-        assert probe._resolve_pixeltable_pgdata(str(tmp_path)) == str((tmp_path / 'pgdata').resolve())
+        assert utils._resolve_pixeltable_pgdata(str(tmp_path)) == str((tmp_path / 'pgdata').resolve())
 
     def test_resolve_config_file_uses_env_var(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
         monkeypatch.setenv('PIXELTABLE_CONFIG', str(tmp_path / 'custom.toml'))
-        assert probe._resolve_pixeltable_config_file('/ignored') == str((tmp_path / 'custom.toml').resolve())
+        assert utils._resolve_pixeltable_config_file('/ignored') == str((tmp_path / 'custom.toml').resolve())
 
     def test_resolve_config_file_default(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
         monkeypatch.delenv('PIXELTABLE_CONFIG', raising=False)
-        assert probe._resolve_pixeltable_config_file(str(tmp_path)) == str((tmp_path / 'config.toml').resolve())
+        assert utils._resolve_pixeltable_config_file(str(tmp_path)) == str((tmp_path / 'config.toml').resolve())
 
     @pytest.mark.parametrize(
         'name,is_sensitive',
@@ -476,15 +476,15 @@ class TestIdentity:
         ],
     )
     def test_is_sensitive_env_name(self, name: str, is_sensitive: bool) -> None:
-        assert probe._is_sensitive_env_name(name) is is_sensitive
+        assert utils._is_sensitive_env_name(name) is is_sensitive
 
     def test_redact_env_value_passthrough_for_plain(self) -> None:
-        assert probe._redact_env_value('PIXELTABLE_HOME', '/x/y/z') == '/x/y/z'
+        assert utils._redact_env_value('PIXELTABLE_HOME', '/x/y/z') == '/x/y/z'
 
     def test_redact_env_value_hashes_sensitive(self) -> None:
-        v1 = probe._redact_env_value('PIXELTABLE_DB_CONNECT_STR', 'postgres://u:p@h/db')
-        v2 = probe._redact_env_value('PIXELTABLE_DB_CONNECT_STR', 'postgres://u:p@h/db')
-        v3 = probe._redact_env_value('PIXELTABLE_DB_CONNECT_STR', 'postgres://u:p2@h/db')
+        v1 = utils._redact_env_value('PIXELTABLE_DB_CONNECT_STR', 'postgres://u:p@h/db')
+        v2 = utils._redact_env_value('PIXELTABLE_DB_CONNECT_STR', 'postgres://u:p@h/db')
+        v3 = utils._redact_env_value('PIXELTABLE_DB_CONNECT_STR', 'postgres://u:p2@h/db')
         assert v1.startswith('sha256:')
         assert 'postgres' not in v1
         # equal plaintexts -> equal hashes (the comparison invariant the client relies on)
@@ -494,12 +494,12 @@ class TestIdentity:
 
     def test_snapshot_filters_to_pixeltable_prefix(self) -> None:
         env = {'PIXELTABLE_HOME': '/h', 'PATH': '/usr/bin', 'OPENAI_API_KEY': 'sk-leak'}
-        snap = probe._snapshot_pixeltable_env(env)
+        snap = utils._snapshot_pixeltable_env(env)
         assert snap == {'PIXELTABLE_HOME': '/h'}
 
     def test_snapshot_redacts_credentials(self) -> None:
         env = {'PIXELTABLE_HOME': '/h', 'PIXELTABLE_DB_CONNECT_STR': 'postgres://u:p@h/db'}
-        snap = probe._snapshot_pixeltable_env(env)
+        snap = utils._snapshot_pixeltable_env(env)
         assert snap['PIXELTABLE_HOME'] == '/h'
         assert snap['PIXELTABLE_DB_CONNECT_STR'].startswith('sha256:')
         # secret value must not appear anywhere in the snapshot
@@ -510,7 +510,7 @@ class TestIdentity:
         env_b = {'PIXELTABLE_A': '1', 'PIXELTABLE_B': '2'}
         # Equal dicts regardless of insertion order; the comparison in ensure_running()
         # relies on this.
-        assert probe._snapshot_pixeltable_env(env_a) == probe._snapshot_pixeltable_env(env_b)
+        assert utils._snapshot_pixeltable_env(env_a) == utils._snapshot_pixeltable_env(env_b)
 
     def test_identity_dict_round_trips_through_json(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
@@ -520,49 +520,49 @@ class TestIdentity:
         restart decision rather than serialization artifacts."""
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
         monkeypatch.setenv('PIXELTABLE_TIME_ZONE', 'America/Los_Angeles')
-        ident = probe.identity()
+        ident = utils.identity()
         assert json.loads(json.dumps(ident)) == ident
 
     def test_identity_diff_lists_only_changed_keys(self) -> None:
         client = dict(_DEFAULT_IDENTITY)
         daemon = {**_DEFAULT_IDENTITY, 'pixeltable_home': '/elsewhere'}
-        assert probe._identity_diff(client, daemon) == ['pixeltable_home']
+        assert client_utils._identity_diff(client, daemon) == ['pixeltable_home']
 
     def test_identity_diff_treats_missing_daemon_key_as_drift(self) -> None:
         """An old daemon that doesn't report a given identity key is treated as 'differs',
         so an outdated daemon is restarted instead of trusted."""
         client = dict(_DEFAULT_IDENTITY)
         daemon = {k: v for k, v in _DEFAULT_IDENTITY.items() if k != 'python_executable'}
-        assert probe._identity_diff(client, daemon) == ['python_executable']
+        assert client_utils._identity_diff(client, daemon) == ['python_executable']
 
     def test_client_pxt_install_dir_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(name: str) -> object:
             raise importlib.metadata.PackageNotFoundError(name)
 
-        monkeypatch.setattr(probe.importlib.metadata, 'distribution', boom)
-        assert probe._client_pxt_install_dir() is None
+        monkeypatch.setattr(utils.importlib.metadata, 'distribution', boom)
+        assert utils._pxt_install_dir() is None
 
     def test_identity_includes_all_keys(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
         """Smoke-test: identity() returns exactly the set of keys the comparison logic
         reads. A future field added to _IDENTITY_KEYS without populating it in identity()
         would silently always-mismatch; this test catches that."""
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
-        ident = probe.identity()
-        assert set(ident.keys()) == set(probe._IDENTITY_KEYS)
+        ident = utils.identity()
+        assert set(ident.keys()) == set(utils._IDENTITY_KEYS)
 
     def test_identity_fails_fast_on_missing_metadata(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If importlib.metadata can't find the pixeltable distribution (broken install),
         identity() raises a clear error instead of returning a partially-None dict that
         would later cause /health to 500 and trigger a respawn loop."""
-        monkeypatch.setattr(probe, '_client_pxt_version', lambda: None)
-        monkeypatch.setattr(probe, '_client_pxt_install_dir', lambda: '/some/path')
+        monkeypatch.setattr(utils, '_pxt_version', lambda: None)
+        monkeypatch.setattr(utils, '_pxt_install_dir', lambda: '/some/path')
         with pytest.raises(RuntimeError, match='pixeltable package metadata not found'):
-            probe.identity()
+            utils.identity()
 
-        monkeypatch.setattr(probe, '_client_pxt_version', lambda: '1.0')
-        monkeypatch.setattr(probe, '_client_pxt_install_dir', lambda: None)
+        monkeypatch.setattr(utils, '_pxt_version', lambda: '1.0')
+        monkeypatch.setattr(utils, '_pxt_install_dir', lambda: None)
         with pytest.raises(RuntimeError, match='pixeltable package metadata not found'):
-            probe.identity()
+            utils.identity()
 
 
 class TestConfirm:
@@ -846,19 +846,48 @@ class TestStatusFmtSize:
 
 
 class TestServerDaemon:
-    def test_pidfile_lifecycle(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_claim_pidfile_writes_our_pid(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = str(tmp_path / 'sub' / 'pid')
         monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
-        server_daemon._write_pidfile()
+        assert server_daemon._claim_pidfile() is True
         with open(path, encoding='utf-8') as f:
             assert int(f.read().strip()) == os.getpid()
-        server_daemon._remove_pidfile()
+        server_daemon._remove_pidfile_if_ours()
         assert not os.path.exists(path)
+
+    def test_claim_pidfile_reclaims_stale(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        path = str(tmp_path / 'pid')
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('999999999')
+        monkeypatch.setattr(server_daemon, '_port_in_use', lambda: False)
+        assert server_daemon._claim_pidfile() is True
+        with open(path, encoding='utf-8') as f:
+            assert int(f.read().strip()) == os.getpid()
+
+    def test_claim_pidfile_defers_to_live_peer(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        path = str(tmp_path / 'pid')
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('12345')
+        monkeypatch.setattr(server_daemon, '_port_in_use', lambda: True)
+        assert server_daemon._claim_pidfile() is False
+        with open(path, encoding='utf-8') as f:
+            assert f.read().strip() == '12345'
+
+    def test_remove_pidfile_if_ours_only_removes_own(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = str(tmp_path / 'pid')
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('12345')
+        server_daemon._remove_pidfile_if_ours()
+        assert os.path.exists(path)
 
     def test_remove_pidfile_missing_no_raise(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: str(tmp_path / 'never-existed'))
-        # Must not raise even if the file isn't there.
-        server_daemon._remove_pidfile()
+        server_daemon._remove_pidfile_if_ours()
 
 
 class TestServerRouteHelpers:
@@ -925,14 +954,14 @@ class TestServerRouteHelpers:
 
 class TestDaemonCmd:
     """`pxt daemon start|stop|restart|status`. The action handlers in
-    pxt_cli/client/commands/daemon.py thread through probe.* helpers; tests mock those at
+    pxt_cli/client/commands/daemon.py thread through utils/client_utils helpers; tests mock those at
     the boundary so they verify the command's decision logic without spawning real daemons."""
 
     def test_start_calls_ensure_running_and_prints(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', lambda: 'http://127.0.0.1:22090')
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: {'pid': 4242})
+        monkeypatch.setattr(daemon_cmd, 'ensure_running', lambda: 'http://127.0.0.1:22090')
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: {'pid': 4242})
         daemon_cmd.run(['start'])
         out = capsys.readouterr().out
         assert 'http://127.0.0.1:22090' in out
@@ -944,7 +973,7 @@ class TestDaemonCmd:
         def boom() -> str:
             raise RuntimeError('cannot spawn daemon: simulated failure')
 
-        monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', boom)
+        monkeypatch.setattr(daemon_cmd, 'ensure_running', boom)
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['start'])
         assert ei.value.code == 1
@@ -953,18 +982,18 @@ class TestDaemonCmd:
     def test_stop_kills_when_pid_matches(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
     ) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: 4242)
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: {'pid': 4242})
-        monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        monkeypatch.setattr(daemon_cmd, 'read_pidfile', lambda: 4242)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: {'pid': 4242})
+        monkeypatch.setattr(daemon_cmd, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         killed: list[int] = []
-        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(daemon_cmd, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         daemon_cmd.run(['stop'])
         assert killed == [4242]
         assert 'PID 4242' in capsys.readouterr().out
 
     def test_stop_no_daemon_exits_1(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: None)
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: None)
+        monkeypatch.setattr(daemon_cmd, 'read_pidfile', lambda: None)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: None)
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['stop'])
         assert ei.value.code == 1
@@ -975,11 +1004,11 @@ class TestDaemonCmd:
     ) -> None:
         # Daemon hung or crashed: pidfile points somewhere, /health silent. kill_and_wait
         # is idempotent on a dead PID, so the kill attempt is safe either way.
-        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: 9999)
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: None)
-        monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        monkeypatch.setattr(daemon_cmd, 'read_pidfile', lambda: 9999)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: None)
+        monkeypatch.setattr(daemon_cmd, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         killed: list[int] = []
-        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(daemon_cmd, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         daemon_cmd.run(['stop'])
         assert killed == [9999]
         assert 'PID 9999' in capsys.readouterr().out
@@ -987,10 +1016,10 @@ class TestDaemonCmd:
     def test_stop_pid_mismatch_refuses_without_force(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: 100)
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: {'pid': 200})
+        monkeypatch.setattr(daemon_cmd, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: {'pid': 200})
         killed: list[int] = []
-        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(daemon_cmd, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['stop'])
         assert ei.value.code == 1
@@ -1000,11 +1029,11 @@ class TestDaemonCmd:
     def test_stop_pid_mismatch_force_kills_responder(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
     ) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: 100)
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: {'pid': 200})
-        monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        monkeypatch.setattr(daemon_cmd, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: {'pid': 200})
+        monkeypatch.setattr(daemon_cmd, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         killed: list[int] = []
-        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(daemon_cmd, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         daemon_cmd.run(['stop', '--force'])
         # --force on mismatch kills the responder, not the tracked pidfile PID
         assert killed == [200]
@@ -1012,10 +1041,10 @@ class TestDaemonCmd:
     def test_stop_responder_without_pidfile_refuses_without_force(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: None)
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: {'pid': 200})
+        monkeypatch.setattr(daemon_cmd, 'read_pidfile', lambda: None)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: {'pid': 200})
         killed: list[int] = []
-        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
+        monkeypatch.setattr(daemon_cmd, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['stop'])
         assert ei.value.code == 1
@@ -1024,7 +1053,7 @@ class TestDaemonCmd:
 
     def test_status_prints_identity_text(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         monkeypatch.setattr(
-            daemon_cmd.probe,
+            daemon_cmd,
             'fetch_health',
             lambda: {
                 'pid': 4242,
@@ -1048,12 +1077,12 @@ class TestDaemonCmd:
 
     def test_status_json_is_raw_dict(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         payload = {'pid': 4242, 'service': 'pxt', 'pixeltable_env': {}}
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: payload)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: payload)
         daemon_cmd.run(['status', '--json'])
         assert json.loads(capsys.readouterr().out) == payload
 
     def test_status_no_daemon_exits_1(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: None)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: None)
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['status'])
         assert ei.value.code == 1
@@ -1071,17 +1100,17 @@ class TestDaemonCmd:
                 {'pid': 200},  # for the start branch's post-spawn lookup
             ]
         )
-        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: 100)
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: next(states))
-        monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        monkeypatch.setattr(daemon_cmd, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: next(states))
+        monkeypatch.setattr(daemon_cmd, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         actions: list[str] = []
-        monkeypatch.setattr(daemon_cmd.probe, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(f'kill:{pid}'))
+        monkeypatch.setattr(daemon_cmd, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(f'kill:{pid}'))
 
         def fake_ensure_running() -> str:
             actions.append('spawn')
             return 'http://127.0.0.1:22090'
 
-        monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', fake_ensure_running)
+        monkeypatch.setattr(daemon_cmd, 'ensure_running', fake_ensure_running)
 
         daemon_cmd.run(['restart'])
         assert actions == ['kill:100', 'spawn']
@@ -1094,10 +1123,10 @@ class TestDaemonCmd:
     ) -> None:
         # Nothing to stop initially; restart should still proceed to start without erroring.
         states = iter([None, {'pid': 200}])
-        monkeypatch.setattr(daemon_cmd.probe, 'read_pidfile', lambda: None)
-        monkeypatch.setattr(daemon_cmd.probe, 'fetch_health', lambda: next(states))
-        monkeypatch.setattr(daemon_cmd.probe, 'ensure_running', lambda: 'http://127.0.0.1:22090')
-        monkeypatch.setattr(daemon_cmd.probe, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        monkeypatch.setattr(daemon_cmd, 'read_pidfile', lambda: None)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: next(states))
+        monkeypatch.setattr(daemon_cmd, 'ensure_running', lambda: 'http://127.0.0.1:22090')
+        monkeypatch.setattr(daemon_cmd, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         daemon_cmd.run(['restart'])
         out = capsys.readouterr().out
         assert 'http://127.0.0.1:22090' in out

@@ -183,11 +183,3 @@ class RevertResponse(BaseModel):
     path: str
     from_version: int
     to_version: int
-
-
-class DashboardControlBody(BaseModel):
-    action: Literal['enable', 'disable']
-
-
-class DashboardControlResponse(BaseModel):
-    enabled: bool

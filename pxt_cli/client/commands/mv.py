@@ -1,6 +1,6 @@
 import json
 
-from ..http import post
+from ..http import post, validate_path_shape
 from ..parser import Parser
 
 EPILOG = """\
@@ -23,8 +23,16 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
+    err = validate_path_shape(args.path)
+    if err is not None:
+        ap.error(err)
     leaf = args.path.rsplit('/', 1)[-1]
+    # '' and '/' both mean root; otherwise validate after stripping outer slashes.
     new_dir = args.new_dir.strip('/')
+    if new_dir != '':
+        err = validate_path_shape(new_dir)
+        if err is not None:
+            ap.error(err)
     dst = f'{new_dir}/{leaf}' if new_dir else leaf
 
     if args.dry_run:

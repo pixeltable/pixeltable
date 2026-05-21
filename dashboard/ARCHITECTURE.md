@@ -11,10 +11,9 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 
 | File | Role |
 |------|------|
-| `pxt_cli/server/app.py` | ThreadingHTTPServer host: dispatch loop, CORS headers, dashboard feature gate, static-file fallback for the SPA |
+| `pxt_cli/server/http_server.py` | ThreadingHTTPServer host: dispatch loop, CORS headers, static-file fallback for the SPA |
 | `pxt_cli/server/router.py` | Regex-based router with FastAPI-style `{name:path}` converters; pydantic body validation via `Request.body()` |
 | `pxt_cli/server/routes.py` | All `/api/*` endpoints, including `/api/dashboard/*` |
-| `pxt_cli/server/state.py` | In-process `dashboard_enabled` flag |
 | `pxt_cli/server/bridge.py` | Pixeltable to JSON. `_build_select`, `_resolve_fileurl`, `get_pipeline`, `get_table_data`, `export_table_csv`, `search`, `get_status` |
 
 ## Frontend (`dashboard/src/`)
@@ -46,9 +45,6 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 | `GET /api/dashboard/tables/{path}/meta` | Schema, columns, indices, versions, iterator info, media validation, destinations | — |
 | `GET /api/dashboard/tables/{path}/data` | Paginated rows, media URLs, per-cell errors | `offset`, `limit` (50, max 500), `order_by`, `order_desc`, `errors_only` |
 | `GET /api/dashboard/tables/{path}/export` | CSV download | `limit` (100k default, 1M max) |
-| `POST /api/dashboard/control` | Toggle the feature flag | `{action: "enable"|"disable"}` |
-
-When the dashboard flag is off, every `/api/dashboard/*` route except `/control` returns 503 and the SPA at `/` returns 404. CLI routes are unaffected.
 
 ## User Flows
 
@@ -67,19 +63,11 @@ When the dashboard flag is off, every `/api/dashboard/*` route except `/control`
 
 **Sort:** server-side `query.order_by()` to SQL. **Filter:** client-side on current page only. **Pagination:** SQL OFFSET (`query.limit(n, offset=k)`); deep pages slow. `errors_only` returns page-size total. **Media:** `fileurl` is fetched instead of downloading raw media content (fixes S3 access issues). Local `file://` to HTTP proxy, external passes through. **CSV:** media to URLs, JSON to strings.
 
-## Control
-
-The dashboard is off by default at daemon start. Turn it on from a terminal:
+## Opening
 
 ```
-pxt dashboard start          # POSTs enable, prints URL, opens browser
-pxt dashboard start --no-open
-pxt dashboard stop
-pxt dashboard restart
-pxt dashboard open           # print and open the URL without changing the flag
+pxt dashboard   # auto-spawns the daemon if needed, prints the URL, opens the browser
 ```
-
-`pxt dashboard start` auto-spawns the daemon if it isn't already up.
 
 ## Dev & Release
 

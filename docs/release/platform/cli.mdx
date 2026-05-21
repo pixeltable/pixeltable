@@ -46,8 +46,8 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Every command with a human-formatted default output | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL) or `health` (always JSON). |
-| `-n`, `--dry-run` | Every catalog mutation (`drop`, `rm`, `rename`, `mv`, `revert`) and `serve` | Print the intended action; don't execute |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `rm`, `rename`, `mv`, `revert`), plus `serve`, `deploy`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
+| `-n`, `--dry-run` | Every catalog mutation (`drop`, `rm`, `rename`, `mv`, `revert`) | Print the intended action; don't execute. `pxt serve` accepts the long form `--dry-run` only. |
 | `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `rm`, `revert`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
 
 ## Quick reference
@@ -330,7 +330,7 @@ Without `--json`, output is column-aligned text.
 
 ## Serving
 
-`pxt serve` turns tables, computed columns, and `@pxt.query` functions into HTTP endpoints, no application code required. The serve and deploy subcommands import `pixeltable` directly and require `fastapi[standard]`.
+`pxt serve` turns tables, computed columns, and `@pxt.query` functions into HTTP endpoints, no application code required. The serve and deploy subcommands import `pixeltable` directly and require the `serve` extra (`pip install 'pixeltable[serve]'`), which pulls in `fastapi[standard]` and `uvicorn`.
 
 <Info>
 `pxt serve` generates a full FastAPI application with auto-generated [OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs) at `/docs`. For programmatic control over the same endpoints, see the [Python serving API](/howto/deployment/serving#quickstart-python) using `FastAPIRouter`.

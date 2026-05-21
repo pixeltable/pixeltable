@@ -25,7 +25,6 @@ import pydantic
 
 from pixeltable import exceptions as excs
 
-from . import state
 from .router import RawResponse, Request
 from .routes import router
 
@@ -73,16 +72,6 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         url_path = unquote(parsed.path)
         query = parse_qs(parsed.query, keep_blank_values=True)
-
-        if not state.dashboard_enabled():
-            # The dashboard feature flag controls only the SPA bundle and SPA-only API routes;
-            # CLI routes are always available. SPA fetch paths live under /api/dashboard/.
-            if url_path == '/' or (not url_path.startswith('/api/') and _HAS_STATIC_BUNDLE):
-                self._send_json({'detail': 'dashboard disabled'}, http.HTTPStatus.NOT_FOUND)
-                return
-            if url_path.startswith('/api/dashboard/') and url_path != '/api/dashboard/control':
-                self._send_json({'detail': 'dashboard disabled'}, http.HTTPStatus.SERVICE_UNAVAILABLE)
-                return
 
         match = router.match(method, url_path)
         if match is None:

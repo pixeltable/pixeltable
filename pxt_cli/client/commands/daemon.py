@@ -5,7 +5,8 @@ import os
 import sys
 from typing import Any
 
-from pxt_cli import probe
+from pxt_cli.client.utils import ensure_running, fetch_health, kill_and_wait, read_pidfile
+from pxt_cli.utils import get_port, pidfile_path
 
 from ..parser import Parser
 
@@ -50,19 +51,19 @@ def run(argv: list[str]) -> None:
 
 def _do_start() -> None:
     try:
-        base = probe.ensure_running()
+        base = ensure_running()
     except RuntimeError as e:
         print(f'pxt: {e}', file=sys.stderr)
         sys.exit(1)
-    health = probe.fetch_health()
+    health = fetch_health()
     pid = health.get('pid') if health is not None else None
     suffix = f' (PID {pid})' if pid is not None else ''
     print(f'pxt daemon up at {base}{suffix}')
 
 
 def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
-    tracked_pid = probe.read_pidfile()
-    health = probe.fetch_health()
+    tracked_pid = read_pidfile()
+    health = fetch_health()
 
     if tracked_pid is None and health is None:
         if ok_if_absent:
@@ -70,7 +71,7 @@ def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
         print('pxt: no daemon running', file=sys.stderr)
         sys.exit(1)
 
-    # Pick the PID to kill: by default the pidfile's; with --force, fall back to whatever's
+    # Pick the PID to kill: by default the pidfile's; with --force, fall back to whatever is
     # responding on the port. Refuse the mismatch case unless the user opted in.
     pid_to_kill: int | None
     if health is not None and tracked_pid is not None and health.get('pid') == tracked_pid:
@@ -78,7 +79,7 @@ def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
     elif health is not None and tracked_pid is not None and health.get('pid') != tracked_pid:
         if not force:
             print(
-                f'pxt: responder on port {probe.get_port()} (PID {health.get("pid")}) does not match '
+                f'pxt: responder on port {get_port()} (PID {health.get("pid")}) does not match '
                 f'pidfile (PID {tracked_pid}); refusing to kill it. Use --force to override.',
                 file=sys.stderr,
             )
@@ -86,15 +87,14 @@ def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
         pid_to_kill = health.get('pid')
     elif health is None and tracked_pid is not None:
         # No responder but we have a pidfile entry. Could be a hung daemon (PID alive but not
-        # listening) or a stale pidfile (PID gone). kill_and_wait handles both: it returns
-        # cleanly on ProcessLookupError.
+        # listening) or a stale pidfile (PID gone).
         pid_to_kill = tracked_pid
     else:
         # health is not None, tracked_pid is None: no pidfile but something is responding.
         # Refuse unless forced - we have no proof the responder is ours.
         if not force:
             print(
-                f'pxt: a process on port {probe.get_port()} (PID {health.get("pid")}) is responding but '
+                f'pxt: a process on port {get_port()} (PID {health.get("pid")}) is responding but '
                 f'no pidfile claims it. Refusing to kill it. Use --force to override.',
                 file=sys.stderr,
             )
@@ -102,18 +102,18 @@ def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
         pid_to_kill = health.get('pid')
 
     if pid_to_kill is not None:
-        probe.kill_and_wait(pid_to_kill)
+        kill_and_wait(pid_to_kill)
     # Daemon's atexit handler only fires on graceful exit; clean up the pidfile here so a
     # subsequent stop doesn't trip the "stale pidfile" branch.
     try:
-        os.remove(probe.pidfile_path())
+        os.remove(pidfile_path())
     except OSError:
         pass
     print(f'pxt: stopped daemon (PID {pid_to_kill})')
 
 
 def _do_status(as_json: bool) -> None:
-    health = probe.fetch_health()
+    health = fetch_health()
     if health is None:
         print('pxt: no daemon running', file=sys.stderr)
         sys.exit(1)

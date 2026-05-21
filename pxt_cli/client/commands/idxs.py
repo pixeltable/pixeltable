@@ -1,6 +1,6 @@
 import json
 
-from ..http import get
+from ..http import get, validate_path_shape
 from ..parser import Parser
 
 EPILOG = """\
@@ -17,6 +17,10 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--embedding', action='store_true', dest='embedding_only', help='restrict to embedding indexes')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
+    if args.path is not None:
+        err = validate_path_shape(args.path)
+        if err is not None:
+            ap.error(err)
 
     resp = get('/api/indexes', params={'path': args.path or None, 'embedding': args.embedding_only or None})
     entries = resp['entries']

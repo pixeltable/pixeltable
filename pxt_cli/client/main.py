@@ -28,7 +28,7 @@ COMMANDS: dict[str, str] = {
     'serve': 'run a user-defined HTTP service (insert/update/delete/query)',
     'deploy': 'deploy a service to Pixeltable cloud',
     'daemon': 'control the daemon (start/stop/restart/status)',
-    'dashboard': 'control the dashboard SPA (start/stop/restart/open)',
+    'dashboard': 'print and open the dashboard URL',
 }
 
 

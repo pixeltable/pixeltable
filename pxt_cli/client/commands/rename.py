@@ -1,6 +1,6 @@
 import json
 
-from ..http import post
+from ..http import post, validate_path_shape
 from ..parser import Parser
 
 EPILOG = """\
@@ -22,6 +22,9 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
+    err = validate_path_shape(args.path)
+    if err is not None:
+        ap.error(err)
     if '/' in args.new_name or '.' in args.new_name:
         ap.error(f'new_name must be a leaf name (no "/" or "."); got {args.new_name!r}')
 

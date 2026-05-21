@@ -1,8 +1,6 @@
 """Stdlib-only HTTP client.
 
-Keeping this dependency-free shaves ~80-100ms off every pxt invocation
-(no httpx/anyio/h11/idna/certifi imports). probe.py already uses urllib
-for health probes; this extends the same pattern to the request path.
+Keeping this dependency-free reduces startup time of the client.
 """
 
 import json
@@ -13,7 +11,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from pxt_cli.probe import ensure_running
+from pxt_cli.client.utils import ensure_running
 
 
 def _request(method: str, path: str, body: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> Any:
@@ -25,12 +23,11 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
 
     url = f'{base}{path}'
     if params is not None:
-        # Drop unset values so the daemon sees its default; coerce bool to '1'/'0' (FastAPI
-        # accepts both, but '1'/'0' is what the rest of the CLI sends).
+        # Drop unset values so the daemon sees its default; coerce bool to '1'/'0' to
+        # match the server's query_bool parser.
         filtered = {k: ('1' if v is True else '0' if v is False else v) for k, v in params.items() if v is not None}
         if len(filtered) > 0:
-            # doseq=True expands list values into repeated params (?pk=a&pk=b), which is
-            # how FastAPI's Query(...) list-typed parameters expect to receive them.
+            # doseq=True expands list values into repeated params (?pk=a&pk=b).
             url += '?' + urllib.parse.urlencode(filtered, doseq=True)
 
     headers = {'X-Cwd': os.getcwd()}
@@ -39,8 +36,9 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
         data = json.dumps(body).encode()
         headers['Content-Type'] = 'application/json'
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    # No timeout: localhost call, legitimate operations have no defensible upper bound.
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req) as r:
             return json.loads(r.read() or b'null')
     except urllib.error.HTTPError as e:
         try:
@@ -62,22 +60,26 @@ def post(path: str, body: dict[str, Any]) -> Any:
     return _request('POST', path, body=body)
 
 
+def validate_path_shape(path: str) -> str | None:
+    """Return an error message if `path` violates pxt path shape rules, else None. Empty is allowed."""
+    if '.' in path:
+        return f"pxt paths use '/' as the separator; got {path!r}"
+    if path.startswith('/'):
+        return f"pxt paths are relative; drop the leading '/' (use '' for root). Got {path!r}"
+    if path.endswith('/'):
+        return f"pxt paths must not end with '/'; got {path!r}"
+    if '//' in path:
+        return f"pxt paths must not contain empty components ('//'); got {path!r}"
+    return None
+
+
 def quote_path(path: str) -> str:
-    """Validate and URL-encode a pxt path. Slashes are preserved (FastAPI's path
+    """Validate and URL-encode a pxt path. Slashes are preserved (the router's path
     converter matches them as part of the path parameter); other special characters get
     percent-encoded. Bad shapes ('.' separator, leading/trailing '/', '//') exit 2 with a
     clear message before any network round-trip."""
-    if '.' in path:
-        _exit_bad_path(f"pxt paths use '/' as the separator; got {path!r}")
-    if path.startswith('/'):
-        _exit_bad_path(f"pxt paths are relative; drop the leading '/' (use '' for root). Got {path!r}")
-    if path.endswith('/'):
-        _exit_bad_path(f"pxt paths must not end with '/'; got {path!r}")
-    if '//' in path:
-        _exit_bad_path(f"pxt paths must not contain empty components ('//'); got {path!r}")
+    err = validate_path_shape(path)
+    if err is not None:
+        print(f'pxt: {err}', file=sys.stderr)
+        sys.exit(2)
     return urllib.parse.quote(path, safe='/')
-
-
-def _exit_bad_path(message: str) -> None:
-    print(f'pxt: {message}', file=sys.stderr)
-    sys.exit(2)

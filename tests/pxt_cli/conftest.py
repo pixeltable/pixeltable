@@ -47,7 +47,7 @@ def pxt_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iter
             [sys.executable, '-m', 'pxt_cli.server.daemon'], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL
         )
     try:
-        from pxt_cli.probe import is_running
+        from pxt_cli.client.utils import is_running
 
         os.environ['PXT_PORT'] = str(port)
         deadline = time.time() + 15
