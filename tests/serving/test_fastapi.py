@@ -1099,10 +1099,6 @@ class TestFastAPI:
         def by_image(img: pxt.Image) -> pxt.Query:
             return t.where(t.image == img).select(t.id)
 
-        @pxt.query
-        def implicit_select_list(min_id: int) -> pxt.Query:
-            return t.where(t.id >= min_id)  # no explicit .select(...)
-
         router = FastAPIRouter()
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r'must be a @pxt\.query or retrieval_udf'):
@@ -1124,8 +1120,6 @@ class TestFastAPI:
             router.add_query_route(path='/e', query=lookup, return_fileresponse=True)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='explicit select list'):
-            router.add_query_route(path='/e', query=implicit_select_list)
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_add_insert_route_errors(

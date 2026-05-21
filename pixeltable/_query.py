@@ -404,6 +404,10 @@ class Query:
     ):
         self._from_clause = from_clause
 
+        if from_clause is not None:
+            # we want to find out about dropped tables early
+            get_runtime().catalog.assert_tbls_exist({tvp.tbl_version.id for tvp in from_clause.tbls})
+
         # exprs contain execution state and therefore cannot be shared
         self.select_list = copy.deepcopy(select_list)
         if self.select_list is None:
@@ -825,9 +829,11 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        return self._collect()
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls):
+            return self._collect()
 
     def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
+        assert get_runtime().in_xact
         schema = self.schema
         if args is None:
             return ResultSet(list(self.cursor()), schema)

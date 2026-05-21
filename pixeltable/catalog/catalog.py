@@ -261,6 +261,16 @@ class Catalog:
     def _dropped_tbl_error_msg(self, tbl_id: UUID) -> str:
         return f'Table was dropped (no record found for {tbl_id})'
 
+    def assert_tbls_exist(self, tbl_ids: Collection[UUID]) -> None:
+        """Raises TABLE_NOT_FOUND if any id is not a live (not dropped or being dropped) table."""
+        with self.begin_xact():
+            conn = get_runtime().conn
+            assert conn is not None
+            for tbl_id in tbl_ids:
+                q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
+                if conn.execute(q).scalar() == 0:
+                    raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(tbl_id))
+
     def validate(self) -> None:
         """Validate structural consistency of cached metadata"""
         for (tbl_id, effective_version, anchor_tbl_id), tbl_version in self._tbl_versions.items():
