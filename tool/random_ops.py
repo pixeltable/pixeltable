@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import random
-import subprocess
 import sys
 import time
 from argparse import ArgumentParser
@@ -411,22 +410,12 @@ class RandomTableOps:
 
 
 def run(
-    worker_id: int,
-    read_only: bool,
-    include_only_ops: list[str] | None,
-    exclude_ops: list[str] | None,
-    config_str: str,
-    *,
-    init_only: bool = False,
+    worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str
 ) -> None:
     """Entrypoint for a worker process."""
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
     config = RandomTableOpsConfig(**json.loads(config_str))
-
-    if init_only:
-        pxt.init()
-        return
 
     try:
         RandomTableOps(worker_id, read_only, include_only_ops or [], exclude_ops or [], config).run()
@@ -504,13 +493,7 @@ def main() -> None:
 
     # Initialize Pixeltable before the actual test
     print('Running pxt.init()...')
-    result = subprocess.run(
-        ['python', '-c', f'from tool.random_ops import run; run(0, False, None, None, {config_str}, init_only=True)'],
-        check=False,
-    )
-    if result.returncode != 0:
-        print('Init failed')
-        sys.exit(result.returncode)
+    pxt.init()
 
     worker_args = [
         [
