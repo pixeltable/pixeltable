@@ -43,7 +43,7 @@ class ArithmeticExpr(Expr):
         if (
             not op2.col_type.is_numeric_type()
             and not op2.col_type.is_json_type()
-            and not op1.col_type.is_invalid_type()
+            and not op2.col_type.is_invalid_type()
         ):
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH,

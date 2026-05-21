@@ -57,8 +57,10 @@ class JsonMapper(Expr):
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
-    def _substitute(self, spec: dict[Expr, Expr]) -> JsonMapper:
-        return JsonMapper(self._src_expr.substitute(spec), self._target_expr.substitute(spec))
+    def substitute(self, spec: dict[Expr, Expr]) -> JsonMapper:
+        # TODO: For technical reasons, JsonMapper needs to preserve its slot mappings, so it cannot be
+        #     replaced with a copy. Ideally we'd do a proper substitution here.
+        return self
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         from ..exec.expr_eval.evaluators import NestedRowList
