@@ -846,34 +846,23 @@ class TestStatusFmtSize:
 
 
 class TestServerDaemon:
-    def test_claim_pidfile_writes_our_pid(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_write_pidfile(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = str(tmp_path / 'sub' / 'pid')
         monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
-        assert server_daemon._claim_pidfile() is True
+        server_daemon._write_pidfile()
         with open(path, encoding='utf-8') as f:
             assert int(f.read().strip()) == os.getpid()
         server_daemon._remove_pidfile_if_ours()
         assert not os.path.exists(path)
 
-    def test_claim_pidfile_reclaims_stale(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_write_pidfile_overwrites_stale(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = str(tmp_path / 'pid')
         monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
         with open(path, 'w', encoding='utf-8') as f:
             f.write('999999999')
-        monkeypatch.setattr(server_daemon, '_port_in_use', lambda: False)
-        assert server_daemon._claim_pidfile() is True
+        server_daemon._write_pidfile()
         with open(path, encoding='utf-8') as f:
             assert int(f.read().strip()) == os.getpid()
-
-    def test_claim_pidfile_defers_to_live_peer(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        path = str(tmp_path / 'pid')
-        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write('12345')
-        monkeypatch.setattr(server_daemon, '_port_in_use', lambda: True)
-        assert server_daemon._claim_pidfile() is False
-        with open(path, encoding='utf-8') as f:
-            assert f.read().strip() == '12345'
 
     def test_remove_pidfile_if_ours_only_removes_own(
         self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch

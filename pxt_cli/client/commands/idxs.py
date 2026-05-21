@@ -1,6 +1,7 @@
 import json
 
-from ..http import get, validate_path_shape
+from ...utils import validate_path_shape
+from ..http import get
 from ..parser import Parser
 
 EPILOG = """\

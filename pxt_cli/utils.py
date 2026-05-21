@@ -43,6 +43,21 @@ def pidfile_path() -> str:
     return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{get_port()}.pid')
 
 
+def validate_path_shape(path: str) -> str | None:
+    """Return an error message if `path` violates pxt path shape rules, else None. Empty is allowed."""
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path):
+        return f'pxt paths must not contain control characters; got {path!r}'
+    if '.' in path:
+        return f"pxt paths use '/' as the separator; got {path!r}"
+    if path.startswith('/'):
+        return f"pxt paths are relative; drop the leading '/' (use '' for root). Got {path!r}"
+    if path.endswith('/'):
+        return f"pxt paths must not end with '/'; got {path!r}"
+    if '//' in path:
+        return f"pxt paths must not contain empty components ('//'); got {path!r}"
+    return None
+
+
 # Identity fingerprint keys
 _IDENTITY_KEYS: tuple[str, ...] = (
     'pxt_version',

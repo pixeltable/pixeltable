@@ -1,5 +1,6 @@
 import datetime
 import os
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -12,7 +13,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
 from pxt_cli import models
-from pxt_cli.utils import identity
+from pxt_cli.utils import identity, validate_path_shape
 
 from . import bridge
 from .router import RawResponse, Request, Router
@@ -29,19 +30,9 @@ def _validate_path(path: str) -> str:
     """Reject URL paths whose shape pixeltable would later reject with a generic error."""
     if path == '':
         return path
-    # Reject ASCII control characters before any other check: the path is later interpolated
-    # into response headers (eg Content-Disposition in dashboard_table_export), so CR/LF/etc.
-    # in a URL-decoded path would otherwise enable response splitting / header injection.
-    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path):
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'path contains control characters; got {path!r}')
-    if '.' in path:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"path uses '/' as the separator; got {path!r}")
-    if path.endswith('/'):
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"path must not end with '/'; got {path!r}")
-    if '//' in path:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, f"path must not contain empty components ('//'); got {path!r}"
-        )
+    err = validate_path_shape(path)
+    if err is not None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, err)
     return path
 
 
@@ -207,7 +198,10 @@ def table_row(req: Request) -> models.GetResponse:
     if len(result) == 0:
         return models.GetResponse(pk_columns=pk_names, row=None)
     if len(result) > 1:
-        raise RuntimeError(f'{path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?')
+        raise excs.Error(
+            excs.ErrorCode.INTERNAL_ERROR,
+            f'{path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?',
+        )
 
     r = result[0]
     row: dict[str, Any] = {}
@@ -448,13 +442,18 @@ def dashboard_table_data(req: Request) -> dict[str, Any]:
 @router.get('/api/dashboard/tables/{path:path}/export')
 def dashboard_table_export(req: Request) -> RawResponse:
     path = _validate_path(req.path_params['path'])
-    limit = req.query_int('limit', default=100_000, ge=1, le=1_000_000)
+    # Whole CSV is materialized in memory by bridge.export_table_csv before sending.
+    # 100k is the documented upper bound; widen later if we move to chunked streaming.
+    limit = req.query_int('limit', default=100_000, ge=1, le=100_000)
     body = bridge.export_table_csv(path, limit=limit)
     filename = path.replace('/', '_') + '.csv'
+    # RFC 5987 / 6266: filename* parameter carries percent-encoded UTF-8, so the encoder
+    # neutralizes any CR/LF/quote in the filename without relying on upstream validation.
+    encoded = urllib.parse.quote(filename, safe='')
     return RawResponse(
         body=body,
         content_type='text/csv; charset=utf-8',
-        extra_headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        extra_headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded}"},
     )
 
 

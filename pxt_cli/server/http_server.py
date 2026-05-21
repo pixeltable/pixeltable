@@ -84,7 +84,13 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             return
 
         handler, path_params = match
-        body_bytes = self._read_body() if method == 'POST' else b''
+        if method == 'POST':
+            body_bytes = self._read_body()
+            if body_bytes is None:
+                # 413 already sent by _read_body
+                return
+        else:
+            body_bytes = b''
         req = Request(path_params=path_params, query=query, body_bytes=body_bytes)
         try:
             result = handler(req)
@@ -101,7 +107,13 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         else:
             self._send_json(_to_jsonable(result))
 
-    def _read_body(self) -> bytes:
+    # Cap request body size. Localhost-only daemon, but a misbehaving local client could
+    # otherwise pin a thread on a multi-GB read or exhaust memory in pydantic validation.
+    _MAX_BODY_BYTES = 1 * 1024 * 1024
+
+    def _read_body(self) -> bytes | None:
+        """Return the request body, or None if the caller exceeded the size cap (in which
+        case a 413 has already been sent)."""
         length_header = self.headers.get('Content-Length')
         if length_header is None:
             return b''
@@ -109,6 +121,12 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             length = int(length_header)
         except ValueError:
             return b''
+        if length > self._MAX_BODY_BYTES:
+            self._send_json(
+                {'detail': f'request body exceeds the {self._MAX_BODY_BYTES}-byte limit'},
+                http.HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
+            return None
         return self.rfile.read(length) if length > 0 else b''
 
     def _send_json(self, data: Any, status: int = http.HTTPStatus.OK) -> None:
@@ -192,10 +210,14 @@ class _QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def serve(port: int) -> None:
-    """Run the daemon on 127.0.0.1:port (blocks the calling thread)."""
-    server = _QuietServer(('127.0.0.1', port), _DaemonHandler)
-    _logger.info('pxt daemon listening on http://127.0.0.1:%s', port)
+def bind(port: int) -> _QuietServer:
+    """Bind the listen socket. Raises OSError if the port is already taken."""
+    return _QuietServer(('127.0.0.1', port), _DaemonHandler)
+
+
+def run(server: _QuietServer) -> None:
+    """Serve forever on a server bound by bind() (blocks the calling thread)."""
+    _logger.info('pxt daemon listening on http://%s:%s', *server.server_address)
     try:
         server.serve_forever()
     finally:

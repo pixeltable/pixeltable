@@ -44,7 +44,7 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 | `GET /api/dashboard/tables/{path}/pipeline` | DAG slice connected to one table | — |
 | `GET /api/dashboard/tables/{path}/meta` | Schema, columns, indices, versions, iterator info, media validation, destinations | — |
 | `GET /api/dashboard/tables/{path}/data` | Paginated rows, media URLs, per-cell errors | `offset`, `limit` (50, max 500), `order_by`, `order_desc`, `errors_only` |
-| `GET /api/dashboard/tables/{path}/export` | CSV download | `limit` (100k default, 1M max) |
+| `GET /api/dashboard/tables/{path}/export` | CSV download | `limit` (100k default and max) |
 
 ## User Flows
 

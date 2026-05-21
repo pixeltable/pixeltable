@@ -11,6 +11,7 @@ import urllib.request
 from typing import Any
 
 from pxt_cli.client.utils import ensure_running
+from pxt_cli.utils import validate_path_shape
 
 
 def _request(method: str, path: str, body: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> Any:
@@ -57,19 +58,6 @@ def get(path: str, params: dict[str, Any] | None = None) -> Any:
 
 def post(path: str, body: dict[str, Any]) -> Any:
     return _request('POST', path, body=body)
-
-
-def validate_path_shape(path: str) -> str | None:
-    """Return an error message if `path` violates pxt path shape rules, else None. Empty is allowed."""
-    if '.' in path:
-        return f"pxt paths use '/' as the separator; got {path!r}"
-    if path.startswith('/'):
-        return f"pxt paths are relative; drop the leading '/' (use '' for root). Got {path!r}"
-    if path.endswith('/'):
-        return f"pxt paths must not end with '/'; got {path!r}"
-    if '//' in path:
-        return f"pxt paths must not contain empty components ('//'); got {path!r}"
-    return None
 
 
 def quote_path(path: str) -> str:

@@ -2,25 +2,19 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
+from pxt_cli.utils import validate_path_shape
 
-def _slash_only(v: str | None) -> str | None:
-    # pxt paths are slash-separated and relative. '.' is reserved (pixeltable's legacy
-    # separator); leading/trailing '/' or '//' would yield empty components that pixeltable
-    # rejects later with a generic "Invalid path" error - reject them here for a clear message.
+
+def _validate_pxt_path(v: str | None) -> str | None:
     if v is None or v == '':
         return v
-    if '.' in v:
-        raise ValueError(f"pxt paths use '/' as the separator; got {v!r}")
-    if v.startswith('/'):
-        raise ValueError(f"pxt paths are relative; drop the leading '/' (use '' for root). Got {v!r}")
-    if v.endswith('/'):
-        raise ValueError(f"pxt paths must not end with '/'; got {v!r}")
-    if '//' in v:
-        raise ValueError(f"pxt paths must not contain empty components ('//'); got {v!r}")
+    err = validate_path_shape(v)
+    if err is not None:
+        raise ValueError(err)
     return v
 
 
-PxtPath = Annotated[str, AfterValidator(_slash_only)]
+PxtPath = Annotated[str, AfterValidator(_validate_pxt_path)]
 
 
 class HealthResponse(BaseModel):
