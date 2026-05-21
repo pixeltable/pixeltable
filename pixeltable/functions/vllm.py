@@ -13,7 +13,7 @@ from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import vllm  # type: ignore[import-not-found,unused-ignore]
+    import vllm
 
 
 @pxt.udf(is_deterministic=False)
@@ -80,7 +80,7 @@ def chat_completions(
     if sp is not None:
         chat_kwargs['sampling_params'] = sp
 
-    outputs = llm.chat([messages], **chat_kwargs)  # type: ignore[arg-type,unused-ignore]
+    outputs = llm.chat([messages], **chat_kwargs)
     return _request_output_to_dict(outputs[0])
 
 
@@ -138,7 +138,7 @@ def generate(
 def _lookup_model(model: str, engine_args: dict[str, Any]) -> 'vllm.LLM':
     import vllm
 
-    args_key = json.dumps(engine_args, sort_keys=True, default=str) if engine_args else ''
+    args_key = json.dumps(engine_args, sort_keys=True, default=str)
     key = (model, args_key)
     if key not in _model_cache:
         _model_cache[key] = vllm.LLM(model=model, **engine_args)
