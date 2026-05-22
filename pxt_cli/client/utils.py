@@ -26,7 +26,8 @@ def health_url() -> str:
 
 
 def _daemon_log_path() -> str:
-    return os.path.join(_resolve_pixeltable_home(), 'logs', 'pxt-daemon.log')
+    """Per-port log path, matching the per-port pidfile."""
+    return os.path.join(_resolve_pixeltable_home(), 'logs', f'pxt-daemon-{get_port()}.log')
 
 
 def read_pidfile() -> int | None:

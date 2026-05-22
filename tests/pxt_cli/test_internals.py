@@ -1346,3 +1346,18 @@ class TestConfigRouteWithGenericTypes:
         # Spot-check: pixeltable.service entry is present (the generic-typed one).
         services = [e for e in resp.entries if e.section == 'pixeltable' and e.key == 'service']
         assert len(services) == 1
+
+
+class TestPerPortPaths:
+    """Pidfile and log paths must be parameterized by PXT_PORT so that daemons running on
+    different ports don't share state."""
+
+    def test_log_path_includes_port(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+        monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
+        monkeypatch.setenv('PXT_PORT', '12345')
+        p1 = client_utils._daemon_log_path()
+        monkeypatch.setenv('PXT_PORT', '54321')
+        p2 = client_utils._daemon_log_path()
+        assert p1 != p2, f'log path collides across ports: {p1} == {p2}'
+        assert '12345' in p1
+        assert '54321' in p2

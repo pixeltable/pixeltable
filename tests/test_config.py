@@ -1,6 +1,5 @@
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import pixeltable as pxt
@@ -9,7 +8,7 @@ from .utils import pxt_raises
 
 
 class TestConfig:
-    def test_config_errors(self) -> None:
+    def test_config_errors(self, tmp_path: Path) -> None:
         def spawn_cmd(cmd: str, expected_error_msg: str) -> None:
             cmd = cmd.replace('\\', r'\\')  # Escape backslashes for Windows compatibility
             result = subprocess.run(
@@ -25,7 +24,7 @@ class TestConfig:
             'pixeltable.exceptions.RequestError: Unrecognized configuration variable: pixeltable.not_a_config_var',
         )
 
-        tmp = Path(tempfile.mktemp('.toml'))
+        tmp = tmp_path / 'bad.toml'
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('This is neither a directory nor a valid TOML file.')
         spawn_cmd(
@@ -57,7 +56,7 @@ class TestConfig:
         ):
             pxt.init({'pixeltable.home': '.'})  # Not ok to specify new config values after init()
 
-    def test_dotted_section_lookup(self) -> None:
+    def test_dotted_section_lookup(self, tmp_path: Path) -> None:
         """Nested TOML tables like [openai.rate_limits] are stored as
         __config_dict['openai']['rate_limits'] = ({'gpt-4': 250}, path). get_value must descend
         into that inner dict; a previous regression flattened the lookup and silently returned
@@ -74,7 +73,7 @@ class TestConfig:
                 f'cmd failed:\nstdout:\n{result.stdout.decode("utf-8")}\nstderr:\n{result.stderr.decode("utf-8")}'
             )
 
-        tmp = Path(tempfile.mktemp('.toml'))
+        tmp = tmp_path / 'config.toml'
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('[openai.rate_limits]\n"gpt-4" = 250\n[together.rate_limits.chat]\n"llama-3-70b" = 100\n')
 
