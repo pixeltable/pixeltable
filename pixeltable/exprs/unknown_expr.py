@@ -8,6 +8,11 @@ from .row_builder import RowBuilder
 
 
 class UnknownExpr(Expr):
+    """
+    Represents an expression for which the specific expression type cannot yet be determined, because it contains
+    a subexpression of ambiguous type.
+    """
+
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(ts.InvalidType(nullable=False))
 
@@ -31,7 +36,7 @@ class UnknownOpExpr(UnknownExpr):
         return getattr(operand1_sub, self.op)(operand2_sub)
 
 
-class UnknownSliceExpr(UnknownExpr):
+class UnknownItemExpr(UnknownExpr):
     def __init__(self, base: Expr, index: object):
         super().__init__()
         self.base = base

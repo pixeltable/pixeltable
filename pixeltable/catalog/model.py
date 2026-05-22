@@ -34,13 +34,12 @@ class _PlaceholderColumnRef(exprs.Expr):
         raise AssertionError('It should never be possible to observe a placeholder in an execution context.')
 
 
-class _PlaceholderColumnMetaclass(type):
-    """Metaclass for creating placeholder column objects that can be used in TableModel definitions.
+class _PlaceholderFactory:
+    """Class for creating placeholder column objects that can be used in TableModel definitions.
 
     This allows users to reference column names in computed expressions without needing to define them
     a priori as actual columns.
     """
-
     def __getattr__(cls, key: str) -> _PlaceholderColumnRef:
         if not isinstance(key, str) or not is_valid_identifier(key):
             raise AttributeError(f'Invalid column name: {key}')
@@ -50,7 +49,8 @@ class _PlaceholderColumnMetaclass(type):
         return isinstance(key, str) and is_valid_identifier(key)
 
 
-class Column(metaclass=_PlaceholderColumnMetaclass): ...
+
+Column = _PlaceholderFactory()
 
 
 class TableModelMetaclass(type):

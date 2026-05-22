@@ -669,14 +669,14 @@ class Expr(abc.ABC):
     def __getitem__(self, index: object) -> Expr:
         from .array_slice import ArraySlice
         from .json_path import JsonPath
-        from .unknown_expr import UnknownSliceExpr
+        from .unknown_expr import UnknownItemExpr
 
         if self.col_type.is_invalid_type():
             if not isinstance(index, (int, slice, str, tuple)) or (
                 isinstance(index, tuple) and any(not isinstance(i, (int, slice)) for i in index)
             ):
                 raise AttributeError(f'Invalid indices: {index}')
-            return UnknownSliceExpr(self, index)
+            return UnknownItemExpr(self, index)
         if self.col_type.is_json_type():
             return JsonPath(self)[index]
         if self.col_type.is_array_type():
