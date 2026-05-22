@@ -88,9 +88,9 @@ class TestUUID:
         validate_update_status(t4.insert([{'uuid_col': None}]), expected_rows=1)
         validate_update_status(t4.insert([{'uuid_col': uuid.uuid4()}]), expected_rows=1)
 
-        res = reload_tester.run_query(t4.select(t4.uuid_col).order_by(t4.uuid_col))
-        assert None in res['uuid_col']
-        assert any(isinstance(x, uuid.UUID) for x in res['uuid_col'])
+        res = reload_tester.run_query(t4.select(t4.uuid_col).order_by(t4.uuid_col, asc=False))
+        assert res['uuid_col'][0] is None
+        assert isinstance(res['uuid_col'][1], uuid.UUID)
 
         # Test required UUID columns
         t5 = pxt.create_table('test_uuid_required', {'uuid_col': pxt.Required[pxt.UUID]})
