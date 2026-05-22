@@ -140,13 +140,14 @@ def extract_audio(
 @pxt.udf(is_method=True)
 def get_metadata(video: pxt.Video) -> util.ContainerMetadata:
     """
-    Gets various metadata associated with a video file and returns it as a dictionary.
+    Gets various metadata associated with a video file and returns it as
+    a [`ContainerMetadata`][pixeltable.functions.ContainerMetadata] dictionary.
 
     Args:
         video: The video for which to get metadata.
 
     Returns:
-        A `dict` such as the following:
+        A [`ContainerMetadata`][pixeltable.functions.ContainerMetadata] with typical structure:
 
             ```json
             {

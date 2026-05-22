@@ -39,34 +39,65 @@ def normalize_image_mode(image: PIL.Image.Image) -> PIL.Image.Image:
 
 
 class CodecContextMetadata(TypedDict, total=False):
+    """Metadata about a stream's codec."""
+
     name: str
+    """Codec name (e.g. `'h264'`, `'aac'`)."""
     codec_tag: str
+    """Four-character codec tag, unicode-escaped."""
     profile: str | None
-    channels: int | None  # audio only
-    pix_fmt: str | None  # video only
+    """Codec profile (e.g. `'High'`, `'LC'`), or `None` if unavailable."""
+    channels: int | None
+    """Number of audio channels. Present only for audio streams."""
+    pix_fmt: str | None
+    """Pixel format (e.g. `'yuv420p'`). Present only for video streams."""
 
 
 class StreamMetadata(TypedDict, total=False):
+    """Metadata for a stream within a media container."""
+
     type: str
+    """Stream type: typically `'audio'` or `'video'`. Other stream types (e.g. subtitles) will have a
+    `StreamMetadata` entry, but with no metadata other than `type`."""
     duration: int | None
+    """Stream duration in `time_base` units, or `None` if unknown."""
     time_base: float | None
+    """Time base of the stream as a float (seconds per tick), or `None` if unknown."""
     duration_seconds: float | None
+    """Stream duration in seconds, computed from `duration` and `time_base`."""
     frames: int
+    """Number of frames in the stream (may be 0 if unknown)."""
     metadata: dict[str, str]
+    """Additional stream-specific metadata tags (e.g. language, title)."""
     codec_context: CodecContextMetadata
-    width: int  # video only
-    height: int  # video only
-    average_rate: float | None  # video only
-    base_rate: float | None  # video only
-    guessed_rate: float | None  # video only
+    """Codec information for this stream."""
+    width: int
+    """Frame width in pixels. Present only for video streams."""
+    height: int
+    """Frame height in pixels. Present only for video streams."""
+    average_rate: float | None
+    """Average frame rate in FPS (frames per second). Present only for video streams."""
+    base_rate: float | None
+    """Base (constant) frame rate in FPS. Present only for video streams."""
+    guessed_rate: float | None
+    """Guessed frame rate in FPS. Present only for video streams."""
 
 
 class ContainerMetadata(TypedDict):
+    """Metadata for a media container, as returned by
+    [`audio.get_metadata()`][pixeltable.functions.audio.get_metadata]
+    or [`video.get_metadata()`][pixeltable.functions.video.get_metadata]."""
+
     bit_exact: bool
+    """Whether the container was opened in bit-exact mode."""
     bit_rate: int | None
+    """Overall bit rate of the container in bits per second, or `None` if unknown."""
     size: int | None
+    """Size of the container in bytes, or `None` if unknown."""
     metadata: dict[str, str]
+    """Additional container-level metadata tags (e.g. title, encoder)."""
     streams: list[StreamMetadata]
+    """Per-stream metadata for each stream in the container."""
 
 
 def get_metadata(path: str) -> ContainerMetadata:
