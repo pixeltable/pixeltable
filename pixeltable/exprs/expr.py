@@ -22,6 +22,7 @@ from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes,
 
 if TYPE_CHECKING:
     from pixeltable import exprs, func
+    from pixeltable.exprs import unknown_expr
 
 
 class ExprScope:
@@ -757,7 +758,7 @@ class Expr(abc.ABC):
     def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
-    def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
+    def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
         from .unknown_expr import UnknownOpExpr
 
         if self.col_type.is_invalid_type():
@@ -769,7 +770,7 @@ class Expr(abc.ABC):
     def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
+    def __mul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
         from .unknown_expr import UnknownOpExpr
 
         if self.col_type.is_invalid_type():
@@ -787,7 +788,7 @@ class Expr(abc.ABC):
     def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def __radd__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
+    def __radd__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
         from .unknown_expr import UnknownOpExpr
 
         if self.col_type.is_invalid_type():
@@ -799,7 +800,7 @@ class Expr(abc.ABC):
     def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __rmul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
+    def __rmul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
         from .unknown_expr import UnknownOpExpr
 
         if self.col_type.is_invalid_type():

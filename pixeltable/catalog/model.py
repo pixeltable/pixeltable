@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Literal
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
@@ -103,8 +101,8 @@ class TableModelMetaclass(type):
                         )
                 columns[attr_name] = spec  # type: ignore[assignment]
             else:
-                value = exprs.Expr.from_object(value)
-                columns[attr_name] = ColumnSpec(type=annotation, value=value)
+                expr = exprs.Expr.from_object(value)
+                columns[attr_name] = ColumnSpec(type=annotation, value=expr)
 
         namespace['__columns__'] = columns
         return super().__new__(mcs, name, bases, namespace)

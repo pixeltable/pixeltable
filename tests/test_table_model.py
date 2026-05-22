@@ -165,7 +165,7 @@ class TestTableModel:
             function_call = pxtf.math.floor(Column.value)
             in_predicate = Column.name.isin(['Alice', 'Bob', 'Charlie'])
             inline_array = pxt.array([Column.value, Column.value + 1, Column.value + 2])
-            inline_list = [Column.name, Column.img]
+            inline_list = [Column.name, Column.img]  # noqa: RUF012
             is_null = Column.name == None
             method_ref = Column.name.upper()
             # similarity = Column.name.similarity('similar string')
@@ -173,7 +173,7 @@ class TestTableModel:
             string_radd = 'prefix ' + Column.name
             string_mul = Column.name * 3
             string_rmul = 3 * Column.name
-            type_cast = Column.arr.astype(pxt.Array[np.float32])
+            type_cast = Column.arr.astype(pxt.Array[np.float32])  # type: ignore[misc]
 
         tbl = AllExprsTableModel.create()
 

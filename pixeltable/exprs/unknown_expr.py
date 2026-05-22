@@ -1,7 +1,6 @@
 from typing import Any
 
 from pixeltable import type_system as ts
-from pixeltable.exprs.globals import ArithmeticOperator
 
 from .data_row import DataRow
 from .expr import Expr
