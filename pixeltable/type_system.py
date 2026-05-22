@@ -502,7 +502,11 @@ class ColumnType:
                 )
             fields[name] = col_type
         optional_keys = frozenset(name for name, info in t.model_fields.items() if not info.is_required())
-        return JsonType(JsonType.TypeSchema(type_spec=fields, optional_keys=optional_keys), nullable=nullable_default, pretty_print_name=t.__name__)
+        return JsonType(
+            JsonType.TypeSchema(type_spec=fields, optional_keys=optional_keys),
+            nullable=nullable_default,
+            pretty_print_name=t.__name__,
+        )
 
     @classmethod
     def normalize_type(
@@ -964,7 +968,9 @@ class JsonType(ColumnType):
     # pretty_print_name is used only for generating clean documentation; it is not stored in the catalog.
     pretty_print_name: str | None
 
-    def __init__(self, type_schema: TypeSchema | None = None, nullable: bool = False, pretty_print_name: str | None = None):
+    def __init__(
+        self, type_schema: TypeSchema | None = None, nullable: bool = False, pretty_print_name: str | None = None
+    ):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_schema = type_schema
         self.pretty_print_name = pretty_print_name
