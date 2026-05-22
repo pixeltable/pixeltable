@@ -102,14 +102,9 @@ class TableModelMetaclass(type):
                             f'Type annotation for column {attr_name!r} conflicts with type in ColumnSpec',
                         )
                 columns[attr_name] = spec  # type: ignore[assignment]
-            elif isinstance(value, exprs.Expr):
-                columns[attr_name] = ColumnSpec(type=annotation, value=value)
             else:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'Value for column {attr_name!r} must be a `ColumnSpec` or a computed expression, '
-                    f'but has type `{type(value).__name__}`',
-                )
+                value = exprs.Expr.from_object(value)
+                columns[attr_name] = ColumnSpec(type=annotation, value=value)
 
         namespace['__columns__'] = columns
         return super().__new__(mcs, name, bases, namespace)

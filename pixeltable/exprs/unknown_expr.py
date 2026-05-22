@@ -1,12 +1,12 @@
 from typing import Any
 
+from pixeltable import type_system as ts
 from pixeltable.exprs.globals import ArithmeticOperator
 
-from .expr import Expr
 from .data_row import DataRow
+from .expr import Expr
 from .row_builder import RowBuilder
 
-from pixeltable import type_system as ts
 
 class UnknownExpr(Expr):
     def __init__(self, *args: Any, **kwargs: Any):
@@ -17,6 +17,7 @@ class UnknownExpr(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         raise AssertionError('It should never be possible to observe an UnknownExpr in an execution context.')
+
 
 class UnknownOpExpr(UnknownExpr):
     def __init__(self, op: str, operand1: Expr, operand2: Any):
@@ -29,6 +30,7 @@ class UnknownOpExpr(UnknownExpr):
         operand1_sub = self.operand1.substitute(spec)
         operand2_sub = self.operand2.substitute(spec) if isinstance(self.operand2, Expr) else self.operand2
         return getattr(operand1_sub, self.op)(operand2_sub)
+
 
 class UnknownSliceExpr(UnknownExpr):
     def __init__(self, base: Expr, index: object):

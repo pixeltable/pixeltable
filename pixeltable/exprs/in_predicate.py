@@ -18,7 +18,7 @@ class InPredicate(Expr):
 
     def __init__(self, lhs: Expr, value_set_literal: Iterable | None = None, value_set_expr: Expr | None = None):
         assert (value_set_literal is None) != (value_set_expr is None)
-        if not lhs.col_type.is_scalar_type():
+        if not (lhs.col_type.is_invalid_type() or lhs.col_type.is_scalar_type()):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'isin(): only supported for scalar types, not {lhs.col_type}'
             )
@@ -62,7 +62,8 @@ class InPredicate(Expr):
         result = []
         for val in value_list:
             try:
-                self._lhs.col_type.validate_literal(val)
+                if not self._lhs.col_type.is_invalid_type():
+                    self._lhs.col_type.validate_literal(val)
                 result.append(val)
             except TypeError:
                 pass

@@ -671,9 +671,10 @@ class Expr(abc.ABC):
         from .unknown_expr import UnknownSliceExpr
 
         if self.col_type.is_invalid_type():
-            if (not isinstance(index, (int, slice, str, tuple)) or
-                (isinstance(index, tuple) and any(not isinstance(i, (int, slice)) for i in index))):
-                 raise AttributeError(f'Invalid indices: {index}')
+            if not isinstance(index, (int, slice, str, tuple)) or (
+                isinstance(index, tuple) and any(not isinstance(i, (int, slice)) for i in index)
+            ):
+                raise AttributeError(f'Invalid indices: {index}')
             return UnknownSliceExpr(self, index)
         if self.col_type.is_json_type():
             return JsonPath(self)[index]

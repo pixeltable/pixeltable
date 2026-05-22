@@ -157,17 +157,17 @@ class TestTableModel:
             arith_radd = 1 + Column.value
             arith_mul = Column.value * 2
             arith_rmul = 2 * Column.value
-            # array_slice = Column.arr[:, 1:3]
-            # column_property_ref = Column.img.fileurl
+            array_slice = Column.arr[:, 1:3]
+            column_property_ref = Column.img.fileurl
             column_ref = Column.name
             comparison = Column.value > 0.0
             compound_predicate = (Column.value > 0.0) & (Column.name != 'test')
             function_call = pxtf.math.floor(Column.value)
-            # in_predicate = Column.name.isin(['Alice', 'Bob', 'Charlie'])
-            # inline_array = pxt.array([Column.value, Column.value + 1, Column.value + 2])
-            # inline_list = [Column.name, Column.img]
+            in_predicate = Column.name.isin(['Alice', 'Bob', 'Charlie'])
+            inline_array = pxt.array([Column.value, Column.value + 1, Column.value + 2])
+            inline_list = [Column.name, Column.img]
             is_null = Column.name == None
-            # method_ref = Column.name.upper()
+            method_ref = Column.name.upper()
             # similarity = Column.name.similarity('similar string')
             string_add = Column.name + ' suffix'
             string_radd = 'prefix ' + Column.name
@@ -176,3 +176,32 @@ class TestTableModel:
             type_cast = Column.arr.astype(pxt.Array[np.float32])
 
         tbl = AllExprsTableModel.create()
+
+        metadata = tbl.get_metadata()
+        assert {name: info['type_'] for name, info in metadata['columns'].items()} == {
+            'arith_add': 'Float',
+            'arith_mul': 'Float',
+            'arith_radd': 'Float',
+            'arith_rmul': 'Float',
+            'arr': 'Array',
+            'array_slice': 'Array',
+            'column_property_ref': 'String',
+            'column_ref': 'String',
+            'comparison': 'Required[Bool]',
+            'compound_predicate': 'Required[Bool]',
+            'function_call': 'Float',
+            'id': 'Int',
+            'img': 'Image',
+            'in_predicate': 'Required[Bool]',
+            'inline_array': 'Required[Array[(3,), float32]]',
+            'inline_list': 'Required[Json[(String | None, Image | None)]]',
+            'is_null': 'Required[Bool]',
+            'method_ref': 'String',
+            'name': 'String',
+            'string_add': 'String',
+            'string_mul': 'String',
+            'string_radd': 'Required[String]',
+            'string_rmul': 'Required[String]',
+            'type_cast': 'Required[Array[float32]]',
+            'value': 'Float',
+        }

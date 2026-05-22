@@ -41,7 +41,9 @@ class InlineArray(Expr):
                 )
             inferred_element_type = supertype
 
-        if inferred_element_type.is_scalar_type():
+        if inferred_element_type.is_invalid_type():
+            col_type = ts.InvalidType(nullable=False)
+        elif inferred_element_type.is_scalar_type():
             col_type = ts.ArrayType((len(exprs),), inferred_element_type)
         elif inferred_element_type.is_array_type():
             assert isinstance(inferred_element_type, ts.ArrayType)
@@ -91,7 +93,6 @@ class InlineArray(Expr):
             return InlineList(components)  # type: ignore[return-value]
 
     def as_literal(self) -> Literal | None:
-        assert isinstance(self.col_type, ts.ArrayType)
         if not all(isinstance(comp, Literal) for comp in self.components):
             return None
         return Literal(
