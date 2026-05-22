@@ -662,8 +662,8 @@ class TestQuery:
 
         # Update with where
         validate_update_status(t.where(t.c2 >= 50).update({'c3': 4171780.0}), expected_rows=50)
-        assert t.where(t.c3 > 1000000.0).count() == 50
-        assert t.where(t.c3 < 1000.0).count() == 50
+        assert t.where((t.c2 >= 50) & (t.c3 > 1000000.0)).count() == 50
+        assert t.where((t.c2 < 50) & (t.c3 < 1000.0)).count() == 50
 
         # Update without where
         validate_update_status(t.select().update({'c3': 94.0}))
