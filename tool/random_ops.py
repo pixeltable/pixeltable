@@ -423,7 +423,7 @@ class RandomTableOps:
                 fatal = e
 
         self._op_counts[op.__name__] += 1
-        if result.status == OpStatus.EXPECTED_ERROR:
+        if result.status != OpStatus.SUCCESS:
             by_msg = self._err_counts.setdefault(op.__name__, {})
             by_msg[result.msg] = by_msg.get(result.msg, 0) + 1
         self._flush_stats()
