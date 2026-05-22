@@ -23,7 +23,7 @@ class TestUuid:
 
         for pxt_fn, py_fn, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
-            actual = t.select(out=pxt_fn(t.id, *args, **kwargs)).head(len(test_uuids))['out']
+            actual = t.select(out=pxt_fn(t.id, *args, **kwargs)).order_by(t.id).collect()['out']
             expected = [py_fn(id, *args, **kwargs) for id in test_uuids]
             assert actual == expected
             # Run the same query, forcing the calculations to be done in Python (not SQL)
