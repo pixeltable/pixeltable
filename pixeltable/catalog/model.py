@@ -162,15 +162,6 @@ class TableModelMetaclass(type):
 
 
 class TableModel(metaclass=TableModelMetaclass):
-    """Base class for declarative Pixeltable table schemas.
-
-    Usage::
-
-        class MyTable(TableSchema):
-            text: pxt.String
-            image: pxt.Image
-            # computed columns can be added via assignment with an Expr
-
-
-        t = pxt.create_table('my_table', MyTable.to_schema())
+    """
+    Base class for declarative Pixeltable table models.
     """
