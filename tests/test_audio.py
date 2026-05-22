@@ -118,6 +118,12 @@ class TestAudio:
             'bit_exact': False,
         }
 
+        # get_metadata() returns correct type information
+        expr = base_t.audio.get_metadata().streams[0].duration_seconds
+        assert expr.col_type.is_float_type()
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
+            _ = base_t.audio.get_metadata().streams[0].not_an_attr
+
     def __count_segments(
         self,
         start_time_sec: float,

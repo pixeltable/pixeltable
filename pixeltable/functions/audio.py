@@ -21,7 +21,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 @pxt.udf(is_method=True)
-def get_metadata(audio: pxt.Audio) -> dict:
+def get_metadata(audio: pxt.Audio) -> av_utils.ContainerMetadata:
     """
     Gets various metadata associated with an audio file and returns it as a dictionary.
 
