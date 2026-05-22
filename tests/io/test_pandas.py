@@ -177,7 +177,7 @@ class TestPandas:
         assert tab.count() == 388
         assert 'Age' in tab.columns()
         assert 'Output' in tab.columns()
-        assert tab.where((tab.Gender == 'Male') & (tab.Occupation == 'Self Employeed')).count() == 38  # [sic]
+        assert tab.where((tab.Gender == 'Female') & (tab.Marital_Status == 'Married')).count() == 49
 
     def test_insert_pandas_csv(self, uses_db: None) -> None:
         from pixeltable.io import import_csv
