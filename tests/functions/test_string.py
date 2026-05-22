@@ -70,17 +70,15 @@ class TestString:
         IBM UK Scientific Centre at Peterlee - IS1 (1970-72), and its successor, PRTV (1973-79).
         """
 
-    TEST_STRS = tuple(
-        sorted(
-            [
-                *textwrap.dedent(TEST_STR.strip()).split('. '),
-                '   \v\t\rWhite\n\nSpace\n\f \n\n',
-                r'%%!!#__\\Symbols%%!!#\\@@__%',
-                'a',
-                ' ',
-                '',
-            ]
-        )
+    TEST_STRS = sorted(
+        [
+            *textwrap.dedent(TEST_STR.strip()).split('. '),
+            '   \v\t\rWhite\n\nSpace\n\f \n\n',
+            r'%%!!#__\\Symbols%%!!#\\@@__%',
+            'a',
+            ' ',
+            '',
+        ]
     )
 
     def test_all(self, uses_db: None) -> None:
