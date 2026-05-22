@@ -405,7 +405,7 @@ class Planner:
 
         assert len(output_cols) > 0
 
-        cls.__check_valid_columns(tbl, output_cols, 'inserted into')
+        cls.__check_valid_columns(tbl, output_cols, 'inserted into' if for_insert else 'computed for')
 
         row_builder = exprs.RowBuilder([], output_cols, [], tbl, allow_unstored=not for_insert)
 
@@ -583,7 +583,10 @@ class Planner:
 
     @classmethod
     def __check_valid_columns(
-        cls, tbl: catalog.TableVersion, cols: Iterable[Column], op_name: Literal['inserted into', 'updated in']
+        cls,
+        tbl: catalog.TableVersion,
+        cols: Iterable[Column],
+        op_name: Literal['inserted into', 'updated in', 'computed for'],
     ) -> None:
         for col in cols:
             if col.value_expr is not None and not col.value_expr.is_valid:

@@ -1587,7 +1587,7 @@ class Table(SchemaObject):
                 - If `on_error='abort'`, an exception will be raised.
                 - If `on_error='ignore'`, execution will continue and the (possibly partially) completed rows will be
                     returned. Any cells with errors will have a `None` value for that cell, with information about the
-                    error stored in the corresponding `tbl.col_name:md` field.
+                    error stored in the corresponding `<col>:md` entry of the output row.
 
         Returns:
             A list of output rows, in the same order as `source`. Each row dict contains:
