@@ -2,13 +2,16 @@ import numpy as np
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.catalog.model import Column
+from pixeltable.catalog.model import Column, TableSpec
 
 from .utils import assert_table_metadata_eq
 
 
 class TestTableModel:
     def test_table_model(self, uses_db: None) -> None:
+
+        # VARIANT 1: As in the doc, using `__table_name__` and `Column.col_name` placeholders
+        # Static `Column` object resolves placeholder references.
         class ExampleTableModel(pxt.TableModel):
             __table_name__ = 'test_table'
 
@@ -18,7 +21,19 @@ class TestTableModel:
             incr = Column.value + 1
             descr = pxtf.string.format('Name: {name}', name=Column.name)
 
+        # VARIANT 2: Using TableSpec for syntax that is more similar to "Pixeltable standard"
+        # Named `TableSpec` resolves placeholder references.
+        class ExampleTableModel2(pxt.TableModel):
+            tbl = TableSpec('test_table_2', primary_key='id', comment='This is a test table')
+
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            value: pxt.Float
+            incr = tbl.value + 1
+            descr = pxtf.string.format('Name: {name}', name=tbl.name)
+
         tbl = ExampleTableModel.create()
+        _ = ExampleTableModel2.create()
         metadata = tbl.get_metadata()
 
         assert {name: info['type_'] for name, info in metadata['columns'].items()} == {

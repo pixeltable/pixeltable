@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
@@ -53,6 +54,20 @@ class _PlaceholderFactory:
 Column = _PlaceholderFactory()
 
 
+@dataclass
+class TableSpec:
+    name: str
+    primary_key: str | list[str] | None = None
+    comment: str | None = None
+    custom_metadata: dict[str, Any] | None = None
+    media_validation: Literal['on_read', 'on_write'] = 'on_write'
+
+    def __getattr__(self, key: str) -> _PlaceholderColumnRef:
+        if not isinstance(key, str) or not is_valid_identifier(key):
+            raise AttributeError(f'Invalid column name: {key}')
+        return _PlaceholderColumnRef(key)
+
+
 class TableModelMetaclass(type):
     """Metaclass that collects annotated column definitions from a class body.
 
@@ -63,6 +78,7 @@ class TableModelMetaclass(type):
 
     __columns__: dict[str, ColumnSpec]
     __table_name__: str
+    __table_spec__: TableSpec
 
     def __new__(
         mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
@@ -87,6 +103,11 @@ class TableModelMetaclass(type):
             if value is None:
                 assert annotation is not None
                 columns[attr_name] = ColumnSpec(type=annotation)
+            elif isinstance(value, TableSpec):
+                # TODO: This is not a full implementation of TableSpec; it's just to illustrate the proposal.
+                #     I'll defer that until/if we decide to use that pattern. (But it won't be hard to implement.)
+                namespace['__table_name__'] = value.name
+                namespace['__table_spec__'] = value
             elif isinstance(value, dict):
                 spec = value
                 if annotation is not None:
