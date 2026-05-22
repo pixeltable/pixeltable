@@ -25,6 +25,8 @@ from pixeltable.functions.math import abs as pxt_abs, floor as pxt_floor
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
+from . import util
+
 if TYPE_CHECKING:
     from scenedetect.detectors import SceneDetector  # type: ignore[import-untyped]
 
@@ -136,7 +138,7 @@ def extract_audio(
 
 
 @pxt.udf(is_method=True)
-def get_metadata(video: pxt.Video) -> av_utils.ContainerMetadata:
+def get_metadata(video: pxt.Video) -> util.ContainerMetadata:
     """
     Gets various metadata associated with a video file and returns it as a dictionary.
 
@@ -186,7 +188,7 @@ def get_metadata(video: pxt.Video) -> av_utils.ContainerMetadata:
 
         >>> tbl.select(tbl.video_col.get_metadata()).collect()
     """
-    return av_utils.get_metadata(video)
+    return util.get_metadata(video)
 
 
 @pxt.udf(is_method=True)
@@ -511,7 +513,7 @@ def _concat_videos(
     # Check that all videos have the same resolution
     resolutions: list[tuple[int, int]] = []
     for video in videos:
-        metadata = av_utils.get_metadata(str(video))
+        metadata = util.get_metadata(str(video))
         video_stream = next((stream for stream in metadata['streams'] if stream['type'] == 'video'), None)
         if video_stream is None:
             raise pxt.RequestError(
@@ -1272,7 +1274,7 @@ def overlay_image(
 
     overlay_label: str
     if scale is not None:
-        md = av_utils.get_metadata(str(video))
+        md = util.get_metadata(str(video))
         video_height = next(s for s in md['streams'] if s['type'] == 'video')['height']
         filters.append(f'[1:v]scale=-2:trunc({video_height}*{scale}/2)*2[ovr_scaled]')
         overlay_label = '[ovr_scaled]'
@@ -1774,10 +1776,10 @@ def transition(
         raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'duration must be positive, got {duration}')
 
     # xfade requires both inputs to have the same resolution
-    md1 = av_utils.get_metadata(str(video1))
+    md1 = util.get_metadata(str(video1))
     v1_stream = next(s for s in md1['streams'] if s['type'] == 'video')
     w1, h1 = v1_stream['width'], v1_stream['height']
-    md2 = av_utils.get_metadata(str(video2))
+    md2 = util.get_metadata(str(video2))
     v2_stream = next(s for s in md2['streams'] if s['type'] == 'video')
     w2, h2 = v2_stream['width'], v2_stream['height']
     if (w1, h1) != (w2, h2):

@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 
 import pixeltable as pxt
-import pixeltable.utils.av as av_utils
+from pixeltable.functions import util as functions_util
 from pixeltable.functions.audio import audio_splitter, encode_audio
+from pixeltable.utils import av as av_utils
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -59,7 +60,7 @@ class TestAudio:
         # Directly count the number of videos with audio streams, without relying on the UDF
         videos_with_audio = 0
         for p in video_filepaths:
-            md = av_utils.get_metadata(p)
+            md = functions_util.get_metadata(p)
             if sum(1 for stream in md['streams'] if stream['type'] == 'audio') > 0:
                 videos_with_audio += 1
 
