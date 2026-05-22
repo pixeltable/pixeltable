@@ -119,7 +119,10 @@ class TestPandas:
         t1a = pxt.create_table('online_foods_a', source='tests/data/datasets/onlinefoods.csv')
         assert t1a.count() == 388
 
-        assert t1.order_by(t1.latitude, t1.longitude).collect() == t1a.order_by(t1a.latitude, t1a.longitude).collect()
+        assert (
+            t1.order_by(t1.latitude, t1.longitude, t1.Pin_code).collect()
+            == t1a.order_by(t1a.latitude, t1a.longitude, t1a.Pin_code).collect()
+        )
         t1a.insert('tests/data/datasets/onlinefoods.csv')
         assert t1a.count() == 2 * 388
 
