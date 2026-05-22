@@ -12,7 +12,7 @@ class TestUuid:
         t = pxt.create_table('test_tbl', {'id': pxt.UUID})
 
         # Create some test UUIDs
-        test_uuids = [uuid.uuid4() for _ in range(3)]
+        test_uuids = sorted([uuid.uuid4() for _ in range(3)])
         validate_update_status(t.insert({'id': u} for u in test_uuids), expected_rows=len(test_uuids))
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
@@ -28,7 +28,9 @@ class TestUuid:
             assert actual == expected
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
-            actual_py = t.select(out=pxt_fn(t.id.apply(lambda x: x, col_type=pxt.UUID), *args, **kwargs)).head(
-                len(test_uuids)
-            )['out']
+            actual_py = (
+                t.select(out=pxt_fn(t.id.apply(lambda x: x, col_type=pxt.UUID), *args, **kwargs))
+                .order_by(t.id)
+                .collect()['out']
+            )
             assert actual_py == expected
