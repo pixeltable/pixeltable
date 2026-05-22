@@ -5,6 +5,7 @@ import logging
 import os
 import random
 import re
+import signal
 import sys
 import tempfile
 import time
@@ -461,6 +462,14 @@ def run(
     config = RandomTableOpsConfig(**json.loads(config_str))
 
     ops = RandomTableOps(worker_id, read_only, include_only_ops or [], exclude_ops or [], config, stats_file=stats_file)
+
+    def _handle_sigterm(*_: object) -> None:
+        raise SystemExit(0)
+
+    # When the worker process receives SIGTERM from the coordinator, this handler will be executed in the current
+    # (main) thread. The finally block below makes sure we flush latest stats before exiting.
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
     try:
         ops.run()
     except KeyboardInterrupt:
