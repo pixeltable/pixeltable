@@ -841,12 +841,12 @@ class Catalog:
                         # For now, just assert that we don't.
                         # assert not tv.is_replica
 
+                        if tv is not None:
+                            self.mark_modified_tvs(tv.handle)
                         if is_rollback:
                             op.undo(tv)
                         else:
                             op.exec(tv)
-                        if tv is not None:
-                            self.mark_modified_tvs(tv.handle)
 
                         _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                         if self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op):
@@ -1478,6 +1478,7 @@ class Catalog:
                 base_id = base.tbl_id
                 assert self._acquire_write_lock(tbl_id=base_id), base_id
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
+                self.mark_modified_tvs(base_tv.handle)
                 base_tv.tbl_md.view_sn += 1
                 result = get_runtime().conn.execute(
                     sql.update(schema.Table)
@@ -1510,6 +1511,7 @@ class Catalog:
             tbl_id = UUID(md.tbl_md.tbl_id)
             md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
             self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+            fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_PERSISTED)
             return tbl_id
 
         self._roll_forward_ids.clear()
@@ -1888,6 +1890,7 @@ class Catalog:
         if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
             base_id = tvp.base.tbl_id
             base_tv = self._get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
+            self.mark_modified_tvs(base_tv.handle)
             base_tv.tbl_md.view_sn += 1
             result = get_runtime().conn.execute(
                 sql.update(schema.Table.__table__)
