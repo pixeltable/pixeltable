@@ -174,7 +174,7 @@ class RandomTableOps:
         self.stats_file = stats_file
         self._op_counts: dict[str, int] = {name: 0 for name, *_ in TABLE_OPS}
         self._err_counts: dict[str, dict[str, int]] = {}  # op_name -> {sanitized_msg -> count}
-        self._last_flush: float = 0.0
+        self._last_flush_ts: float = 0.0
         self.base_table_names = tuple(f'tbl_{i}' for i in range(config.num_base_tables))
 
         selected_ops: set[str]
@@ -226,11 +226,11 @@ class RandomTableOps:
     def _flush_stats(self, *, force: bool = False) -> None:
         if self.stats_file is None:
             return
-        if not force and time.monotonic() - self._last_flush < 5.0:
+        if not force and time.monotonic() - self._last_flush_ts < 5.0:
             return
         with open(self.stats_file, 'w', encoding='utf-8') as f:
             json.dump({'op_counts': self._op_counts, 'err_counts': self._err_counts}, f, indent=2)
-        self._last_flush = time.monotonic()
+        self._last_flush_ts = time.monotonic()
 
     def emit(self, op: Callable, result: OpResult) -> None:
         status = result.status.value
