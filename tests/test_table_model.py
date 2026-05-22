@@ -9,7 +9,6 @@ from .utils import assert_table_metadata_eq
 
 class TestTableModel:
     def test_table_model(self, uses_db: None) -> None:
-
         # VARIANT 1: As in the doc, using `__table_name__` and `Column.col_name` placeholders
         # Static `Column` object resolves placeholder references.
         class ExampleTableModel(pxt.TableModel):

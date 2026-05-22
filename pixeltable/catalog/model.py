@@ -41,14 +41,14 @@ class _PlaceholderFactory:
     This allows users to reference column names in computed expressions without needing to define them
     a priori as actual columns.
     """
-    def __getattr__(cls, key: str) -> _PlaceholderColumnRef:
+
+    def __getattr__(self, key: str) -> _PlaceholderColumnRef:
         if not isinstance(key, str) or not is_valid_identifier(key):
             raise AttributeError(f'Invalid column name: {key}')
         return _PlaceholderColumnRef(key)
 
-    def __hasattr__(cls, key: str) -> bool:
+    def __hasattr__(self, key: str) -> bool:
         return isinstance(key, str) and is_valid_identifier(key)
-
 
 
 Column = _PlaceholderFactory()
