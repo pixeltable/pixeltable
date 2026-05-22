@@ -70,8 +70,8 @@ class TestQuery:
         assert len(res1) > 0
         assert len(res1) == len(res2)
         pd.testing.assert_frame_equal(
-            res1.to_pandas()[['c1', 'c2']].sort_values(['c1', 'c2']).reset_index(drop=True),
-            res2.to_pandas()[['c1', 'c2']].sort_values(['c1', 'c2']).reset_index(drop=True),
+            res1.to_pandas().sort_values(['c1', 'c2']).reset_index(drop=True),
+            res2.to_pandas().sort_values(['c1', 'c2']).reset_index(drop=True),
         )
 
         res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).collect()
