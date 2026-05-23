@@ -439,7 +439,7 @@ class StoreBase:
         row_builder = exec_plan.row_builder
 
         try:
-            table_rows: list[tuple[Any]] = []
+            table_rows: list[list[Any]] = []
             with exec_plan:
                 progress_reporter = exec_plan.ctx.add_progress_reporter(
                     f'Column values written (table {self.tbl_version.get().name!r})', 'rows'
@@ -448,7 +448,7 @@ class StoreBase:
                 # insert rows from exec_plan into temp table
                 for row_batch in exec_plan:
                     num_rows += len(row_batch)
-                    batch_table_rows: list[tuple[Any]] = []
+                    batch_table_rows: list[list[Any]] = []
 
                     for row in row_batch:
                         if abort_on_exc and row.has_exc():
@@ -459,7 +459,7 @@ class StoreBase:
                             ) from exc
                         table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
                         num_excs += num_row_exc
-                        batch_table_rows.append(tuple(table_row))
+                        batch_table_rows.append(table_row)
 
                     table_rows.extend(batch_table_rows)
 
@@ -518,7 +518,7 @@ class StoreBase:
 
         store_col_names = row_builder.store_column_names()
 
-        table_rows: list[tuple[Any]] = []
+        table_rows: list[list[Any]] = []
         inserted_rows: list[dict[str, Any]] = []  # column name -> stored value
 
         with exec_plan:
@@ -528,7 +528,7 @@ class StoreBase:
 
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
-                batch_table_rows: list[tuple[Any]] = []
+                batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
                 for row in row_batch:
@@ -550,7 +550,7 @@ class StoreBase:
                     table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
 
-                    batch_table_rows.append(tuple(table_row))
+                    batch_table_rows.append(table_row)
 
                 table_rows.extend(batch_table_rows)
 
@@ -575,7 +575,7 @@ class StoreBase:
 
             return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
 
-    def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
+    def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[list[Any]]) -> None:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:

@@ -1222,6 +1222,17 @@ class TestTable:
         assert all(isinstance(row['md'], dict) for row in out)
         assert all(isinstance(row['img:img_idx1'], np.ndarray) and row['img:img_idx1'].shape == (512,) for row in out)
 
+    def test_insert_return_rows_with_idx(self, uses_db: None) -> None:
+        """insert(return_rows=True) on a table with indexes must not leak undo cols into output rows."""
+        t = pxt.create_table('test_insert_return_rows_with_idx', {'id': pxt.Int, 'name': pxt.String})
+        # default indexes (btree on every scalar column) introduce undo cols; this previously
+        # produced a None key in the returned row dicts.
+        status = t.insert([{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}], return_rows=True)
+        rows = status.rows or []
+        assert all(None not in row for row in rows)
+        assert all({'id', 'name'} <= row.keys() for row in rows)
+        assert [{'id': r['id'], 'name': r['name']} for r in rows] == [{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}]
+
     def test_compute_pydantic_scalars(self, uses_db: None) -> None:
         t, TestModel1, rows1, TestModel2, rows2 = self._setup_pydantic_scalars()  # noqa: N806
 
