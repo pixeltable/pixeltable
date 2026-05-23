@@ -333,7 +333,7 @@ class TestCatalog:
                 thread_id=0,
                 name='inject fault',
                 fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_PERSISTED, ExceptionFault(injected_exc)
+                    FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED, ExceptionFault(injected_exc)
                 ),
             )
             # Thread 0: Run create_view (va) that fails. Before the fix, base_tv was not added to _modified_tvs, so it

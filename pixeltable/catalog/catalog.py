@@ -1511,7 +1511,7 @@ class Catalog:
             tbl_id = UUID(md.tbl_md.tbl_id)
             md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
             self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
-            fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_PERSISTED)
+            fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
             return tbl_id
 
         self._roll_forward_ids.clear()
