@@ -1120,6 +1120,12 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"already registered: GET '/jobs/\{job_id\}'"):
             router.add_query_route(path='/jobs/{job_id}', query=lookup, method='get')
 
+        # Duplicate detection respects the router's prefix (FastAPI stores routes under prefix + path)
+        router = FastAPIRouter(prefix='/v1')
+        router.add_insert_route(t, path='/c')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/v1/c'"):
+            router.add_insert_route(t, path='/c')
+
     def test_add_query_route_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter

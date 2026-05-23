@@ -181,16 +181,18 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def add_api_route(self, path: str, *args: Any, **kwargs: Any) -> None:
         """Wrap FastAPI's add_api_route with a duplicate (path, method) check."""
-        # FastAPI's APIRoute normalizes methods to uppercase; match its contract
+        # FastAPI's APIRoute normalizes methods to uppercase; match its contract.
         new_methods = {m.upper() for m in (kwargs.get('methods') or ['GET'])}
+        # FastAPI stores routes under self.prefix + path; compare against the prefixed form
+        prefixed_path = self.prefix + path
         for route in self.routes:
-            if not isinstance(route, fastapi.routing.APIRoute) or route.path != path:
+            if not isinstance(route, fastapi.routing.APIRoute) or route.path != prefixed_path:
                 continue
             if len(overlap := route.methods & new_methods) == 0:
                 continue
             conflict = ', '.join(sorted(overlap))
             raise excs.AlreadyExistsError(
-                excs.ErrorCode.PATH_ALREADY_EXISTS, f'route already registered: {conflict} {path!r}'
+                excs.ErrorCode.PATH_ALREADY_EXISTS, f'route already registered: {conflict} {prefixed_path!r}'
             )
         super().add_api_route(path, *args, **kwargs)
 
