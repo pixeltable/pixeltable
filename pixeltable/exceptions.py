@@ -251,7 +251,8 @@ def raise_from_expr_eval_err(e: ExprEvalError) -> NoReturn:
         # append a stack trace if the exception happened in user code
         # (frame 0 is ExprEvaluator and frame 1 is some expr's eval()
         nl = '\n'
-        # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
+        # [-1:1:-1]: leave out entries 0 and 1 (the ExprEvaluator and the expr's eval() frame), reversed
+        # so that the most recent frame is at the top
         msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
     if isinstance(e.exc, Error):
         raise type(e.exc)(e.exc.error_code, msg) from e

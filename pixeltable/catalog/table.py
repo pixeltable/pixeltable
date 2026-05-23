@@ -1593,7 +1593,8 @@ class Table(SchemaObject):
             A list of output rows, in the same order as `source`. Each row dict contains:
 
             - `<col>` -> the column value, for each column in the table.
-            - `<col>:<idx>` -> the value of index `<idx>` defined on `<col>`.
+            - `<col>:<idx>` -> the value of index `<idx>` defined on `<col>` (embedding indexes
+              only; b-tree indexes are omitted).
             - `<col>:md` -> `{'errortype': ..., 'errormsg': ...}`, present only when
               `on_error='ignore'` and the cell raised.
 

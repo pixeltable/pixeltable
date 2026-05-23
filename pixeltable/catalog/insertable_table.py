@@ -187,7 +187,9 @@ class InsertableTable(Table):
         self._validate_thread()
         from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
 
-        if not isinstance(source, Sequence) or len(source) == 0:
+        # str/bytes are technically Sequences; reject them explicitly so we don't fall through to
+        # TableDataConduit.create() which would treat a string as a path/URL and trigger file I/O.
+        if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',

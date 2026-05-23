@@ -1211,6 +1211,12 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-empty sequence'):
             t.compute(pd.DataFrame([{'id': 1}]))  # type: ignore[arg-type]
 
+        # str and bytes are technically Sequences but must be rejected, not interpreted as file paths
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-empty sequence'):
+            t.compute('some_path.csv')  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-empty sequence'):
+            t.compute(b'\x00\x01')  # type: ignore[arg-type]
+
     def test_compute_with_idx(self, uses_db: None, clip_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers')
         t = pxt.create_table('test_compute_with_idx', {'img': pxt.Image})
