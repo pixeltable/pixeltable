@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import time
-from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, Sequence, TypeVar, overload
 from uuid import UUID
 
 import numpy as np
@@ -496,15 +496,28 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
-    def create_output_rows(self, table_rows: list[list[Any]], has_pk: bool) -> list[dict[str, Any]]:
+    @overload
+    def create_output_rows(self, *, table_rows: list[list[Any]], has_pk: bool) -> list[dict[str, Any]]: ...
+
+    @overload
+    def create_output_rows(self, *, data_rows: list[DataRow], has_pk: bool) -> list[dict[str, Any]]: ...
+
+    def create_output_rows(
+        self, *, table_rows: list[list[Any]] | None = None, data_rows: list[DataRow] | None = None, has_pk: bool
+    ) -> list[dict[str, Any]]:
         """
-        Convert table rows to output rows (as returned by Table.compute()/Table.insert(return_rows=True)).
+        Convert rows to output rows (as returned by Table.compute()/Table.insert(return_rows=True)).
 
         Output row format:
         - for a column value: <column name> -> column value
         - for an index value: <column name>:<index name> -> index value
         - for an error: <column name>:md -> {'errortype': ..., 'errormsg': ...}
         """
+        assert (table_rows is None) != (data_rows is None)
+        if table_rows is not None:
+            return self._convert_table_rows(table_rows, has_pk)
+        else:
+            return self._convert_data_rows(data_rows, has_pk)
 
     def _convert_table_rows(self, table_rows: list[list[Any]], has_pk: bool) -> list[dict[str, Any]]:
         """Convert table rows to output rows."""
@@ -517,6 +530,7 @@ class RowBuilder:
             # index value columns have name=None; key them by '<indexed col>:<index name>'.
             idx_map = {info.val_col.id: (info.col.name, name) for name, info in self.tbl.idxs_by_name.items()}
             undo_col_ids = {info.undo_col.id for info in self.tbl.idxs_by_name.values()}
+
             for col in self.table_columns:
                 if col.id in undo_col_ids:
                     # skip undo cols
@@ -562,10 +576,11 @@ class RowBuilder:
         """Convert DataRows to output rows."""
         if self.data_row_output_map is None:
             self.output_row_has_pk = has_pk
+            self.data_row_output_map = []
             # index value columns have name=None; key them by '<indexed col>:<index name>'.
             idx_map = {info.val_col.id: (info.col.name, name) for name, info in self.tbl.idxs_by_name.items()}
             undo_col_ids = {info.undo_col.id for info in self.tbl.idxs_by_name.values()}
-            self.data_row_output_map = []
+
             for col, slot_idx in self.table_columns.items():
                 if col.id in undo_col_ids:
                     # skip undo cols

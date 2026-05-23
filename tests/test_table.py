@@ -1158,6 +1158,8 @@ class TestTable:
     def test_compute_with_errors(self, uses_db: None) -> None:
         t = pxt.create_table('test_null_handling', {'id': pxt.Int, 'data': pxt.Json})
         t.add_computed_column(inv=1 / t.id)
+        # unstored computed col: no persisted cellmd slot, but compute() must still emit `:md` on error
+        t.add_computed_column(inv2=2 / t.id, stored=False)
 
         # ZeroDivisionError for first row, ignored
         rows: list[dict[str, Any]] = [{'id': 0, 'data': None}, {'id': 2, 'data': {'k': 'v'}}]
@@ -1167,8 +1169,10 @@ class TestTable:
             'data': None,
             'inv': None,
             'inv:md': {'errortype': 'ZeroDivisionError', 'errormsg': 'division by zero'},
+            'inv2': None,
+            'inv2:md': {'errortype': 'ZeroDivisionError', 'errormsg': 'division by zero'},
         }
-        assert out[1] == {'id': 2, 'data': {'k': 'v'}, 'inv': 0.5}
+        assert out[1] == {'id': 2, 'data': {'k': 'v'}, 'inv': 0.5, 'inv2': 1.0}
 
         # same row with on_error='abort' raises
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ZeroDivisionError'):
@@ -1223,10 +1227,7 @@ class TestTable:
         assert all(isinstance(row['img:img_idx1'], np.ndarray) and row['img:img_idx1'].shape == (512,) for row in out)
 
     def test_insert_return_rows_with_idx(self, uses_db: None) -> None:
-        """insert(return_rows=True) on a table with indexes must not leak undo cols into output rows."""
         t = pxt.create_table('test_insert_return_rows_with_idx', {'id': pxt.Int, 'name': pxt.String})
-        # default indexes (btree on every scalar column) introduce undo cols; this previously
-        # produced a None key in the returned row dicts.
         status = t.insert([{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}], return_rows=True)
         rows = status.rows or []
         assert all(None not in row for row in rows)

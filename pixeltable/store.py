@@ -560,7 +560,7 @@ class StoreBase:
                     if progress_reporter is not None:
                         progress_reporter.update(len(table_rows))
                     if return_rows:
-                        inserted_rows.extend(row_builder.create_output_rows(table_rows, has_pk=True))
+                        inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
                     table_rows.clear()
 
             # insert any remaining rows
@@ -569,7 +569,7 @@ class StoreBase:
                 if progress_reporter is not None:
                     progress_reporter.update(len(table_rows))
                 if return_rows:
-                    inserted_rows.extend(row_builder.create_output_rows(table_rows, has_pk=True))
+                    inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
 
             row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
 

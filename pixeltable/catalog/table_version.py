@@ -1133,16 +1133,12 @@ class TableVersion:
             # progress_reporter = plan.ctx.add_progress_reporter(f'Rows written (table {self.name!r})', 'rows')
 
             for row_batch in plan:
-                batch_table_rows: list[list[Any]] = []
-                for row in row_batch:
-                    # if fail_on_exc == True, we need to check for media validation exceptions
-                    if fail_on_exc and row.has_exc():
-                        exc = row.get_first_exc()
-                        raise exc
-
-                    table_row, _ = row_builder.create_store_table_row(row, None, None)
-                    batch_table_rows.append(table_row)
-                output_rows.extend(row_builder.create_output_rows(batch_table_rows, has_pk=False))
+                if fail_on_exc:
+                    for row in row_batch:
+                        # if fail_on_exc == True, we need to check for media validation exceptions
+                        if row.has_exc():
+                            raise row.get_first_exc()
+                output_rows.extend(row_builder.create_output_rows(data_rows=list(row_batch), has_pk=False))
 
         return output_rows
 
