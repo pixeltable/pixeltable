@@ -164,9 +164,6 @@ class InsertableTable(Table):
         data_source = TableDataConduit.create(
             source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
         )
-        if data_source.source_column_map is None:
-            data_source.src_pk = []
-
         data_source.add_table_info(self)
         data_source.prepare_for_insert_into_table()
 
@@ -202,9 +199,6 @@ class InsertableTable(Table):
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'compute() requires a sequence of dicts or pydantic models; got {type(source).__name__}',
             )
-        # 'source' doesn't carry source-side PK columns; clear src_pk so the planner doesn't try to look them up
-        if data_source.source_column_map is None:
-            data_source.src_pk = []
         data_source.add_table_info(self)
         data_source.prepare_for_insert_into_table()
 
