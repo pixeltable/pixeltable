@@ -351,5 +351,5 @@ class TestCatalog:
             .execute()
         )
 
-        # verify that the inserted was propagated to vb.
+        # Verify that the insert was propagated to vb.
         assert pxt.get_table('vb').count() == 1
