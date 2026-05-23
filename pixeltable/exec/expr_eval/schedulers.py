@@ -11,6 +11,8 @@ from typing import Collection
 
 from pixeltable import env, exceptions as excs, func
 from pixeltable.config import Config
+from pixeltable.utils import fault_injection
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
 from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
@@ -208,6 +210,7 @@ class RateLimitsScheduler(Scheduler):
                 request_kwargs = request.kwargs
                 if '_runtime_ctx' in pxt_fn.signature.system_parameters:
                     request_kwargs = {**request_kwargs, '_runtime_ctx': env.RuntimeCtx(is_retry=num_retries > 0)}
+                fault_injection.process_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC)
                 result = await pxt_fn.aexec(*request.args, **request_kwargs)
                 request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
