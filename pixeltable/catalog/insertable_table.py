@@ -192,8 +192,9 @@ class InsertableTable(Table):
                 f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',
             )
         fail_on_exc = OnErrorParameter.fail_on_exception(on_error)
-
-        data_source = TableDataConduit.create(source)
+        # TableDataConduit.is_rowdata_structure() only accepts list (not arbitrary Sequence) for the
+        # dict-source dispatch, so normalize to list here.
+        data_source = TableDataConduit.create(list(source))
         if not isinstance(data_source, (RowDataTableDataConduit, PydanticTableDataConduit)):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

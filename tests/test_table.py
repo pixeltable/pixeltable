@@ -1217,6 +1217,10 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-empty sequence'):
             t.compute(b'\x00\x01')  # type: ignore[arg-type]
 
+        # non-list sequences of dicts (eg tuples) must work
+        out = t.compute(({'id': 1}, {'id': 2}))
+        assert out == [{'id': 1, 'plus1': 2}, {'id': 2, 'plus1': 3}]
+
     def test_compute_with_idx(self, uses_db: None, clip_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers')
         t = pxt.create_table('test_compute_with_idx', {'img': pxt.Image})
