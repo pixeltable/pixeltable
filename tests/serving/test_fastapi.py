@@ -1075,6 +1075,51 @@ class TestFastAPI:
         assert resp.headers['content-type'].startswith('image/')
         assert len(resp.content) > 0
 
+    def test_duplicate_routes(self, uses_db: None) -> None:
+        """Registering the same (path, method) twice must raise rather than silently shadow."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.dup', {'id': pxt.Required[pxt.Int], 'val': pxt.Int}, primary_key='id')
+
+        @pxt.query
+        def lookup() -> pxt.Query:
+            return t.select(t.id)
+
+        # POST/POST collision across the insert/compute/update entry points (both orderings)
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/a')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/a'"):
+            router.add_insert_route(t, path='/a')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/a'"):
+            router.add_compute_route(t, path='/a')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/a'"):
+            router.add_update_route(t, path='/a', inputs=['val'])
+
+        router = FastAPIRouter()
+        router.add_compute_route(t, path='/b')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/b'"):
+            router.add_insert_route(t, path='/b')
+
+        # Same-method collision via add_query_route
+        router = FastAPIRouter()
+        router.add_query_route(path='/q', query=lookup, method='post')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/q'"):
+            router.add_query_route(path='/q', query=lookup, method='post')
+
+        # Different methods on the same path are allowed
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/mixed')
+        router.add_query_route(path='/mixed', query=lookup, method='get')
+
+        # Collision with the built-in /media and /jobs routes (registered by FastAPIRouter.__init__)
+        router = FastAPIRouter()
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"already registered: GET '/media/\{path:path\}'"):
+            router.add_query_route(path='/media/{path:path}', query=lookup, method='get')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"already registered: GET '/jobs/\{job_id\}'"):
+            router.add_query_route(path='/jobs/{job_id}', query=lookup, method='get')
+
     def test_add_query_route_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
