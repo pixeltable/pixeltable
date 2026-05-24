@@ -31,6 +31,30 @@ class _DialectSpec:
     supports_insert: bool = True
 
 
+_IMPORT_DBMS = ['sqlite', 'postgresql']
+
+
+def _import_engine(dialect: str, tmp_path: pathlib.Path) -> sql.Engine:
+    """Build a SQLAlchemy Engine for use as an `import_sql` source. The Postgres dialect points at pixeltable's
+    embedded database, which `uses_db` resets before each test (see `clean_db`)."""
+    if dialect == 'sqlite':
+        return sql.create_engine(f'sqlite:///{tmp_path / "import_src.db"}')
+    if dialect == 'postgresql':
+        return sql.create_engine(Env.get().db_url)
+    raise AssertionError(dialect)
+
+
+def _seed_source(engine: sql.Engine, table_name: str, columns: list[sql.Column], rows: list[dict]) -> sql.Table:
+    """Create `table_name` with `columns` in `engine` and insert `rows`. Returns the SA Table."""
+    meta = sql.MetaData()
+    src = sql.Table(table_name, meta, *columns)
+    meta.create_all(engine)
+    if len(rows) > 0:
+        with engine.begin() as conn:
+            conn.execute(src.insert(), rows)
+    return src
+
+
 class TestSql:
     """
     TODO:
@@ -213,33 +237,6 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"column 'img' of source type Image"):
             export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
 
-
-_IMPORT_DBMS = ['sqlite', 'postgresql']
-
-
-def _import_engine(dialect: str, tmp_path: pathlib.Path) -> sql.Engine:
-    """Build a SQLAlchemy Engine for use as an `import_sql` source. The Postgres dialect points at pixeltable's
-    embedded database, which `uses_db` resets before each test (see `clean_db`)."""
-    if dialect == 'sqlite':
-        return sql.create_engine(f'sqlite:///{tmp_path / "import_src.db"}')
-    if dialect == 'postgresql':
-        return sql.create_engine(Env.get().db_url)
-    raise AssertionError(dialect)
-
-
-def _seed_source(engine: sql.Engine, table_name: str, columns: list[sql.Column], rows: list[dict]) -> sql.Table:
-    """Create `table_name` with `columns` in `engine` and insert `rows`. Returns the SA Table."""
-    meta = sql.MetaData()
-    src = sql.Table(table_name, meta, *columns)
-    meta.create_all(engine)
-    if len(rows) > 0:
-        with engine.begin() as conn:
-            conn.execute(src.insert(), rows)
-    return src
-
-
-class TestImportSql:
-    """import_sql() tests, parametrized across SQLite (file) and the embedded Postgres."""
 
     @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
     def test_import_full_table(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
