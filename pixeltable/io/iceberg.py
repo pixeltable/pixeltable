@@ -90,8 +90,8 @@ def export_iceberg(
     # Build a deterministic arrow schema up front so we can materialize the Iceberg table even
     # when the query yields no rows, and reject fixed-shape tensor columns before we run the query.
     # Variable-shape arrays are mapped to pa.list_(...) by to_arrow_type and are supported by Iceberg.
-    arrow_schema = to_arrow_schema(query.schema, schema_overrides)
-    fixed_tensor_cols = [f.name for f in arrow_schema if isinstance(f.type, pa.FixedShapeTensorType)]
+    fallback_schema = to_arrow_schema(query.schema, schema_overrides)
+    fixed_tensor_cols = [f.name for f in fallback_schema if isinstance(f.type, pa.FixedShapeTensorType)]
     if len(fixed_tensor_cols) > 0:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -102,7 +102,7 @@ def export_iceberg(
 
     batch_iter = to_record_batches(query, batch_size_bytes, schema_overrides)
     first_batch = next(batch_iter, None)
-    arrow_schema = first_batch.schema if first_batch is not None else arrow_schema
+    arrow_schema = first_batch.schema if first_batch is not None else fallback_schema
 
     # `pa.infer_type()` produces `pa.null()` for JSON keys whose value is None in every sampled row.
     # Iceberg format-version 2 cannot represent a null-only column, so reject it up front rather
