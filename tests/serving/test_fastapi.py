@@ -8,6 +8,7 @@ from typing import Any, Callable, Literal
 import av
 import numpy as np
 import PIL.Image
+import pydantic
 import pytest
 import sqlalchemy as sql
 
@@ -38,6 +39,11 @@ def add_dml_route(route_type: str, router: Any, t: pxt.Table, **kwargs: Any) -> 
         route_type
     ]
     fn(t, **kwargs)
+
+
+def dml_decorator(route_type: str, router: Any) -> Any:
+    """Dispatch helper: return the insert/compute/update route decorator on `router`."""
+    return {'insert': router.insert_route, 'compute': router.compute_route, 'update': router.update_route}[route_type]
 
 
 @pxt.udf
@@ -1324,6 +1330,43 @@ class TestFastAPI:
             resp = client.post('/x', json={'id': id_val, 'val': 10})
             assert resp.status_code == 500, resp.text
             assert expected in resp.text, resp.text
+
+    def test_decorator_routes_allow_unservable_outputs(self, uses_db: None) -> None:
+        """Decorator-form routes let user code handle outputs that add_*_route forms reject."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table(
+            'test_serve.unservable_deco',
+            {'id': pxt.Required[pxt.Int], 'val': pxt.Int, 'blob': pxt.Binary},
+            primary_key='id',
+        )
+        t.add_computed_column(j_arr=json_embed_ndarray(t.id))
+        t.add_computed_column(j_img=json_embed_image(t.id))
+        t.add_computed_column(j_bytes=json_embed_bytes(t.id))
+        t.insert([{'id': 1, 'val': 10, 'blob': b'\x00\x01\x02'}])
+
+        class _OkResp(pydantic.BaseModel):
+            ok: bool
+
+        for route_type in ('insert', 'compute', 'update'):
+            router = FastAPIRouter()
+            inputs = ['val'] if route_type == 'update' else ['id', 'val']
+            deco = dml_decorator(route_type, router)(
+                t, path='/x', inputs=inputs, outputs=['j_arr', 'j_img', 'j_bytes', 'blob']
+            )
+
+            @deco
+            def handler(*, j_arr: dict, j_img: dict, j_bytes: dict, blob: bytes | None) -> _OkResp:
+                assert np.array_equal(j_arr['vec'], np.zeros(3, dtype=np.float32))
+                return _OkResp(ok=True)
+
+            client = make_test_client(router)
+            id_val = 1 if route_type == 'update' else 600
+            resp = client.post('/x', json={'id': id_val, 'val': 10})
+            assert resp.status_code == 200, resp.text
+            assert resp.json() == {'ok': True}, resp.json()
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_add_insert_route_errors(

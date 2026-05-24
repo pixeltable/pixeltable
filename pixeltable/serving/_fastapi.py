@@ -26,6 +26,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
 from pixeltable.serving import SqlExport
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
@@ -63,7 +64,7 @@ class JobStatusResponse(pydantic.BaseModel):
 _MEDIA_ROUTE_NAME = 'pxt_serve_media'
 _JOB_STATUS_ROUTE_NAME = 'pxt_serve_job_status'
 
-_EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, PIL.Image.Image, bytes)
+_EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, np.generic, PIL.Image.Image, bytes)
 
 
 def _check_route_output_schema(output_cols: list[catalog.Column], error_prefix: str) -> None:
@@ -90,10 +91,8 @@ def _check_json_value_servable(val: Any, col_name: str) -> None:
     - Materialized stubs: CellMaterializationNode rewrites embedded media into
       `{INLINED_OBJECT_MD_KEY: ...}` dicts whose payload references coalesced side files.
     - Raw embedded objects: compute routes bypass CellMaterializationNode, so PIL.Image,
-      ndarray, or bytes can appear directly inside the JSON value.
+      ndarray (or numpy scalars), or bytes can appear directly inside the JSON value.
     """
-    from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
-
     if isinstance(val, dict):
         if INLINED_OBJECT_MD_KEY in val:
             raise HTTPException(
@@ -756,8 +755,6 @@ class FastAPIRouter(fastapi.APIRouter):
             route_type=route_type,
         )
         uploadfile_inputs = uploadfile_inputs or []
-        _check_route_output_schema([cols_by_name[n] for n in output_col_names], error_prefix)
-        json_output_col_names = [n for n in output_col_names if cols_by_name[n].col_type.is_json_type()]
 
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
             response_model = self._validate_decorated_fn(
@@ -771,8 +768,6 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
-                for name in json_output_col_names:
-                    _check_json_value_servable(row.get(name), name)
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 result = user_fn(**kwargs)
                 if sql_exporter is not None:
@@ -1066,9 +1061,6 @@ class FastAPIRouter(fastapi.APIRouter):
             route_type='update',
         )
 
-        _check_route_output_schema([cols_by_name[n] for n in output_col_names], 'update_route()')
-        json_output_col_names = [n for n in output_col_names if cols_by_name[n].col_type.is_json_type()]
-
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
             response_model = self._validate_decorated_fn(
                 user_fn,
@@ -1081,8 +1073,6 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
-                for name in json_output_col_names:
-                    _check_json_value_servable(row.get(name), name)
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 result = user_fn(**kwargs)
                 if sql_exporter is not None:
