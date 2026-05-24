@@ -249,6 +249,22 @@ class TestImportSql:
         engine = _import_engine(dialect, tmp_path)
         n = 2500  # > SqlSourceNode.BATCH_SIZE (1024) to force at least 3 batches
 
+        seed_rows = [
+            {
+                'c_int': i,
+                'c_str': f'row_{i}',
+                # every 7th row uses NULL so we exercise both NULL and value paths
+                'c_float': None if i % 7 == 0 else float(i) * 1.5,
+                'c_bool': None if i % 7 == 0 else (i % 2 == 0),
+                'c_ts': None if i % 7 == 0 else datetime.datetime(2024, 1, 1) + datetime.timedelta(seconds=i),
+                'c_date': None if i % 7 == 0 else datetime.date(2024, 1, 1) + datetime.timedelta(days=i % 365),
+                'c_uuid': None if i % 7 == 0 else uuid.uuid5(uuid.NAMESPACE_DNS, f'row_{i}'),
+                'c_json': None if i % 7 == 0 else {'i': i, 'tag': f't{i}'},
+                'c_bytes': None if i % 7 == 0 else f'b{i}'.encode(),
+            }
+            for i in range(n)
+        ]
+
         # mix of nullable and non-nullable columns; nullable columns include NULL values
         src = _seed_source(
             engine,
@@ -264,21 +280,7 @@ class TestImportSql:
                 sql.Column('c_json', sql.JSON, nullable=True),
                 sql.Column('c_bytes', sql.LargeBinary, nullable=True),
             ],
-            [
-                {
-                    'c_int': i,
-                    'c_str': f'row_{i}',
-                    # every 7th row uses NULL so we exercise both NULL and value paths
-                    'c_float': None if i % 7 == 0 else float(i) * 1.5,
-                    'c_bool': None if i % 7 == 0 else (i % 2 == 0),
-                    'c_ts': None if i % 7 == 0 else datetime.datetime(2024, 1, 1) + datetime.timedelta(seconds=i),
-                    'c_date': None if i % 7 == 0 else datetime.date(2024, 1, 1) + datetime.timedelta(days=i % 365),
-                    'c_uuid': None if i % 7 == 0 else uuid.uuid5(uuid.NAMESPACE_DNS, f'row_{i}'),
-                    'c_json': None if i % 7 == 0 else {'i': i, 'tag': f't{i}'},
-                    'c_bytes': None if i % 7 == 0 else f'b{i}'.encode(),
-                }
-                for i in range(n)
-            ],
+            seed_rows,
         )
 
         tbl = import_sql(src, engine, 'imported')
@@ -304,32 +306,20 @@ class TestImportSql:
         result = (
             tbl.order_by(tbl.c_int)
             .select(
-                tbl.c_int, tbl.c_str, tbl.c_float, tbl.c_bool, tbl.c_ts, tbl.c_date, tbl.c_uuid, tbl.c_json, tbl.c_bytes
+                tbl.c_int,
+                tbl.c_str,
+                tbl.c_float,
+                tbl.c_bool,
+                tbl.c_date,
+                tbl.c_uuid,
+                tbl.c_json,
+                tbl.c_bytes,
+                c_ts=tbl.c_ts.strip_timezone(),
             )
             .collect()
         )
-        assert len(result) == n
-        for i, row in enumerate(result):
-            assert row['c_int'] == i
-            assert row['c_str'] == f'row_{i}'
-            if i % 7 == 0:
-                assert row['c_float'] is None
-                assert row['c_bool'] is None
-                assert row['c_ts'] is None
-                assert row['c_date'] is None
-                assert row['c_uuid'] is None
-                assert row['c_json'] is None
-                assert row['c_bytes'] is None
-            else:
-                assert row['c_float'] == float(i) * 1.5
-                assert row['c_bool'] == (i % 2 == 0)
-                # Pixeltable returns Timestamp as tz-aware (local); the SA DateTime source is naive, so compare
-                # the wall-clock components only.
-                assert row['c_ts'].replace(tzinfo=None) == datetime.datetime(2024, 1, 1) + datetime.timedelta(seconds=i)
-                assert row['c_date'] == datetime.date(2024, 1, 1) + datetime.timedelta(days=i % 365)
-                assert row['c_uuid'] == uuid.uuid5(uuid.NAMESPACE_DNS, f'row_{i}')
-                assert row['c_json'] == {'i': i, 'tag': f't{i}'}
-                assert row['c_bytes'] == f'b{i}'.encode()
+        assert len(result) == len(seed_rows)
+        assert list(result) == seed_rows
 
     @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
     def test_import_select_and_filter(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
