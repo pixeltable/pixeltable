@@ -314,7 +314,7 @@ class TestIceberg:
         # Override that does not fit the data: string values cannot be cast to int64.
         t3 = pxt.create_table('test_iceberg_override_bad', {'c_string': pxt.String})
         t3.insert([{'c_string': 'hello'}])
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='schema_overrides'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='schema_overrides'):
             pxt.io.export_iceberg(t3, catalog, 'pxt.override_bad', schema_overrides={'c_string': pa.int64()})
 
     def test_namespace_auto_create(self, uses_db: None, tmp_path: pathlib.Path) -> None:
