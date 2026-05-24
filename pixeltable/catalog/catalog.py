@@ -1218,7 +1218,12 @@ class Catalog:
             # If dest_obj is not None, it means `if_exists='ignore'` and the destination already exists.
             # If src_obj is None, it means `if_not_exists='ignore'` and the source doesn't exist.
             # If dest_obj is None and src_obj is not None, then we can proceed with the move.
-            src_obj._move(new_path.name, dest_dir._id)
+            if isinstance(src_obj, Table):
+                self._move_table(src_obj._id, new_path.name, dest_dir._id)
+            elif isinstance(src_obj, Dir):
+                self._move_dir(src_obj._id, new_path.name, dest_dir._id)
+            else:
+                raise AssertionError(f'unexpected SchemaObject type: {type(src_obj).__name__}')
 
     def _prepare_dir_op(
         self,
@@ -1296,7 +1301,7 @@ class Catalog:
                     f'{drop_path!r} needs to be a {expected_name} but is a {drop_obj._display_name()}',
                 )
 
-        add_dir_obj = Dir(add_dir.id, add_dir.parent_id, add_dir.md['name']) if add_dir is not None else None
+        add_dir_obj = Dir(add_dir.id) if add_dir is not None else None
         return add_obj, add_dir_obj, drop_obj
 
     def _get_dir_entry(
@@ -1318,7 +1323,7 @@ class Catalog:
             raise AssertionError(rows)
         if len(rows) == 1:
             dir_record = schema.Dir(**rows[0]._mapping)
-            return Dir(dir_record.id, dir_record.parent_id, name)
+            return Dir(dir_record.id)
 
         # check for table
         if lock_entry:
@@ -1360,7 +1365,7 @@ class Catalog:
             if dir is None:
                 # TODO: why unknown user?
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unknown user: {Env.get().user}')
-            return Dir(dir.id, dir.parent_id, dir.md['name'])
+            return Dir(dir.id)
 
         parent_path = path.parent
         parent_dir = self._get_dir(parent_path, lock_dir=lock_parent)
@@ -1843,6 +1848,8 @@ class Catalog:
             tbl_id = tbl._id
             is_pure_snapshot = tbl._tbl_version is None
 
+        # capture the path for logging before the drop runs (after drop, tbl is no longer safe to use)
+        tbl_path_repr: str = str(tbl_id) if tbl is None else repr(tbl._path())
         if tbl is not None:
             self._acquire_dir_xlock(dir_id=tbl._dir_id)
         self._acquire_write_lock(tbl_id=tbl_id)
@@ -1868,7 +1875,7 @@ class Catalog:
                 system_dir = self.__ensure_system_dir_exists()
                 new_name = f'replica_{tbl_id.hex}'
                 _logger.debug(f'{tbl._path()!r} is a replica with dependents; renaming to {new_name!r}.')
-                tbl._move(new_name, system_dir._id)
+                self._move_table(tbl._id, new_name, system_dir._id)
                 do_drop = False  # don't actually clear the catalog for this table
 
             else:
@@ -1934,7 +1941,7 @@ class Catalog:
         for version in versions:
             del self._tbls[tbl_id, version]
 
-        _logger.info(f'Dropped table {tbl_id if tbl is None else repr(tbl._path())}.')
+        _logger.info(f'Dropped table {tbl_path_repr}.')
 
         if (
             is_replica  # if this is a replica,
@@ -2163,7 +2170,49 @@ class Catalog:
         if row is None:
             return None
         dir_record = schema.Dir(**row._mapping)
-        return Dir(dir_record.id, dir_record.parent_id, dir_record.md['name'])
+        return Dir(dir_record.id)
+
+    def read_tbl_record(self, tbl_id: UUID) -> schema.Table:
+        conn = get_runtime().conn
+        row = conn.execute(sql.select(schema.Table).where(schema.Table.id == tbl_id)).one_or_none()
+        if row is None:
+            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(tbl_id))
+        return schema.Table(**row._mapping)
+
+    def read_dir_record(self, dir_id: UUID) -> schema.Dir:
+        conn = get_runtime().conn
+        row = conn.execute(sql.select(schema.Dir).where(schema.Dir.id == dir_id)).one_or_none()
+        if row is None:
+            raise excs.NotFoundError(excs.ErrorCode.DIRECTORY_NOT_FOUND, f'Directory not found: {dir_id}')
+        return schema.Dir(**row._mapping)
+
+    def _move_table(self, tbl_id: UUID, new_name: str, new_dir_id: UUID) -> None:
+        """Update dir_id/name for tbl_id."""
+        stmt = (
+            sql.update(schema.Table)
+            .where(schema.Table.id == tbl_id)
+            .values(
+                {
+                    schema.Table.dir_id: new_dir_id,
+                    schema.Table.md: sql.func.jsonb_set(schema.Table.md, '{name}', sql.func.to_jsonb(new_name)),
+                }
+            )
+        )
+        get_runtime().conn.execute(stmt)
+
+    def _move_dir(self, dir_id: UUID, new_name: str, new_parent_id: UUID) -> None:
+        """Update parent_id/name for dir_id."""
+        stmt = (
+            sql.update(schema.Dir)
+            .where(schema.Dir.id == dir_id)
+            .values(
+                {
+                    schema.Dir.parent_id: new_parent_id,
+                    schema.Dir.md: sql.func.jsonb_set(schema.Dir.md, '{name}', sql.func.to_jsonb(new_name)),
+                }
+            )
+        )
+        get_runtime().conn.execute(stmt)
 
     def _get_dir(self, path: Path, lock_dir: bool = False) -> schema.Dir | None:
         """
@@ -2236,7 +2285,7 @@ class Catalog:
             key = TableVersionKey(tbl_id, None, None)
             if key not in self._tbl_versions:
                 _ = self._load_tbl_version(key)
-            tbl = InsertableTable(tbl_record.dir_id, TableVersionHandle(key))
+            tbl = InsertableTable(TableVersionHandle(key))
             self._tbls[tbl_id, None] = tbl
             return tbl
 
@@ -2268,7 +2317,7 @@ class Catalog:
                 _ = self._load_tbl_version(key)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_path)
             base_path = view_path
-        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=tbl_md.is_pure_snapshot)
+        view = View(tbl_id, view_path, snapshot_only=tbl_md.is_pure_snapshot)
         self._tbls[tbl_id, None] = view
         return view
 
@@ -2292,7 +2341,7 @@ class Catalog:
         version_md = schema.md_from_dict(schema.VersionMd, version_record.md)
         tvp = self.construct_tvp(tbl_id, version, tbl_md.ancestors, version_md.created_at)
 
-        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
+        view = View(tbl_id, tvp, snapshot_only=True)
         self._tbls[tbl_id, version] = view
         return view
 
