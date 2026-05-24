@@ -277,10 +277,10 @@ class RowBuilder:
         self.array_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_array_type()]
         self.json_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_json_type()]
 
+        self.output_row_has_pk = None
         self.table_row_output_vals = None
         self.table_row_output_error_vals = None
         self.data_row_output_map = None
-        self.output_row_has_pk = None
 
     def add_table_column(self, col: catalog.Column, slot_idx: int, *, allow_unstored: bool = False) -> None:
         """Record an output column for which the value is produced via expr evaluation."""
@@ -514,6 +514,11 @@ class RowBuilder:
         - for an error: <column name>:md -> {'errortype': ..., 'errormsg': ...}
         """
         assert (table_rows is None) != (data_rows is None)
+        if self.output_row_has_pk is None:
+            self.output_row_has_pk = has_pk
+        else:
+            assert self.output_row_has_pk == has_pk, (self.output_row_has_pk, has_pk)
+
         if table_rows is not None:
             return self._convert_table_rows(table_rows, has_pk)
         else:
@@ -550,8 +555,6 @@ class RowBuilder:
                 if col.stores_cellmd:
                     self.table_row_output_error_vals.append((tbl_row_idx, f'{display_name}:md'))
                     tbl_row_idx += 1
-        else:
-            assert self.output_row_has_pk == has_pk, (self.output_row_has_pk, has_pk)
 
         # bind to locals to avoid attribute lookups in the loop
         output_row_vals = self.table_row_output_vals
@@ -591,8 +594,6 @@ class RowBuilder:
                 else:
                     display_name = col.name
                 self.data_row_output_map.append((col, slot_idx, display_name))
-        else:
-            assert self.output_row_has_pk == has_pk, (self.output_row_has_pk, has_pk)
 
         # bind to locals to avoid attribute lookups in the loop
         output_map = self.data_row_output_map
@@ -622,12 +623,7 @@ class RowBuilder:
     def create_store_table_row(
         self, data_row: DataRow, cols_with_excs: set[int] | None, pk: tuple[int | UUID, ...] | None
     ) -> tuple[list[Any], int]:
-        """Create a store table row from the slots that have an output column assigned
-
-        Return tuple[list of row values in `self.table_columns` order, # of exceptions]
-            This excludes system columns.
-            Row values are converted to their store type.
-        """
+        """Create a store table row from the slots that have an output column assigned"""
         from pixeltable.exprs.column_property_ref import ColumnPropertyRef
 
         num_excs = 0

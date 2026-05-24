@@ -6,6 +6,7 @@ import time
 from typing import Any, Callable, Literal
 
 import av
+import numpy as np
 import PIL.Image
 import pytest
 import sqlalchemy as sql
@@ -14,6 +15,29 @@ import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
 from tests.utils import get_audio_files, get_image_files, get_video_files, pxt_raises, skip_test_if_not_installed, sleep
+
+
+@pxt.udf
+def json_embed_ndarray(i: int) -> pxt.Json:
+    return {'vec': np.zeros(3, dtype=np.float32), 'k': i}
+
+
+@pxt.udf
+def json_embed_image(i: int) -> pxt.Json:
+    return {'img': PIL.Image.new('RGB', (4, 4)), 'k': i}
+
+
+@pxt.udf
+def json_embed_bytes(i: int) -> pxt.Json:
+    return {'blob': b'\x00\x01\x02', 'k': i}
+
+
+def add_dml_route(route_type: str, router: Any, t: pxt.Table, **kwargs: Any) -> None:
+    """Dispatch helper: register an insert/compute/update route on `router` for table `t`."""
+    fn = {'insert': router.add_insert_route, 'compute': router.add_compute_route, 'update': router.add_update_route}[
+        route_type
+    ]
+    fn(t, **kwargs)
 
 
 @pxt.udf
@@ -1226,6 +1250,80 @@ class TestFastAPI:
             router.add_query_route(path='/e', query=lookup, return_fileresponse=True)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
+
+    def test_unservable_output_cols(self, uses_db: None) -> None:
+        """Routes reject Array/Binary output cols at registration; JSON with embedded objects is rejected per row."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table(
+            'test_serve.unservable',
+            {
+                'id': pxt.Required[pxt.Int],
+                'val': pxt.Int,
+                'blob': pxt.Binary,
+                'arr': pxt.Array[(3,), pxt.Float],  # type: ignore[misc]
+                'data': pxt.Json,
+            },
+            primary_key='id',
+        )
+        t.add_computed_column(j_arr=json_embed_ndarray(t.id))
+        t.add_computed_column(j_img=json_embed_image(t.id))
+        t.add_computed_column(j_bytes=json_embed_bytes(t.id))
+        # baseline row for update-route tests
+        t.insert([{'id': 1, 'val': 10, 'data': {'k': 'v', 'n': 42}}])
+
+        # Schema-level rejection: Array and Binary output columns
+        for route_type in ('insert', 'compute', 'update'):
+            inputs = ['val'] if route_type == 'update' else ['id']
+            router = FastAPIRouter()
+            for col_name in ('arr', 'blob'):
+                with pxt_raises(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f"output column '{col_name}'.*not yet supported"
+                ):
+                    add_dml_route(route_type, router, t, path='/x', inputs=inputs, outputs=[col_name])
+
+        # JSON with plain scalars must work on all three routes
+        for route_type in ('insert', 'compute', 'update'):
+            router = FastAPIRouter()
+            body: dict[str, Any]
+            if route_type == 'update':
+                # baseline row has data={'k': 'v', 'n': 42}; updating val leaves data untouched
+                inputs = ['val']
+                body = {'id': 1, 'val': 99}
+            else:
+                # compute doesn't persist; insert at a fresh id so it doesn't collide with the baseline
+                inputs = ['id', 'data']
+                body = {'id': 100, 'data': {'k': 'v', 'n': 42}}
+            add_dml_route(route_type, router, t, path='/x', inputs=inputs, outputs=['data'])
+            client = make_test_client(router)
+            resp = client.post('/x', json=body)
+            assert resp.status_code == 200, resp.text
+            assert resp.json() == {'data': {'k': 'v', 'n': 42}}
+
+        # Request-time rejection for JSON with embedded objects (3 cols x 3 routes)
+        embed_cases = [
+            ('j_arr', 'compute', 'embedded ndarray'),
+            ('j_arr', 'insert', 'materialized stub'),
+            ('j_arr', 'update', 'materialized stub'),
+            ('j_img', 'compute', 'embedded Image'),
+            ('j_img', 'insert', 'materialized stub'),
+            ('j_img', 'update', 'materialized stub'),
+            ('j_bytes', 'compute', 'embedded bytes'),
+            ('j_bytes', 'insert', 'materialized stub'),
+            ('j_bytes', 'update', 'materialized stub'),
+        ]
+        for i, (col_name, route_type, expected) in enumerate(embed_cases):
+            router = FastAPIRouter()
+            inputs = ['val'] if route_type == 'update' else ['id', 'val']
+            # update operates on the baseline row; insert needs a fresh id each time; compute doesn't persist
+            id_val = 1 if route_type == 'update' else i + 200
+            add_dml_route(route_type, router, t, path='/x', inputs=inputs, outputs=[col_name])
+            client = make_test_client(router)
+            resp = client.post('/x', json={'id': id_val, 'val': 10})
+            assert resp.status_code == 500, resp.text
+            assert expected in resp.text, resp.text
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_add_insert_route_errors(

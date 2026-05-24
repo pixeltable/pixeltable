@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional, TypeVar, get_type_hints
 
 import fastapi
+import numpy as np
 import PIL.Image
 import pydantic
 import sqlalchemy as sql
@@ -61,6 +62,62 @@ class JobStatusResponse(pydantic.BaseModel):
 # request.url_for(_MEDIA_ROUTE_NAME, path=...) to build absolute media URLs at request time.
 _MEDIA_ROUTE_NAME = 'pxt_serve_media'
 _JOB_STATUS_ROUTE_NAME = 'pxt_serve_job_status'
+
+_EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, PIL.Image.Image, bytes)
+
+
+def _check_route_output_schema(output_cols: list[catalog.Column], error_prefix: str) -> None:
+    """Reject output column types whose values can't be served by FastAPI today.
+
+    Array and Binary cells materialize into coalesced side files (ArrayMd/BinaryMd byte-range
+    stubs) that the /media route can't serve as single units, or come through compute as raw
+    ndarray/bytes that don't JSON-encode. JSON cells are allowed at the schema level because
+    they commonly carry plain scalars; per-row content is checked at request time.
+    """
+    for col in output_cols:
+        if col.col_type.is_array_type() or col.col_type.is_binary_type():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{error_prefix}: output column {col.name!r} has type '
+                f'{col.col_type._to_base_str()}, which is not yet supported by FastAPI routes',
+            )
+
+
+def _check_json_value_servable(val: Any, col_name: str) -> None:
+    """Raise HTTPException if a JSON cell value contains content the FastAPI layer can't serve.
+
+    Two cases:
+    - Materialized stubs: CellMaterializationNode rewrites embedded media into
+      `{INLINED_OBJECT_MD_KEY: ...}` dicts whose payload references coalesced side files.
+    - Raw embedded objects: compute routes bypass CellMaterializationNode, so PIL.Image,
+      ndarray, or bytes can appear directly inside the JSON value.
+    """
+    from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
+
+    if isinstance(val, dict):
+        if INLINED_OBJECT_MD_KEY in val:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f'output column {col_name!r}: JSON value contains a materialized stub for '
+                    f'an embedded array/binary/image. Serving embedded media inside JSON output '
+                    f'is not yet implemented.'
+                ),
+            )
+        for v in val.values():
+            _check_json_value_servable(v, col_name)
+    elif isinstance(val, list):
+        for v in val:
+            _check_json_value_servable(v, col_name)
+    elif isinstance(val, _EMBEDDED_OBJECT_TYPES):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f'output column {col_name!r}: JSON value contains an embedded '
+                f'{type(val).__name__}. Serving embedded media inside JSON output is not yet '
+                f'implemented.'
+            ),
+        )
 
 
 # ColumnType.Type -> JSON-Schema contentMediaType
@@ -458,6 +515,8 @@ class FastAPIRouter(fastapi.APIRouter):
         )
         uploadfile_inputs = uploadfile_inputs or []
         output_cols = [cols_by_name[name] for name in output_col_names]
+        _check_route_output_schema(output_cols, error_prefix)
+        json_output_col_names = [n for n in output_col_names if cols_by_name[n].col_type.is_json_type()]
 
         sql_exporter = self._make_schema_sql_exporter(
             export_sql,
@@ -470,6 +529,8 @@ class FastAPIRouter(fastapi.APIRouter):
         response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
         def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+            for name in json_output_col_names:
+                _check_json_value_servable(row.get(name), name)
             output = self._create_output([row], output_col_names, response_model, return_fileresponse, url_for_media)
             result = output[0] if isinstance(output, list) else output
             if sql_exporter is not None:
@@ -695,6 +756,8 @@ class FastAPIRouter(fastapi.APIRouter):
             route_type=route_type,
         )
         uploadfile_inputs = uploadfile_inputs or []
+        _check_route_output_schema([cols_by_name[n] for n in output_col_names], error_prefix)
+        json_output_col_names = [n for n in output_col_names if cols_by_name[n].col_type.is_json_type()]
 
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
             response_model = self._validate_decorated_fn(
@@ -708,6 +771,8 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
+                for name in json_output_col_names:
+                    _check_json_value_servable(row.get(name), name)
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 result = user_fn(**kwargs)
                 if sql_exporter is not None:
@@ -841,6 +906,8 @@ class FastAPIRouter(fastapi.APIRouter):
             route_type='update',
         )
         output_cols = [cols_by_name[name] for name in output_col_names]
+        _check_route_output_schema(output_cols, 'add_update_route()')
+        json_output_col_names = [n for n in output_col_names if cols_by_name[n].col_type.is_json_type()]
 
         sql_exporter = self._make_schema_sql_exporter(
             export_sql,
@@ -853,6 +920,8 @@ class FastAPIRouter(fastapi.APIRouter):
         update_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
         def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+            for name in json_output_col_names:
+                _check_json_value_servable(row.get(name), name)
             output = self._create_output(
                 [row], output_col_names, update_response_model, return_fileresponse, url_for_media
             )
@@ -997,6 +1066,9 @@ class FastAPIRouter(fastapi.APIRouter):
             route_type='update',
         )
 
+        _check_route_output_schema([cols_by_name[n] for n in output_col_names], 'update_route()')
+        json_output_col_names = [n for n in output_col_names if cols_by_name[n].col_type.is_json_type()]
+
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
             response_model = self._validate_decorated_fn(
                 user_fn,
@@ -1009,6 +1081,8 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
             def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
+                for name in json_output_col_names:
+                    _check_json_value_servable(row.get(name), name)
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 result = user_fn(**kwargs)
                 if sql_exporter is not None:
