@@ -1,8 +1,8 @@
 import pytest
 
 import pixeltable as pxt
-from pixeltable.env import Env
 import pixeltable.exceptions as excs
+from pixeltable.env import Env
 
 from .utils import ReloadTester, validate_update_status
 

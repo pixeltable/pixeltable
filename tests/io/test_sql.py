@@ -5,11 +5,10 @@ import pathlib
 import uuid
 from typing import Any, Callable
 
+import pytest
 import sqlalchemy as sql
 import sqlalchemy.dialects.postgresql
 import sqlalchemy.dialects.sqlite  # noqa: F401
-
-import pytest
 
 import pixeltable as pxt
 from pixeltable.env import Env
