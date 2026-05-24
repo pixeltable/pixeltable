@@ -232,7 +232,7 @@ def _seed_source(engine: sql.Engine, table_name: str, columns: list[sql.Column],
     meta = sql.MetaData()
     src = sql.Table(table_name, meta, *columns)
     meta.create_all(engine)
-    if rows:
+    if len(rows) > 0:
         with engine.begin() as conn:
             conn.execute(src.insert(), rows)
     return src
