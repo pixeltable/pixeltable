@@ -9,9 +9,9 @@ import pixeltable as pxt
 
 from ..utils import (
     create_all_datatypes_tbl,
+    iceberg_catalog,
     pxt_raises,
     skip_test_if_not_installed,
-    iceberg_catalog,
     validate_update_status,
 )
 
