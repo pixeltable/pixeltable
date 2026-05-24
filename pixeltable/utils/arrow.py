@@ -165,7 +165,6 @@ def _to_record_batch(
             # JSON columns are typed by `pa.infer_type()` against the first batch's values; later batches
             # can still contain values that don't fit (e.g. an inferred `struct<x: int64>` from the first
             # batch and a `{'x': 'foo'}` value in a later batch). Catch that here and surface a clear error.
-            assert not pa.types.is_null(field.type), field.type
             try:
                 pa_arrays.append(pa.array(column_vals[field.name], type=field.type))
             except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
