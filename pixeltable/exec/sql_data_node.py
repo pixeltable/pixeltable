@@ -61,8 +61,7 @@ class SqlDataNode(ExecNode):
         all_output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
         source_names = [
-            getattr(c, 'name', None) or getattr(c, 'key', None)
-            for c in self.sql_source.select_stmt.selected_columns
+            getattr(c, 'name', None) or getattr(c, 'key', None) for c in self.sql_source.select_stmt.selected_columns
         ]
         # Caller (eg, import_sql) is responsible for validating that all source names are non-None and resolve
         # to a destination column.

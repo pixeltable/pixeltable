@@ -237,7 +237,6 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"column 'img' of source type Image"):
             export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
 
-
     @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
     def test_import_full_table(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
         """End-to-end import of a full SA Table: type inference for all common SA types, nullable vs non-nullable
@@ -569,10 +568,7 @@ class TestSql:
 
         values = [1, -1, 2, -2, 3]
         src = _seed_source(
-            engine,
-            'on_error_src',
-            [sql.Column('c_int', sql.Integer, nullable=False)],
-            [{'c_int': v} for v in values],
+            engine, 'on_error_src', [sql.Column('c_int', sql.Integer, nullable=False)], [{'c_int': v} for v in values]
         )
 
         import_sql(src, engine, 'on_error_dest', if_exists='append', on_error='ignore')

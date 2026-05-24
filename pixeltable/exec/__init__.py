@@ -13,5 +13,5 @@ from .filter_node import FilterNode
 from .in_memory_data_node import InMemoryDataNode
 from .object_store_save_node import ObjectStoreSaveNode
 from .row_update_node import RowUpdateNode
-from .sql_node import SqlAggregationNode, SqlJoinNode, SqlLookupNode, SqlNode, SqlSampleNode, SqlScanNode
 from .sql_data_node import SqlDataNode
+from .sql_node import SqlAggregationNode, SqlJoinNode, SqlLookupNode, SqlNode, SqlSampleNode, SqlScanNode
