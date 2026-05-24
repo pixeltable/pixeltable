@@ -61,7 +61,7 @@ class TestIceberg:
     def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Export a table with every supported type and verify the Iceberg output."""
         skip_test_if_not_installed('pyiceberg')
-        t = create_all_datatypes_tbl()
+        t = create_all_datatypes_tbl(arrow_compatible_json=True)
 
         # Iceberg has no fixed-shape tensor type; the caller is expected to project the
         # column to a list before exporting.

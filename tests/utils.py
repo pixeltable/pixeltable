@@ -116,7 +116,11 @@ def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Tabl
 
 
 def create_table_data(
-    t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10, non_serializable_json: bool = False
+    t: pxt.Table,
+    col_names: list[str] | None = None,
+    num_rows: int = 10,
+    non_serializable_json: bool = False,
+    arrow_compatible_json: bool = False,
 ) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
@@ -138,13 +142,20 @@ def create_table_data(
                 }
             ]
         },
-        # Removing json_() arrow fallback means we don't support mixed-type lists and None only fields
         {'level1': {'level2': {'level3': [1, 2, 3, 4]}}},
         {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False},
     ]
+    if not arrow_compatible_json:
+        # Samples pyarrow cannot type-infer: mixed-type lists, top-level non-dicts, all-None fields.
+        serializable_json_values.extend(
+            [
+                {'level1': {'level2': {'level3': [1, 2.0, 'three', False, None]}}},
+                [{'key': 'val1', 'n': 1}, {'key': 'val2', 'n': 2}],
+                {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False, 'n': None},
+            ]
+        )
 
     # Non-serializable samples: contain PIL images, numpy arrays, or bytes.
-    # Mixed JSON (lists with dicts are not serializable in arrow)
     non_serializable_json_values: list[Any] = [
         {'label': 'synthetic', 'thumbnail': PIL.Image.new('RGB', (4, 4), color=(255, 0, 0))},
         {'label': 'embedding', 'vector': np.zeros(8, dtype=np.float64)},
@@ -162,7 +173,6 @@ def create_table_data(
                 b'\x00\x01',
             ],
         },
-        [{'key': 'val1', 'n': 1}, {'key': 'val2', 'n': 2}],
     ]
 
     sample_json_values = (
@@ -293,7 +303,7 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     return tbl
 
 
-def create_all_datatypes_tbl(non_serializable_json: bool = False) -> pxt.Table:
+def create_all_datatypes_tbl(non_serializable_json: bool = False, arrow_compatible_json: bool = False) -> pxt.Table:
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
@@ -313,7 +323,9 @@ def create_all_datatypes_tbl(non_serializable_json: bool = False) -> pxt.Table:
         'c_document': pxt.Document,
     }
     tbl = pxt.create_table('all_datatype_tbl', schema)
-    example_rows = create_table_data(tbl, num_rows=11, non_serializable_json=non_serializable_json)
+    example_rows = create_table_data(
+        tbl, num_rows=11, non_serializable_json=non_serializable_json, arrow_compatible_json=arrow_compatible_json
+    )
 
     for i, r in enumerate(example_rows):
         r['row_id'] = i  # row_id

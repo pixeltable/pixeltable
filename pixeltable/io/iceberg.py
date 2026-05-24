@@ -112,11 +112,11 @@ def export_iceberg(
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'export_iceberg(): cannot infer a concrete type for JSON field(s) {null_paths} because every sampled '
-            f'value is None. Iceberg has no null-only type; you can specify an explicit type using the schema_overrides parameter.',
+            f'value is None. Iceberg has no null-only type; you can specify an explicit type using the '
+            f'schema_overrides parameter.',
         )
 
     catalog.create_namespace_if_not_exists(namespace)
-
     batches: Iterable[pa.RecordBatch] = chain([first_batch], batch_iter) if first_batch is not None else batch_iter
 
     if existing_tbl is not None and if_exists == 'append':
@@ -151,20 +151,25 @@ def export_iceberg(
                 excs.ErrorCode.INTERNAL_ERROR,
                 f'export_iceberg(): failed to append to Iceberg table {table_name!r}: {e}',
             ) from e
+
         return
 
     # Write to a temp table and swap on success so a mid-stream failure leaves any existing
     # original untouched. Drop-then-rename is two catalog calls and not truly atomic; a crash
     # between them leaves the original gone but the data preserved under the temp name.
     temp_name = f'{table_name}__pxt_tmp_{uuid.uuid4().hex[:8]}'
-    temp_tbl = catalog.create_table(temp_name, schema=arrow_schema)
+
     try:
+        temp_tbl = catalog.create_table(temp_name, schema=arrow_schema)
+
         with temp_tbl.transaction() as tx:
             for batch in batches:
                 tx.append(pa.Table.from_batches([batch]))
+
         if existing_tbl is not None:
             catalog.drop_table(table_name)
         catalog.rename_table(temp_name, table_name)
+
     except excs.Error:
         raise
     except Exception as e:

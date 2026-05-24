@@ -162,9 +162,10 @@ def _to_record_batch(
             list_col_vals = [val.tolist() for val in column_vals[field.name]]
             pa_arrays.append(pa.array(list_col_vals))
         elif pxt_type.is_json_type():
-            # JSON columns are typed by `(pa.infer_type())` against the first batch's values; that can
-            # succeed (e.g. `list<int64>` inferred from `[1, 'a', 2]`) but still fail when pyarrow
-            # actually coerces the values. Catch that here and surface a clear error.
+            # JSON columns are typed by `pa.infer_type()` against the first batch's values; later batches
+            # can still contain values that don't fit (e.g. an inferred `struct<x: int64>` from the first
+            # batch and a `{'x': 'foo'}` value in a later batch). Catch that here and surface a clear error.
+            assert not pa.types.is_null(field.type), field.type
             try:
                 pa_arrays.append(pa.array(column_vals[field.name], type=field.type))
             except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
