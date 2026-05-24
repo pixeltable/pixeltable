@@ -1076,7 +1076,7 @@ class TableVersion:
         if query is not None:
             plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
         else:
-            plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception, sql_source=sql_source)
+            plan = Planner.create_insert_plan(self, rows, sql_source, ignore_errors=not fail_on_exception)
 
         rowid_gen: Iterator[int] | None = None
         # For versioned tables, generate rowids from the table's sequence.

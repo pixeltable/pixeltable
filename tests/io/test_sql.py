@@ -17,7 +17,7 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.io.sql import export_sql, import_sql
 
-from ..utils import get_documents, get_image_files, get_video_files, pxt_raises
+from ..utils import error, get_documents, get_image_files, get_video_files, pxt_raises
 
 
 @dataclasses.dataclass(frozen=True)
@@ -244,7 +244,7 @@ class TestSql:
         propagation, NULL-to-None value roundtrip, exact value preservation, and the single-version-bump claim
         across batch boundaries (rows > BATCH_SIZE so streaming actually engages)."""
         engine = _import_engine(dialect, tmp_path)
-        n = 2500  # > SqlSourceNode.BATCH_SIZE (1024) to force at least 3 batches
+        n = 2500  # > SqlDataNode.BATCH_SIZE (1024) to force at least 3 batches
 
         seed_rows = [
             {
@@ -409,7 +409,7 @@ class TestSql:
         # Media columns expose `.fileurl`. Pixeltable references local paths in place (only external URLs are
         # pulled into the file cache via CachePrefetchNode; local paths skip prefetch entirely). So each fileurl
         # must resolve to the exact source path we inserted, proving the path round-tripped correctly through
-        # SqlSourceNode -> InsertableTable.insert -> store.
+        # SqlDataNode -> InsertableTable.insert -> store.
         urls = (
             tbl.order_by(tbl.c_int)
             .select(c_img=tbl.c_img.fileurl, c_vid=tbl.c_vid.fileurl, c_doc=tbl.c_doc.fileurl)
@@ -506,7 +506,7 @@ class TestSql:
 
     def test_validation_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Broad sweep of the remaining `RequestError` / `NotFoundError` paths in `import_sql` and
-        `SqlSourceNode._open()`.
+        `SqlDataNode._open()`.
         """
         engine = _import_engine('sqlite', tmp_path)
 
@@ -559,3 +559,23 @@ class TestSql:
         )
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='c_required'):
             import_sql(partial_src, engine, 'req_dest', if_exists='append')
+
+    def test_import_on_error_ignore(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """`on_error='ignore'` import: per-row computed-column failures surface as nulls."""
+        engine = _import_engine('sqlite', tmp_path)
+
+        dest = pxt.create_table('on_error_dest', {'c_int': pxt.Int})
+        dest.add_computed_column(c_checked=error(dest.c_int < 0))
+
+        values = [1, -1, 2, -2, 3]
+        src = _seed_source(
+            engine,
+            'on_error_src',
+            [sql.Column('c_int', sql.Integer, nullable=False)],
+            [{'c_int': v} for v in values],
+        )
+
+        import_sql(src, engine, 'on_error_dest', if_exists='append', on_error='ignore')
+        result = dest.order_by(dest.c_int).select(dest.c_int, dest.c_checked).collect()
+        assert result['c_int'] == sorted(values)
+        assert result['c_checked'] == [None if v < 0 else False for v in sorted(values)]

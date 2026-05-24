@@ -7,7 +7,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.utils import sql as sql_utils
-from pixeltable.utils.sql import selectable_columns
+from pixeltable.utils.sql import as_select
 
 
 def export_sql(
@@ -126,7 +126,8 @@ def import_sql(
             f"`pxt.drop_table(tbl_name)` first and then call `import_sql(..., if_exists='error')`.",
         )
 
-    sa_cols = selectable_columns(selectable)
+    stmt = as_select(selectable)
+    sa_cols = list(stmt.selected_columns)
     source_names: list[str] = []
     seen: set[str] = set()
     for i, sa_col in enumerate(sa_cols):
@@ -168,7 +169,7 @@ def import_sql(
             )
         inferred_schema.update(schema_overrides)
 
-    sql_data_source = SqlDataSource(selectable=selectable, conn=conn)
+    sql_data_source = SqlDataSource(select_stmt=stmt, conn=conn)
 
     if if_exists == 'append':
         tbl = pxt.get_table(tbl_name)
@@ -203,7 +204,7 @@ def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, infe
     """Verify the SQL source schema can append into an existing destination table.
 
     Checks unknown source columns, computed-column collisions, type compatibility, and missing
-    required destination columns. Centralizing these checks here keeps `SqlSourceNode` purely a
+    required destination columns. Centralizing these checks here keeps `SqlDataNode` purely a
     runtime data path.
     """
     tv = tbl._tbl_version.get()

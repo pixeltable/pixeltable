@@ -389,9 +389,8 @@ class Planner:
         cls,
         tbl: catalog.TableVersion,
         rows: list[dict[str, Any]] | None,
-        ignore_errors: bool,
-        *,
         sql_source: SqlDataSource | None,
+        ignore_errors: bool,
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert(). Exactly one of `rows` and `sql_source` must be provided."""
         assert (rows is None) != (sql_source is None)
@@ -407,8 +406,8 @@ class Planner:
         plan: exec.ExecNode
         batch_size: int
         if sql_source is not None:
-            plan = exec.SqlSourceNode(tbl.handle, sql_source, row_builder)
-            batch_size = exec.SqlSourceNode.BATCH_SIZE
+            plan = exec.SqlDataNode(tbl.handle, sql_source, row_builder)
+            batch_size = exec.SqlDataNode.BATCH_SIZE
         else:
             plan = exec.InMemoryDataNode(tbl.handle, rows, row_builder)
             batch_size = 0

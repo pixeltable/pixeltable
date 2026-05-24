@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 import sqlalchemy as sql
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import URL
+from sqlalchemy.sql.expression import FromClause, SelectBase
 
 import pixeltable.exceptions as excs
 
@@ -139,13 +140,16 @@ def get_pxt_type(sa_type: sql.types.TypeEngine, *, nullable: bool) -> 'ts.Column
     return _default_pxt_type(sa_type, nullable=nullable)
 
 
-def selectable_columns(selectable: sql.Selectable) -> list[sql.ColumnElement]:
-    """Return the output columns of a Selectable in their SELECT-clause order."""
-    if hasattr(selectable, 'selected_columns'):
-        # Select / TextualSelect / CompoundSelect
-        return list(selectable.selected_columns)
-    # Table / Subquery / Alias
-    return list(selectable.columns)  # type: ignore[attr-defined]
+def as_select(selectable: sql.Selectable) -> SelectBase:
+    """Normalize a Selectable to an executable SELECT, wrapping `FromClause` inputs in `select(...)`."""
+    if isinstance(selectable, SelectBase):
+        return selectable
+    if isinstance(selectable, FromClause):
+        return sql.select(selectable)
+    raise excs.RequestError(
+        excs.ErrorCode.INVALID_ARGUMENT,
+        f'Unsupported SQL source: {type(selectable).__name__}; expected a Table or Select.',
+    )
 
 
 def table_exists(engine: sql.Engine, table_name: str, schema_name: str | None = None) -> bool:
