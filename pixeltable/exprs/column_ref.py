@@ -561,7 +561,7 @@ class ColumnRef(Expr):
             helper.append(idxs)
         return helper
 
-    def prepare(self) -> None:
+    def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         from pixeltable import store
 
         if not self.needs_iterator_evaluation:

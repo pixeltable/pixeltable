@@ -107,3 +107,13 @@ class TestPrimaryKeyIndex:
         # The PK is still taken by the live row
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t.insert([{'id': 1, 'val': 50}])
+
+    def test_prohibited_pk_col_ops(self, uses_db: None) -> None:
+        t = pxt.create_table(
+            'test', {'id0': pxt.Required[pxt.Int], 'id1': pxt.Required[pxt.Int]}, primary_key=['id0', 'id1']
+        )
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot drop primary key column'):
+            t.drop_column(t.id0)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot add primary key column'):
+            t.add_column(new={'type': pxt.Required[pxt.Int], 'primary_key': True})

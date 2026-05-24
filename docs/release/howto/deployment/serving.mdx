@@ -19,16 +19,18 @@ pip install 'fastapi[standard]'
 
 ## Quickstart (TOML)
 
-Create a file `service.toml`:
+Add a `[tool.pixeltable]` section to your `pyproject.toml`:
 
 ```toml
-[[service]]
+# pyproject.toml
+[[tool.pixeltable.service]]
 name = "my-service"
 port = 8000
+modules = ["schema"]   # Python modules to import (creates tables/views)
 
-[[service.routes]]
+[[tool.pixeltable.service.routes]]
 type = "insert"
-table = "my_dir/my_table"
+table = "my_dir.my_table"
 path = "/insert"
 inputs = ["prompt"]
 outputs = ["prompt", "result"]
@@ -37,8 +39,12 @@ outputs = ["prompt", "result"]
 Start the service:
 
 ```bash
-pxt serve my-service --config service.toml
+pxt serve my-service
 ```
+
+<Note>
+You can also use a standalone TOML file (`pxt serve my-service --config service.toml`) with the same route syntax but `[[service]]` and `[[service.routes]]` as top-level keys. The `pyproject.toml` format is preferred for new projects.
+</Note>
 
 The service is now running at `http://localhost:8000` with auto-generated
 [OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs) at `/docs`.
@@ -601,102 +607,12 @@ curl http://localhost:8000/jobs/abc123
 
 ## CLI Reference
 
-The `pxt` command-line entry point is installed alongside the `pixeltable`
-package. All serving subcommands live under `pxt serve`.
+For the full `pxt` command-line reference (all subcommands, flags, and usage patterns), see the dedicated [CLI Reference](/platform/cli) page.
+
+Quick examples:
 
 ```bash
-pxt --version   # print the installed version
-pxt --help      # list available commands
+pxt serve my-service --config service.toml          # named service
+pxt serve insert --table my_dir.my_table --path /gen --inputs prompt  # single endpoint
+pxt serve my-service --config service.toml --dry-run # validate without starting
 ```
-
-All `pxt serve` subcommands accept two additional flags:
-
-| Flag | Description |
-|---|---|
-| `--dry-run` | Print the fully-resolved config (after all CLI overrides) and exit without starting the server |
-| `--json` | Emit machine-readable JSON: a startup record on stdout, or an error record on stderr |
-
-When `--json` is set, a successful start emits:
-```json
-{"status": "starting", "host": "0.0.0.0", "port": 8000, "url": "http://localhost:8000", "docs_url": "http://localhost:8000/docs", "routes": 2}
-```
-
-Errors (including port conflicts) emit to stderr:
-```json
-{"status": "error", "code": "EADDRINUSE", "port": 8000, "message": "port 8000 is already in use"}
-```
-
-### `pxt serve <service-name>`
-
-Load a TOML service file and start the server.
-
-| Flag | Type | Description |
-|---|---|---|
-| `--host` | string | Bind address (overrides `[[service]].host`) |
-| `--port` | integer | Bind port (overrides `[[service]].port`) |
-| `--prefix` | string | URL prefix (overrides `[[service]].prefix`; must be empty or start with `/`) |
-| `--config` | string | Path to an additional TOML config file (will be merged into existing config) |
-
-### `pxt serve insert`
-
-Start a service exposing exactly one insert route.
-
-| Flag | Type | Required | Description |
-|---|---|---|---|
-| `--table` | string | yes | Pixeltable table path |
-| `--path` | string | yes | URL path |
-| `--inputs` | strings | no | Columns accepted from the request body (space-separated) |
-| `--uploadfile-inputs` | strings | no | Columns accepted as multipart file uploads |
-| `--outputs` | strings | no | Columns returned in the response |
-| `--return-fileresponse` | flag | no | Return the single media output as a raw file |
-| `--background` | flag | no | Run the insert in a background thread |
-
-Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
-
-### `pxt serve update`
-
-Start a service exposing exactly one update route.
-
-| Flag | Type | Required | Description |
-|---|---|---|---|
-| `--table` | string | yes | Pixeltable table path (must have a primary key) |
-| `--path` | string | yes | URL path |
-| `--inputs` | strings | no | Non-PK columns accepted from the request body (PK columns are always accepted) |
-| `--outputs` | strings | no | Columns returned in the response |
-| `--return-fileresponse` | flag | no | Return the single media output as a raw file |
-| `--background` | flag | no | Run the update in a background thread |
-
-Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
-
-### `pxt serve delete`
-
-Start a service exposing exactly one delete route.
-
-| Flag | Type | Required | Description |
-|---|---|---|---|
-| `--table` | string | yes | Pixeltable table path |
-| `--path` | string | yes | URL path |
-| `--match-columns` | strings | no | Columns to match on (defaults to primary key) |
-| `--background` | flag | no | Run the delete in a background thread |
-
-Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
-
-### `pxt serve query`
-
-Start a service exposing exactly one query route.
-
-| Flag | Type | Required | Description |
-|---|---|---|---|
-| `--query` | string | yes | Dotted Python path to a `@pxt.query` or `retrieval_udf` |
-| `--path` | string | yes | URL path |
-| `--inputs` | strings | no | Parameters accepted from the request |
-| `--uploadfile-inputs` | strings | no | Parameters accepted as multipart file uploads |
-| `--one-row` | flag | no | Expect exactly one result row |
-| `--return-fileresponse` | flag | no | Return the single media result as a raw file |
-| `--background` | flag | no | Run the query in a background thread |
-| `--method` | `get` / `post` | no | HTTP method (default `post`) |
-
-Plus the shared `--host`, `--port`, `--title`, `--prefix`, `--dry-run`, and `--json` flags.
-
-The dotted path is resolved at startup; the module portion is imported
-automatically, so no separate `--module` flag is needed.

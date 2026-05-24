@@ -160,8 +160,7 @@ class TestConfig:
             'service': [
                 {
                     'name': 'query-service',
-                    'modules': ['_test_query_mod'],
-                    'routes': [{'type': 'query', 'path': '/search', 'query': '_test_query_mod.search'}],
+                    'routes': [{'type': 'query', 'path': '/search', 'query': '_test_query_mod:search'}],
                 }
             ]
         }
@@ -253,6 +252,7 @@ class TestConfig:
         cases.append(
             ({'service': [{'name': 'test-service'}, {'name': 'test-service'}]}, 'Duplicate `ServiceConfig` name')
         )
+        cases.append(({'service': [{'name': '123bad'}]}, 'not a valid Pixeltable identifier'))
 
         for config_dict, expected_substring in cases:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False, encoding='utf-8') as f:
@@ -281,21 +281,12 @@ class TestConfig:
 
         # query module not importable
         with pytest.raises(pxt.Error, match='could not import module'):
-            create_service_from_config(_query_app('definitely_not_a_real_module_xyz.search'))
+            create_service_from_config(_query_app('definitely_not_a_real_module_xyz:search'))
 
         # query module exists but attribute is missing
         with pytest.raises(pxt.Error, match='has no attribute'):
-            create_service_from_config(_query_app('os.this_attr_does_not_exist'))
+            create_service_from_config(_query_app('os:this_attr_does_not_exist'))
 
         # query resolves to something that isn't a @pxt.query
         with pytest.raises(pxt.Error, match=r'expected a @pxt\.query'):
-            create_service_from_config(_query_app('os.getcwd'))
-
-        # `modules` entry that fails to import
-        bad_modules_app = config.ServiceConfig(
-            name='test',
-            modules=['definitely_not_a_real_module_xyz'],
-            routes=[config.QueryRouteConfig(type='query', path='/x', query='os.getcwd')],
-        )
-        with pytest.raises(pxt.Error, match='listed in `modules`'):
-            create_service_from_config(bad_modules_app)
+            create_service_from_config(_query_app('os:getcwd'))

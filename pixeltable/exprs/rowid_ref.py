@@ -102,6 +102,11 @@ class RowidRef(Expr):
             return catalog.globals._POS_COLUMN_NAME
         return ''
 
+    def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
+        # base impl checks ColumnRef subexprs and trivially returns True for RowidRef (which has none);
+        # match against our tbl_id instead so rowid refs aren't pulled into unrelated table scans in joins
+        return any(self.tbl_id == tv.id for tbl in tbls for tv in tbl.get_tbl_versions())
+
     def set_tbl(self, tbl: catalog.TableVersionPath) -> None:
         """Change the table that is being referenced.
         This can be necessary during query planning, because at that stage we try to minimize the total number of

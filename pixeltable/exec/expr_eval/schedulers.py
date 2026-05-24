@@ -11,6 +11,8 @@ from typing import Collection
 
 from pixeltable import env, exceptions as excs, func
 from pixeltable.config import Config
+from pixeltable.utils import fault_injection
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
 from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
@@ -127,7 +129,9 @@ class RateLimitsScheduler(Scheduler):
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
         estimator = request.fn_call.fn._resource_estimator
-        param_names = [p.name for p in inspect.signature(estimator).parameters.values() if p.name != '_param_types']
+        param_names = [
+            p.name for p in inspect.signature(estimator, eval_str=True).parameters.values() if p.name != '_param_types'
+        ]
         if len(param_names) == 0:
             result = estimator()
         else:
@@ -143,7 +147,7 @@ class RateLimitsScheduler(Scheduler):
             # If the estimator declares '_param_types', inject a dict mapping param names to Pixeltable
             # ColumnTypes for the resolved overload. This lets a shared estimator on a polymorphic function
             # distinguish overloads that share the same Python types (e.g., str for Document vs Video).
-            has_param_types = '_param_types' in inspect.signature(estimator).parameters
+            has_param_types = '_param_types' in inspect.signature(estimator, eval_str=True).parameters
             if not request.is_batched:
                 if has_param_types:
                     param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
@@ -206,6 +210,7 @@ class RateLimitsScheduler(Scheduler):
                 request_kwargs = request.kwargs
                 if '_runtime_ctx' in pxt_fn.signature.system_parameters:
                     request_kwargs = {**request_kwargs, '_runtime_ctx': env.RuntimeCtx(is_retry=num_retries > 0)}
+                fault_injection.process_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC)
                 result = await pxt_fn.aexec(*request.args, **request_kwargs)
                 request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)

@@ -101,7 +101,7 @@ class AggregateFunction(Function):
 
         # our signature is the signature of 'update', but without self,
         # plus the parameters of 'init' as keyword-only parameters
-        py_update_params = list(inspect.signature(cls.update).parameters.values())[1:]  # leave out self
+        py_update_params = list(inspect.signature(cls.update, eval_str=True).parameters.values())[1:]  # leave out self
         assert len(py_update_params) == len(update_types)
         update_params = [
             Parameter(
@@ -113,7 +113,7 @@ class AggregateFunction(Function):
             for i, p in enumerate(py_update_params)
         ]
         # starting at 1: leave out self
-        py_init_params = list(inspect.signature(cls.__init__).parameters.values())[1:]
+        py_init_params = list(inspect.signature(cls.__init__, eval_str=True).parameters.values())[1:]
         assert len(py_init_params) == len(init_types)
         init_params = [
             Parameter(
