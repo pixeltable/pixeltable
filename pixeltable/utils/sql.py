@@ -132,9 +132,9 @@ def _default_pxt_type(sa_type: sql.types.TypeEngine, *, nullable: bool) -> 'ts.C
 
 
 def get_pxt_type(sa_type: sql.types.TypeEngine, *, nullable: bool) -> 'ts.ColumnType | None':
-    """Resolve a SQLAlchemy type to a Pixeltable ColumnType
+    """Resolve a SQLAlchemy type to a Pixeltable `ColumnType`
 
-    TODO: Add support for different engines"""
+    TODO: Add dialect-specific type mappings as needed"""
 
     return _default_pxt_type(sa_type, nullable=nullable)
 
