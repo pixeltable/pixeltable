@@ -147,7 +147,7 @@ def export_iceberg(
         except excs.Error:
             raise
         except Exception as e:
-            raise excs.RequestError(
+            raise excs.Error(
                 excs.ErrorCode.INTERNAL_ERROR,
                 f'export_iceberg(): failed to append to Iceberg table {table_name!r}: {e}',
             ) from e
@@ -173,7 +173,7 @@ def export_iceberg(
     except excs.Error:
         raise
     except Exception as e:
-        raise excs.RequestError(
+        raise excs.Error(
             excs.ErrorCode.INTERNAL_ERROR, f'export_iceberg(): failed to write Iceberg table {table_name!r}: {e}'
         ) from e
     finally:
