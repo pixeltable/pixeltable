@@ -18,6 +18,7 @@ from pixeltable.functions.video import frame_iterator
 
 from .utils import (
     ReloadTester,
+    create_all_datatypes_tbl,
     get_audio_files,
     get_documents,
     get_video_files,
@@ -858,7 +859,7 @@ class TestQuery:
             elt_count += 1
         assert elt_count == 1
 
-    def test_pytorch_dataset_caching(self, all_datatypes_tbl: pxt.Table) -> None:
+    def test_pytorch_dataset_caching(self) -> None:
         """Tests that dataset caching works
         1. using the same dataset twice in a row uses the cache
         2. adding a row to the table invalidates the cached version
@@ -867,7 +868,8 @@ class TestQuery:
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
-        t = all_datatypes_tbl
+        # to_pytorch_dataset goes through arrow codepath via export_parquet
+        t = create_all_datatypes_tbl(arrow_compatible_json=True)
 
         t.drop_column('c_video')  # null value video column triggers internal assertions in DataRow
         # see https://github.com/pixeltable/pixeltable/issues/38
