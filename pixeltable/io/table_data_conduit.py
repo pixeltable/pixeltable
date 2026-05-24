@@ -629,18 +629,14 @@ class HFTableDataConduit(TableDataConduit):
         return results
 
     def _convert_array_feature(self, column: 'pa.ChunkedArray', shape: tuple[int, ...]) -> list[np.ndarray]:
-        arr: pa.ExtensionArray
-        # TODO: can we get multiple chunks here?
-        if column.num_chunks == 1:
-            arr = column.chunks[0]  # type: ignore[assignment]
-        else:
-            arr = column.combine_chunks()  # type: ignore[assignment]
+        arr = column.combine_chunks()
+        assert isinstance(arr, pa.ExtensionArray)
 
         # an Array<N>D feature is stored in Arrow as a list<list<...<dtype>>>; we want to peel off the outer lists
         # to get to contiguous storage and then reshape that
-        storage = arr.storage
-        vals = storage.values
+        vals = arr.storage.values
         while hasattr(vals, 'values'):
+            assert vals.offset == 0
             vals = vals.values
         flat_arr = vals.to_numpy()
         chunk_shape = (len(column), *shape)

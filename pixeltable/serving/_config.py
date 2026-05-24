@@ -19,16 +19,17 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-def _resolve_dotted_path(dotted: str) -> Any:
+def _resolve_module_attr(dotted: str) -> Any:
     """Import a module and resolve an attribute by dotted path.
 
     For example, 'myapp.queries.search_docs' imports myapp.queries and returns its search_docs attribute.
     """
-    module_path, _, attr_name = dotted.rpartition('.')
-    if not module_path:
+    split_path = dotted.split(':', 1)
+    if len(split_path) != 2:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, f'invalid query reference {dotted!r}: expected module.attribute'
+            excs.ErrorCode.INVALID_ARGUMENT, f'invalid query reference {dotted!r}: expected module:attribute'
         )
+    module_path, attr_name = split_path
     try:
         module = importlib.import_module(module_path)
     except Exception as e:
@@ -68,9 +69,9 @@ def lookup_service_config(name: str) -> config.ServiceConfig:
     return _lookup_config('service', name, config.ServiceConfig, excs.ErrorCode.SERVICE_NOT_FOUND)
 
 
-def lookup_environment_config(name: str) -> config.EnvironmentConfig:
-    """Lookup an EnvironmentConfig by name from the Pixeltable configuration."""
-    return _lookup_config('environment', name, config.EnvironmentConfig, excs.ErrorCode.ENVIRONMENT_NOT_FOUND)
+def lookup_deployment_config(name: str) -> config.DeploymentConfig:
+    """Lookup a DeploymentConfig by name from the Pixeltable configuration."""
+    return _lookup_config('deployment', name, config.DeploymentConfig, excs.ErrorCode.DEPLOYMENT_NOT_FOUND)
 
 
 def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
@@ -79,16 +80,6 @@ def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
     import fastapi
 
     from pixeltable.serving import FastAPIRouter
-
-    # import user modules so @pxt.query / retrieval_udf definitions are registered
-    for mod_path in cfg.modules:
-        _logger.info(f'importing module: {mod_path}')
-        try:
-            importlib.import_module(mod_path)
-        except Exception as e:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION, f'could not import module {mod_path!r} listed in `modules`: {e}'
-            ) from e
 
     app = fastapi.FastAPI(title=cfg.name)
     router = FastAPIRouter()
@@ -121,7 +112,7 @@ def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
             t = pxt.get_table(route.table)
             router.add_delete_route(t, path=route.path, match_columns=route.match_columns, background=route.background)
         elif isinstance(route, config.QueryRouteConfig):
-            query_fn = _resolve_dotted_path(route.query)
+            query_fn = _resolve_module_attr(route.query)
             if not isinstance(query_fn, func.QueryTemplateFunction):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,

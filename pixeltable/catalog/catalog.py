@@ -21,7 +21,9 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
+from pixeltable.utils import fault_injection
 from pixeltable.utils.exception_handler import run_cleanup
+from pixeltable.utils.fault_injection import FaultLocation
 
 from .column import Column
 from .dir import Dir
@@ -391,7 +393,7 @@ class Catalog:
                             )
                             if for_write and lock_mutable_tree:
                                 self._compute_column_dependents(self._x_locked_tbl_ids)
-                            if _logger.isEnabledFor(logging.DEBUG):
+                            if Env.get().logging_is_enabled_for(logging.DEBUG, 'catalog'):
                                 # validate only when we don't see errors
                                 self.validate()
                         except PendingTableOpsError as e:
@@ -576,7 +578,7 @@ class Catalog:
                 msg = ''
             _logger.debug(f'Exception: {e.orig.__class__}: {msg} ({e})')
             # Suppress the underlying SQL exception unless DEBUG is enabled
-            raise_from = e if _logger.isEnabledFor(logging.DEBUG) else None
+            raise_from = e if Env.get().logging_is_enabled_for(logging.DEBUG, 'catalog') else None
             if isinstance(e.orig, psycopg.errors.DuplicateColumn):
                 # TODO: extend message with the name of the schema column (not the store column)
                 raise excs.AlreadyExistsError(excs.ErrorCode.COLUMN_ALREADY_EXISTS, 'Duplicate column') from raise_from
@@ -676,6 +678,10 @@ class Catalog:
         if tbl_md.is_mutable:
             locked.add(row.id)
             conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(where_clause))
+            # Invalidate the cached TableVersion to make sure we are acting on the latest version after locking.
+            cached_tv = self._tbl_versions.get(TableVersionKey(tbl_id, None, None))
+            if cached_tv is not None:
+                cached_tv.is_validated = False
 
         if check_pending_ops:
             # check for pending ops after getting table lock
@@ -848,6 +854,7 @@ class Catalog:
                         continue
 
                 # this op runs outside of a transaction
+                fault_injection.process_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT)
                 if is_rollback:
                     op.undo(tv)
                 else:
@@ -2580,6 +2587,9 @@ class Catalog:
                         is_fragment=version_record.md['is_fragment'],
                         additional_md=version_record.md['additional_md'],
                     )
+                ), (
+                    'Table version already exists in store. Expected no change outside of is_fragment and'
+                    f' additional_md, but stored version md is {version_record.md} and new one is {version_md}'
                 )
                 result = session.execute(
                     sql.update(schema.TableVersion.__table__)

@@ -211,17 +211,22 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
     **Expose tables and queries as HTTP endpoints**
 
     ```toml
-    # service.toml
-    [[service.routes]]
+    # pyproject.toml
+    [[tool.pixeltable.service]]
+    name = "my-service"
+    prefix = "/api"
+    modules = ["schema"]
+
+    [[tool.pixeltable.service.routes]]
     type = "insert"
-    table = "myapp/docs"
+    table = "myapp.docs"
     path = "/ingest"
     inputs = ["document"]
     outputs = ["document", "summary"]
     ```
 
     ```bash
-    pxt serve my-service --config service.toml
+    pxt serve my-service
     ```
 
     <Card title="HTTP Serving" icon="globe" href="/howto/deployment/serving">

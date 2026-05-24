@@ -69,8 +69,11 @@ class RouteConfigBase(pydantic.BaseModel):
         return v
 
 
+# Right now, 'compute' simply functions as an alias for 'insert' (that is permitted by `pxt deploy`).
+# TODO: Implement a separate 'compute' operation (possibly still reusing `InsertRouteConfig`) once
+#     `Table.compute()` has been implemented.
 class InsertRouteConfig(RouteConfigBase):
-    type: Literal['insert']
+    type: Literal['compute', 'insert']
     table: str
     inputs: list[str] | None = None
     uploadfile_inputs: list[str] | None = None
@@ -96,7 +99,7 @@ class DeleteRouteConfig(RouteConfigBase):
 
 class QueryRouteConfig(RouteConfigBase):
     type: Literal['query']
-    query: str  # dotted Python path to a @pxt.query or retrieval_udf
+    query: str  # module:attr path to a @pxt.query or retrieval_udf
     inputs: list[str] | None = None
     uploadfile_inputs: list[str] | None = None
     one_row: bool = False
@@ -117,7 +120,15 @@ class ServiceConfig(pydantic.BaseModel):
     host: str = '0.0.0.0'
     port: int = 8000
     routes: list[RouteConfig] = pydantic.Field(default_factory=list)
-    modules: list[str] = pydantic.Field(default_factory=list)  # List of user modules to import
+
+    @pydantic.field_validator('name')
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        from pixeltable.catalog import is_valid_identifier
+
+        if not is_valid_identifier(v, allow_hyphens=True):
+            raise ValueError(f'{v!r} is not a valid Pixeltable identifier')
+        return v
 
     @pydantic.field_validator('prefix')
     @classmethod
@@ -127,15 +138,25 @@ class ServiceConfig(pydantic.BaseModel):
         return v
 
 
-class EnvironmentConfig(pydantic.BaseModel):
+class DeploymentConfig(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid')
 
     name: str
+    service: str
+    env: str
     include: list[str] | None = None
     exclude: list[str] | None = None
     env_dependencies: list[str] = pydantic.Field(default_factory=list)
     python_dependencies: list[str] = pydantic.Field(default_factory=list)
-    services: list[str] = pydantic.Field(default_factory=list)
+
+    @pydantic.field_validator('name')
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        from pixeltable.catalog import is_valid_identifier
+
+        if not is_valid_identifier(v, allow_hyphens=True):
+            raise ValueError(f'{v!r} is not a valid Pixeltable identifier')
+        return v
 
 
 class Config:
@@ -448,7 +469,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'service': ('Service configurations', list[ServiceConfig]),
-        'environment': ('Environment configurations', list[EnvironmentConfig]),
+        'deployment': ('Deployment configurations', list[DeploymentConfig]),
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},

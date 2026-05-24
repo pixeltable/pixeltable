@@ -185,7 +185,7 @@ docs_table.add_computed_column(
     if_exists='ignore'  # No-op if column exists
 )
 ```
-- Version control `setup_pixeltable.py` like database migration scripts.
+- Version control `schema.py` like database migration scripts.
 - Rollback via `table.revert()` (single operation) or Git revert (complex changes).
 
 ### Updating Models
@@ -225,7 +225,7 @@ Because both columns coexist, you can A/B test retrieval quality before cutting 
 
 **Web Applications:**
 - For standard endpoints, use [`pxt serve`](/howto/deployment/serving) with a TOML config or [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
-- Run `python setup_pixeltable.py` once before starting workers to create tables
+- Run `python schema.py` once before starting workers to create tables
 - Each router calls `pxt.get_table()` directly and defines its own `@pxt.query` functions
 - Use sync (`def`) endpoint handlers for concurrent request support
 
@@ -233,11 +233,12 @@ Because both columns coexist, you can A/B test retrieval quality before cutting 
   Clone a production-ready FastAPI + React app with multimodal upload, search, and agent endpoints — plus deployment configs for Docker Compose, Helm, Terraform, and AWS CDK.
 </Card>
 
-**Batch Processing / Orchestration Pipeline:**
-- Schedule via `cron`, Airflow, AWS EventBridge, GCP Cloud Scheduler
+**Batch Processing:**
+- Schedule via `cron`, Airflow, AWS EventBridge, GCP Cloud Scheduler, or webhooks
+- Deploy to Cloud Run Jobs, Lambda, ECS Fargate, Kubernetes Jobs
 - Isolate batch workloads from real-time serving (separate containers/instances)
 - Use Pixeltable's incremental computation to process only new data
-- The starter kit includes an [orchestration pipeline](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/pipeline) example that uses `export_sql` and the `destination` parameter for ephemeral batch processing
+- The starter kit includes a [batch processing pipeline](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/batch) with `export_sql` and the `destination` parameter, plus ready-to-use deploy configs for Lambda, Cloud Run, ECS Fargate, and K8s Jobs
 
 **Containers:**
 - Docker provides reproducible builds across environments
@@ -276,7 +277,7 @@ COPY backend/ ./
 COPY --from=frontend-build /app/backend/static ./static
 ENV PIXELTABLE_HOME=/data/pixeltable
 EXPOSE 8000
-CMD ["sh", "-c", "uv run python setup_pixeltable.py && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4"]
+CMD ["sh", "-c", "uv run python schema.py && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4"]
 ```
 
 ## Environment Management

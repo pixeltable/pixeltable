@@ -7,15 +7,15 @@ description: "Code organization and storage architecture for Pixeltable deployme
 
 Separate schema definition from router logic.
 
-**Schema Definition (`setup_pixeltable.py`):**
+**Schema Definition (`schema.py`):**
 - Tables, views, computed columns, indexes, and agent-internal `@pxt.query` functions
 - Flat module with `if_exists='ignore'` for idempotency (no `setup()` wrapper, no `_initialized` flag)
-- Run once before starting workers: `python setup_pixeltable.py`
+- Run once before starting workers: `python schema.py`
 
 **Router Files (`routers/data.py`, `routers/search.py`, etc.):**
 - Call `pxt.get_table()` directly to get table handles
 - Define router-facing `@pxt.query` functions next to the routes that use them
-- No `import setup_pixeltable` needed; tables already exist from the init step
+- No `import schema` needed; tables already exist from the init step
 
 **Configuration (`config.py`):**
 - Externalizes model IDs, API keys, thresholds, connection strings
@@ -23,7 +23,7 @@ Separate schema definition from router logic.
 - Never hardcodes secrets
 
 ```python
-# setup_pixeltable.py — creates tables (flat, idempotent, no queries for routers)
+# schema.py — creates tables (flat, idempotent, no queries for routers)
 import pixeltable as pxt
 import config
 
@@ -60,13 +60,13 @@ router.add_query_route(path="/documents", query=list_documents, method="get")
 project/
 ├── config.py              # Environment variables, model IDs, API keys
 ├── functions.py           # Custom UDFs (imported as modules)
-├── setup_pixeltable.py     # Schema definition (tables, views, indexes)
+├── schema.py              # Schema definition (tables, views, indexes)
 ├── main.py                # FastAPI app, mounts routers
 ├── routers/
 │   ├── data.py            # CRUD routes + queries for data pipeline
 │   ├── search.py          # Search routes + queries
 │   └── agent.py           # Agent routes (declarative + hand-written)
-├── requirements.txt       # Pinned dependencies
+├── pyproject.toml         # Dependencies and pxt serve config
 └── .env                   # Secrets (gitignored)
 ```
   </Tab>
@@ -108,7 +108,7 @@ async def call_custom_model(prompt: str) -> dict:
 ```
   </Tab>
 
-  <Tab title="setup_pixeltable.py">
+  <Tab title="schema.py">
 ```python
 import pixeltable as pxt
 from pixeltable.functions.huggingface import sentence_transformer
@@ -127,7 +127,7 @@ docs.add_computed_column(
     if_exists='ignore',
 )
 
-docs.add_embedding_index('embedding', metric='cosine', if_not_exists=True)
+docs.add_embedding_index('embedding', idx_name='docs_embed', metric='cosine', if_exists='ignore')
 ```
   </Tab>
 
@@ -163,12 +163,12 @@ app.include_router(search.router)
 
 <Note>
 **Key Principles:**
-- **Schema separate from routers:** `setup_pixeltable.py` defines tables/views/indexes. Router files define `@pxt.query` functions next to the routes that use them. No cross-imports needed.
+- **Schema separate from routers:** `schema.py` defines tables/views/indexes. Router files define `@pxt.query` functions next to the routes that use them. No cross-imports needed.
 - **Module UDFs** (`functions.py`): Update when code changes; improve testability. [Learn more](/platform/udfs-in-pixeltable)
-- **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable.
+- **Idempotency:** Use `if_exists='ignore'` to make `schema.py` safely re-runnable.
 - **Built-in HTTP serving:** For standard endpoints, consider [`pxt serve`](/howto/deployment/serving) with a TOML config.
 - **`return_rows=True`:** Pass to `insert()`/`update()` to get computed column values back without a follow-up query. See [HTTP Serving](/howto/deployment/serving#reading-back-computed-columns-after-insert).
-- **Multi-worker deployments:** With `--workers N`, run `python setup_pixeltable.py` before `uvicorn` so schema creation happens once, not per worker (see [Starter Kit Dockerfile](https://github.com/pixeltable/pixeltable-starter-kit)).
+- **Multi-worker deployments:** With `--workers N`, run `python schema.py` before `uvicorn` so schema creation happens once, not per worker (see [Starter Kit Dockerfile](https://github.com/pixeltable/pixeltable-starter-kit)).
 </Note>
 
 <Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
@@ -233,15 +233,19 @@ This means:
 
 **Deployment-Specific Storage Patterns:**
 
-*Approach 1 (Orchestration Layer):*
+*Batch Processing:*
 - Pixeltable storage can be ephemeral (re-computable).
-- Processing results exported to external RDBMS and blob storage.
+- Processing results exported to external RDBMS via `export_sql` and media to blob storage via `destination`.
 - Reference input media from S3/GCS/Azure URIs.
 
-*Approach 2 (Full Backend):*
+*Full Backend:*
 - Pixeltable IS the RDBMS (embedded PostgreSQL, not replaceable).
 - Requires persistent volume at `~/.pixeltable` (pgdata, media, file_cache).
 - Media Store configurable to S3/GCS/Azure buckets for generated files.
+
+*Declarative Serving (`pxt serve`):*
+- Same persistent storage as Full Backend.
+- API routes declared in `pyproject.toml`, no hand-written endpoint code.
 
 All [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) deployment configs set `PIXELTABLE_HOME=/data/pixeltable` pointing to persistent storage (Docker volumes, K8s PVCs, or EFS). For large media workloads, configure external blob storage:
 
@@ -255,17 +259,19 @@ PIXELTABLE_OUTPUT_MEDIA_DEST=s3://your-bucket/output
 **Virtual Environments:**
 Use `venv`, `conda`, or `uv` to isolate dependencies.
 
-**Requirements:**
-```txt
-# requirements.txt
-pixeltable==0.4.6
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-pydantic==2.9.0
-python-dotenv==1.0.1
-sentence-transformers==3.3.0  # If using embedding indexes
+**Dependencies (`pyproject.toml`):**
+```toml
+[project]
+name = "my-pixeltable-app"
+requires-python = ">=3.10"
+dependencies = [
+    "pixeltable>=0.6.2",
+    "fastapi[standard]>=0.115.0",
+    "python-dotenv>=1.0.1",
+    "sentence-transformers>=3.3.0",  # If using embedding indexes
+]
 ```
-- Pin versions: `package==X.Y.Z`
+- Use `pyproject.toml` with `uv` or `pip` for dependency management
 - Include integration packages (e.g., `openai`, `sentence-transformers`)
 - Test updates in staging before production
 

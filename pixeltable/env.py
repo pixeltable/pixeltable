@@ -317,6 +317,16 @@ class Env:
                     return True
         return record.levelno >= self._default_log_level
 
+    def logging_is_enabled_for(self, level: int, module_name: str | None = None) -> bool:
+        """Use this instead of logger.isEnabledFor(level).
+
+        The pixeltable logger is set to DEBUG so all records reach the filter; this means
+        _logger.isEnabledFor(level) can be True even when 'level' output is suppressed.
+        """
+        if module_name is not None and self._module_log_level.get(module_name, level + 1) <= level:
+            return True
+        return level >= self._default_log_level
+
     @property
     def console_logger(self) -> ConsoleLogger:
         return self._console_logger
