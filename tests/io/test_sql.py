@@ -214,7 +214,7 @@ class TestSql:
             export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
 
 
-_IMPORT_DIALECTS = ['sqlite', 'postgresql']
+_IMPORT_DBMS = ['sqlite', 'postgresql']
 
 
 def _import_engine(dialect: str, tmp_path: pathlib.Path) -> sql.Engine:
@@ -241,7 +241,7 @@ def _seed_source(engine: sql.Engine, table_name: str, columns: list[sql.Column],
 class TestImportSql:
     """import_sql() tests, parametrized across SQLite (file) and the embedded Postgres."""
 
-    @pytest.mark.parametrize('dialect', _IMPORT_DIALECTS)
+    @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
     def test_import_full_table(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
         """End-to-end import of a full SA Table: type inference for all common SA types, nullable vs non-nullable
         propagation, NULL-to-None value roundtrip, exact value preservation, and the single-version-bump claim
@@ -331,7 +331,7 @@ class TestImportSql:
                 assert row['c_json'] == {'i': i, 'tag': f't{i}'}
                 assert row['c_bytes'] == f'b{i}'.encode()
 
-    @pytest.mark.parametrize('dialect', _IMPORT_DIALECTS)
+    @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
     def test_import_select_and_filter(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
         """Import via `sa.select(...)` rather than a bare Table: column projection (subset), row filter via
         `.where(...)`, labeled expressions, accepting an `sa.Connection` (not just an Engine), and the 0-row
@@ -375,7 +375,7 @@ class TestImportSql:
         assert set(empty_cols) == {'c_int', 'c_str'}
         assert empty_tbl.count() == 0
 
-    @pytest.mark.parametrize('dialect', _IMPORT_DIALECTS)
+    @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
     def test_media_via_overrides(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
         """`schema_overrides` promotes plain String path columns into Pixeltable media types (Image, Video,
         Document)"""
