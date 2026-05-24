@@ -91,7 +91,7 @@ class SqlSourceNode(ExecNode):
             for slot_idx in self._unmapped_slot_idxs:
                 output_row[slot_idx] = None
             output_batch.add_row(output_row)
-            if len(output_batch) == self.BATCH_SIZE:
+            if len(output_batch) >= self.BATCH_SIZE:
                 _logger.debug(f'SqlSourceNode: yielding batch of {len(output_batch)} rows')
                 yield output_batch
                 output_batch = DataRowBatch(self.row_builder)
