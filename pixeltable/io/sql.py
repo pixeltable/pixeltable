@@ -126,8 +126,6 @@ def import_sql(
             f"`pxt.drop_table(tbl_name)` first and then call `import_sql(..., if_exists='error')`.",
         )
 
-    engine: sql.Engine = conn.engine if isinstance(conn, sql.Connection) else conn
-
     sa_cols = selectable_columns(selectable)
     source_names: list[str] = []
     seen: set[str] = set()
@@ -152,7 +150,7 @@ def import_sql(
         # SQLAlchemy uses `None` for "unknown" (eg, on labeled expressions); treat that as nullable.
         nullable_attr = getattr(sa_col, 'nullable', True)
         nullable = True if nullable_attr is None else nullable_attr
-        pxt_type = sql_utils.get_pxt_type(sa_col.type, engine, nullable=nullable)
+        pxt_type = sql_utils.get_pxt_type(sa_col.type, nullable=nullable)
         if pxt_type is None and (schema_overrides is None or col_name not in schema_overrides):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_TYPE,
