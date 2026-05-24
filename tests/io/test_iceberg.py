@@ -239,7 +239,7 @@ class TestIceberg:
         # Overwrite + mid-stream failure (after the temp table is created): the existing table
         # must remain intact and no temp table should be left behind in the namespace.
         bad_catalog = _MidStreamFailingCatalog(catalog)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='failed to write'):
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='failed to write'):
             pxt.io.export_iceberg(t, bad_catalog, 'pxt.if_exists', if_exists='overwrite')  # type: ignore[arg-type]
 
         assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 6
