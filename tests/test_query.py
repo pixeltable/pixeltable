@@ -859,7 +859,7 @@ class TestQuery:
             elt_count += 1
         assert elt_count == 1
 
-    def test_pytorch_dataset_caching(self) -> None:
+    def test_pytorch_dataset_caching(self, uses_db: None) -> None:
         """Tests that dataset caching works
         1. using the same dataset twice in a row uses the cache
         2. adding a row to the table invalidates the cached version
