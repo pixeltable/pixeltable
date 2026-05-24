@@ -147,6 +147,9 @@
           <outline text="uda|pixeltable.functions.min" />
           <outline text="uda|pixeltable.functions.sum" />
         </outline>
+        <outline text="module|pixeltable.functions.array">
+          <outline text="udf|pixeltable.functions.array.to_list" />
+        </outline>
         <outline text="module|pixeltable.functions.audio">
           <outline text="iter|pixeltable.functions.audio.audio_splitter" />
           <outline text="udf|pixeltable.functions.audio.encode_audio" />

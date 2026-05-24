@@ -90,19 +90,19 @@ def export_iceberg(
     # Build a deterministic arrow schema up front so we can materialize the Iceberg table even
     # when the query yields no rows, and reject fixed-shape tensor columns before we run the query.
     # Variable-shape arrays are mapped to pa.list_(...) by to_arrow_type and are supported by Iceberg.
-    schema_arrow = to_arrow_schema(query.schema, schema_overrides)
-    fixed_tensor_cols = [f.name for f in schema_arrow if isinstance(f.type, pa.FixedShapeTensorType)]
+    arrow_schema = to_arrow_schema(query.schema, schema_overrides)
+    fixed_tensor_cols = [f.name for f in arrow_schema if isinstance(f.type, pa.FixedShapeTensorType)]
     if len(fixed_tensor_cols) > 0:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'export_iceberg(): cannot export fixed-shape tensor column(s) {fixed_tensor_cols}. '
-            f'Iceberg has no fixed-shape tensor type; project the column to a list before exporting.',
+            f'Iceberg has no fixed-shape tensor type; project the column to a list before exporting '
+            f'(e.g. via `pixeltable.functions.array.to_list` or `t.col.to_list()`).',
         )
 
     batch_iter = to_record_batches(query, batch_size_bytes, schema_overrides)
     first_batch = next(batch_iter, None)
-
-    arrow_schema = first_batch.schema if first_batch is not None else schema_arrow
+    arrow_schema = first_batch.schema if first_batch is not None else arrow_schema
 
     # `pa.infer_type()` produces `pa.null()` for JSON keys whose value is None in every sampled row.
     # Iceberg format-version 2 cannot represent a null-only column, so reject it up front rather
@@ -162,15 +162,19 @@ def export_iceberg(
         with temp_tbl.transaction() as tx:
             for batch in batches:
                 tx.append(pa.Table.from_batches([batch]))
+        if existing_tbl is not None:
+            catalog.drop_table(table_name)
+        catalog.rename_table(temp_name, table_name)
     except excs.Error:
-        catalog.drop_table(temp_name)
         raise
     except Exception as e:
-        catalog.drop_table(temp_name)
         raise excs.RequestError(
             excs.ErrorCode.INTERNAL_ERROR, f'export_iceberg(): failed to write Iceberg table {table_name!r}: {e}'
         ) from e
-
-    if existing_tbl is not None:
-        catalog.drop_table(table_name)
-    catalog.rename_table(temp_name, table_name)
+    finally:
+        # Drop temp if it still exists; covers mid-stream errors and BaseException paths
+        # like KeyboardInterrupt. On success, rename consumed temp_name, so swallow NoSuchTableError.
+        try:
+            catalog.drop_table(temp_name)
+        except NoSuchTableError:
+            pass
