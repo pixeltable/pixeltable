@@ -565,7 +565,6 @@ class TestImportSql:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='computed column'):
             import_sql(comp_src, engine, 'comp_dest', if_exists='append')
 
-        # --- 5. SqlSourceNode leaf: required destination column missing from source -> MISSING_REQUIRED.
         # Pre-create a destination where c_required is non-nullable; append a source that doesn't supply it.
         pxt.create_table('req_dest', {'c_int': pxt.Int, 'c_required': pxt.Required[pxt.String]})
         partial_src = _seed_source(
