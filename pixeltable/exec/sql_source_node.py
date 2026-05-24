@@ -86,7 +86,7 @@ class SqlSourceNode(ExecNode):
         output_batch = DataRowBatch(self.row_builder)
         for sa_row in self._result:
             output_row = self.row_builder.make_row()
-            for slot_idx, val in zip(self._mapped_slot_idxs, sa_row):
+            for slot_idx, val in zip(self._mapped_slot_idxs, sa_row, strict=True):
                 output_row[slot_idx] = val
             for slot_idx in self._unmapped_slot_idxs:
                 output_row[slot_idx] = None
