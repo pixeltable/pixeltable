@@ -252,7 +252,7 @@ class SqlNode(ExecNode):
         return stmt
 
     def _ordering_tbl_ids(self) -> set[UUID]:
-        return exprs.Expr.all_tbl_ids(e for e, _ in self.order_by_clause)
+        return exprs.Expr.list_tbl_ids(e for e, _ in self.order_by_clause)
 
     def init_bindings(self) -> None:
         self.bind_sources.extend(list(self.select_list))
@@ -550,7 +550,7 @@ class SqlScanNode(SqlNode):
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
         where_clause_tbl_ids = self.where_clause.tbl_ids() if self.where_clause is not None else set()
-        refd_tbl_ids = exprs.Expr.all_tbl_ids(self.select_list) | where_clause_tbl_ids | self._ordering_tbl_ids()
+        refd_tbl_ids = exprs.Expr.list_tbl_ids(self.select_list) | where_clause_tbl_ids | self._ordering_tbl_ids()
         stmt = self.create_from_clause(
             self.tbl,
             stmt,
@@ -603,7 +603,7 @@ class SqlLookupNode(SqlNode):
 
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
-        refd_tbl_ids = exprs.Expr.all_tbl_ids(self.select_list) | self._ordering_tbl_ids()
+        refd_tbl_ids = exprs.Expr.list_tbl_ids(self.select_list) | self._ordering_tbl_ids()
         stmt = self.create_from_clause(
             self.tbl, stmt, refd_tbl_ids, deleted_at_current_version={t.id for t in self.deleted_at_current_version}
         )

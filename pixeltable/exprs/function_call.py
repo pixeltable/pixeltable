@@ -5,6 +5,7 @@ import logging
 import sys
 from textwrap import dedent
 from typing import Any, Sequence
+from uuid import UUID
 
 import sqlalchemy as sql
 
@@ -149,6 +150,13 @@ class FunctionCall(Expr):
     def _create_rowid_refs(self, tbl: catalog.Table) -> list[Expr]:
         target = tbl._tbl_version_path.tbl_version
         return [RowidRef(target, i) for i in range(target.get().num_rowid_columns())]
+
+    def tbl_ids(self) -> set[UUID]:
+        ids = super().tbl_ids()
+        if isinstance(self.fn, func.QueryTemplateFunction):
+            assert self.fn.template_query is not None
+            ids |= self.fn.template_query.referenced_tbl_ids()
+        return ids
 
     def default_column_name(self) -> str | None:
         return self.fn.name

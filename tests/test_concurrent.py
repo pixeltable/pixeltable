@@ -213,17 +213,7 @@ class TestConcurrentOps:
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
         assert errors == [], f'errors: {errors[:3]}'
 
-    @pytest.mark.skip(
-        reason='Known issue: an outer query that calls a @pxt.query template referencing a different '
-        'table fails on a fresh thread because the inner template_query plan compilation tries to '
-        'load the inner table mid-xact. Workaround: pre-resolve the inner table via pxt.get_table() '
-        'in the worker (see test_shared_query_udf). Fix should auto-declare per-row inner-template '
-        'tables in the outer xact.'
-    )
     def test_shared_query_udf_cross_table(self, uses_db: None) -> None:
-        # Same shape as test_shared_query_udf but the worker does not pre-resolve the inner table.
-        # The inner find_range invocation tries to load t mid-xact and fails the catalog guard.
-        # Re-enable when cross-table inner queries auto-declare their tables in the surrounding xact.
         t = pxt.create_table('t15x', {'a': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
 
