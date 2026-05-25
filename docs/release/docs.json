@@ -169,7 +169,8 @@
                       "howto/cookbooks/video/video-generate-thumbnails",
                       "howto/cookbooks/video/video-add-text-overlay",
                       "howto/cookbooks/video/video-generate-ai",
-                      "howto/cookbooks/video/video-image-slideshow"
+                      "howto/cookbooks/video/video-image-slideshow",
+                      "howto/cookbooks/video/video-rag-multimodal"
                     ]
                   },
                   {
