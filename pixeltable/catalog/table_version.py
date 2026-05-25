@@ -1138,7 +1138,7 @@ class TableVersion:
                         # if fail_on_exc == True, we need to check for media validation exceptions
                         if row.has_exc():
                             raise row.get_first_exc()
-                output_rows.extend(row_builder.create_output_rows(data_rows=list(row_batch), has_pk=False))
+                output_rows.extend(row_builder.create_output_rows(data_rows=row_batch.rows, has_pk=False))
 
         return output_rows
 
