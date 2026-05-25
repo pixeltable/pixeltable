@@ -176,7 +176,7 @@ class TestHfDatasets:
             acc_dataset.add(DatasetTuple(**immutable_tup))
 
         for tup in query.collect():
-            assert tup[split_column_name] in hf_dataset.split._name()
+            assert tup[split_column_name] in hf_dataset.split._name
 
             encoded_tup = {}
             for column_name, value in tup.items():
