@@ -1,0 +1,312 @@
+---
+title: CLI Reference
+sidebarTitle: CLI (pxt)
+description: Serve tables and queries as HTTP endpoints directly from the terminal with the pxt command.
+---
+
+The `pxt` CLI ships with the `pixeltable` package. It turns tables, computed columns, and `@pxt.query` functions into HTTP endpoints, no Python application code required.
+
+```bash
+pip install pixeltable 'fastapi[standard]'
+```
+
+Verify the installation:
+
+```bash
+pxt --version
+```
+
+<Info>
+`pxt serve` generates a full FastAPI application with auto-generated [OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs) at `/docs`. For programmatic control over the same endpoints, see the [Python serving API](/howto/deployment/serving#quickstart-python) using `FastAPIRouter`.
+</Info>
+
+## Command structure
+
+```text
+pxt <command> [subcommand] [flags]
+```
+
+| Command | Description |
+|---|---|
+| `pxt --version` | Print the installed Pixeltable version |
+| `pxt --help` | List available commands |
+| `pxt serve <service-name>` | Start a named service defined in a [TOML config](/howto/deployment/serving#toml-service-file-reference) |
+| `pxt serve insert` | Start a single insert endpoint |
+| `pxt serve update` | Start a single update endpoint |
+| `pxt serve delete` | Start a single delete endpoint |
+| `pxt serve query` | Start a single query endpoint |
+| `pxt deploy <env>` | Build a deploy bundle for the named environment |
+
+## Quick start
+
+### Named service (TOML config)
+
+Define your routes in a TOML file and start everything with one command:
+
+```toml
+# service.toml
+[[service]]
+name = "my-service"
+port = 8000
+
+[[service.routes]]
+type = "insert"
+table = "my_dir/my_table"
+path = "/generate"
+inputs = ["prompt"]
+outputs = ["prompt", "result"]
+
+[[service.routes]]
+type = "query"
+path = "/search"
+query = "myapp.queries.search_docs"
+```
+
+```bash
+pxt serve my-service --config service.toml
+```
+
+```text Output
+Starting Pixeltable service: my-service
+  Bound to 0.0.0.0:8000
+  Listening on http://localhost:8000
+  API docs at http://localhost:8000/docs
+  Routes: 2
+```
+
+### Single-endpoint mode
+
+For quick experiments, skip the TOML file and configure one route directly:
+
+```bash
+pxt serve insert --table my_dir.my_table --path /generate \
+  --inputs prompt --outputs prompt result --port 8000
+```
+
+```bash
+pxt serve query --query myapp.queries.search_docs --path /search
+```
+
+Single-endpoint mode is meant for development; for production or multi-route services, use the TOML config.
+
+## Global flags
+
+Every `pxt serve` subcommand accepts these flags:
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--host` | string | `0.0.0.0` | Bind address (overrides TOML `host`) |
+| `--port` | integer | `8000` | Bind port (overrides TOML `port`) |
+| `--prefix` | string | `""` | URL prefix prepended to all routes (must start with `/` or be empty) |
+| `--config` | string | | Path to an additional TOML config file to merge |
+| `--dry-run` | flag | | Print the resolved config and exit without starting the server |
+| `--json` | flag | | Emit machine-readable JSON on stdout (startup) or stderr (errors) |
+
+### Machine-readable output
+
+When `--json` is set, a successful start emits:
+
+```json
+{"status": "starting", "host": "0.0.0.0", "port": 8000, "url": "http://localhost:8000", "docs_url": "http://localhost:8000/docs", "routes": 2}
+```
+
+Errors (including port conflicts) emit to stderr:
+
+```json
+{"status": "error", "code": "EADDRINUSE", "port": 8000, "message": "port 8000 is already in use"}
+```
+
+Combine `--dry-run` and `--json` to validate a config in CI without starting a server:
+
+```bash
+pxt serve my-service --config service.toml --dry-run --json
+```
+
+## Serve subcommands
+
+### `pxt serve <service-name>`
+
+Load a named service from the [TOML config](/howto/deployment/serving#toml-service-file-reference) and start the server. This is the primary way to run multi-route services in production.
+
+```bash
+pxt serve my-service --config service.toml
+pxt serve my-service --config service.toml --port 9000
+```
+
+### `pxt serve insert`
+
+Start a service with a single insert endpoint.
+
+| Flag | Type | Required | Description |
+|---|---|---|---|
+| `--table` | string | yes | Pixeltable table path (e.g. `my_dir.my_table`) |
+| `--path` | string | yes | URL path (e.g. `/generate`) |
+| `--inputs` | strings | no | Columns accepted from the request body |
+| `--uploadfile-inputs` | strings | no | Columns accepted as multipart file uploads |
+| `--outputs` | strings | no | Columns returned in the response |
+| `--return-fileresponse` | flag | no | Return the single media output as a raw file download |
+| `--background` | flag | no | Run the insert in a background thread |
+
+SQL export flags are also available on insert and update routes. See [SQL export flags](#sql-export-flags).
+
+<Warning>
+`--background` and `--return-fileresponse` are mutually exclusive. Similarly, `--export-sql-*` flags cannot be combined with `--return-fileresponse`. These constraints apply to all serve subcommands that support these flags.
+</Warning>
+
+```bash
+pxt serve insert --table my_dir.my_table --path /generate \
+  --inputs prompt --outputs prompt result --port 8000
+```
+
+```bash
+curl -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "a sunset over the ocean"}'
+```
+
+### `pxt serve update`
+
+Start a service with a single update endpoint. The table must have a primary key.
+
+| Flag | Type | Required | Description |
+|---|---|---|---|
+| `--table` | string | yes | Pixeltable table path |
+| `--path` | string | yes | URL path |
+| `--inputs` | strings | no | Non-PK columns to update (PK columns are always accepted) |
+| `--outputs` | strings | no | Columns returned in the response |
+| `--return-fileresponse` | flag | no | Return the single media output as a raw file download |
+| `--background` | flag | no | Run the update in a background thread |
+
+```bash
+pxt serve update --table my_dir.my_table --path /update \
+  --inputs prompt --outputs id prompt result
+```
+
+### `pxt serve delete`
+
+Start a service with a single delete endpoint.
+
+| Flag | Type | Required | Description |
+|---|---|---|---|
+| `--table` | string | yes | Pixeltable table path |
+| `--path` | string | yes | URL path |
+| `--match-columns` | strings | no | Columns to match on (defaults to primary key) |
+| `--background` | flag | no | Run the delete in a background thread |
+
+```bash
+pxt serve delete --table my_dir.my_table --path /delete
+```
+
+### `pxt serve query`
+
+Start a service with a single query endpoint.
+
+| Flag | Type | Required | Description |
+|---|---|---|---|
+| `--query` | string | yes | Dotted Python path to a `@pxt.query` or `retrieval_udf` |
+| `--path` | string | yes | URL path |
+| `--inputs` | strings | no | Parameters accepted from the request |
+| `--uploadfile-inputs` | strings | no | Parameters accepted as multipart file uploads |
+| `--one-row` | flag | no | Expect exactly one result row (404 on 0, 409 on >1) |
+| `--return-fileresponse` | flag | no | Return the single media result as a raw file |
+| `--background` | flag | no | Run the query in a background thread |
+| `--method` | `get` / `post` | no | HTTP method (default: `post`) |
+
+The dotted path is resolved at startup; the module is imported automatically.
+
+```bash
+pxt serve query --query myapp.queries.search_docs --path /search
+```
+
+```bash
+pxt serve query --query myapp.queries.lookup_by_id --path /lookup \
+  --one-row --method get
+```
+
+## SQL export flags
+
+Insert and update routes can export each successful request as a row in an external SQL database. These flags mirror the [`export_sql` TOML config](/howto/deployment/serving#exporting-rows-to-an-external-database):
+
+| Flag | Type | Description |
+|---|---|---|
+| `--export-sql-db-connect` | string | SQLAlchemy connection string for the external database |
+| `--export-sql-table` | string | Target table name (required when `--export-sql-db-connect` is set) |
+| `--export-sql-db-schema` | string | Optional database schema qualifier |
+| `--export-sql-method` | `insert` / `update` / `merge` | How to write each row (default: `insert`) |
+
+```bash
+pxt serve insert --table my_dir.my_table --path /generate \
+  --inputs prompt --outputs prompt result \
+  --export-sql-db-connect 'postgresql+psycopg://user:pw@host/analytics' \
+  --export-sql-table generations
+```
+
+## Deploy
+
+```bash
+pxt deploy <env>
+```
+
+| Argument / flag | Description |
+|---|---|
+| `<env>` | Target environment name (from your Pixeltable config) |
+| `--json` | Emit machine-readable JSON on errors |
+
+Builds a deploy bundle for the specified environment. See [Deployment Overview](/howto/deployment/overview) for how environments are configured.
+
+## Patterns
+
+### Validate a config without starting a server
+
+```bash
+pxt serve my-service --config service.toml --dry-run
+```
+
+```text Output
+Service:  my-service
+  Host:   0.0.0.0
+  Port:   8000
+Routes (2):
+  [insert] /generate
+  [query] /search
+```
+
+### Override port for local development
+
+```bash
+pxt serve my-service --config service.toml --port 9000
+```
+
+### File upload endpoint
+
+```bash
+pxt serve insert --table my_dir.images --path /resize \
+  --inputs width height --uploadfile-inputs image \
+  --outputs resized --return-fileresponse
+```
+
+```bash
+curl -X POST http://localhost:8000/resize \
+  -F image=@photo.jpg -F width=640 -F height=480 \
+  --output resized.jpg
+```
+
+### Background processing for slow pipelines
+
+```bash
+pxt serve insert --table my_dir.videos --path /ingest --background
+```
+
+The endpoint returns immediately with a job handle:
+
+```json
+{"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
+```
+
+Poll `job_url` until `status` is `"done"` or `"error"`.
+
+## What's next
+
+- [HTTP Serving Guide](/howto/deployment/serving): TOML config reference, Python `FastAPIRouter` API, decorator routes
+- [Deployment Overview](/howto/deployment/overview): production architecture and deployment strategies
+- [Configuration](/platform/configuration): API keys, storage paths, and environment settings

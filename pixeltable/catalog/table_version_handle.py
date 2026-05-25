@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -11,7 +12,7 @@ from pixeltable.runtime import get_runtime
 from .table_version import TableVersion, TableVersionKey
 
 if TYPE_CHECKING:
-    from pixeltable.catalog import Column
+    from pixeltable.catalog import Catalog, Column
 
 _logger = logging.getLogger('pixeltable')
 
@@ -20,15 +21,24 @@ class TableVersionHandle:
     """
     Indirection mechanism for TableVersion instances, which get resolved against the catalog at runtime.
 
-    See the TableVersion docstring for details on the semantics of `effective_version` and `anchor_tbl_id`.
+    Thread-safe: all mutable state is stored behind _local
     """
 
     key: TableVersionKey
-    _tbl_version: TableVersion | None
+
+    # Per-thread cache of the resolved TableVersion plus the Catalog instance it came from.
+    # threading.local gives each thread its own attribute namespace; reads on the hot path are
+    # plain attribute lookups.
+    _local: threading.local
 
     def __init__(self, key: TableVersionKey, *, tbl_version: TableVersion | None = None):
         self.key = key
-        self._tbl_version = tbl_version
+        self._local = threading.local()
+        self._local.tbl_version = tbl_version
+        self._local.origin_catalog = get_runtime().catalog
+
+    def __deepcopy__(self, memo: dict[int, object] | None = None) -> TableVersionHandle:
+        return self
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, TableVersionHandle):
@@ -61,19 +71,26 @@ class TableVersionHandle:
         return self.effective_version is not None
 
     def get(self) -> TableVersion:
-        if self._tbl_version is None or not self._tbl_version.is_validated:
-            cat = get_runtime().catalog
-            if self.effective_version is not None and self._tbl_version is not None:
-                # this is a snapshot version; we need to make sure we refer to the instance cached
-                # in Catalog, in order to avoid mixing sa_tbl instances in the same transaction
-                # (which will lead to duplicates in the From clause generated in SqlNode.create_from_clause())
-                assert self.key in cat._tbl_versions
-                self._tbl_version = cat._tbl_versions[self.key]
-                self._tbl_version.is_validated = True
-            else:
-                self._tbl_version = cat.get_tbl_version(self.key)
-                assert self._tbl_version.key == self.key
-        return self._tbl_version
+        cat = get_runtime().catalog
+        # getattr(), not attribute access: threads other than the originating one will have an empty _local
+        cached: TableVersion | None = getattr(self._local, 'tbl_version', None)
+        origin_catalog: Catalog | None = getattr(self._local, 'origin_catalog', None)
+        if origin_catalog is cat and cached is not None and cached.is_validated:
+            return cached
+
+        if self.effective_version is not None and cached is not None and origin_catalog is cat:
+            # Snapshot version, same catalog as before: reuse the instance cached in Catalog to avoid mixing sa_tbl
+            # instances in the same transaction (which would produce duplicates in the From clause).
+            assert self.key in cat._tbl_versions
+            new_tv = cat._tbl_versions[self.key]
+            new_tv.is_validated = True
+        else:
+            # either no cached instance on this thread, or the catalog changed
+            new_tv = cat.get_tbl_version(self.key)
+            assert new_tv.key == self.key
+        self._local.tbl_version = new_tv
+        self._local.origin_catalog = cat
+        return new_tv
 
     def as_dict(self) -> dict:
         return self.key.as_dict()
@@ -85,18 +102,25 @@ class TableVersionHandle:
 
 @dataclass(frozen=True)
 class ColumnHandle:
+    """
+    Indirection mechanism for Column instances, which get resolved against the catalog at runtime.
+
+    Thread-safe: stateless beyond the underlying TableVersionHandle.
+    """
+
     tbl_version: TableVersionHandle
     col_id: int
 
     def get(self) -> 'Column':
-        if self.col_id not in self.tbl_version.get().cols_by_id:
-            schema_version_drop = self.tbl_version.get()._tbl_md.column_md[self.col_id].schema_version_drop
+        tv = self.tbl_version.get()
+        if self.col_id not in tv.cols_by_id:
+            schema_version_drop = tv._tbl_md.column_md[self.col_id].schema_version_drop
             raise excs.NotFoundError(
                 excs.ErrorCode.COLUMN_NOT_FOUND,
                 f'Column was dropped (no record for column ID {self.col_id} in table '
-                f'{self.tbl_version.get().versioned_name!r}; it was dropped in table version {schema_version_drop})',
+                f'{tv.versioned_name!r}; it was dropped in table version {schema_version_drop})',
             )
-        return self.tbl_version.get().cols_by_id[self.col_id]
+        return tv.cols_by_id[self.col_id]
 
     def as_dict(self) -> dict:
         return {'tbl_version': self.tbl_version.as_dict(), 'col_id': self.col_id}
