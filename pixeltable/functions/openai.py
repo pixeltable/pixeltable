@@ -284,11 +284,17 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, 
     return output_filename
 
 
-# Normalized superset of the audio transcription / translation response shape across response_format
-# variants. Field names match openai.types.audio.transcription / translation (and their verbose variants).
-# Values absent from the SDK's response for a given variant are surfaced as None here, so every row has
-# the same dict shape regardless of which response_format produced it.
-# usage is a discriminated union in the SDK (tokens vs duration); kept as dict to avoid committing to one variant.
+# Mirror of the audio transcription / translation response shapes. Field names match
+# openai.types.audio.transcription / translation (and their verbose variants). The output dict only
+# contains the fields that actually apply to the response_format used, hence total=False; we don't
+# pad-with-None to a fixed shape. Nullability inside each field matches the SDK Pydantic model.
+# usage is a discriminated union in the SDK (tokens vs duration); kept as dict to avoid committing
+# to one variant.
+#
+# Note: if a future TypedDict here needs a mix of Required and NotRequired fields, import both
+# TypedDict and NotRequired from typing_extensions (not stdlib typing). On Python 3.10 the stdlib
+# TypedDict does not register typing_extensions.NotRequired into __optional_keys__, which would
+# silently mark the field as required for JsonType validation.
 
 
 class TranscriptionWord(TypedDict):
@@ -316,24 +322,30 @@ class Logprob(TypedDict):
     logprob: float | None
 
 
-class TranscriptionResponse(TypedDict):
-    text: str | None
-    srt: str | None
-    vtt: str | None
-    duration: float | None
-    language: str | None
+class TranscriptionResponse(TypedDict, total=False):
+    # Present for response_format='text' / 'srt' / 'vtt' / 'json' / 'verbose_json'. Each path
+    # populates a different subset; no field is present across all paths.
+    text: str
+    srt: str
+    vtt: str
+    # Transcription (response_format='json')
+    logprobs: list[Logprob] | None
+    # TranscriptionVerbose (response_format='verbose_json')
+    duration: float
+    language: str
     segments: list[TranscriptionSegment] | None
     words: list[TranscriptionWord] | None
-    logprobs: list[Logprob] | None
+    # Transcription and TranscriptionVerbose
     usage: dict | None
 
 
-class TranslationResponse(TypedDict):
-    text: str | None
-    srt: str | None
-    vtt: str | None
-    duration: float | None
-    language: str | None
+class TranslationResponse(TypedDict, total=False):
+    text: str
+    srt: str
+    vtt: str
+    # TranslationVerbose
+    duration: float
+    language: str
     segments: list[TranscriptionSegment] | None
 
 
@@ -342,14 +354,14 @@ _AudioResponseT = TypeVar('_AudioResponseT', TranscriptionResponse, TranslationR
 
 def _create_audio_response(cls: type[_AudioResponseT], result: Any, response_format: str) -> _AudioResponseT:
     """Build a response dict conforming to cls from either a pydantic model or a raw-string SDK result."""
-    out: dict[str, Any] = dict.fromkeys(cls.__annotations__)
+    out: dict[str, Any]
     if isinstance(result, str):
         if response_format == 'text':
-            out['text'] = result
+            out = {'text': result}
         elif response_format == 'srt':
-            out['srt'] = result
+            out = {'srt': result}
         elif response_format == 'vtt':
-            out['vtt'] = result
+            out = {'vtt': result}
         else:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
@@ -357,7 +369,7 @@ def _create_audio_response(cls: type[_AudioResponseT], result: Any, response_for
                 provider='openai',
             )
     else:
-        out.update(result.model_dump(mode='json'))
+        out = result.model_dump(mode='json')
     return cast(_AudioResponseT, out)
 
 
@@ -948,8 +960,13 @@ def _pil_to_png_bytes(image: PIL.Image.Image) -> io.BytesIO:
 
 def _decode_image_response(result: dict) -> dict:
     """Decode base64 image data in an OpenAI images API response dict, replacing each entry with a PIL image."""
-    for i in range(len(result['data'])):
-        b64_str = result['data'][i].get('b64_json')
+    data = result.get('data')
+    if data is None or len(data) == 0:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR, 'No image content in the response.', provider='openai'
+        )
+    for i in range(len(data)):
+        b64_str = data[i].get('b64_json')
         if b64_str is None:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR, 'Image content is missing in the response.', provider='openai'
@@ -957,7 +974,7 @@ def _decode_image_response(result: dict) -> dict:
         b64_bytes = base64.b64decode(b64_str)
         img = PIL.Image.open(io.BytesIO(b64_bytes))
         img.load()
-        result['data'][i] = img
+        data[i] = img
     return result
 
 
@@ -966,8 +983,9 @@ def _decode_image_response(result: dict) -> dict:
 # because openai is an optional dependency and can't be imported at module load time, and because our
 # data field holds decoded PIL images rather than the SDK's Image pydantic model.
 #
-# Fields not populated by every endpoint or model family (DALL-E vs gpt-image-*) are surfaced as None for
-# absent values, so rows have a uniform dict shape regardless of endpoint or model.
+# Every output dict has all keys present and nullability per field matches the SDK Pydantic model.
+# Exception: data is non-null here even though the SDK declares it Optional[List[Image]] = None,
+# because _decode_image_response() raises on a missing payload, so callers can rely on a populated list.
 
 
 class UsageInputTokensDetails(TypedDict):
