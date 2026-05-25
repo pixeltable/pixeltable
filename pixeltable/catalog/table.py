@@ -221,7 +221,7 @@ class Table(SchemaObject):
         # we need retry_loop() here, because we end up loading Tables for the views
         @retry_loop(read_tvps=[self._tbl_version_path])
         def op() -> list[str]:
-            return [t._path() for t in self._get_views(recursive=recursive)]
+            return [t._path() for t in self._get_views(recursive=recursive) if t._dir_id() is not None]
 
         return op()
 
