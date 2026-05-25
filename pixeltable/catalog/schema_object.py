@@ -38,9 +38,12 @@ class SchemaObject(abc.ABC):
 
     def _path(self) -> str:
         """Returns the path to this schema object."""
-        assert self._dir_id is not None
+        dir_id = self._dir_id
+        if dir_id is None:
+            # an instance that's in the process of getting dropped has dir_id unset
+            return '<dropped>'
         with get_runtime().catalog.begin_xact(for_write=False):
-            path = get_runtime().catalog.get_dir_path(self._dir_id)
+            path = get_runtime().catalog.get_dir_path(dir_id)
             return str(path.append(self._name))
 
     @abc.abstractmethod

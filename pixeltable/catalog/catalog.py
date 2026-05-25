@@ -14,6 +14,7 @@ from uuid import UUID
 import psycopg
 import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
+from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
 from pixeltable import exceptions as excs, func
@@ -2194,11 +2195,14 @@ class Catalog:
             .values(
                 {
                     schema.Table.dir_id: new_dir_id,
-                    schema.Table.md: sql.func.jsonb_set(schema.Table.md, '{name}', sql.func.to_jsonb(new_name)),
+                    schema.Table.md: sql.func.jsonb_set(
+                        schema.Table.md, pg_array(['name']), sql.func.to_jsonb(new_name)
+                    ),
                 }
             )
         )
-        get_runtime().conn.execute(stmt)
+        result = get_runtime().conn.execute(stmt)
+        assert result.rowcount == 1, result.rowcount
 
     def _move_dir(self, dir_id: UUID, new_name: str, new_parent_id: UUID) -> None:
         """Update parent_id/name for dir_id."""
@@ -2208,11 +2212,12 @@ class Catalog:
             .values(
                 {
                     schema.Dir.parent_id: new_parent_id,
-                    schema.Dir.md: sql.func.jsonb_set(schema.Dir.md, '{name}', sql.func.to_jsonb(new_name)),
+                    schema.Dir.md: sql.func.jsonb_set(schema.Dir.md, pg_array(['name']), sql.func.to_jsonb(new_name)),
                 }
             )
         )
-        get_runtime().conn.execute(stmt)
+        result = get_runtime().conn.execute(stmt)
+        assert result.rowcount == 1, result.rowcount
 
     def _get_dir(self, path: Path, lock_dir: bool = False) -> schema.Dir | None:
         """
