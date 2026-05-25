@@ -1,0 +1,80 @@
+---
+title: 'LangChain Integration'
+description: 'Use Pixeltable as a LangChain VectorStore backend'
+---
+
+<Card title="langchain-pixeltable" icon="github" href="https://github.com/pixeltable/langchain-pixeltable">
+  PyPI package bridging LangChain's VectorStore interface with Pixeltable
+</Card>
+
+## When to Use This
+
+If you already have a LangChain application and want to use Pixeltable as the vector
+backend instead of Chroma, Pinecone, or another standalone vector database.
+
+For **new applications**, use Pixeltable directly -- see the
+[migration guide](/migrate/from-agent-frameworks) for details.
+
+## Installation
+
+```bash
+pip install langchain-pixeltable
+```
+
+## Quick Start
+
+```python
+from langchain_pixeltable import PixeltableVectorStore
+from langchain_openai import OpenAIEmbeddings
+
+# Create a vector store backed by Pixeltable
+vs = PixeltableVectorStore(
+    table_name='mydir.docs',
+    embedding=OpenAIEmbeddings(),
+)
+
+# Add documents
+vs.add_texts(
+    texts=['Pixeltable handles multimodal data', 'LangChain builds LLM applications'],
+    metadatas=[{'source': 'docs'}, {'source': 'docs'}],
+)
+
+# Search
+results = vs.similarity_search('multimodal data management', k=3)
+for doc in results:
+    print(doc.page_content)
+```
+
+## Use as a Retriever
+
+```python
+retriever = vs.as_retriever(search_kwargs={'k': 5})
+docs = retriever.invoke('What is Pixeltable?')
+```
+
+## Connect to an Existing Table
+
+```python
+vs = PixeltableVectorStore.from_existing_table(
+    table_name='mydir.existing_docs',
+    embedding=OpenAIEmbeddings(),
+    text_column='content',
+    embedding_column='content_embedding',
+)
+```
+
+## Why Pixeltable as a Vector Backend?
+
+| Feature | Pixeltable | Typical Vector DB |
+|---------|-----------|-------------------|
+| Persistent storage | Versioned, survives restarts | Varies |
+| Incremental updates | Only new/changed rows re-embedded | Full re-index |
+| Multimodal columns | Image, Video, Audio, Document | Text only |
+| AI integrations | 25+ built-in providers | None |
+| External services | None required (embedded PostgreSQL) | Usually required |
+
+## Links
+
+- [GitHub Repository](https://github.com/pixeltable/langchain-pixeltable)
+- [Pixeltable Documentation](https://docs.pixeltable.com/)
+- [Migration Guide](/migrate/from-agent-frameworks)

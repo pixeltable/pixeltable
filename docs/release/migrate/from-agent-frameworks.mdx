@@ -230,6 +230,26 @@ An agent that picks tools, calls them, and answers based on the results.
 
 ---
 
+## Already Using LangChain or LlamaIndex?
+
+If you have an existing pipeline you don't want to rewrite, Pixeltable also works as
+a **drop-in vector store backend**:
+
+```bash
+# LangChain
+pip install langchain-pixeltable
+
+# LlamaIndex
+pip install llama-index-vector-stores-pixeltable
+```
+
+This gives you Pixeltable's persistent versioned storage, incremental embedding, and
+multimodal columns without changing your chain logic. See the
+[LangChain integration](/libraries/langchain) and
+[LlamaIndex integration](/libraries/llamaindex) pages for details.
+
+---
+
 ## Next Steps
 
 <CardGroup cols={2}>

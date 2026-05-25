@@ -336,6 +336,17 @@
             ]
           },
           {
+            "group": "Libraries",
+            "pages": [
+              "libraries/pixelagent",
+              "libraries/mcp",
+              "libraries/langchain",
+              "libraries/llamaindex",
+              "libraries/hermes",
+              "libraries/yolox"
+            ]
+          },
+          {
             "group": "Infrastructure",
             "pages": [
               "integrations/cloud-storage"

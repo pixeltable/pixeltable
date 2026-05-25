@@ -1,0 +1,69 @@
+---
+title: 'LlamaIndex Integration'
+description: 'Use Pixeltable as a LlamaIndex VectorStore backend'
+---
+
+<Card title="llama-index-vector-stores-pixeltable" icon="github" href="https://github.com/pixeltable/llama-index-vector-stores-pixeltable">
+  PyPI package bridging LlamaIndex's VectorStore interface with Pixeltable
+</Card>
+
+## When to Use This
+
+If you already have a LlamaIndex pipeline and want to use Pixeltable as the vector
+store backend instead of Chroma, Pinecone, or another standalone database.
+
+For **new applications**, use Pixeltable directly -- see the
+[migration guide](/migrate/from-agent-frameworks) for details.
+
+## Installation
+
+```bash
+pip install llama-index-vector-stores-pixeltable
+```
+
+## Quick Start
+
+```python
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext
+from llama_index.vector_stores.pixeltable import PixeltableVectorStore
+
+# Create a Pixeltable-backed vector store
+vector_store = PixeltableVectorStore(
+    table_name='mydir.docs',
+    embed_dim=1536,
+)
+
+# Load documents and build index
+storage_context = StorageContext.from_defaults(vector_store=vector_store)
+documents = SimpleDirectoryReader('./data').load_data()
+index = VectorStoreIndex.from_documents(documents, storage_context=storage_context)
+
+# Query
+query_engine = index.as_query_engine()
+response = query_engine.query('What is Pixeltable?')
+print(response)
+```
+
+## Connect to an Existing Table
+
+```python
+vector_store = PixeltableVectorStore(table_name='mydir.existing_docs')
+index = VectorStoreIndex.from_vector_store(vector_store)
+query_engine = index.as_query_engine()
+```
+
+## Why Pixeltable as a Vector Backend?
+
+| Feature | Pixeltable | Typical Vector DB |
+|---------|-----------|-------------------|
+| Persistent storage | Versioned, survives restarts | Varies |
+| Incremental updates | Only new/changed rows re-embedded | Full re-index |
+| Multimodal columns | Image, Video, Audio, Document | Text only |
+| AI integrations | 25+ built-in providers | None |
+| External services | None required (embedded PostgreSQL) | Usually required |
+
+## Links
+
+- [GitHub Repository](https://github.com/pixeltable/llama-index-vector-stores-pixeltable)
+- [Pixeltable Documentation](https://docs.pixeltable.com/)
+- [Migration Guide](/migrate/from-agent-frameworks)
