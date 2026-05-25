@@ -784,48 +784,44 @@ class TestOpenai:
             assert len(row['response']) > 0
 
 
-def _strip_required(s: object) -> object:
-    """Recursively drop 'required' keys from a JSON-schema-like structure. SDK Pydantic models and our
-    TypedDicts use different conventions for optional fields (Pydantic: has a default; TypedDict: may
-    be absent), so equality at this level isn't meaningful for adherence."""
-    if isinstance(s, dict):
-        return {k: _strip_required(v) for k, v in s.items() if k != 'required'}
-    if isinstance(s, list):
-        return [_strip_required(item) for item in s]
-    return s
-
-
-def _normalize(ct: ts.ColumnType) -> object:
-    """JSON-schema view of ct with optional/required info stripped at every nested level."""
-    return _strip_required(ct.to_json_schema())
-
-
-def _td_fields(t: type) -> tuple[dict[str, ts.ColumnType], frozenset[str]]:
-    """Resolve a TypedDict to (field_types, optional_keys). Optional keys are meaningful at the top level."""
-    jt = ts.JsonType.from_python_type(t)
-    assert isinstance(jt, ts.JsonType), t
-    assert jt.type_schema is not None and isinstance(jt.type_schema.type_spec, dict), t
-    return jt.type_schema.type_spec, jt.type_schema.optional_keys
-
-
-def _pydantic_fields(model: type) -> dict[str, ts.ColumnType]:
-    """Per-field JsonType conversion of a Pydantic model. Fields whose annotation can't be converted to
-    a Pixeltable type are omitted (callers must declare them in `overrides`)."""
-    import pydantic
-
-    assert issubclass(model, pydantic.BaseModel)
-    out: dict[str, ts.ColumnType] = {}
-    for name, info in model.model_fields.items():
-        try:
-            ct = ts.ColumnType.normalize_type(info.annotation, nullable_default=False)
-        except Exception:
-            continue
-        out[name] = ct
-    return out
-
-
 class TestOpenaiTypedDictAdherence:
     """Detect drift between our TypedDict mirrors and the SDK Pydantic models. Doesn't need credentials."""
+
+    def _strip_required(self, s: object) -> object:
+        """Recursively drop 'required' keys from a JSON-schema-like structure. SDK Pydantic models and our
+        TypedDicts use different conventions for optional fields (Pydantic: has a default; TypedDict: may
+        be absent), so equality at this level isn't meaningful for adherence."""
+        if isinstance(s, dict):
+            return {k: self._strip_required(v) for k, v in s.items() if k != 'required'}
+        if isinstance(s, list):
+            return [self._strip_required(item) for item in s]
+        return s
+
+    def _normalize(self, ct: ts.ColumnType) -> object:
+        """JSON-schema view of ct with optional/required info stripped at every nested level."""
+        return self._strip_required(ct.to_json_schema())
+
+    def _td_fields(self, t: type) -> tuple[dict[str, ts.ColumnType], frozenset[str]]:
+        """Resolve a TypedDict to (field_types, optional_keys). Optional keys are meaningful at the top level."""
+        jt = ts.JsonType.from_python_type(t)
+        assert isinstance(jt, ts.JsonType), t
+        assert jt.type_schema is not None and isinstance(jt.type_schema.type_spec, dict), t
+        return jt.type_schema.type_spec, jt.type_schema.optional_keys
+
+    def _pydantic_fields(self, model: type) -> dict[str, ts.ColumnType]:
+        """Per-field JsonType conversion of a Pydantic model. Fields whose annotation can't be converted to
+        a Pixeltable type are omitted (callers must declare them in overrides)."""
+        import pydantic
+
+        assert issubclass(model, pydantic.BaseModel)
+        out: dict[str, ts.ColumnType] = {}
+        for name, info in model.model_fields.items():
+            try:
+                ct = ts.ColumnType.normalize_type(info.annotation, nullable_default=False)
+            except Exception:
+                continue
+            out[name] = ct
+        return out
 
     def test_exact_mirror_types(self) -> None:
         """JsonType equality for TypedDicts that are exact mirrors of an SDK Pydantic model."""
@@ -861,7 +857,7 @@ class TestOpenaiTypedDictAdherence:
             assert isinstance(ours_jt, ts.JsonType) and isinstance(sdk_jt, ts.JsonType)
             # Ignore optional_keys at every nested level: Pydantic and TypedDict mean different things
             # by "optional", but model_dump() always emits all fields, so the dict shape matches.
-            assert _normalize(ours_jt) == _normalize(sdk_jt), (
+            assert self._normalize(ours_jt) == self._normalize(sdk_jt), (
                 f'{ours.__name__} drifted from {sdk.__module__}.{sdk.__name__}:\n  ours: {ours_jt}\n  sdk:  {sdk_jt}'
             )
 
@@ -874,10 +870,10 @@ class TestOpenaiTypedDictAdherence:
 
         from pixeltable.functions.openai import TranscriptionResponse
 
-        ours_fields, ours_optional = _td_fields(TranscriptionResponse)
+        ours_fields, ours_optional = self._td_fields(TranscriptionResponse)
         sdk_fields: dict[str, ts.ColumnType] = {}
         for model in (Transcription, TranscriptionVerbose):
-            sdk_fields.update(_pydantic_fields(model))
+            sdk_fields.update(self._pydantic_fields(model))
 
         synth = {'srt', 'vtt'}  # fields we add that the SDK does not have
         overrides = {'usage'}  # fields we deliberately re-type (kept as dict); not convertible anyway
@@ -886,7 +882,7 @@ class TestOpenaiTypedDictAdherence:
             if name in overrides:
                 continue
             assert name in ours_fields, f'TranscriptionResponse missing SDK field {name!r}'
-            assert _normalize(ours_fields[name]) == _normalize(sdk_type), (
+            assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
                 f'TranscriptionResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_type}'
             )
 
@@ -911,16 +907,16 @@ class TestOpenaiTypedDictAdherence:
 
         from pixeltable.functions.openai import TranslationResponse
 
-        ours_fields, ours_optional = _td_fields(TranslationResponse)
+        ours_fields, ours_optional = self._td_fields(TranslationResponse)
         sdk_fields: dict[str, ts.ColumnType] = {}
         for model in (Translation, TranslationVerbose):
-            sdk_fields.update(_pydantic_fields(model))
+            sdk_fields.update(self._pydantic_fields(model))
 
         synth = {'srt', 'vtt'}
 
         for name, sdk_type in sdk_fields.items():
             assert name in ours_fields, f'TranslationResponse missing SDK field {name!r}'
-            assert _normalize(ours_fields[name]) == _normalize(sdk_type), (
+            assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
                 f'TranslationResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_type}'
             )
 
@@ -937,8 +933,8 @@ class TestOpenaiTypedDictAdherence:
 
         from pixeltable.functions.openai import ImagesResponse
 
-        ours_fields, ours_optional = _td_fields(ImagesResponse)
-        sdk_fields = _pydantic_fields(SdkImagesResponse)
+        ours_fields, ours_optional = self._td_fields(ImagesResponse)
+        sdk_fields = self._pydantic_fields(SdkImagesResponse)
 
         overrides = {'data'}  # we re-type and guarantee non-null
         assert set(ours_fields) == set(sdk_fields), (
@@ -947,7 +943,7 @@ class TestOpenaiTypedDictAdherence:
         for name, sdk_type in sdk_fields.items():
             if name in overrides:
                 continue
-            assert _normalize(ours_fields[name]) == _normalize(sdk_type), (
+            assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
                 f'ImagesResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_type}'
             )
         # all fields always present
