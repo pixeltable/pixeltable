@@ -1,0 +1,95 @@
+---
+title: 'Twelve Labs'
+description: 'Multimodal video understanding and embeddings with Twelve Labs'
+---
+
+[Twelve Labs](https://twelvelabs.io/) provides multimodal video understanding, search, and analysis with state-of-the-art foundation models. Pixeltable integrates with Twelve Labs for creating embeddings across text, images, audio, and video.
+
+## Setup
+
+```bash
+pip install pixeltable twelvelabs
+```
+
+Set your Twelve Labs API key:
+
+```python
+import pixeltable as pxt
+pxt.configure_client('twelvelabs', api_key='your-api-key')
+```
+
+Or set the environment variable `TWELVELABS_API_KEY`.
+
+## Available Functions
+
+### Embeddings
+
+Create multimodal embeddings for text, images, audio, and video:
+
+```python
+from pixeltable.functions.twelvelabs import embed
+
+# Text embedding
+t = pxt.create_table('tl.docs', {'text': pxt.String}, if_exists='ignore')
+t.add_computed_column(
+    embedding=embed(t.text, model_name='Marengo-retrieval-2.7'),
+    if_exists='ignore',
+)
+```
+
+#### Supported input types
+
+The `embed` function supports four input signatures:
+
+| Input | Description |
+|-------|-------------|
+| `text` | Text string embedding |
+| `text` + `image` | Combined text-image embedding |
+| `audio` | Audio file embedding |
+| `video` | Video file embedding |
+
+```python
+# Combined text + image embedding
+images = pxt.create_table('tl.images', {
+    'caption': pxt.String,
+    'image': pxt.Image,
+}, if_exists='ignore')
+
+images.add_computed_column(
+    embedding=embed(images.caption, images.image, model_name='Marengo-retrieval-2.7'),
+    if_exists='ignore',
+)
+```
+
+### Video Embedding
+
+```python
+videos = pxt.create_table('tl.videos', {'video': pxt.Video}, if_exists='ignore')
+videos.add_computed_column(
+    embedding=embed.using(model_name='Marengo-retrieval-2.7')(video=videos.video),
+    if_exists='ignore',
+)
+```
+
+### Adding Embedding Index for Search
+
+```python
+t.add_embedding_index(
+    'text',
+    string_embed=embed.using(model_name='Marengo-retrieval-2.7'),
+    if_not_exists=True,
+)
+
+sim = t.text.similarity(string='search query')
+results = t.order_by(sim, asc=False).limit(5).select(t.text, sim=sim).collect()
+```
+
+## API Reference
+
+See the [Twelve Labs SDK reference](/sdk/latest/twelvelabs) for the complete function API.
+
+## Links
+
+- [Twelve Labs Documentation](https://docs.twelvelabs.io/)
+- [Twelve Labs API Models](https://docs.twelvelabs.io/docs/models)
+- [Pixeltable Documentation](https://docs.pixeltable.com/)
