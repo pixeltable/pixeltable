@@ -3684,7 +3684,7 @@ class TestTable:
         assert status.num_excs == 0
         assert tbl.count() == 10
         # we can create references to those column via __getattr__
-        _ = tbl.select(tbl.id, tbl._name()).collect()
+        _ = tbl.select(tbl.id, tbl.name, tbl.version, tbl.comment).collect()
 
     def test_table_api_on_dropped_table(self, uses_db: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.String})
