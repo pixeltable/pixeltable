@@ -275,7 +275,7 @@ class View(Table):
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
         if self._is_anonymous_snapshot():
             # Update name and path with version qualifiers.
-            md['name'] = f'{self._name}:{self._tbl_version_path.version()}'
+            md['name'] = f'{self._name()}:{self._tbl_version_path.version()}'
             md['path'] = f'{self._path()}:{self._tbl_version_path.version()}'
         base_tbl_id = self._base_tbl_id
         if base_tbl_id is not None:

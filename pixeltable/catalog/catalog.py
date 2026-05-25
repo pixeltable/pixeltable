@@ -1456,8 +1456,8 @@ class Catalog:
         self._roll_forward()
         with self.begin_xact(for_write=True, write_tbl_ids=[tbl_id]):
             tbl = self.get_table_by_id(tbl_id)
-            _logger.info(f'Created table {tbl._name!r}, id={tbl._id}')
-            Env.get().console_logger.info(f'Created table {tbl._name!r}.')
+            _logger.info(f'Created table {tbl._name()!r}, id={tbl._id}')
+            Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
             return tbl, is_created
 
     def create_view(
@@ -1852,7 +1852,7 @@ class Catalog:
         # capture the path for logging before the drop runs (after drop, tbl is no longer safe to use)
         tbl_path_repr: str = str(tbl_id) if tbl is None else repr(tbl._path())
         if tbl is not None:
-            self._acquire_dir_xlock(dir_id=tbl._dir_id)
+            self._acquire_dir_xlock(dir_id=tbl._dir_id())
         self._acquire_write_lock(tbl_id=tbl_id)
 
         view_ids = self.get_view_ids(tbl_id, for_update=True)
@@ -2203,6 +2203,8 @@ class Catalog:
         )
         result = get_runtime().conn.execute(stmt)
         assert result.rowcount == 1, result.rowcount
+        # TV.table_md.name is now stale
+        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
     def _move_dir(self, dir_id: UUID, new_name: str, new_parent_id: UUID) -> None:
         """Update parent_id/name for dir_id."""

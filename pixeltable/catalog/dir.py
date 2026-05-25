@@ -33,13 +33,11 @@ class Dir(SchemaObject):
     def _display_name(self) -> str:
         return 'directory'
 
-    @property
     def _name(self) -> str:
         cat = get_runtime().catalog
         with cat.begin_xact(for_write=False):
             return cat.read_dir_record(self._id).md['name']
 
-    @property
     def _dir_id(self) -> UUID | None:
         cat = get_runtime().catalog
         with cat.begin_xact(for_write=False):
@@ -47,7 +45,7 @@ class Dir(SchemaObject):
 
     def _path(self) -> str:
         """Returns the path to this schema object."""
-        if self._dir_id is None:
+        if self._dir_id() is None:
             # we're the root dir
             return ''
         return super()._path()

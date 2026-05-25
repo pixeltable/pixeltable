@@ -73,13 +73,11 @@ class Table(SchemaObject):
     def __deepcopy__(self, memo: dict[int, Any]) -> 'Table':
         return self
 
-    @property
     def _name(self) -> str:
         cat = get_runtime().catalog
         with cat.begin_xact(for_write=False):
             return cat.read_tbl_record(self._id).md['name']
 
-    @property
     def _dir_id(self) -> UUID | None:
         cat = get_runtime().catalog
         with cat.begin_xact(for_write=False):
@@ -165,7 +163,7 @@ class Table(SchemaObject):
 
         return TableMetadata(
             id=self._id,
-            name=self._name,
+            name=self._name(),
             path=self._path(),
             columns=column_info,
             indices=index_info,
@@ -956,7 +954,7 @@ class Table(SchemaObject):
             ]
             if len(dependent_stores) > 0:
                 dependent_store_names = [
-                    store.name if view._id == self._id else f'{store.name} (in view {view._name!r})'
+                    store.name if view._id == self._id else f'{store.name} (in view {view._name()!r})'
                     for view, store in dependent_stores
                 ]
                 raise excs.RequestError(
@@ -1753,13 +1751,13 @@ class Table(SchemaObject):
         if tbl_version.is_replica:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'push(): Cannot push replica table {self._name!r}. (Did you mean `pull()`?)',
+                f'push(): Cannot push replica table {self._name()!r}. (Did you mean `pull()`?)',
             )
 
         if pxt_uri is None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'push(): Table {self._name!r} has not yet been published to Pixeltable Cloud. '
+                f'push(): Table {self._name()!r} has not yet been published to Pixeltable Cloud. '
                 'To publish it, use `pxt.publish()` instead.',
             )
 
@@ -1768,7 +1766,7 @@ class Table(SchemaObject):
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'push(): Cannot push specific-version table handle {tbl_version.versioned_name!r}. '
                 'To push the latest version instead:\n'
-                f'  t = pxt.get_table({self._name!r})\n'
+                f'  t = pxt.get_table({self._name()!r})\n'
                 f'  t.push()',
             )
 
@@ -1793,7 +1791,7 @@ class Table(SchemaObject):
         if not tbl_version.is_replica or pxt_uri is None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).',
+                f'pull(): Table {self._name()!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).',
             )
 
         if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
@@ -1801,7 +1799,7 @@ class Table(SchemaObject):
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'pull(): Cannot pull specific-version table handle {tbl_version.versioned_name!r}. '
                 'To pull the latest version instead:\n'
-                f'  t = pxt.get_table({self._name!r})\n'
+                f'  t = pxt.get_table({self._name()!r})\n'
                 f'  t.pull()',
             )
 
@@ -1824,13 +1822,13 @@ class Table(SchemaObject):
             if store.name in self.external_stores():
                 raise excs.AlreadyExistsError(
                     excs.ErrorCode.PATH_ALREADY_EXISTS,
-                    f'Table {self._name!r} already has an external store with that name: {store.name}',
+                    f'Table {self._name()!r} already has an external store with that name: {store.name}',
                 )
-            _logger.info(f'Linking external store {store.name!r} to table {self._name!r}.')
+            _logger.info(f'Linking external store {store.name!r} to table {self._name()!r}.')
 
             store.link(self._tbl_version.get())  # might call tbl_version.add_columns()
             self._tbl_version.get().link_external_store(store)
-            env.Env.get().console_logger.info(f'Linked external store {store.name!r} to table {self._name!r}.')
+            env.Env.get().console_logger.info(f'Linked external store {store.name!r} to table {self._name()!r}.')
 
     def unlink_external_stores(
         self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
@@ -1862,7 +1860,7 @@ class Table(SchemaObject):
                     if store_name not in all_stores:
                         raise excs.NotFoundError(
                             excs.ErrorCode.STORAGE_NOT_FOUND,
-                            f'Table {self._name!r} has no external store with that name: {store_name}',
+                            f'Table {self._name()!r} has no external store with that name: {store_name}',
                         )
 
             for store_name in stores:
@@ -1873,7 +1871,7 @@ class Table(SchemaObject):
                 self._tbl_version.get().unlink_external_store(store)
                 if delete_external_data and isinstance(store, pxt.io.external_store.Project):
                     store.delete()
-                env.Env.get().console_logger.info(f'Unlinked external store from table {self._name!r}: {store_str}')
+                env.Env.get().console_logger.info(f'Unlinked external store from table {self._name()!r}: {store_str}')
 
     def sync(
         self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
@@ -1906,7 +1904,7 @@ class Table(SchemaObject):
                 if store not in all_stores:
                     raise excs.NotFoundError(
                         excs.ErrorCode.STORAGE_NOT_FOUND,
-                        f'Table {self._name!r} has no external store with that name: {store}',
+                        f'Table {self._name()!r} has no external store with that name: {store}',
                     )
 
             sync_status = UpdateStatus()

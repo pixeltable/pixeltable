@@ -19,12 +19,10 @@ class SchemaObject(abc.ABC):
     def __init__(self, obj_id: UUID):
         self._id = obj_id
 
-    @property
     @abc.abstractmethod
     def _name(self) -> str:
         """Current name of this object, as recorded in the catalog."""
 
-    @property
     @abc.abstractmethod
     def _dir_id(self) -> UUID | None:
         """Current parent directory id of this object, as recorded in the catalog. None if root."""
@@ -32,19 +30,20 @@ class SchemaObject(abc.ABC):
     def _parent(self) -> 'catalog.Dir | None':
         """Returns the parent directory of this schema object."""
         with get_runtime().catalog.begin_xact(for_write=False):
-            if self._dir_id is None:
+            dir_id = self._dir_id()
+            if dir_id is None:
                 return None
-            return get_runtime().catalog.get_dir(self._dir_id)
+            return get_runtime().catalog.get_dir(dir_id)
 
     def _path(self) -> str:
         """Returns the path to this schema object."""
-        dir_id = self._dir_id
+        dir_id = self._dir_id()
         if dir_id is None:
             # an instance that's in the process of getting dropped has dir_id unset
             return '<dropped>'
         with get_runtime().catalog.begin_xact(for_write=False):
             path = get_runtime().catalog.get_dir_path(dir_id)
-            return str(path.append(self._name))
+            return str(path.append(self._name()))
 
     @abc.abstractmethod
     def _display_name(self) -> str:

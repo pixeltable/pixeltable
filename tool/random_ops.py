@@ -179,7 +179,7 @@ class RandomTableOps:
 
     @classmethod
     def tbl_descr(cls, t: pxt.Table) -> str:
-        return f'{t._name!r} ({t._id.hex[:6]}...)'
+        return f'{t._name()!r} ({t._id.hex[:6]}...)'
 
     def get_random_tbl(self, allow_base_tbl: bool = True, allow_view: bool = True) -> pxt.Table | None:
         # Occasionally it happens that we get a list of views, but by the time we try to get one of them, it has been
@@ -313,7 +313,7 @@ class RandomTableOps:
         cnames = [
             col_name
             for col_name, col in t.get_metadata()['columns'].items()
-            if col['defined_in'] == t._name and col_name not in BASIC_SCHEMA
+            if col['defined_in'] == t._name() and col_name not in BASIC_SCHEMA
         ]
         if len(cnames) == 0:
             yield 'No columns to drop.'
@@ -344,11 +344,11 @@ class RandomTableOps:
             yield 'No views to rename.'
             return
         n = int(random.uniform(0, self.config.num_view_names))
-        if f'view_{n}' == t._name:
+        if f'view_{n}' == t._name():
             n = (n + 1) % self.config.num_view_names  # Ensure new name is different
         new_name = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
         yield f'Rename view {self.tbl_descr(t)} to {new_name!r}: '
-        pxt.move(t._name, new_name, if_exists='ignore', if_not_exists='ignore')
+        pxt.move(t._name(), new_name, if_exists='ignore', if_not_exists='ignore')
         yield 'Success.'
 
     def drop_view(self) -> Iterator[str]:
