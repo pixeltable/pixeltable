@@ -966,6 +966,9 @@ class JsonType(ColumnType):
     type_schema: TypeSchema | None
 
     # pretty_print_name is used only for generating clean documentation; it is not stored in the catalog.
+    # It preserves the name of the `TypedDict` used to define this `JsonType` (if there is one), so that the
+    # `TypedDict` can be printed in the docs rather than the fully expanded Json type.
+    # (Compare: `MyTypedDict` vs `Json[{'field1': String, 'field2': Int, 'field3': {'subfield': Float}}]`, etc.)
     pretty_print_name: str | None
 
     def __init__(
