@@ -533,8 +533,7 @@ class TestIndex:
     def test_embedding_basic(
         self, img_tbl: pxt.Table, clip_embed: pxt.Function, e5_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        skip_test_if_not_installed('sentence_transformers')
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('imagehash', 'sentence_transformers', 'transformers')
 
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
