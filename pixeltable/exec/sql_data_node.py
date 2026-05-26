@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, AsyncIterator, ClassVar
 import sqlalchemy as sql
 
 from pixeltable import catalog, exprs
+from pixeltable.utils.local_store import TempStore
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -37,7 +38,7 @@ class SqlDataNode(ExecNode):
     _owns_conn: bool
     _conn: sql.Connection | None
     _result: sql.CursorResult | None
-    _mapped_slot_idxs: list[int]
+    _mapped_cols: list[exprs.ColumnSlotIdx]
     _unmapped_slot_idxs: list[int]
 
     def __init__(
@@ -51,12 +52,14 @@ class SqlDataNode(ExecNode):
         self._owns_conn = False
         self._conn = None
         self._result = None
-        self._mapped_slot_idxs = []
+        self._mapped_cols = []
         self._unmapped_slot_idxs = []
 
     def _open(self) -> None:
         user_cols_by_name = {
-            col_ref.col.name: col_ref.slot_idx for col_ref in self.output_exprs if col_ref.col.name is not None
+            col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
+            for col_ref in self.output_exprs
+            if col_ref.col.name is not None
         }
         all_output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
@@ -65,8 +68,9 @@ class SqlDataNode(ExecNode):
         ]
         # Caller (eg, import_sql) is responsible for validating that all source names are non-None and resolve
         # to a destination column.
-        self._mapped_slot_idxs = [user_cols_by_name[n] for n in source_names]
-        self._unmapped_slot_idxs = list(all_output_slot_idxs - set(self._mapped_slot_idxs))
+        self._mapped_cols = [user_cols_by_name[n] for n in source_names]
+        mapped_slot_idxs = {c.slot_idx for c in self._mapped_cols}
+        self._unmapped_slot_idxs = list(all_output_slot_idxs - mapped_slot_idxs)
 
         if isinstance(self.sql_source.conn, sql.Engine):
             self._conn = self.sql_source.conn.connect()
@@ -94,8 +98,17 @@ class SqlDataNode(ExecNode):
         output_batch = DataRowBatch(self.row_builder)
         for sa_row in self._result:
             output_row = self.row_builder.make_row()
-            for slot_idx, val in zip(self._mapped_slot_idxs, sa_row, strict=True):
-                output_row[slot_idx] = val
+            for col_info, val in zip(self._mapped_cols, sa_row, strict=True):
+                col = col_info.col
+                if col.col_type.is_image_type() and isinstance(val, bytes):
+                    # Mirror InMemoryDataNode: spill image bytes to TempStore and assign the resulting path.
+                    # DataRow.__setitem__ only runs on-write media validation when given a path/URL, not bytes.
+                    filepath, _ = TempStore.save_media_object(
+                        val, col.tbl_handle.id, col.id, col.get_tbl().version, format=None
+                    )
+                    output_row[col_info.slot_idx] = str(filepath)
+                else:
+                    output_row[col_info.slot_idx] = val
             for slot_idx in self._unmapped_slot_idxs:
                 output_row[slot_idx] = None
             output_batch.add_row(output_row)

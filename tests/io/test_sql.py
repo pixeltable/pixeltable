@@ -465,6 +465,34 @@ class TestSql:
         for i, row in enumerate(path_result):
             assert row['c_path'] == img_paths[i]
 
+    def test_image_bytes_via_override(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Source `LargeBinary` column holding raw image bytes + `schema_overrides={'c_img': pxt.Image}`.
+        SqlDataNode must spill the bytes to TempStore so on-write media validation still runs (mirroring
+        InMemoryDataNode's image-bytes handling)."""
+        engine = _import_engine('sqlite', tmp_path)
+        img_paths = get_image_files()[:2]
+        img_bytes = [pathlib.Path(p).read_bytes() for p in img_paths]
+
+        _seed_source(
+            engine,
+            'src_img_bytes',
+            [sql.Column('c_img', sql.LargeBinary, nullable=False)],
+            [{'c_img': b} for b in img_bytes],
+        )
+        # Reflect the seeded source so SQLAlchemy returns it with its declared LargeBinary type.
+        src = sql.Table('src_img_bytes', sql.MetaData(), autoload_with=engine)
+
+        tbl = import_sql(src, engine, 'img_bytes_dest', schema_overrides={'c_img': pxt.Required[pxt.Image]})
+
+        cols = tbl.get_metadata()['columns']
+        assert cols['c_img']['type_'] == 'Required[Image]'
+
+        # Each cell decodes as a PIL image (proves validation ran and the bytes were saved as a usable file).
+        result = tbl.select(tbl.c_img).collect()
+        assert len(result) == 2
+        for row in result:
+            assert isinstance(row['c_img'], PIL.Image.Image)
+
     def test_if_exists(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Walk the if_exists matrix in a single test, since the branching is purely pixeltable-side and doesn't
         depend on the SQL backend."""
