@@ -273,7 +273,7 @@ class TestCatalog:
         # Check that view is not in catalog
         ls = pxt.ls()
         assert len(ls) == 1, ls
-        assert ls['Name'][0] == 'test', ls
+        assert ls['Name'].iloc[0] == 'test', ls
 
     def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None) -> None:
         """Concurrent insert while add_column is blocked mid-finalize"""
