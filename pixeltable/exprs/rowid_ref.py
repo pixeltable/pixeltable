@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import logging
 from typing import Any, cast
 from uuid import UUID
 
@@ -15,8 +14,6 @@ from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
-
-_logger = logging.getLogger('pixeltable')
 
 
 class RowidRef(Expr):
@@ -146,6 +143,6 @@ class RowidRef(Expr):
         }
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> RowidRef:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> RowidRef:
         tbl_id, normalized_base_id, idx = UUID(d['tbl_id']), UUID(d['normalized_base_id']), d['idx']
         return cls(tbl=None, idx=idx, tbl_id=tbl_id, normalized_base_id=normalized_base_id)

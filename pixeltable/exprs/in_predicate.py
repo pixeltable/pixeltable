@@ -98,7 +98,7 @@ class InPredicate(Expr):
         return {'value_list': self.value_list, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> InPredicate:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> InPredicate:
         assert 'value_list' in d
         assert len(components) <= 2
         return cls(components[0], d['value_list'], components[1] if len(components) == 2 else None)
