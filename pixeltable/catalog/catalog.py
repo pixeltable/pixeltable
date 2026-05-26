@@ -841,6 +841,8 @@ class Catalog:
                         # For now, just assert that we don't.
                         # assert not tv.is_replica
 
+                        # Mark TableVersion as modified before it is actually modified to make sure that cache is
+                        # cleared properly if an error occurs during op execution.
                         if tv is not None:
                             self.mark_modified_tvs(tv.handle)
                         if is_rollback:
