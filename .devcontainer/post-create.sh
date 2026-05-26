@@ -11,7 +11,7 @@ cd /workspaces/pixeltable
 source /opt/miniforge/etc/profile.d/conda.sh
 
 if ! conda env list | awk '{print $1}' | grep -qx pxt; then
-    conda create -y -n pxt -c conda-forge python=3.10 'cmake>=3.22'
+    conda create -y -n pxt -c conda-forge python=3.10 pip 'cmake>=3.22'
 fi
 
 conda activate pxt
