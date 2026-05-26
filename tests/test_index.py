@@ -10,6 +10,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
@@ -1185,3 +1186,65 @@ class TestIndex:
         t.drop_column('text')
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=r'(?i).*column was dropped.*'):
             query.collect()
+
+    @pytest.mark.parametrize('reload', [True, False], ids=['reload', 'noreload'])
+    def test_similarity_column_snapshot(self, uses_db: None, all_mpnet_embed: pxt.Function, reload: bool) -> None:
+        """Tests various edge cases that involve similarity columns and snapshots"""
+
+        skip_test_if_not_installed('sentence_transformers')
+
+        tbl = pxt.create_table('test', {'text': pxt.String, 'text2': pxt.String})
+        tbl.insert([{'text': s, 'text2': s} for s in get_sentences(10)])
+
+        # add a stored similarity column
+        tbl.add_embedding_index('text', string_embed=all_mpnet_embed, idx_name='embed')
+        validate_update_status(tbl.add_computed_column(sim=tbl.text.similarity(string='sunlight', idx='embed')))
+
+        # add an unstored similarity column
+        tbl.add_embedding_index('text2', string_embed=all_mpnet_embed, idx_name='embed2')
+        validate_update_status(
+            tbl.add_computed_column(sim_unstored=tbl.text2.similarity(string='sunlight'), stored=False)
+        )
+
+        # check the stored sim column in the base table
+        res = tbl.select(tbl.text, tbl.sim).order_by(tbl.sim, asc=False).collect()
+        assert 'sunshine' in res[0]['text']
+        assert 'winter' in res[1]['text']
+
+        # check the unstored sim column in the base table
+        res = tbl.select(tbl.text).order_by(tbl.sim_unstored, asc=False).collect()
+        assert 'sunshine' in res[0]['text']
+
+        snap = pxt.create_snapshot('snap', tbl)
+
+        # check the stored sim column in the snapshot
+        res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
+        assert 'sunshine' in res[0]['text']
+        assert 'winter' in res[1]['text']
+
+        # check the unstored sim column in the snapshot (should raise)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
+            snap.select(snap.text).order_by(snap.sim_unstored, asc=False).collect()
+
+        # Drop the top row by similarity, then verify similarity results in the base table and the snapshot
+        validate_update_status(tbl.delete(where=pxtf.string.contains(tbl.text, 'sunshine')), expected_rows=1)
+
+        res = tbl.select(tbl.text, tbl.sim).order_by(tbl.sim, asc=False).collect()
+        assert 'winter' in res[0]['text']
+
+        res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
+        assert 'sunshine' in res[0]['text']
+
+        # Drop the value and the similarity columns from base table, then verify that the snapshot still has them
+        tbl.drop_column(tbl.sim)
+        tbl.drop_column(tbl.text)
+
+        reload_catalog(reload)
+
+        snap = pxt.get_table('snap')
+        res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
+        assert 'sunshine' in res[0]['text']
+        assert 'winter' in res[1]['text']
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
+            snap.select(snap.text).order_by(snap.sim_unstored, asc=False).collect()
