@@ -29,7 +29,7 @@ class OpStatus(enum.Enum):
     UNEXPECTED_ERROR = 'unexpected_error'
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OpResult:
     status: OpStatus
     msg: str
