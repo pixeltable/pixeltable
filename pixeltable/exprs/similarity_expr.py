@@ -66,39 +66,41 @@ class SimilarityExpr(Expr):
             self.qcol_id = qcol_id
             self.table_version_key = table_version_key
             tv = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=False)
-            column = tv.path.get_column_by_qid(self.qcol_id)
+            # Find column in the table hierarchy (tv could be a snapshot)
+            column = tv.lookup_column(self.qcol_id)
             if column is None:
                 raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND,
                     f'Column {self.qcol_id!r} not found in table version {self.table_version_key!r} or its bases',
                 )
         # Get embedding index for given column
-        idx_info = tv.get_idx(column, self.idx_name, EmbeddingIndex)
-        idx = idx_info.idx
-        assert isinstance(idx, EmbeddingIndex)
-        # Ensure we always store the concrete index name resolved by the catalog, even if idx_name was omitted
-        self.idx_name = idx_info.name
+        if tv.supports_idxs:
+            idx_info = tv.get_idx(column, self.idx_name, EmbeddingIndex)
+            idx = idx_info.idx
+            assert isinstance(idx, EmbeddingIndex)
+            # Ensure we always store the concrete index name resolved by the catalog, even if idx_name was omitted
+            self.idx_name = idx_info.name
 
-        # Skip for array columns; similarity search uses the raw vector directly.
-        if not item.col_type.is_array_type() and item.col_type._type not in idx.embeddings:
-            type_str = item.col_type._type.name.lower()
-            article = 'an' if type_str[0] in 'aeiou' else 'a'
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have {article} '
-                f'{type_str} embedding and does not support {type_str} queries',
-            )
+            # Skip for array columns; similarity search uses the raw vector directly.
+            if not item.col_type.is_array_type() and item.col_type._type not in idx.embeddings:
+                type_str = item.col_type._type.name.lower()
+                article = 'an' if type_str[0] in 'aeiou' else 'a'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have {article} '
+                    f'{type_str} embedding and does not support {type_str} queries',
+                )
         self.id = self._create_id()
 
     def __repr__(self) -> str:
-        assert self.idx_name is not None
+        idx_str = f'{self.idx_name!r}' if self.idx_name is not None else '<no index>'
         assert self.qcol_id is not None
 
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
         col = tbl_version.path.get_column_by_qid(self.qcol_id)
         if col is None:
-            return f'<invalid>.similarity({self.components[0]}, {self.idx_name!r})'
-        return f'{col.name}.similarity({self.components[0]}, {self.idx_name!r})'
+            return f'<invalid>.similarity({self.components[0]}, {idx_str})'
+        return f'{col.name}.similarity({self.components[0]}, {idx_str})'
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [
@@ -129,6 +131,10 @@ class SimilarityExpr(Expr):
 
     @property
     def validation_error(self) -> str | None:
+        tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=False)
+        if not tbl_version.supports_idxs:
+            # nothing to validate
+            return None
         try:
             self._resolve_idx(validate_initialized=False)
             return None
@@ -137,7 +143,7 @@ class SimilarityExpr(Expr):
 
     def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.path.get_column_by_qid(self.qcol_id)
+        col = tbl_version.lookup_column(self.qcol_id)
         if col is None:
             return False
         return any(tbl.has_column(col) for tbl in tbls)
@@ -215,7 +221,7 @@ class SimilarityExpr(Expr):
         tbl_version = get_runtime().catalog.get_tbl_version(
             self.table_version_key, validate_initialized=validate_initialized
         )
-        col = tbl_version.path.get_column_by_qid(self.qcol_id)
+        col = tbl_version.lookup_column(self.qcol_id)
         if col is None:
             raise excs.NotFoundError(
                 excs.ErrorCode.INDEX_NOT_FOUND,
@@ -240,8 +246,15 @@ class SimilarityExpr(Expr):
         }
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> 'SimilarityExpr':
-        table_version_key = TableVersionKey.from_dict(d['table_version_key'])
+    def _from_dict(
+        cls, d: dict, components: list[Expr], tbl_versions: dict[UUID, catalog.TableVersion] | None = None
+    ) -> 'SimilarityExpr':
+        tvk_from_dict = TableVersionKey.from_dict(d['table_version_key'])
+        if tbl_versions is not None:
+            # Ignore table version key from the dict, retarget to the provided table version instead
+            table_version_key = tbl_versions[tvk_from_dict.tbl_id].key
+        else:
+            table_version_key = tvk_from_dict
         idx_name = d.get('idx_name')
         qcol_id = QColumnId(tbl_id=UUID(d['qcol_id']['tbl_id']), col_id=d['qcol_id']['col_id'])
         return cls(item=components[0], idx_name=idx_name, table_version_key=table_version_key, qcol_id=qcol_id)
