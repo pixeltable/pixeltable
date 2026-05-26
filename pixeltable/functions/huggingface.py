@@ -376,6 +376,12 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
     return output_list
 
 
+class Sam3ForSegmentationResponse(TypedDict):
+    scores: list[float]
+    boxes: list[list[float]]
+    masks: pxt.Array[(None, None, None), pxt.Bool]
+
+
 @pxt.udf
 def sam_for_segmentation(
     image: PIL.Image.Image,
@@ -387,7 +393,7 @@ def sam_for_segmentation(
     threshold: float = 0.5,
     mask_threshold: float = 0.5,
     revision: str | None = None,
-) -> dict[str, Any]:
+) -> Sam3ForSegmentationResponse:
     """
     Computes SAM 3 (Segment Anything Model 3) Promptable Concept Segmentation for the specified image.
     `model_id` should be a reference to a pretrained
@@ -419,19 +425,11 @@ def sam_for_segmentation(
             specified, uses the default revision for the model.
 
     Returns:
-        A dictionary containing the segmentation output, in the following format:
+        A `Sam3ForSegmentationResponse` containing:
 
-        ```python
-        {
-            # confidence scores for each detected instance, shape (num_instances,)
-            'scores': np.ndarray,
-            # bounding boxes, [x1, y1, x2, y2] in absolute pixel coordinates,
-            # shape (num_instances, 4)
-            'boxes': np.ndarray,
-            # binary masks for each detected instance, shape (num_instances, H, W)
-            'masks': np.ndarray,
-        }
-        ```
+        - `scores`: confidence score per detected instance.
+        - `boxes`: bounding box `[x1, y1, x2, y2]` per detected instance, in absolute pixel coordinates.
+        - `masks`: binary mask per detected instance, shape `(num_instances, H, W)`.
 
     Examples:
         Add a computed column that segments every "cat" in an existing Pixeltable column `image` of the
@@ -511,7 +509,11 @@ def sam_for_segmentation(
     if masks_np.dtype != np.bool_:
         masks_np = masks_np.astype(bool)
 
-    return {'scores': result['scores'].cpu().numpy(), 'boxes': result['boxes'].cpu().numpy(), 'masks': masks_np}
+    return Sam3ForSegmentationResponse(
+        scores=[score.item() for score in result['scores']],
+        boxes=[box.tolist() for box in result['boxes']],
+        masks=masks_np,
+    )
 
 
 @pxt.udf(batch_size=4)
