@@ -988,7 +988,7 @@ class TestExprs:
                 img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image), stored=True
             )
         )
-        loaded_imgs = t.select(t.img).order_by(t.img).collect()['img']
+        loaded_imgs = t.select(t.img).order_by(t.rel_path).collect()['img']
         orig_imgs = [PIL.Image.open(f) for f in img_files]
         for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs, strict=True):
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
@@ -996,7 +996,7 @@ class TestExprs:
         # the same for a select list item
         loaded_imgs = (
             t.select(img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image))
-            .order_by(t.img)
+            .order_by(t.rel_path)
             .collect()['img']
         )
         for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs, strict=True):
