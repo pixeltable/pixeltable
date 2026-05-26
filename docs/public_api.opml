@@ -291,6 +291,7 @@
           <outline text="udf|pixeltable.functions.timestamp.strftime" />
           <outline text="udf|pixeltable.functions.timestamp.make_timestamp" />
           <outline text="udf|pixeltable.functions.timestamp.replace" />
+          <outline text="udf|pixeltable.functions.timestamp.strip_timezone" />
           <outline text="udf|pixeltable.functions.timestamp.toordinal" />
           <outline text="udf|pixeltable.functions.timestamp.posix_timestamp" />
         </outline>

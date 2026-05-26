@@ -388,9 +388,9 @@ class TestSql:
 
         cols = tbl.get_metadata()['columns']
         assert set(cols) == {'c_int', 'upper_str', 'doubled'}
-        assert 'Int' in cols['c_int']['type_']
-        assert 'String' in cols['upper_str']['type_']
-        assert 'Float' in cols['doubled']['type_']
+        assert cols['c_int']['type_'] == 'Int'
+        assert cols['upper_str']['type_'] == 'String'
+        assert cols['doubled']['type_'] == 'Float'
 
         result = tbl.order_by(tbl.c_int).select(tbl.c_int, tbl.upper_str, tbl.doubled).collect()
         expected = [
@@ -528,7 +528,7 @@ class TestSql:
             [sql.Column('c_int', sql.String, nullable=False), sql.Column('c_str', sql.String, nullable=False)],
             [{'c_int': 'not_an_int', 'c_str': 'y'}],
         )
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='c_int'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"'c_int'.*incompatible with destination column type"):
             import_sql(src_mismatch, engine, 'dest', if_exists='append')
 
         # if_exists='replace' is the documented foot-gun and is rejected with a migration hint pointing the user

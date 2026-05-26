@@ -201,12 +201,7 @@ def import_sql(
 
 
 def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, inferred_schema: dict[str, Any]) -> None:
-    """Verify the SQL source schema can append into an existing destination table.
-
-    Checks unknown source columns, computed-column collisions, type compatibility, and missing
-    required destination columns. Centralizing these checks here keeps `SqlDataNode` purely a
-    runtime data path.
-    """
+    """Verify the SQL source schema can append into an existing destination table."""
     tv = tbl._tbl_version.get()
     all_cols_by_name = tv.cols_by_name
     existing_schema = tbl._get_schema()

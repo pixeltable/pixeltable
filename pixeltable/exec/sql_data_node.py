@@ -76,7 +76,13 @@ class SqlDataNode(ExecNode):
             self._owns_conn = False
 
         try:
-            self._result = self._conn.execute(self.sql_source.select_stmt)  # type: ignore[call-overload]
+            self._result = (
+                self._conn.execution_options(stream_results=True)
+                .execute(  # type: ignore[call-overload]
+                    self.sql_source.select_stmt
+                )
+                .yield_per(self.BATCH_SIZE)
+            )
         except BaseException:
             if self._owns_conn:
                 self._conn.close()
