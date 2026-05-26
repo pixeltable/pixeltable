@@ -362,6 +362,43 @@ class TestSql:
         assert empty_tbl.count() == 0
 
     @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
+    def test_import_text_columns(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
+        """Import via `sql.text(...).columns(...)`: raw SQL whose output columns are typed by the user. Type
+        inference and nullability propagation must come from the `.columns(...)` declaration, not from the
+        source table."""
+        engine = _import_engine(dialect, tmp_path)
+        rows: list[dict[str, Any]] = [{'c_int': i, 'c_str': f'row_{i}', 'c_float': float(i)} for i in range(5)]
+        _seed_source(
+            engine,
+            'src_text',
+            [
+                sql.Column('c_int', sql.Integer, nullable=False),
+                sql.Column('c_str', sql.String, nullable=False),
+                sql.Column('c_float', sql.Float, nullable=False),
+            ],
+            rows,
+        )
+
+        stmt = sql.text(
+            'SELECT c_int, c_str AS upper_str, c_float * 2 AS doubled FROM src_text WHERE c_int >= 2'
+        ).columns(
+            sql.column('c_int', sql.Integer), sql.column('upper_str', sql.String), sql.column('doubled', sql.Float)
+        )
+        tbl = import_sql(stmt, engine, 'text_dest')
+
+        cols = tbl.get_metadata()['columns']
+        assert set(cols) == {'c_int', 'upper_str', 'doubled'}
+        assert 'Int' in cols['c_int']['type_']
+        assert 'String' in cols['upper_str']['type_']
+        assert 'Float' in cols['doubled']['type_']
+
+        result = tbl.order_by(tbl.c_int).select(tbl.c_int, tbl.upper_str, tbl.doubled).collect()
+        expected = [
+            {'c_int': r['c_int'], 'upper_str': r['c_str'], 'doubled': r['c_float'] * 2} for r in rows if r['c_int'] >= 2
+        ]
+        assert list(result) == expected
+
+    @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
     def test_media_via_overrides(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
         """`schema_overrides` promotes plain String path columns into Pixeltable media types (Image, Video,
         Document)"""
