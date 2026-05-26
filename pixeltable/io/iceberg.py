@@ -87,6 +87,15 @@ def export_iceberg(
             excs.ErrorCode.PATH_ALREADY_EXISTS, f'export_iceberg(): table {table_name!r} already exists'
         )
 
+    if schema_overrides is not None:
+        extraneous_overrides = schema_overrides.keys() - query.schema.keys()
+        if len(extraneous_overrides) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'export_iceberg(): some column(s) specified in `schema_overrides` are not present '
+                f'in the source: {", ".join(sorted(extraneous_overrides))}',
+            )
+
     # Build a deterministic arrow schema up front so we can materialize the Iceberg table even
     # when the query yields no rows, and reject fixed-shape tensor columns before we run the query.
     # Variable-shape arrays are mapped to pa.list_(...) by to_arrow_type and are supported by Iceberg.

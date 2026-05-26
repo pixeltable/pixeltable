@@ -317,6 +317,12 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='schema_overrides'):
             pxt.io.export_iceberg(t3, catalog, 'pxt.override_bad', schema_overrides={'c_string': pa.int64()})
 
+        # Override key that is not present in the source schema is rejected.
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not present in the source'):
+            pxt.io.export_iceberg(
+                t3, catalog, 'pxt.override_extraneous', schema_overrides={'does_not_exist': pa.int64()}
+            )
+
     def test_namespace_auto_create(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """A non-existent namespace in the table identifier should be created automatically."""
         skip_test_if_not_installed('pyiceberg')
