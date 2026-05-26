@@ -112,7 +112,7 @@ class GeneratingFunction:
         self.is_legacy_retrofit = False
 
     def _infer_properties(self) -> None:
-        self.py_sig = inspect.signature(self.decorated_callable)
+        self.py_sig = inspect.signature(self.decorated_callable, eval_str=True)
         output_schema_type: type[dict]
         iter_fn: Callable
 
@@ -290,7 +290,7 @@ class GeneratingFunction:
         it.decorated_callable = iterator_cls
         it.fqn = f'{iterator_cls.__module__}.{iterator_cls.__qualname__}'
         it.signature = Signature.create(iterator_cls, return_type=ts.JsonType())
-        it.py_sig = inspect.signature(iterator_cls)
+        it.py_sig = inspect.signature(iterator_cls, eval_str=True)
         it.unstored_cols = []
 
         def call_output_schema(bound_args: dict[str, exprs.Expr]) -> dict[str, ts.ColumnType]:
