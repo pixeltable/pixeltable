@@ -26,6 +26,6 @@ docker exec "$ROACH_NAME" /cockroach/cockroach sql --insecure -e "
     CREATE DATABASE IF NOT EXISTS pixeltable;
     SET CLUSTER SETTING feature.vector_index.enabled = true;
     SET CLUSTER SETTING sql.defaults.experimental_temporary_tables.enabled = true;
-    ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 60;
-    ALTER DATABASE pixeltable CONFIGURE ZONE USING gc.ttlseconds = 60;
+    ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 300;
+    ALTER DATABASE pixeltable CONFIGURE ZONE USING gc.ttlseconds = 300;
 "
