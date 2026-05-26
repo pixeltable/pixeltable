@@ -309,3 +309,48 @@ class TestCatalog:
         result = t.select(t.a, t.b).collect()
         assert len(result) == 1
         assert result[0] == {'a': 1, 'b': 2}
+
+    def test_create_view_stale_base_tv_after_txn_failure(self, uses_db: None, fault_injection: None) -> None:
+        """
+        Verifies bug fix: due to an error in view creation, Catalog would fail to invalidate a modified but not
+        persisted TableVersion. Later that would result in Pixeltable acting on that stale TableVersion, which can cause
+        various sorts of issues including a data corruption.
+        """
+        pxt.create_table('base', {'a': pxt.Int})
+
+        injected_exc = Exception('injected error')
+
+        def create_view() -> None:
+            with pytest.raises(Exception, match='injected'):
+                pxt.create_view('va', pxt.get_table('base'))
+
+        (
+            MultiThreadedScenario()
+            # Thread 0: Warm up its catalog so base's tv is cached.
+            .then_run(thread_id=0, name='warm up cache', fn=lambda: pxt.get_table('base'))
+            # Thread 0: Arm a non-retriable exception fault inside create_view.
+            .then_run(
+                thread_id=0,
+                name='inject fault',
+                fn=lambda: get_runtime().fault_manager.inject_fault(
+                    FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED, ExceptionFault(injected_exc)
+                ),
+            )
+            # Thread 0: Run create_view (va) that fails. Before the fix, base_tv was not added to _modified_tvs, so it
+            # stays in cache with stale in-memory state, i.e. with view_sn=v+1
+            .then_run(thread_id=0, name='create view that fails', fn=create_view)
+            # Thread 1: Create view vb on the same base. This also advances the persisted view_sn to v+1, which
+            # automatically matches thread 0's stale cached value.
+            .then_run(thread_id=1, name='create view', fn=lambda: pxt.create_view('vb', pxt.get_table('base')))
+            # Thread 0: insert into base table. Before the fix, Catalog would observe that the cached TableVersion's
+            # version and view_sn match the stored values, and based on that decide to skip reloading the table.
+            # The outcome of that is the write is not propagated to vb.
+            .then_run(
+                thread_id=0, name='insert into base (stale cache)', fn=lambda: pxt.get_table('base').insert([{'a': 42}])
+            )
+            .execute()
+        )
+
+        assert pxt.get_table('base').count() == 1
+        # Verify that the insert was propagated to vb.
+        assert pxt.get_table('vb').count() == 1
