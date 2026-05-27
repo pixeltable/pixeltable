@@ -24,8 +24,7 @@ ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
 COCKROACH_TEST_MODULES = ('table', 'index')
 
-# CockroachDB suite modules: the `make slimtest` set (see Makefile) plus the primary-key index tests.
-# We intentionally exclude unversioned tables as they are
+# CockroachDB suite modules: the `make slimtest` set + the primary-key index tests for partial index coverage.
 SLIMTEST_MODULES = (
     'tests/test_catalog.py',
     'tests/test_dirs.py',
