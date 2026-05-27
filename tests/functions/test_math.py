@@ -13,12 +13,12 @@ class TestMath:
     TEST_FLOATS = (0.0, 1.6, -19.27469, 1.32e57, math.inf, -math.inf, math.nan)
     TEST_INTS = (0, 1, -19, 4171780)
 
-    @pytest.mark.parametrize('method_type', [pxt.Float, pxt.Int])
+    @pytest.mark.parametrize('method_type', [pxt.Float, pxt.Int], ids=['Float', 'Int'])
     def test_methods(self, method_type: type, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'x': method_type})
-        values = self.TEST_FLOATS if method_type is pxt.Float else self.TEST_INTS
+        values = sorted(self.TEST_FLOATS if method_type is pxt.Float else self.TEST_INTS)
         t.insert({'x': x} for x in values)
-        r = t.collect()
+        r = t.order_by(t.x).collect()
         assert np.array_equal(r['x'], np.array(values), equal_nan=True), r
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]]
@@ -44,7 +44,7 @@ class TestMath:
 
         for pxt_fn, py_fn, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
-            actualdb = t.select(out=pxt_fn(t.x, *args, **kwargs)).collect()['out']
+            actualdb = t.select(out=pxt_fn(t.x, *args, **kwargs)).order_by(t.x).collect()['out']
             expected = [py_fn(x, *args, **kwargs) for x in values]
             if (
                 env.Env.get().is_using_cockroachdb
@@ -64,9 +64,11 @@ class TestMath:
             assert np.array_equal(actualdb, expecteddb, equal_nan=True), f'{actualdb} != {expecteddb}'
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
-            actual_py = t.select(out=pxt_fn(t.x.apply(lambda x: x, col_type=method_type), *args, **kwargs)).collect()[
-                'out'
-            ]
+            actual_py = (
+                t.select(out=pxt_fn(t.x.apply(lambda x: x, col_type=method_type), *args, **kwargs))
+                .order_by(t.x)
+                .collect()['out']
+            )
             print(f'  actualpy: {actual_py}')
             assert np.array_equal(actual_py, expected, equal_nan=True), f'{actual_py} != {expected}'
 

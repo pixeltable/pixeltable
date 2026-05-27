@@ -46,13 +46,13 @@ class TestUUIDType:
         validate_update_status(t.insert({'uuid_col': u} for u in test_uuids), expected_rows=len(test_uuids))
 
         # Query all UUIDs
-        res = reload_tester.run_query(t.select(t.uuid_col))
+        res = reload_tester.run_query(t.select(t.uuid_col).order_by(t.uuid_col))
         assert len(res) == len(test_uuids)
         assert set(res['uuid_col']) == set(test_uuids)
 
         # Query with where clause
         first_uuid = test_uuids[0]
-        res = reload_tester.run_query(t.where(t.uuid_col == first_uuid))
+        res = reload_tester.run_query(t.where(t.uuid_col == first_uuid).order_by(t.uuid_col))
         assert len(res) == 1
         assert res['uuid_col'][0] == first_uuid
 
@@ -70,16 +70,16 @@ class TestUUIDType:
 
         # Test equality
         first_uuid = test_uuids[0]
-        res = reload_tester.run_query(t3.where(t3.uuid_col == first_uuid))
+        res = reload_tester.run_query(t3.where(t3.uuid_col == first_uuid).order_by(t3.uuid_col))
         assert len(res) == 1
 
         # Test inequality
-        res = reload_tester.run_query(t3.where(t3.uuid_col != first_uuid))
+        res = reload_tester.run_query(t3.where(t3.uuid_col != first_uuid).order_by(t3.uuid_col))
         assert len(res) == len(test_uuids) - 1
 
         # Test IN
         uuids_to_match = [test_uuids[0], test_uuids[1]]
-        res = reload_tester.run_query(t3.where(t3.uuid_col.isin(uuids_to_match)))
+        res = reload_tester.run_query(t3.where(t3.uuid_col.isin(uuids_to_match)).order_by(t3.uuid_col))
         assert len(res) == 2
         assert set(res['uuid_col']) == set(uuids_to_match)
 
@@ -88,7 +88,7 @@ class TestUUIDType:
         validate_update_status(t4.insert([{'uuid_col': None}]), expected_rows=1)
         validate_update_status(t4.insert([{'uuid_col': uuid.uuid4()}]), expected_rows=1)
 
-        res = reload_tester.run_query(t4.select(t4.uuid_col))
+        res = reload_tester.run_query(t4.select(t4.uuid_col).order_by(t4.uuid_col, asc=False))
         assert res['uuid_col'][0] is None
         assert isinstance(res['uuid_col'][1], uuid.UUID)
 
@@ -117,7 +117,7 @@ class TestUUIDType:
         validate_update_status(t.insert([{'data': 'test1'}, {'data': 'test2'}, {'data': 'test3'}]), expected_rows=3)
 
         # Query and verify UUIDs are generated
-        res = reload_tester.run_query(t.select(t.id, t.data))
+        res = reload_tester.run_query(t.select(t.id, t.data).order_by(t.data))
         assert len(res) == 3
         assert all(isinstance(u, uuid.UUID) for u in res['id'])
         assert len(set(res['id'])) == 3  # All UUIDs should be unique
