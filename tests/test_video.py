@@ -164,8 +164,6 @@ class TestVideo:
                         assert selected_frame == frames[pos]
 
     def test_keyframes_only(self, uses_db: None) -> None:
-        if Env.get().is_using_cockroachdb:
-            pytest.skip('CockroachDB rejects untyped NULL literals emitted by the keyframes iterator query')
         path = get_video_files()[0]
         videos = pxt.create_table('videos', {'video': pxt.Video})
 

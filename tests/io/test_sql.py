@@ -5,7 +5,6 @@ import pathlib
 import uuid
 from typing import Any, Callable
 
-import pytest
 import sqlalchemy as sql
 import sqlalchemy.dialects.postgresql
 import sqlalchemy.dialects.sqlite  # noqa: F401
@@ -171,13 +170,9 @@ class TestSql:
         assert self._row_count(engine, 'fresh_table') == 5
 
     def test_export_sqlite(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        if Env.get().is_using_cockroachdb:
-            pytest.skip('CockroachDB GC threshold (60s) trips on the 100k-row export round trip')
         self._run_export_suite(self._sqlite_spec(), tmp_path)
 
     def test_export_postgresql(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        if Env.get().is_using_cockroachdb:
-            pytest.skip('CockroachDB GC threshold (60s) trips on the 100k-row export round trip')
         self._run_export_suite(self._postgresql_spec(), tmp_path)
 
     def test_errors(self, uses_db: None) -> None:

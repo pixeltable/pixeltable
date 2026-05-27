@@ -10,7 +10,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.env import Env
 from pixeltable.functions.document import document_splitter
 from pixeltable.utils.documents import get_document_handle
 
@@ -158,8 +157,6 @@ class TestDocument:
     @pytest.mark.parametrize('pdf', [True, False], ids=['pdf_docs', 'non_pdf_docs'])
     def test_doc_splitter(self, pdf: bool, uses_db: None) -> None:
         skip_test_if_not_installed('markitdown', 'spacy', 'tiktoken')
-        if Env.get().is_using_cockroachdb:
-            pytest.skip('CockroachDB rejects the very large multi-row insert this test produces')
 
         # DocumentSplitter does not support XML
         file_paths = [path for path in self.valid_doc_paths() if not path.endswith('.xml')]
