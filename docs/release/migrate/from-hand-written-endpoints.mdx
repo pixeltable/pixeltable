@@ -86,7 +86,7 @@ If your Pixeltable app has hand-written FastAPI endpoints that call `pxt.get_tab
 Every read pattern becomes a `@pxt.query` function defined in the router file where it's used. Each one maps to a single `add_query_route` call.
 
 <Warning>
-`@pxt.query` eagerly evaluates the function body at decoration time. Tables must exist before the router module is imported. Run `python setup_pixeltable.py` before starting the app.
+`@pxt.query` eagerly evaluates the function body at decoration time. Tables must exist before the router module is imported. Run `python schema.py` before starting the app.
 </Warning>
 
 ```python
@@ -223,7 +223,7 @@ Since `FastAPIRouter` extends `APIRouter`, hand-written and declarative routes c
 
 ### `@pxt.query` runs at decoration time
 
-The function body executes when Python hits the `@pxt.query` decorator, not when you call the function. If the tables don't exist yet, you get an error. Run `python setup_pixeltable.py` before starting the app so tables exist when router modules are imported.
+The function body executes when Python hits the `@pxt.query` decorator, not when you call the function. If the tables don't exist yet, you get an error. Run `python schema.py` before starting the app so tables exist when router modules are imported.
 
 ### UUID parameters need `uuid.UUID` annotations
 
@@ -279,7 +279,7 @@ view.add_embedding_index(
 3. **Use `FastAPIRouter` as your base router.** You get media serving and background jobs for free.
 4. **Keep complex orchestration hand-written.** Multi-table inserts and conditional logic stay as `@router.post()`.
 5. **Type your `@pxt.query` parameters** (`uuid.UUID`, `int`, `float`, `str`). Pydantic coerces the incoming JSON; Pixeltable handles the rest.
-6. **Prototype with TOML first.** [`pxt serve`](/howto/deployment/serving) with a `service.toml` is the fastest way to test a new route before wiring it into your app.
+6. **Prototype with TOML first.** [`pxt serve`](/howto/deployment/serving) with `[[tool.pixeltable.service.routes]]` in `pyproject.toml` is the fastest way to test a new route before wiring it into your app.
 
 ---
 
@@ -290,7 +290,7 @@ view.add_embedding_index(
     TOML config, CLI, Python API, background jobs
   </Card>
   <Card title="Deployment Overview" icon="server" href="/howto/deployment/overview">
-    Full backend vs. orchestration layer
+    Full backend, batch processing, and declarative serving
   </Card>
   <Card title="Production Operations" icon="gauge" href="/howto/deployment/operations">
     Concurrency, error handling, sync endpoints

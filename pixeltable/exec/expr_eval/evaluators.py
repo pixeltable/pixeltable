@@ -92,6 +92,13 @@ class FnCallEvaluator(Evaluator):
             else:
                 self.scalar_py_fn = None
 
+    def reset(self) -> None:
+        super().reset()
+        # discard any FnCallArgs left over from a previous run that was closed before the queue
+        # drained (eg, cursor abandoned mid-iteration)
+        if self.call_args_queue is not None:
+            self.call_args_queue = asyncio.Queue[FnCallArgs]()
+
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.fn_call.slot_idx >= 0
 
@@ -298,6 +305,11 @@ class JsonMapperDispatcher(Evaluator):
         ]
         self.external_slot_map = {exec_ctx.row_builder.unique_exprs[e].slot_idx: e.slot_idx for e in parent_exprs}
         self.nested_eval_ctx = ExprEvalCtx(dispatcher, nested_row_builder, [self.target_expr], parent_exprs)
+
+    def reset(self) -> None:
+        super().reset()
+        for evaluator in self.nested_eval_ctx.slot_evaluators.values():
+            evaluator.reset()
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         """Create nested rows for all source list elements and dispatch them"""

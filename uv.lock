@@ -1442,7 +1442,7 @@ wheels = [
 
 [[package]]
 name = "datasets"
-version = "4.4.1"
+version = "4.8.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dill" },
@@ -1462,9 +1462,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/93/bf/0dae295d6d1ba0b1a200a9dd216838464b5bbd05da01407cb1330b377445/datasets-4.4.1.tar.gz", hash = "sha256:80322699aa8c0bbbdb7caa87906da689c3c2e29523cff698775c67f28fdab1fc", size = 585341, upload-time = "2025-11-05T16:00:38.162Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/34/14cd8e76f907f7d4dca2334cfeec9f81d30fd15c25a015f99aaea694eaed/datasets-4.8.5.tar.gz", hash = "sha256:0f0c1c3d56ffff2c93b2f4c63c95bac94f3d7e8621aea2a2a576275233bba772", size = 605649, upload-time = "2026-04-27T15:43:57.384Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3b/5e/6f8d874366788ad5d549e9ba258037d974dda6e004843be1bda794571701/datasets-4.4.1-py3-none-any.whl", hash = "sha256:c1163de5211e42546079ab355cc0250c7e6db16eb209ac5ac6252f801f596c44", size = 511591, upload-time = "2025-11-05T16:00:36.365Z" },
+    { url = "https://files.pythonhosted.org/packages/65/99/00f3196036501b53032c4b1ab8337a0b978dee832ed276dae3815df4e8b5/datasets-4.8.5-py3-none-any.whl", hash = "sha256:5079900781719c0e063a8efdd2cd95a31ad0c63209178669cd23cf1b926149ff", size = 528973, upload-time = "2026-04-27T15:43:53.702Z" },
 ]
 
 [[package]]
@@ -6015,7 +6015,7 @@ dev = [
     { name = "boto3", specifier = "==1.36.23" },
     { name = "boto3-stubs", specifier = "==1.36.23" },
     { name = "botocore", specifier = "==1.36.23" },
-    { name = "datasets", specifier = ">=3.5.0" },
+    { name = "datasets", specifier = ">=4.8.5" },
     { name = "diffusers", specifier = ">=0.37" },
     { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "fal-client", specifier = ">=0.5.6" },
@@ -6078,7 +6078,7 @@ dev = [
     { name = "torchcodec", marker = "(python_full_version < '3.14' and platform_machine != 'aarch64') or (python_full_version < '3.14' and sys_platform != 'linux')", specifier = "<0.8" },
     { name = "torchvision", specifier = ">=0.22" },
     { name = "transformers", specifier = ">=5" },
-    { name = "twelvelabs", specifier = ">=1.1.0" },
+    { name = "twelvelabs", specifier = ">=1.2.0" },
     { name = "types-beautifulsoup4", specifier = ">=4.2" },
     { name = "types-deprecated", specifier = ">=1.2.15" },
     { name = "types-jmespath", specifier = ">=1.0" },
@@ -10186,7 +10186,7 @@ wheels = [
 
 [[package]]
 name = "twelvelabs"
-version = "1.1.0"
+version = "1.2.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -10194,9 +10194,9 @@ dependencies = [
     { name = "pydantic-core" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bf/68/06faac86aa679ca609597b4fcd8a0d9d642314df79ad8c5b93985088da61/twelvelabs-1.1.0.tar.gz", hash = "sha256:02a26542606fcc4c0ee20fd09b335e664cc79269970d22fc9abfdac443ccd066", size = 141368, upload-time = "2025-11-18T01:40:50.964Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/85/514cbf14973969150f6492c0ae6791f29cfec6f1e1e6cd471103fd228244/twelvelabs-1.2.4.tar.gz", hash = "sha256:337fd826906061c092f63107a94df87cdfcc404c9cb2d006d8644712c6d0104f", size = 160775, upload-time = "2026-05-07T09:56:13.612Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/0b/61c8da90f83430732265b3a76172c6946bd642030703be5e37804f5c0531/twelvelabs-1.1.0-py3-none-any.whl", hash = "sha256:01074eb18f8035d3cb860ecb50080220c9b9f42b1cc5114f027e6b8e3589b78a", size = 285767, upload-time = "2025-11-18T01:40:49.776Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/f0/5d91ed7a6c5b1bea8b9fd1b717dab49e609ef99c6382fb91e2873d1f9d9d/twelvelabs-1.2.4-py3-none-any.whl", hash = "sha256:e3953786b7f746bac27ad3860c7c987674d08c172561300376845bcd4d820a45", size = 342958, upload-time = "2026-05-07T09:56:12.15Z" },
 ]
 
 [[package]]

@@ -550,10 +550,13 @@ def assert_type_eq(col_type: ts.ColumnType, pxt_type: ts._PxtType) -> None:
     assert col_type == ts.ColumnType.normalize_type(pxt_type)
 
 
-def assert_resultset_eq(r1: ResultSet, r2: ResultSet, compare_col_names: bool = False) -> None:
+def assert_resultset_eq(
+    r1: ResultSet, r2: ResultSet, compare_col_names: bool = False, compare_col_types: bool = True
+) -> None:
     assert len(r1) == len(r2)
     assert len(r1.schema) == len(r2.schema)
-    assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
+    if compare_col_types:
+        assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
     if compare_col_names:
         assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):

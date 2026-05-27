@@ -409,12 +409,6 @@ class RandomTableOps:
             time.sleep(random.uniform(0.1, 0.5))
 
 
-def init(config: RandomTableOpsConfig) -> None:
-    """Initialization. This will ONLY be run once (globally), on Worker 0."""
-    print(json.dumps(dataclasses.asdict(config), indent=4))
-    pxt.init()
-
-
 def run(
     worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str
 ) -> None:
@@ -422,16 +416,6 @@ def run(
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
     config = RandomTableOpsConfig(**json.loads(config_str))
-
-    # In order to localize initialization to a single process, we call pxt.init() only from worker 0. The timings are
-    # adjusted so that all workers start issuing operations at approximately the same time.
-    # TODO: Do we want pxt.init() to be concurrency-safe (the first time it is called, when setting up the DB)?
-    if worker_id == 0:
-        t = time.monotonic()
-        init(config)
-        time.sleep(5 - time.monotonic() + t)  # Sleep until 5 seconds after init
-    else:
-        time.sleep(5)
 
     try:
         RandomTableOps(worker_id, read_only, include_only_ops or [], exclude_ops or [], config).run()
@@ -503,7 +487,13 @@ def main() -> None:
                 )
                 sys.exit(1)
 
-    config_str = repr(json.dumps(dataclasses.asdict(config)))
+    config_dict = dataclasses.asdict(config)
+    print(json.dumps(config_dict, indent=4))
+    config_str = repr(json.dumps(config_dict))
+
+    # Initialize Pixeltable before the actual test
+    print('Running pxt.init()...')
+    pxt.init()
 
     worker_args = [
         [

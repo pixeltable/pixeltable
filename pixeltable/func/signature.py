@@ -48,6 +48,12 @@ class Parameter:
     def has_default(self) -> bool:
         return self.default is not None
 
+    @property
+    def default_value(self) -> Any:
+        """Unwrapped Python value of this parameter's default. Caller must check has_default()."""
+        assert self.default is not None
+        return self.default.val
+
     def as_dict(self) -> dict[str, Any]:
         return {
             'name': self.name,
@@ -277,7 +283,7 @@ class Signature:
 
         assert (py_fn is None) != (py_params is None)
         if py_fn is not None:
-            sig = inspect.signature(py_fn)
+            sig = inspect.signature(py_fn, eval_str=True)
             py_params = list(sig.parameters.values())
         parameters: list[Parameter] = []
 
@@ -349,7 +355,7 @@ class Signature:
         parameters = cls.create_parameters(
             py_fn=py_fn, param_types=param_types, is_cls_method=is_cls_method, type_substitutions=type_substitutions
         )
-        sig = inspect.signature(py_fn)
+        sig = inspect.signature(py_fn, eval_str=True)
         if return_type is None:
             # Look up the substitution for sig.return_annotation, defaulting to return_annotation if there is none
             py_type = type_substitutions.get(sig.return_annotation, sig.return_annotation)

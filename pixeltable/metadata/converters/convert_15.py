@@ -24,7 +24,7 @@ def _(engine: sql.engine.Engine) -> None:
 def __update_md(orig_d: dict, binary_obj: bytes) -> Any:
     # construct dict produced by CallableFunction.to_store()
     py_fn = cloudpickle.loads(binary_obj)
-    py_params = inspect.signature(py_fn).parameters
+    py_params = inspect.signature(py_fn, eval_str=True).parameters
     return_type = orig_d['return_type']
     params: list[dict] = []
     for name, col_type_dict, kind_int, is_batched in orig_d['parameters']:
