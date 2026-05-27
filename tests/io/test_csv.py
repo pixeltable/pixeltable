@@ -16,10 +16,10 @@ class TestCsv:
     def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Export a table with every supported type and verify the CSV output."""
         t = create_all_datatypes_tbl()
-        rows = t.collect()
+        rows = t.order_by(t.row_id).collect()
 
         csv_path = tmp_path / 'all_types.csv'
-        pxt.io.export_csv(t, csv_path)
+        pxt.io.export_csv(t.order_by(t.row_id), csv_path)
 
         df = pd.read_csv(csv_path)
         exported = df.to_dict(orient='records')
@@ -46,7 +46,7 @@ class TestCsv:
 
         # Verify media columns export the authoritative file URL, not a cached path
         media_cols = {'c_image': t.c_image, 'c_video': t.c_video, 'c_audio': t.c_audio, 'c_document': t.c_document}
-        fileurls = t.select(*[col.fileurl for col in media_cols.values()]).collect()
+        fileurls = t.select(*[col.fileurl for col in media_cols.values()]).order_by(t.row_id).collect()
         for exp_row, url_row in zip(exported, fileurls):
             for col_name in media_cols:
                 assert exp_row[col_name] == url_row[f'{col_name}_fileurl']
@@ -62,7 +62,7 @@ class TestCsv:
 
         t2 = pxt.io.import_csv('test_csv_rt_reimported', str(csv_path))
 
-        assert query.collect() == t2.collect()
+        assert query.order_by(t.c2).collect() == t2.order_by(t2.c2).collect()
 
     def test_export_exact_output(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Verify exported CSV matches an expected file exactly."""
@@ -150,10 +150,11 @@ class TestCsv:
 
         with open(csv_path, encoding='utf-8') as f:
             exported = list(csv.DictReader(f))
+        exported = sorted(exported, key=str)
 
         assert len(exported) == 3
-        fileurls = t.select(t.rotated.fileurl).collect()
-        for exp_row, url_row in zip(exported, fileurls):
+        fileurls = t.select(t.rotated.fileurl).order_by(t.img).collect()
+        for exp_row, url_row in zip(exported, fileurls, strict=True):
             assert exp_row['rotated'] == url_row['rotated_fileurl']
             assert exp_row['rotated'].startswith('file:')
             assert dest_path.as_posix() in exp_row['rotated']
