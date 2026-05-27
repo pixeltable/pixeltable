@@ -35,7 +35,6 @@ SLIMTEST_MODULES = (
     'tests/test_primary_key_index.py',
     'tests/test_snapshot.py',
     'tests/test_table.py',
-    'tests/test_unversioned_table.py',
     'tests/test_view.py',
     'tests/share/test_packager.py',
 )
