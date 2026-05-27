@@ -894,7 +894,7 @@ class Catalog:
 
             except Exception as e:
                 if excs.is_table_not_found(e):
-                    _logger.error(f'Finalize pending ops({tbl_id}): table was dropped', exc_info=True)
+                    _logger.error(f'Finalize pending ops({tbl_id}): table not found', exc_info=True)
                     raise
 
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
