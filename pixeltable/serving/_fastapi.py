@@ -157,9 +157,9 @@ class FastAPIRouter(fastapi.APIRouter):
     """
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
 
-    `FastAPIRouter` is for apps that already have a FastAPI server. To start a
-    Pixeltable HTTP service without writing a FastAPI app, use `pxt serve` from
-    the CLI. Learn more here: [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving).
+    `FastAPIRouter` is for apps that already have a FastAPI server. If you do
+    not have one, use `pxt serve` from the CLI; Pixeltable creates and runs the
+    FastAPI app for you. Learn more here: [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving).
     """
 
     _executor: ThreadPoolExecutor
