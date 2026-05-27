@@ -17,7 +17,7 @@ from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @pxt.udf(is_method=True)

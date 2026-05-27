@@ -2,6 +2,7 @@ import datetime
 import glob
 import itertools
 import json
+import logging
 import os
 import random
 import re
@@ -825,15 +826,16 @@ def reload_catalog(reload: bool = True) -> None:
 
 @contextmanager
 def capture_console_output() -> Iterator[StringIO]:
+    pxt_logger = logging.getLogger('pixeltable')
     try:
         sio = StringIO()
         handler = ConsoleOutputHandler(stream=sio)
         handler.setLevel(10)
         handler.addFilter(ConsoleMessageFilter())
-        Env.get()._logger.addHandler(handler)
+        pxt_logger.addHandler(handler)
         yield sio
     finally:
-        Env.get()._logger.removeHandler(handler)
+        pxt_logger.removeHandler(handler)
         sio.flush()
 
 

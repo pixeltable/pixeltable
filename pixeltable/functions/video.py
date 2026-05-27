@@ -28,7 +28,7 @@ from pixeltable.utils.local_store import TempStore
 if TYPE_CHECKING:
     from scenedetect.detectors import SceneDetector  # type: ignore[import-untyped]
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @pxt.uda(requires_order_by=True)

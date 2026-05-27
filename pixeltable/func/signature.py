@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-import logging
 import typing
 from typing import TYPE_CHECKING, Any, Callable, ClassVar
 
@@ -11,8 +10,6 @@ import pixeltable.type_system as ts
 
 if TYPE_CHECKING:
     from pixeltable import exprs
-
-_logger = logging.getLogger('pixeltable')
 
 
 @dataclasses.dataclass

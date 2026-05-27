@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class OnErrorParameter(enum.Enum):

@@ -1,6 +1,7 @@
 import base64
 import logging
 import os
+import sys
 
 from opentelemetry import metrics
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -8,13 +9,12 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 
-import pixeltable as pxt
 import pixeltable.functions as pxtf
 import tool.perftest_providers as ptp
 
 GRAFANA_OTLP_URL = 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metrics'
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger('pixeltable.test')
 
 
 def main() -> None:
@@ -36,7 +36,8 @@ def main() -> None:
         default_model='gpt-4o-mini',
         kwargs={'model_kwargs': {'max_tokens': t, 'temperature': 0.7}},
     )
-    pxt.configure_logging(to_stdout=True, level=logging.DEBUG)
+    logging.getLogger('pixeltable').setLevel(logging.DEBUG)
+    logging.getLogger('pixeltable').addHandler(logging.StreamHandler(sys.stdout))
     duration, num_exc = ptp.execute_perf_test(n=n, t=t, provider=provider_config, recompute_excs=True)
     success = num_exc == 0
     throughput = n / duration.total_seconds() if duration.total_seconds() > 0 else None

@@ -24,7 +24,7 @@ from .update_status import UpdateStatus
 if TYPE_CHECKING:
     from pixeltable.catalog.table_version import TableVersion
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class OpStatus(Enum):
