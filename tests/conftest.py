@@ -291,6 +291,7 @@ def clean_db(drop_md_tables: bool = False) -> None:
                 for t in remaining:
                     conn.execute(text(f'DELETE FROM "{t}"'))
             else:
+                # Truncate existing metadata tables
                 conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))
         conn.commit()
 
