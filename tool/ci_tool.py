@@ -25,6 +25,7 @@ ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 COCKROACH_TEST_MODULES = ('table', 'index')
 
 # CockroachDB suite modules: the `make slimtest` set + the primary-key index tests for partial index coverage.
+# test_unversioned_table.py is intentionally excluded (see TODO: implement for unversioned tables [PXT-1101])
 SLIMTEST_MODULES = (
     'tests/test_catalog.py',
     'tests/test_dirs.py',
@@ -33,7 +34,6 @@ SLIMTEST_MODULES = (
     'tests/test_function.py',
     'tests/test_index.py',
     'tests/test_primary_key_index.py',
-    'tests/test_unversioned_table.py',
     'tests/test_snapshot.py',
     'tests/test_table.py',
     'tests/test_view.py',
