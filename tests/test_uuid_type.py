@@ -11,7 +11,7 @@ import pixeltable.functions as pxtf
 from tests.utils import ReloadTester, pxt_raises, validate_update_status
 
 
-class TestUUID:
+class TestUUIDType:
     @pytest.mark.parametrize('uuid_fn, uuid_version', [(pxtf.uuid.uuid4, 4), (pxtf.uuid.uuid7, 7)])
     def test_uuid_function(self, uuid_fn: pxt.Function, uuid_version: int, uses_db: None) -> None:
         t = pxt.create_table('test_uuid_tbl', {'id': pxt.Int})
