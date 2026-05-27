@@ -775,7 +775,11 @@ class Expr(abc.ABC):
 
         if self.col_type.is_invalid_type():
             return UnknownOpExpr('__mul__', self, other)
-        if self.col_type.is_string_type():
+        if (
+            self.col_type.is_string_type()
+            or isinstance(other, str)
+            or (isinstance(other, Expr) and other.col_type.is_string_type())
+        ):
             return self._make_string_expr(StringOperator.REPEAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
@@ -805,7 +809,7 @@ class Expr(abc.ABC):
 
         if self.col_type.is_invalid_type():
             return UnknownOpExpr('__rmul__', self, other)
-        if self.col_type.is_string_type():
+        if self.col_type.is_string_type() or isinstance(other, str):
             return self._rmake_string_expr(StringOperator.REPEAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
 
