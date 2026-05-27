@@ -341,7 +341,7 @@ class TestExprs:
                 _ = t.select(op1 + op2).collect()
             with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH):
                 _ = t.select(op1 - op2).collect()
-            if self.is_str(op1) and self.is_int(op2) or self.is_int(op1) and self.is_str(op2):
+            if (self.is_str(op1) and self.is_int(op2)) or (self.is_int(op1) and self.is_str(op2)):
                 _ = t.select(op1 * op2).collect()
             else:
                 with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH):
