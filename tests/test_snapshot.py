@@ -518,3 +518,31 @@ class TestSnapshot:
                 t,
                 additional_columns={'d': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
+
+    @pytest.mark.parametrize('load_order', ['base_first', 'snapshot_first'])
+    def test_load_snapshot_with_dropped_cols(self, uses_db: None, load_order: str) -> None:
+        """
+        Create a table and take a snapshot. Then drop some columns.
+        Validate that after loading both (in either order) everything works as intended.
+        """
+        tbl = create_test_tbl('test')
+        pxt.create_snapshot('snap', tbl)
+
+        tbl.drop_column(tbl.c1)
+        tbl.drop_column(tbl.c1n)
+        tbl.drop_column(tbl.c8)
+
+        reload_catalog()
+
+        if load_order == 'base_first':
+            tbl = pxt.get_table('test')
+            snap = pxt.get_table('snap')
+        else:
+            assert load_order == 'snapshot_first'
+            snap = pxt.get_table('snap')
+            tbl = pxt.get_table('test')
+
+        with pytest.raises(AttributeError, match='Unknown column'):
+            _ = tbl.select(tbl.c1).limit(1).collect()
+        _ = tbl.select(tbl.c2).limit(1).collect()
+        _ = snap.select(snap.c1, snap.c1n, snap.c2, snap.c8).limit(1).collect()
