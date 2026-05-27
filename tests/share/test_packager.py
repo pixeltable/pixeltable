@@ -42,19 +42,15 @@ from ..utils import (
 )
 
 
+# CockroachDB applies ADD COLUMN asynchronously, so the CREATE INDEX in replica restore can't see the new column yet.
 def _skip_replica_if_cockroachdb() -> None:
-    """Skip tests that exercise replica restore paths that fail on CockroachDB.
-
-    The replica restore flow runs ALTER TABLE ADD COLUMN followed by CREATE INDEX in separate
-    transactions; on CockroachDB the new column is not yet visible to the index DDL [PXT-1102].
-    """
     if Env.get().is_using_cockroachdb:
-        pytest.skip('Replica restore not yet implemented for CockroachDB [PXT-1102]')
+        pytest.skip('Replica restore not yet supported on CockroachDB')
 
 
-# Tests that exercise the package() / restore() round trip; these all hit the replica restore code path
-# that is not yet supported on CockroachDB [PXT-1102]. Listed here so we can apply the skip up-front
-# instead of partway through each test (which leaves the worker in a half-broken state on failure).
+# Tests that exercise the package() / restore() round trip; these all hit the replica restore code path.
+# Listed here so we can apply the skip up-front instead of partway through each test (which leaves the
+# worker in a half-broken state on failure).
 _REPLICA_TESTS = frozenset(
     {
         'test_round_trip',
