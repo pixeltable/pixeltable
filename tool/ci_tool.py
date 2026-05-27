@@ -24,6 +24,21 @@ ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
 COCKROACH_TEST_MODULES = ('table', 'index')
 
+# Modules run by `make slimtest` (see Makefile). The full CockroachDB suite is restricted to these.
+SLIMTEST_MODULES = (
+    'tests/test_catalog.py',
+    'tests/test_dirs.py',
+    'tests/test_env.py',
+    'tests/test_exprs.py',
+    'tests/test_function.py',
+    'tests/test_index.py',
+    'tests/test_snapshot.py',
+    'tests/test_table.py',
+    'tests/test_unversioned_table.py',
+    'tests/test_view.py',
+    'tests/share/test_packager.py',
+)
+
 
 class MatrixConfig(NamedTuple):
     display_name_prefix: str
@@ -135,13 +150,14 @@ def generate_matrix(args: argparse.Namespace) -> None:
                 for module in COCKROACH_TEST_MODULES
             )
 
-        # Full test suite against a local single-node CockroachDB container.
+        # Full test suite against a local single-node CockroachDB container. Restricted to the slimtest modules.
         configs.append(
             MatrixConfig(
                 'cockroach-full',
                 'py',
                 MAIN_PLATFORM,
                 '3.10',
+                pytest_options=f'{DEFAULT_PYTEST} {" ".join(SLIMTEST_MODULES)}',
                 pre_test_cmd=(
                     'bash scripts/start-cockroach-ci.sh && '
                     'export PIXELTABLE_DB_CONNECT_STR='
