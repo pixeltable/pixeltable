@@ -114,6 +114,29 @@ class TestTimestamp:
             else:
                 raise AssertionError()
 
+    def test_microsecond(self, uses_db: None) -> None:
+        # Regression test for the `microsecond` SQL translation with nonzero sub-second values.
+        # Includes fractional seconds >= 0.5, where rounding the `second` field to an integer would
+        # previously produce negative results.
+        from pixeltable.functions.timestamp import microsecond
+
+        test_dts = [
+            datetime.fromisoformat(f'2024-01-01T12:34:56.{frac}-08:00')
+            for frac in ('000000', '123456', '500000', '789456', '999999')
+        ]
+        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
+        validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
+
+        expected = [dt.microsecond for dt in test_dts]
+        # SQL path
+        actual = t.order_by(t.dt).select(out=microsecond(t.dt)).collect()['out']
+        assert actual == expected, actual
+        # Python path (interpose a non-SQLizable identity function to force in-Python evaluation)
+        actual_py = (
+            t.order_by(t.dt).select(out=microsecond(t.dt.apply(lambda x: x, col_type=pxt.Timestamp))).collect()['out']
+        )
+        assert actual_py == expected, actual_py
+
     def test_timestamp_zones(self, uses_db: None) -> None:
         timestamps = [
             # Some random times in the summer months (to ensure varying DST treatment)
