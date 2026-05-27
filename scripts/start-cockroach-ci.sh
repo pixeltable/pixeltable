@@ -28,4 +28,5 @@ docker exec "$ROACH_NAME" /cockroach/cockroach sql --insecure -e "
     SET CLUSTER SETTING sql.defaults.experimental_temporary_tables.enabled = true;
     ALTER RANGE default CONFIGURE ZONE USING gc.ttlseconds = 300;
     ALTER DATABASE pixeltable CONFIGURE ZONE USING gc.ttlseconds = 300;
+    SET CLUSTER SETTING sql.txn.read_committed_isolation.enabled = true;
 "
