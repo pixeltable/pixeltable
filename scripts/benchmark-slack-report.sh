@@ -7,7 +7,7 @@ set -euo pipefail
 
 : "${GRAFANA_PROM_URL:?set GRAFANA_PROM_URL to the Grafana Cloud Prometheus query base (ending in /api/prom)}"
 : "${GRAFANA_INSTANCE_ID:?GRAFANA_INSTANCE_ID is required}"
-: "${GRAFANA_API_KEY:?GRAFANA_API_KEY is required}"
+: "${GRAFANA_SERVICE_ACCOUNT_TOKEN:?GRAFANA_SERVICE_ACCOUNT_TOKEN is required}"
 : "${SLACK_WEBHOOK_URL:?SLACK_WEBHOOK_URL is required}"
 
 BRANCH="${BENCHMARK_BRANCH:-main}"
@@ -31,7 +31,7 @@ declare -A LABELS=(
 # Run a PromQL instant query; print the scalar value, or empty string if no data.
 prom_query() {
   curl -sf -G "${GRAFANA_PROM_URL%/}/api/v1/query" \
-    -u "${PROM_USER}:${GRAFANA_API_KEY}" \
+    -u "${PROM_USER}:${GRAFANA_SERVICE_ACCOUNT_TOKEN}" \
     --data-urlencode "query=$1" \
     | jq -r '.data.result[0].value[1] // empty'
 }

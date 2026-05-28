@@ -10,8 +10,8 @@ on:
 
 env:
   GRAFANA_INSTANCE_ID: '1465844'
-  GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
-  GRAFANA_PROM_URL: ${{ vars.GRAFANA_PROM_URL }}  # Grafana Cloud Prometheus query base, ending in /api/prom
+  GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}  # Same secret the benchmark push uses
+  GRAFANA_PROM_URL: ${{ secrets.GRAFANA_PROM_URL }}  # Grafana Cloud Prometheus query base, ending in /api/prom
   # The destination channel is fixed by whichever channel this incoming webhook was created for.
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   BENCHMARK_BRANCH: main
