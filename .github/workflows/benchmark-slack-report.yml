@@ -9,7 +9,8 @@ on:
     branches: [perf_alerts]  # TEMPORARY: lets the workflow run on this branch for testing. Remove before merge.
 
 env:
-  GRAFANA_INSTANCE_ID: '1465844'
+  GRAFANA_INSTANCE_ID: ${{ secrets.GRAFANA_INSTANCE_ID }}  # Grafana stack ID (used by the OTLP push path)
+  GRAFANA_PROM_USER: ${{ secrets.GRAFANA_PROM_USER }}  # Metrics (Prometheus) instance ID; query endpoint wants this, not the stack ID
   GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}  # Same secret the benchmark push uses
   GRAFANA_PROM_URL: ${{ secrets.GRAFANA_PROM_URL }}  # Grafana Cloud Prometheus query base, ending in /api/prom
   # The destination channel is fixed by whichever channel this incoming webhook was created for.
@@ -24,17 +25,5 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
-      - name: Diagnose Grafana series (TEMPORARY)
-        run: |
-          base="${GRAFANA_PROM_URL%/}/api/v1"
-          echo "== metric names matching benchmark.* =="
-          curl -s -G "$base/label/__name__/values" \
-            -u "${GRAFANA_INSTANCE_ID}:${GRAFANA_SERVICE_ACCOUNT_TOKEN}" \
-            --data-urlencode 'match[]={__name__=~"benchmark.*"}' | jq
-          echo "== series labels (name / branch / test) over 14d =="
-          curl -s -G "$base/query" \
-            -u "${GRAFANA_INSTANCE_ID}:${GRAFANA_SERVICE_ACCOUNT_TOKEN}" \
-            --data-urlencode 'query=last_over_time({__name__=~"benchmark.*"}[14d])' \
-            | jq -r '.data.result[].metric | "\(.__name__)  branch=\(.branch)  test=\(.test_name)"' | sort -u
       - name: Post benchmark digest to Slack
         run: ./scripts/benchmark-slack-report.sh
