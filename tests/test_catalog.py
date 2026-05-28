@@ -354,3 +354,36 @@ class TestCatalog:
         assert pxt.get_table('base').count() == 1
         # Verify that the insert was propagated to vb.
         assert pxt.get_table('vb').count() == 1
+
+    def test_load_table_concurrent_drop_store_tbl(self, uses_db: None, fault_injection: None) -> None:
+        """
+        Verifies a bug fix: one thread is loading a table while the other is dropping it.
+        """
+        pxt.create_table('test', {'a': pxt.Int})
+        block_in_store_base = BlockFault()
+
+        def get_table_expect_not_found() -> None:
+            with pxt_raises(excs.ErrorCode.TABLE_NOT_FOUND, match='Table was dropped'):
+                pxt.get_table('test')
+
+        (
+            MultiThreadedScenario()
+            # Thread 0: arm the fault that blocks right after _store_tbl_exists() returns True
+            .then_run(
+                thread_id=0,
+                name='inject fault',
+                fn=lambda: get_runtime().fault_manager.inject_fault(
+                    FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK, block_in_store_base
+                ),
+            )
+            # Thread 0: load the table with a cold cache; this will block in StoreBase. When it unblocks later, expect
+            # a "Table was dropped" error. Before the fix, this would raise an AssertionError.
+            .then_run_until(
+                thread_id=0, name='get table', event=block_in_store_base.reached, fn=get_table_expect_not_found
+            )
+            # Thread 1: drop the table while Thread 0 is frozen. This drops store table as well.
+            .then_run(thread_id=1, name='drop table', fn=lambda: pxt.drop_table('test'))
+            # Thread 1: unblock Thread 0 inside StoreBase
+            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: block_in_store_base.unblock())
+            .execute()
+        )
