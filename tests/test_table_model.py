@@ -3,6 +3,7 @@ import numpy as np
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.catalog.model import Column, TableSpec
+from pixeltable.types import EmbeddingIndexSpec
 
 from .utils import assert_table_metadata_eq
 
@@ -17,8 +18,13 @@ class TestTableModel:
             id: pxt.Required[pxt.Int]
             name: pxt.String
             value: pxt.Float
+            img: pxt.Image
             incr = Column.value + 1
             descr = pxtf.string.format('Name: {name}', name=Column.name)
+
+            clip_idx = EmbeddingIndexSpec(
+                Column.img, embedding=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
+            )
 
         # VARIANT 2: Using TableSpec for syntax that is more similar to "Pixeltable standard"
         # Named `TableSpec` resolves placeholder references.
@@ -28,8 +34,13 @@ class TestTableModel:
             id: pxt.Required[pxt.Int]
             name: pxt.String
             value: pxt.Float
+            img: pxt.Image
             incr = tbl.value + 1
             descr = pxtf.string.format('Name: {name}', name=tbl.name)
+
+            clip_idx = EmbeddingIndexSpec(
+                tbl.img, embedding=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
+            )
 
         tbl = ExampleTableModel.create()
         _ = ExampleTableModel2.create()
@@ -40,6 +51,7 @@ class TestTableModel:
             'name': 'String',
             'value': 'Float',
             'incr': 'Float',
+            'img': 'Image',
             'descr': 'Required[String]',
         }
 
@@ -99,6 +111,23 @@ class TestTableModel:
                         'is_iterator_col': False,
                         'destination': None,
                     },
+                    'img': {
+                        'name': 'img',
+                        'type_': 'Image',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': 'on_write',
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'test_table',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
                     'incr': {
                         'name': 'incr',
                         'type_': 'Float',
@@ -138,15 +167,29 @@ class TestTableModel:
                     'idx0': {'name': 'idx0', 'columns': ['id'], 'index_type': 'btree', 'parameters': None},
                     'idx1': {'name': 'idx1', 'columns': ['name'], 'index_type': 'btree', 'parameters': None},
                     'idx2': {'name': 'idx2', 'columns': ['value'], 'index_type': 'btree', 'parameters': None},
-                    'idx3': {'name': 'idx3', 'columns': ['incr'], 'index_type': 'btree', 'parameters': None},
-                    'idx4': {'name': 'idx4', 'columns': ['descr'], 'index_type': 'btree', 'parameters': None},
+                    'idx3': {'name': 'idx3', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
+                    'idx4': {'name': 'idx4', 'columns': ['incr'], 'index_type': 'btree', 'parameters': None},
+                    'idx5': {'name': 'idx5', 'columns': ['descr'], 'index_type': 'btree', 'parameters': None},
+                    'clip_idx': {
+                        'name': 'clip_idx',
+                        'columns': ['img'],
+                        'index_type': 'embedding',
+                        'parameters': {
+                            'metric': 'cosine',
+                            'embedding': "clip(img, model_id='openai/clip-vit-base-patch32')",
+                            'embedding_functions': [
+                                "clip(text, model_id='openai/clip-vit-base-patch32')",
+                                "clip(image, model_id='openai/clip-vit-base-patch32')",
+                            ],
+                        },
+                    },
                 },
                 'is_versioned': True,
                 'is_replica': False,
                 'is_view': False,
                 'is_snapshot': False,
-                'version': 2,
-                'schema_version': 2,
+                'version': 3,
+                'schema_version': 3,
                 'comment': None,
                 'custom_metadata': None,
                 'media_validation': 'on_write',

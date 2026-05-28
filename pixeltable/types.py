@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
 
 if TYPE_CHECKING:
-    from pixeltable import exprs
+    from pixeltable import exprs, func
 
 
 TableKind = Literal['table', 'view', 'snapshot', 'replica']
@@ -65,3 +66,16 @@ class ColumnSpec(TypedDict, total=False):
     """User-defined metadata to associate with the column."""
     comment: str
     """Optional comment for the column. Displayed in .describe() output."""
+
+
+@dataclass(frozen=True)
+class EmbeddingIndexSpec:
+    column: str | exprs.Expr
+    embedding: func.Function | None = None
+    string_embed: func.Function | None = None
+    image_embed: func.Function | None = None
+    audio_embed: func.Function | None = None
+    video_embed: func.Function | None = None
+    document_embed: func.Function | None = None
+    metric: Literal['cosine', 'ip', 'l2'] = 'cosine'
+    precision: Literal['fp16', 'fp32'] = 'fp16'
