@@ -1,0 +1,26 @@
+name: benchmark-slack-report
+
+on:
+  schedule:
+    # 08:00 PST = 16:00 UTC. GitHub cron is UTC-only, so during PDT (summer) this fires at 09:00 local.
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+
+env:
+  GRAFANA_INSTANCE_ID: '1465844'
+  GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+  GRAFANA_PROM_URL: ${{ vars.GRAFANA_PROM_URL }}  # Grafana Cloud Prometheus query base, ending in /api/prom
+  # The destination channel is fixed by whichever channel this incoming webhook was created for.
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  BENCHMARK_BRANCH: main
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Post benchmark digest to Slack
+        run: ./scripts/benchmark-slack-report.sh
