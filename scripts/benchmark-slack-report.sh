@@ -3,7 +3,7 @@
 # today's mean execution time against the value from ~24h ago. The numbers come
 # from the same Grafana Cloud Prometheus store that tool/benchmark_reporter.py
 # pushes to in the stress-tests workflow.
-# temp2
+# temp3
 set -euo pipefail
 
 : "${GRAFANA_PROM_URL:?set GRAFANA_PROM_URL to the Grafana Cloud Prometheus query base (ending in /api/prom)}"
