@@ -5,6 +5,8 @@ on:
     # 08:00 PST = 16:00 UTC. GitHub cron is UTC-only, so during PDT (summer) this fires at 09:00 local.
     - cron: "0 16 * * *"
   workflow_dispatch:
+  push:
+    branches: [perf_alerts]  # TEMPORARY: lets the workflow run on this branch for testing. Remove before merge.
 
 env:
   GRAFANA_INSTANCE_ID: '1465844'
