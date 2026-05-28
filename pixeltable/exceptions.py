@@ -256,6 +256,6 @@ def table_was_dropped(identifier: Any = None) -> NotFoundError:
     return NotFoundError(ErrorCode.TABLE_NOT_FOUND, msg)
 
 
-def is_table_not_found(e: BaseException) -> bool:
+def is_table_not_found_error(e: BaseException) -> bool:
     """Returns True if the exception signals that a table was not found."""
     return isinstance(e, Error) and e.error_code == ErrorCode.TABLE_NOT_FOUND
