@@ -23,7 +23,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata.schema import base_metadata
-from pixeltable.runtime import get_runtime
+from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
@@ -167,6 +167,9 @@ def fault_injection() -> Iterator[None]:
     # Monkey patch fault injection to product
     prod_fault_injection.process_fault = test_fault_injection.process_fault
     prod_fault_injection.create_fault_manager = test_fault_injection.create_fault_manager
+
+    # Recreate runtime to pick up a fault manager
+    reset_runtime()
 
     try:
         yield
