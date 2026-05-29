@@ -163,6 +163,8 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
 @pytest.fixture()
 def fault_injection() -> Iterator[None]:
     """Enables fault injection"""
+    orig_process_fault = prod_fault_injection.process_fault
+    orig_create_fault_manager = prod_fault_injection.create_fault_manager
 
     # Monkey patch fault injection to product
     prod_fault_injection.process_fault = test_fault_injection.process_fault
@@ -174,7 +176,9 @@ def fault_injection() -> Iterator[None]:
     try:
         yield
     finally:
-        get_runtime().fault_manager.clear_faults()
+        prod_fault_injection.process_fault = orig_process_fault
+        prod_fault_injection.create_fault_manager = orig_create_fault_manager
+        reset_runtime()
 
 
 @pytest.fixture(scope='function')
