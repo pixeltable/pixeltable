@@ -160,7 +160,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
             _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture()
 def fault_injection() -> Iterator[None]:
     """Enables fault injection"""
 
