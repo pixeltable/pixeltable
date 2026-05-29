@@ -17,6 +17,7 @@ from .catalog import (
     UpdateStatus,
     VersionMetadata,
     View,
+    ViewModel,
 )
 from .exceptions import (
     AlreadyExistsError,

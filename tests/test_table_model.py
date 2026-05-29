@@ -1,4 +1,7 @@
+from typing import Any
+
 import numpy as np
+import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -207,7 +210,11 @@ class TestTableModel:
         assert isinstance(ExampleTableModel.id, exprs.ColumnRef)
         assert isinstance(ExampleTableModel.descr, exprs.ColumnRef)
 
-        results = ExampleTableModel.table.select(ExampleTableModel.id, ExampleTableModel.descr).order_by(ExampleTableModel.id).collect()
+        results = (
+            ExampleTableModel.table.select(ExampleTableModel.id, ExampleTableModel.descr)
+            .order_by(ExampleTableModel.id)
+            .collect()
+        )
         assert list(results) == [
             {'id': 1, 'descr': 'Name: Alice'},
             {'id': 2, 'descr': 'Name: Bob'},
@@ -277,3 +284,65 @@ class TestTableModel:
             'type_cast': 'Required[Array[float32]]',
             'value': 'Float',
         }
+
+    @pytest.mark.parametrize('spec_type', ['model', 'name', 'query', 'table'])
+    def test_view_model(self, spec_type: str, uses_db: None) -> None:
+        class ExampleTableModel(pxt.TableModel):
+            __table_name__ = 'test_table'
+
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            value: pxt.Float
+            img: pxt.Image
+            incr = Column.value + 1
+            descr = pxtf.string.format('Name: {name}', name=Column.name)
+
+            clip_idx = EmbeddingIndex(
+                Column.img, embedding=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
+            )
+
+        _ = ExampleTableModel.create()
+
+        spec: Any
+        match spec_type:
+            case 'model':
+                spec = ExampleTableModel
+            case 'name':
+                spec = 'test_table'
+            case 'query':
+                spec = ExampleTableModel.table.select(ExampleTableModel.table.value, ExampleTableModel.table.img).where(ExampleTableModel.table.value > 0.5)
+            case 'table':
+                spec = ExampleTableModel.table
+
+        class ExampleViewModel(pxt.ViewModel):
+            __table_name__ = 'test_view'
+            __base_table__ = spec
+
+            view_col_1: pxt.Image
+            view_col_2 = Column.view_col_1.rotate(90)
+            view_col_3 = Column.img.rotate(90)  # Also try dereferencing a base table column
+
+            view_idx = EmbeddingIndex(
+                Column.view_col_2, embedding=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
+            )
+
+        _ = ExampleViewModel.create()
+
+        match spec_type:
+            case 'model':
+                spec = ExampleViewModel
+            case 'name':
+                spec = 'test_view'
+            case 'query':
+                spec = ExampleViewModel.table.where(ExampleViewModel.table.value > 1.0)
+            case 'table':
+                spec = ExampleViewModel.table
+
+        class ExampleViewModel2(pxt.ViewModel):
+            __table_name__ = 'test_view_2'
+            __base_table__ = spec
+
+            subview_col_1 = Column.img.rotate(180)
+            subview_col_2 = Column.view_col_1.rotate(270)
+
+        _ = ExampleViewModel2.create()

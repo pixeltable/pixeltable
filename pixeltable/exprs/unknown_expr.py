@@ -29,6 +29,9 @@ class UnknownOpExpr(UnknownExpr):
         self.op = op
         self.operand1 = operand1
         self.operand2 = operand2
+        self.components.append(operand1)
+        if isinstance(operand2, Expr):
+            self.components.append(operand2)
 
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         operand1_sub = self.operand1.substitute(spec)
@@ -39,22 +42,22 @@ class UnknownOpExpr(UnknownExpr):
 class UnknownItemExpr(UnknownExpr):
     def __init__(self, base: Expr, index: object):
         super().__init__()
-        self.base = base
+        self.components.append(base)
         self.index = index
 
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
-        base_sub = self.base.substitute(spec)
+        base_sub = self.components[0].substitute(spec)
         return base_sub[self.index]
 
 
 class UnknownAttrExpr(UnknownExpr):
     def __init__(self, base: Expr, attr_name: str):
         super().__init__()
-        self.base = base
+        self.components.append(base)
         self.attr_name = attr_name
 
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
-        base_sub = self.base.substitute(spec)
+        base_sub = self.components[0].substitute(spec)
         return getattr(base_sub, self.attr_name)
 
 
@@ -64,6 +67,9 @@ class UnknownCallExpr(UnknownExpr):
         self.base = base
         self.args = args
         self.kwargs = kwargs
+        self.components.append(base)
+        self.components.extend(arg for arg in args if isinstance(arg, Expr))
+        self.components.extend(v for v in kwargs.values() if isinstance(v, Expr))
 
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         base_sub = self.base.substitute(spec)

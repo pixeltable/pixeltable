@@ -5,7 +5,7 @@ from .column import Column
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId, is_valid_identifier
 from .insertable_table import InsertableTable
-from .model import TableModel
+from .model import TableModel, ViewModel
 from .path import Path
 from .schema_object import SchemaObject
 from .table import Table
