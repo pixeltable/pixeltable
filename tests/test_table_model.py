@@ -201,6 +201,17 @@ class TestTableModel:
             tbl.get_metadata(),
         )
 
+    def test_table_model_query(self, uses_db: None) -> None:
+        class ExampleTableModel(pxt.TableModel):
+            __table_name__ = 'test_table'
+
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            value: pxt.Float
+            img: pxt.Image
+            incr = Column.value + 1
+            descr = pxtf.string.format('Name: {name}', name=Column.name)
+
     def test_all_table_exprs(self, uses_db: None) -> None:
         class AllExprsTableModel(pxt.TableModel):
             __table_name__ = 'all_exprs_table'

@@ -131,9 +131,29 @@ class TableModelMetaclass(type):
                 expr = exprs.Expr.from_object(value)
                 columns[attr_name] = ColumnSpec(type=annotation, value=expr)
 
+        if '__table_name__' not in namespace and len(bases) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA, f'Table model `{name}` does not define a table name.'
+            )
+
+        for col_name in columns:
+            namespace[col_name] = property(fget=lambda self: self._resolve_column(col_name))
+
+        for idx_name in indexes:
+            del namespace[idx_name]
+
         namespace['__columns__'] = columns
         namespace['__indexes__'] = indexes
+
         return super().__new__(mcs, name, bases, namespace)
+
+    def _resolve_tbl(cls) -> Table:
+        import pixeltable as pxt
+
+        return pxt.get_table(cls.__table_name__)
+
+    def _resolve_column(cls, col_name: str) -> exprs.ColumnRef:
+        return getattr(cls._resolve_tbl(), col_name)
 
     def create(cls, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error') -> Table:
         import pixeltable as pxt
@@ -182,6 +202,15 @@ class TableModelMetaclass(type):
 
         finish_schema()
         return tbl
+
+    @property
+    def table(cls) -> Table:
+        """The underlying [`Table`][pixeltable.Table] this model is bound to.
+
+        Use this to access the full table and query API with static type information; e.g.,
+        `MyModel.table.where(...).order_by(...).collect()`.
+        """
+        return cls._resolve_tbl()
 
 
 class TableModel(metaclass=TableModelMetaclass):
