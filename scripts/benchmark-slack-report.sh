@@ -36,15 +36,17 @@ prom_query() {
     | jq -r '.data.result[0].value[1] // empty'
 }
 
-# Fetch the latest value for a test, now and ~24h ago. Prints "<cur> <prev>"
-# (either may be empty). last_over_time tolerates the once-a-day push cadence;
-# a plain instant query would go stale 5 min after each push.
+# Fetch the latest value for a test, now and ~24h ago. Prints "<cur>|<prev>"
+# (either may be empty). A pipe (not whitespace) delimiter is required so an
+# empty cur with a non-empty prev parses as cur='' rather than shifting prev
+# into cur. last_over_time tolerates the once-a-day push cadence; a plain
+# instant query would go stale 5 min after each push.
 fetch_values() {
   local sel="${METRIC}{test_name=\"$1\",branch=\"${BRANCH}\"}"
   local cur prev
   cur=$(prom_query "last_over_time(${sel}[3d])") || cur=''
   prev=$(prom_query "last_over_time(${sel}[3d] offset 24h)") || prev=''
-  echo "$cur $prev"
+  printf '%s|%s\n' "$cur" "$prev"
 }
 
 # Format a duration in seconds as a human-friendly string (ms below 1s).
@@ -78,7 +80,7 @@ format_line() {
 
 declare -A CUR PREV
 for tn in "${ORDER[@]}"; do
-  read -r cur prev < <(fetch_values "$tn")
+  IFS='|' read -r cur prev < <(fetch_values "$tn")
   CUR[$tn]="$cur"
   PREV[$tn]="$prev"
 done
