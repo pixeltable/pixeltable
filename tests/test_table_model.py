@@ -2,16 +2,14 @@ import numpy as np
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.catalog.model import Column, TableSpec
-from pixeltable.types import EmbeddingIndexSpec
+from pixeltable import exceptions as excs, exprs
+from pixeltable.catalog.model import Column, EmbeddingIndex
 
-from .utils import assert_table_metadata_eq
+from .utils import assert_table_metadata_eq, pxt_raises
 
 
 class TestTableModel:
     def test_table_model(self, uses_db: None) -> None:
-        # VARIANT 1: As in the doc, using `__table_name__` and `Column.col_name` placeholders
-        # Static `Column` object resolves placeholder references.
         class ExampleTableModel(pxt.TableModel):
             __table_name__ = 'test_table'
 
@@ -22,28 +20,11 @@ class TestTableModel:
             incr = Column.value + 1
             descr = pxtf.string.format('Name: {name}', name=Column.name)
 
-            clip_idx = EmbeddingIndexSpec(
+            clip_idx = EmbeddingIndex(
                 Column.img, embedding=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
             )
 
-        # VARIANT 2: Using TableSpec for syntax that is more similar to "Pixeltable standard"
-        # Named `TableSpec` resolves placeholder references.
-        class ExampleTableModel2(pxt.TableModel):
-            tbl = TableSpec('test_table_2', primary_key='id', comment='This is a test table')
-
-            id: pxt.Required[pxt.Int]
-            name: pxt.String
-            value: pxt.Float
-            img: pxt.Image
-            incr = tbl.value + 1
-            descr = pxtf.string.format('Name: {name}', name=tbl.name)
-
-            clip_idx = EmbeddingIndexSpec(
-                tbl.img, embedding=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
-            )
-
         tbl = ExampleTableModel.create()
-        _ = ExampleTableModel2.create()
         metadata = tbl.get_metadata()
 
         assert {name: info['type_'] for name, info in metadata['columns'].items()} == {
@@ -212,6 +193,27 @@ class TestTableModel:
             incr = Column.value + 1
             descr = pxtf.string.format('Name: {name}', name=Column.name)
 
+        with pxt_raises(excs.ErrorCode.PATH_NOT_FOUND, match="Path 'test_table' does not exist"):
+            ExampleTableModel.id
+
+        ExampleTableModel.create()
+        ExampleTableModel.table.insert(
+            [
+                {'id': 1, 'name': 'Alice', 'value': 3.14},
+                {'id': 2, 'name': 'Bob', 'value': 2.71},
+                {'id': 3, 'name': 'Charlie', 'value': 1.41},
+            ]
+        )
+        assert isinstance(ExampleTableModel.id, exprs.ColumnRef)
+        assert isinstance(ExampleTableModel.descr, exprs.ColumnRef)
+
+        results = ExampleTableModel.table.select(ExampleTableModel.id, ExampleTableModel.descr).order_by(ExampleTableModel.id).collect()
+        assert list(results) == [
+            {'id': 1, 'descr': 'Name: Alice'},
+            {'id': 2, 'descr': 'Name: Bob'},
+            {'id': 3, 'descr': 'Name: Charlie'},
+        ]
+
     def test_all_table_exprs(self, uses_db: None) -> None:
         class AllExprsTableModel(pxt.TableModel):
             __table_name__ = 'all_exprs_table'
@@ -233,6 +235,7 @@ class TestTableModel:
             function_call = pxtf.math.floor(Column.value)
             in_predicate = Column.name.isin(['Alice', 'Bob', 'Charlie'])
             inline_array = pxt.array([Column.value, Column.value + 1, Column.value + 2])
+            inline_dict = {'name': Column.name, 'img': Column.img}
             inline_list = [Column.name, Column.img]  # noqa: RUF012
             is_null = Column.name == None
             method_ref = Column.name.upper()
@@ -262,6 +265,7 @@ class TestTableModel:
             'img': 'Image',
             'in_predicate': 'Required[Bool]',
             'inline_array': 'Required[Array[(3,), float32]]',
+            'inline_dict': "Required[Json[{'name': String | None, 'img': Image | None}]]",
             'inline_list': 'Required[Json[(String | None, Image | None)]]',
             'is_null': 'Required[Bool]',
             'method_ref': 'String',

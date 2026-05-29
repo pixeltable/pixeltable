@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
-from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.types import ColumnSpec, EmbeddingIndexSpec
+from pixeltable import exceptions as excs, exprs, func, type_system as ts
+from pixeltable.types import ColumnSpec
 
 from .catalog import retry_loop
 from .globals import is_valid_identifier
@@ -17,7 +18,7 @@ class _PlaceholderColumnRef(exprs.Expr):
     which gets substituted with an actual ColumnRef during Table creation.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, column_spec: ColumnSpec | None = None) -> None:
         # Placeholders have column type `InvalidType(nullable=False)`, the universal subtype.
 
         super().__init__(ts.InvalidType(nullable=False))
@@ -37,6 +38,11 @@ class _PlaceholderColumnRef(exprs.Expr):
         raise AssertionError('It should never be possible to observe a placeholder in an execution context.')
 
 
+@dataclass
+class _PlaceholderColumnSpec:
+    column_spec: ColumnSpec
+
+
 class _PlaceholderFactory:
     """Class for creating placeholder column objects that can be used in TableModel definitions.
 
@@ -52,22 +58,54 @@ class _PlaceholderFactory:
     def __hasattr__(self, key: str) -> bool:
         return isinstance(key, str) and is_valid_identifier(key)
 
+    def __call__(
+        self,
+        *,
+        type: type | None = None,
+        value: exprs.Expr | None = None,
+        primary_key: bool | None = None,
+        stored: bool | None = None,
+        media_validation: Literal['on_read', 'on_write'] | None = None,
+        destination: str | Path | None = None,
+        custom_metadata: Any = None,
+        comment: str | None = None,
+    ) -> _PlaceholderColumnSpec:
+        # Route each provided argument into a ColumnSpec, omitting any that were not supplied
+        # (ColumnSpec is total=False, so absent keys are simply left out).
+        column_spec: ColumnSpec = {}
+        if type is not None:
+            column_spec['type'] = type
+        if value is not None:
+            column_spec['value'] = value
+        if primary_key is not None:
+            column_spec['primary_key'] = primary_key
+        if stored is not None:
+            column_spec['stored'] = stored
+        if media_validation is not None:
+            column_spec['media_validation'] = media_validation
+        if destination is not None:
+            column_spec['destination'] = destination
+        if custom_metadata is not None:
+            column_spec['custom_metadata'] = custom_metadata
+        if comment is not None:
+            column_spec['comment'] = comment
+        return _PlaceholderColumnSpec(column_spec)
+
 
 Column = _PlaceholderFactory()
 
 
-@dataclass
-class TableSpec:
-    name: str
-    primary_key: str | list[str] | None = None
-    comment: str | None = None
-    custom_metadata: dict[str, Any] | None = None
-    media_validation: Literal['on_read', 'on_write'] = 'on_write'
-
-    def __getattr__(self, key: str) -> _PlaceholderColumnRef:
-        if not isinstance(key, str) or not is_valid_identifier(key):
-            raise AttributeError(f'Invalid column name: {key}')
-        return _PlaceholderColumnRef(key)
+@dataclass(frozen=True)
+class EmbeddingIndex:
+    column: str | exprs.Expr
+    embedding: func.Function | None = None
+    string_embed: func.Function | None = None
+    image_embed: func.Function | None = None
+    audio_embed: func.Function | None = None
+    video_embed: func.Function | None = None
+    document_embed: func.Function | None = None
+    metric: Literal['cosine', 'ip', 'l2'] = 'cosine'
+    precision: Literal['fp16', 'fp32'] = 'fp16'
 
 
 class TableModelMetaclass(type):
@@ -79,9 +117,8 @@ class TableModelMetaclass(type):
     """
 
     __columns__: dict[str, ColumnSpec]
-    __indexes__: dict[str, EmbeddingIndexSpec]
+    __indexes__: dict[str, EmbeddingIndex]
     __table_name__: str
-    __table_spec__: TableSpec
 
     def __new__(
         mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
@@ -102,45 +139,40 @@ class TableModelMetaclass(type):
             decls[attr_name] = (None, value)
 
         columns: dict[str, ColumnSpec] = {}
-        indexes: dict[str, EmbeddingIndexSpec] = {}
+        indexes: dict[str, EmbeddingIndex] = {}
         for attr_name, (annotation, value) in decls.items():
             if value is None:
                 assert annotation is not None
                 columns[attr_name] = ColumnSpec(type=annotation)
-            elif isinstance(value, TableSpec):
-                # TODO: This is not a full implementation of TableSpec; it's just to illustrate the proposal.
-                #     I'll defer that until/if we decide to use that pattern. (But it won't be hard to implement.)
-                namespace['__table_name__'] = value.name
-                namespace['__table_spec__'] = value
-            elif isinstance(value, EmbeddingIndexSpec):
+            elif isinstance(value, EmbeddingIndex):
                 indexes[attr_name] = value
-            elif isinstance(value, dict):
-                spec = value
+            elif isinstance(value, _PlaceholderColumnSpec):
+                spec = value.column_spec
                 if annotation is not None:
-                    if spec['type'] is None:
+                    if spec.get('type') is None:
                         # Fill the annotation into the ColumnSpec if it's missing
                         spec = spec.copy()
                         spec['type'] = annotation
                     elif spec['type'] != annotation:
                         raise excs.RequestError(
                             excs.ErrorCode.INVALID_SCHEMA,
-                            f'Type annotation for column {attr_name!r} conflicts with type in ColumnSpec',
+                            f'Type annotation for column {attr_name!r} '
+                            'conflicts with the `type=` argument in `Column()`',
                         )
-                columns[attr_name] = spec  # type: ignore[assignment]
+                columns[attr_name] = spec
             else:
                 expr = exprs.Expr.from_object(value)
                 columns[attr_name] = ColumnSpec(type=annotation, value=expr)
+
+            # Remove the attribute from the namespace so that the metaclass __getattr__ handler can resolve it into
+            # proper ColumnRef instances.
+            if attr_name in namespace:
+                del namespace[attr_name]
 
         if '__table_name__' not in namespace and len(bases) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA, f'Table model `{name}` does not define a table name.'
             )
-
-        for col_name in columns:
-            namespace[col_name] = property(fget=lambda self: self._resolve_column(col_name))
-
-        for idx_name in indexes:
-            del namespace[idx_name]
 
         namespace['__columns__'] = columns
         namespace['__indexes__'] = indexes
@@ -159,7 +191,7 @@ class TableModelMetaclass(type):
         import pixeltable as pxt
 
         columns: dict[str, ColumnSpec] = cls.__columns__
-        indexes: dict[str, EmbeddingIndexSpec] = cls.__indexes__
+        indexes: dict[str, EmbeddingIndex] = cls.__indexes__
 
         # Create the table with non-computed columns
         initial_schema = {col_name: col_spec for col_name, col_spec in columns.items() if col_spec.get('value') is None}
@@ -202,6 +234,11 @@ class TableModelMetaclass(type):
 
         finish_schema()
         return tbl
+
+    def __getattr__(cls, item: str) -> Any:
+        if item in cls.__columns__:
+            return cls._resolve_column(item)
+        return super().__getattribute__(item)
 
     @property
     def table(cls) -> Table:
