@@ -303,7 +303,7 @@ class TestTable:
                 additional_columns={'col2': tbl.col + 'x'},
             )
             assert tbl._path() == tbl_path
-            assert tbl._name == tbl_path.split('/')[-1]
+            assert tbl._name() == tbl_path.split('/')[-1]
             assert tbl._parent()._path() == '/'.join(tbl_path.split('/')[:-1])
 
             assert_table_metadata_eq(
@@ -2311,7 +2311,7 @@ class TestTable:
         for col_name, literal in test_cases:
             status = t.update({col_name: literal}, where=t.c3 < 10.0, cascade=False)
             assert status.num_rows == 10
-            assert status.updated_cols == [f'{t._name}.{col_name}']
+            assert status.updated_cols == [f'{t._name()}.{col_name}']
             assert t.count() == count
             t.revert()
 
@@ -2350,7 +2350,7 @@ class TestTable:
 
         # revert, then verify that we're back to where we started
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
@@ -2562,7 +2562,7 @@ class TestTable:
 
         # revert, then verify that we're back where we started
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
         assert cnt == 10
@@ -2765,7 +2765,7 @@ class TestTable:
 
         # test loading from store
         reload_catalog()
-        t2 = pxt.get_table(t._name)
+        t2 = pxt.get_table(t._name())
         assert len(t.columns()) == len(t2.columns())
         t_columns = t._tbl_version_path.columns()
         t2_columns = t2._tbl_version_path.columns()
@@ -2905,7 +2905,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         assert set(t.columns()) == orig_cols | {'add1', 'name', 'id'}
 
         # revert() works
@@ -2916,7 +2916,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         assert set(t.columns()) == orig_cols
 
     def test_bool_column(self, uses_db: None, reload_tester: ReloadTester) -> None:
@@ -3283,7 +3283,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         assert len(t.columns()) == num_orig_cols - 1
 
         # revert() works
@@ -3294,7 +3294,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         assert len(t.columns()) == num_orig_cols
         assert 'c1' in t.columns()
         _ = t.c1
@@ -3381,7 +3381,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         check_rename(t, 'c1_renamed', 'c1')
 
         # revert() works
@@ -3392,7 +3392,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         check_rename(t, 'c1', 'c1_renamed')
 
     @pytest.mark.cockroachdb
@@ -3684,7 +3684,7 @@ class TestTable:
         assert status.num_excs == 0
         assert tbl.count() == 10
         # we can create references to those column via __getattr__
-        _ = tbl.select(tbl.id, tbl._name).collect()
+        _ = tbl.select(tbl.id, tbl.name, tbl.version, tbl.comment).collect()
 
     def test_table_api_on_dropped_table(self, uses_db: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.String})
