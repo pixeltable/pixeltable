@@ -183,6 +183,23 @@ class FastAPIRouter(fastapi.APIRouter):
         # merges this handler into the app's on_shutdown list, so it fires on app shutdown.
         self.add_event_handler('shutdown', self._shutdown)
 
+    def add_api_route(self, path: str, *args: Any, **kwargs: Any) -> None:
+        """Wrap FastAPI's add_api_route with a duplicate (path, method) check."""
+        # FastAPI's APIRoute normalizes methods to uppercase; match its contract.
+        new_methods = {m.upper() for m in (kwargs.get('methods') or ['GET'])}
+        # FastAPI stores routes under self.prefix + path; compare against the prefixed form
+        prefixed_path = self.prefix + path
+        for route in self.routes:
+            if not isinstance(route, fastapi.routing.APIRoute) or route.path != prefixed_path:
+                continue
+            if len(overlap := route.methods & new_methods) == 0:
+                continue
+            conflict = ', '.join(sorted(overlap))
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.PATH_ALREADY_EXISTS, f'route already registered: {conflict} {prefixed_path!r}'
+            )
+        super().add_api_route(path, *args, **kwargs)
+
     def _shutdown(self) -> None:
         # wait until in-flight requests are done and won't access _engine_cache
         self._executor.shutdown(wait=True, cancel_futures=True)
