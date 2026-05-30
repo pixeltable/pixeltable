@@ -1464,11 +1464,15 @@ class Catalog:
         self._roll_forward_ids.clear()
         tbl_id, is_created = create_fn()
         self._roll_forward()
-        with self.begin_xact(for_write=True, write_tbl_ids=[tbl_id]):
+
+        @retry_loop(read_tbl_ids=[tbl_id])
+        def _get_tbl() -> Table:
             tbl = self.get_table_by_id(tbl_id)
             _logger.info(f'Created table {tbl._name!r}, id={tbl._id}')
             Env.get().console_logger.info(f'Created table {tbl._name!r}.')
-            return tbl, is_created
+            return tbl
+
+        return _get_tbl(), is_created
 
     def create_view(
         self,
