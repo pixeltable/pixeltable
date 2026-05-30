@@ -18,6 +18,7 @@ from pixeltable.index.btree import BtreeIndex
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.exception_handler import run_cleanup
+from pixeltable.utils.fault_injection import FaultLocation, process_fault
 from pixeltable.utils.sql import log_explain, log_stmt
 from pixeltable.utils.uuid import uuid7
 
@@ -124,6 +125,7 @@ class StoreBase:
         """Create and return system columns"""
         rowid_cols: list[sql.Column]
         if self._store_tbl_exists():
+            process_fault(FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK)
             # derive our rowid Columns from the existing table, without having to access self.base.store_tbl:
             # self.base may not exist anymore (both this table and our base got dropped in the same transaction, and
             # the base was finalized before this table)
@@ -136,6 +138,10 @@ class StoreBase:
                 # System columns on an unversioned table: rowid, [pos_0, pos_1, ...]
                 # System columns are always followed by at least one user column
                 col_names = [row[0] for row in conn.execute(sql.text(q)).fetchall()]
+                if len(col_names) == 0:
+                    # We can get here if another process dropped this table between the existence
+                    # check above and the select from info schema.
+                    raise excs.table_was_dropped(self.tbl_version.id)
                 assert len(col_names) > 1, col_names
                 assert not col_names[-1].startswith('pos_'), col_names
 
