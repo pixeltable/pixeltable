@@ -70,10 +70,8 @@ _EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, np.generic, PIL.Image.Im
 def _check_route_output_schema(output_cols: list[catalog.Column], error_prefix: str) -> None:
     """Reject output column types whose values can't be served by FastAPI today.
 
-    Array and Binary cells materialize into coalesced side files (ArrayMd/BinaryMd byte-range
-    stubs) that the /media route can't serve as single units, or come through compute as raw
-    ndarray/bytes that don't JSON-encode. JSON cells are allowed at the schema level because
-    they commonly carry plain scalars; per-row content is checked at request time.
+    Array and Binary cells materialize into coalesced side files that the /media route can't serve as single units,
+    or come through compute as raw ndarray/bytes that can't be serialized to json.
     """
     for col in output_cols:
         if col.col_type.is_array_type() or col.col_type.is_binary_type():
@@ -85,20 +83,16 @@ def _check_route_output_schema(output_cols: list[catalog.Column], error_prefix: 
 
 
 def _check_json_value_servable(val: Any, col_name: str) -> None:
-    """Raise HTTPException if a JSON cell value contains content the FastAPI layer can't serve.
-
-    Two cases:
-    - Materialized stubs: CellMaterializationNode rewrites embedded media into
-      `{INLINED_OBJECT_MD_KEY: ...}` dicts whose payload references coalesced side files.
-    - Raw embedded objects: compute routes bypass CellMaterializationNode, so PIL.Image,
-      ndarray (or numpy scalars), or bytes can appear directly inside the JSON value.
+    """
+    Raise HTTPException if a json cell value contains content the FastAPI layer can't serve
+    (embedded references to side files, embedded objects that can't be serialized to json).
     """
     if isinstance(val, dict):
         if INLINED_OBJECT_MD_KEY in val:
             raise HTTPException(
                 status_code=500,
                 detail=(
-                    f'output column {col_name!r}: JSON value contains a materialized stub for '
+                    f'output column {col_name!r}: JSON value contains '
                     f'an embedded array/binary/image. Serving embedded media inside JSON output '
                     f'is not yet implemented.'
                 ),
@@ -119,7 +113,7 @@ def _check_json_value_servable(val: Any, col_name: str) -> None:
         )
 
 
-# ColumnType.Type -> JSON-Schema contentMediaType
+# ColumnType.Type -> json-Schema contentMediaType
 # .../*: tell OpenAPI tooling to render the URL as a media link without committing to a specific subtype
 _MEDIA_CONTENT_TYPES: dict[ts.ColumnType.Type, str] = {
     ts.ColumnType.Type.IMAGE: 'image/*',

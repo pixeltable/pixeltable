@@ -48,6 +48,14 @@ class ColumnSlotIdx(NamedTuple):
     slot_idx: int
 
 
+class OutputMapEntry(NamedTuple):
+    """Info needed to materialize one column of an output row from a DataRow."""
+
+    col: catalog.Column
+    slot_idx: int | None  # None for pass-through columns that don't need to get evaluated
+    display_name: str  # key in the output dict
+
+
 class RowBuilder:
     """Create and populate DataRows and table rows from exprs and computed columns
 
@@ -109,7 +117,7 @@ class RowBuilder:
     table_row_output_error_vals: list[tuple[int, str]] | None
 
     # for create_output_row(data_rows): mapping of col -> slot_idx, key in output row
-    data_row_output_map: list[tuple['catalog.Column', int | None, str]] | None
+    data_row_output_map: list[OutputMapEntry] | None
 
     @dataclasses.dataclass
     class EvalCtx:
@@ -593,7 +601,7 @@ class RowBuilder:
                     display_name = f'{indexed_col_name}:{idx_name}'
                 else:
                     display_name = col.name
-                self.data_row_output_map.append((col, slot_idx, display_name))
+                self.data_row_output_map.append(OutputMapEntry(col, slot_idx, display_name))
 
         # bind to locals to avoid attribute lookups in the loop
         output_map = self.data_row_output_map

@@ -34,16 +34,29 @@ def json_embed_bytes(i: int) -> pxt.Json:
 
 
 def add_dml_route(route_type: str, router: Any, t: pxt.Table, **kwargs: Any) -> None:
-    """Dispatch helper: register an insert/compute/update route on `router` for table `t`."""
-    fn = {'insert': router.add_insert_route, 'compute': router.add_compute_route, 'update': router.add_update_route}[
-        route_type
-    ]
-    fn(t, **kwargs)
+    """Dispatch helper: register an insert/compute/update route on router for table t."""
+    match route_type:
+        case 'insert':
+            router.add_insert_route(t, **kwargs)
+        case 'compute':
+            router.add_compute_route(t, **kwargs)
+        case 'update':
+            router.add_update_route(t, **kwargs)
+        case _:
+            raise ValueError(f'unknown route_type: {route_type}')
 
 
 def dml_decorator(route_type: str, router: Any) -> Any:
-    """Dispatch helper: return the insert/compute/update route decorator on `router`."""
-    return {'insert': router.insert_route, 'compute': router.compute_route, 'update': router.update_route}[route_type]
+    """Dispatch helper: return the insert/compute/update route decorator on router."""
+    match route_type:
+        case 'insert':
+            return router.insert_route
+        case 'compute':
+            return router.compute_route
+        case 'update':
+            return router.update_route
+        case _:
+            raise ValueError(f'unknown route_type: {route_type}')
 
 
 @pxt.udf

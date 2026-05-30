@@ -329,7 +329,7 @@ class View(Table):
     ) -> list[dict[str, Any]]:
         self._validate_thread()
         raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: compute() is only supported for tables.'
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: compute() is only supported for base tables.'
         )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:

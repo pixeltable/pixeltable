@@ -1630,8 +1630,6 @@ class Table(SchemaObject):
             ... # If `c` raised on row 0, rows[0]['c'] is None and rows[0]['c:md']
             ... # contains {'errortype': ..., 'errormsg': ...}.
         """
-        self._validate_thread()
-        raise NotImplementedError
 
     def update(
         self,
