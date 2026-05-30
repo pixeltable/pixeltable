@@ -261,9 +261,6 @@ class Catalog:
             clause = sql.and_(schema.Table.md['name'].astext == tbl_name, clause)
         return clause
 
-    def _dropped_tbl_error_msg(self, tbl_id: UUID) -> str:
-        return f'Table was dropped (no record found for {tbl_id})'
-
     def validate(self) -> None:
         """Validate structural consistency of cached metadata"""
         for (tbl_id, effective_version, anchor_tbl_id), tbl_version in self._tbl_versions.items():
@@ -552,10 +549,7 @@ class Catalog:
             if tbl is not None:
                 tbl_name = tbl.get().name
             _logger.debug(f'Exception: undefined table {(tbl_name or "<unknown>")!r}: Caught {type(e.orig)}: {e!r}')
-            raise excs.NotFoundError(
-                excs.ErrorCode.TABLE_NOT_FOUND,
-                f'Table was dropped: {tbl_name}' if tbl_name is not None else 'Table was dropped',
-            ) from None
+            raise excs.table_was_dropped(tbl_name) from None
         elif (
             # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
             #     which is supposed to be deadlock-free.
@@ -673,7 +667,7 @@ class Catalog:
         conn = get_runtime().conn
         row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
         if row is None:
-            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(tbl_id))
+            raise excs.table_was_dropped(tbl_id)
         tbl_md = schema.md_from_dict(schema.TableMd, row.md)
         locked: set[UUID] = set()
         if tbl_md.is_mutable:
@@ -714,7 +708,7 @@ class Catalog:
         conn = get_runtime().conn
         row = conn.execute(sql.select(schema.Table).where(schema.Table.id == tbl_id)).one_or_none()
         if row is None:
-            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(tbl_id))
+            raise excs.table_was_dropped(tbl_id)
         tbl_md = schema.md_from_dict(schema.TableMd, row.md)
 
         if check_pending_ops:
@@ -842,12 +836,14 @@ class Catalog:
                         # For now, just assert that we don't.
                         # assert not tv.is_replica
 
+                        # Mark TableVersion as modified before it is actually modified to make sure that cache is
+                        # cleared properly if an error occurs during op execution.
+                        if tv is not None:
+                            self.mark_modified_tvs(tv.handle)
                         if is_rollback:
                             op.undo(tv)
                         else:
                             op.exec(tv)
-                        if tv is not None:
-                            self.mark_modified_tvs(tv.handle)
 
                         _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                         if self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op):
@@ -898,10 +894,8 @@ class Catalog:
                     raise
 
             except Exception as e:
-                if 'Table was dropped' in str(e):
-                    # TODO 'Table was dropped' should be a separate exception type, or there should be some other, less
-                    # brittle way to detect this error.
-                    _logger.error(f'Finalize pending ops({tbl_id}): table was dropped', exc_info=True)
+                if excs.is_table_not_found_error(e):
+                    _logger.error(f'Finalize pending ops({tbl_id}): table not found', exc_info=True)
                     raise
 
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
@@ -1484,6 +1478,7 @@ class Catalog:
                 base_id = base.tbl_id
                 assert self._acquire_write_lock(tbl_id=base_id), base_id
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
+                self.mark_modified_tvs(base_tv.handle)
                 base_tv.tbl_md.view_sn += 1
                 result = get_runtime().conn.execute(
                     sql.update(schema.Table)
@@ -1516,6 +1511,7 @@ class Catalog:
             tbl_id = UUID(md.tbl_md.tbl_id)
             md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
             self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+            fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
             return tbl_id
 
         self._roll_forward_ids.clear()
@@ -1896,6 +1892,7 @@ class Catalog:
         if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
             base_id = tvp.base.tbl_id
             base_tv = self._get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
+            self.mark_modified_tvs(base_tv.handle)
             base_tv.tbl_md.view_sn += 1
             result = get_runtime().conn.execute(
                 sql.update(schema.Table.__table__)
@@ -2039,7 +2036,7 @@ class Catalog:
         q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
         tbl_count = conn.execute(q).scalar()
         if tbl_count == 0:
-            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(tbl_id))
+            raise excs.table_was_dropped(tbl_id)
         q = (
             sql.select(schema.Table.id)
             .where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
@@ -2098,7 +2095,7 @@ class Catalog:
             q = sql.select(schema.Table.md).where(where_clause)
             row = conn.execute(q).one_or_none()
             if row is None:
-                raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
+                raise excs.table_was_dropped(key.tbl_id)
 
             reload = False
 
@@ -2132,7 +2129,7 @@ class Catalog:
                 )
                 row = conn.execute(q).one_or_none()
                 if row is None:
-                    raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
+                    raise excs.table_was_dropped(key.tbl_id)
                 version = row.md['version']
                 if version != tv.version:  # TODO: How will view_sn work for replicas?
                     _logger.debug(
@@ -2542,7 +2539,7 @@ class Catalog:
 
         row = conn.execute(q).one_or_none()
         if row is None:
-            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
+            raise excs.table_was_dropped(key.tbl_id)
         tbl_record, version_record, schema_version_record = _unpack_row(
             row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion]
         )
@@ -2803,7 +2800,7 @@ class Catalog:
         if check_pending_ops:
             # if we care about pending ops, we also care whether the table is in the process of getting dropped
             if tbl_md.pending_stmt == schema.TableStatement.DROP_TABLE:
-                raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(key.tbl_id))
+                raise excs.table_was_dropped(key.tbl_id)
 
             pending_ops_q = (
                 sql.select(sql.func.count())

@@ -240,18 +240,19 @@ class TestParquet:
         it = pxt.io.import_parquet('imported_test1', parquet_path=str(export_file1))
         assert it.count() == t.count()
         assert it._get_schema() == t._get_schema()
-        assert it.select(it.c1).collect() == t.select(t.c1).collect()
-        assert it.select(it.c2).collect() == t.select(t.c2).collect()
-        assert it.select(it.c3).collect() == t.select(t.c3).collect(), it.select(it.c3).collect()
-        assert it.select(it.c4).collect() == t.select(t.c4).collect()
+        assert it.select(it.c1).order_by(it.c1).collect() == t.select(t.c1).order_by(t.c1).collect()
+        assert it.select(it.c2).order_by(it.c1).collect() == t.select(t.c2).order_by(t.c1).collect()
+        c3_result = it.select(it.c3).order_by(it.c1).collect()
+        assert c3_result == t.select(t.c3).order_by(t.c1).collect(), c3_result
+        assert it.select(it.c4).order_by(it.c1).collect() == t.select(t.c4).order_by(t.c1).collect()
 
         it = pxt.io.import_parquet('imported_test2', parquet_path=str(export_file2))
         assert it.count() == t.count()
         assert it.columns() == ['c1', 'c2']
         assert it.c1.col_type == t.c1.col_type
         assert it.c2.col_type == t.c2.col_type
-        assert it.select(it.c1).collect() == t.select(t.c1).collect()
-        assert it.select(it.c2).collect() == t.select(t.c2).collect()
+        assert it.select(it.c1).order_by(it.c1).collect() == t.select(t.c1).order_by(t.c1).collect()
+        assert it.select(it.c2).order_by(it.c1).collect() == t.select(t.c2).order_by(t.c1).collect()
 
         it = pxt.io.import_parquet('imported_test3', parquet_path=str(export_file3))
         assert it.count() == 1

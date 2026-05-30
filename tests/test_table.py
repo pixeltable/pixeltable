@@ -169,7 +169,7 @@ class TestTable:
         tbl = pxt.create_table('test', schema)
         tbl.insert(create_table_data(tbl, num_rows=5))
         id_before = tbl._id
-        res_before = tbl.select().collect()
+        res_before = tbl.select().order_by(tbl.c2).collect()
         assert len(res_before) == 5
 
         # invalid if_exists value is rejected
@@ -187,7 +187,7 @@ class TestTable:
         tbl2 = pxt.create_table('test', schema, if_exists='ignore')
         assert tbl2 == tbl
         assert tbl2._id == id_before
-        res_after = tbl2.select().collect()
+        res_after = tbl2.select().order_by(tbl2.c2).collect()
         assert_resultset_eq(res_before, res_after)
         # if_exists='replace' should drop the existing table
         tbl3 = pxt.create_table('test', schema, if_exists='replace')
@@ -198,7 +198,7 @@ class TestTable:
         id_before = tbl3._id
 
         # sanity check persistence
-        _ = reload_tester.run_query(tbl3.select())
+        _ = reload_tester.run_query(tbl3.select().order_by(tbl3.c2))
         reload_tester.run_reload_test()
 
         tbl = pxt.get_table('test')
@@ -1033,18 +1033,18 @@ class TestTable:
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', source=query1)
         assert t1._get_schema() == query1.schema
-        assert t1.collect() == query1.collect()
+        assert_resultset_eq(t1.order_by(t1.c2, asc=False).collect(), query1.collect())
 
         t.add_computed_column(c2mod=t.c2 % 5)
         query2 = t.group_by(t.c2mod).select(t.c2mod, pxtf.sum(t.c2))
         t2 = pxt.create_table('test2', source=query2)
         assert t2._get_schema() == query2.schema
-        assert t2.collect() == query2.collect()
+        assert_resultset_eq(t2.order_by(t2.c2mod).collect(), query2.order_by(t.c2mod).collect())
 
         # Create from table directly
         t3 = pxt.create_table('test3', source=t)
         assert t3._get_schema() == t._get_schema()
-        assert t3.collect() == t.collect()
+        assert_resultset_eq(t3.order_by(t3.c2).collect(), t.order_by(t.c2).collect())
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a non-empty dictionary'):
             _ = pxt.create_table('test3', ['I am a string.'])  # type: ignore[arg-type]
@@ -1054,7 +1054,7 @@ class TestTable:
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', source=query1)
         assert t1._get_schema() == query1.schema
-        assert t1.collect() == query1.collect()
+        assert_resultset_eq(t1.order_by(t1.c2, asc=False).collect(), query1.collect())
 
         t1.insert(query1)
         assert len(t1.collect()) == 2 * len(query1.collect())
@@ -2948,21 +2948,21 @@ class TestTable:
         assert res['bool_const'] == [True, True, True, True]
 
         # test using the bool column in a conditional expression
-        res = v.select((v.c1 > 1) & v.bool_const).collect()
+        res = v.select((v.c1 > 1) & v.bool_const).order_by(v.c1).collect()
         assert len(res) == 4
         assert res['col_0'] == [False, True, True, True]
         # reversing the condition order should not affect the result
-        res = v.select(v.bool_const & (v.c1 > 1)).collect()
+        res = v.select(v.bool_const & (v.c1 > 1)).order_by(v.c1).collect()
         assert len(res) == 4
         assert res['col_0'] == [False, True, True, True]
 
         # test adding a bool column with a computed value
         t1.add_computed_column(bool_computed=t1.c1 > 1)
-        res = t1.collect()
+        res = t1.order_by(t1.c1).collect()
         assert res['bool_computed'] == [False, True, True, True]
-        res = t1.where(t1.bool_computed).collect()
+        res = t1.where(t1.bool_computed).order_by(t1.c1).collect()
         assert res['c1'] == [2, 3, 4]
-        res = t1.where(~t1.bool_computed).collect()
+        res = t1.where(~t1.bool_computed).order_by(t1.c1).collect()
         assert res['c1'] == [1]
 
         t3 = pxt.create_table('test3', {'c1': pxt.Int, 'c2': pxt.Bool})
@@ -2970,14 +2970,14 @@ class TestTable:
         assert t3.count() == 2
 
         # bool columns accept int values that can be cast to bool.
-        t3.insert(c2=3)
-        res = t3.select(t3.c2).collect()
+        t3.insert(c1=3, c2=3)
+        res = t3.select(t3.c2).order_by(t3.c1).collect()
         assert res['c2'] == [True, False, True]
-        t3.insert(c2=0)
-        res = t3.select(t3.c2).collect()
+        t3.insert(c1=4, c2=0)
+        res = t3.select(t3.c2).order_by(t3.c1).collect()
         assert res['c2'] == [True, False, True, False]
-        t3.insert(c2=-1)
-        res = t3.select(t3.c2).collect()
+        t3.insert(c1=5, c2=-1)
+        res = t3.select(t3.c2).order_by(t3.c1).collect()
         assert res['c2'] == [True, False, True, False, True]
 
         # bool columns do not accept other types.
@@ -3003,14 +3003,14 @@ class TestTable:
         assert 'error in column c1: expected int, got float' in str(exc_info.value).lower()
 
         # sanity test persistence
-        _ = reload_tester.run_query(t1.select())
-        _ = reload_tester.run_query(t2.select())
-        _ = reload_tester.run_query(t3.select())
-        _ = reload_tester.run_query(v.select())
-        _ = reload_tester.run_query(v.select((v.c1 > 1) & v.bool_const))
-        _ = reload_tester.run_query(v.select(v.bool_const & (v.c1 > 1)))
-        _ = reload_tester.run_query(t1.where(t1.bool_computed).select())
-        _ = reload_tester.run_query(t1.where(~t1.bool_computed).select())
+        _ = reload_tester.run_query(t1.select().order_by(t1.c1))
+        _ = reload_tester.run_query(t2.select().order_by(t2.c1))
+        _ = reload_tester.run_query(t3.select().order_by(t3.c1))
+        _ = reload_tester.run_query(v.select().order_by(v.c1))
+        _ = reload_tester.run_query(v.select((v.c1 > 1) & v.bool_const).order_by(v.c1))
+        _ = reload_tester.run_query(v.select(v.bool_const & (v.c1 > 1)).order_by(v.c1))
+        _ = reload_tester.run_query(t1.where(t1.bool_computed).select().order_by(t1.c1))
+        _ = reload_tester.run_query(t1.where(~t1.bool_computed).select().order_by(t1.c1))
 
         reload_tester.run_reload_test()
 
@@ -3425,8 +3425,8 @@ class TestTable:
         _ = v.show()
 
         # sanity check persistence
-        _ = reload_tester.run_query(t.select())
-        _ = reload_tester.run_query(v.select())
+        _ = reload_tester.run_query(t.select().order_by(t.c2))
+        _ = reload_tester.run_query(v.select().order_by(v.c2))
 
         reload_tester.run_reload_test()
 

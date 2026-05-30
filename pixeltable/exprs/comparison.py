@@ -142,6 +142,6 @@ class Comparison(Expr):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Comparison:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> Comparison:
         assert 'operator' in d
         return cls(ComparisonOperator(d['operator']), components[0], components[1])

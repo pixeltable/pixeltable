@@ -472,7 +472,7 @@ class FunctionCall(Expr):
         }
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> FunctionCall:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> FunctionCall:
         fn = func.Function.from_dict(d['fn'])
         return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
         arg_idxs: list[int] = d['arg_idxs']
