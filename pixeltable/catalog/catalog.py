@@ -754,7 +754,8 @@ class Catalog:
         - this process starts with the first pending op, because it could have been partially executed
         - when done, deletes all table ops and resets tbl_state to LIVE
 
-        If an exception occurred during finalization, that exception is returned.
+        If an exception occurred during finalization, that exception is returned. PendingOpsErrors encountered during
+        finalization are dealt with recursively.
         """
         num_retries = 0
         is_rollback = False
@@ -873,6 +874,17 @@ class Catalog:
                 _logger.error(f'Finalize pending ops({tbl_id}): assertion error: {e}', exc_info=True)
                 # we need to make sure not to swallow asserts
                 raise
+
+            except PendingTableOpsError as e:
+                # Loading metadata for tbl_id transitively required another table that has its own pending ops:
+                # - the xact opened above is already rolled back by exiting the with-block via exception
+                # - finalize the dependency first, then continue with this table
+                # - recursion is bounded by the dependency DAG of stored expressions
+                # - PendingTableOpsError does not propagate outside
+                other_exc = self._finalize_pending_ops(e.tbl_id)
+                if other_exc is not None:
+                    return other_exc
+                continue
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
