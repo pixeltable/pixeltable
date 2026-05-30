@@ -1351,7 +1351,7 @@ class TestFastAPI:
             router = FastAPIRouter()
             for col_name in ('arr', 'blob'):
                 with pxt_raises(
-                    pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f"output column '{col_name}'.*not yet supported"
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f"output column '{col_name}'.*not supported"
                 ):
                     add_dml_route(route_type, router, t, path='/x', inputs=inputs, outputs=[col_name])
 
@@ -1373,17 +1373,20 @@ class TestFastAPI:
             assert resp.status_code == 200, resp.text
             assert resp.json() == {'data': {'k': 'v', 'n': 42}}
 
-        # Request-time rejection for JSON with embedded objects (3 cols x 3 routes)
+        # Request-time rejection for JSON with embedded objects (3 cols x 3 routes).
+        # compute returns the raw embedded object (typed via type(val).__name__); insert/update
+        # store and reload the column, so the value comes back as the inlined-object-md dict and
+        # the check reports the generic 'embedded array/binary/image' message.
         embed_cases = [
             ('j_arr', 'compute', 'embedded ndarray'),
-            ('j_arr', 'insert', 'materialized stub'),
-            ('j_arr', 'update', 'materialized stub'),
+            ('j_arr', 'insert', 'embedded array/binary/image'),
+            ('j_arr', 'update', 'embedded array/binary/image'),
             ('j_img', 'compute', 'embedded Image'),
-            ('j_img', 'insert', 'materialized stub'),
-            ('j_img', 'update', 'materialized stub'),
+            ('j_img', 'insert', 'embedded array/binary/image'),
+            ('j_img', 'update', 'embedded array/binary/image'),
             ('j_bytes', 'compute', 'embedded bytes'),
-            ('j_bytes', 'insert', 'materialized stub'),
-            ('j_bytes', 'update', 'materialized stub'),
+            ('j_bytes', 'insert', 'embedded array/binary/image'),
+            ('j_bytes', 'update', 'embedded array/binary/image'),
         ]
         for i, (col_name, route_type, expected) in enumerate(embed_cases):
             router = FastAPIRouter()

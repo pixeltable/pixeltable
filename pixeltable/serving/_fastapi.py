@@ -77,8 +77,10 @@ def _check_route_output_schema(output_cols: list[catalog.Column], error_prefix: 
         if col.col_type.is_array_type() or col.col_type.is_binary_type():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'{error_prefix}: output column {col.name!r} has type '
-                f'{col.col_type._to_base_str()}, which is not yet supported by FastAPI routes',
+                (
+                    f'{error_prefix}: output column {col.name!r} has type {col.col_type._to_base_str()}, '
+                    'which is not supported'
+                ),
             )
 
 
@@ -92,9 +94,8 @@ def _check_json_value_servable(val: Any, col_name: str) -> None:
             raise HTTPException(
                 status_code=500,
                 detail=(
-                    f'output column {col_name!r}: JSON value contains '
-                    f'an embedded array/binary/image. Serving embedded media inside JSON output '
-                    f'is not yet implemented.'
+                    f'output column {col_name!r}: JSON value contains an embedded array/binary/image, '
+                    'which is not supported.'
                 ),
             )
         for v in val.values():
@@ -106,9 +107,8 @@ def _check_json_value_servable(val: Any, col_name: str) -> None:
         raise HTTPException(
             status_code=500,
             detail=(
-                f'output column {col_name!r}: JSON value contains an embedded '
-                f'{type(val).__name__}. Serving embedded media inside JSON output is not yet '
-                f'implemented.'
+                f'output column {col_name!r}: JSON value contains an embedded {type(val).__name__}, '
+                'which is not supported.'
             ),
         )
 
