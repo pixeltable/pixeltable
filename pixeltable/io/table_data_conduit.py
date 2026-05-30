@@ -151,7 +151,7 @@ class TableDataConduit:
             if col.is_computed:
                 self.computed_col_names.add(col.name)
         self.src_pk = []
-        self.tbl_name = table._name
+        self.tbl_name = table._name()
 
     # Check source columns : required, computed, unknown
     def check_source_columns_are_insertable(self, columns: Iterable[str]) -> None:
