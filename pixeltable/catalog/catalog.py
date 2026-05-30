@@ -2174,7 +2174,7 @@ class Catalog:
         conn = get_runtime().conn
         row = conn.execute(sql.select(schema.Table).where(schema.Table.id == tbl_id)).one_or_none()
         if row is None:
-            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, self._dropped_tbl_error_msg(tbl_id))
+            raise excs.table_was_dropped(tbl_id)
         return schema.Table(**row._mapping)
 
     def read_dir_record(self, dir_id: UUID) -> schema.Dir:
