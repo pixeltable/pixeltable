@@ -114,7 +114,7 @@ class ColumnPropertyRef(Expr):
         return {'prop': self.prop.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> ColumnPropertyRef:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> ColumnPropertyRef:
         assert 'prop' in d
         assert isinstance(components[0], ColumnRef)
         return cls(components[0], cls.Property(d['prop']))

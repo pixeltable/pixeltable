@@ -39,5 +39,3 @@ else
     # In read/write mode, we disable certain operations and data types that have known concurrency bugs.
     python tool/random_ops.py "$WORKERS" "$DURATION" --exclude rename_view -Drandom_img_freq=0 -Drandom_json_freq=0 -Drandom_array_freq=0
 fi
-echo ""
-python tool/print_random_ops_stats.py

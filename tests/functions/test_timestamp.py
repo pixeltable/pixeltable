@@ -24,10 +24,10 @@ class TestTimestamp:
         # Create a test table with a date column
         t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
         # Insert test data
-        test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
+        test_dts = sorted([datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES])
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
         # Trivial validation that rows were inserted correctly
-        r = t.collect()
+        r = t.order_by(t.dt).collect()
         for irow, rrow in zip(test_dts, r['dt']):
             x = irow.astimezone(timezone.utc)
             y = rrow.astimezone(timezone.utc)
@@ -92,14 +92,16 @@ class TestTimestamp:
 
         for pxt_fn, dt_fn, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
-            actual = t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
+            actual = t.select(out=pxt_fn(t.dt, *args, **kwargs)).order_by(t.dt).collect()['out']
             expected = [dt_fn(dt.astimezone(default_tz), *args, **kwargs) for dt in test_dts]
             assert actual == expected, debug_str()
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
-            actual_py = t.select(
-                out=pxt_fn(t.dt.apply(lambda x: x, col_type=pxt.Timestamp), *args, **kwargs)
-            ).collect()['out']
+            actual_py = (
+                t.select(out=pxt_fn(t.dt.apply(lambda x: x, col_type=pxt.Timestamp), *args, **kwargs))
+                .order_by(t.dt)
+                .collect()['out']
+            )
             assert actual_py == expected, debug_str()
 
         # Check that they can all be called with method syntax too
@@ -204,7 +206,7 @@ class TestTimestamp:
                     second=t.dt.second,
                 )
             )
-            # .order_by(t.dt.day, asc=False)
+            .order_by(t.dt, asc=True)
             .collect()
         )
         assert res['out'] == [dt.replace(minute=0).astimezone(Env.get().default_time_zone) for dt in test_dts]

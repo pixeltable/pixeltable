@@ -94,6 +94,6 @@ class CompoundPredicate(Expr):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> CompoundPredicate:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> CompoundPredicate:
         assert 'operator' in d
         return cls(LogicalOperator(d['operator']), components)
