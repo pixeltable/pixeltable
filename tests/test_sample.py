@@ -237,7 +237,7 @@ class TestSample:
         query = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=seed)
         self.validate_snapshot(query, t_rows, seeded=(seed is not None))
 
-    def check_create_insert(self, t: pxt.Table, query: pxt.Query, n_sample: int) -> None:
+    def check_create_insert(self, t: pxt.Table, query: pxt.Query, n_sample: int, sort_key: str) -> None:
         r = query.collect()
         print(r)
         assert len(r) == n_sample
@@ -248,7 +248,9 @@ class TestSample:
         assert new_table._get_schema() == t._get_schema()
         assert new_table._get_schema() == query.schema
         r2 = new_table.collect()
-        assert r2 == r
+        r_df = r.to_pandas().sort_values(sort_key).reset_index(drop=True)
+        r2_df = r2.to_pandas().sort_values(sort_key).reset_index(drop=True)
+        assert r_df.equals(r2_df)
 
         new_table.insert(query)
         assert new_table.count() == 2 * n_sample
@@ -257,20 +259,20 @@ class TestSample:
         t = self.create_sample_data(4, 6, False)
 
         query = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=4171780)
-        self.check_create_insert(t, query, 6 * 6)
+        self.check_create_insert(t, query, 6 * 6, sort_key='id')
 
         query = t.select().sample(n=20, seed=4171780)
-        self.check_create_insert(t, query, 20)
+        self.check_create_insert(t, query, 20, sort_key='id')
 
         query = t.select().sample(fraction=0.1, seed=4171780)
         n_sample = len(query.collect())
-        self.check_create_insert(t, query, n_sample)
+        self.check_create_insert(t, query, n_sample, sort_key='id')
 
         t = test_tbl
         query = t.sample(n=20)
         _ = query.collect()
         query = t.sample(n=20, seed=4171780)
-        self.check_create_insert(t, query, 20)
+        self.check_create_insert(t, query, 20, sort_key='c2')
 
     def test_randomized_sample(self, uses_db: None) -> None:
         """Test that subsequent calls to a non-seeded sample return different results."""
@@ -287,15 +289,10 @@ class TestSample:
         t = self.create_sample_data(4, 6, False)
 
         query = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=4141480)
-        r0 = query.collect()
-        r1 = query.collect()
-        assert r0 == r1
-        r2 = query.collect()
-        assert r0 == r2
-        r3 = query.collect()
-        assert r0 == r3
-        r4 = query.collect()
-        assert r0 == r4
+        r0_df = query.collect().to_pandas().sort_values('id').reset_index(drop=True)
+        for _ in range(4):
+            r_df = query.collect().to_pandas().sort_values('id').reset_index(drop=True)
+            assert r0_df.equals(r_df)
 
     def test_sample_view(self, uses_db: None) -> None:
         t = self.create_sample_data(4, 6, False)

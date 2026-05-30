@@ -409,7 +409,7 @@ class Query:
 
         if from_clause is not None:
             # we want to find out about dropped tables early
-            get_runtime().catalog.assert_tbls_exist({tvp.tbl_version.id for tvp in from_clause.tbls})
+            get_runtime().catalog.validate_tbls_exist({tvp.tbl_version.id for tvp in from_clause.tbls})
 
         # exprs contain execution state and therefore cannot be shared
         self.select_list = copy.deepcopy(select_list)

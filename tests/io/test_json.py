@@ -14,10 +14,10 @@ class TestJson:
     def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Export a table with every supported type and verify the JSONL output."""
         t = create_all_datatypes_tbl()
-        rows = t.collect()
+        rows = t.order_by(t.row_id).collect()
 
         json_path = tmp_path / 'all_types.jsonl'
-        pxt.io.export_json(t, json_path)
+        pxt.io.export_json(t.order_by(t.row_id), json_path)
 
         with open(json_path, encoding='utf-8') as f:
             exported = [json.loads(line) for line in f]
@@ -44,7 +44,7 @@ class TestJson:
 
         # Verify media columns export the authoritative file URL, not a cached path
         media_cols = {'c_image': t.c_image, 'c_video': t.c_video, 'c_audio': t.c_audio, 'c_document': t.c_document}
-        fileurls = t.select(*[col.fileurl for col in media_cols.values()]).collect()
+        fileurls = t.select(*[col.fileurl for col in media_cols.values()]).order_by(t.row_id).collect()
         for exp_row, url_row in zip(exported, fileurls):
             for col_name in media_cols:
                 assert exp_row[col_name] == url_row[f'{col_name}_fileurl']

@@ -194,14 +194,14 @@ class TestSnapshot:
         self.__test_create_if_exists('test_snap_t', t, s1)
         self.__test_create_if_exists('test_snap_v', v, s2)
         # sanity check persistence
-        _ = reload_tester.run_query(t.select())
-        _ = reload_tester.run_query(v.select())
+        _ = reload_tester.run_query(t.select().order_by(t.c2))
+        _ = reload_tester.run_query(v.select().order_by(v.c2))
         # get the snapshot handles again, they would be replaced at the end of __test_create_if_exists
         s1 = pxt.get_table('test_snap_t')
         s2 = pxt.get_table('test_snap_v')
         id_before = {'test_snap_t': s1._id, 'test_snap_v': s2._id}
-        _ = reload_tester.run_query(s1.select())
-        _ = reload_tester.run_query(s2.select())
+        _ = reload_tester.run_query(s1.select().order_by(s1.c2))
+        _ = reload_tester.run_query(s2.select().order_by(s2.c2))
         reload_tester.run_reload_test()
         # get the snapshot handles again after reload
         s1 = pxt.get_table('test_snap_t')
@@ -518,3 +518,31 @@ class TestSnapshot:
                 t,
                 additional_columns={'d': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
+
+    @pytest.mark.parametrize('load_order', ['base_first', 'snapshot_first'])
+    def test_load_snapshot_with_dropped_cols(self, uses_db: None, load_order: str) -> None:
+        """
+        Create a table and take a snapshot. Then drop some columns.
+        Validate that after loading both (in either order) everything works as intended.
+        """
+        tbl = create_test_tbl('test')
+        pxt.create_snapshot('snap', tbl)
+
+        tbl.drop_column(tbl.c1)
+        tbl.drop_column(tbl.c1n)
+        tbl.drop_column(tbl.c8)
+
+        reload_catalog()
+
+        if load_order == 'base_first':
+            tbl = pxt.get_table('test')
+            snap = pxt.get_table('snap')
+        else:
+            assert load_order == 'snapshot_first'
+            snap = pxt.get_table('snap')
+            tbl = pxt.get_table('test')
+
+        with pytest.raises(AttributeError, match='Unknown column'):
+            _ = tbl.select(tbl.c1).limit(1).collect()
+        _ = tbl.select(tbl.c2).limit(1).collect()
+        _ = snap.select(snap.c1, snap.c1n, snap.c2, snap.c8).limit(1).collect()

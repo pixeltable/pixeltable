@@ -41,6 +41,7 @@ class TestDate:
         assert default_tz == Env.get().default_time_zone
 
         test_dts, t = self.make_test_table()
+        test_dts = sorted(test_dts)
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
             # (pxt_fn, py_fn, args, **kwargs)
@@ -69,14 +70,16 @@ class TestDate:
 
         for pxt_fn, dt_fn, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
-            actual = t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
+            actual = t.select(out=pxt_fn(t.dt, *args, **kwargs)).order_by(t.dt).collect()['out']
             expected = [dt_fn(dt, *args, **kwargs) for dt in test_dts]
             assert actual == expected, debug_str()
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
-            actual_py = t.select(out=pxt_fn(t.dt.apply(lambda x: x, col_type=pxt.Date), *args, **kwargs)).collect()[
-                'out'
-            ]
+            actual_py = (
+                t.select(out=pxt_fn(t.dt.apply(lambda x: x, col_type=pxt.Date), *args, **kwargs))
+                .order_by(t.dt)
+                .collect()['out']
+            )
             assert actual_py == expected, debug_str()
 
         # Check that they can all be called with method syntax too
@@ -94,12 +97,9 @@ class TestDate:
     def test_date_make(self, uses_db: None) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         test_dts, t = self.make_test_table()
+        test_dts = sorted(test_dts)
 
-        res = (
-            t.select(out=make_date(year=t.dt.year, month=t.dt.month, day=t.dt.day))
-            # .order_by(t.dt.day, asc=False)
-            .collect()
-        )
+        res = t.select(out=make_date(year=t.dt.year, month=t.dt.month, day=t.dt.day)).order_by(t.dt, asc=True).collect()
 
         assert res['out'] == test_dts
 
