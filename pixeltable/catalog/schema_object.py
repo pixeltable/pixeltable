@@ -2,6 +2,7 @@ import abc
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from pixeltable import exceptions as excs
 from pixeltable.runtime import get_runtime
 
 if TYPE_CHECKING:
@@ -36,11 +37,11 @@ class SchemaObject(abc.ABC):
             return get_runtime().catalog.get_dir(dir_id)
 
     def _path(self) -> str:
-        """Returns the path to this schema object."""
+        """Returns the path to this schema object. Raises TABLE_NOT_FOUND if dropped."""
         dir_id = self._dir_id()
         if dir_id is None:
             # an instance that's in the process of getting dropped has dir_id unset
-            return '<dropped>'
+            raise excs.table_was_dropped(self._id)
         with get_runtime().catalog.begin_xact(for_write=False):
             path = get_runtime().catalog.get_dir_path(dir_id)
             return str(path.append(self._name()))
