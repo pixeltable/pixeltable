@@ -769,7 +769,7 @@ class Query:
             self.group_by_clause or [],
             [] if self.order_by_clause is None else (e for e, _ in self.order_by_clause),
         )
-        tbl_ids = exprs.Expr.all_tbl_ids(all_exprs)
+        tbl_ids = exprs.Expr.list_tbl_ids(all_exprs)
         for tvp in self._from_clause.tbls:
             tbl_ids.update(tvh.id for tvh in tvp.get_tbl_versions())
         self._referenced_tbl_ids = tbl_ids
@@ -781,7 +781,7 @@ class Query:
 
     def _output_row_iterator(self, args: dict[str, Any] | None = None) -> Generator[list, None, None]:
         tbl_ids = self.referenced_tbl_ids()
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=tbl_ids):
             try:
                 planned_exprs = self._compiled_select_list()
                 for data_row in self._exec(args=args):
@@ -1212,7 +1212,6 @@ class Query:
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
-        other._validate_thread()
         assert len(self._from_clause.tbls) > 0
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
