@@ -4,7 +4,6 @@ import enum
 import logging
 import time
 from typing import TYPE_CHECKING, Any, Literal, Sequence, overload
-from uuid import UUID
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
@@ -54,9 +53,9 @@ class OnErrorParameter(enum.Enum):
 class InsertableTable(Table):
     """A `Table` that allows inserting and deleting rows."""
 
-    def __init__(self, dir_id: UUID, tbl_version: TableVersionHandle):
+    def __init__(self, tbl_version: TableVersionHandle):
         tbl_version_path = TableVersionPath(tbl_version)
-        super().__init__(tbl_version.id, dir_id, tbl_version.get().name, tbl_version_path)
+        super().__init__(tbl_version.id, tbl_version_path)
         self._tbl_version = tbl_version
 
     def _display_name(self) -> str:
@@ -148,7 +147,6 @@ class InsertableTable(Table):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        self._validate_thread()
         from pixeltable.io.table_data_conduit import TableDataConduit
 
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
@@ -223,7 +221,6 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        self._validate_thread()
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):

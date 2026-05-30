@@ -233,7 +233,7 @@ def retrieval_udf(
 
     # Construct a name and/or description if not provided
     if name is None:
-        name = table._name
+        name = table._name()
     if description is None:
         description = (
             f'Retrieves an entry from the dataset {name!r} that matches the given parameters.\n\nParameters:\n'
