@@ -145,14 +145,14 @@ def assert_fileresponse_ok(resp: Any, local_path: str, mime_prefix: str) -> None
 
 
 def assert_image_bytes(data: bytes, *, size: tuple[int, int] | None = None) -> None:
-    """Decode `data` as an image; optionally assert dimensions."""
+    """Decode data as an image; optionally assert dimensions."""
     PIL.Image.open(io.BytesIO(data)).verify()  # raises on truncated/corrupt
     if size is not None:
         assert PIL.Image.open(io.BytesIO(data)).size == size
 
 
 def assert_video_bytes(data: bytes, *, width: int | None = None, height: int | None = None) -> None:
-    """Decode `data` as video; optionally assert frame dimensions."""
+    """Decode data as video; optionally assert frame dimensions."""
     with av.open(io.BytesIO(data)) as container:
         stream = container.streams.video[0]
         if width is not None:
@@ -162,7 +162,7 @@ def assert_video_bytes(data: bytes, *, width: int | None = None, height: int | N
 
 
 def assert_audio_bytes(data: bytes, *, duration_s: float | None = None, tol: float = 0.1) -> None:
-    """Decode `data` as audio; optionally assert duration in seconds within `tol`."""
+    """Decode data as audio; optionally assert duration in seconds within tol."""
     with av.open(io.BytesIO(data)) as container:
         stream = container.streams.audio[0]
         if duration_s is not None:
@@ -171,7 +171,7 @@ def assert_audio_bytes(data: bytes, *, duration_s: float | None = None, tol: flo
 
 
 def fetch_and_decode_media(client: Any, url: str, decoder: Callable[..., None], **kwargs: Any) -> None:
-    """GET `url`, assert 200, then decode the bytes with `decoder(bytes, **kwargs)`."""
+    """GET url, assert 200, then decode the bytes with decoder(bytes, **kwargs)."""
     assert '/media/' in url, f'expected /media/ URL, got: {url}'
     resp = client.get(url)
     assert resp.status_code == 200, resp.text

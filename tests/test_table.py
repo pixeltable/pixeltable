@@ -1158,7 +1158,7 @@ class TestTable:
     def test_compute_with_errors(self, uses_db: None) -> None:
         t = pxt.create_table('test_null_handling', {'id': pxt.Int, 'data': pxt.Json})
         t.add_computed_column(inv=1 / t.id)
-        # unstored computed col: no persisted cellmd slot, but compute() must still emit `:md` on error
+        # unstored computed col: no persisted cellmd slot, but compute() must still emit :md on error
         t.add_computed_column(inv2=2 / t.id, stored=False)
 
         # ZeroDivisionError for first row, ignored
