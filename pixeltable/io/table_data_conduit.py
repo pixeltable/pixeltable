@@ -188,6 +188,7 @@ class QueryTableDataConduit(TableDataConduit):
         return t
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
+        # TODO: re-resolve schema at execution time if this is a SELECT *
         self.pxt_schema = self.pxt_query.schema
         self.pxt_pk = self.src_pk
         return self.pxt_schema

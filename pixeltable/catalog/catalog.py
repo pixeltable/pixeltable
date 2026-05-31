@@ -261,6 +261,16 @@ class Catalog:
             clause = sql.and_(schema.Table.md['name'].astext == tbl_name, clause)
         return clause
 
+    def validate_tbls_exist(self, tbl_ids: Collection[UUID]) -> None:
+        """Raises TABLE_NOT_FOUND if any id is not a live (not dropped or being dropped) table."""
+        with self.begin_xact():
+            conn = get_runtime().conn
+            assert conn is not None
+            for tbl_id in tbl_ids:
+                q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
+                if conn.execute(q).scalar() == 0:
+                    raise excs.table_was_dropped(tbl_id)
+
     def validate(self) -> None:
         """Validate structural consistency of cached metadata"""
         for (tbl_id, effective_version, anchor_tbl_id), tbl_version in self._tbl_versions.items():
@@ -745,7 +755,8 @@ class Catalog:
         - this process starts with the first pending op, because it could have been partially executed
         - when done, deletes all table ops and resets tbl_state to LIVE
 
-        If an exception occurred during finalization, that exception is returned.
+        If an exception occurred during finalization, that exception is returned. PendingOpsErrors encountered during
+        finalization are dealt with recursively.
         """
         num_retries = 0
         is_rollback = False
@@ -864,6 +875,17 @@ class Catalog:
                 _logger.error(f'Finalize pending ops({tbl_id}): assertion error: {e}', exc_info=True)
                 # we need to make sure not to swallow asserts
                 raise
+
+            except PendingTableOpsError as e:
+                # Loading metadata for tbl_id transitively required another table that has its own pending ops:
+                # - the xact opened above is already rolled back by exiting the with-block via exception
+                # - finalize the dependency first, then continue with this table
+                # - recursion is bounded by the dependency DAG of stored expressions
+                # - PendingTableOpsError does not propagate outside
+                other_exc = self._finalize_pending_ops(e.tbl_id)
+                if other_exc is not None:
+                    return other_exc
+                continue
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
@@ -1448,11 +1470,15 @@ class Catalog:
         self._roll_forward_ids.clear()
         tbl_id, is_created = create_fn()
         self._roll_forward()
-        with self.begin_xact(for_write=True, write_tbl_ids=[tbl_id]):
+
+        @retry_loop(read_tbl_ids=[tbl_id])
+        def _get_tbl() -> tuple[Table, bool]:
             tbl = self.get_table_by_id(tbl_id)
             _logger.info(f'Created table {tbl._name()!r}, id={tbl._id}')
             Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
             return tbl, is_created
+
+        return _get_tbl()
 
     def create_view(
         self,
