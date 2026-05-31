@@ -127,11 +127,13 @@ class QueryTemplateFunction(Function):
         from pixeltable._query import Query
 
         sig = Signature.from_dict(d['signature'])
+        try:
+            template_query = Query.from_dict(d['df'])
+        except excs.NotFoundError as e:
+            # template_query references a table or column that no longer exists
+            return func.InvalidFunction(d['name'], d, f'the @pxt.query UDF {d["name"]!r} cannot be loaded: {e}')
         return cls(
-            Query.from_dict(d['df']),
-            list(sig.parameters.values()),
-            return_scalar=d.get('return_scalar', False),
-            name=d['name'],
+            template_query, list(sig.parameters.values()), return_scalar=d.get('return_scalar', False), name=d['name']
         )
 
 
