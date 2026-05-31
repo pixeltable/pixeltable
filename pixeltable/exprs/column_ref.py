@@ -662,7 +662,8 @@ class ColumnRef(Expr):
         col = tbl_version.cols_by_id.get(col_id)
         if col is None:
             raise excs.NotFoundError(
-                excs.ErrorCode.COLUMN_NOT_FOUND, f'Column with id {col_id} not found in table {tbl_version.id}'
+                excs.ErrorCode.COLUMN_NOT_FOUND,
+                f'Column was dropped (no record for column ID {col_id} in table {tbl_version.versioned_name!r})',
             )
         reference_tbl = None if d['reference_tbl'] is None else catalog.TableVersionPath.from_dict(d['reference_tbl'])
         perform_validation = d['perform_validation']
