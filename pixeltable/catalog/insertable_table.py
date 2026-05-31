@@ -179,7 +179,6 @@ class InsertableTable(Table):
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> list[dict[str, Any]]:
-        self._validate_thread()
         from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
 
         # str/bytes are technically Sequences; reject them explicitly so we don't fall through to
