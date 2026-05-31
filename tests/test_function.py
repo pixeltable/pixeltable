@@ -115,39 +115,39 @@ class TestFunction:
     def test_call(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
-        r0 = t.select(t.c2, t.c3).collect().to_pandas()
+        r0 = t.select(t.c2, t.c3).order_by(t.c2).collect().to_pandas()
         # positional params with default args
-        r1 = t.select(self.f1(t.c2, t.c3)).collect().to_pandas()['f1']
+        r1 = t.select(self.f1(t.c2, t.c3)).order_by(t.c2).collect().to_pandas()['f1']
         assert np.all(r1 == r0.c2 + r0.c3 + 1.0)
         # kw args only
-        r2 = t.select(self.f1(c=0.0, b=t.c3, a=t.c2)).collect().to_pandas()['f1']
+        r2 = t.select(self.f1(c=0.0, b=t.c3, a=t.c2)).order_by(t.c2).collect().to_pandas()['f1']
         assert np.all(r1 == r2)
         # overriding default args
-        r3 = t.select(self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)).collect().to_pandas()['f1']
+        r3 = t.select(self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)).order_by(t.c2).collect().to_pandas()['f1']
         assert np.all(r2 == r3)
         # overriding default with positional arg
-        r4 = t.select(self.f1(t.c2, t.c3, 0.0)).collect().to_pandas()['f1']
+        r4 = t.select(self.f1(t.c2, t.c3, 0.0)).order_by(t.c2).collect().to_pandas()['f1']
         assert np.all(r3 == r4)
         # overriding default with positional arg and kw arg
-        r5 = t.select(self.f1(t.c2, t.c3, 1.0, d=0.0)).collect().to_pandas()['f1']
+        r5 = t.select(self.f1(t.c2, t.c3, 1.0, d=0.0)).order_by(t.c2).collect().to_pandas()['f1']
         assert np.all(r4 == r5)
         # d is kwarg
-        r6 = t.select(self.f1(t.c2, d=1.0, b=t.c3)).collect().to_pandas()['f1']
+        r6 = t.select(self.f1(t.c2, d=1.0, b=t.c3)).order_by(t.c2).collect().to_pandas()['f1']
         assert np.all(r5 == r6)
         # d is Expr kwarg
-        r6 = t.select(self.f1(1, d=t.c3, b=t.c3)).collect().to_pandas()['f1']
+        r6 = t.select(self.f1(1, d=t.c3, b=t.c3)).order_by(t.c2).collect().to_pandas()['f1']
         assert np.all(r5 == r6)
 
         # test handling of Nones
-        r0 = t.select(self.f2(1, t.c3)).collect().to_pandas()['f2']
-        r1 = t.select(self.f2(None, t.c3, 2.0)).collect().to_pandas()['f2']
+        r0 = t.select(self.f2(1, t.c3)).order_by(t.c2).collect().to_pandas()['f2']
+        r1 = t.select(self.f2(None, t.c3, 2.0)).order_by(t.c2).collect().to_pandas()['f2']
         assert np.all(r0 == r1)
-        r2 = t.select(self.f2(2, t.c3, None)).collect().to_pandas()['f2']
+        r2 = t.select(self.f2(2, t.c3, None)).order_by(t.c2).collect().to_pandas()['f2']
         assert np.all(r1 == r2)
         # kwarg with None
-        r3 = t.select(self.f2(c=None, a=t.c2)).collect().to_pandas()['f2']
+        r3 = t.select(self.f2(c=None, a=t.c2)).order_by(t.c2).collect().to_pandas()['f2']
         # kwarg with Expr
-        r4 = t.select(self.f2(c=t.c3, a=None)).collect().to_pandas()['f2']
+        r4 = t.select(self.f2(c=t.c3, a=None)).order_by(t.c2).collect().to_pandas()['f2']
         assert np.all(r3 == r4)
 
     @staticmethod
@@ -342,7 +342,7 @@ class TestFunction:
         skip_test_if_not_installed('imagehash')
 
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
-        name = t._name
+        name = t._name()
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(rows))
 
@@ -1575,7 +1575,7 @@ class TestFunction:
         u.insert(a='grapefruit')
         u.insert(a='canteloupe')
         u.add_computed_column(result=fn(19, u.a, in3=11.0))
-        res = u.select(u.result).collect()['result']
+        res = u.select(u.result).order_by(u.a, asc=False).collect()['result']
         assert res == [
             {
                 'in1': 19,
@@ -1656,7 +1656,7 @@ class TestFunction:
 
         # Explicit return_value and description
         fn3 = pxt.udf(t, return_value=t.out3.upper(), description='An overriden UDF description.')
-        res = u.select(result=fn3(22, u.a)).collect()['result']
+        res = u.select(result=fn3(22, u.a)).order_by(u.a, asc=False).collect()['result']
         assert res == ['XYZ GRAPEFRUIT', 'XYZ CANTELOUPE']
         assert fn3.__doc__ == dedent(
             """
@@ -1672,14 +1672,14 @@ class TestFunction:
 
         # return_value is a direct ColumnRef
         fn4 = pxt.udf(t, return_value=t.out3)
-        res = u.select(result=fn4(22, u.a)).collect()['result']
+        res = u.select(result=fn4(22, u.a)).order_by(u.a, asc=False).collect()['result']
         assert res == ['xyz grapefruit', 'xyz canteloupe']
 
         # return value is a custom dict
         fn5 = pxt.udf(
             t, return_value={'plus_five': t.out1, 'xyz': t.out3, 'abcxyz': pxtf.string.format('abc {0}', t.out3)}
         )
-        res = u.select(result=fn5(22, u.a)).collect()['result']
+        res = u.select(result=fn5(22, u.a)).order_by(u.a, asc=False).collect()['result']
         assert res == [
             {'plus_five': 27, 'xyz': 'xyz grapefruit', 'abcxyz': 'abc xyz grapefruit'},
             {'plus_five': 27, 'xyz': 'xyz canteloupe', 'abcxyz': 'abc xyz canteloupe'},

@@ -880,7 +880,7 @@ class ReloadTester:
         reload_catalog()
         assert len(self.query_info) > 0, 'No queries in ReloadTester!'
         # enumerate(): the list index is useful for debugging
-        for _idx, (query_dict, result_set) in enumerate(self.query_info):
+        for idx, (query_dict, result_set) in enumerate(self.query_info):
 
             @retry_loop()
             def query_from_dict() -> pxt.Query:
@@ -892,7 +892,7 @@ class ReloadTester:
             try:
                 assert_resultset_eq(result_set, new_result_set, compare_col_names=True)
             except Exception as e:
-                s = f'Reload test failed for query:\n{query}\n{e}'
+                s = f'Reload test failed for query:\nIndex: {idx}\n{query}\n{e}'
                 raise RuntimeError(s) from e
         if clear:
             self.clear()

@@ -67,5 +67,5 @@ class Variable(Expr):
         return {'name': self.name, 'type': self.col_type.as_dict(), **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, _: list[Expr]) -> Variable:
+    def _from_dict(cls, d: dict, _: list[Expr], tbl_versions: Any = None) -> Variable:
         return cls(d['name'], ts.ColumnType.from_dict(d['type']))
