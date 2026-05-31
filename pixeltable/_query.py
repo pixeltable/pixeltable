@@ -832,7 +832,9 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls):
+        with get_runtime().catalog.begin_xact(
+            for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=self.referenced_tbl_ids()
+        ):
             return self._collect()
 
     def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
@@ -1851,7 +1853,9 @@ class Query:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            with get_runtime().catalog.begin_xact(read_tvps=self._from_clause.tbls):
+            with get_runtime().catalog.begin_xact(
+                for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=self.referenced_tbl_ids()
+            ):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1896,7 +1900,9 @@ class Query:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with get_runtime().catalog.begin_xact(read_tvps=self._from_clause.tbls):
+            with get_runtime().catalog.begin_xact(
+                for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=self.referenced_tbl_ids()
+            ):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)
 
