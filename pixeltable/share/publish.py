@@ -78,7 +78,7 @@ def push_replica(
     bucket: str | None = None,
     access: Literal['public', 'private'] = 'private',
 ) -> str:
-    _logger.info(f'Publishing replica for {src_tbl._name!r} to: {dest_tbl_uri}')
+    _logger.info(f'Publishing replica for {src_tbl._name()!r} to: {dest_tbl_uri}')
     if not src_tbl._is_versioned():
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Only versioned tables can be shared')
 

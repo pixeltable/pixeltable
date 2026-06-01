@@ -181,8 +181,12 @@ def _to_record_batch(
 def to_record_batches(
     query: 'pxt.Query', batch_size_bytes: int, schema_overrides: Mapping[str, pa.DataType] | None = None
 ) -> Iterator[pa.RecordBatch]:
+    # KNOWN RACE: schema is snapshotted here, outside any xact; query.cursor() below opens
+    # its own xact internally and re-resolves the schema. For SELECT * queries, a concurrent
+    # schema mutation between these two reads can produce a layout mismatch.
+    schema = query.schema
     arrow_schema: pa.Schema | None = None  # initialized after first batch, when we have data to infer struct schemas
-    batch_columns: dict[str, list[Any]] = {k: [] for k in query.schema}
+    batch_columns: dict[str, list[Any]] = {k: [] for k in schema}
     current_byte_estimate = 0
     num_batch_rows = 0
     json_val_size: dict[str, int] = {}  # key: col_name, value: average size of corresponding pa.struct
@@ -213,7 +217,7 @@ def to_record_batches(
     try:
         for data_row in query.cursor():
             num_batch_rows += 1
-            for col_name, col_type in query.schema.items():
+            for col_name, col_type in schema.items():
                 val = data_row[col_name]
                 val_size_bytes: int
                 if val is None:
@@ -280,7 +284,7 @@ def to_record_batches(
                 create_arrow_schema()
                 record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema, schema_overrides)
                 yield record_batch
-                batch_columns = {k: [] for k in query.schema}
+                batch_columns = {k: [] for k in schema}
                 current_byte_estimate = 0
                 num_batch_rows = 0
 
