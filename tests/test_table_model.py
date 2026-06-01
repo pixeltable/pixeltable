@@ -26,7 +26,7 @@ class TestTableModel:
             clip_idx = EmbeddingIndex(Column.img, embedding=dummy_embedding.using(n=768))
 
         tbl = ExampleTableModel.create()
-        metadata = tbl.get_metadata()
+        metadata: dict[str, Any] = dict(tbl.get_metadata())
 
         metadata.pop('id')
         metadata.pop('version_created')
@@ -278,8 +278,8 @@ class TestTableModel:
             'name': 'String',
             'string_add': 'String',
             'string_mul': 'String',
-            'string_radd': 'Required[String]',
-            'string_rmul': 'Required[String]',
+            'string_radd': 'String',
+            'string_rmul': 'String',
             'type_cast': 'Required[Array[float32]]',
             'value': 'Float',
         }

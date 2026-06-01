@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import exceptions as excs, exprs, func, type_system as ts
 from pixeltable.types import ColumnSpec
@@ -11,6 +11,9 @@ from pixeltable.types import ColumnSpec
 from .catalog import retry_loop
 from .globals import is_valid_identifier
 from .table import Table
+
+if TYPE_CHECKING:
+    import pixeltable as pxt
 
 # Table methods exposed as class-level operations on the model.
 FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
@@ -46,11 +49,13 @@ FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
     )
 )
 
+# Sanity check to guard against drift in the SDK surface.
 assert all(hasattr(Table, method) for method in FORWARDED_TABLE_METHODS)
 
 
 class _PlaceholderColumnRef(exprs.Expr):
-    """A placeholder column reference used in TableModel definitions,
+    """
+    A placeholder column reference used in TableModel definitions,
     which gets substituted with an actual ColumnRef during Table creation.
     """
 
@@ -80,7 +85,8 @@ class _PlaceholderColumnSpec:
 
 
 class _PlaceholderFactory:
-    """Class for creating placeholder column objects that can be used in TableModel definitions.
+    """
+    Class for creating placeholder column objects that can be used in TableModel definitions.
 
     This allows users to reference column names in computed expressions without needing to define them
     a priori as actual columns.
@@ -106,25 +112,20 @@ class _PlaceholderFactory:
         custom_metadata: Any = None,
         comment: str | None = None,
     ) -> _PlaceholderColumnSpec:
-        # Route each provided argument into a ColumnSpec, omitting any that were not supplied
-        # (ColumnSpec is total=False, so absent keys are simply left out).
-        column_spec: ColumnSpec = {}
-        if type is not None:
-            column_spec['type'] = type
-        if value is not None:
-            column_spec['value'] = value
-        if primary_key is not None:
-            column_spec['primary_key'] = primary_key
-        if stored is not None:
-            column_spec['stored'] = stored
-        if media_validation is not None:
-            column_spec['media_validation'] = media_validation
-        if destination is not None:
-            column_spec['destination'] = destination
-        if custom_metadata is not None:
-            column_spec['custom_metadata'] = custom_metadata
-        if comment is not None:
-            column_spec['comment'] = comment
+        """
+        Alternate usage of `Column` for defining a column with additional metadata.
+        Wraps all provided arguments in a `ColumnSpec`.
+        """
+        column_spec: ColumnSpec = {
+            'type': type,
+            'value': value,
+            'primary_key': primary_key,
+            'stored': stored,
+            'media_validation': media_validation,
+            'destination': destination,
+            'custom_metadata': custom_metadata,
+            'comment': comment,
+        }
         return _PlaceholderColumnSpec(column_spec)
 
 
@@ -152,52 +153,59 @@ class TableModelMetaclass(type):
     __columns__: dict[str, ColumnSpec]
     __indexes__: dict[str, EmbeddingIndex]
     __table_name__: str
+    __base_table__: str | Table | 'pxt.Query' | None
+    __iterator__: func.GeneratingFunctionCall | None
 
     def __new__(
         mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
     ) -> TableModelMetaclass:
         import pixeltable as pxt
 
+        if len(bases) == 0:
+            # This is the TableModel or ViewModel base class itself; no additional processing.
+            return super().__new__(mcs, name, bases, namespace)
+
+        # 1. Validate __table_name__
+
+        if '__table_name__' not in namespace:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA, f'{bases[-1].__name__} `{name}` does not define a __table_name__.'
+            )
+        if not isinstance(namespace['__table_name__'], str) or not is_valid_identifier(
+            namespace['__table_name__'], allow_hyphens=True
+        ):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'__table_name__ for {bases[-1].__name__} `{name}` must be a valid Pixeltable identifier.',
+            )
+
+        # 2. Process declarations. We need to process bare annotations (such as `col1: int`) as well as
+        #    values (such as `col2 = Column.col1 + 1` or `idx0 = EmbeddingIndex(...)`).
+
         annotations = namespace.get('__annotations__', {})
-        base_table: Any = None
 
-        if '__base_table__' in namespace:
-            if bases[0].__name__ != 'ViewModel':
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'__base_table__ not allowed for a TableModel; `{name}` must subclass ViewModel instead.',
-                )
-            base_table = namespace['__base_table__']
-        if '__iterator__' in namespace:
-            if bases[0].__name__ != 'ViewModel':
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'__iterator__ not allowed for a TableModel; `{name}` must subclass ViewModel instead.',
-                )
-            if not isinstance(namespace['__iterator__'], func.GeneratingFunctionCall):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'__iterator__ for ViewModel `{name}` must be a valid iterator reference.',
-                )
-
-        # name -> (annotation, namespace_value)
+        # Build a dictionary of declarations: name -> (annotation, namespace_value)
         decls: dict[str, tuple[Any, Any]] = {}
+
         for attr_name, annotation in annotations.items():
             if attr_name.startswith('_'):
                 continue
-            value = namespace.get(attr_name)
+            value = namespace.get(attr_name)  # It might also have a value
             decls[attr_name] = (annotation, value)
 
         for attr_name, value in namespace.items():
             if attr_name.startswith('_') or attr_name in decls:
+                # Skip if we already processed it in the preceding loop
                 continue
-            decls[attr_name] = (None, value)
+            decls[attr_name] = (None, value)  # No annotation (or we'd have processed it before)
 
+        # Now process the declarations to build column and index dictionaries.
         columns: dict[str, ColumnSpec] = {}
         indexes: dict[str, EmbeddingIndex] = {}
         for attr_name, (annotation, value) in decls.items():
             if value is None:
                 assert annotation is not None
+                # Pure type annotation; no value
                 columns[attr_name] = ColumnSpec(type=annotation)
             elif isinstance(value, EmbeddingIndex):
                 indexes[attr_name] = value
@@ -216,6 +224,7 @@ class TableModelMetaclass(type):
                         )
                 columns[attr_name] = spec
             else:
+                # Computed column expression.
                 expr = exprs.Expr.from_object(value)
                 columns[attr_name] = ColumnSpec(type=annotation, value=expr)
 
@@ -223,28 +232,51 @@ class TableModelMetaclass(type):
             # proper ColumnRef instances at runtime.
             namespace.pop(attr_name, None)
 
-        if len(bases) > 0:
-            if '__table_name__' not in namespace:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA, f'{bases[-1].__name__} `{name}` does not define a __table_name__.'
-                )
-            if bases[0].__name__ == 'ViewModel':
-                if base_table is None:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA, f'ViewModel `{name}` does not define a __base_table__.'
-                    )
-                if isinstance(base_table, TableModelMetaclass) and issubclass(base_table, (TableModel, ViewModel)):
-                    base_table = base_table.__table_name__
-                elif not isinstance(base_table, (str, pxt.Table, pxt.Query)):
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
-                        f'Invalid __base_table__ for ViewModel `{name}`: must be a valid base table name, an existing '
-                        'table or query, or another TableModel/ViewModel class.',
-                    )
-                namespace['__base_table__'] = base_table
-
         namespace['__columns__'] = columns
         namespace['__indexes__'] = indexes
+
+        # 3. Validate __base_table__ and __iterator__ declarations.
+
+        if bases[0].__name__ == 'TableModel':
+            if '__base_table__' in namespace:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'__base_table__ not allowed for a TableModel; `{name}` must subclass ViewModel instead.',
+                )
+            if '__iterator__' in namespace:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'__iterator__ not allowed for a TableModel; `{name}` must subclass ViewModel instead.',
+                )
+            namespace['__base_table__'] = None
+            namespace['__iterator__'] = None
+
+        else:
+            assert bases[0].__name__ == 'ViewModel'  # The only other possibility
+            base_table = namespace.get('__base_table__')
+            if base_table is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA, f'ViewModel `{name}` does not define a __base_table__.'
+                )
+            if isinstance(base_table, TableModelMetaclass) and issubclass(base_table, (TableModel, ViewModel)):
+                # Base table is specified as a model; replace with the string name of that table
+                namespace['__base_table__'] = base_table.__table_name__
+            elif not isinstance(base_table, (str, Table, pxt.Query)):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Invalid __base_table__ for ViewModel `{name}`: must be a valid base table name, an existing '
+                    'table or query, or another TableModel/ViewModel class.',
+                )
+
+            if '__iterator__' in namespace:
+                iterator = namespace['__iterator__']
+                if not (iterator is None or isinstance(iterator, func.GeneratingFunctionCall)):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_SCHEMA,
+                        f'__iterator__ for ViewModel `{name}` must be a valid iterator reference.',
+                    )
+            else:
+                namespace['__iterator__'] = None
 
         return super().__new__(mcs, name, bases, namespace)
 
@@ -264,16 +296,16 @@ class TableModelMetaclass(type):
 
         # Create the table with its non-computed columns
         initial_schema = {col_name: col_spec for col_name, col_spec in columns.items() if col_spec.get('value') is None}
+
         tbl: pxt.Table
         tbl_name = cls.__table_name__
-
         if issubclass(cls, ViewModel):
             base = cls.__base_table__
+            iterator = cls.__iterator__
             assert isinstance(base, (str, pxt.Table, pxt.Query)), type(base)
             if isinstance(base, str):
                 base = pxt.get_table(base)
                 assert base is not None
-            iterator = getattr(cls, '__iterator__', None)
             assert iterator is None or isinstance(iterator, func.GeneratingFunctionCall)
             tbl = pxt.create_view(
                 tbl_name, base, additional_columns=initial_schema, iterator=iterator, if_exists=if_exists
@@ -298,13 +330,18 @@ class TableModelMetaclass(type):
                 if expr is not None:
                     realized_expr: exprs.Expr = expr.copy().substitute(subst_dict)
                     residual_placeholders = list(realized_expr.subexprs(_PlaceholderColumnRef))
-                    print(realized_expr)
                     if len(residual_placeholders) > 0:
                         raise excs.RequestError(
                             excs.ErrorCode.INVALID_SCHEMA,
                             f'Computed column {col_name!r} references undefined column(s): {residual_placeholders}',
                         )
-                    tbl.add_computed_column(**{col_name: realized_expr})
+                    tbl.add_computed_column(
+                        **{col_name: realized_expr},
+                        stored=col_spec.get('stored'),
+                        destination=col_spec.get('destination'),
+                        custom_metadata=col_spec.get('custom_metadata'),
+                        comment=col_spec.get('comment', ''),
+                    )
                     subst_dict[getattr(Column, col_name)] = getattr(tbl, col_name)
 
             # Now add any declared indexes.

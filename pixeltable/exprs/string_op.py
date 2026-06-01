@@ -22,7 +22,7 @@ class StringOp(Expr):
     operator: StringOperator
 
     def __init__(self, operator: StringOperator, op1: Expr, op2: Expr):
-        super().__init__(ts.StringType(nullable=op1.col_type.nullable))
+        super().__init__(ts.StringType(nullable=(op1.col_type.nullable or op2.col_type.nullable)))
         self.operator = operator
         self.components = [op1, op2]
         match operator:

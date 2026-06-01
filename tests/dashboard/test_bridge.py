@@ -1,7 +1,5 @@
 """Tests for pixeltable.dashboard.bridge — the translation layer between Pixeltable APIs and the dashboard REST API."""
 
-import numpy as np
-
 import pixeltable as pxt
 from pixeltable.dashboard import bridge
 from pixeltable.functions.video import frame_iterator
