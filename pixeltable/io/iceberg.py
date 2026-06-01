@@ -102,11 +102,12 @@ def export_iceberg(
     fallback_schema = to_arrow_schema(query.schema, schema_overrides)
     fixed_tensor_cols = [f.name for f in fallback_schema if isinstance(f.type, pa.FixedShapeTensorType)]
     if len(fixed_tensor_cols) > 0:
+        example_col = fixed_tensor_cols[0]
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'export_iceberg(): cannot export fixed-shape tensor column(s) {fixed_tensor_cols}. '
-            f'Iceberg has no fixed-shape tensor type; project the column to a list before exporting '
-            f'(e.g. via `pixeltable.functions.array.to_list` or `t.col.to_list()`).',
+            f'Iceberg has no fixed-shape tensor type; project each such column to a list before exporting, '
+            f'e.g. export_iceberg(t.select({example_col}=t.{example_col}.to_list()), catalog, table_name).',
         )
 
     batch_iter = to_record_batches(query, batch_size_bytes, schema_overrides)
