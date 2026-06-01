@@ -181,7 +181,7 @@ class ArithmeticExpr(Expr):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> ArithmeticExpr:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> ArithmeticExpr:
         assert 'operator' in d
         assert len(components) == 2
         return cls(ArithmeticOperator(d['operator']), components[0], components[1])

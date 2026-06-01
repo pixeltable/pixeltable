@@ -38,7 +38,7 @@ class MethodRef(Expr):
         return {'method_name': self.method_name, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> 'MethodRef':
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> 'MethodRef':
         assert 'method_name' in d
         assert len(components) == 1
         return cls(components[0], d['method_name'])

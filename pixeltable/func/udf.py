@@ -383,13 +383,13 @@ def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, descriptio
         # Default description is the table comment
         description = tbl._get_comment()
         if description is None or len(description) == 0:
-            description = f"UDF for table '{tbl._name}'"
+            description = f"UDF for table '{tbl._name()}'"
 
     # TODO: Use column comments as parameter descriptions, when we have them
     argstring = '\n'.join(f'    {param.name}: of type `{param.col_type}`' for param in params)
     docstring = f'{description}\n\nArgs:\n{argstring}'
 
     template = ExprTemplate(return_value, Signature(return_value.col_type, params))
-    fn = ExprTemplateFunction([template], name=tbl._name)
+    fn = ExprTemplateFunction([template], name=tbl._name())
     fn.__doc__ = docstring
     return fn

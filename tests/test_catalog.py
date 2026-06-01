@@ -1,12 +1,18 @@
 from textwrap import dedent
 
+import psycopg
 import pytest
+import sqlalchemy.exc as sql_exc
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.catalog import Path, is_valid_identifier
+from pixeltable.runtime import get_runtime
 from pixeltable.share.packager import TablePackager, TableRestorer
+from pixeltable.utils.fault_injection import FaultLocation
 from tests.conftest import clean_db
+from tests.coordinator import MultiThreadedScenario
+from tests.fault_injection import BlockFault, ExceptionFault
 from tests.utils import pxt_raises, reload_catalog
 
 
@@ -241,3 +247,143 @@ class TestCatalog:
         assert isinstance(op, CreateTableMdOp)
         assert op.needs_xact  # now a ClassVar
         assert 'needs_xact' not in op.to_dict()
+
+    def test_finalize_pending_ops_retriable_error(self, uses_db: None, fault_injection: None) -> None:
+        t = pxt.create_table('test', {'a': pxt.Int})
+        exc = sql_exc.DBAPIError('', {}, orig=psycopg.errors.SerializationFailure())
+        fault = ExceptionFault(exc)
+        get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault)
+        t.add_column(b=pxt.Int)
+        fault.assert_count(1)
+        _ = t.select(t.b).collect()
+
+    def test_finalize_pending_ops_non_retriable_error(self, uses_db: None, fault_injection: None) -> None:
+        t = pxt.create_table('test', {'a': pxt.Int})
+        # Inject a non-retriable error into LoadViewOp. LoadViewOp is the last of 3 ops that constitute a view creation.
+        # Upon catching the injected error, the catalog should abort view creation, and undo the first two ops that
+        # were already executed.
+        exc = Exception('injected')
+        fault = ExceptionFault(exc, recurring=True)
+        get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_LOAD_VIEW_OP_EXEC, fault)
+
+        with pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match=str(exc)):
+            _ = pxt.create_view('view', t.where(t.a > 0))
+        fault.assert_count(1)
+
+        # Check that view is not in catalog
+        ls = pxt.ls()
+        assert len(ls) == 1, ls
+        assert ls['Name'].iloc[0] == 'test', ls
+
+    def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None) -> None:
+        """Concurrent insert while add_column is blocked mid-finalize"""
+        t = pxt.create_table('test', {'a': pxt.Int})
+        fault = BlockFault()
+
+        (
+            MultiThreadedScenario()
+            # Thread 0: arm the fault in pending table ops finalization
+            .then_run(
+                thread_id=0,
+                name='inject fault',
+                fn=lambda: get_runtime().fault_manager.inject_fault(
+                    FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault
+                ),
+            )
+            # Thread 0: start adding a computed column, this will block at the fault point
+            .then_run_until(
+                thread_id=0,
+                name='add column',
+                event=fault.reached,
+                fn=lambda: (t := pxt.get_table('test'), t.add_computed_column(b=t.a + 1)),
+            )
+            # Thread 1: run an insert concurrently with add column in thread 0 once thread 0 is in finalize pending ops
+            # point
+            .then_run(thread_id=1, name='insert', fn=lambda: pxt.get_table('test').insert([{'a': 1}]))
+            # Unblock thread 0
+            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: fault.unblock())
+            .execute()
+        )
+
+        # Both operations should have completed successfully.
+        result = t.select(t.a, t.b).collect()
+        assert len(result) == 1
+        assert result[0] == {'a': 1, 'b': 2}
+
+    def test_create_view_stale_base_tv_after_txn_failure(self, uses_db: None, fault_injection: None) -> None:
+        """
+        Verifies bug fix: due to an error in view creation, Catalog would fail to invalidate a modified but not
+        persisted TableVersion. Later that would result in Pixeltable acting on that stale TableVersion, which can cause
+        various sorts of issues including a data corruption.
+        """
+        pxt.create_table('base', {'a': pxt.Int})
+
+        injected_exc = Exception('injected error')
+
+        def create_view() -> None:
+            with pytest.raises(Exception, match='injected'):
+                pxt.create_view('va', pxt.get_table('base'))
+
+        (
+            MultiThreadedScenario()
+            # Thread 0: Warm up its catalog so base's tv is cached.
+            .then_run(thread_id=0, name='warm up cache', fn=lambda: pxt.get_table('base'))
+            # Thread 0: Arm a non-retriable exception fault inside create_view.
+            .then_run(
+                thread_id=0,
+                name='inject fault',
+                fn=lambda: get_runtime().fault_manager.inject_fault(
+                    FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED, ExceptionFault(injected_exc)
+                ),
+            )
+            # Thread 0: Run create_view (va) that fails. Before the fix, base_tv was not added to _modified_tvs, so it
+            # stays in cache with stale in-memory state, i.e. with view_sn=v+1
+            .then_run(thread_id=0, name='create view that fails', fn=create_view)
+            # Thread 1: Create view vb on the same base. This also advances the persisted view_sn to v+1, which
+            # automatically matches thread 0's stale cached value.
+            .then_run(thread_id=1, name='create view', fn=lambda: pxt.create_view('vb', pxt.get_table('base')))
+            # Thread 0: insert into base table. Before the fix, Catalog would observe that the cached TableVersion's
+            # version and view_sn match the stored values, and based on that decide to skip reloading the table.
+            # The outcome of that is the write is not propagated to vb.
+            .then_run(
+                thread_id=0, name='insert into base (stale cache)', fn=lambda: pxt.get_table('base').insert([{'a': 42}])
+            )
+            .execute()
+        )
+
+        assert pxt.get_table('base').count() == 1
+        # Verify that the insert was propagated to vb.
+        assert pxt.get_table('vb').count() == 1
+
+    def test_load_table_concurrent_drop_store_tbl(self, uses_db: None, fault_injection: None) -> None:
+        """
+        Verifies a bug fix: one thread is loading a table while the other is dropping it.
+        """
+        pxt.create_table('test', {'a': pxt.Int})
+        block_in_store_base = BlockFault()
+
+        def get_table_expect_not_found() -> None:
+            with pxt_raises(excs.ErrorCode.TABLE_NOT_FOUND, match='Table was dropped'):
+                pxt.get_table('test')
+
+        (
+            MultiThreadedScenario()
+            # Thread 0: arm the fault that blocks right after _store_tbl_exists() returns True
+            .then_run(
+                thread_id=0,
+                name='inject fault',
+                fn=lambda: get_runtime().fault_manager.inject_fault(
+                    FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK, block_in_store_base
+                ),
+            )
+            # Thread 0: load the table with a cold cache; this will block in StoreBase. When it unblocks later, expect
+            # a "Table was dropped" error. Before the fix, this would raise an AssertionError.
+            .then_run_until(
+                thread_id=0, name='get table', event=block_in_store_base.reached, fn=get_table_expect_not_found
+            )
+            # Thread 1: drop the table while Thread 0 is frozen. This drops store table as well.
+            .then_run(thread_id=1, name='drop table', fn=lambda: pxt.drop_table('test'))
+            # Thread 1: unblock Thread 0 inside StoreBase
+            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: block_in_store_base.unblock())
+            .execute()
+        )

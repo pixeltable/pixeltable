@@ -31,7 +31,7 @@ class QueryTemplateFunction(Function):
         return_scalar: bool,
     ) -> QueryTemplateFunction:
         # we need to construct a template df and a signature
-        py_sig = inspect.signature(template_callable)
+        py_sig = inspect.signature(template_callable, eval_str=True)
         py_params = list(py_sig.parameters.values())
         params = Signature.create_parameters(py_params=py_params, param_types=param_types)
         # invoke template_callable with parameter expressions to construct a Query with parameters
@@ -58,6 +58,10 @@ class QueryTemplateFunction(Function):
         name: str | None = None,
         comment: str | None = None,
     ):
+        # TODO:
+        # - assign a correct return type, based on the query's schema
+        # - re-resolve schema at execution time if this is a SELECT *
+
         schema = template_query.schema
         # return_scalar == True: single-column queries return a variadic list of that column's type directly, rather
         # than wrapping each row in a single-field dict.
@@ -123,11 +127,13 @@ class QueryTemplateFunction(Function):
         from pixeltable._query import Query
 
         sig = Signature.from_dict(d['signature'])
+        try:
+            template_query = Query.from_dict(d['df'])
+        except excs.NotFoundError as e:
+            # template_query references a table or column that no longer exists
+            return func.InvalidFunction(d['name'], d, f'the @pxt.query UDF {d["name"]!r} cannot be loaded: {e}')
         return cls(
-            Query.from_dict(d['df']),
-            list(sig.parameters.values()),
-            return_scalar=d.get('return_scalar', False),
-            name=d['name'],
+            template_query, list(sig.parameters.values()), return_scalar=d.get('return_scalar', False), name=d['name']
         )
 
 
@@ -233,7 +239,7 @@ def retrieval_udf(
 
     # Construct a name and/or description if not provided
     if name is None:
-        name = table._name
+        name = table._name()
     if description is None:
         description = (
             f'Retrieves an entry from the dataset {name!r} that matches the given parameters.\n\nParameters:\n'

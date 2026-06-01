@@ -113,7 +113,7 @@ class Literal(Expr):
         return self
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> Literal:
         val = d['val']
         col_type_dict = d['col_type']
         if not isinstance(col_type_dict, dict) or '_classname' not in col_type_dict:
