@@ -8,7 +8,7 @@ import pixeltable.functions as pxtf
 from pixeltable import exceptions as excs, exprs
 from pixeltable.catalog.model import Column, EmbeddingIndex
 
-from .utils import assert_table_metadata_eq, pxt_raises
+from .utils import assert_table_metadata_eq, dummy_embedding, pxt_raises
 
 
 class TestTableModel:
@@ -23,12 +23,14 @@ class TestTableModel:
             incr = Column.value + 1
             descr = pxtf.string.format('Name: {name}', name=Column.name)
 
-            clip_idx = EmbeddingIndex(
-                Column.img, embedding=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
-            )
+            clip_idx = EmbeddingIndex(Column.img, embedding=dummy_embedding.using(n=768))
 
         tbl = ExampleTableModel.create()
         metadata = tbl.get_metadata()
+
+        metadata.pop('id')
+        metadata.pop('version_created')
+        print(metadata)
 
         assert {name: info['type_'] for name, info in metadata['columns'].items()} == {
             'id': 'Required[Int]',
@@ -160,11 +162,8 @@ class TestTableModel:
                         'index_type': 'embedding',
                         'parameters': {
                             'metric': 'cosine',
-                            'embedding': "clip(img, model_id='openai/clip-vit-base-patch32')",
-                            'embedding_functions': [
-                                "clip(text, model_id='openai/clip-vit-base-patch32')",
-                                "clip(image, model_id='openai/clip-vit-base-patch32')",
-                            ],
+                            'embedding': 'dummy_embedding(img, n=768)',
+                            'embedding_functions': ['dummy_embedding(text, n=768)', 'dummy_embedding(img, n=768)'],
                         },
                     },
                 },
@@ -297,9 +296,7 @@ class TestTableModel:
             incr = Column.value + 1
             descr = pxtf.string.format('Name: {name}', name=Column.name)
 
-            clip_idx = EmbeddingIndex(
-                Column.img, embedding=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
-            )
+            clip_idx = EmbeddingIndex(Column.img, embedding=dummy_embedding.using(n=768))
 
         _ = ExampleTableModel.create()
 
@@ -324,9 +321,7 @@ class TestTableModel:
             view_col_2 = Column.view_col_1.rotate(90)
             view_col_3 = Column.img.rotate(90)  # Also try dereferencing a base table column
 
-            view_idx = EmbeddingIndex(
-                Column.view_col_2, embedding=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
-            )
+            view_idx = EmbeddingIndex(Column.view_col_2, embedding=dummy_embedding.using(n=768))
 
         _ = ExampleViewModel.create()
 

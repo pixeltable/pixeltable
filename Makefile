@@ -176,6 +176,8 @@ stresstest: install
 typecheck: install
 	@echo 'Running `mypy` ...'
 	@mypy pixeltable tests tool
+	# Separate direct check of model.py (which is shadowed by the generated model.pyi in the main run)
+	@mypy pixeltable/catalog/model.py
 
 .PHONY: docscheck
 docscheck: install

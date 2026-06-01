@@ -234,6 +234,7 @@ jobs:
         run: |
           python tool/generate_type_stubs.py
           mypy pixeltable tests tool
+          mypy pixeltable/catalog/model.py
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: |

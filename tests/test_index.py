@@ -19,6 +19,7 @@ from pixeltable.functions.huggingface import clip
 from .utils import (
     ReloadTester,
     assert_resultset_eq,
+    dummy_embedding,
     get_sentences,
     list_store_indexes,
     pxt_raises,
@@ -837,28 +838,24 @@ class TestIndex:
                 pxt.ErrorCode.INVALID_ARGUMENT,
                 match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision",
             ):
-                test_tbl.add_embedding_index(
-                    test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=4001), precision='fp16'
-                )
+                test_tbl.add_embedding_index(test_tbl.c1, embedding=dummy_embedding.using(n=4001), precision='fp16')
             with pxt_raises(
                 pxt.ErrorCode.INVALID_ARGUMENT,
                 match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for fp32 precision",
             ):
-                test_tbl.add_embedding_index(
-                    test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=2001), precision='fp32'
-                )
+                test_tbl.add_embedding_index(test_tbl.c1, embedding=dummy_embedding.using(n=2001), precision='fp32')
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid precision.+Must be one of: \['fp16', 'fp32'\]"):
             test_tbl.add_embedding_index(
                 test_tbl.c1,
-                embedding=TestIndex.dummy_embedding.using(n=2001),
+                embedding=dummy_embedding.using(n=2001),
                 precision='invalid',  # type: ignore[arg-type]
             )
         with pxt_raises(
             pxt.ErrorCode.INVALID_CONFIGURATION,
             match='is not a valid embedding: it returns an array of invalid length 0',
         ):
-            test_tbl.add_embedding_index(test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=0), precision='fp16')
+            test_tbl.add_embedding_index(test_tbl.c1, embedding=dummy_embedding.using(n=0), precision='fp16')
 
     def run_btree_test(self, data: list, data_type: type | _GenericAlias) -> pxt.Table:
         t = pxt.create_table('btree_test', {'data': data_type})
@@ -944,24 +941,6 @@ class TestIndex:
         ]
         self.run_btree_test(data, pxt.Date)
 
-    @pxt.udf
-    @staticmethod
-    def dummy_embedding(text: str, n: int) -> pxt.Array[(None,), np.float32]:
-        if 'zero' in text:
-            arr = np.zeros((n,), dtype=np.float32)
-            arr[n // 2 :] = 1
-            return arr
-        if 'one' in text:
-            arr = np.zeros((n,), dtype=np.float32)
-            arr[: n // 2] = 1
-            return arr
-        return np.random.rand(n).astype(np.float32)
-
-    @dummy_embedding.conditional_return_type
-    @staticmethod
-    def _(n: int) -> ts.ArrayType:
-        return ts.ArrayType((n,), dtype=np.dtype('float32'), nullable=False)
-
     @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
     @pytest.mark.parametrize('precision', ['fp16', 'fp32'])
@@ -973,11 +952,7 @@ class TestIndex:
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String}, if_exists='replace')
         n = 123
         t.add_embedding_index(
-            t.text,
-            embedding=TestIndex.dummy_embedding.using(n=n),
-            metric=metric,
-            precision=precision,
-            idx_name='test_idx',
+            t.text, embedding=dummy_embedding.using(n=n), metric=metric, precision=precision, idx_name='test_idx'
         )
         t.insert(
             [

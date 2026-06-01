@@ -6,7 +6,7 @@ import pixeltable as pxt
 from pixeltable.dashboard import bridge
 from pixeltable.functions.video import frame_iterator
 
-from ..utils import get_test_video_files
+from ..utils import dummy_embedding, get_test_video_files
 
 
 @pxt.udf
@@ -19,11 +19,6 @@ def fail_on_neg(x: int) -> int:
     if x < 0:
         raise ValueError('negative')
     return x
-
-
-@pxt.udf
-def dummy_embed(text: str) -> pxt.Array[(3,), pxt.Float]:
-    return np.array([1.0, 2.0, 3.0])
 
 
 class TestBridge:
@@ -59,7 +54,7 @@ class TestBridge:
     def test_table_metadata_indices(self, uses_db: None) -> None:
         pxt.create_dir('md')
         t = pxt.create_table('md/t', {'c1': pxt.String})
-        t.add_embedding_index('c1', embedding=dummy_embed)
+        t.add_embedding_index('c1', embedding=dummy_embedding.using(n=3))
         result = pxt.get_table('md/t').get_metadata()
         assert len(result['indices']) > 0
         idx = next(iter(result['indices'].values()))
