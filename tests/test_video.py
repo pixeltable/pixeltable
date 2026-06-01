@@ -311,6 +311,12 @@ class TestVideo:
         assert inline_res[0]['size'] == 2234371
         assert inline_res[0]['streams'][0]['width'] == 640
 
+        # get_metadata() returns correct type information
+        expr = base_t.video.get_metadata().streams[0].frames
+        assert expr.col_type.is_int_type()
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
+            _ = base_t.video.get_metadata().streams[0].not_an_attr
+
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
     class agg_fn(pxt.Aggregator):
