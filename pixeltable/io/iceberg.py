@@ -22,7 +22,7 @@ def export_iceberg(
     table_name: str,
     *,
     batch_size_bytes: int = 128 * 2**20,
-    if_exists: Literal['error', 'overwrite', 'append'] = 'error',
+    if_exists: Literal['error', 'replace', 'append'] = 'error',
     schema_overrides: Mapping[str, pa.DataType] | None = None,
 ) -> None:
     """
@@ -39,13 +39,13 @@ def export_iceberg(
     Args:
         table_or_query: Pixeltable `Table` or `Query` to export.
         catalog: An Iceberg `Catalog` instance to write the table into.
-        table_name: Fully-qualified Iceberg table identifier (e.g. `'pxt.my_table'`). If the namespace does not
-            exist, it will be created.
+        table_name: Fully-qualified Iceberg table identifier (e.g. `'my_namespace.my_table'`). If the namespace
+            does not exist, it will be created.
         batch_size_bytes: Maximum size in bytes for each in-memory pyarrow batch.
         if_exists: Determines the behavior if the table already exists. Must be one of the following:
 
             - `'error'`: raise an error
-            - `'overwrite'`: drop the existing table and create a new one
+            - `'replace'`: drop the existing table and create a new one
             - `'append'`: append to the existing table (source schema must be compatible)
         schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
             name `name` will be given type `type`, instead of being inferred from the Pixeltable schema. The keys in
@@ -55,10 +55,10 @@ def export_iceberg(
 
     from pyiceberg.exceptions import NoSuchTableError
 
-    if if_exists not in ('error', 'overwrite', 'append'):
+    if if_exists not in ('error', 'replace', 'append'):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            "export_iceberg(): `if_exists` must be one of: ['error', 'overwrite', 'append']",
+            "export_iceberg(): `if_exists` must be one of: ['error', 'replace', 'append']",
         )
 
     # pyiceberg requires a namespace-qualified identifier; bare names raise opaque errors deep
@@ -67,7 +67,7 @@ def export_iceberg(
     if not namespace or not name:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f"export_iceberg(): table_name {table_name!r} must be namespace-qualified (e.g. 'pxt.my_table').",
+            f"export_iceberg(): table_name {table_name!r} must be namespace-qualified (e.g. 'my_namespace.my_table').",
         )
 
     query: pxt.Query
@@ -111,13 +111,17 @@ def export_iceberg(
 
     batch_iter = to_record_batches(query, batch_size_bytes, schema_overrides)
     first_batch = next(batch_iter, None)
+
+    # Prefer the first batch's schema: it carries the concrete nested types inferred from real JSON
+    # values (e.g. struct<x: int64>), whereas fallback_schema maps every JSON column to an empty
+    # pa.struct([]). fallback_schema is only used when the query is empty and there is nothing to infer.
     arrow_schema = first_batch.schema if first_batch is not None else fallback_schema
 
     # `pa.infer_type()` produces `pa.null()` for JSON keys whose value is None in every sampled row.
     # Iceberg format-version 2 cannot represent a null-only column, so reject it up front rather
     # than letting pyiceberg fail mid-write with a less actionable error.
     null_paths = find_null_fields(arrow_schema)
-    if null_paths:
+    if len(null_paths) > 0:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'export_iceberg(): cannot infer a concrete type for JSON field(s) {null_paths} because every sampled '

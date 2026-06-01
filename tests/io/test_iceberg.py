@@ -202,7 +202,7 @@ class TestIceberg:
         assert subset.column_names == ['c_string']
 
     def test_if_exists(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        """Verify error/overwrite/append branches of if_exists."""
+        """Verify error/replace/append branches of if_exists."""
         skip_test_if_not_installed('pyiceberg')
 
         t = pxt.create_table('test_iceberg_if_exists', {'c_int': pxt.Int, 'c_string': pxt.String})
@@ -217,8 +217,8 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             pxt.io.export_iceberg(t, catalog, 'pxt.if_exists')
 
-        # Overwrite: drops + recreates, ends with same row count
-        pxt.io.export_iceberg(t.where(t.c_int < 3), catalog, 'pxt.if_exists', if_exists='overwrite')
+        # Replace: drops + recreates, ends with same row count
+        pxt.io.export_iceberg(t.where(t.c_int < 3), catalog, 'pxt.if_exists', if_exists='replace')
         assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 3
 
         # Append: doubles the row count
@@ -229,18 +229,18 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be one of'):
             pxt.io.export_iceberg(t, catalog, 'pxt.if_exists', if_exists='badval')  # type: ignore[arg-type]
 
-        # Overwrite + preflight failure: existing table must be preserved.
+        # Replace + preflight failure: existing table must be preserved.
         bad = pxt.create_table('test_iceberg_replace_bad', {'c_array': pxt.Array[(4,), pxt.Float]})  # type: ignore[misc]
         bad.insert([{'c_array': np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
-            pxt.io.export_iceberg(bad, catalog, 'pxt.if_exists', if_exists='overwrite')
+            pxt.io.export_iceberg(bad, catalog, 'pxt.if_exists', if_exists='replace')
         assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 6
 
-        # Overwrite + mid-stream failure (after the temp table is created): the existing table
+        # Replace + mid-stream failure (after the temp table is created): the existing table
         # must remain intact and no temp table should be left behind in the namespace.
         bad_catalog = _MidStreamFailingCatalog(catalog)
         with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='failed to write'):
-            pxt.io.export_iceberg(t, bad_catalog, 'pxt.if_exists', if_exists='overwrite')  # type: ignore[arg-type]
+            pxt.io.export_iceberg(t, bad_catalog, 'pxt.if_exists', if_exists='replace')  # type: ignore[arg-type]
 
         assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 6
         leftover = [name for _, name in catalog.list_tables('pxt') if '__pxt_tmp_' in name]
