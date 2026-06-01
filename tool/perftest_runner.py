@@ -11,6 +11,7 @@ from opentelemetry.sdk.resources import Resource
 
 import pixeltable.functions as pxtf
 import tool.perftest_providers as ptp
+from pixeltable.env import LOG_FMT_STR
 
 GRAFANA_OTLP_URL = 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metrics'
 
@@ -37,7 +38,9 @@ def main() -> None:
         kwargs={'model_kwargs': {'max_tokens': t, 'temperature': 0.7}},
     )
     logging.getLogger('pixeltable').setLevel(logging.DEBUG)
-    logging.getLogger('pixeltable').addHandler(logging.StreamHandler(sys.stdout))
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter(LOG_FMT_STR))
+    logging.getLogger('pixeltable').addHandler(handler)
     duration, num_exc = ptp.execute_perf_test(n=n, t=t, provider=provider_config, recompute_excs=True)
     success = num_exc == 0
     throughput = n / duration.total_seconds() if duration.total_seconds() > 0 else None

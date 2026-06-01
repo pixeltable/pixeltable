@@ -16,7 +16,7 @@ import toml
 
 import pixeltable as pxt
 from pixeltable import functions as pxtf, metadata, type_system as ts
-from pixeltable.env import Env
+from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
 from pixeltable.iterators.base import ComponentIterator
@@ -115,7 +115,9 @@ class Dumper:
 
         logging.getLogger('pixeltable').setLevel(logging.DEBUG)
         logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
-        logging.getLogger('pixeltable').addHandler(logging.StreamHandler(sys.stdout))
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter(LOG_FMT_STR))
+        logging.getLogger('pixeltable').addHandler(handler)
 
     def dump_db(self) -> None:
         md_version = metadata.VERSION
