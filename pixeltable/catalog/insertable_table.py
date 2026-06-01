@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import enum
-import logging
 import time
 from typing import TYPE_CHECKING, Any, Literal, Sequence, overload
 
@@ -25,8 +24,6 @@ if TYPE_CHECKING:
     from pixeltable import exprs
     from pixeltable.globals import TableDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
-
-_logger = logging.getLogger(__name__)
 
 
 class OnErrorParameter(enum.Enum):
