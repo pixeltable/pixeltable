@@ -311,7 +311,7 @@ class TestTableModel:
                 spec = 'test_table'
             case 'query':
                 spec = ExampleTableModel.select(ExampleTableModel.value, ExampleTableModel.img).where(
-                    ExampleTableModel.value > 0.5
+                    ExampleTableModel.value > 0.5  # type: ignore[arg-type]
                 )
             case 'table':
                 spec = ExampleTableModel.table
@@ -387,13 +387,17 @@ class TestTableModel:
                 name: pxt.Int = Column(type=pxt.String)  # type: ignore[assignment]
 
         # A TableModel subclass must define `__table_name__`.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'TableModel `NoTableName` does not define a __table_name__'):
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r'TableModel `NoTableName` does not define a __table_name__'
+        ):
 
             class NoTableName(pxt.TableModel):
                 id: pxt.Int
 
         # A ViewModel subclass must define `__table_name__`.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'ViewModel `NoTableNameView` does not define a __table_name__'):
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r'ViewModel `NoTableNameView` does not define a __table_name__'
+        ):
 
             class NoTableNameView(pxt.ViewModel):
                 __base_table__ = 'unused'

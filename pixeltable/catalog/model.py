@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import Any, Literal
 
 from pixeltable import exceptions as excs, exprs, func, type_system as ts
 from pixeltable.types import ColumnSpec
@@ -11,6 +11,42 @@ from pixeltable.types import ColumnSpec
 from .catalog import retry_loop
 from .globals import is_valid_identifier
 from .table import Table
+
+# Table methods exposed as class-level operations on the model.
+FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
+    (
+        'batch_update',
+        'collect',
+        'count',
+        'cursor',
+        'delete',
+        'describe',
+        'distinct',
+        'get_metadata',
+        'get_versions',
+        'group_by',
+        'head',
+        'history',
+        'insert',
+        'join',
+        'limit',
+        'list_views',
+        'order_by',
+        'pull',
+        'push',
+        'recompute_columns',
+        'sample',
+        'select',
+        'show',
+        'sync',
+        'tail',
+        'unlink_external_stores',
+        'update',
+        'where',
+    )
+)
+
+assert all(hasattr(Table, method) for method in FORWARDED_TABLE_METHODS)
 
 
 class _PlaceholderColumnRef(exprs.Expr):
@@ -92,7 +128,7 @@ class _PlaceholderFactory:
         return _PlaceholderColumnSpec(column_spec)
 
 
-Column = _PlaceholderFactory()
+Column: _PlaceholderFactory = _PlaceholderFactory()
 
 
 @dataclass(frozen=True)
@@ -107,17 +143,6 @@ class EmbeddingIndex:
     metric: Literal['cosine', 'ip', 'l2'] = 'cosine'
     precision: Literal['fp16', 'fp32'] = 'fp16'
 
-
-
-# Table methods exposed as class-level operations on the model.
-_FORWARDED_TABLE_METHODS = frozenset((
-    'batch_update', 'collect', 'count', 'cursor', 'delete', 'describe', 'distinct',
-    'get_metadata', 'get_versions', 'group_by', 'head', 'history', 'insert', 'join',
-    'limit', 'list_views', 'order_by', 'pull', 'push', 'recompute_columns',
-    'sample', 'select', 'show', 'sync', 'tail', 'unlink_external_stores', 'update', 'where',
-))
-
-assert all(hasattr(Table, method) for method in _FORWARDED_TABLE_METHODS)
 
 class TableModelMetaclass(type):
     """
@@ -298,9 +323,9 @@ class TableModelMetaclass(type):
         return tbl
 
     def __getattr__(cls, item: str) -> Any:
-        if item in _FORWARDED_TABLE_METHODS:
+        if item in FORWARDED_TABLE_METHODS:
             return getattr(cls._resolve_tbl(), item)
-        if item in cls.__columns__:
+        if is_valid_identifier(item):
             return cls._resolve_column(item)
         return super().__getattribute__(item)
 
