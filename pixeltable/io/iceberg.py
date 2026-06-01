@@ -9,7 +9,9 @@ import pyarrow as pa
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
+from pixeltable.utils import fault_injection
 from pixeltable.utils.arrow import find_null_fields, to_arrow_schema, to_record_batches
+from pixeltable.utils.fault_injection import FaultLocation
 
 if TYPE_CHECKING:
     from pyiceberg.catalog import Catalog
@@ -156,6 +158,7 @@ def export_iceberg(
         # Stream batches and convert non-Pixeltable errors to user-facing error
         try:
             with existing_tbl.transaction() as tx:
+                fault_injection.process_fault(FaultLocation.IO_EXPORT_ICEBERG_APPEND)
                 for batch in batches:
                     tx.append(pa.Table.from_batches([batch]))
         except excs.Error:
@@ -175,10 +178,13 @@ def export_iceberg(
 
     try:
         temp_tbl = catalog.create_table(temp_name, schema=arrow_schema)
+        fault_injection.process_fault(FaultLocation.IO_EXPORT_ICEBERG_WRITE_TEMP)
 
         with temp_tbl.transaction() as tx:
             for batch in batches:
                 tx.append(pa.Table.from_batches([batch]))
+
+        fault_injection.process_fault(FaultLocation.IO_EXPORT_ICEBERG_BEFORE_SWAP)
 
         if existing_tbl is not None:
             catalog.drop_table(table_name)
