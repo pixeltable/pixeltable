@@ -1454,16 +1454,24 @@ def _(
     img: PIL.Image.Image,
     segmentation: pxt.Array[(None, None, None), pxt.Bool],
     *,
+    ids: pxt.Array[(None,), pxt.Int] | None = None,
     alpha: float = 0.5,
     segment_colors: list[str] | None = None,
     draw_contours: bool = True,
     contour_thickness: int = 1,
 ) -> PIL.Image.Image:
-    if segmentation.shape[0] == 0:
-        id_map = np.zeros((img.height, img.width), dtype=np.int32)
-    else:
-        ids = np.arange(1, segmentation.shape[0] + 1, dtype=np.int32)[:, None, None]
-        id_map = (segmentation.astype(np.int32) * ids).max(axis=0)
+    num_instances = segmentation.shape[0]
+    if ids is not None and len(ids) != num_instances:
+        raise ValueError(
+            f'`ids` (length {len(ids)}) must have the same length as the number of instance masks ({num_instances})'
+        )
+    # Each instance is painted with its id, which determines its color. When `ids` is given (e.g. persistent
+    # tracking ids), a given id maps to the same color in every frame; otherwise instances are numbered 1..N in
+    # order. Where masks overlap, later instances win (which is highest-id-wins for the default 1..N case).
+    id_map = np.zeros((img.height, img.width), dtype=np.int32)
+    instance_ids = np.arange(1, num_instances + 1) if ids is None else np.asarray(ids)
+    for instance_id, mask in zip(instance_ids.astype(np.int32), segmentation, strict=True):
+        id_map[mask] = instance_id
     return _overlay_id_map(
         img,
         id_map,

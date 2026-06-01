@@ -229,12 +229,13 @@ class TestHuggingface:
         assert 'scores' in result
         assert 'boxes' in result
         assert 'masks' in result
-        assert isinstance(result['scores'], list)
-        assert isinstance(result['boxes'], list)
+        assert isinstance(result['scores'], np.ndarray)
+        assert isinstance(result['boxes'], np.ndarray)
         assert isinstance(result['masks'], np.ndarray)
         n = len(result['scores'])
-        assert n == len(result['boxes'])
         assert n > 0, 'Expected SAM 3 to find at least one "orange" instance in the sample image'
+        assert result['scores'].shape == (n,)
+        assert result['boxes'].shape == (n, 4)
         assert result['masks'].shape == (n, height, width)
         assert result['masks'].dtype == np.bool_
         for box in result['boxes']:
