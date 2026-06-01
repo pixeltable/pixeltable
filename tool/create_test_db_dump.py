@@ -427,7 +427,7 @@ class Dumper:
         t.add_embedding_index(
             f'{col_prefix}_function_call',
             string_embed=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32'),
-            precision='fp32'
+            precision='fp32',
         )
 
         if t.get_metadata()['is_view']:
