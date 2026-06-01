@@ -197,7 +197,7 @@ class TestTableModel:
             descr = pxtf.string.format('Name: {name}', name=Column.name)
 
         with pxt_raises(excs.ErrorCode.PATH_NOT_FOUND, match="Path 'test_table' does not exist"):
-            ExampleTableModel.id
+            _ = ExampleTableModel.id
 
         ExampleTableModel.create()
         ExampleTableModel.table.insert(
@@ -242,7 +242,7 @@ class TestTableModel:
             function_call = pxtf.math.floor(Column.value)
             in_predicate = Column.name.isin(['Alice', 'Bob', 'Charlie'])
             inline_array = pxt.array([Column.value, Column.value + 1, Column.value + 2])
-            inline_dict = {'name': Column.name, 'img': Column.img}
+            inline_dict = {'name': Column.name, 'img': Column.img}  # noqa: RUF012
             inline_list = [Column.name, Column.img]  # noqa: RUF012
             is_null = Column.name == None
             method_ref = Column.name.upper()
@@ -310,7 +310,9 @@ class TestTableModel:
             case 'name':
                 spec = 'test_table'
             case 'query':
-                spec = ExampleTableModel.table.select(ExampleTableModel.table.value, ExampleTableModel.table.img).where(ExampleTableModel.table.value > 0.5)
+                spec = ExampleTableModel.table.select(ExampleTableModel.table.value, ExampleTableModel.table.img).where(
+                    ExampleTableModel.table.value > 0.5
+                )
             case 'table':
                 spec = ExampleTableModel.table
 
@@ -346,3 +348,76 @@ class TestTableModel:
             subview_col_2 = Column.view_col_1.rotate(270)
 
         _ = ExampleViewModel2.create()
+
+    def test_table_model_errors(self, uses_db: None) -> None:
+        """Reproduce each error condition raised by `pixeltable.catalog.model`."""
+
+        # `_PlaceholderFactory.__getattr__` rejects identifiers that aren't valid column names
+        # (e.g., names starting with `_`).
+        with pytest.raises(AttributeError, match='Invalid column name'):
+            _ = Column._invalid
+
+        # `__base_table__` is not allowed on a TableModel.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='__base_table__ not allowed for a TableModel'):
+
+            class BadBaseTable(pxt.TableModel):
+                __table_name__ = 'bad_base_table'
+                __base_table__ = 'unused'
+
+        # `__iterator__` is not allowed on a TableModel.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='__iterator__ not allowed for a TableModel'):
+
+            class BadIterTable(pxt.TableModel):
+                __table_name__ = 'bad_iter_table'
+                __iterator__ = 'unused'
+
+        # `__iterator__` on a ViewModel must be a `GeneratingFunctionCall`.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='must be a valid iterator reference'):
+
+            class BadIterRef(pxt.ViewModel):
+                __table_name__ = 'bad_iter_ref'
+                __base_table__ = 'unused'
+                __iterator__ = 'not a generating function call'
+
+        # Type annotation conflicts with the `type=` argument in `Column()`.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='conflicts with the `type=` argument'):
+
+            class TypeConflict(pxt.TableModel):
+                __table_name__ = 'type_conflict'
+                name: pxt.Int = Column(type=pxt.String)  # type: ignore[assignment]
+
+        # A TableModel subclass must define `__table_name__`.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'TableModel `NoTableName` does not define a __table_name__'):
+
+            class NoTableName(pxt.TableModel):
+                id: pxt.Int
+
+        # A ViewModel subclass must define `__table_name__`.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'ViewModel `NoTableNameView` does not define a __table_name__'):
+
+            class NoTableNameView(pxt.ViewModel):
+                __base_table__ = 'unused'
+
+        # A ViewModel must define `__base_table__`.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'ViewModel `NoBase` does not define a __base_table__'):
+
+            class NoBase(pxt.ViewModel):
+                __table_name__ = 'no_base'
+
+        # `__base_table__` must be a name, an existing Table/Query, or a TableModel/ViewModel class.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='Invalid __base_table__'):
+
+            class InvalidBase(pxt.ViewModel):
+                __table_name__ = 'invalid_base'
+                __base_table__ = 42
+
+        # A computed column references a column that was never declared on the model.
+        # This error fires at `create()` time during placeholder substitution, not at class-definition time.
+        class UndefinedColRef(pxt.TableModel):
+            __table_name__ = 'undef_col_ref'
+
+            name: pxt.String
+            bogus = Column.nonexistent + 1
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='references undefined column'):
+            UndefinedColRef.create()

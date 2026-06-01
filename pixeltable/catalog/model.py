@@ -185,8 +185,7 @@ class TableModelMetaclass(type):
 
             # Remove the attribute from the namespace so that the metaclass __getattr__ handler can resolve it into
             # proper ColumnRef instances at runtime.
-            if attr_name in namespace:
-                del namespace[attr_name]
+            namespace.pop(attr_name, None)
 
         if len(bases) > 0:
             if '__table_name__' not in namespace:
@@ -230,10 +229,10 @@ class TableModelMetaclass(type):
         # Create the table with its non-computed columns
         initial_schema = {col_name: col_spec for col_name, col_spec in columns.items() if col_spec.get('value') is None}
         tbl: pxt.Table
+        tbl_name = cls.__table_name__
 
         if issubclass(cls, ViewModel):
-            assert hasattr(cls, '__base_table__')
-            base = getattr(cls, '__base_table__')
+            base = cls.__base_table__
             assert isinstance(base, (str, pxt.Table, pxt.Query)), type(base)
             if isinstance(base, str):
                 base = pxt.get_table(base)
@@ -241,10 +240,10 @@ class TableModelMetaclass(type):
             iterator = getattr(cls, '__iterator__', None)
             assert iterator is None or isinstance(iterator, func.GeneratingFunctionCall)
             tbl = pxt.create_view(
-                cls.__table_name__, base, additional_columns=initial_schema, iterator=iterator, if_exists=if_exists
+                tbl_name, base, additional_columns=initial_schema, iterator=iterator, if_exists=if_exists
             )
         else:
-            tbl = pxt.create_table(cls.__table_name__, initial_schema, if_exists=if_exists)
+            tbl = pxt.create_table(tbl_name, initial_schema, if_exists=if_exists)
 
         @retry_loop(for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True)
         def finish_schema() -> None:

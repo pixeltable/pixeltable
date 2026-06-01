@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
 
 if TYPE_CHECKING:
-    from pixeltable import exprs, func
+    from pixeltable import exprs
 
 
 TableKind = Literal['table', 'view', 'snapshot', 'replica']
