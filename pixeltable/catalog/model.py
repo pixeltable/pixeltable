@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pixeltable import exceptions as excs, exprs, func, type_system as ts
 from pixeltable.types import ColumnSpec
@@ -107,6 +107,17 @@ class EmbeddingIndex:
     metric: Literal['cosine', 'ip', 'l2'] = 'cosine'
     precision: Literal['fp16', 'fp32'] = 'fp16'
 
+
+
+# Table methods exposed as class-level operations on the model.
+_FORWARDED_TABLE_METHODS = frozenset((
+    'batch_update', 'collect', 'count', 'cursor', 'delete', 'describe', 'distinct',
+    'get_metadata', 'get_versions', 'group_by', 'head', 'history', 'insert', 'join',
+    'limit', 'list_views', 'order_by', 'pull', 'push', 'recompute_columns',
+    'sample', 'select', 'show', 'sync', 'tail', 'unlink_external_stores', 'update', 'where',
+))
+
+assert all(hasattr(Table, method) for method in _FORWARDED_TABLE_METHODS)
 
 class TableModelMetaclass(type):
     """
@@ -287,6 +298,8 @@ class TableModelMetaclass(type):
         return tbl
 
     def __getattr__(cls, item: str) -> Any:
+        if item in _FORWARDED_TABLE_METHODS:
+            return getattr(cls._resolve_tbl(), item)
         if item in cls.__columns__:
             return cls._resolve_column(item)
         return super().__getattribute__(item)

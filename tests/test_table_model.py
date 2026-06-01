@@ -200,7 +200,7 @@ class TestTableModel:
             _ = ExampleTableModel.id
 
         ExampleTableModel.create()
-        ExampleTableModel.table.insert(
+        ExampleTableModel.insert(
             [
                 {'id': 1, 'name': 'Alice', 'value': 3.14},
                 {'id': 2, 'name': 'Bob', 'value': 2.71},
@@ -211,7 +211,7 @@ class TestTableModel:
         assert isinstance(ExampleTableModel.descr, exprs.ColumnRef)
 
         results = (
-            ExampleTableModel.table.select(ExampleTableModel.id, ExampleTableModel.descr)
+            ExampleTableModel.select(ExampleTableModel.id, ExampleTableModel.descr)
             .order_by(ExampleTableModel.id)
             .collect()
         )
@@ -310,8 +310,8 @@ class TestTableModel:
             case 'name':
                 spec = 'test_table'
             case 'query':
-                spec = ExampleTableModel.table.select(ExampleTableModel.table.value, ExampleTableModel.table.img).where(
-                    ExampleTableModel.table.value > 0.5
+                spec = ExampleTableModel.select(ExampleTableModel.value, ExampleTableModel.img).where(
+                    ExampleTableModel.value > 0.5
                 )
             case 'table':
                 spec = ExampleTableModel.table
@@ -336,7 +336,7 @@ class TestTableModel:
             case 'name':
                 spec = 'test_view'
             case 'query':
-                spec = ExampleViewModel.table.where(ExampleViewModel.table.value > 1.0)
+                spec = ExampleViewModel.where(ExampleViewModel.value > 1.0)
             case 'table':
                 spec = ExampleViewModel.table
 
