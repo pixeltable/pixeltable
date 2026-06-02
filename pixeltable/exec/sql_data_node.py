@@ -76,6 +76,7 @@ class SqlDataNode(ExecNode):
             self._conn = self.sql_source.conn.connect()
             self._owns_conn = True
         else:
+            assert isinstance(self.sql_source.conn, sql.Connection)
             self._conn = self.sql_source.conn
             self._owns_conn = False
 
