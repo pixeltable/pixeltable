@@ -244,8 +244,17 @@ class Signature:
                 param_strs.append(f'{p.name}: pxt.{p.col_type}')
         return ', '.join(param_strs)
 
+    def return_str(self, pretty_print_json: bool = False) -> str:
+        return_type = self.get_return_type()
+        if pretty_print_json and isinstance(return_type, ts.JsonType) and return_type.pretty_print_name is not None:
+            return return_type.pretty_print_name
+        return f'pxt.{return_type}'
+
+    def _to_str(self, pretty_print_json: bool = False) -> str:
+        return f'({self.params_str()}) -> {self.return_str(pretty_print_json)}'
+
     def __str__(self) -> str:
-        return f'({self.params_str()}) -> pxt.{self.get_return_type()}'
+        return self._to_str()
 
     @classmethod
     def _infer_type(cls, annotation: type | None) -> tuple[ts.ColumnType | None, bool | None]:
