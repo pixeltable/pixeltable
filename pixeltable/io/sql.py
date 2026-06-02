@@ -91,11 +91,9 @@ def import_sql(
     if_exists: Literal['error', 'append'] = 'error',
     on_error: Literal['abort', 'ignore'] = 'abort',
 ) -> pxt.Table:
-    """Import a SQL source into a Pixeltable table by streaming through a single insert plan.
+    """Import a SQL source into a Pixeltable table.
 
-    `replace` is intentionally not supported, because create+insert is not atomic and a failed insert would
-    leave the user with an empty replica of the original table. To overwrite, call `pxt.drop_table(tbl_name)`
-    first and then `import_sql(..., if_exists='error')`.
+    Rows are streamed from the source in batches of `SqlDataNode.BATCH_SIZE`.
 
     Args:
         selectable: A SQLAlchemy `Selectable` (a `Table`, a `select()` statement, or `text(...).columns(...)`)
