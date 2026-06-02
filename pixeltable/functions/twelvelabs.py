@@ -5,8 +5,11 @@ first `pip install twelvelabs` and configure your TwelveLabs credentials, as des
 the [Working with TwelveLabs](https://docs.pixeltable.com/howto/providers/working-with-twelvelabs) tutorial.
 """
 
+import asyncio
+import os
 from base64 import b64encode
-from typing import TYPE_CHECKING, Literal
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence
 
 import numpy as np
 
@@ -17,18 +20,51 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
-    from twelvelabs import AsyncTwelveLabs
+    import twelvelabs
+    from twelvelabs.wrapper.multipart_upload_client_wrapper import UploadResult
+
+
+TWELVELABS_INLINE_LIMIT_BYTES = 2 * 2**20
 
 
 @env.register_client('twelvelabs')
-def _(api_key: str) -> 'AsyncTwelveLabs':
-    from twelvelabs import AsyncTwelveLabs
+def _(api_key: str) -> 'twelvelabs.AsyncTwelveLabs':
+    import twelvelabs
 
-    return AsyncTwelveLabs(api_key=api_key)
+    return twelvelabs.AsyncTwelveLabs(api_key=api_key)
 
 
-def _twelvelabs_client() -> 'AsyncTwelveLabs':
+def _twelvelabs_client() -> 'twelvelabs.AsyncTwelveLabs':
     return get_runtime().get_client('twelvelabs')
+
+
+@asynccontextmanager
+async def _asset_uploads(input_type: Literal['audio', 'video'], files: list[str]) -> AsyncIterator[list[str]]:
+    """
+    Context manager that makes uploaded files temporarily available to Twelvelabs models, deleting them from the server
+    after use.
+
+    Returns:
+        A list of asset IDs corresponding to the uploaded files.
+    """
+    if len(files) == 0:
+        yield []
+        return
+
+    client = _twelvelabs_client()
+    uploaded: list[str] = []
+
+    try:
+        tasks: list[Coroutine[Any, Any, 'UploadResult']] = []
+        for file in files:
+            tasks.append(client.multipart_upload.upload_file(file_path=file, file_type=input_type))  # type: ignore[attr-defined]
+        upload_results = await asyncio.gather(*tasks)
+        uploaded = [u.asset_id for u in upload_results]
+
+        yield uploaded
+
+    finally:
+        await asyncio.gather(*[client.assets.delete(asset_id) for asset_id in uploaded], return_exceptions=True)
 
 
 @pxt.udf(resource_pool='request-rate:twelvelabs')
@@ -127,27 +163,15 @@ async def _(
     env.Env.get().require_package('twelvelabs')
     import twelvelabs
 
-    cl = _twelvelabs_client()
-    with open(audio, 'rb') as fp:
-        b64_str = b64encode(fp.read()).decode('utf-8')
-        res = await cl.embed.v_2.create(
-            input_type='audio',
-            model_name=model_name,
-            audio=twelvelabs.AudioInputRequest(
-                media_source=twelvelabs.MediaSource(base_64_string=b64_str),
-                start_sec=start_sec,
-                end_sec=end_sec,
-                embedding_option=embedding_option,
-            ),
-        )
-        if not res.data:
-            raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_ERROR,
-                f"Didn't receive embedding for audio: {audio}\n{res}",
-                provider='twelvelabs',
-            )
-        vector = res.data[0].embedding
-        return np.array(vector, dtype='float32')
+    return await _embed_av_content(
+        file_path=audio,
+        input_type='audio',
+        request_cls=twelvelabs.AudioInputRequest,
+        model_name=model_name,
+        start_sec=start_sec,
+        end_sec=end_sec,
+        embedding_option=embedding_option,
+    )
 
 
 @embed.overload
@@ -162,27 +186,68 @@ async def _(
     env.Env.get().require_package('twelvelabs')
     import twelvelabs
 
+    return await _embed_av_content(
+        file_path=video,
+        input_type='video',
+        request_cls=twelvelabs.VideoInputRequest,
+        model_name=model_name,
+        start_sec=start_sec,
+        end_sec=end_sec,
+        embedding_option=embedding_option,
+    )
+
+
+async def _embed_av_content(
+    file_path: str,
+    input_type: Literal['audio', 'video'],
+    request_cls: type['twelvelabs.AudioInputRequest'] | type['twelvelabs.VideoInputRequest'],
+    model_name: str,
+    start_sec: float | None,
+    end_sec: float | None,
+    embedding_option: Sequence[str] | None,
+) -> pxt.Array[np.float32] | None:
+    import twelvelabs
+
     cl = _twelvelabs_client()
-    with open(video, 'rb') as fp:
-        b64_str = b64encode(fp.read()).decode('utf-8')
-        res = await cl.embed.v_2.create(
-            input_type='video',
-            model_name=model_name,
-            video=twelvelabs.VideoInputRequest(
+    size_bytes = os.stat(file_path).st_size
+    res: twelvelabs.EmbeddingSuccessResponse
+
+    if size_bytes > TWELVELABS_INLINE_LIMIT_BYTES:
+        async with _asset_uploads(input_type=input_type, files=[file_path]) as asset_ids:
+            create_kwargs = {
+                'input_type': input_type,
+                'model_name': model_name,
+                input_type: request_cls(
+                    media_source=twelvelabs.MediaSource(asset_id=asset_ids[0]),
+                    start_sec=start_sec,
+                    end_sec=end_sec,
+                    embedding_option=embedding_option,
+                ),
+            }
+            res = await cl.embed.v_2.create(**create_kwargs)  # type: ignore[arg-type]
+    else:
+        with open(file_path, 'rb') as fp:
+            b64_str = b64encode(fp.read()).decode('utf-8')
+        create_kwargs = {
+            'input_type': input_type,
+            'model_name': model_name,
+            input_type: request_cls(
                 media_source=twelvelabs.MediaSource(base_64_string=b64_str),
                 start_sec=start_sec,
                 end_sec=end_sec,
                 embedding_option=embedding_option,
             ),
+        }
+        res = await cl.embed.v_2.create(**create_kwargs)  # type: ignore[arg-type]
+
+    if not res.data:
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR,
+            f"Didn't receive embedding for {input_type}: {file_path}\n{res}",
+            provider='twelvelabs',
         )
-        if not res.data:
-            raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_ERROR,
-                f"Didn't receive embedding for video: {video}\n{res}",
-                provider='twelvelabs',
-            )
-        vector = res.data[0].embedding
-        return np.array(vector, dtype='float32')
+    vector = res.data[0].embedding
+    return np.array(vector, dtype='float32')
 
 
 @embed.conditional_return_type

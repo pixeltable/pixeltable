@@ -247,8 +247,17 @@ class Signature:
                 param_strs.append(f'{p.name}: pxt.{p.col_type}')
         return ', '.join(param_strs)
 
+    def return_str(self, pretty_print_json: bool = False) -> str:
+        return_type = self.get_return_type()
+        if pretty_print_json and isinstance(return_type, ts.JsonType) and return_type.pretty_print_name is not None:
+            return return_type.pretty_print_name
+        return f'pxt.{return_type}'
+
+    def _to_str(self, pretty_print_json: bool = False) -> str:
+        return f'({self.params_str()}) -> {self.return_str(pretty_print_json)}'
+
     def __str__(self) -> str:
-        return f'({self.params_str()}) -> pxt.{self.get_return_type()}'
+        return self._to_str()
 
     @classmethod
     def _infer_type(cls, annotation: type | None) -> tuple[ts.ColumnType | None, bool | None]:
@@ -283,7 +292,7 @@ class Signature:
 
         assert (py_fn is None) != (py_params is None)
         if py_fn is not None:
-            sig = inspect.signature(py_fn)
+            sig = inspect.signature(py_fn, eval_str=True)
             py_params = list(sig.parameters.values())
         parameters: list[Parameter] = []
 
@@ -355,7 +364,7 @@ class Signature:
         parameters = cls.create_parameters(
             py_fn=py_fn, param_types=param_types, is_cls_method=is_cls_method, type_substitutions=type_substitutions
         )
-        sig = inspect.signature(py_fn)
+        sig = inspect.signature(py_fn, eval_str=True)
         if return_type is None:
             # Look up the substitution for sig.return_annotation, defaulting to return_annotation if there is none
             py_type = type_substitutions.get(sig.return_annotation, sig.return_annotation)

@@ -1,64 +1,37 @@
 # type: ignore
 
-import asyncio
-from unittest.mock import AsyncMock, Mock
+import pytest
 
-from pixeltable import func
-from pixeltable.exec.expr_eval.globals import Dispatcher, ExprEvalCtx, FnCallArgs
-from pixeltable.exec.expr_eval.schedulers import RateLimitsScheduler
+import pixeltable as pxt
+import pixeltable.exceptions as excs
+from pixeltable.runtime import get_runtime
+from pixeltable.utils.fault_injection import FaultLocation
+from tests.fault_injection import ExceptionFault
 
 
 class DummyError(Exception):
     pass
 
 
+@pxt.udf(resource_pool='rate-limits:test')
+async def _rate_limited_udf(x: int) -> int:  # noqa: RUF029
+    return x + 1
+
+
 class TestSchedulers:
-    def test_rate_limits_scheduler_exception_before_pool(self) -> None:
-        """Test that RateLimitsScheduler properly handles exceptions if pool_info is not yet set."""
+    def test_rate_limits_scheduler_exception_before_pool(self, uses_db: None) -> None:
+        """
+        The very first function evaluation raises an error in RateLimitsScheduler. The scheduler correctly identifies
+        that pool_info is not yet available, and doesn't attempt to use it to determine the retry delay for this error.
+        Before it was fixed, this flow resulted in an AssertionError.
+        """
+        t = pxt.create_table('test_rate_limits', {'x': pxt.Int})
+        t.add_computed_column(y=_rate_limited_udf(t.x))
 
-        async def run_test():
-            mock_dispatcher = Mock(spec=Dispatcher)
-            mock_dispatcher.register_task = Mock()
-            mock_dispatcher.dispatch_exc = Mock()
+        fault = ExceptionFault(DummyError('Non-retriable error'))
+        get_runtime().fault_manager.inject_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC, fault)
 
-            scheduler = RateLimitsScheduler('rate-limits:test', mock_dispatcher)
+        with pytest.raises(excs.ExprEvalError, match='DummyError'):
+            t.insert([{'x': 1}])
 
-            # Create a mock function that will throw an exception
-            mock_fn = Mock(spec=func.CallableFunction)
-            mock_fn.aexec = AsyncMock(side_effect=DummyError('Test exception'))
-            mock_fn.signature = Mock()
-            mock_fn.signature.system_parameters = {'_runtime_ctx'}
-
-            mock_fn_call = Mock()
-            mock_fn_call.fn = mock_fn
-            mock_fn_call.slot_idx = 0
-            mock_fn_call.get_param_values = Mock(return_value=[{}])
-
-            mock_row = Mock()
-            mock_row.has_val = [False]
-            mock_row.has_exc = Mock(return_value=False)
-            mock_row.set_exc = Mock()
-            mock_row.__setitem__ = Mock()
-
-            mock_request = Mock(spec=FnCallArgs)
-            mock_request.fn_call = mock_fn_call
-            mock_request.rows = [mock_row]
-            mock_request.row = mock_row
-            mock_request.is_batched = False
-            mock_request.args = []
-            mock_request.kwargs = {}
-
-            mock_ctx = Mock(spec=ExprEvalCtx)
-
-            await scheduler._exec(mock_request, mock_ctx, 0, is_task=False)
-
-            # Verify that the exception was recorded
-            assert mock_row.set_exc.called
-            assert mock_dispatcher.dispatch_exc.called
-
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(run_test())
-        finally:
-            loop.close()
+        fault.assert_count(1)

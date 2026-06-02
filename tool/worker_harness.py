@@ -8,8 +8,19 @@ def _terminate_workers(processes: list[subprocess.Popen], start_time: float) -> 
     print(f'Terminating all workers after {elapsed:.1f} seconds.')
     for p in processes:
         if p.poll() is None:
+            p.terminate()
+
+    # Give workers up to 10 seconds to flush stats and exit gracefully before force-killing.
+    deadline = time.time() + 10.0
+    for p in processes:
+        remaining = deadline - time.time()
+        if remaining > 0:
+            try:
+                p.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        elif p.poll() is None:
             p.kill()
-    time.sleep(2.0)
 
 
 def run_workers(
@@ -21,6 +32,7 @@ def run_workers(
     if script is not None:
         worker_args = [[script, str(i)] for i in range(num_workers)]
 
+    print(f'Starting {num_workers} workers to run for {duration}s...')
     processes: list[subprocess.Popen] = []
     for i in range(num_workers):
         p = subprocess.Popen(['python', *worker_args[i]])

@@ -311,6 +311,12 @@ class TestVideo:
         assert inline_res[0]['size'] == 2234371
         assert inline_res[0]['streams'][0]['width'] == 640
 
+        # get_metadata() returns correct type information
+        expr = base_t.video.get_metadata().streams[0].frames
+        assert expr.col_type.is_int_type()
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
+            _ = base_t.video.get_metadata().streams[0].not_an_attr
+
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
     class agg_fn(pxt.Aggregator):
@@ -364,7 +370,7 @@ class TestVideo:
 
         # reload from store
         reload_catalog()
-        base_t, view_t = pxt.get_table(base_t._name), pxt.get_table(view_t._name)
+        base_t, view_t = pxt.get_table(base_t._name()), pxt.get_table(view_t._name())
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
 
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
