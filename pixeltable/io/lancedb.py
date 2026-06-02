@@ -37,6 +37,7 @@ def export_lancedb(
             - `'overwrite'`: overwrite the existing table
             - `'append'`: append to the existing table
     """
+    Env.get().require_package('lance')
     Env.get().require_package('lancedb')
 
     import lancedb  # type: ignore[import-untyped]

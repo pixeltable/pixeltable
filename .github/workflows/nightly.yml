@@ -45,7 +45,7 @@ jobs:
         python-version: ["3.10", "3.13"]
         package-configs:
           - ""
-          - "lancedb mcp opencv-python scenedetect"
+          - "lancedb pylance mcp opencv-python scenedetect"
           - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
           - "fal-client reve runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
