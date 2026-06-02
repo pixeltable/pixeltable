@@ -87,6 +87,7 @@ def retry_loop(
     write_tvps: Collection[TableVersionPath] | None = None,
     write_tbl_ids: Collection[UUID] | None = None,
     lock_mutable_tree: bool = False,
+    isolation_level: str | None = None,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
@@ -113,6 +114,7 @@ def retry_loop(
                             write_tbl_ids=write_tbl_ids,
                             convert_db_excs=False,
                             lock_mutable_tree=lock_mutable_tree,
+                            isolation_level=isolation_level,
                             finalize_pending_ops=True,
                         ),
                     ):
@@ -238,6 +240,9 @@ class Catalog:
         self._tbl_md_read_allowed = False
         self._column_dependencies = {}
         self._column_dependents = None
+        # Register as the runtime's catalog singleton before _init_store(): _init_store() runs through
+        # retry_loop, which resolves get_runtime().catalog and would otherwise re-enter Catalog() here.
+        get_runtime()._catalog = self
         self._init_store()
 
     def __deepcopy__(self, memo: dict[int, object]) -> 'Catalog':
@@ -337,6 +342,7 @@ class Catalog:
         lock_mutable_tree: bool = False,
         convert_db_excs: bool = True,
         finalize_pending_ops: bool = True,
+        isolation_level: str | None = None,
     ) -> Iterator[sql.Connection]:
         """
         Return a context manager that yields a connection to the database. Idempotent.
@@ -388,7 +394,7 @@ class Catalog:
                 has_exc = False
 
                 assert not self._undo_actions
-                with get_runtime().begin_xact(for_write=for_write) as conn:
+                with get_runtime().begin_xact(for_write=for_write, isolation_level=isolation_level) as conn:
                     with self._allow_tbl_md_read():
                         try:
                             self._acquire_locks(
@@ -2897,18 +2903,28 @@ class Catalog:
         """
         Creates a catalog record (root directory) for the specified user, if one does not already exist.
         """
-        with get_runtime().begin_xact():
+        # - we need to run this as SERIALIZABLE in order to avoid a race when two processes are started against
+        #   an empty store (they both see a count of 0 for the root dir and both create a new root dir)
+        # - the retry loop will handle the serialization failure
+        # - this can only be run inside a new transaction, to ensure the isolation level
+        assert not get_runtime().in_xact, 'create_user() must run as the outermost transaction'
+
+        @retry_loop(for_write=True, isolation_level='SERIALIZABLE')
+        def op() -> None:
             session = get_runtime().session
             # See if there are any directories in the catalog matching the specified user.
             if session.query(schema.Dir).where(schema.Dir.md['user'].astext == user).count() > 0:
                 # At least one such directory exists; no need to create a new one.
                 return
+            fault_injection.process_fault(FaultLocation.CATALOG_CREATE_USER_AFTER_EXISTS_CHECK)
 
             dir_md = schema.DirMd(name='', user=user, additional_md={})
             dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
             session.add(dir_record)
             session.flush()
             _logger.info(f'Added root directory record for user: {user!r}')
+
+        op()
 
     def _handle_path_collision(
         self,

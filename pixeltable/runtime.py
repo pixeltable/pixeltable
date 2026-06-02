@@ -135,13 +135,15 @@ class Runtime:
         return self._run_coro_executor.submit(run, coro).result()
 
     @contextmanager
-    def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
+    def begin_xact(self, *, for_write: bool = False, isolation_level: str | None = None) -> Iterator[sql.Connection]:
         """Start or join a database transaction.
 
         Prefer Catalog.begin_xact() unless there is a specific reason to call this directly.
 
         Args:
             for_write: unused (TODO use or remove)
+            isolation_level: if specified, the isolation level for the new transaction; defaults to
+                _XACT_ISOLATION_LEVEL. Can only be set when starting the outermost transaction.
 
         TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
         that avoids tripping over any pending ops
@@ -151,7 +153,7 @@ class Runtime:
         if not self.in_xact:
             assert self.session is None
             try:
-                self.isolation_level = _XACT_ISOLATION_LEVEL
+                self.isolation_level = isolation_level or _XACT_ISOLATION_LEVEL
                 with (
                     Env.get().engine.connect().execution_options(isolation_level=self.isolation_level) as conn,
                     orm.Session(conn) as session,
@@ -166,6 +168,10 @@ class Runtime:
                 self.isolation_level = None
         else:
             assert self.session is not None
+            assert isolation_level is None or isolation_level == self.isolation_level, (
+                f'cannot change isolation level to {isolation_level!r} for a joined transaction '
+                f'(current: {self.isolation_level!r})'
+            )
             assert self.isolation_level == _XACT_ISOLATION_LEVEL or not for_write
             yield self.conn
 
