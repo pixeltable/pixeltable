@@ -4,9 +4,9 @@ import pytest
 import pixeltable as pxt
 from tests.utils import skip_test_if_not_installed, validate_update_status
 
-
 _ollama_available: bool | None = None
 _ollama_exception: Exception | None = None
+
 
 def _ensure_ollama_availability() -> None:
     global _ollama_available, _ollama_exception
@@ -25,6 +25,7 @@ def _ensure_ollama_availability() -> None:
     if not _ollama_available:
         pytest.skip(f'ollama not available: {_ollama_exception}')
 
+
 @pytest.mark.expensive
 @pytest.mark.xdist_group('ollama')
 class TestOllama:
@@ -38,9 +39,7 @@ class TestOllama:
         t.add_computed_column(output=generate(t.input, model='qwen3:0.6b'))
         t.add_computed_column(
             output2=generate(
-                t.input,
-                model='qwen3:0.6b',
-                options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40},
+                t.input, model='qwen3:0.6b', options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40}
             )
         )
         validate_update_status(t.insert(input='The average July rainfall in Topeka is '))
