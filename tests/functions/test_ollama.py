@@ -5,11 +5,31 @@ import pixeltable as pxt
 from tests.utils import skip_test_if_not_installed, validate_update_status
 
 
+_ollama_available: bool | None = None
+_ollama_exception: Exception | None = None
+
+def _ensure_ollama_availability() -> None:
+    global _ollama_available, _ollama_exception
+    skip_test_if_not_installed('ollama')
+    if _ollama_available is None:
+        import ollama
+
+        try:
+            ollama.pull('qwen3:0.6b')
+            ollama.pull('qwen3-embedding:0.6b')
+            ollama.generate(model='qwen3:0.6b', prompt='Are you properly configured?')
+            _ollama_available = True
+        except Exception as exc:
+            _ollama_available = False
+            _ollama_exception = exc
+    if not _ollama_available:
+        pytest.skip(f'ollama not available: {_ollama_exception}')
+
 @pytest.mark.expensive
 @pytest.mark.xdist_group('ollama')
 class TestOllama:
     def test_generate(self, uses_db: None) -> None:
-        self.__ensure_ollama_availability()
+        _ensure_ollama_availability()
         from pixeltable.functions.ollama import generate
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -29,7 +49,7 @@ class TestOllama:
         assert len(results['output2'][0]['response']) > 0
 
     def test_chat(self, uses_db: None) -> None:
-        self.__ensure_ollama_availability()
+        _ensure_ollama_availability()
         from pixeltable.functions.ollama import chat
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -48,7 +68,7 @@ class TestOllama:
         assert len(results['output2'][0]['message']['content']) > 0
 
     def test_embed(self, uses_db: None) -> None:
-        self.__ensure_ollama_availability()
+        _ensure_ollama_availability()
         from pixeltable.functions.ollama import embed
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -58,22 +78,3 @@ class TestOllama:
         results = t.collect()
         assert isinstance(results['output'][0], np.ndarray)
         assert len(results['output'][0]) == 1024
-
-    def __ensure_ollama_availability(self) -> None:
-        skip_test_if_not_installed('ollama')
-        if self.__ollama_available is None:
-            import ollama
-
-            try:
-                ollama.pull('qwen3:0.6b')
-                ollama.pull('qwen3-embedding:0.6b')
-                ollama.generate(model='qwen3:0.6b', prompt='Are you properly configured?')
-                self.__ollama_available = True
-            except Exception as exc:
-                self.__ollama_available = False
-                self.__ollama_exception = exc
-        if not self.__ollama_available:
-            pytest.skip(f'ollama not available: {self.__ollama_exception}')
-
-    __ollama_available: bool | None = None
-    __ollama_exception: Exception | None = None
