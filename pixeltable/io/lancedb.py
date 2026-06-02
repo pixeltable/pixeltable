@@ -24,7 +24,7 @@ def export_lancedb(
 
     __Requirements:__
 
-    - `pip install lancedb`
+    - `pip install lancedb pylance`
 
     Args:
         table_or_query : Table or Query to export.
