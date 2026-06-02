@@ -19,11 +19,6 @@ from ..utils import (
 )
 
 
-@pxt.udf
-def array_to_list(arr: pxt.Array[(10,), pxt.Float]) -> pxt.Json:
-    return arr.tolist()
-
-
 class TestIceberg:
     @classmethod
     def _catalog(cls, tmp_path: pathlib.Path) -> Any:
@@ -51,7 +46,7 @@ class TestIceberg:
             t.c_binary,
             t.c_video,
             t.c_document,
-            c_array=array_to_list(t.c_array),
+            c_array=t.c_array.to_list(),
         )
 
         rows = query.collect()

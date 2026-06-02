@@ -79,7 +79,10 @@ def to_arrow_type(pxt_type: ts.ColumnType) -> pa.DataType | None:
         return PXT_TO_PA_TYPES[pxt_type.__class__]
     elif isinstance(pxt_type, ts.ArrayType):
         shape = pxt_type.shape
-        assert shape is not None
+        if shape is None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot convert array column of unknown shape to arrow.'
+            )
         if any(d is None for d in shape):
             # we need to map this to a nested list of the dtype
             arrow_type = pa.from_numpy_dtype(pxt_type.dtype)
