@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-import pytest
-
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath
