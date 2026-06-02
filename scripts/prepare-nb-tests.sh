@@ -7,11 +7,18 @@ SKIP_NOTEBOOKS=(
     working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
     working-with-fiftyone           # [PXT-1117] Voxel51 is currently omitted from our dev env for security reasons
     working-with-tigris             # [PXT-1122] Hard-codes getpass() calls for credentials and bucket
-    working-with-vllm               # Requires GPU (vLLM)
     working-with-reve               # [PXT-1116] Out of credits
     working-with-runwayml           # [PXT-1120] RunwayML integration is very broken
     working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
 )
+
+# Check if `nvidia-smi` returns success; if not, skip GPU notebooks too
+if ! nvidia-smi > /dev/null 2>&1; then
+    echo "nvidia-smi not found or not working; skipping GPU notebooks."
+    SKIP_NOTEBOOKS+=(
+        working-with-vllm           # vLLM requires a CUDA environment
+    )
+fi
 
 # Notebooks that are skipped unless --include-expensive is passed
 VERY_EXPENSIVE_NOTEBOOKS=(
