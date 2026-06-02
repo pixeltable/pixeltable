@@ -5,8 +5,9 @@ import pixeltable as pxt
 from tests.utils import skip_test_if_not_installed, validate_update_status
 
 
+@pytest.mark.expensive
+@pytest.mark.xdist_group('ollama')
 class TestOllama:
-    @pytest.mark.xdist_group('ollama')
     def test_generate(self, uses_db: None) -> None:
         self.__ensure_ollama_availability()
         from pixeltable.functions.ollama import generate
@@ -14,11 +15,11 @@ class TestOllama:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         # msgs = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(output=generate(t.input, model='qwen2.5:0.5b'))
+        t.add_computed_column(output=generate(t.input, model='qwen3:0.6b'))
         t.add_computed_column(
             output2=generate(
                 t.input,
-                model='qwen2.5:0.5b',
+                model='qwen3:0.6b',
                 options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40},
             )
         )
@@ -27,7 +28,6 @@ class TestOllama:
         assert len(results['output'][0]['response']) > 0
         assert len(results['output2'][0]['response']) > 0
 
-    @pytest.mark.xdist_group('ollama')
     def test_chat(self, uses_db: None) -> None:
         self.__ensure_ollama_availability()
         from pixeltable.functions.ollama import chat
@@ -36,10 +36,10 @@ class TestOllama:
 
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
 
-        t.add_computed_column(output=chat(msgs, model='qwen2.5:0.5b'))
+        t.add_computed_column(output=chat(msgs, model='qwen3:0.6b'))
         t.add_computed_column(
             output2=chat(
-                msgs, model='qwen2.5:0.5b', options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40}
+                msgs, model='qwen3:0.6b', options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40}
             )
         )
         validate_update_status(t.insert(input='What are the spiciest varieties of peppers?'))
@@ -47,18 +47,17 @@ class TestOllama:
         assert len(results['output'][0]['message']['content']) > 0
         assert len(results['output2'][0]['message']['content']) > 0
 
-    @pytest.mark.xdist_group('ollama')
     def test_embed(self, uses_db: None) -> None:
         self.__ensure_ollama_availability()
         from pixeltable.functions.ollama import embed
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
-        t.add_computed_column(output=embed(t.input, model='qwen2.5:0.5b'))
+        t.add_computed_column(output=embed(t.input, model='qwen3-embedding:0.6b'))
         validate_update_status(t.insert(input='I am a purple cloud.'))
         results = t.collect()
         assert isinstance(results['output'][0], np.ndarray)
-        assert len(results['output'][0]) == 896
+        assert len(results['output'][0]) == 1024
 
     def __ensure_ollama_availability(self) -> None:
         skip_test_if_not_installed('ollama')
@@ -66,8 +65,9 @@ class TestOllama:
             import ollama
 
             try:
-                ollama.pull('qwen2.5:0.5b')
-                ollama.generate(model='qwen2.5:0.5b', prompt='Are you properly configured?')
+                ollama.pull('qwen3:0.6b')
+                ollama.pull('qwen3-embedding:0.6b')
+                ollama.generate(model='qwen3:0.6b', prompt='Are you properly configured?')
                 self.__ollama_available = True
             except Exception as exc:
                 self.__ollama_available = False
