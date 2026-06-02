@@ -9,8 +9,9 @@ _ollama_exception: Exception | None = None
 
 
 def _ensure_ollama_availability() -> None:
-    global _ollama_available, _ollama_exception
     skip_test_if_not_installed('ollama')
+    global _ollama_available, _ollama_exception  # noqa: PLW0603
+
     if _ollama_available is None:
         import ollama
 
