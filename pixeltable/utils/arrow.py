@@ -158,7 +158,7 @@ def _to_record_batch(
             pa_arrays.append(pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr))
         elif pxt_type.is_array_type() and isinstance(field.type, pa.ListType):
             # convert ragged arrays to nested lists
-            list_col_vals = [val.tolist() for val in column_vals[field.name]]
+            list_col_vals = [val.tolist() if val is not None else None for val in column_vals[field.name]]
             pa_arrays.append(pa.array(list_col_vals))
         elif pxt_type.is_json_type():
             # JSON columns are typed by `pa.infer_type()` against the first batch's values; later batches
