@@ -1,5 +1,3 @@
-import pytest
-
 import pixeltable as pxt
 
 from ..utils import rerun, skip_test_if_not_installed, validate_update_status

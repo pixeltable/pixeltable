@@ -1,3 +1,6 @@
+# mypy: ignore-errors
+# (vllm is not in the dev environment)
+
 """
 Pixeltable UDFs for vLLM models.
 
@@ -6,7 +9,7 @@ supporting chat completions and text generation with HuggingFace models.
 """
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -16,6 +19,14 @@ if TYPE_CHECKING:
     import vllm
 
 
+class VllmRequestOutput(TypedDict):
+    request_id: str
+    prompt: str | None
+    prompt_token_ids: list[int] | None
+    outputs: list[dict]
+    finished: bool
+
+
 @pxt.udf(is_deterministic=False)
 def chat_completions(
     messages: list[dict],
@@ -23,7 +34,7 @@ def chat_completions(
     model: str,
     engine_args: dict[str, Any] | None = None,
     sampling_params: dict[str, Any] | None = None,
-) -> dict:
+) -> VllmRequestOutput:
     """
     Generate a chat completion from a list of messages using vLLM.
 
@@ -87,7 +98,7 @@ def chat_completions(
 @pxt.udf(is_deterministic=False)
 def generate(
     prompt: str, *, model: str, engine_args: dict[str, Any] | None = None, sampling_params: dict[str, Any] | None = None
-) -> dict:
+) -> VllmRequestOutput:
     """
     Generate text completion for a given prompt using vLLM.
 
