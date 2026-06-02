@@ -161,7 +161,7 @@ def _request_output_to_dict(output: 'vllm.RequestOutput') -> dict:
     return {
         'request_id': output.request_id,
         'prompt': output.prompt,
-        'prompt_token_ids': list(output.prompt_token_ids) if output.prompt_token_ids else None,
+        'prompt_token_ids': list(output.prompt_token_ids) if output.prompt_token_ids is not None else None,
         'outputs': [
             {
                 'index': o.index,
