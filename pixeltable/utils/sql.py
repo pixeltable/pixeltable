@@ -54,34 +54,11 @@ def add_option_to_db_url(url: str | URL, option: str) -> URL:
     return db_url.set(query={**(dict(db_url.query) if db_url.query else {}), 'options': options_str})
 
 
-def _default_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
-    """Default mapping of ColumnType to SQLAlchemy type (matches sqlite, mysql)."""
-    if col_type.is_int_type():
-        return sql.Integer()
-    elif col_type.is_string_type():
-        return sql.String()
-    elif col_type.is_float_type():
-        return sql.Float()
-    elif col_type.is_bool_type():
-        return sql.Boolean()
-    elif col_type.is_timestamp_type():
-        return sql.TIMESTAMP()
-    elif col_type.is_date_type():
-        return sql.Date()
-    elif col_type.is_uuid_type():
-        return sql.UUID()
-    elif col_type.is_binary_type():
-        return sql.LargeBinary()
-    elif col_type.is_json_type():
-        return sql.JSON()
-    raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot export column of type {col_type}')
-
-
 def _postgresql_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
     """Type mapping for dialect 'postgresql'."""
     if col_type.is_json_type():
         return sql.dialects.postgresql.JSONB()
-    return _default_sa_type(col_type)
+    return col_type.to_sa_type()
 
 
 def _snowflake_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
@@ -93,7 +70,7 @@ def _snowflake_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
         from snowflake.sqlalchemy import VARIANT  # type: ignore[import-untyped]
 
         return VARIANT()
-    return _default_sa_type(col_type)
+    return col_type.to_sa_type()
 
 
 _DIALECT_TYPE: dict[str, Callable[['ts.ColumnType'], sql.types.TypeEngine]] = {
@@ -104,40 +81,10 @@ _DIALECT_TYPE: dict[str, Callable[['ts.ColumnType'], sql.types.TypeEngine]] = {
 
 def get_sa_type(col_type: 'ts.ColumnType', engine: sql.Engine) -> sql.types.TypeEngine:
     """Resolve a Pixeltable ColumnType to an SQLAlchemy type appropriate for the engine's dialect."""
-    return _DIALECT_TYPE.get(engine.dialect.name, _default_sa_type)(col_type)
-
-
-def _default_pxt_type(sa_type: sql.types.TypeEngine, *, nullable: bool) -> 'ts.ColumnType | None':
-    """Default mapping of SQLAlchemy type to Pixeltable ColumnType (matches sqlite/mysql)."""
-    import pixeltable.type_system as ts
-
-    if isinstance(sa_type, sql.types.Boolean):
-        return ts.BoolType(nullable=nullable)
-    if isinstance(sa_type, sql.types.Integer):
-        return ts.IntType(nullable=nullable)
-    if isinstance(sa_type, (sql.types.Numeric, sql.types.Float)):
-        return ts.FloatType(nullable=nullable)
-    if isinstance(sa_type, sql.types.Date) and not isinstance(sa_type, sql.types.DateTime):
-        return ts.DateType(nullable=nullable)
-    if isinstance(sa_type, sql.types.DateTime):
-        return ts.TimestampType(nullable=nullable)
-    if isinstance(sa_type, sql.types.Uuid):
-        return ts.UUIDType(nullable=nullable)
-    if isinstance(sa_type, sql.types.LargeBinary):
-        return ts.BinaryType(nullable=nullable)
-    if isinstance(sa_type, sql.types.JSON):
-        return ts.JsonType(nullable=nullable)
-    if isinstance(sa_type, sql.types.String):
-        return ts.StringType(nullable=nullable)
-    return None
-
-
-def get_pxt_type(sa_type: sql.types.TypeEngine, *, nullable: bool) -> 'ts.ColumnType | None':
-    """Resolve a SQLAlchemy type to a Pixeltable `ColumnType`
-
-    TODO: Add dialect-specific type mappings as needed"""
-
-    return _default_pxt_type(sa_type, nullable=nullable)
+    if col_type.is_media_type() or col_type.is_array_type() or col_type.is_invalid_type():
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot export column of type {col_type}')
+    dialect_fn = _DIALECT_TYPE.get(engine.dialect.name)
+    return dialect_fn(col_type) if dialect_fn is not None else col_type.to_sa_type()
 
 
 def as_select(selectable: sql.Selectable) -> SelectBase:

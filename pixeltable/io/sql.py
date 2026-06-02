@@ -149,7 +149,7 @@ def import_sql(
         # SQLAlchemy uses `None` for "unknown" (eg, on labeled expressions); treat that as nullable.
         nullable_attr = getattr(sa_col, 'nullable', True)
         nullable = True if nullable_attr is None else nullable_attr
-        pxt_type = sql_utils.get_pxt_type(sa_col.type, nullable=nullable)
+        pxt_type = ts.ColumnType.from_sa_type(sa_col.type, nullable=nullable)
         if pxt_type is None and (schema_overrides is None or col_name not in schema_overrides):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_TYPE,
