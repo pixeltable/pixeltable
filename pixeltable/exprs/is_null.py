@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
@@ -38,6 +40,6 @@ class IsNull(Expr):
         data_row[self.slot_idx] = data_row[self.components[0].slot_idx] is None
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> IsNull:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> IsNull:
         assert len(components) == 1
         return cls(components[0])

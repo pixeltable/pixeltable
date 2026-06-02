@@ -10,6 +10,17 @@ Pixeltable can expose table operations and queries as HTTP endpoints via
 `pixeltable.serving.FastAPIRouter`. You can configure endpoints either
 programmatically in Python or declaratively with a TOML service file.
 
+This page builds on the HTTP-based paths from the
+[Deployment Strategies](/howto/deployment/overview#deployment-strategies)
+overview:
+
+- [Approach 2: Pixeltable as Full Backend](/howto/deployment/overview#approach-2-pixeltable-as-full-backend):
+  use the Pixeltable SDK's `FastAPIRouter` when you already have, or are
+  building, a FastAPI app.
+- [Approach 3: Declarative Serving](/howto/deployment/overview#approach-3-declarative-serving-pxt-serve):
+  use the Pixeltable CLI command `pxt serve` when you want Pixeltable to create
+  and run the FastAPI app from TOML or CLI flags.
+
 FastAPI and uvicorn are optional dependencies. Install them before using
 `pxt serve` or the Python serving API:
 
@@ -18,6 +29,8 @@ pip install 'fastapi[standard]'
 ```
 
 ## Quickstart (TOML)
+
+This is the primary config-file path for [Approach 3: Declarative Serving](/howto/deployment/overview#approach-3-declarative-serving-pxt-serve).
 
 Add a `[tool.pixeltable]` section to your `pyproject.toml`:
 
@@ -58,6 +71,8 @@ curl -X POST http://localhost:8000/insert \
 
 ## Quickstart (Python)
 
+This is the SDK path for [Approach 2: Pixeltable as Full Backend](/howto/deployment/overview#approach-2-pixeltable-as-full-backend).
+
 ```python
 import fastapi
 import uvicorn
@@ -83,6 +98,8 @@ table creation idempotent. See the
 </Warning>
 
 ## Quickstart (single-endpoint CLI)
+
+This is a single-endpoint CLI path for [Approach 3: Declarative Serving](/howto/deployment/overview#approach-3-declarative-serving-pxt-serve).
 
 For quick experiments and one-off endpoints, you can skip the TOML file and
 configure a single route directly on the command line:

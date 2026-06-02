@@ -11,25 +11,28 @@ import av
 import numpy as np
 
 import pixeltable as pxt
-import pixeltable.utils.av as av_utils
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+from pixeltable.utils import av as av_utils
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
+
+from . import util
 
 _logger = logging.getLogger('pixeltable')
 
 
 @pxt.udf(is_method=True)
-def get_metadata(audio: pxt.Audio) -> dict:
+def get_metadata(audio: pxt.Audio) -> util.ContainerMetadata:
     """
-    Gets various metadata associated with an audio file and returns it as a dictionary.
+    Gets various metadata associated with an audio file and returns it as
+    a [`ContainerMetadata`][pixeltable.functions.ContainerMetadata] dictionary.
 
     Args:
         audio: The audio to get metadata for.
 
     Returns:
-        A `dict` such as the following:
+        A [`ContainerMetadata`][pixeltable.functions.ContainerMetadata] with typical structure:
 
             ```json
             {
@@ -61,7 +64,7 @@ def get_metadata(audio: pxt.Audio) -> dict:
 
         >>> tbl.select(tbl.audio_col.get_metadata()).collect()
     """
-    return av_utils.get_metadata(audio)
+    return util.get_metadata(audio)
 
 
 @pxt.udf()
