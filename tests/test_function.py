@@ -674,6 +674,72 @@ class TestFunction:
             pxt.Json[[{'c': pxt.Int | None}]],  # type: ignore[misc]
         )
 
+    def test_query_udf_after_drop(self, uses_db: None) -> None:
+        """Stored computed columns whose value_expr contains a @pxt.query UDF must remain loadable
+        after the UDF's referenced column or table is dropped. The reload path must deserialize the
+        stored Query without raising; affected columns become invalid, but the host table and views over it must still
+        load."""
+        src = pxt.create_table('src', {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'extra': pxt.Int})
+        validate_update_status(src.insert([{'id': i, 'val': i * 10, 'extra': i} for i in range(5)]), expected_rows=5)
+
+        # Three query UDFs over src, each with a different stored Query shape:
+        # - q_col: ColumnRef into a specific column that will be dropped
+        # - q_tbl: ColumnRefs into columns of src; entire table will be dropped
+        # - q_select_star: no ColumnRefs anywhere; only the from-clause references src
+        @pxt.query
+        def q_col(lower: int) -> pxt.Query:
+            return src.where(src.val >= lower).select(src.extra)
+
+        @pxt.query
+        def q_tbl(lower: int) -> pxt.Query:
+            return src.where(src.val >= lower).select(src.id, src.val)
+
+        @pxt.query
+        def q_select_star(n: int) -> pxt.Query:
+            return src.select().limit(n)
+
+        host = pxt.create_table('host', {'threshold': pxt.Required[pxt.Int]})
+        host.add_computed_column(rows_col=q_col(host.threshold))
+        host.add_computed_column(rows_tbl=q_tbl(host.threshold))
+        host.add_computed_column(rows_star=q_select_star(5))
+        validate_update_status(host.insert([{'threshold': 20}]), expected_rows=1)
+
+        host_view = pxt.create_view('host_view', host)
+        host_view.add_computed_column(rows_view=q_tbl(host_view.threshold))
+
+        expected_rows_col = [{'extra': 2}, {'extra': 3}, {'extra': 4}]
+        expected_rows_tbl = [{'id': 2, 'val': 20}, {'id': 3, 'val': 30}, {'id': 4, 'val': 40}]
+        expected_rows_star = [{'id': i, 'val': i * 10, 'extra': i} for i in range(5)]
+        expected_host_row = {
+            'threshold': 20,
+            'rows_col': expected_rows_col,
+            'rows_tbl': expected_rows_tbl,
+            'rows_star': expected_rows_star,
+        }
+        expected_view_row = {**expected_host_row, 'rows_view': expected_rows_tbl}
+
+        def assert_loads_and_is_invalid() -> None:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', pxt.PixeltableWarning)
+                host = pxt.get_table('host')
+                host_view = pxt.get_table('host_view')
+            # materialized values were stored on host/host_view at insert time and survive drops of src
+            assert list(host.head()) == [expected_host_row]
+            assert list(host_view.head()) == [expected_view_row]
+            # new inserts fail because at least one computed column's UDF can no longer be evaluated
+            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='currently invalid'):
+                host.insert([{'threshold': 30}])
+
+        # phase 1: drop a column referenced by one of the UDFs; src itself remains
+        src.drop_column('extra')
+        reload_catalog()
+        assert_loads_and_is_invalid()
+
+        # phase 2: drop the entire table referenced by all three UDFs
+        pxt.drop_table('src', force=True)
+        reload_catalog()
+        assert_loads_and_is_invalid()
+
     @staticmethod
     @pxt.udf
     def binding_test_udf(p1: str, p2: str, p3: str, p4: str = 'default') -> str:
