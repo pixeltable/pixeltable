@@ -758,6 +758,7 @@ class Env:
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('imagehash')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('lance', library_name='pylance')
         self.__register_package('lancedb')
         self.__register_package('librosa')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
