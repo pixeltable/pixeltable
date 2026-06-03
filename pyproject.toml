@@ -82,9 +82,6 @@ documentation = "https://docs.pixeltable.com/"
 [project.scripts]
 pxt = "pixeltable.cli:main"
 
-[project.entry-points."mkdocstrings.python.templates"]
-extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
-
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning>=0.8.2"]
 build-backend = "hatchling.build"
@@ -128,9 +125,6 @@ dev = [
     "types-tqdm~=4.64",
     "ruff>=0.14",
     "notebook>=7.5.6",
-    "mkdocs>=1.6.0,<2",
-    "mkdocs-material>=9.5.23,<10",
-    "mkdocstrings-python>=1.10.2,<2",
     "black>=26.3.1",
     "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
     "pycocotools>=2.0.10",
@@ -170,7 +164,7 @@ dev = [
     "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
     "ollama>=0.5.1",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
-    "mcp>=1.23.0",
+    "mcp>=1.27.2",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
     # of at least one library. We can re-enable it once they update their dependencies.
