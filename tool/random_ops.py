@@ -601,6 +601,7 @@ def main() -> None:
 
         worker_args = [
             [
+                '-u',  # run workers with unbuffered stdio to reduce buffering-related log reordering
                 '-c',
                 'from tool.random_ops import run; '
                 f'run({i}, {i >= args.workers - args.read_only_workers}, '
