@@ -47,7 +47,7 @@ class TestHfDatasets:
                 # so filter out that column.
                 # cr subdir has a small number of rows, avoid running out of space in CI runner
                 # see https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3/tree/main/cr
-                'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
+                'schema_overrides': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
             },
             # example of dataset dictionary with multiple splits
             {
@@ -76,7 +76,7 @@ class TestHfDatasets:
             tab = pxt.io.import_huggingface_dataset(
                 dataset_name,
                 hf_dataset,
-                schema_overrides=rec.get('schema_override', None),
+                schema_overrides=rec.get('schema_overrides', None),
                 column_name_for_split=split_column_name,
             )
             if isinstance(hf_dataset, datasets.Dataset):
@@ -117,7 +117,7 @@ class TestHfDatasets:
                 # so filter out that column.
                 # cr subdir has a small number of rows, avoid running out of space in CI runner
                 # see https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3/tree/main/cr
-                'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
+                'schema_overrides': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
             },
             # example of dataset dictionary with multiple splits
             {
@@ -135,7 +135,7 @@ class TestHfDatasets:
             tab = pxt.io.import_huggingface_dataset(
                 dataset_name,
                 hf_dataset,
-                schema_overrides=rec.get('schema_override', None),
+                schema_overrides=rec.get('schema_overrides', None),
                 column_name_for_split=split_column_name,
             )
             if isinstance(hf_dataset, datasets.Dataset):
@@ -151,7 +151,7 @@ class TestHfDatasets:
                 raise AssertionError()
             len1 = tab.count()
             tab.insert(
-                hf_dataset, schema_overrides=rec.get('schema_override', None), column_name_for_split=split_column_name
+                hf_dataset, schema_overrides=rec.get('schema_overrides', None), column_name_for_split=split_column_name
             )
             assert tab.count() == len1 * 2
 
