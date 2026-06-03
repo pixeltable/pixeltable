@@ -601,6 +601,7 @@ def main() -> None:
 
         worker_args = [
             [
+                '-u',  # flush every line to stdout immediately so that logs from workers appear in the right order
                 '-c',
                 'from tool.random_ops import run; '
                 f'run({i}, {i >= args.workers - args.read_only_workers}, '
