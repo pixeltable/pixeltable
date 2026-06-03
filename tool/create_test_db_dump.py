@@ -22,7 +22,7 @@ from pixeltable.io.external_store import Project
 from pixeltable.iterators.base import ComponentIterator
 from tool.udfs_for_db_dump import test_array_udf, test_binary_udf, test_date_udf, test_timestamp_udf, test_uuid_udf
 
-_logger = logging.getLogger('pixeltable.create_test_db_dump')
+_logger = logging.getLogger(__name__)
 
 
 # We use URLs (not local files) so that the dumps are portable. We also use repo references with fixed SHAs for all
