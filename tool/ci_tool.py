@@ -8,6 +8,7 @@ Command-line utility for CI/CD operations.
 import argparse
 import json
 import os
+import pathlib
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -22,7 +23,7 @@ BASIC_PLATFORMS = ('macos-15', 'windows-2022')
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
-COCKROACH_LIVE_TEST_MODULES = ('table', 'index')
+COCKROACH_LIVE_TEST_MODULES = ('tests/test_table.py', 'tests/test_index.py')
 
 # CockroachDB local suite modules: the `make slimtest` set + the primary-key index tests for partial index coverage.
 # test_unversioned_table.py is intentionally excluded (see TODO: implement for unversioned tables [PXT-1101])
@@ -139,17 +140,18 @@ def generate_matrix(args: argparse.Namespace) -> None:
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
         if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
-            configs.extend(
-                MatrixConfig(
-                    f'cockroach-live-{module}',
-                    'py',
-                    MAIN_PLATFORM,
-                    '3.10',
-                    pytest_options=f'--reruns 2 -m cockroachdb tests/test_{module}.py',
-                    pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
+            for module in COCKROACH_LIVE_TEST_MODULES:
+                short_name = pathlib.Path(module).stem.removeprefix('test_')
+                configs.append(
+                    MatrixConfig(
+                        f'cockroach-live-{short_name}',
+                        'py',
+                        MAIN_PLATFORM,
+                        '3.10',
+                        pytest_options=f'--reruns 2 -m cockroachdb {module}',
+                        pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
+                    )
                 )
-                for module in COCKROACH_LIVE_TEST_MODULES
-            )
 
         # Local test suite against a local single-node CockroachDB container. Restricted to the slimtest modules.
         configs.append(
