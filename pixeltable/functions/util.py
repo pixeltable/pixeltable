@@ -38,6 +38,14 @@ def normalize_image_mode(image: PIL.Image.Image) -> PIL.Image.Image:
     return image
 
 
+class ImageMetadata(TypedDict, total=False):
+    width: int
+    height: int
+    mode: str
+    bits: int | None
+    format: str
+
+
 class CodecContextMetadata(TypedDict, total=False):
     """Metadata about a stream's codec."""
 

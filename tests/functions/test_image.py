@@ -39,6 +39,19 @@ class TestImage:
         _ = t.select(t.img.thumbnail([100, 100])).show()
         _ = t.select(t.img.transpose(Transpose.FLIP_LEFT_RIGHT)).show()
 
+    def test_get_metadata(self, img_tbl: pxt.Table) -> None:
+        t = img_tbl
+        t.insert(img='tests/data/images/sewing-threads-smaller.jpg', category='sewing-threads', split='')
+        t.add_computed_column(md=t.img.get_metadata())
+        md = t.select(t.md).where(t.category == 'sewing-threads').collect()['md'][0]
+        assert md == {'width': 1000, 'height': 750, 'mode': 'RGB', 'bits': 8, 'format': 'JPEG'}
+
+        # get_metadata() returns correct type information
+        expr = t.md.bits
+        assert expr.col_type.is_int_type()
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
+            _ = t.md.not_an_attr
+
     def test_return_types(self, uses_db: None) -> None:
         for nullable in (True, False):
             type_hint = pxt.Image[(200, 300), 'RGB']  # type: ignore
