@@ -21,7 +21,7 @@ def udf_with_exc(i: int, val: int) -> int:
 
 class TestLanceDb:
     def test_export(self, uses_db: None, tmp_path: Path) -> None:
-        skip_test_if_not_installed('lancedb')
+        skip_test_if_not_installed('lance', 'lancedb')
         import lancedb  # type: ignore[import-untyped]
 
         n_rows = 1000
