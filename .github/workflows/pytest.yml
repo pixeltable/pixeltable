@@ -173,6 +173,7 @@ jobs:
         if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.10' }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &  # Start the ollama server if it didn't start via install.sh
           sleep 10  # Wait for the ollama server to start
           # Pull the models used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'
