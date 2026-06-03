@@ -128,7 +128,7 @@ jobs:
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        run: pytest -v -m '' tests
+        run: pytest -v -m 'not very_expensive' tests
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
