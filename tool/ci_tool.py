@@ -141,7 +141,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
         if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
             configs.extend(
                 MatrixConfig(
-                    f'cockroach-{module}',
+                    f'cockroach-live-{module}',
                     'py',
                     MAIN_PLATFORM,
                     '3.10',
