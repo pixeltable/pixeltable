@@ -4,7 +4,7 @@ from pixeltable.metadata import register_converter
 
 
 @register_converter(version=41)
-def _(engine: sql.engine.Engine) -> None:
+def _(engine: sql.engine.Engine, _dbms: object) -> None:
     with engine.begin() as conn:
         conn.execute(sql.text("ALTER TABLE dirs ADD COLUMN IF NOT EXISTS additional_md JSONB DEFAULT '{}'::JSONB"))
         conn.execute(sql.text("ALTER TABLE tables ADD COLUMN IF NOT EXISTS additional_md JSONB DEFAULT '{}'::JSONB"))

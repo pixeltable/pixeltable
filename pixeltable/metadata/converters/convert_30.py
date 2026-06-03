@@ -11,7 +11,7 @@ from pixeltable.metadata.converters.util import convert_sql_table_record, conver
 
 
 @register_converter(version=30)
-def _(engine: sql.engine.Engine) -> None:
+def _(engine: sql.engine.Engine, _dbms: object) -> None:
     convert_table_md(engine, table_md_updater=__update_table_md)
     convert_sql_table_record(TableVersionAtV30, engine, record_updater=__update_table_version_record)
     convert_sql_table_record(TableSchemaVersionAtV30, engine, record_updater=__update_table_schema_version_record)

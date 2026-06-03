@@ -9,7 +9,7 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 
 @register_converter(version=43)
-def _(engine: sql.engine.Engine) -> None:
+def _(engine: sql.engine.Engine, _dbms: object) -> None:
     """Converts ArrayTypes by replacing legacy dtype (which was a pxt Type ID) to numpy dtype."""
     convert_table_md(engine, substitution_fn=_substitution_fn)
 

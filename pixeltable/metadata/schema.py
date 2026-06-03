@@ -107,7 +107,7 @@ class Dir(Base):
 class ColumnMd:
     """
     Records the non-versioned metadata of a column.
-    - immutable attributes: type, primary key, etc.
+    - immutable attributes: id, stored, stores_cellmd, is_media_type, sa_col_type
     - when a column was added/dropped, which is needed to GC unreachable storage columns
       (a column that was added after table snapshot n and dropped before table snapshot n+1 can be removed
       from the stored table).
@@ -116,13 +116,6 @@ class ColumnMd:
     id: int
     schema_version_add: int
     schema_version_drop: int | None
-    col_type: dict
-
-    # if True, is part of the primary key
-    is_pk: bool
-
-    # if set, this is a computed column
-    value_expr: dict | None
 
     # if True, the column is present in the stored table
     stored: bool | None
@@ -130,8 +123,21 @@ class ColumnMd:
     # Indicates if this column has another accessory column that stores cell metadata such as execution errors
     stores_cellmd: bool
 
+    # Indicates if this column is of a media type (image, video, document, etc.)
+    # This exists only for Packager as it has a special treatment for media columns. Any other use of this value
+    # is likely architecturally unsound.
+    is_media_type: bool
+
+    # For stored columns, this is a serialized sqlalchemy type of the store column. For unstored columns, it's None.
+    sa_col_type: dict | None = None
+
     # If present, the URI for the destination for column values
     destination: str | None = None
+
+    def is_visible_in_version(self, schema_version: int) -> bool:
+        return self.schema_version_add <= schema_version and (
+            self.schema_version_drop is None or self.schema_version_drop > schema_version
+        )
 
 
 @dataclasses.dataclass
@@ -150,6 +156,11 @@ class IndexMd:
     schema_version_drop: int | None
     class_fqn: str
     init_args: dict[str, Any]
+
+    def is_visible_in_version(self, schema_version: int) -> bool:
+        return self.schema_version_add <= schema_version and (
+            self.schema_version_drop is None or self.schema_version_drop > schema_version
+        )
 
 
 # a stored table version path is a list of (table id as str, effective table version)
@@ -325,20 +336,40 @@ class TableVersion(Base):
     additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
+# TODO: rename to ColumnVersionMd
 @dataclasses.dataclass
 class SchemaColumn:
     """
     Records the versioned metadata of a column.
     """
 
-    pos: int
-    name: str
+    # pos and name must be set for user columns, and be None for system columns
+    pos: int | None
+    name: str | None
+
+    col_type: dict
+    # True if this column is part of the primary key
+    is_pk: bool
+    # Value expression of a computed column
+    value_expr: dict | None
+
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
-    # stores column.MediaValiation.name.lower()
+    # stores column.MediaValidation.name.lower()
     media_validation: str | None
     comment: str | None = None
     # user-defined metadata - must be a valid JSON-serializable object
     custom_metadata: Any = None
+
+    def __post_init__(self) -> None:
+        assert (self.pos is None) == (self.name is None), (
+            f'Invalid SchemaColumn: pos and name must both be set or both unset: {self}'
+        )
+
+    # TODO there are opportunities to use this throughout the codebase instead of name is [not] None
+    @property
+    def is_system_column(self) -> bool:
+        """Returns True if this is a system column (i.e. not user-visible), such as an index value column."""
+        return self.name is None
 
 
 @dataclasses.dataclass
@@ -350,13 +381,14 @@ class SchemaVersionMd:
     tbl_id: str  # uuid.UUID
     schema_version: int
     preceding_schema_version: int | None
+    # User and system columns visible in this schema version
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
     # TODO: Before next release, add migration to preexisting empty strings to None
     comment: str | None
 
     # default validation strategy for any media column of this table
-    # stores column.MediaValiation.name.lower()
-    media_validation: str
+    # stores column.MediaValidation.name.lower() or None if unspecified
+    media_validation: str | None
     additional_md: dict[str, Any]  # deprecated
     # user-defined metadata - must be a valid JSON-serializable object
     custom_metadata: Any = None
@@ -372,7 +404,7 @@ class TableSchemaVersion(Base):
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
     schema_version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
-    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # SchemaVersionMd
     additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 

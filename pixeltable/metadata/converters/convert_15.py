@@ -12,7 +12,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 @register_converter(version=15)
-def _(engine: sql.engine.Engine) -> None:
+def _(engine: sql.engine.Engine, _dbms: object) -> None:
     with engine.begin() as conn:
         for row in conn.execute(sql.select(Function)):
             id, _, md, binary_obj = row

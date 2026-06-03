@@ -9,7 +9,7 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 
 @register_converter(version=45)
-def _(engine: sql.engine.Engine) -> None:
+def _(engine: sql.engine.Engine, _dbms: object) -> None:
     """
     Renames val_t to col_type in Literals, and updates how Literal types are serialized so that col_type is always
     present and always a full ColumnType dict (never a bare type-name string).
