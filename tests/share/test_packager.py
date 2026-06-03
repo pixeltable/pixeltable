@@ -42,9 +42,6 @@ from ..utils import (
     skip_test_if_not_installed,
 )
 
-# CockroachDB applies ADD COLUMN asynchronously, so the CREATE INDEX in replica restore can't see the new column yet.
-_REPLICA_SKIP_REASON = 'Replica restore not yet supported on CockroachDB'
-
 
 class TestPackager:
     def test_packager(self, test_tbl: pxt.Table) -> None:
@@ -283,7 +280,7 @@ class TestPackager:
             return {(indexname, indexdef) for indexname, indexdef in result}
 
     def __purge_db(self) -> None:
-        skip_test_if_cockroachdb(_REPLICA_SKIP_REASON)
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         clean_db()
         # Delete any locally stored media files (so that if any stale references to them inadvertently remain after
         # packaging, then those stale references will be invalid).
@@ -337,7 +334,7 @@ class TestPackager:
                         assert undo_count == expected_undos
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
-        skip_test_if_cockroachdb(_REPLICA_SKIP_REASON)
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         """package() / restore() round trip for a single snapshot"""
         # Add some additional columns to test various additional datatypes
         t = test_tbl
@@ -353,7 +350,7 @@ class TestPackager:
 
     def test_non_snapshot_round_trip(self, uses_db: None) -> None:
         """package() / restore() round trip for multiple versions of a table that is not a snapshot"""
-        skip_test_if_cockroachdb(_REPLICA_SKIP_REASON)
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         t = pxt.create_table('tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -459,7 +456,7 @@ class TestPackager:
         """
         Two snapshots that are exported at different times, requiring rectification of the v_max values.
         """
-        skip_test_if_cockroachdb(_REPLICA_SKIP_REASON)
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -483,7 +480,7 @@ class TestPackager:
         """
         Two snapshots that are exported at different times, involving column operations.
         """
-        skip_test_if_cockroachdb(_REPLICA_SKIP_REASON)
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(100))
 
@@ -554,7 +551,7 @@ class TestPackager:
         """
         Another test with many snapshots, involving row and column additions and deletions.
         """
-        skip_test_if_cockroachdb(_REPLICA_SKIP_REASON)
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         bundles: list[TestPackager.BundleInfo] = []
 
         t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
@@ -607,7 +604,7 @@ class TestPackager:
         A similar test, this one involving multiple versions of a table that is not a snapshot,
         intermixed with various snapshots.
         """
-        skip_test_if_cockroachdb(_REPLICA_SKIP_REASON)
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         bundles: list[TestPackager.BundleInfo] = []
 
         t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
