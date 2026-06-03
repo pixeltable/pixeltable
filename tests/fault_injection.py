@@ -19,7 +19,7 @@ from typing import Any, Protocol
 
 from pixeltable.utils.fault_injection import FaultLocation
 
-_logger = logging.getLogger('pixeltable.test')
+_logger = logging.getLogger('pixeltable_test')
 
 
 class Fault(Protocol):

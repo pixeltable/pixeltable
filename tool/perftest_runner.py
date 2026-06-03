@@ -15,7 +15,7 @@ from pixeltable.env import LOG_FMT_STR
 
 GRAFANA_OTLP_URL = 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metrics'
 
-_logger = logging.getLogger('pixeltable.test')
+_logger = logging.getLogger('pixeltable_test')
 
 
 def main() -> None:

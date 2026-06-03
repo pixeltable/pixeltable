@@ -39,7 +39,7 @@ from .utils import (
     skip_test_if_not_installed,
 )
 
-_logger = logging.getLogger('pixeltable.test')
+_logger = logging.getLogger('pixeltable_test')
 
 
 DO_RERUN: bool

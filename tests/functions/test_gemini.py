@@ -25,7 +25,7 @@ from ..utils import (
 )
 from .tool_utils import run_tool_invocations_test
 
-_logger = logging.getLogger('pixeltable.test')
+_logger = logging.getLogger('pixeltable_test')
 
 
 @pytest.mark.remote_api

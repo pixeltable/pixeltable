@@ -38,7 +38,7 @@ from .utils import (
     validate_update_status,
 )
 
-_logger = logging.getLogger('pixeltable.test')
+_logger = logging.getLogger('pixeltable_test')
 
 
 class TestMigration:

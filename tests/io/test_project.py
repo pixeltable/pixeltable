@@ -10,7 +10,7 @@ from pixeltable.io.external_store import MockProject, Project
 from pixeltable.type_system import ColumnType
 from tests.utils import get_image_files, pxt_raises, reload_catalog
 
-_logger = logging.getLogger('pixeltable.test')
+_logger = logging.getLogger('pixeltable_test')
 
 
 class TestProject:
