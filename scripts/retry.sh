@@ -13,7 +13,7 @@ shift 2
 
 if [[ -z "$@" ]]; then
     echo "Usage: retry.sh <num-retries> <sleep-duration> <command>"
-    echo "Example: retry.sh 3 10 ollama pull 'qwen2.5:0.5b'"
+    echo "Example: retry.sh 3 30 ollama pull 'qwen3:0.6b'"
     exit 1
 fi
 
