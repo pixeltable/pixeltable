@@ -486,6 +486,7 @@ class ColumnType:
         return JsonType(
             JsonType.TypeSchema(type_spec=type_spec, optional_keys=getattr(t, '__optional_keys__', frozenset())),
             nullable=nullable_default,
+            pretty_print_name=t.__name__,
         )
 
     @classmethod
@@ -501,7 +502,11 @@ class ColumnType:
                 )
             fields[name] = col_type
         optional_keys = frozenset(name for name, info in t.model_fields.items() if not info.is_required())
-        return JsonType(JsonType.TypeSchema(type_spec=fields, optional_keys=optional_keys), nullable=nullable_default)
+        return JsonType(
+            JsonType.TypeSchema(type_spec=fields, optional_keys=optional_keys),
+            nullable=nullable_default,
+            pretty_print_name=t.__name__,
+        )
 
     @classmethod
     def normalize_type(
@@ -960,9 +965,18 @@ class BinaryType(ColumnType):
 class JsonType(ColumnType):
     type_schema: TypeSchema | None
 
-    def __init__(self, type_schema: TypeSchema | None = None, nullable: bool = False):
+    # pretty_print_name is used only for generating clean documentation; it is not stored in the catalog.
+    # It preserves the name of the `TypedDict` used to define this `JsonType` (if there is one), so that the
+    # `TypedDict` can be printed in the docs rather than the fully expanded Json type.
+    # (Compare: `MyTypedDict` vs `Json[{'field1': String, 'field2': Int, 'field3': {'subfield': Float}}]`, etc.)
+    pretty_print_name: str | None
+
+    def __init__(
+        self, type_schema: TypeSchema | None = None, nullable: bool = False, pretty_print_name: str | None = None
+    ):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_schema = type_schema
+        self.pretty_print_name = pretty_print_name
 
     @classmethod
     def from_json_type_arg(cls, json_type_arg: Any) -> JsonType:

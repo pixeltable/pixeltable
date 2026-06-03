@@ -5065,15 +5065,15 @@ wheels = [
 
 [[package]]
 name = "ollama"
-version = "0.5.1"
+version = "0.6.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8d/96/c7fe0d2d1b3053be614822a7b722c7465161b3672ce90df71515137580a0/ollama-0.5.1.tar.gz", hash = "sha256:5a799e4dc4e7af638b11e3ae588ab17623ee019e496caaf4323efbaa8feeff93", size = 41112, upload-time = "2025-05-30T21:32:48.679Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/72/5f12423b6b39ca8430fbe56f77fcf4ef60f63067c7c4a2e30e200ed9ec16/ollama-0.6.2.tar.gz", hash = "sha256:936d55daa684f474364c098611c933626f8d6c7d67065c5b7ae0c477b508b07f", size = 53145, upload-time = "2026-04-29T21:21:15.018Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/76/3f96c8cdbf3955d7a73ee94ce3e0db0755d6de1e0098a70275940d1aff2f/ollama-0.5.1-py3-none-any.whl", hash = "sha256:4c8839f35bc173c7057b1eb2cbe7f498c1a7e134eafc9192824c8aecb3617506", size = 13369, upload-time = "2025-05-30T21:32:47.429Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/ab/d6722beeb2d10f7a3b9ff49375708904fde18f82b5609a0bc4aeb5996a4d/ollama-0.6.2-py3-none-any.whl", hash = "sha256:3ad7daab28e5a973445c36a73882a3ef698c2ebb00e21e308652741577509f7d", size = 15115, upload-time = "2026-04-29T21:21:13.794Z" },
 ]
 
 [[package]]
@@ -6041,7 +6041,7 @@ dev = [
     { name = "nbmake", specifier = ">=1.5,<2" },
     { name = "nbqa", specifier = ">=1.9.1" },
     { name = "notebook", specifier = ">=7.5.6" },
-    { name = "ollama", specifier = ">=0.5.1" },
+    { name = "ollama", specifier = ">=0.6" },
     { name = "openai", specifier = ">=2" },
     { name = "openai-whisper", marker = "python_full_version < '3.14'", specifier = ">=20250625" },
     { name = "openpyxl", specifier = ">=3.1" },
@@ -6110,7 +6110,7 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools#869124b498ba427cb4e05432ddc7363a44553155" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#d69ae4ca2f5c7ca4dd58eb81e7f37286b5f098ed" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "griffe" },
