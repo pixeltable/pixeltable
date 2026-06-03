@@ -128,7 +128,7 @@ jobs:
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        run: pytest -v -m '' tests
+        run: pytest -v -m 'not very_expensive' tests
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
@@ -180,7 +180,8 @@ jobs:
           curl -fsSL https://ollama.com/install.sh | sh
           ollama serve &  # Start the ollama server if it didn't start via install.sh
           sleep 10  # Wait for the ollama server to start
-          # Pull the model used for testing now, with retries, to safeguard against connection issues
-          ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
+          # Pull the models used for testing now, with retries, to safeguard against connection issues
+          ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'
+          ./scripts/retry.sh 3 30 ollama pull 'qwen3-embedding:0.6b'
       - name: Run isolated notebook tests
         run: ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }}
