@@ -10,6 +10,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
@@ -208,9 +209,13 @@ class TestIndex:
                 .limit(5)
             )
 
-        res1 = queries.select(queries.query_text, out=top_k_chunks(queries.query_text)).collect()
+        res1 = (
+            queries.select(queries.query_text, out=top_k_chunks(queries.query_text))
+            .order_by(queries.query_text)
+            .collect()
+        )
         queries.add_computed_column(chunks=top_k_chunks(queries.query_text))
-        res2 = queries.collect()
+        res2 = queries.order_by(queries.query_text).collect()
 
         assert_resultset_eq(res1, res2)
 
@@ -228,7 +233,11 @@ class TestIndex:
                     .limit(5)
                 )
 
-        res1_deprecated = queries.select(queries.query_text, out=top_k_chunks_deprecated(queries.query_text)).collect()
+        res1_deprecated = (
+            queries.select(queries.query_text, out=top_k_chunks_deprecated(queries.query_text))
+            .order_by(queries.query_text)
+            .collect()
+        )
         assert_resultset_eq(res1, res1_deprecated)
 
         # make sure we can instantiate the query function from the metadata
@@ -532,8 +541,7 @@ class TestIndex:
     def test_embedding_basic(
         self, img_tbl: pxt.Table, clip_embed: pxt.Function, e5_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        skip_test_if_not_installed('sentence_transformers')
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('imagehash', 'sentence_transformers', 'transformers')
 
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
@@ -597,7 +605,7 @@ class TestIndex:
         img_t.revert()
 
         # make sure we can still do DML after reloading the metadata
-        query = img_t.select()
+        query = img_t.select().order_by(img_t.img)
         _ = reload_tester.run_query(query)
         reload_tester.run_reload_test(clear=True)
         img_t = pxt.get_table(tbl_name)
@@ -689,18 +697,18 @@ class TestIndex:
         v = pxt.create_view('v', t.where(t.n % 2 == 0))
         v.add_embedding_index('s', string_embed=all_mpnet_embed)
 
-        query1 = v.select(sim1=v.s.similarity(string=sentences[1]))
+        query1 = v.select(sim1=v.s.similarity(string=sentences[1])).order_by(v.n)
         res1 = reload_tester.run_query(query1)
 
         # Now add an index to the base table, which should be independent of the view index
         t.add_embedding_index('s', string_embed=e5_embed)
-        query2 = t.where(t.n % 2 == 0).select(sim2=t.s.similarity(string=sentences[1]))
+        query2 = t.where(t.n % 2 == 0).select(sim2=t.s.similarity(string=sentences[1])).order_by(t.n)
         res2 = reload_tester.run_query(query2)
 
         # Now query the view again twice: once with the column referenced as `v.s`, and once as `t.s`
-        query3 = v.select(sim3=v.s.similarity(string=sentences[1]))
+        query3 = v.select(sim3=v.s.similarity(string=sentences[1])).order_by(v.n)
         res3 = reload_tester.run_query(query3)
-        query4 = v.select(sim4=t.s.similarity(string=sentences[1]))
+        query4 = v.select(sim4=t.s.similarity(string=sentences[1])).order_by(v.n)
         res4 = reload_tester.run_query(query4)
 
         # `v.s` should use the view index, while `t.s` should use the base table index
@@ -1005,7 +1013,7 @@ class TestIndex:
         t = pxt.create_table('array_embedding_test', {'id': pxt.Int, 'text': pxt.String})
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
 
-        precomputed_embeddings = t.select(emb=e5_embed(t.text)).collect()['emb']
+        precomputed_embeddings = t.order_by(t.id).select(emb=e5_embed(t.text)).collect()['emb']
         dim = len(precomputed_embeddings[0])
         precomputed_embeddings_f64 = [v.astype(np.float64) for v in precomputed_embeddings]
 
@@ -1185,3 +1193,65 @@ class TestIndex:
         t.drop_column('text')
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=r'(?i).*column was dropped.*'):
             query.collect()
+
+    @pytest.mark.parametrize('reload', [True, False], ids=['reload', 'noreload'])
+    def test_similarity_column_snapshot(self, uses_db: None, all_mpnet_embed: pxt.Function, reload: bool) -> None:
+        """Tests various edge cases that involve similarity columns and snapshots"""
+
+        skip_test_if_not_installed('sentence_transformers')
+
+        tbl = pxt.create_table('test', {'text': pxt.String, 'text2': pxt.String})
+        tbl.insert([{'text': s, 'text2': s} for s in get_sentences(10)])
+
+        # add a stored similarity column
+        tbl.add_embedding_index('text', string_embed=all_mpnet_embed, idx_name='embed')
+        validate_update_status(tbl.add_computed_column(sim=tbl.text.similarity(string='sunlight', idx='embed')))
+
+        # add an unstored similarity column
+        tbl.add_embedding_index('text2', string_embed=all_mpnet_embed, idx_name='embed2')
+        validate_update_status(
+            tbl.add_computed_column(sim_unstored=tbl.text2.similarity(string='sunlight'), stored=False)
+        )
+
+        # check the stored sim column in the base table
+        res = tbl.select(tbl.text, tbl.sim).order_by(tbl.sim, asc=False).collect()
+        assert 'sunshine' in res[0]['text']
+        assert 'winter' in res[1]['text']
+
+        # check the unstored sim column in the base table
+        res = tbl.select(tbl.text).order_by(tbl.sim_unstored, asc=False).collect()
+        assert 'sunshine' in res[0]['text']
+
+        snap = pxt.create_snapshot('snap', tbl)
+
+        # check the stored sim column in the snapshot
+        res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
+        assert 'sunshine' in res[0]['text']
+        assert 'winter' in res[1]['text']
+
+        # check the unstored sim column in the snapshot (should raise)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
+            snap.select(snap.text).order_by(snap.sim_unstored, asc=False).collect()
+
+        # Drop the top row by similarity, then verify similarity results in the base table and the snapshot
+        validate_update_status(tbl.delete(where=pxtf.string.contains(tbl.text, 'sunshine')), expected_rows=1)
+
+        res = tbl.select(tbl.text, tbl.sim).order_by(tbl.sim, asc=False).collect()
+        assert 'winter' in res[0]['text']
+
+        res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
+        assert 'sunshine' in res[0]['text']
+
+        # Drop the value and the similarity columns from base table, then verify that the snapshot still has them
+        tbl.drop_column(tbl.sim)
+        tbl.drop_column(tbl.text)
+
+        reload_catalog(reload)
+
+        snap = pxt.get_table('snap')
+        res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
+        assert 'sunshine' in res[0]['text']
+        assert 'winter' in res[1]['text']
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
+            snap.select(snap.text).order_by(snap.sim_unstored, asc=False).collect()

@@ -170,12 +170,13 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Install ollama
-        if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') }}
+        if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.10' }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           sleep 10  # Wait for the ollama server to start
-          # Pull the model used for testing now, with retries, to safeguard against connection issues
-          ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
+          # Pull the models used for testing now, with retries, to safeguard against connection issues
+          ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'
+          ./scripts/retry.sh 3 30 ollama pull 'qwen3-embedding:0.6b'
       - name: Install uv
         run: |
           python -m pip install --upgrade pip
@@ -228,7 +229,7 @@ jobs:
           fi
       - name: Run stress tests
         if: ${{ matrix.test-category == 'random-ops' }}
-        run: ./scripts/stress-tests.sh 12 180
+        run: ./scripts/stress-tests.sh 12 360
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable tests tool

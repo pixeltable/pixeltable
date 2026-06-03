@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sql
 
@@ -76,7 +76,7 @@ class JsonMapper(Expr):
         return {'components': [self._src_expr.as_dict(), self._target_expr.as_dict()]}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> JsonMapper:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> JsonMapper:
         assert len(components) == 2
         src_expr, target_expr = components[0], components[1]
         return cls(src_expr, target_expr)
@@ -183,5 +183,5 @@ class JsonMapperDispatch(Expr):
         raise AssertionError('this should never be called')
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> JsonMapperDispatch:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> JsonMapperDispatch:
         raise AssertionError('this should never be called')

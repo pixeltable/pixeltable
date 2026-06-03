@@ -16,6 +16,8 @@ from filelock import FileLock
 from sqlalchemy import text
 
 import pixeltable as pxt
+import pixeltable.utils.fault_injection as prod_fault_injection
+import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -156,6 +158,20 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
                     engine.dispose()
         except Exception as e:
             _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
+
+
+@pytest.fixture(autouse=True)
+def fault_injection() -> Iterator[None]:
+    """Enables fault injection"""
+
+    # Monkey patch fault injection to product
+    prod_fault_injection.process_fault = test_fault_injection.process_fault
+    prod_fault_injection.create_fault_manager = test_fault_injection.create_fault_manager
+
+    try:
+        yield
+    finally:
+        get_runtime().fault_manager.clear_faults()
 
 
 @pytest.fixture(scope='function')

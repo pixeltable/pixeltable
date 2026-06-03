@@ -42,7 +42,7 @@ class ErrorCode(enum.Enum):
     ROW_NOT_FOUND = 1006, 404, False
     STORAGE_NOT_FOUND = 1007, 404, False
     SERVICE_NOT_FOUND = 1008, 404, False
-    ENVIRONMENT_NOT_FOUND = 1009, 404, False
+    DEPLOYMENT_NOT_FOUND = 1009, 404, False
 
     # AlreadyExistsError (2xxx)
     COLUMN_ALREADY_EXISTS = 2000, 409, False
@@ -244,3 +244,18 @@ class PixeltableWarning(Warning):
 
 class PixeltableDeprecationWarning(DeprecationWarning, PixeltableWarning):
     pass
+
+
+def table_was_dropped(identifier: Any = None) -> NotFoundError:
+    """
+    Creates an error to indicate that a table is not found (was dropped).
+
+    identifier (optional) can be a table ID or name
+    """
+    msg = 'Table was dropped' if identifier is None else f'Table was dropped (no record found for {identifier})'
+    return NotFoundError(ErrorCode.TABLE_NOT_FOUND, msg)
+
+
+def is_table_not_found_error(e: BaseException) -> bool:
+    """Returns True if the exception signals that a table was not found."""
+    return isinstance(e, Error) and e.error_code == ErrorCode.TABLE_NOT_FOUND

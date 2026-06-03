@@ -1,13 +1,18 @@
 import dataclasses
+import enum
 import json
 import logging
 import os
 import random
+import re
+import signal
 import sys
+import tempfile
 import time
 from argparse import ArgumentParser
 from datetime import datetime
-from typing import Any, Callable, Iterator
+from pathlib import Path
+from typing import Any, Callable
 
 import numpy as np
 import PIL.Image
@@ -16,6 +21,46 @@ import pixeltable as pxt
 from pixeltable.config import Config
 from pixeltable.env import Env
 from tool.worker_harness import run_workers
+
+
+class OpStatus(enum.Enum):
+    SUCCESS = 'success'
+    EXPECTED_ERROR = 'expected_error'
+    UNEXPECTED_ERROR = 'unexpected_error'
+
+
+@dataclasses.dataclass(frozen=True)
+class OpResult:
+    status: OpStatus
+    msg: str
+
+
+def success(msg: str) -> OpResult:
+    return OpResult(OpStatus.SUCCESS, msg)
+
+
+# Errors that are expected under concurrent operation; any other exception indicates a failed run.
+_EXPECTED_ERROR_PATTERNS = (
+    re.compile(r'That Pixeltable operation could not be completed.+'),
+    re.compile(r'Table was dropped'),
+    re.compile(r'Column was dropped'),
+    re.compile(r"Cannot use if_exists=.+ with the same name as one of the view's own ancestors"),
+)
+
+
+def is_expected(e: Exception) -> tuple[bool, str]:
+    """Returns whether the error is expected, and a sanitized (with variable parts removed) message for stats
+    collection."""
+    sanitized = str(e).replace('\n', ' ')
+    if not isinstance(e, pxt.Error):
+        return False, sanitized
+
+    for pattern in _EXPECTED_ERROR_PATTERNS:
+        if pattern.match(sanitized):
+            return True, pattern.pattern
+
+    return False, sanitized
+
 
 # List of table operations that can be performed by RandomTableOps.
 # (operation_name, weight, is_read_op)
@@ -120,10 +165,16 @@ class RandomTableOps:
         include_only_ops: list[str],
         exclude_ops: list[str],
         config: RandomTableOpsConfig,
+        *,
+        stats_file: str | None = None,
     ) -> None:
         self.worker_id = worker_id
         self.read_only = read_only
         self.config = config
+        self.stats_file = stats_file
+        self._op_counts: dict[str, int] = {name: 0 for name, *_ in TABLE_OPS}
+        self._err_counts: dict[str, dict[str, int]] = {}  # op_name -> {sanitized_msg -> count}
+        self._last_flush_ts: float = 0.0
         self.base_table_names = tuple(f'tbl_{i}' for i in range(config.num_base_tables))
 
         selected_ops: set[str]
@@ -172,14 +223,24 @@ class RandomTableOps:
 
         Env.get().set_log_level(logging.DEBUG)
 
-    def emit(self, op: Callable, msg: Any) -> None:
-        line = f'[{datetime.now()}] [Worker {self.worker_id:02d}] [{op.__name__:19s}]: {msg}'
+    def _flush_stats(self, *, force: bool = False) -> None:
+        if self.stats_file is None:
+            return
+        if not force and time.monotonic() - self._last_flush_ts < 5.0:
+            return
+        with open(self.stats_file, 'w', encoding='utf-8') as f:
+            json.dump({'op_counts': self._op_counts, 'err_counts': self._err_counts}, f, indent=2)
+        self._last_flush_ts = time.monotonic()
+
+    def emit(self, op: Callable, result: OpResult) -> None:
+        status = result.status.value
+        line = f'[{datetime.now()}] [Worker {self.worker_id:02d}] [{op.__name__:19s}] [{status}]: {result.msg}'
         print(line)
-        self.logger.info('[%s]: %s', op.__name__, msg)
+        self.logger.info(f'[{op.__name__}] [{result.status.value}]: {result.msg}')
 
     @classmethod
     def tbl_descr(cls, t: pxt.Table) -> str:
-        return f'{t._name!r} ({t._id.hex[:6]}...)'
+        return f'{t._name()!r} ({t._id.hex[:6]}...)'
 
     def get_random_tbl(self, allow_base_tbl: bool = True, allow_view: bool = True) -> pxt.Table | None:
         # Occasionally it happens that we get a list of views, but by the time we try to get one of them, it has been
@@ -201,17 +262,15 @@ class RandomTableOps:
             if view is not None:
                 return view
 
-    def query(self) -> Iterator[str]:
+    def query(self) -> OpResult:
         t = self.get_random_tbl()
         num_rows = int(random.uniform(50, 100))
-        yield f'Collect {num_rows} rows from {self.tbl_descr(t)}: '
         res = t.sample(n=num_rows).collect()
-        yield f'Collected {len(res)} rows.'
+        return success(f'Collected {len(res)} rows from {self.tbl_descr(t)}.')
 
-    def insert_rows(self) -> Iterator[str]:
+    def insert_rows(self) -> OpResult:
         t = self.get_random_tbl(allow_view=False)
         num_rows = int(random.uniform(20, 50))
-        yield f'Insert {num_rows} rows into {self.tbl_descr(t)}: '
         i_start = random.randint(100, 1000000000)
         rows = [
             {
@@ -232,9 +291,9 @@ class RandomTableOps:
         arrays = sum(1 for row in rows if row['bc_array'] is not None)
         jsons = sum(1 for row in rows if row['bc_json'] is not None)
         imgs = sum(1 for row in rows if row['bc_image'] is not None)
-        yield (
-            f'Inserted {us.row_count_stats.ins_rows} rows '
-            f'(with {arrays} arrays, {jsons} jsons, {imgs} images) (total now {t.count()} rows).'
+        return success(
+            f'Inserted {us.row_count_stats.ins_rows} rows into {self.tbl_descr(t)} '
+            f'(with {arrays} arrays, {jsons} jsons, {imgs} images).'
         )
 
     def random_array(self, freq: float) -> np.ndarray | None:
@@ -274,123 +333,102 @@ class RandomTableOps:
             random_data = np.random.randint(0, 16, size=(128, 128, 4), dtype=np.uint8)
             return PIL.Image.fromarray(random_data, 'RGBA')
 
-    def update_rows(self) -> Iterator[str]:
+    def update_rows(self) -> OpResult:
         t = self.get_random_tbl(allow_view=False)
         p = random.choice(PRIMES)
-        yield f'Update rows in {self.tbl_descr(t)} where bc_int % {p} == 0: '
         # TODO: We should also do updates/deletes that can be carried out without a full table scan.
         us = t.where(t.bc_int % p == 0).update(
             {'bc_string': t.bc_string + '_u', 'bc_float': t.bc_float + 1.9, 'bc_bool': ~t.bc_bool}
         )
-        yield f'Updated {us.row_count_stats.upd_rows}.'
+        return success(f'Updated {us.row_count_stats.upd_rows} rows in {self.tbl_descr(t)} where bc_int % {p} == 0.')
 
-    def delete_rows(self) -> Iterator[str]:
+    def delete_rows(self) -> OpResult:
         t = self.get_random_tbl(allow_view=False)
         p = random.choice(PRIMES)
-        yield f'Delete rows from {self.tbl_descr(t)} where bc_int % {p} == 0: '
         us = t.where(t.bc_int % p == 0).delete()
-        yield f'Deleted {us.row_count_stats.del_rows} rows (total now {t.count()}).'
+        n_del = us.row_count_stats.del_rows
+        tbl = self.tbl_descr(t)
+        return success(f'Deleted {n_del} rows from {tbl} where bc_int % {p} == 0.')
 
-    def add_data_column(self) -> Iterator[str]:
+    def add_data_column(self) -> OpResult:
         t = self.get_random_tbl()
         n = int(random.uniform(0, self.config.num_column_names))
         cname = f'c{n}'
-        yield f'Add data column {cname!r} to {self.tbl_descr(t)}: '
         t.add_column(**{cname: pxt.String}, if_exists='ignore')
-        yield 'Success.'
+        return success(f'Added data column {cname!r} to {self.tbl_descr(t)}.')
 
-    def add_computed_column(self) -> Iterator[str]:
+    def add_computed_column(self) -> OpResult:
         t = self.get_random_tbl()
         n = int(random.uniform(0, self.config.num_column_names))
         cname = f'c{n}'
-        yield f'Add computed column {cname!r} to {self.tbl_descr(t)}: '
         t.add_computed_column(**{cname: t.bc_int * random.uniform(1.0, 5.0)}, if_exists='ignore')
-        yield 'Success.'
+        return success(f'Added computed column {cname!r} to {self.tbl_descr(t)}.')
 
-    def drop_column(self) -> Iterator[str]:
+    def drop_column(self) -> OpResult:
         t = self.get_random_tbl()
-        yield f'Drop a column from {self.tbl_descr(t)}: '
         cnames = [
             col_name
             for col_name, col in t.get_metadata()['columns'].items()
-            if col['defined_in'] == t._name and col_name not in BASIC_SCHEMA
+            if col['defined_in'] == t._name() and col_name not in BASIC_SCHEMA
         ]
         if len(cnames) == 0:
-            yield 'No columns to drop.'
-        else:
-            cname = random.choice(cnames)
-            yield f'Column {cname!r}: '
-            t.drop_column(cname, if_not_exists='ignore')
-            yield 'Success.'
+            return success(f'No droppable columns in {self.tbl_descr(t)}.')
+        cname = random.choice(cnames)
+        t.drop_column(cname, if_not_exists='ignore')
+        return success(f'Dropped column {cname!r} from {self.tbl_descr(t)}.')
 
-    def create_view(self) -> Iterator[str]:
+    def create_view(self) -> OpResult:
         t = self.get_random_tbl()  # Allows views on views
         n = int(random.uniform(0, self.config.num_view_names))
         vname = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
         p = random.choice(PRIMES)
-        yield f'Create view {vname!r} on {self.tbl_descr(t)}: '
-        try:
-            pxt.create_view(vname, t.where(t.bc_int % p == 0), if_exists='replace_force')
-        except pxt.Error as e:
-            if "with the same name as one of the view's own ancestors" in str(e):
-                yield f'Expected error: {e}'
-                return
-            raise
-        yield 'Success.'
+        pxt.create_view(vname, t.where(t.bc_int % p == 0), if_exists='replace_force')
+        return success(f'Created view {vname!r} on {self.tbl_descr(t)}.')
 
-    def rename_view(self) -> Iterator[str]:
+    def rename_view(self) -> OpResult:
         t = self.get_random_tbl(allow_base_tbl=False)  # Must be a view
         if t is None:
-            yield 'No views to rename.'
-            return
+            return success('No views to rename.')
         n = int(random.uniform(0, self.config.num_view_names))
-        if f'view_{n}' == t._name:
+        if f'view_{n}' == t._name():
             n = (n + 1) % self.config.num_view_names  # Ensure new name is different
         new_name = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
-        yield f'Rename view {self.tbl_descr(t)} to {new_name!r}: '
-        pxt.move(t._name, new_name, if_exists='ignore', if_not_exists='ignore')
-        yield 'Success.'
+        old_descr = self.tbl_descr(t)
+        pxt.move(t._name(), new_name, if_exists='ignore', if_not_exists='ignore')
+        return success(f'Renamed view {old_descr} to {new_name!r}.')
 
-    def drop_view(self) -> Iterator[str]:
+    def drop_view(self) -> OpResult:
         t = self.get_random_tbl(allow_base_tbl=False)
         if t is None:
-            yield 'No views to drop.'
-            return
-        yield f'Drop view {self.tbl_descr(t)}: '
+            return success('No views to drop.')
         pxt.drop_table(t, force=True, if_not_exists='ignore')
-        yield 'Success.'
+        return success(f'Dropped view {self.tbl_descr(t)}.')
 
-    def drop_table(self) -> Iterator[str]:
+    def drop_table(self) -> OpResult:
         t = self.get_random_tbl(allow_view=False)
-        yield f'Drop table {self.tbl_descr(t)}: '
         pxt.drop_table(t, force=True, if_not_exists='ignore')
-        yield 'Success.'
+        return success(f'Dropped table {self.tbl_descr(t)}.')
 
     def run_op(self, op: Callable) -> None:
         """Run the given operation once. Capture any "expected" errors and fail fatally on unexpected ones."""
-        msg_parts: list[str] = []
         fatal: Exception | None = None
         try:
-            for res in op():
-                msg_parts.append(res)
+            result = op()
         except Exception as e:
-            errmsg = str(e).replace('\n', ' ')
-            if isinstance(e, pxt.Error) and (
-                str(e)[:17]
-                in (
-                    # Whitelisted errors; these are expected in the current implementation.
-                    # Any other exception indicates a failed run.
-                    'That Pixeltable o',  # Concurrency conflict
-                    'Table was dropped',  # Table dropped by another process
-                    'Column was droppe',  # Column dropped by another process
-                )
-            ):
-                msg_parts.append(f'pxt.Error: {errmsg}')
+            expected, sanitized = is_expected(e)
+            if expected:
+                result = OpResult(OpStatus.EXPECTED_ERROR, sanitized)
             else:
-                msg_parts.append(f'FATAL ERROR: {e.__class__.__qualname__}: {errmsg}')
+                result = OpResult(OpStatus.UNEXPECTED_ERROR, sanitized)
                 fatal = e
 
-        self.emit(op, ''.join(msg_parts))
+        self._op_counts[op.__name__] += 1
+        if result.status != OpStatus.SUCCESS:
+            by_msg = self._err_counts.setdefault(op.__name__, {})
+            by_msg[result.msg] = by_msg.get(result.msg, 0) + 1
+        self._flush_stats()
+
+        self.emit(op, result)
         if fatal is not None:
             raise fatal
 
@@ -409,35 +447,82 @@ class RandomTableOps:
             time.sleep(random.uniform(0.1, 0.5))
 
 
-def init(config: RandomTableOpsConfig) -> None:
-    """Initialization. This will ONLY be run once (globally), on Worker 0."""
-    print(json.dumps(dataclasses.asdict(config), indent=4))
-    pxt.init()
-
-
 def run(
-    worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str
+    worker_id: int,
+    read_only: bool,
+    include_only_ops: list[str] | None,
+    exclude_ops: list[str] | None,
+    config_str: str,
+    *,
+    stats_file: str | None = None,
 ) -> None:
     """Entrypoint for a worker process."""
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
     config = RandomTableOpsConfig(**json.loads(config_str))
 
-    # In order to localize initialization to a single process, we call pxt.init() only from worker 0. The timings are
-    # adjusted so that all workers start issuing operations at approximately the same time.
-    # TODO: Do we want pxt.init() to be concurrency-safe (the first time it is called, when setting up the DB)?
-    if worker_id == 0:
-        t = time.monotonic()
-        init(config)
-        time.sleep(5 - time.monotonic() + t)  # Sleep until 5 seconds after init
-    else:
-        time.sleep(5)
+    ops = RandomTableOps(worker_id, read_only, include_only_ops or [], exclude_ops or [], config, stats_file=stats_file)
+
+    def _handle_sigterm(*_: object) -> None:
+        raise SystemExit(0)
+
+    # When the worker process receives SIGTERM from the coordinator, this handler will be executed in the current
+    # (main) thread. The finally block below makes sure we flush latest stats before exiting.
+    signal.signal(signal.SIGTERM, _handle_sigterm)
 
     try:
-        RandomTableOps(worker_id, read_only, include_only_ops or [], exclude_ops or [], config).run()
+        ops.run()
     except KeyboardInterrupt:
-        # Suppress the stack trace, but abort.
         pass
+    finally:
+        ops._flush_stats(force=True)
+
+
+def _print_stats(stats_files: list[Path]) -> None:
+    total_ops: dict[str, int] = {name: 0 for name, *_ in TABLE_OPS}
+    # op_name -> {sanitized_msg -> count}
+    total_err_detail: dict[str, dict[str, int]] = {}
+    for path in stats_files:
+        if not path.exists():
+            raise FileNotFoundError(f'Stats file not found: {path}')
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+        for op, count in data['op_counts'].items():
+            total_ops[op] = total_ops.get(op, 0) + count
+        for op, by_msg in data['err_counts'].items():
+            dest = total_err_detail.setdefault(op, {})
+            for msg, count in by_msg.items():
+                dest[msg] = dest.get(msg, 0) + count
+
+    # Table 1: success/error counts per operation
+    print('\n==== Per-operation stats ====\n')
+    total_errs = {op: sum(by_msg.values()) for op, by_msg in total_err_detail.items()}
+    print(f'{"Operation":<22} {"Ops":>8} {"Errors":>8} {"Err%":>6}\n')
+    print('-' * 48)
+    grand_total = 0
+    for name, _, _ in TABLE_OPS:
+        n_ops = total_ops[name]
+        n_errs = total_errs.get(name, 0)
+        err_pct = (100.0 * n_errs / n_ops) if n_ops > 0 else 0.0
+        print(f'{name:<22} {n_ops:>8} {n_errs:>8} {err_pct:>5.0f}%')
+        grand_total += n_ops
+    print('-' * 48)
+    print(f'{"Total":<22} {grand_total:>8}\n')
+
+    print('==== Error stats ====\n')
+    # Table 2: error counts by operation and sanitized error message
+    rows: list[tuple[str, str, int]] = [
+        (op, msg, count) for op, by_msg in total_err_detail.items() for msg, count in by_msg.items()
+    ]
+    if not rows:
+        print('No errors recorded\n')
+        return
+    rows.sort(key=lambda r: (-r[2], r[0], r[1]))
+    msg_width = min(80, max(len(r[1]) for r in rows))
+    print(f'{"Operation":<22} {"Count":>8}  {"Error"}\n')
+    print('-' * (34 + msg_width))
+    for op, msg, count in rows:
+        print(f'{op:<22} {count:>8}  {msg}')
 
 
 def make_parser() -> ArgumentParser:
@@ -503,19 +588,30 @@ def main() -> None:
                 )
                 sys.exit(1)
 
-    config_str = repr(json.dumps(dataclasses.asdict(config)))
+    config_dict = dataclasses.asdict(config)
+    print(json.dumps(config_dict, indent=4))
+    config_str = repr(json.dumps(config_dict))
 
-    worker_args = [
-        [
-            '-c',
-            'from tool.random_ops import run; '
-            f'run({i}, {i >= args.workers - args.read_only_workers}, '
-            f'{args.include_only}, {args.exclude}, {config_str})',
+    # Initialize Pixeltable before the actual test
+    print('Running pxt.init()...')
+    pxt.init()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        stats_files = [Path(tmp_dir) / f'random_ops_stats_{i}.json' for i in range(args.workers)]
+
+        worker_args = [
+            [
+                '-u',  # run workers with unbuffered stdio to reduce buffering-related log reordering
+                '-c',
+                'from tool.random_ops import run; '
+                f'run({i}, {i >= args.workers - args.read_only_workers}, '
+                f'{args.include_only}, {args.exclude}, {config_str}, stats_file={str(stats_files[i])!r})',
+            ]
+            for i in range(args.workers)
         ]
-        for i in range(args.workers)
-    ]
 
-    run_workers(args.workers, args.duration, worker_args=worker_args)
+        run_workers(args.workers, args.duration, worker_args=worker_args)
+        _print_stats(stats_files)
 
 
 if __name__ == '__main__':

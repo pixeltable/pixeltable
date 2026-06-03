@@ -7,6 +7,7 @@ from typing import Any
 
 import bs4
 import numpy as np
+import pandas as pd
 import PIL.Image
 import pydantic
 import pytest
@@ -66,15 +67,27 @@ class TestQuery:
         t = test_tbl
         res1 = t.collect()
         res2 = t.select().collect()
-        assert len(res1) > 0 and res1 == res2
+        assert len(res1) > 0
+        assert len(res1) == len(res2)
+        pd.testing.assert_frame_equal(
+            res1.to_pandas().sort_values(['c1', 'c2']).reset_index(drop=True),
+            res2.to_pandas().sort_values(['c1', 'c2']).reset_index(drop=True),
+        )
 
         res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).collect()
-
         res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).collect()
-        assert res1 == res3
+        assert len(res1) == len(res3)
+        pd.testing.assert_frame_equal(
+            res1.to_pandas().sort_values(['c1', 'c2', 'c3']).reset_index(drop=True),
+            res3.to_pandas().sort_values(['c1', 'c2', 'c3']).reset_index(drop=True),
+        )
 
         res4 = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3).collect()
-        assert res1 == res4
+        assert len(res1) == len(res4)
+        pd.testing.assert_frame_equal(
+            res1.to_pandas().sort_values(['c1', 'c2', 'c3']).reset_index(drop=True),
+            res4.to_pandas().sort_values(['c1', 'c2', 'c3']).reset_index(drop=True),
+        )
 
         from pixeltable.functions.string import contains
 
@@ -552,12 +565,24 @@ class TestQuery:
         cnt = t.where(t.c2 < 10).count()
         assert cnt == 10
 
-        # count() does not support Python-only filters
+    def test_count_errors(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = small_img_tbl
+        # Python-only filter forces a non-SQL plan
         with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape('count() cannot be used with Python-only filters')
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape('count() cannot be used: query plan contains a non-SQL node'),
         ):
             _ = t.where(t.img.width > 100).count()
+
+        t = test_tbl
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape('count() cannot be used with limit() or offset()')
+        ):
+            _ = t.limit(5).count()
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape('count() cannot be used with limit() or offset()')
+        ):
+            _ = t.limit(5, offset=5).count()
 
     def test_count_with_group_by(self, test_tbl: pxt.Table) -> None:
         """Test that count() works with group_by()."""
@@ -634,13 +659,11 @@ class TestQuery:
 
     def test_update_delete_where(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
-        old: list[int] = t.select(t.c3).collect()['c3']
 
         # Update with where
         validate_update_status(t.where(t.c2 >= 50).update({'c3': 4171780.0}), expected_rows=50)
-        new: list[int] = t.select(t.c3).collect()['c3']
-        assert new[:50] == old[:50]
-        assert all(new[i] == 4171780.0 for i in range(51, len(new)))
+        assert t.where((t.c2 >= 50) & (t.c3 > 1000000.0)).count() == 50
+        assert t.where((t.c2 < 50) & (t.c3 < 1000.0)).count() == 50
 
         # Update without where
         validate_update_status(t.select().update({'c3': 94.0}))
@@ -1181,3 +1204,46 @@ class TestQuery:
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
+
+    def test_query_after_schema_change(self, uses_db: None) -> None:
+        t = pxt.create_table('t_add', {'c1': pxt.Int})
+        q_c1 = t.where(t.c1 > 1).select(t.c1)
+        q_where = t.where(t.c1 > 1)
+        q_select = t.where(t.c1 > 1).select()
+        t.insert([{'c1': 1}, {'c1': 2}])
+
+        assert list(q_c1.schema.keys()) == ['c1']
+        assert list(q_where.schema.keys()) == ['c1']
+        assert list(q_select.schema.keys()) == ['c1']
+
+        t.add_column(c2=pxt.Int)
+        t.add_computed_column(c3=t.c1 * 10)
+
+        for q in (q_where, q_select):
+            assert list(q.schema.keys()) == ['c1', 'c2', 'c3']
+            res = q.collect()
+            assert list(res.schema.keys()) == ['c1', 'c2', 'c3']
+            assert len(res) == 1
+            assert res[0] == {'c1': 2, 'c2': None, 'c3': 20}
+
+        assert list(q_c1.schema.keys()) == ['c1']
+        res = q_c1.collect()
+        assert list(res.schema.keys()) == ['c1']
+        assert len(res) == 1
+        assert res[0] == {'c1': 2}
+
+    def test_order_by_after_schema_change(self, uses_db: None) -> None:
+        # Confirm where/order_by/limit clauses don't capture stale select-list state.
+        t = pxt.create_table('t_add_ob', {'c1': pxt.Int, 'c2': pxt.Int})
+        t.insert([{'c1': i, 'c2': 5 - i} for i in range(5)])
+        q = t.where(t.c1 >= 1).order_by(t.c2)
+        assert list(q.schema.keys()) == ['c1', 'c2']
+
+        t.add_computed_column(c3=t.c1 * 10)
+        res = q.collect()
+        assert list(res.schema.keys()) == ['c1', 'c2', 'c3']
+        assert len(res) == 4
+
+        t.drop_column(t.c2)
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
+            _ = q.collect()

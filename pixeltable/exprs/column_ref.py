@@ -561,7 +561,7 @@ class ColumnRef(Expr):
             helper.append(idxs)
         return helper
 
-    def prepare(self) -> None:
+    def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         from pixeltable import store
 
         if not self.needs_iterator_evaluation:
@@ -646,20 +646,25 @@ class ColumnRef(Expr):
         return catalog.QColumnId(tbl_id, col_id)
 
     @classmethod
-    def get_column(cls, d: dict) -> catalog.Column:
-        tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
-        # validate_initialized=False: this gets called as part of TableVersion.init()
-        # TODO: When we have views on replicas, we will need to store anchor_tbl_id in metadata as well.
-        tbl_version = get_runtime().catalog.get_tbl_version(
-            TableVersionKey(tbl_id, version, None), validate_initialized=False
-        )
-        # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
-        col = next(col for col in tbl_version.cols if col.id == col_id)
-        return col
-
-    @classmethod
-    def _from_dict(cls, d: dict, _: list[Expr]) -> ColumnRef:
-        col = cls.get_column(d)
+    def _from_dict(
+        cls, d: dict, _: list[Expr], tbl_versions: dict[UUID, catalog.TableVersion] | None = None
+    ) -> ColumnRef:
+        tbl_id, version_from_dict, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
+        if tbl_versions is not None:
+            # Ignore table version from the dict, retarget to the provided table version instead
+            tbl_version = tbl_versions[tbl_id]
+        else:
+            # validate_initialized=False: this gets called as part of TableVersion.init()
+            # TODO: When we have views on replicas, we will need to store anchor_tbl_id in metadata as well.
+            tbl_version = get_runtime().catalog.get_tbl_version(
+                TableVersionKey(tbl_id, version_from_dict, None), validate_initialized=False
+            )
+        col = tbl_version.cols_by_id.get(col_id)
+        if col is None:
+            raise excs.NotFoundError(
+                excs.ErrorCode.COLUMN_NOT_FOUND,
+                f'Column was dropped (no record for column ID {col_id} in table {tbl_version.versioned_name!r})',
+            )
         reference_tbl = None if d['reference_tbl'] is None else catalog.TableVersionPath.from_dict(d['reference_tbl'])
         perform_validation = d['perform_validation']
         return cls(col, reference_tbl, perform_validation=perform_validation)

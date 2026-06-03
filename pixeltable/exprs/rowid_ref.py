@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import logging
 from typing import Any, cast
 from uuid import UUID
 
@@ -15,8 +14,6 @@ from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
-
-_logger = logging.getLogger('pixeltable')
 
 
 class RowidRef(Expr):
@@ -102,6 +99,11 @@ class RowidRef(Expr):
             return catalog.globals._POS_COLUMN_NAME
         return ''
 
+    def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
+        # base impl checks ColumnRef subexprs and trivially returns True for RowidRef (which has none);
+        # match against our tbl_id instead so rowid refs aren't pulled into unrelated table scans in joins
+        return any(self.tbl_id == tv.id for tbl in tbls for tv in tbl.get_tbl_versions())
+
     def set_tbl(self, tbl: catalog.TableVersionPath) -> None:
         """Change the table that is being referenced.
         This can be necessary during query planning, because at that stage we try to minimize the total number of
@@ -141,6 +143,6 @@ class RowidRef(Expr):
         }
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> RowidRef:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> RowidRef:
         tbl_id, normalized_base_id, idx = UUID(d['tbl_id']), UUID(d['normalized_base_id']), d['idx']
         return cls(tbl=None, idx=idx, tbl_id=tbl_id, normalized_base_id=normalized_base_id)

@@ -78,7 +78,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        _ = reload_tester.run_query(t.select())
+        _ = reload_tester.run_query(t.select().order_by(t.input))
         reload_tester.run_reload_test()
 
         t = pxt.get_table('test_tbl')

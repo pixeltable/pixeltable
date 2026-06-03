@@ -21,30 +21,24 @@ class TableVersionHandle:
     """
     Indirection mechanism for TableVersion instances, which get resolved against the catalog at runtime.
 
-    Not thread-safe.
+    Thread-safe: all mutable state is stored behind _local
     """
 
     key: TableVersionKey
 
-    # cache of the resolved TableVersion; needs to be cleared whenever we cross a transaction
-    # or Catalog instance boundary
-    _tbl_version: TableVersion | None
-
-    # id of the constructing thread; used to guard against cross-thread access
-    _origin_thread_id: int
-
-    # Catalog instance against which this handle was last resolved
-    _origin_catalog: Catalog
+    # Per-thread cache of the resolved TableVersion plus the Catalog instance it came from.
+    # threading.local gives each thread its own attribute namespace; reads on the hot path are
+    # plain attribute lookups.
+    _local: threading.local
 
     def __init__(self, key: TableVersionKey, *, tbl_version: TableVersion | None = None):
         self.key = key
-        self._tbl_version = tbl_version
-        self._origin_thread_id = threading.get_ident()
-        self._origin_catalog = get_runtime().catalog
+        self._local = threading.local()
+        self._local.tbl_version = tbl_version
+        self._local.origin_catalog = get_runtime().catalog
 
     def __deepcopy__(self, memo: dict[int, object] | None = None) -> TableVersionHandle:
-        # reset _tbl_version, we might end up in a different thread
-        return TableVersionHandle(self.key)
+        return self
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, TableVersionHandle):
@@ -77,27 +71,25 @@ class TableVersionHandle:
         return self.effective_version is not None
 
     def get(self) -> TableVersion:
-        # guard against incorrect cross-thread access; inherited-context threads are allowed
-        assert self._origin_thread_id == threading.get_ident() or get_runtime().context_inherited
-
         cat = get_runtime().catalog
-        cached = self._tbl_version
-        needs_refresh = self._origin_catalog is not cat or cached is None or not cached.is_validated
-        if not needs_refresh:
+        # getattr(), not attribute access: threads other than the originating one will have an empty _local
+        cached: TableVersion | None = getattr(self._local, 'tbl_version', None)
+        origin_catalog: Catalog | None = getattr(self._local, 'origin_catalog', None)
+        if origin_catalog is cat and cached is not None and cached.is_validated:
             return cached
 
-        if self.effective_version is not None and cached is not None and self._origin_catalog is cat:
+        if self.effective_version is not None and cached is not None and origin_catalog is cat:
             # Snapshot version, same catalog as before: reuse the instance cached in Catalog to avoid mixing sa_tbl
             # instances in the same transaction (which would produce duplicates in the From clause).
             assert self.key in cat._tbl_versions
             new_tv = cat._tbl_versions[self.key]
             new_tv.is_validated = True
         else:
-            # either no cached instance, or the catalog changed
+            # either no cached instance on this thread, or the catalog changed
             new_tv = cat.get_tbl_version(self.key)
             assert new_tv.key == self.key
-        self._tbl_version = new_tv
-        self._origin_catalog = cat
+        self._local.tbl_version = new_tv
+        self._local.origin_catalog = cat
         return new_tv
 
     def as_dict(self) -> dict:
@@ -113,7 +105,7 @@ class ColumnHandle:
     """
     Indirection mechanism for Column instances, which get resolved against the catalog at runtime.
 
-    Not thread-safe.
+    Thread-safe: stateless beyond the underlying TableVersionHandle.
     """
 
     tbl_version: TableVersionHandle

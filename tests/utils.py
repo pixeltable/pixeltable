@@ -550,10 +550,13 @@ def assert_type_eq(col_type: ts.ColumnType, pxt_type: ts._PxtType) -> None:
     assert col_type == ts.ColumnType.normalize_type(pxt_type)
 
 
-def assert_resultset_eq(r1: ResultSet, r2: ResultSet, compare_col_names: bool = False) -> None:
+def assert_resultset_eq(
+    r1: ResultSet, r2: ResultSet, compare_col_names: bool = False, compare_col_types: bool = True
+) -> None:
     assert len(r1) == len(r2)
     assert len(r1.schema) == len(r2.schema)
-    assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
+    if compare_col_types:
+        assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
     if compare_col_names:
         assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
@@ -877,7 +880,7 @@ class ReloadTester:
         reload_catalog()
         assert len(self.query_info) > 0, 'No queries in ReloadTester!'
         # enumerate(): the list index is useful for debugging
-        for _idx, (query_dict, result_set) in enumerate(self.query_info):
+        for idx, (query_dict, result_set) in enumerate(self.query_info):
 
             @retry_loop()
             def query_from_dict() -> pxt.Query:
@@ -889,7 +892,7 @@ class ReloadTester:
             try:
                 assert_resultset_eq(result_set, new_result_set, compare_col_names=True)
             except Exception as e:
-                s = f'Reload test failed for query:\n{query}\n{e}'
+                s = f'Reload test failed for query:\nIndex: {idx}\n{query}\n{e}'
                 raise RuntimeError(s) from e
         if clear:
             self.clear()

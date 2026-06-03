@@ -70,12 +70,25 @@ class Comparison(Expr):
     def _op2(self) -> Expr:
         return self.components[1]
 
+    @staticmethod
+    def _sql_compatible(t1: ts.ColumnType, t2: ts.ColumnType) -> bool:
+        """True if t1 and t2 can be compared directly in SQL.
+
+        Postgres applies its own implicit-cast rules across the numeric hierarchy and between
+        date/timestamp, so we let those through with no explicit CAST. Anything else (e.g.
+        string vs. json, image vs. anything) falls back to Python evaluation in FilterNode.
+        """
+        if str(t1.to_sa_type()) == str(t2.to_sa_type()):
+            return True
+        if t1.is_numeric_type() and t2.is_numeric_type():
+            return True
+        return (t1.is_date_type() or t1.is_timestamp_type()) and (t2.is_date_type() or t2.is_timestamp_type())
+
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         import pixeltable.index as index
 
-        if str(self._op1.col_type.to_sa_type()) != str(self._op2.col_type.to_sa_type()):
-            # Comparing columns of different SQL types (e.g., string vs. json); this can only be done in Python
-            # TODO(aaron-siegel): We may be able to handle some cases in SQL by casting one side to the other's type
+        if not self._sql_compatible(self._op1.col_type, self._op2.col_type):
+            # e.g. string vs. json, or image vs. anything
             return None
 
         left = sql_elements.get(self._op1)
@@ -129,6 +142,6 @@ class Comparison(Expr):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Comparison:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> Comparison:
         assert 'operator' in d
         return cls(ComparisonOperator(d['operator']), components[0], components[1])

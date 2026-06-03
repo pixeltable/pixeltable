@@ -2,7 +2,7 @@ import json
 import os
 import pathlib
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import pytest
 import sqlalchemy as sql
@@ -134,7 +134,10 @@ def assert_sqlite_row(connect: str, table_name: str, where: dict[str, Any], expe
 
 
 class TestFastAPI:
-    def test_add_insert_route_scalars(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    @pytest.mark.parametrize('route_type', ['insert', 'compute'])
+    def test_add_insert_route_scalars(
+        self, uses_db: None, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+    ) -> None:
         """Test insert routes with all scalar types and various input/output combinations."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
@@ -186,14 +189,15 @@ class TestFastAPI:
         eng.dispose()
 
         router = FastAPIRouter()
+        add_route_fn = router.add_insert_route if route_type == 'insert' else router.add_compute_route
         # default inputs and outputs; with export_sql to out_all
-        router.add_insert_route(t, path='/all', export_sql=SqlExport(db_connect=db_connect, table='out_all'))
+        add_route_fn(t, path='/all', export_sql=SqlExport(db_connect=db_connect, table='out_all'))
         # subset of inputs, all outputs
-        router.add_insert_route(t, path='/partial-in', inputs=['id', 'str_col', 'int_col'])
+        add_route_fn(t, path='/partial-in', inputs=['id', 'str_col', 'int_col'])
         # all inputs, subset of outputs
-        router.add_insert_route(t, path='/partial-out', outputs=['id', 'str_upper', 'int_plus1'])
+        add_route_fn(t, path='/partial-out', outputs=['id', 'str_upper', 'int_plus1'])
         # minimal inputs and outputs; with export_sql to out_minimal (same db_connect)
-        router.add_insert_route(
+        add_route_fn(
             t,
             path='/minimal',
             inputs=['id', 'int_col'],
@@ -201,7 +205,7 @@ class TestFastAPI:
             export_sql=SqlExport(db_connect=db_connect, table='out_minimal'),
         )
         # update-mode export: pxt insert triggers a UPDATE on the target keyed on id
-        router.add_insert_route(
+        add_route_fn(
             t,
             path='/update',
             inputs=['id', 'str_col', 'int_col'],
@@ -291,8 +295,11 @@ class TestFastAPI:
         router._shutdown()
         assert router._engine_cache == {}
 
+    @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
-    def test_add_insert_route_video(self, uses_db: None, use_uploadfile: bool) -> None:
+    def test_add_insert_route_video(
+        self, uses_db: None, use_uploadfile: bool, route_type: Literal['insert', 'compute']
+    ) -> None:
         """Test insert routes with video data, including FileResponse."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
@@ -306,14 +313,15 @@ class TestFastAPI:
         t.add_computed_column(thumbnail=t.video.extract_frame(timestamp=0.0))
 
         router = FastAPIRouter()
+        add_route_fn = router.add_insert_route if route_type == 'insert' else router.add_compute_route
         # When uploading, 'video' moves from inputs into uploadfile_inputs. Other inputs
         # (defaulted for /all, explicit for /resize and /thumbnail) become Form fields
         # automatically once any upload is present.
         uploadfile_inputs = ['video'] if use_uploadfile else None
         # /all: defaults for inputs/outputs (uploadfile_inputs still moves `video` into File)
-        router.add_insert_route(t, path='/all', uploadfile_inputs=uploadfile_inputs)
+        add_route_fn(t, path='/all', uploadfile_inputs=uploadfile_inputs)
         # /resize: id + video + width, only resized video output
-        router.add_insert_route(
+        add_route_fn(
             t,
             path='/resize',
             inputs=['id', 'width'] if use_uploadfile else ['id', 'video', 'width'],
@@ -322,7 +330,7 @@ class TestFastAPI:
             return_fileresponse=True,
         )
         # /thumbnail: id + video + height, only thumbnail output
-        router.add_insert_route(
+        add_route_fn(
             t,
             path='/thumbnail',
             inputs=['id', 'height'] if use_uploadfile else ['id', 'video', 'height'],
@@ -367,8 +375,11 @@ class TestFastAPI:
         thumbnail_path = t.where(t.id == 3).select(p=t.thumbnail.localpath).collect()[0]['p']
         assert_fileresponse_ok(resp, thumbnail_path, 'image/')
 
+    @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
-    def test_add_insert_route_image(self, uses_db: None, use_uploadfile: bool, tmp_path: pathlib.Path) -> None:
+    def test_add_insert_route_image(
+        self, uses_db: None, use_uploadfile: bool, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+    ) -> None:
         """Image counterpart of test_add_insert_route_video. Structurally parallel so the two
         tests can later be generalized over a media-kind fixture."""
         skip_test_if_not_installed('fastapi')
@@ -403,20 +414,21 @@ class TestFastAPI:
         )
 
         router = FastAPIRouter()
+        add_route_fn = router.add_insert_route if route_type == 'insert' else router.add_compute_route
         # When uploading, 'image' moves from inputs into uploadfile_inputs. Other inputs
         # (defaulted for /all, explicit for /resize and /rotate) become Form fields
         # automatically once any upload is present.
         uploadfile_inputs = ['image'] if use_uploadfile else None
         # /all: defaults for inputs/outputs (uploadfile_inputs still moves `image` into File);
         # exports to sqlite to exercise the media->String coercion for both raw and computed media
-        router.add_insert_route(
+        add_route_fn(
             t,
             path='/all',
             uploadfile_inputs=uploadfile_inputs,
             export_sql=SqlExport(db_connect=db_connect, table='img_out'),
         )
         # /resize: id + image + width + height, only resized image output
-        router.add_insert_route(
+        add_route_fn(
             t,
             path='/resize',
             inputs=['id', 'width', 'height'] if use_uploadfile else ['id', 'image', 'width', 'height'],
@@ -427,7 +439,7 @@ class TestFastAPI:
         # /rotate: id + image + width + height, only rotated image output.
         # width/height are unused by the rotate computation but still required by the schema,
         # since every insert evaluates the `resized` computed column.
-        router.add_insert_route(
+        add_route_fn(
             t,
             path='/rotate',
             inputs=['id', 'width', 'height'] if use_uploadfile else ['id', 'image', 'width', 'height'],
@@ -487,8 +499,11 @@ class TestFastAPI:
         rotated_path = t.where(t.id == 3).select(p=t.rotated.localpath).collect()[0]['p']
         assert_fileresponse_ok(resp, rotated_path, 'image/')
 
+    @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
-    def test_add_insert_route_audio(self, uses_db: None, use_uploadfile: bool) -> None:
+    def test_add_insert_route_audio(
+        self, uses_db: None, use_uploadfile: bool, route_type: Literal['insert', 'compute']
+    ) -> None:
         """Audio counterpart of test_add_insert_route_video/_image. Structurally parallel so the
         three tests can later be generalized over a media-kind fixture. Uses the audio UDFs
         `multiply_volume` (two scalar inputs) and `normalize` (no scalar inputs)."""
@@ -510,14 +525,15 @@ class TestFastAPI:
         t.add_computed_column(normalized=t.audio.normalize())
 
         router = FastAPIRouter()
+        add_route_fn = router.add_insert_route if route_type == 'insert' else router.add_compute_route
         # When uploading, 'audio' moves from inputs into uploadfile_inputs. Other inputs
         # (defaulted for /all, explicit for /scale and /normalize) become Form fields
         # automatically once any upload is present.
         uploadfile_inputs = ['audio'] if use_uploadfile else None
         # /all: defaults for inputs/outputs (uploadfile_inputs still moves `audio` into File)
-        router.add_insert_route(t, path='/all', uploadfile_inputs=uploadfile_inputs)
+        add_route_fn(t, path='/all', uploadfile_inputs=uploadfile_inputs)
         # /scale: id + audio + factor + end_time, only the multiply_volume output
-        router.add_insert_route(
+        add_route_fn(
             t,
             path='/scale',
             inputs=['id', 'factor', 'end_time'] if use_uploadfile else ['id', 'audio', 'factor', 'end_time'],
@@ -528,7 +544,7 @@ class TestFastAPI:
         # /normalize: id + audio + factor + end_time, only the normalize output.
         # factor/end_time are unused by the normalize computation but still required by the
         # schema, since every insert evaluates the `scaled` computed column.
-        router.add_insert_route(
+        add_route_fn(
             t,
             path='/normalize',
             inputs=['id', 'factor', 'end_time'] if use_uploadfile else ['id', 'audio', 'factor', 'end_time'],
@@ -574,8 +590,11 @@ class TestFastAPI:
         normalized_path = t.where(t.id == 3).select(p=t.normalized.localpath).collect()[0]['p']
         assert_fileresponse_ok(resp, normalized_path, 'audio/')
 
+    @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
-    def test_add_insert_route_video_bg(self, uses_db: None, use_uploadfile: bool, tmp_path: pathlib.Path) -> None:
+    def test_add_insert_route_video_bg(
+        self, uses_db: None, use_uploadfile: bool, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+    ) -> None:
         """Background variant of test_add_insert_route_video: POST returns a job id/url, the
         work runs in FastAPIRouter._executor, and the result is fetched via /jobs/{id}."""
         skip_test_if_not_installed('fastapi')
@@ -598,12 +617,13 @@ class TestFastAPI:
         db_connect = make_sqlite_target(tmp_path / 'export.db', 'bg_resize', {'resized': sql.VARCHAR})
 
         router = FastAPIRouter()
+        add_route_fn = router.add_insert_route if route_type == 'insert' else router.add_compute_route
         uploadfile_inputs = ['video'] if use_uploadfile else None
         # /all: defaults for inputs/outputs, all columns in the response
-        router.add_insert_route(t, path='/all', uploadfile_inputs=uploadfile_inputs, background=True)
+        add_route_fn(t, path='/all', uploadfile_inputs=uploadfile_inputs, background=True)
         # /resize: single-output JSON response (no FileResponse - mutually exclusive with background);
         # also exports to sqlite to cover the background + export_sql combination
-        router.add_insert_route(
+        add_route_fn(
             t,
             path='/resize',
             inputs=['id', 'width'] if use_uploadfile else ['id', 'video', 'width'],
@@ -1055,6 +1075,57 @@ class TestFastAPI:
         assert resp.headers['content-type'].startswith('image/')
         assert len(resp.content) > 0
 
+    def test_duplicate_routes(self, uses_db: None) -> None:
+        """Registering the same (path, method) twice must raise rather than silently shadow."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('test_serve')
+        t = pxt.create_table('test_serve.dup', {'id': pxt.Required[pxt.Int], 'val': pxt.Int}, primary_key='id')
+
+        @pxt.query
+        def lookup() -> pxt.Query:
+            return t.select(t.id)
+
+        # POST/POST collision across the insert/compute/update entry points (both orderings)
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/a')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/a'"):
+            router.add_insert_route(t, path='/a')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/a'"):
+            router.add_compute_route(t, path='/a')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/a'"):
+            router.add_update_route(t, path='/a', inputs=['val'])
+
+        router = FastAPIRouter()
+        router.add_compute_route(t, path='/b')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/b'"):
+            router.add_insert_route(t, path='/b')
+
+        # Same-method collision via add_query_route
+        router = FastAPIRouter()
+        router.add_query_route(path='/q', query=lookup, method='post')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/q'"):
+            router.add_query_route(path='/q', query=lookup, method='post')
+
+        # Different methods on the same path are allowed
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/mixed')
+        router.add_query_route(path='/mixed', query=lookup, method='get')
+
+        # Collision with the built-in /media and /jobs routes (registered by FastAPIRouter.__init__)
+        router = FastAPIRouter()
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"already registered: GET '/media/\{path:path\}'"):
+            router.add_query_route(path='/media/{path:path}', query=lookup, method='get')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"already registered: GET '/jobs/\{job_id\}'"):
+            router.add_query_route(path='/jobs/{job_id}', query=lookup, method='get')
+
+        # Duplicate detection respects the router's prefix (FastAPI stores routes under prefix + path)
+        router = FastAPIRouter(prefix='/v1')
+        router.add_insert_route(t, path='/c')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/v1/c'"):
+            router.add_insert_route(t, path='/c')
+
     def test_add_query_route_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
@@ -1101,7 +1172,10 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 
-    def test_add_insert_route_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    @pytest.mark.parametrize('route_type', ['insert', 'compute'])
+    def test_add_insert_route_errors(
+        self, uses_db: None, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+    ) -> None:
         skip_test_if_not_installed('fastapi')
         import sqlalchemy as sql
 
@@ -1117,42 +1191,44 @@ class TestFastAPI:
         t.add_computed_column(frame=t.video.extract_frame(timestamp=0.0))
 
         router = FastAPIRouter()
+        add_route_fn = router.add_insert_route if route_type == 'insert' else router.add_compute_route
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot insert into'):
+        verb = 'insert into' if route_type == 'insert' else 'compute'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'cannot {verb}'):
             v = pxt.create_view('test_serve.errors_view', t)
-            router.add_insert_route(v, path='/v')
+            add_route_fn(v, path='/v')
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown input column 'doesnotexist'"):
-            router.add_insert_route(t, path='/e', inputs=['doesnotexist'])
+            add_route_fn(t, path='/e', inputs=['doesnotexist'])
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown uploadfile input column 'doesnotexist'"):
-            router.add_insert_route(t, path='/e', uploadfile_inputs=['doesnotexist'])
+            add_route_fn(t, path='/e', uploadfile_inputs=['doesnotexist'])
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'text_upper' is a computed column"):
-            router.add_insert_route(t, path='/e', inputs=['text_upper'])
+            add_route_fn(t, path='/e', inputs=['text_upper'])
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION, match="uploadfile input column 'text' is not a media column"
         ):
-            router.add_insert_route(t, path='/e', uploadfile_inputs=['text'])
+            add_route_fn(t, path='/e', uploadfile_inputs=['text'])
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'frame' is a computed column"):
-            router.add_insert_route(t, path='/e', uploadfile_inputs=['frame'])
+            add_route_fn(t, path='/e', uploadfile_inputs=['frame'])
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT, match="'image' appears in both `inputs` and `uploadfile_inputs`"
         ):
-            router.add_insert_route(t, path='/e', inputs=['image'], uploadfile_inputs=['image'])
+            add_route_fn(t, path='/e', inputs=['image'], uploadfile_inputs=['image'])
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown output column 'doesnotexist'"):
-            router.add_insert_route(t, path='/e', outputs=['doesnotexist'])
+            add_route_fn(t, path='/e', outputs=['doesnotexist'])
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT, match='return_fileresponse and background are mutually exclusive'
         ):
-            router.add_insert_route(t, path='/e', outputs=['frame'], return_fileresponse=True, background=True)
+            add_route_fn(t, path='/e', outputs=['frame'], return_fileresponse=True, background=True)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly one media-typed output column'):
-            router.add_insert_route(t, path='/e', outputs=['id', 'frame'], return_fileresponse=True)
+            add_route_fn(t, path='/e', outputs=['id', 'frame'], return_fileresponse=True)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly one media-typed output column'):
-            router.add_insert_route(t, path='/e', outputs=['text_upper'], return_fileresponse=True)
+            add_route_fn(t, path='/e', outputs=['text_upper'], return_fileresponse=True)
 
         # export_sql validation
         db_connect = f'sqlite:///{tmp_path / "export.db"}'
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'merge' is not yet supported"):
-            router.add_insert_route(
+            add_route_fn(
                 t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out', method='merge')
             )
 
@@ -1160,9 +1236,9 @@ class TestFastAPI:
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT, match='export_sql and return_fileresponse are mutually exclusive'
         ):
-            router.add_insert_route(t, path='/e', outputs=['frame'], return_fileresponse=True, export_sql=spec_insert)
+            add_route_fn(t, path='/e', outputs=['frame'], return_fileresponse=True, export_sql=spec_insert)
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match="table 'out' does not exist"):
-            router.add_insert_route(t, path='/e', outputs=['id'], export_sql=spec_insert)
+            add_route_fn(t, path='/e', outputs=['id'], export_sql=spec_insert)
 
         # pre-create incompatible target tables for the remaining cases
         eng = sql.create_engine(db_connect)
@@ -1171,19 +1247,15 @@ class TestFastAPI:
         eng.dispose()
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="column 'id'"):
-            router.add_insert_route(
-                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out_bad')
-            )
+            add_route_fn(t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out_bad'))
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="column 'id' not in table"):
-            router.add_insert_route(
-                t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out_missing')
-            )
+            add_route_fn(t, path='/e', outputs=['id'], export_sql=SqlExport(db_connect=db_connect, table='out_missing'))
 
         # method='update' validation: target needs a PK
         make_sqlite_target(tmp_path / 'export.db', 'no_pk', {'id': sql.Integer, 'text_upper': sql.VARCHAR})
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='has no primary key'):
-            router.add_insert_route(
+            add_route_fn(
                 t,
                 path='/e',
                 outputs=['id', 'text_upper'],
@@ -1195,7 +1267,7 @@ class TestFastAPI:
             tmp_path / 'export.db', 'with_pk', {'id': sql.Integer, 'text_upper': sql.VARCHAR}, pk_cols=['id']
         )
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r"missing: \['id'\]"):
-            router.add_insert_route(
+            add_route_fn(
                 t,
                 path='/e',
                 outputs=['text_upper'],
@@ -1204,7 +1276,7 @@ class TestFastAPI:
 
         # method='update' validation: at least one non-PK column must be present
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='at least one non-primary-key column'):
-            router.add_insert_route(
+            add_route_fn(
                 t,
                 path='/e',
                 outputs=['id'],

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import dataclasses
 import enum
 from textwrap import dedent
@@ -364,24 +365,6 @@ class Analyzer:
 
 class Planner:
     @classmethod
-    def create_count_stmt(cls, query: 'pxt.Query') -> sql.Select:
-        """Creates a SQL SELECT COUNT(*) statement for counting rows in a Query."""
-        # Create the query plan
-        assert query.limit_val is None or query.limit_val.val > 0
-        plan = query._create_query_plan()
-        sql_node = plan.get_node(exec.SqlNode)
-        assert sql_node is not None
-        if plan.get_node(exec.FilterNode) is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'count() cannot be used with Python-only filters. Use collect() instead.',
-            )
-        # Get the SQL statement from the SqlNode as a CTE
-        cte, _ = sql_node.to_cte(keep_pk=True)
-        count_stmt = sql.select(sql.func.count().label('all_count')).select_from(cte)
-        return count_stmt
-
-    @classmethod
     def create_insert_plan(
         cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
     ) -> exec.ExecNode:
@@ -426,11 +409,14 @@ class Planner:
         cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool
     ) -> exec.ExecNode:
         assert not tbl.is_view
-        plan = query._create_query_plan()  # ExecNode constructed by the Query
+        # The compiled plan owns the planner-mutated select-list exprs (with slot_idx assigned).
+        # Read schema and exprs from the plan, not from the Query (whose _select_list_exprs are
+        # the pre-compile copies and don't carry slot_idx).
+        compiled = query._create_query_plan()
+        plan: exec.ExecNode = compiled.exec_root
 
-        # Modify the plan RowBuilder to register the output columns
         needs_cell_materialization = False
-        for col_name, expr in zip(query.schema.keys(), query._select_list_exprs):
+        for col_name, expr in zip(compiled.select_list_schema.keys(), compiled.select_list_exprs):
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
@@ -1019,6 +1005,21 @@ class Planner:
         if deleted_at_current_version is None:
             deleted_at_current_version = []
 
+        # Plan compilation mutates expr state (slot_idx, bind_rel_paths). Deepcopy the inputs
+        # so the planner mutates copies, not the caller's state. TVHs/TVPs nested inside are
+        # thread-safe and structurally immutable (their __deepcopy__ returns self), so this is
+        # cheap. select_list is updated in place at the end (clear/extend) so callers receive
+        # the planned exprs.
+        select_list[:] = [copy.deepcopy(e) for e in select_list]
+        where_clause = copy.deepcopy(where_clause)
+        group_by_clause = copy.deepcopy(group_by_clause)
+        order_by_clause = copy.deepcopy(order_by_clause)
+        limit = copy.deepcopy(limit)
+        offset = copy.deepcopy(offset)
+        sample_clause = copy.deepcopy(sample_clause)
+        for item in select_list:
+            item.bind_rel_paths()
+
         analyzer = Analyzer(
             from_clause,
             select_list,
@@ -1115,7 +1116,8 @@ class Planner:
         candidates.extend(
             exprs.Expr.list_subexprs(analyzer.stratify_exprs, filter=sql_elements.contains, traverse_matches=False)
         )
-        # not isinstance(...): we don't want to materialize Literals via a Select
+        # not isinstance(...): we don't want to materialize Literals via a Select (some types, eg arrays,
+        # don't round-trip cleanly through SQL parameter binding)
         sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
         # create table scans; each scan produces subexprs of (sql_exprs + join clauses)
@@ -1185,16 +1187,6 @@ class Planner:
             sql_exprs.add(analyzer.filter)
 
         if analyzer.group_by_clause is not None:
-            # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the
-            # args of the agg fn calls
-            agg_input = exprs.ExprSet(analyzer.grouping_exprs.copy())
-            for fn_call in analyzer.agg_fn_calls:
-                agg_input.update(fn_call.components)
-            if not sql_exprs.issuperset(agg_input):
-                # we need an ExprEvalNode
-                plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
-                plan.set_gc(False)
-
             # batch size for aggregation input: this could be the entire table, so we need to divide it into
             # smaller batches; at the same time, we need to make the batches large enough to amortize the
             # function call overhead
@@ -1206,12 +1198,23 @@ class Planner:
                 and sql_elements.contains_all(analyzer.grouping_exprs)
                 and isinstance(plan, exec.SqlNode)
             ):
+                assert isinstance(plan, exec.SqlNode)
                 plan = exec.SqlAggregationNode(
                     row_builder, input=plan, select_list=analyzer.select_list, group_by_items=analyzer.group_by_clause
                 )
+
             else:
-                input_sql_node = plan.get_node(exec.SqlNode)
+                # the input of the AggregationNode are the grouping exprs plus the args of the agg fn calls.
+                agg_input = exprs.ExprSet(analyzer.grouping_exprs.copy())
+                for fn_call in analyzer.agg_fn_calls:
+                    agg_input.update(fn_call.components)
+                if not sql_exprs.issuperset(agg_input):
+                    # we need an ExprEvalNode
+                    plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
+                    plan.set_gc(False)
+
                 assert combined_ordering is not None
+                input_sql_node = plan.get_node(exec.SqlNode)
                 input_sql_node.set_order_by(combined_ordering)
                 plan = exec.AggregationNode(
                     tbl.tbl_version,
@@ -1228,6 +1231,7 @@ class Planner:
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
                     plan.set_gc(False)
                 plan = cls._add_save_node(plan)
+
         else:
             if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
@@ -1256,12 +1260,10 @@ class Planner:
                 expr_eval_node.set_input_order(False)
 
         if limit is not None:
-            assert isinstance(limit, exprs.Literal)
-            plan.set_limit(limit.val)
+            plan.set_limit(limit)
 
         if offset is not None:
-            assert isinstance(offset, exprs.Literal)
-            plan.set_offset(offset.val)
+            plan.set_offset(offset)
 
         plan.set_ctx(ctx)
         return plan

@@ -303,7 +303,8 @@ class TestExprs:
             {'c1': None, 'c2': None},
         ]
         validate_update_status(t.insert(data), expected_rows=4)
-        result = t.collect()
+        # Intentionally ordering by columns that have Nones
+        result = t.order_by(t.c1, t.c2).collect()
         assert result['c3'] == [2.0, None, None, None]
         assert result['c4'] == [2.0, 1.0, None, None]
         assert result['c5'] == [2.0, 1.0, 1.0, None]
@@ -809,7 +810,7 @@ class TestExprs:
 
     def test_multi_json_mapper(self, uses_db: None, reload_tester: ReloadTester) -> None:
         # Workflow with multiple JsonMapper instances
-        t = pxt.create_table('test', {'jcol': pxt.Json})
+        t = pxt.create_table('test', {'id': pxt.Int, 'jcol': pxt.Json})
         t.add_computed_column(outputx=pxtf.map(t.jcol.x['*'], lambda x: x + 1))
         t.add_computed_column(outputy=pxtf.map(t.jcol.y['*'], lambda x: x + 2))
         t.add_computed_column(outputz=pxtf.map(t.jcol.z['*'], lambda x: x + 3))
@@ -821,8 +822,8 @@ class TestExprs:
                 data['y'] = [4, 5, 6]
             if (i & 4) != 0:
                 data['z'] = [7, 8, 9]
-            t.insert(jcol=data)
-        res = reload_tester.run_query(t.select(t.outputx, t.outputy, t.outputz))
+            t.insert([{'id': i, 'jcol': data}])
+        res = reload_tester.run_query(t.select(t.outputx, t.outputy, t.outputz).order_by(t.id))
         for i in range(8):
             print(res[i])
             assert res[i]['outputx'] == (None if (i & 1) == 0 else [2, 3, 4])
@@ -860,7 +861,8 @@ class TestExprs:
         t.add_computed_column(array_col=pxt.array([[t.c2, 1], [5, t.c2]]))
 
         def selection_equals(expr: Expr, expected: list[np.ndarray]) -> bool:
-            return all(np.array_equal(x, y) for x, y in zip(t.select(out=expr).collect()['out'], expected))
+            actual = t.select(out=expr).order_by(t.c2).collect()['out']
+            return all(np.array_equal(x, y) for x, y in zip(actual, expected))
 
         assert selection_equals(t.array_col, [np.array([[i, 1], [5, i]]) for i in range(100)])
         assert selection_equals(t.array_col[1], [np.array([5, i]) for i in range(100)])
@@ -971,7 +973,7 @@ class TestExprs:
 
     def test_astype_str_to_img(self, uses_db: None) -> None:
         img_files = get_image_files()
-        img_files = img_files[:5]
+        img_files = sorted(img_files[:5])
         # store relative paths in the table
         parent_dir = Path(img_files[0]).parent
         assert all(parent_dir == Path(img_file).parent for img_file in img_files)
@@ -986,16 +988,18 @@ class TestExprs:
                 img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image), stored=True
             )
         )
-        loaded_imgs = t.select(t.img).collect()['img']
+        loaded_imgs = t.select(t.img).order_by(t.rel_path).collect()['img']
         orig_imgs = [PIL.Image.open(f) for f in img_files]
-        for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
+        for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs, strict=True):
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
         # the same for a select list item
-        loaded_imgs = t.select(
-            img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image)
-        ).collect()['img']
-        for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
+        loaded_imgs = (
+            t.select(img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image))
+            .order_by(t.rel_path)
+            .collect()['img']
+        )
+        for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs, strict=True):
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
     def test_astype_str_to_img_data_url(self, uses_db: None) -> None:
@@ -1649,7 +1653,7 @@ class TestExprs:
         t.add_computed_column(s7='a' * t.i1)
         t.add_computed_column(s8=t.s2 * t.i1)
         t.insert([{'s1': 'left', 's2': 'right', 'i1': 2}, {'s1': 'A', 's2': 'B', 'i1': 3}])
-        result = t.collect()
+        result = t.order_by(t.i1).collect()
         assert result['s3'] == ['left-right', 'A-B']
         assert result['s4'] == ['leftleftleft', 'AAA']
         assert result['s5'] == ['leftrightleftright', 'ABAB']
@@ -1669,7 +1673,9 @@ class TestExprs:
             _ = t.add_computed_column(invalid_op=t.s1 / t.s2)
         assert 'requires numeric types, but s1 has type String | None' in str(exc_info.value)
 
-        results = reload_tester.run_query(t.select(a=t.s1 + t.s2, b=t.s1 * 3, c=t.s2 * t.i1, d=(t.s1 + '/' + t.s2) * 2))
+        results = reload_tester.run_query(
+            t.select(a=t.s1 + t.s2, b=t.s1 * 3, c=t.s2 * t.i1, d=(t.s1 + '/' + t.s2) * 2).order_by(t.i1)
+        )
         assert list(results[0].values()) == ['leftright', 'leftleftleft', 'rightright', 'left/rightleft/right']
         assert list(results[1].values()) == ['AB', 'AAA', 'BBB', 'A/BA/B']
 
@@ -1708,3 +1714,47 @@ class TestExprs:
 @pxt.udf
 def udf1(x: int, y: str) -> str:
     return f'{x} {y}'
+
+
+@pxt.udf
+def _add_one(x: int) -> int:
+    return x + 1
+
+
+@pxt.udf
+def _add_two(x: int, y: int) -> int:
+    return x + y
+
+
+def test_gc_bug_leaked_slot(uses_db: None) -> None:
+    """Reproduce the GC bug where has_val doesn't distinguish 'not computed' from 'already GC'd'.
+
+    Graph:
+        x (from DB, slot 0)
+        S = add_one(x)           -- gc target, depends on x
+        T = add_one(S)           -- gc target, depends on S (fast branch)
+        V = add_one(T)           -- output (fast branch finishes first)
+        U = add_two(S, V)        -- gc target, depends on S AND V
+        W = add_one(U)           -- output
+
+    The DAG structure alone determines execution order (all scalar UDFs run
+    synchronously on the event loop, so no timing tricks are needed):
+    1. S computed -> x GC'd
+    2. T computed -> S should be GC-able but has 2 deps (T, U). U not done -> S stays.
+    3. V computed (output) -> T's only dep (V) done -> T GC'd. has_val[T]=False
+    4. U can now start (needs S and V). S still has val.
+       Bug: new_missing_dep[S] counts T (GC'd, has_val=False) as needing S -> S not GC'd!
+    5. U computed -> W scheduled
+    6. W computed -> row complete. S still has has_val=True -> ASSERTION FIRES
+    """
+    t = pxt.create_table('test_gc_leak', {'x': pxt.Int})
+    t.insert({'x': i} for i in range(3))
+
+    s = _add_one(t.x)
+    fast = _add_one(s)  # T
+    v_out = _add_one(fast)  # V - output
+    joined = _add_two(s, v_out)  # U - depends on S and V
+    w_out = _add_one(joined)  # W - output
+
+    result = t.select(v_out, w_out).collect()
+    assert len(result) == 3

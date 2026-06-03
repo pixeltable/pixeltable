@@ -151,7 +151,7 @@ class TableDataConduit:
             if col.is_computed:
                 self.computed_col_names.add(col.name)
         self.src_pk = []
-        self.tbl_name = table._name
+        self.tbl_name = table._name()
 
     # Check source columns : required, computed, unknown
     def check_source_columns_are_insertable(self, columns: Iterable[str]) -> None:
@@ -188,6 +188,7 @@ class QueryTableDataConduit(TableDataConduit):
         return t
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
+        # TODO: re-resolve schema at execution time if this is a SELECT *
         self.pxt_schema = self.pxt_query.schema
         self.pxt_pk = self.src_pk
         return self.pxt_schema
@@ -629,18 +630,14 @@ class HFTableDataConduit(TableDataConduit):
         return results
 
     def _convert_array_feature(self, column: 'pa.ChunkedArray', shape: tuple[int, ...]) -> list[np.ndarray]:
-        arr: pa.ExtensionArray
-        # TODO: can we get multiple chunks here?
-        if column.num_chunks == 1:
-            arr = column.chunks[0]  # type: ignore[assignment]
-        else:
-            arr = column.combine_chunks()  # type: ignore[assignment]
+        arr = column.combine_chunks()
+        assert isinstance(arr, pa.ExtensionArray)
 
         # an Array<N>D feature is stored in Arrow as a list<list<...<dtype>>>; we want to peel off the outer lists
         # to get to contiguous storage and then reshape that
-        storage = arr.storage
-        vals = storage.values
+        vals = arr.storage.values
         while hasattr(vals, 'values'):
+            assert vals.offset == 0
             vals = vals.values
         flat_arr = vals.to_numpy()
         chunk_shape = (len(column), *shape)

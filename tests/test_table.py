@@ -169,7 +169,7 @@ class TestTable:
         tbl = pxt.create_table('test', schema)
         tbl.insert(create_table_data(tbl, num_rows=5))
         id_before = tbl._id
-        res_before = tbl.select().collect()
+        res_before = tbl.select().order_by(tbl.c2).collect()
         assert len(res_before) == 5
 
         # invalid if_exists value is rejected
@@ -187,7 +187,7 @@ class TestTable:
         tbl2 = pxt.create_table('test', schema, if_exists='ignore')
         assert tbl2 == tbl
         assert tbl2._id == id_before
-        res_after = tbl2.select().collect()
+        res_after = tbl2.select().order_by(tbl2.c2).collect()
         assert_resultset_eq(res_before, res_after)
         # if_exists='replace' should drop the existing table
         tbl3 = pxt.create_table('test', schema, if_exists='replace')
@@ -198,7 +198,7 @@ class TestTable:
         id_before = tbl3._id
 
         # sanity check persistence
-        _ = reload_tester.run_query(tbl3.select())
+        _ = reload_tester.run_query(tbl3.select().order_by(tbl3.c2))
         reload_tester.run_reload_test()
 
         tbl = pxt.get_table('test')
@@ -303,7 +303,7 @@ class TestTable:
                 additional_columns={'col2': tbl.col + 'x'},
             )
             assert tbl._path() == tbl_path
-            assert tbl._name == tbl_path.split('/')[-1]
+            assert tbl._name() == tbl_path.split('/')[-1]
             assert tbl._parent()._path() == '/'.join(tbl_path.split('/')[:-1])
 
             assert_table_metadata_eq(
@@ -1033,18 +1033,18 @@ class TestTable:
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', source=query1)
         assert t1._get_schema() == query1.schema
-        assert t1.collect() == query1.collect()
+        assert_resultset_eq(t1.order_by(t1.c2, asc=False).collect(), query1.collect())
 
         t.add_computed_column(c2mod=t.c2 % 5)
         query2 = t.group_by(t.c2mod).select(t.c2mod, pxtf.sum(t.c2))
         t2 = pxt.create_table('test2', source=query2)
         assert t2._get_schema() == query2.schema
-        assert t2.collect() == query2.collect()
+        assert_resultset_eq(t2.order_by(t2.c2mod).collect(), query2.order_by(t.c2mod).collect())
 
         # Create from table directly
         t3 = pxt.create_table('test3', source=t)
         assert t3._get_schema() == t._get_schema()
-        assert t3.collect() == t.collect()
+        assert_resultset_eq(t3.order_by(t3.c2).collect(), t.order_by(t.c2).collect())
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a non-empty dictionary'):
             _ = pxt.create_table('test3', ['I am a string.'])  # type: ignore[arg-type]
@@ -1054,7 +1054,7 @@ class TestTable:
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', source=query1)
         assert t1._get_schema() == query1.schema
-        assert t1.collect() == query1.collect()
+        assert_resultset_eq(t1.order_by(t1.c2, asc=False).collect(), query1.collect())
 
         t1.insert(query1)
         assert len(t1.collect()) == 2 * len(query1.collect())
@@ -2311,7 +2311,7 @@ class TestTable:
         for col_name, literal in test_cases:
             status = t.update({col_name: literal}, where=t.c3 < 10.0, cascade=False)
             assert status.num_rows == 10
-            assert status.updated_cols == [f'{t._name}.{col_name}']
+            assert status.updated_cols == [f'{t._name()}.{col_name}']
             assert t.count() == count
             t.revert()
 
@@ -2350,7 +2350,7 @@ class TestTable:
 
         # revert, then verify that we're back to where we started
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
@@ -2562,7 +2562,7 @@ class TestTable:
 
         # revert, then verify that we're back where we started
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
         assert cnt == 10
@@ -2765,7 +2765,7 @@ class TestTable:
 
         # test loading from store
         reload_catalog()
-        t2 = pxt.get_table(t._name)
+        t2 = pxt.get_table(t._name())
         assert len(t.columns()) == len(t2.columns())
         t_columns = t._tbl_version_path.columns()
         t2_columns = t2._tbl_version_path.columns()
@@ -2905,7 +2905,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         assert set(t.columns()) == orig_cols | {'add1', 'name', 'id'}
 
         # revert() works
@@ -2916,7 +2916,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         assert set(t.columns()) == orig_cols
 
     def test_bool_column(self, uses_db: None, reload_tester: ReloadTester) -> None:
@@ -2948,21 +2948,21 @@ class TestTable:
         assert res['bool_const'] == [True, True, True, True]
 
         # test using the bool column in a conditional expression
-        res = v.select((v.c1 > 1) & v.bool_const).collect()
+        res = v.select((v.c1 > 1) & v.bool_const).order_by(v.c1).collect()
         assert len(res) == 4
         assert res['col_0'] == [False, True, True, True]
         # reversing the condition order should not affect the result
-        res = v.select(v.bool_const & (v.c1 > 1)).collect()
+        res = v.select(v.bool_const & (v.c1 > 1)).order_by(v.c1).collect()
         assert len(res) == 4
         assert res['col_0'] == [False, True, True, True]
 
         # test adding a bool column with a computed value
         t1.add_computed_column(bool_computed=t1.c1 > 1)
-        res = t1.collect()
+        res = t1.order_by(t1.c1).collect()
         assert res['bool_computed'] == [False, True, True, True]
-        res = t1.where(t1.bool_computed).collect()
+        res = t1.where(t1.bool_computed).order_by(t1.c1).collect()
         assert res['c1'] == [2, 3, 4]
-        res = t1.where(~t1.bool_computed).collect()
+        res = t1.where(~t1.bool_computed).order_by(t1.c1).collect()
         assert res['c1'] == [1]
 
         t3 = pxt.create_table('test3', {'c1': pxt.Int, 'c2': pxt.Bool})
@@ -2970,14 +2970,14 @@ class TestTable:
         assert t3.count() == 2
 
         # bool columns accept int values that can be cast to bool.
-        t3.insert(c2=3)
-        res = t3.select(t3.c2).collect()
+        t3.insert(c1=3, c2=3)
+        res = t3.select(t3.c2).order_by(t3.c1).collect()
         assert res['c2'] == [True, False, True]
-        t3.insert(c2=0)
-        res = t3.select(t3.c2).collect()
+        t3.insert(c1=4, c2=0)
+        res = t3.select(t3.c2).order_by(t3.c1).collect()
         assert res['c2'] == [True, False, True, False]
-        t3.insert(c2=-1)
-        res = t3.select(t3.c2).collect()
+        t3.insert(c1=5, c2=-1)
+        res = t3.select(t3.c2).order_by(t3.c1).collect()
         assert res['c2'] == [True, False, True, False, True]
 
         # bool columns do not accept other types.
@@ -3003,14 +3003,14 @@ class TestTable:
         assert 'error in column c1: expected int, got float' in str(exc_info.value).lower()
 
         # sanity test persistence
-        _ = reload_tester.run_query(t1.select())
-        _ = reload_tester.run_query(t2.select())
-        _ = reload_tester.run_query(t3.select())
-        _ = reload_tester.run_query(v.select())
-        _ = reload_tester.run_query(v.select((v.c1 > 1) & v.bool_const))
-        _ = reload_tester.run_query(v.select(v.bool_const & (v.c1 > 1)))
-        _ = reload_tester.run_query(t1.where(t1.bool_computed).select())
-        _ = reload_tester.run_query(t1.where(~t1.bool_computed).select())
+        _ = reload_tester.run_query(t1.select().order_by(t1.c1))
+        _ = reload_tester.run_query(t2.select().order_by(t2.c1))
+        _ = reload_tester.run_query(t3.select().order_by(t3.c1))
+        _ = reload_tester.run_query(v.select().order_by(v.c1))
+        _ = reload_tester.run_query(v.select((v.c1 > 1) & v.bool_const).order_by(v.c1))
+        _ = reload_tester.run_query(v.select(v.bool_const & (v.c1 > 1)).order_by(v.c1))
+        _ = reload_tester.run_query(t1.where(t1.bool_computed).select().order_by(t1.c1))
+        _ = reload_tester.run_query(t1.where(~t1.bool_computed).select().order_by(t1.c1))
 
         reload_tester.run_reload_test()
 
@@ -3283,7 +3283,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         assert len(t.columns()) == num_orig_cols - 1
 
         # revert() works
@@ -3294,7 +3294,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         assert len(t.columns()) == num_orig_cols
         assert 'c1' in t.columns()
         _ = t.c1
@@ -3381,7 +3381,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         check_rename(t, 'c1_renamed', 'c1')
 
         # revert() works
@@ -3392,7 +3392,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t._name)
+        t = pxt.get_table(t._name())
         check_rename(t, 'c1', 'c1_renamed')
 
     @pytest.mark.cockroachdb
@@ -3425,8 +3425,8 @@ class TestTable:
         _ = v.show()
 
         # sanity check persistence
-        _ = reload_tester.run_query(t.select())
-        _ = reload_tester.run_query(v.select())
+        _ = reload_tester.run_query(t.select().order_by(t.c2))
+        _ = reload_tester.run_query(v.select().order_by(v.c2))
 
         reload_tester.run_reload_test()
 
@@ -3684,7 +3684,7 @@ class TestTable:
         assert status.num_excs == 0
         assert tbl.count() == 10
         # we can create references to those column via __getattr__
-        _ = tbl.select(tbl.id, tbl._name).collect()
+        _ = tbl.select(tbl.id, tbl.name, tbl.version, tbl.comment).collect()
 
     def test_table_api_on_dropped_table(self, uses_db: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.String})
@@ -3921,6 +3921,13 @@ class TestTable:
         t = pxt.get_table('tbl')
         assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
 
+        # add_computed_column with custom_metadata
+        t.add_computed_column(c2=(t.c + 1), custom_metadata=custom_metadata)
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c2']['custom_metadata'] == custom_metadata
+
         # check that invalid JSON user metadata are rejected for columns
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
@@ -3934,6 +3941,13 @@ class TestTable:
         reload_catalog(do_reload_catalog)
         t = pxt.get_table('tbl')
         assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        # add_computed_column with comment
+        t.add_computed_column(c2=t.c + 1, comment='This is a computed column.')
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c2']['comment'] == 'This is a computed column.'
 
         # check that raw object JSON comments are rejected for columns
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'comment' must be a string"):

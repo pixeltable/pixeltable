@@ -1,10 +1,21 @@
 import threading
+import time
 from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
-from tests.utils import DummyIterator, pxt_raises, validate_update_status
+from tests.utils import DummyIterator, validate_update_status
+
+
+@pxt.udf
+def _make_label(s: str) -> str:
+    return f'lbl_{s}'
+
+
+@pxt.udf
+def _combine(n: int, double: int, s: str) -> str:
+    return f'{s}:{n}:{double}'
 
 
 def _run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:
@@ -44,8 +55,6 @@ class TestConcurrentOps:
 
         def worker(tid: int) -> None:
             try:
-                # each thread needs its own Table instance
-                t = pxt.get_table('test_concurrent')
                 for i in range(rows_per_thread):
                     status = t.insert([{'thread_id': tid, 'row_idx': i, 'value': tid * 1000 + i}])
                     validate_update_status(status, expected_rows=1)
@@ -122,19 +131,6 @@ class TestConcurrentOps:
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
         assert errors == [], f'errors: {errors[:3]}'
 
-    def test_get_table(self, uses_db: None) -> None:
-        t = pxt.create_table('t3', {'a': pxt.Required[pxt.Int]})
-        validate_update_status(t.insert([{'a': i} for i in range(100)]), expected_rows=100)
-
-        def worker(_tid: int) -> None:
-            t_worker = pxt.get_table('t3')
-            for _ in range(self.ITERATIONS):
-                rows = t_worker.select(t_worker.a).collect()
-                assert len(rows) == 100
-
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
-
     def test_shared_colrefs(self, uses_db: None) -> None:
         t = pxt.create_table('t4', {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(100)]), expected_rows=100)
@@ -142,9 +138,8 @@ class TestConcurrentOps:
         b_ref = t.b
 
         def worker(_tid: int) -> None:
-            t_worker = pxt.get_table('t4')
             for _ in range(self.ITERATIONS):
-                rows = t_worker.select(a_ref, b_ref).collect()
+                rows = t.select(a_ref, b_ref).collect()
                 assert len(rows) == 100
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
@@ -200,17 +195,139 @@ class TestConcurrentOps:
         validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
 
         @pxt.query
-        def find_above(threshold: int) -> pxt.Query:
-            return t.where(t.a >= threshold).select(t.a)
+        def find_range(lower: int, upper: int) -> pxt.Query:
+            return t.where((t.a >= lower) & (t.a <= upper)).select(t.a)
+
+        # driver with varying centers; each [center-5, center+5] stays inside [0, 49] and contains
+        # exactly 11 values so every per-row inner invocation has a deterministic length
+        driver = pxt.create_table('t15_driver', {'center': pxt.Required[pxt.Int]})
+        n_rows = 10
+        validate_update_status(driver.insert([{'center': i % 40 + 5} for i in range(n_rows)]), expected_rows=n_rows)
 
         def worker(_tid: int) -> None:
             for _ in range(self.ITERATIONS):
-                bound = find_above.template_query.bind({'threshold': 40})
-                rows = bound.collect()
-                assert len(rows) == 10
+                result = driver.select(rows=find_range(driver.center - 5, driver.center + 5)).collect()
+                assert len(result) == n_rows
+                assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
         assert errors == [], f'errors: {errors[:3]}'
+
+    def test_shared_query_udf_cross_table(self, uses_db: None) -> None:
+        t = pxt.create_table('t15x', {'a': pxt.Required[pxt.Int]})
+        validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
+
+        @pxt.query
+        def find_range(lower: int, upper: int) -> pxt.Query:
+            return t.where((t.a >= lower) & (t.a <= upper)).select(t.a)
+
+        driver = pxt.create_table('t15x_driver', {'center': pxt.Required[pxt.Int]})
+        n_rows = 10
+        validate_update_status(driver.insert([{'center': i % 40 + 5} for i in range(n_rows)]), expected_rows=n_rows)
+
+        def worker(_tid: int) -> None:
+            for _ in range(self.ITERATIONS):
+                result = driver.select(rows=find_range(driver.center - 5, driver.center + 5)).collect()
+                assert len(result) == n_rows
+                assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
+
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert errors == [], f'errors: {errors[:3]}'
+
+    def test_concurrent_select_insert(self, uses_db: None) -> None:
+        """
+        Concurrent threads doing select and insert operations on the same table.
+
+        Also exercises limit/offset under plan caching: a literal-limit/offset SqlNode path,
+        and a query-template-with-Variable-limit path that flows through an SQL bindparam in
+        LIMIT. Each reader iteration runs both shapes so plan invalidation across writer
+        commits is exercised on plans that include limit/offset.
+
+        TODO: programmatic validation of plan reuse (cache-hit count)
+        """
+        n0 = 20
+        t = pxt.create_table(
+            't_reader_writer',
+            {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.String], 'n': pxt.Required[pxt.Int]},
+        )
+        t.add_computed_column(s_double=t.n * 2)
+        t.add_computed_column(s_label=_make_label(t.val))
+        t.add_computed_column(u_sum=t.n + t.s_double, stored=False)
+        t.add_computed_column(u_check=_combine(t.n, t.s_double, t.val), stored=False)
+
+        validate_update_status(t.insert([{'id': i, 'val': f'v{i}', 'n': i} for i in range(n0)]), expected_rows=n0)
+
+        @pxt.query
+        def top_ids(k: int) -> pxt.Query:
+            return t.order_by(t.id).select(t.id).limit(k)
+
+        # The writer sleeps longer than the reader between operations so the reader hits stretches where
+        # the table version is unchanged and the cached plan is reused.
+
+        n_writers = 2
+        writes_per_writer = self.ITERATIONS
+        reader_iterations = self.ITERATIONS * 4
+        limit_k = 5
+        offset_j = 3
+
+        def writer(tid: int) -> None:
+            for i in range(writes_per_writer):
+                row_id = n0 + tid * writes_per_writer + i
+                status = t.insert([{'id': row_id, 'val': f'v{row_id}', 'n': row_id}])
+                validate_update_status(status, expected_rows=1)
+                time.sleep(0.05)
+
+        def reader(_tid: int) -> None:
+            prev_len = 0
+            prev_ids: set[int] = set()
+            for _ in range(reader_iterations):
+                rows = t.select(t.id, t.val, t.n, t.s_double, t.s_label, t.u_sum, t.u_check).collect()
+                cur_len = len(rows)
+                cur_ids = {row['id'] for row in rows}
+                assert cur_len >= prev_len
+                assert prev_ids.issubset(cur_ids)
+                assert all(row['s_double'] == row['n'] * 2 for row in rows)
+                assert all(row['s_label'] == f'lbl_{row["val"]}' for row in rows)
+                assert all(row['u_sum'] == row['n'] + row['s_double'] for row in rows)
+                assert all(row['u_check'] == f'{row["val"]}:{row["n"]}:{row["s_double"]}' for row in rows)
+                prev_len = cur_len
+                prev_ids = cur_ids
+
+                # Literal limit/offset
+                limited_rows = t.order_by(t.id).select(t.id, t.s_double).limit(limit_k, offset=offset_j).collect()
+                assert len(limited_rows) <= limit_k
+                expected_ids = sorted(cur_ids)[offset_j : offset_j + limit_k]
+                assert [row['id'] for row in limited_rows] == expected_ids
+                assert all(row['s_double'] == row['id'] * 2 for row in limited_rows)
+
+                # Variable limit via query template
+                template_rows = t.select(top_k=top_ids(limit_k)).limit(1).collect()
+                assert len(template_rows) == 1
+                top_k_result = template_rows[0]['top_k']
+                assert len(top_k_result) == min(limit_k, cur_len)
+                assert [row['id'] for row in top_k_result] == sorted(cur_ids)[:limit_k]
+
+                time.sleep(0.005)
+
+        errors: list[tuple[int, BaseException]] = []
+        lock = threading.Lock()
+
+        def runner(role: str, tid: int, fn: Callable[[int], None]) -> None:
+            try:
+                fn(tid)
+            except BaseException as e:
+                with lock:
+                    errors.append((tid, e))
+
+        threads = [threading.Thread(target=runner, args=('w', i, writer)) for i in range(n_writers)]
+        threads += [threading.Thread(target=runner, args=('r', i, reader)) for i in range(self.NUM_THREADS)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join()
+
+        assert errors == [], f'errors: {errors[:3]}'
+        assert t.count() == n0 + n_writers * writes_per_writer
 
     def test_shared_join(self, uses_db: None) -> None:
         t1 = pxt.create_table('t17_a', {'id': pxt.Required[pxt.Int], 'i': pxt.Required[pxt.Int]})
@@ -230,19 +347,15 @@ class TestConcurrentOps:
         assert errors == [], f'errors: {errors[:3]}'
 
     def test_shared_join2(self, uses_db: None) -> None:
+        """Table instances from the main thread can be reused in worker threads to create join queries."""
         t1 = pxt.create_table('j1', {'id': pxt.Required[pxt.Int]})
         t2 = pxt.create_table('j2', {'id': pxt.Required[pxt.Int]})
         validate_update_status(t1.insert([{'id': i} for i in range(5)]), expected_rows=5)
         validate_update_status(t2.insert([{'id': i} for i in range(5)]), expected_rows=5)
 
         def worker(_tid: int) -> None:
-            t1_worker = pxt.get_table('j1')
-
-            # re-using t2 from the main thread raises
-            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='thread'):
-                t1_worker.join(t2, on=t1_worker.id == t2.id)
-            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='thread'):
-                t1_worker.select().join(t2, on=t1_worker.id == t2.id)
+            assert len(t1.join(t2, on=t1.id == t2.id).collect()) == 5
+            assert len(t1.select().join(t2, on=t1.id == t2.id).collect()) == 5
 
         errors = _run_workers(worker, n_threads=1)
         assert errors == [], f'worker raised: {errors[0][1]!r}'
@@ -261,64 +374,49 @@ class TestConcurrentOps:
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
         assert errors == [], f'errors: {errors[:3]}'
 
-    def test_table_public_methods(self, uses_db: None) -> None:
-        """All public Table methods guard against cross-thread calls."""
+    def test_table_methods(self, uses_db: None) -> None:
+        """Table read methods and at least one mutating op are usable from a thread other
+        than the one that created the handle, concurrently across multiple threads."""
         t = pxt.create_table('t_xthread', {'a': pxt.Required[pxt.Int], 'keep': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'a': 1, 'keep': 1}]), expected_rows=1)
-        a_plus_one = t.a + 1
 
-        def expect_error(call: Callable[[], object]) -> None:
-            def worker(_tid: int) -> None:
-                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='thread'):
-                    call()
+        def reader(_tid: int) -> None:
+            # Read / introspection
+            t.get_metadata()
+            t.list_views()
+            t.columns()
+            t.describe()
+            t.get_versions()
+            t.history()
+            t.external_stores()
+            t.get_base_table()
 
-            errors = _run_workers(worker, n_threads=1)
-            assert errors == [], f'worker raised: {errors[0][1]!r}'
+            # Query-builder + terminals
+            assert len(t.select(t.a).collect()) >= 1
+            assert len(t.where(t.a > 0).collect()) >= 1
+            assert len(t.order_by(t.a).collect()) >= 1
+            assert len(t.limit(10).collect()) >= 1
+            assert len(t.distinct().collect()) >= 1
+            assert len(t.group_by(t.a).select(t.a).collect()) >= 1
+            t.sample(n=1).collect()
+            t.head(1)
+            t.tail(1)
+            t.show(1)
+            # ColumnRef via attribute access
+            assert t.a is not None
 
-        # Read / introspection
-        expect_error(lambda: t.get_metadata())
-        expect_error(lambda: t.list_views())
-        expect_error(lambda: t.columns())
-        expect_error(lambda: t.describe())
-        expect_error(lambda: t.get_versions())
-        expect_error(lambda: t.history())
-        expect_error(lambda: t.external_stores())
-        expect_error(lambda: t.get_base_table())
+        n_inserts_per_writer = 5
 
-        # Query-builder entry points
-        expect_error(lambda: t.select(t.a))
-        expect_error(lambda: t.where(t.a > 0))
-        expect_error(lambda: t.order_by(t.a))
-        expect_error(lambda: t.limit(10))
-        expect_error(lambda: t.distinct())
-        expect_error(lambda: t.group_by(t.a))
-        expect_error(lambda: t.sample(n=1))
+        def writer(tid: int) -> None:
+            for i in range(n_inserts_per_writer):
+                validate_update_status(t.insert([{'a': tid * 1000 + i, 'keep': 1}]), expected_rows=1)
 
-        # Query terminals
-        expect_error(lambda: t.collect())
-        expect_error(lambda: t.count())
-        expect_error(lambda: t.head(1))
-        expect_error(lambda: t.tail(1))
-        expect_error(lambda: t.show(1))
-        expect_error(lambda: t.cursor())
+        def worker(tid: int) -> None:
+            # tid 0 mutates; everyone else reads
+            (writer if tid == 0 else reader)(tid)
 
-        # Schema
-        expect_error(lambda: t.add_column(b=pxt.String))
-        expect_error(lambda: t.add_columns({'c': pxt.String}))
-        expect_error(lambda: t.add_computed_column(double=a_plus_one))
-        expect_error(lambda: t.drop_column('a'))
-        expect_error(lambda: t.rename_column('a', 'aa'))
+        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        assert not errors, f'workers raised: {errors!r}'
 
-        # DML
-        expect_error(lambda: t.insert([{'a': 2, 'keep': 1}]))
-        expect_error(lambda: t.update({'a': a_plus_one}))
-        expect_error(lambda: t.batch_update([{'a': 99, 'keep': 99}]))
-        expect_error(lambda: t.delete())
-        expect_error(lambda: t.recompute_columns('a'))
-
-        # Versioning + attribute access
-        expect_error(lambda: t.revert())
-        expect_error(lambda: t.a)
-
-        # Sanity: Table is still usable on the main thread.
-        assert t.count() == 1
+        # Final count: initial row + writer's inserts.
+        assert t.count() == 1 + n_inserts_per_writer

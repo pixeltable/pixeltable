@@ -285,10 +285,23 @@ class ResultCursor(Iterable[Row]):
         ...             break  # resources are released on exit
     """
 
+    _query: Query
+    _row_iterator: Generator[list[Any], None, None] | None
+    _schema: dict[str, ColumnType]
+    _columns: dict[str, int]  # column name -> position
+    _closed: bool
+
     def __init__(self, query: Query):
         self._query = query
-        self._row_iterator: Generator[list[Any], None, None] | None = None
-        self._columns: dict[str, int] = {name: i for i, name in enumerate(query.schema)}
+        self._row_iterator = None
+        # Known design issue: cursor construction is separated from transaction start. The
+        # transaction that reads the rows is opened later, inside _output_row_iterator, so the
+        # schema captured here has no causal link to the schema the iteration runs under. A
+        # schema mutation between __init__ and the first next() can leave _schema/_columns
+        # inconsistent with the yielded rows, especially for SELECT * queries where
+        # Query.schema re-resolves against current catalog state on each access.
+        self._schema = query.schema
+        self._columns = {name: i for i, name in enumerate(self._schema)}
         self._closed = False
 
     def open(self) -> None:
@@ -337,13 +350,9 @@ class ResultCursor(Iterable[Row]):
         assert self._row_iterator is not None
         try:
             for data in self._row_iterator:
-                yield Row(data, self._columns, self._query.schema)
+                yield Row(data, self._columns, self._schema)
         finally:
             self.close()
-
-    @property
-    def _schema(self) -> dict[str, ColumnType]:
-        return self._query.schema
 
     def __repr__(self) -> str:
         if self._closed:
@@ -363,21 +372,26 @@ class Query:
     Thread-safe.
     """
 
+    # immutable after init()
     _from_clause: plan.FromClause
-    _select_list_exprs: list[exprs.Expr]
-    _schema: dict[str, ts.ColumnType]
+
     select_list: list[tuple[exprs.Expr, str | None]] | None
+    # construction-time snapshot of the resolved select list; None if select_list is None
+    _select_list_exprs: list[exprs.Expr] | None
+    # construction-time snapshot of the resolved schema; None if select_list is None
+    _schema: dict[str, ts.ColumnType] | None
+
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
-    # TVH: we need to avoid inadvertently caching catalog objects, which get invalidated across thread/xact boundaries
     grouping_tbl: catalog.TableVersionHandle | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
     offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
 
-    # Catalog instance against which this Query was constructed
-    _origin_catalog: 'catalog.Catalog'
+    # IDs of all tables referenced by this query (from-clause path + exprs). Computed once on
+    # first access, then cached: the value depends on the static query shape and never changes.
+    _referenced_tbl_ids: set[UUID] | None
 
     def __init__(
         self,
@@ -393,15 +407,21 @@ class Query:
     ):
         self._from_clause = from_clause
 
+        if from_clause is not None:
+            # we want to find out about dropped tables early
+            get_runtime().catalog.validate_tbls_exist({tvp.tbl_version.id for tvp in from_clause.tbls})
+
         # exprs contain execution state and therefore cannot be shared
-        select_list = copy.deepcopy(select_list)
-        select_list_exprs, column_names = Query._normalize_select_list(self._from_clause.tbls, select_list)
-        # check select list after expansion to catch early
-        # the following two lists are always non empty, even if select list is None.
-        assert len(column_names) == len(select_list_exprs)
-        self._select_list_exprs = select_list_exprs
-        self._schema = {column_names[i]: select_list_exprs[i].col_type for i in range(len(column_names))}
-        self.select_list = select_list
+        self.select_list = copy.deepcopy(select_list)
+        if self.select_list is None:
+            self._select_list_exprs = None
+            self._schema = None
+        else:
+            select_list_exprs, column_names = Query._normalize_select_list(self._from_clause.tbls, self.select_list)
+            # check select list after expansion to catch early
+            assert len(column_names) == len(select_list_exprs)
+            self._select_list_exprs = select_list_exprs
+            self._schema = {column_names[i]: select_list_exprs[i].col_type for i in range(len(column_names))}
 
         self.where_clause = copy.deepcopy(where_clause)
         assert group_by_clause is None or grouping_tbl is None
@@ -411,28 +431,7 @@ class Query:
         self.limit_val = limit
         self.offset_val = offset
         self.sample_clause = sample_clause
-        self._origin_catalog = get_runtime().catalog
-
-    def __deepcopy__(self, memo: dict[int, Any]) -> 'Query':
-        cls = type(self)
-        new = cls.__new__(cls)
-        memo[id(self)] = new
-        for k, v in self.__dict__.items():
-            new.__dict__[k] = copy.deepcopy(v, memo)
-        # make sure to record the current catalog
-        new._origin_catalog = get_runtime().catalog
-        return new
-
-    def _rebind(self) -> 'Query':
-        """Return self if its origin matches the current runtime's catalog, else a deepcopy re-rooted to it.
-
-        Catalog instances are per-thread, so this also covers the cross-thread case: a Query built on one thread
-        and used to chain a builder method on another thread will be deepcopied here, resetting the origin/thread
-        state of all embedded TVHs/TVPs/Exprs.
-        """
-        if self._origin_catalog is get_runtime().catalog:
-            return self
-        return copy.deepcopy(self)
+        self._referenced_tbl_ids = None
 
     @classmethod
     def _normalize_select_list(
@@ -474,20 +473,31 @@ class Query:
         return out_exprs, out_names
 
     @property
+    def has_select_list(self) -> bool:
+        """Returns True if the query has an explicit select list (constructed with `select()`)."""
+        return self.select_list is not None
+
+    @property
     def _first_tbl(self) -> catalog.TableVersionPath:
         return self._from_clause._first_tbl
 
     @property
     def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
         """Return the select list that would get materialized by collect()."""
-        return list(zip(self._select_list_exprs, self._schema.keys()))
+        if self.select_list is not None:
+            return list(zip(self._select_list_exprs, self._schema.keys()))
+        # SELECT * case: re-resolve against the current table schema
+        select_list_exprs, column_names = Query._normalize_select_list(self._from_clause.tbls, None)
+        return list(zip(select_list_exprs, column_names))
 
     def _vars(self) -> dict[str, exprs.Variable]:
         """
         Return a dict mapping variable name to Variable for all Variables contained in any component of the Query
         """
         all_exprs: list[exprs.Expr] = []
-        all_exprs.extend(self._select_list_exprs)
+        if self._select_list_exprs is not None:
+            # _select_list_exprs is None: no Variables without an explicit select list
+            all_exprs.extend(self._select_list_exprs)
         if self.where_clause is not None:
             all_exprs.append(self.where_clause)
         if self.group_by_clause is not None:
@@ -551,36 +561,79 @@ class Query:
         """
         return {name: var.col_type for name, var in self._vars().items()}
 
-    def _exec(self) -> Iterator[exprs.DataRow]:
-        """Run the query and return rows as a generator.
-        This function must not modify the state of the Query, otherwise it breaks dataset caching.
+    def _resolve_positive_int(self, e: exprs.Expr | None, role: str, args: dict[str, Any]) -> int | None:
+        """Resolve Expr to a positive int, or None if not set."""
+        if e is None:
+            return None
+        if isinstance(e, exprs.Literal):
+            val = e.val
+        else:
+            assert isinstance(e, exprs.Variable)
+            val = args[e.name]
+        if val < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"'{role}' parameter must be >= 0")
+        return val
+
+    def _resolved_limit(self, args: dict[str, Any]) -> int | None:
+        return self._resolve_positive_int(self.limit_val, 'limit', args)
+
+    def _resolved_offset(self, args: dict[str, Any]) -> int | None:
+        return self._resolve_positive_int(self.offset_val, 'offset', args)
+
+    def _validate_bound_args(self, args: dict[str, Any]) -> None:
+        # Raised exceptions are caught and recorded per-cell when this Query is invoked
+        # via a query UDF inside a computed column (see ExprEvalNode evaluators).
+        # _resolved_limit/_resolved_offset perform the type and range checks.
+        self._resolved_limit(args)
+        self._resolved_offset(args)
+
+    def _exec(self, args: dict[str, Any] | None = None) -> Iterator[exprs.DataRow]:
+        """Run the query and yield rows.
+
+        Slot indices live on the planned exprs returned by select_list_exprs(); callers that
+        need them must read from there, not from this Query's _select_list_exprs (which are the
+        pre-compile copies and don't carry slot_idx).
         """
-        if self.limit_val is not None and self.limit_val.val == 0:
+        args = args or {}
+        self._validate_bound_args(args)
+        if self._resolved_limit(args) == 0:
             return
-        plan = self._create_query_plan()
+        plan = self._ensure_plan()
+        for row in plan.exec(args):
+            # stop progress output before we display anything, otherwise it'll mess up the output
+            get_runtime().stop_progress()
+            yield row
 
-        def exec_plan() -> Iterator[exprs.DataRow]:
-            with plan:
-                for row_batch in plan:
-                    # stop progress output before we display anything, otherwise it'll mess up the output
-                    get_runtime().stop_progress()
-                    yield from row_batch
-
-        yield from exec_plan()
-
-    async def _aexec(self) -> AsyncIterator[exprs.DataRow]:
-        """Run the query and return rows as a generator.
-        This function must not modify the state of the Query, otherwise it breaks dataset caching.
-        """
-        if self.limit_val is not None and self.limit_val.val == 0:
+    async def _aexec(self, args: dict[str, Any] | None = None) -> AsyncIterator[exprs.DataRow]:
+        """Run the query and yield rows."""
+        args = args or {}
+        self._validate_bound_args(args)
+        if self._resolved_limit(args) == 0:
             return
-        plan = self._create_query_plan()
-        with plan:
-            async for row_batch in plan:
-                for row in row_batch:
-                    yield row
+        plan = self._ensure_plan()
+        async for row in plan.aexec(args):
+            yield row
 
-    def _create_query_plan(self) -> exec.ExecNode:
+    def _ensure_plan(self) -> exec.ExecPlan:
+        assert get_runtime().in_xact
+        cache = get_runtime().plan_cache
+        plan = cache.get(self)
+        if plan is not None and plan.matches_versions(self._from_clause_tbl_versions()):
+            return plan
+        plan = self._create_query_plan()
+        cache[self] = plan
+        return plan
+
+    def _from_clause_tbl_versions(self) -> dict[UUID, int]:
+        out: dict[UUID, int] = {}
+        for tbl in self._from_clause.tbls:
+            for tvh in tbl.get_tbl_versions():
+                tv = tvh.get()
+                if tv.is_versioned:
+                    out[tvh.id] = tv.version
+        return out
+
+    def _create_query_plan(self) -> exec.ExecPlan:
         has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in self._from_clause.tbls)
         if has_unversioned_tbl:
             # For now, we only support queries of the simplest form on unversioned tables
@@ -591,28 +644,35 @@ class Query:
             assert self.sample_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # construct a group-by clause if we're grouping by a table
-        group_by_clause: list[exprs.Expr] | None = None
+        group_by_clause = self.group_by_clause
         if self.grouping_tbl is not None:
-            assert self.group_by_clause is None
+            assert group_by_clause is None
             num_rowid_cols = len(self.grouping_tbl.get().store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
-            assert num_rowid_cols <= len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
-            group_by_clause = self.__rowid_columns(num_rowid_cols)
-        elif self.group_by_clause is not None:
-            group_by_clause = self.group_by_clause
+            first_tbl = self._from_clause.tbls[0]
+            assert num_rowid_cols <= len(first_tbl.tbl_version.get().store_tbl.rowid_columns())
+            group_by_clause = Planner.rowid_columns(first_tbl.tbl_version, num_rowid_cols)
 
-        for item in self._select_list_exprs:
-            item.bind_rel_paths()
-
-        return Planner.create_query_plan(
+        select_list = self._effective_select_list
+        select_list_exprs = [e for e, _ in select_list]
+        select_list_schema = {n: e.col_type for e, n in select_list}
+        root = Planner.create_query_plan(
             self._from_clause,
-            self._select_list_exprs,
+            select_list_exprs,
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
             sample_clause=self.sample_clause,
+        )
+        compile_versions = self._from_clause_tbl_versions()
+        return exec.ExecPlan(
+            root,
+            root.ctx,
+            select_list_exprs=select_list_exprs,
+            select_list_schema=select_list_schema,
+            compile_versions=compile_versions,
         )
 
     def __rowid_columns(self, num_rowid_cols: int | None = None) -> list[exprs.Expr]:
@@ -623,7 +683,6 @@ class Query:
         return len(self._from_clause.join_clauses) > 0
 
     def show(self, n: int = 20) -> ResultSet:
-        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'show() cannot be used with sample()')
         assert n is not None
@@ -644,7 +703,6 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with order_by()')
         if self._has_joins():
@@ -672,7 +730,6 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with order_by()')
         if self._has_joins():
@@ -690,86 +747,20 @@ class Query:
     @property
     def schema(self) -> dict[str, ColumnType]:
         """Column names and types in this Query."""
-        return self._schema
-
-    def bind(self, args: dict[str, Any]) -> Query:
-        """Bind arguments to parameters and return a new Query."""
-        # substitute Variables with the corresponding values according to 'args', converted to Literals
-        select_list_exprs = copy.deepcopy(self._select_list_exprs)
-        where_clause = copy.deepcopy(self.where_clause)
-        group_by_clause = copy.deepcopy(self.group_by_clause)
-        order_by_exprs = (
-            [copy.deepcopy(order_by_expr) for order_by_expr, _ in self.order_by_clause]
-            if self.order_by_clause is not None
-            else None
-        )
-        limit_val = copy.deepcopy(self.limit_val)
-        offset_val = copy.deepcopy(self.offset_val)
-
-        var_exprs: dict[exprs.Expr, exprs.Expr] = {}
-        vars = self._vars()
-        for arg_name, arg_val in args.items():
-            if arg_name not in vars:
-                # ignore unused variables
-                continue
-            var_expr = vars[arg_name]
-            arg_expr = exprs.Expr.from_object(arg_val)
-            if arg_expr is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_EXPRESSION,
-                    f'That argument cannot be converted to a Pixeltable expression: {arg_val}',
-                )
-            var_exprs[var_expr] = arg_expr
-
-        exprs.Expr.list_substitute(select_list_exprs, var_exprs)
-        if where_clause is not None:
-            where_clause = where_clause.substitute(var_exprs)
-        if group_by_clause is not None:
-            exprs.Expr.list_substitute(group_by_clause, var_exprs)
-        if order_by_exprs is not None:
-            exprs.Expr.list_substitute(order_by_exprs, var_exprs)
-
-        select_list = list(zip(select_list_exprs, self.schema.keys()))
-        order_by_clause: list[tuple[exprs.Expr, bool]] | None = None
-        if order_by_exprs is not None:
-            order_by_clause = [
-                (expr, asc) for expr, asc in zip(order_by_exprs, [asc for _, asc in self.order_by_clause])
-            ]
-        if limit_val is not None:
-            limit_val = limit_val.substitute(var_exprs)
-            if limit_val is not None and not isinstance(limit_val, exprs.Literal):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT, f'limit(): parameter must be a constant; got: {limit_val}'
-                )
-        if offset_val is not None:
-            offset_val = offset_val.substitute(var_exprs)
-            if offset_val is not None and not isinstance(offset_val, exprs.Literal):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT, f'offset parameter must be a constant; got: {offset_val}'
-                )
-
-        return Query(
-            # Deepcopy from_clause so its TableVersionHandles get their _tbl_version cache
-            # reset (via TableVersionHandle.__deepcopy__). Without this, a worker thread
-            # executing a bound Query would render FROM via the importing thread's sa_tbl
-            # while WHERE references its own sa_tbl, producing a duplicate-FROM error.
-            from_clause=copy.deepcopy(self._from_clause),
-            select_list=select_list,
-            where_clause=where_clause,
-            group_by_clause=group_by_clause,
-            grouping_tbl=self.grouping_tbl,
-            order_by_clause=order_by_clause,
-            limit=limit_val,
-            offset=offset_val,
-        )
+        if self.select_list is not None:
+            return self._schema
+        else:
+            # need to re-resolve select list
+            return {name: e.col_type for e, name in self._effective_select_list}
 
     def _replace_select_list(self, new_exprs: list[exprs.Expr]) -> Query:
         """Return a new Query with the given select-list exprs.
 
         All other clauses are cloned either here or in __init__().
         """
-        assert len(new_exprs) == len(self._schema)
-        select_list = list(zip(new_exprs, self._schema.keys()))
+        select_list = self._effective_select_list
+        assert len(new_exprs) == len(select_list)
+        select_list = [(e, n) for e, (_, n) in zip(new_exprs, select_list)]
         return Query(
             from_clause=self._from_clause,
             select_list=select_list,
@@ -802,25 +793,37 @@ class Query:
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, msg) from e
 
     def referenced_tbl_ids(self) -> set[UUID]:
-        """Returns the IDs of all tables referenced by this query"""
+        """Returns the IDs of all tables referenced by this query.
+
+        Walks the query's static structure (exprs + from-clause path) on first call and caches
+        the result; the value depends on the static query shape and never changes.
+        """
+        if self._referenced_tbl_ids is not None:
+            return self._referenced_tbl_ids
         all_exprs = itertools.chain(
-            self._select_list_exprs,
+            # _select_list_exprs is None: no external ColumnRefs without an explicit select list
+            self._select_list_exprs or [],
             [] if self.where_clause is None else [self.where_clause],
             self.group_by_clause or [],
             [] if self.order_by_clause is None else (e for e, _ in self.order_by_clause),
         )
-        tbl_ids = exprs.Expr.all_tbl_ids(all_exprs)
+        tbl_ids = exprs.Expr.list_tbl_ids(all_exprs)
         for tvp in self._from_clause.tbls:
             tbl_ids.update(tvh.id for tvh in tvp.get_tbl_versions())
+        self._referenced_tbl_ids = tbl_ids
         return tbl_ids
 
-    def _output_row_iterator(self) -> Generator[list, None, None]:
-        self = self._rebind()  # noqa: PLW0642
+    def _compiled_select_list(self) -> list[exprs.Expr]:
+        """Select list exprs that can be evaluated in the context of a plan (has slot_idxs assigned)."""
+        return self._ensure_plan().select_list_exprs
+
+    def _output_row_iterator(self, args: dict[str, Any] | None = None) -> Generator[list, None, None]:
         tbl_ids = self.referenced_tbl_ids()
-        with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=tbl_ids):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=tbl_ids):
             try:
-                for data_row in self._exec():
-                    yield [data_row[e.slot_idx] for e in self._select_list_exprs]
+                planned_exprs = self._compiled_select_list()
+                for data_row in self._exec(args=args):
+                    yield [data_row[e.slot_idx] for e in planned_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
@@ -829,7 +832,19 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        return ResultSet(list(self.cursor()), self.schema)
+        with get_runtime().catalog.begin_xact(
+            for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=self.referenced_tbl_ids()
+        ):
+            return self._collect()
+
+    def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
+        assert get_runtime().in_xact
+        schema = self.schema
+        if args is None:
+            return ResultSet(list(self.cursor()), schema)
+        columns = {name: i for i, name in enumerate(schema)}
+        rows = [Row(tuple(data), columns, schema) for data in self._output_row_iterator(args=args)]
+        return ResultSet(rows, schema)
 
     def cursor(self) -> ResultCursor:
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.
@@ -838,16 +853,19 @@ class Query:
         """
         return ResultCursor(self)
 
-    async def _acollect(self) -> ResultSet:
-        self = self._rebind()  # noqa: PLW0642
+    async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:
+        # this can only be called in the context of a running transaction
+        assert get_runtime().in_xact
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
-        columns = {name: i for i, name in enumerate(self.schema)}
+        schema = self.schema
+        columns = {name: i for i, name in enumerate(schema)}
         try:
+            planned_exprs = self._compiled_select_list()
             result = [
-                Row(tuple(row[e.slot_idx] for e in self._select_list_exprs), columns, self.schema)
-                async for row in self._aexec()
+                Row(tuple(row[e.slot_idx] for e in planned_exprs), columns, schema)
+                async for row in self._aexec(args=args)
             ]
-            return ResultSet(result, self.schema)
+            return ResultSet(result, schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
         except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
@@ -860,15 +878,40 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        if self._origin_catalog is not get_runtime().catalog:
-            return copy.deepcopy(self).count()
-        if self.limit_val is not None and self.limit_val.val == 0:
-            return 0
-        with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()) as conn:
-            count_stmt = Planner.create_count_stmt(self)
-            result: int = conn.execute(count_stmt).scalar_one()
-            assert isinstance(result, int)
-            return result
+        from pixeltable.functions.globals import count as pxt_count
+
+        if self.limit_val is not None or self.offset_val is not None:
+            # supporting these would require wrapping the limited query in a subquery and counting
+            # that, which the current SqlAggregationNode path doesn't do;
+            # count() is meant for exploration, so no need to make every corner case work
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'count() cannot be used with limit() or offset(). Use `select(pxtf.count())` instead.',
+            )
+
+        count_query = Query(
+            from_clause=self._from_clause,
+            select_list=[(pxt_count(1), 'count')],
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            sample_clause=copy.deepcopy(self.sample_clause),
+        )
+        is_grouped = self.group_by_clause is not None or self.grouping_tbl is not None
+
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls):
+            plan_root = count_query._ensure_plan().exec_root
+            if not isinstance(plan_root, exec.SqlNode):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'count() cannot be used: query plan contains a non-SQL node ({type(plan_root).__name__})',
+                )
+
+        result = count_query.collect()
+        if is_grouped:
+            return len(result)
+        assert len(result) == 1
+        return int(result[0, 'count'])
 
     def _descriptors(self) -> DescriptionHelper:
         helper = DescriptionHelper()
@@ -879,6 +922,7 @@ class Query:
         return helper
 
     def _col_descriptor(self) -> pd.DataFrame:
+        select_list = self._effective_select_list
         return pd.DataFrame(
             [
                 {
@@ -886,7 +930,7 @@ class Query:
                     'Type': expr.col_type._to_str(as_schema=True),
                     'Expression': expr.display_str(inline=False),
                 }
-                for name, expr in zip(self.schema.keys(), self._select_list_exprs)
+                for expr, name in select_list
             ]
         )
 
@@ -970,7 +1014,6 @@ class Query:
             >>> query = person.select(t.name, is_adult=(t.age >= 18))
 
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.select_list is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Select list already specified')
         for name, _ in named_items.items():
@@ -1055,7 +1098,6 @@ class Query:
 
             >>> query = person.where(t.age > 30)
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.where_clause is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'where() clause already specified')
         if self.sample_clause is not None:
@@ -1215,8 +1257,6 @@ class Query:
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
-        other._validate_thread()
-        self = self._rebind()  # noqa: PLW0642
         assert len(self._from_clause.tbls) > 0
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
@@ -1294,7 +1334,6 @@ class Query:
 
             >>> query = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'group_by() already specified')
         if self.sample_clause is not None:
@@ -1363,7 +1402,6 @@ class Query:
             ...     .distinct()
             ... )
         """
-        self = self._rebind()  # noqa: PLW0642
         exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
         return self.group_by(*exps)
 
@@ -1397,7 +1435,6 @@ class Query:
 
             >>> query = book.order_by(t.price, asc=False).order_by(t.pages)
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'order_by() cannot be used with sample()')
         for e in expr_list:
@@ -1437,7 +1474,6 @@ class Query:
 
             >>> query.limit(10, offset=20).collect()
         """
-        self = self._rebind()  # noqa: PLW0642
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'limit() cannot be used with sample()')
 
@@ -1450,9 +1486,19 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'offset' parameter must be >= 0")
 
         limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
+        if not isinstance(limit_expr, (exprs.Literal, exprs.Variable)):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'limit(): parameter must be an int constant or query parameter; got: {n}',
+            )
         offset_expr = None
         if offset is not None:
             offset_expr = self._convert_param_to_typed_expr(offset, ts.IntType(nullable=False), False, 'offset')
+            if not isinstance(offset_expr, (exprs.Literal, exprs.Variable)):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'offset: parameter must be an int constant or query parameter; got: {offset}',
+                )
 
         return Query(
             from_clause=self._from_clause,
@@ -1522,7 +1568,6 @@ class Query:
 
             >>> query = person.where(t.age > 30).sample(n=100)
         """
-        self = self._rebind()  # noqa: PLW0642
         # Check context of usage
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Multiple sample() clauses not allowed')
@@ -1808,7 +1853,9 @@ class Query:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()):
+            with get_runtime().catalog.begin_xact(
+                for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=self.referenced_tbl_ids()
+            ):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1853,7 +1900,9 @@ class Query:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with get_runtime().catalog.begin_xact(read_tbl_ids=self.referenced_tbl_ids()):
+            with get_runtime().catalog.begin_xact(
+                for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=self.referenced_tbl_ids()
+            ):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)
 

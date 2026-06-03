@@ -76,7 +76,7 @@ def _(model_id: str) -> ts.ArrayType:
     from sentence_transformers import SentenceTransformer
 
     model = _lookup_model(model_id, SentenceTransformer)
-    return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
+    return ts.ArrayType((model.get_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
 
 
 @pxt.udf(batch_size=32)

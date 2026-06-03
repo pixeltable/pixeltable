@@ -64,8 +64,14 @@ class CellMaterializationNode(ExecNode):
             for col, slot_idx in input.row_builder.table_columns.items()
             if slot_idx is not None and col.col_type.supports_file_offloading()
         }
+        self._init_exec_state()
+
+    def _init_exec_state(self) -> None:
         self.inlined_obj_files = []
         self.buffered_writer = None
+
+    def _open(self) -> None:
+        self._init_exec_state()
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         async for batch in self.input:
