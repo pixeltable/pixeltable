@@ -162,14 +162,15 @@ dev = [
     "openai-whisper>=20250625 ; python_version < '3.14'",
     "whisperx>=3.8.5 ; python_version < '3.14'",
     "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
-    "ollama>=0.5.1",
+    "ollama>=0.6",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
     "mcp>=1.27.2",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
     # of at least one library. We can re-enable it once they update their dependencies.
     # "fiftyone>=1.13 ; python_version < '3.14'",
-    "lancedb>=0.20 ; python_version < '3.14'",
+    "lancedb>=0.30",
+    "pylance>=6",
     "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.11",
