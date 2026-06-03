@@ -171,7 +171,7 @@ dev = [
     "openai-whisper>=20250625 ; python_version < '3.14'",
     "whisperx>=3.8.5 ; python_version < '3.14'",
     "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
-    "ollama>=0.5.1",
+    "ollama>=0.6",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
     "mcp>=1.23.0",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
