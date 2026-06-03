@@ -334,8 +334,8 @@ class TestPackager:
                         assert undo_count == expected_undos
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
-        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         """package() / restore() round trip for a single snapshot"""
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         # Add some additional columns to test various additional datatypes
         t = test_tbl
         t.add_column(dt=pxt.Date)
