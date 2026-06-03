@@ -112,7 +112,10 @@ def import_sql(
 
             - `'error'`: fail if the table already exists.
             - `'append'`: require the table to exist; verify the source schema is compatible; insert only.
-        on_error: Forwarded to `Table.insert`.
+        on_error: How to handle errors encountered while inserting source rows.
+
+            - `'abort'`: any row error aborts the entire import.
+            - `'ignore'`: rows that error are skipped; the rest are inserted.
 
     Returns:
         The destination `pxt.Table`.
@@ -177,7 +180,7 @@ def import_sql(
                 f'`import_sql` requires a base table; {tbl_name!r} is a {type(tbl).__name__.lower()}.',
             )
         _validate_append_compatibility(tbl, tbl_name, inferred_schema)
-        tbl.insert_sql_source(sql_data_source, on_error=on_error)
+        tbl._insert_sql_source(sql_data_source, on_error=on_error)
         return tbl
 
     tbl = pxt.create_table(
@@ -189,7 +192,7 @@ def import_sql(
         if_exists='error',
     )
     try:
-        tbl.insert_sql_source(sql_data_source, on_error=on_error)
+        tbl._insert_sql_source(sql_data_source, on_error=on_error)
     except BaseException:
         # If drop_table raises, Python's implicit exception chaining (PEP 3134) preserves the original
         # insert error on `__context__` and the traceback still shows it.
@@ -200,11 +203,13 @@ def import_sql(
 
 def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, inferred_schema: dict[str, Any]) -> None:
     """Verify the SQL source schema can append into an existing destination table."""
-    tv = tbl._tbl_version.get()
-    all_cols_by_name = tv.cols_by_name
+    column_md = tbl.get_metadata()['columns']
     existing_schema = tbl._get_schema()
-    computed_col_names = {name for name, col in all_cols_by_name.items() if col.is_computed}
-    required_col_names = {name for name, col in all_cols_by_name.items() if col.is_required_for_insert}
+    computed_col_names = {name for name, md in column_md.items() if md['is_computed']}
+    # A column is required for insert if it is non-nullable and not computed.
+    required_col_names = {
+        name for name, col_type in existing_schema.items() if not col_type.nullable and name not in computed_col_names
+    }
 
     for col_name, src_type_any in inferred_schema.items():
         if col_name in computed_col_names:

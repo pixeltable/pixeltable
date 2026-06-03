@@ -21,19 +21,16 @@ class SqlDataNode(ExecNode):
     """
     Streams a SqlDataSource (a normalized SELECT executed against an Engine or Connection) into DataRowBatches.
 
-    Same output contract as InMemoryDataNode:
-      - output_exprs = row_builder.input_exprs
-      - populates user-column slots by name; sets unmapped slots to None.
-
-    Source/destination column compatibility (unnamed columns, duplicates, computed-column collisions,
-    missing required columns, unknown destination columns) is validated by the caller (eg, `import_sql`)
-    before the plan is constructed; this node only builds the runtime slot mapping.
+    Populates the destination table's column slots by matching each SELECT output column to a column of the
+    same name; any slot not populated from the source is set to None. The SQL source's columns are assumed to
+    have already been validated against the destination schema.
     """
 
     BATCH_SIZE: ClassVar[int] = 1024
 
     tbl: catalog.TableVersionHandle
     sql_source: SqlDataSource
+    # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]
     _owns_conn: bool
     _conn: sql.Connection | None
@@ -56,19 +53,19 @@ class SqlDataNode(ExecNode):
         self._unmapped_slot_idxs = []
 
     def _open(self) -> None:
-        user_cols_by_name = {
-            col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
-            for col_ref in self.output_exprs
-            if col_ref.col.name is not None
+        # output_exprs are ColumnRefs to the destination table's insertable columns; index them by name so each
+        # SELECT output column can be matched to its destination slot.
+        dest_cols_by_name = {
+            col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx) for col_ref in self.output_exprs
         }
         all_output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
+        # source_names are the SELECT's output column names, positionally aligned with each result row; each is
+        # assumed to resolve to a destination column of the same name.
         source_names = [
             getattr(c, 'name', None) or getattr(c, 'key', None) for c in self.sql_source.select_stmt.selected_columns
         ]
-        # Caller (eg, import_sql) is responsible for validating that all source names are non-None and resolve
-        # to a destination column.
-        self._mapped_cols = [user_cols_by_name[n] for n in source_names]
+        self._mapped_cols = [dest_cols_by_name[n] for n in source_names]
         mapped_slot_idxs = {c.slot_idx for c in self._mapped_cols}
         self._unmapped_slot_idxs = list(all_output_slot_idxs - mapped_slot_idxs)
 

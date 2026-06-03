@@ -100,7 +100,7 @@ class TestSql:
             name='sqlite',
             connect=lambda tmp: f'sqlite:///{tmp / "test.db"}',
             sa_types={
-                'c_int': sql.INTEGER,
+                'c_int': sql.BIGINT,
                 'c_string': sql.VARCHAR,
                 'c_float': sql.FLOAT,
                 'c_bool': sql.BOOLEAN,
@@ -124,7 +124,7 @@ class TestSql:
             name='postgresql',
             connect=lambda _: Env.get().db_url,
             sa_types={
-                'c_int': sql.INTEGER,
+                'c_int': sql.BIGINT,
                 'c_string': sql.VARCHAR,
                 'c_float': sql.dialects.postgresql.DOUBLE_PRECISION,
                 'c_bool': sql.BOOLEAN,
@@ -134,7 +134,7 @@ class TestSql:
                 'c_binary': sql.dialects.postgresql.BYTEA,
                 'c_json': sql.dialects.postgresql.JSONB,
             },
-            decode={},
+            decode={'c_timestamp': lambda v: v.replace(tzinfo=None)},
         )
 
     def _verify_export(
@@ -226,7 +226,7 @@ class TestSql:
         # incompatible schema
         t3 = pxt.create_table('test3', {'c_int': pxt.Json})
         t3.insert([{'c_int': {'key': 'value'}}])
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"column 'c_int' of type INTEGER"):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"column 'c_int' of type BIGINT"):
             export_sql(t3, 'existing_table', db_connect_str=connection_string, if_exists='insert')
 
         # non-scalar source type into an existing target column

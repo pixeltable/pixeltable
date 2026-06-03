@@ -73,9 +73,17 @@ def _snowflake_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
     return col_type.to_sa_type()
 
 
+def _sqlite_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
+    """Type mapping for dialect 'sqlite'."""
+    if col_type.is_json_type():
+        return sql.dialects.sqlite.JSON()
+    return col_type.to_sa_type()
+
+
 _DIALECT_TYPE: dict[str, Callable[['ts.ColumnType'], sql.types.TypeEngine]] = {
     'postgresql': _postgresql_sa_type,
     'snowflake': _snowflake_sa_type,
+    'sqlite': _sqlite_sa_type,
 }
 
 

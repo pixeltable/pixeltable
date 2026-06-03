@@ -169,14 +169,14 @@ class InsertableTable(Table):
         data_source.add_table_info(self)
         data_source.prepare_for_insert_into_table()
 
-        return self.insert_table_data_source(
+        return self._insert_table_data_source(
             data_source=data_source,
             fail_on_exception=fail_on_exception,
             print_stats=print_stats,
             return_rows=return_rows,
         )
 
-    def insert_table_data_source(
+    def _insert_table_data_source(
         self,
         data_source: TableDataConduit,
         fail_on_exception: bool,
@@ -209,7 +209,7 @@ class InsertableTable(Table):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    def insert_sql_source(
+    def _insert_sql_source(
         self,
         sql_source: SqlDataSource,
         *,
@@ -219,8 +219,7 @@ class InsertableTable(Table):
     ) -> pxt.UpdateStatus:
         """Stream a SqlDataSource into this table through a single insert plan.
 
-        Internal entry point used by `pxt.io.import_sql`; not part of the public `Table` API. Source-side
-        validation (column names, type compatibility, required columns, etc.) is the caller's responsibility.
+        Assumes the source's columns have already been validated against this table's schema.
         """
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         start_ts = time.perf_counter()
