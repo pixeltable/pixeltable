@@ -22,11 +22,11 @@ BASIC_PLATFORMS = ('macos-15', 'windows-2022')
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
-COCKROACH_TEST_MODULES = ('table', 'index')
+COCKROACH_LIVE_TEST_MODULES = ('table', 'index')
 
-# CockroachDB suite modules: the `make slimtest` set + the primary-key index tests for partial index coverage.
+# CockroachDB local suite modules: the `make slimtest` set + the primary-key index tests for partial index coverage.
 # test_unversioned_table.py is intentionally excluded (see TODO: implement for unversioned tables [PXT-1101])
-SLIMTEST_MODULES = (
+COCKROACH_LOCAL_TEST_MODULES = (
     'tests/test_catalog.py',
     'tests/test_dirs.py',
     'tests/test_env.py',
@@ -148,17 +148,17 @@ def generate_matrix(args: argparse.Namespace) -> None:
                     pytest_options=f'--reruns 2 -m cockroachdb tests/test_{module}.py',
                     pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
                 )
-                for module in COCKROACH_TEST_MODULES
+                for module in COCKROACH_LIVE_TEST_MODULES
             )
 
-        # Full test suite against a local single-node CockroachDB container. Restricted to the slimtest modules.
+        # Local test suite against a local single-node CockroachDB container. Restricted to the slimtest modules.
         configs.append(
             MatrixConfig(
-                'cockroach-full',
+                'cockroach-local',
                 'py',
                 MAIN_PLATFORM,
                 '3.10',
-                pytest_options=f'{DEFAULT_PYTEST} {" ".join(SLIMTEST_MODULES)}',
+                pytest_options=f'{DEFAULT_PYTEST} {" ".join(COCKROACH_LOCAL_TEST_MODULES)}',
                 pre_test_cmd=(
                     'bash scripts/start-cockroach-ci.sh && '
                     'export PIXELTABLE_DB_CONNECT_STR='
