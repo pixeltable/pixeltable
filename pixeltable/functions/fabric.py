@@ -25,7 +25,7 @@ from pixeltable.utils.code import local_public_names
 if TYPE_CHECKING:
     from synapse.ml.fabric.service_discovery import FabricEnvConfig  # type: ignore[import-not-found]
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 def _get_fabric_config() -> tuple['FabricEnvConfig', str]:

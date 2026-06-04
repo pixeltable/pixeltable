@@ -15,8 +15,6 @@ from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 import pixeltable.type_system as ts
 from pixeltable.utils.http_server import get_file_uri
 
-_logger = logging.getLogger('pixeltable')
-
 
 class Formatter:
     """

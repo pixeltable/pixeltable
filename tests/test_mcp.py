@@ -10,7 +10,7 @@ import pixeltable as pxt
 
 from .utils import rerun, skip_test_if_no_client, skip_test_if_not_installed
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger('pixeltable_test')
 
 
 @rerun(reruns=3, delay=30)

@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import enum
 import itertools
-import logging
 from dataclasses import dataclass
 from uuid import UUID
 
 import pixeltable.exceptions as excs
-
-_logger = logging.getLogger('pixeltable')
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'

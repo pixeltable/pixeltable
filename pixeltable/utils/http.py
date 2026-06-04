@@ -9,7 +9,7 @@ from pathlib import Path
 from random import random
 from typing import Any
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 _RETRIABLE_ERROR_INDICATORS = (
     'rate limit',

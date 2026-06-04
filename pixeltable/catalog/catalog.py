@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from .. import exprs
 
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api.DeclarativeBase]]) -> list[Any] | None:
@@ -407,7 +407,7 @@ class Catalog:
                             )
                             if for_write and lock_mutable_tree:
                                 self._compute_column_dependents(self._x_locked_tbl_ids)
-                            if Env.get().logging_is_enabled_for(logging.DEBUG, 'catalog'):
+                            if _logger.isEnabledFor(logging.DEBUG):
                                 # validate only when we don't see errors
                                 self.validate()
                         except PendingTableOpsError as e:
@@ -589,7 +589,7 @@ class Catalog:
                 msg = ''
             _logger.debug(f'Exception: {e.orig.__class__}: {msg} ({e})')
             # Suppress the underlying SQL exception unless DEBUG is enabled
-            raise_from = e if Env.get().logging_is_enabled_for(logging.DEBUG, 'catalog') else None
+            raise_from = e if _logger.isEnabledFor(logging.DEBUG) else None
             if isinstance(e.orig, psycopg.errors.DuplicateColumn):
                 # TODO: extend message with the name of the schema column (not the store column)
                 raise excs.AlreadyExistsError(excs.ErrorCode.COLUMN_ALREADY_EXISTS, 'Duplicate column') from raise_from
