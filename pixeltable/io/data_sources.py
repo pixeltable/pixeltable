@@ -8,11 +8,15 @@ from sqlalchemy.sql.expression import SelectBase
 
 @dataclass
 class SqlDataSource:
-    """A user-supplied SQL source: a normalized SELECT statement and an `Engine` or `Connection` to run it against.
+    """A normalized SQL source for import: a SELECT, its validated output column names, and a live `Connection`.
 
-    `conn` is always a handle to an external SQL database that the user wants to import from; it is never a
-    connection to Pixeltable's own metadata store.
+    `col_names` are the SELECT's output column names, positionally aligned with `select_stmt.selected_columns`
+    and already validated against the destination schema.
+
+    `conn` is a handle to an external SQL database that the user wants to import from; it is never a connection
+    to Pixeltable's own metadata store.
     """
 
     select_stmt: SelectBase
-    conn: sql.Engine | sql.Connection
+    col_names: list[str]
+    conn: sql.Connection

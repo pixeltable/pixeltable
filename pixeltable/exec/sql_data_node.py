@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, AsyncIterator, ClassVar
+from typing import TYPE_CHECKING, AsyncIterator
 
 import sqlalchemy as sql
 
@@ -19,21 +19,17 @@ _logger = logging.getLogger('pixeltable')
 
 class SqlDataNode(ExecNode):
     """
-    Streams a SqlDataSource (a normalized SELECT executed against an Engine or Connection) into DataRowBatches.
+    Streams a SqlDataSource (a normalized SELECT executed against a Connection) into DataRowBatches.
 
     Populates the destination table's column slots by matching each SELECT output column to a column of the
     same name; any slot not populated from the source is set to None. The SQL source's columns are assumed to
     have already been validated against the destination schema.
     """
 
-    BATCH_SIZE: ClassVar[int] = 1024
-
     tbl: catalog.TableVersionHandle
     sql_source: SqlDataSource
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]
-    _owns_conn: bool
-    _conn: sql.Connection | None
     _result: sql.CursorResult | None
     _mapped_cols: list[exprs.ColumnSlotIdx]
     _unmapped_slot_idxs: list[int]
@@ -46,8 +42,6 @@ class SqlDataNode(ExecNode):
         assert tbl.get().is_insertable
         self.tbl = tbl
         self.sql_source = sql_source
-        self._owns_conn = False
-        self._conn = None
         self._result = None
         self._mapped_cols = []
         self._unmapped_slot_idxs = []
@@ -60,36 +54,17 @@ class SqlDataNode(ExecNode):
         }
         all_output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
-        # source_names are the SELECT's output column names, positionally aligned with each result row; each is
-        # assumed to resolve to a destination column of the same name.
-        source_names = [
-            getattr(c, 'name', None) or getattr(c, 'key', None) for c in self.sql_source.select_stmt.selected_columns
-        ]
-        self._mapped_cols = [dest_cols_by_name[n] for n in source_names]
+        # col_names are the SELECT's output column names (validated by the caller), positionally aligned with each
+        # result row; each resolves to a destination column of the same name.
+        self._mapped_cols = [dest_cols_by_name[n] for n in self.sql_source.col_names]
         mapped_slot_idxs = {c.slot_idx for c in self._mapped_cols}
         self._unmapped_slot_idxs = list(all_output_slot_idxs - mapped_slot_idxs)
 
-        if isinstance(self.sql_source.conn, sql.Engine):
-            self._conn = self.sql_source.conn.connect()
-            self._owns_conn = True
-        else:
-            assert isinstance(self.sql_source.conn, sql.Connection)
-            self._conn = self.sql_source.conn
-            self._owns_conn = False
-
-        try:
-            self._result = (
-                self._conn.execution_options(stream_results=True)
-                .execute(  # type: ignore[call-overload]
-                    self.sql_source.select_stmt
-                )
-                .yield_per(self.BATCH_SIZE)
-            )
-        except BaseException:
-            if self._owns_conn:
-                self._conn.close()
-                self._conn = None
-            raise
+        # Pass stream_results per-execution rather than via the connection's execution_options: the connection
+        # is owned by the caller, so we must not leave execution options on it.
+        self._result = self.sql_source.conn.execute(  # type: ignore[call-overload]
+            self.sql_source.select_stmt, execution_options={'stream_results': True}
+        )
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         assert self._result is not None
@@ -110,7 +85,7 @@ class SqlDataNode(ExecNode):
             for slot_idx in self._unmapped_slot_idxs:
                 output_row[slot_idx] = None
             output_batch.add_row(output_row)
-            if len(output_batch) >= self.BATCH_SIZE:
+            if len(output_batch) >= self.ctx.batch_size:
                 _logger.debug(f'SqlDataNode: yielding batch of {len(output_batch)} rows')
                 yield output_batch
                 output_batch = DataRowBatch(self.row_builder)
@@ -123,6 +98,3 @@ class SqlDataNode(ExecNode):
         if self._result is not None:
             self._result.close()
             self._result = None
-        if self._conn is not None and self._owns_conn:
-            self._conn.close()
-        self._conn = None

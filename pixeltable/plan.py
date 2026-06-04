@@ -369,14 +369,11 @@ class Analyzer:
 class Planner:
     @classmethod
     def create_insert_plan(
-        cls,
-        tbl: catalog.TableVersion,
-        rows: list[dict[str, Any]] | None,
-        sql_source: SqlDataSource | None,
-        ignore_errors: bool,
+        cls, tbl: catalog.TableVersion, source: list[dict[str, Any]] | SqlDataSource, ignore_errors: bool
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.insert(). Exactly one of `rows` and `sql_source` must be provided."""
-        assert (rows is None) != (sql_source is None)
+        """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource."""
+        from pixeltable.io.data_sources import SqlDataSource
+
         assert not tbl.is_view
         # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
@@ -388,11 +385,12 @@ class Planner:
 
         plan: exec.ExecNode
         batch_size: int
-        if sql_source is not None:
-            plan = exec.SqlDataNode(tbl.handle, sql_source, row_builder)
-            batch_size = exec.SqlDataNode.BATCH_SIZE
+        if isinstance(source, SqlDataSource):
+            plan = exec.SqlDataNode(tbl.handle, source, row_builder)
+            batch_size = 1024
         else:
-            plan = exec.InMemoryDataNode(tbl.handle, rows, row_builder)
+            assert isinstance(source, list)
+            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder)
             batch_size = 0
 
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)

@@ -241,9 +241,9 @@ class TestSql:
     def test_import_full_table(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
         """End-to-end import of a full SA Table: type inference for all common SA types, nullable vs non-nullable
         propagation, NULL-to-None value roundtrip, exact value preservation, and the single-version-bump claim
-        across batch boundaries (rows > BATCH_SIZE so streaming actually engages)."""
+        across batch boundaries (rows > the insert batch size so streaming actually engages)."""
         engine = _import_engine(dialect, tmp_path)
-        n = 2500  # > SqlDataNode.BATCH_SIZE (1024) to force at least 3 batches
+        n = 2500  # > the 1024-row insert batch size, to force at least 3 batches
 
         seed_rows = [
             {
@@ -522,9 +522,9 @@ class TestSql:
         # destination must be untouched after the rejection
         assert tbl.count() == len(seed_a)
 
-        # if_exists='append' against missing table -> rejects (pxt.get_table raises PATH_NOT_FOUND).
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='never_existed'):
-            import_sql(src_a, engine, 'never_existed', if_exists='append')
+        # if_exists='append' against a missing table -> creates it.
+        created = import_sql(src_a, engine, 'never_existed', if_exists='append')
+        assert created.count() == len(seed_a)
 
         # if_exists='append' happy path -> preserves existing rows and adds new ones.
         import_sql(src_b, engine, 'dest', if_exists='append')

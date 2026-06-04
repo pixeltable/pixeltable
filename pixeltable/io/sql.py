@@ -93,7 +93,7 @@ def import_sql(
 ) -> pxt.Table:
     """Import a SQL source into a Pixeltable table.
 
-    Rows are streamed from the source in batches of `SqlDataNode.BATCH_SIZE`.
+    Rows are streamed from the source via a server-side cursor and inserted in batches.
 
     Args:
         selectable: A SQLAlchemy `Selectable` (a `Table`, a `select()` statement, or `text(...).columns(...)`)
@@ -110,8 +110,9 @@ def import_sql(
         custom_metadata: Forwarded to `pxt.create_table`.
         if_exists: How to handle the destination table.
 
-            - `'error'`: fail if the table already exists.
-            - `'append'`: require the table to exist; verify the source schema is compatible; insert only.
+            - `'error'`: create the table; fail if it already exists.
+            - `'append'`: append into the table if it already exists (verifying the source schema is
+              compatible); otherwise create it.
         on_error: How to handle errors encountered while inserting source rows.
 
             - `'abort'`: any row error aborts the entire import.
@@ -170,35 +171,39 @@ def import_sql(
             )
         inferred_schema.update(schema_overrides)
 
-    sql_data_source = SqlDataSource(select_stmt=stmt, conn=conn)
+    def run(connection: sql.Connection) -> pxt.Table:
+        sql_data_source = SqlDataSource(select_stmt=stmt, col_names=source_names, conn=connection)
 
-    if if_exists == 'append':
-        tbl = pxt.get_table(tbl_name)
-        if not isinstance(tbl, pxt.InsertableTable):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'`import_sql` requires a base table; {tbl_name!r} is a {type(tbl).__name__.lower()}.',
-            )
-        _validate_append_compatibility(tbl, tbl_name, inferred_schema)
-        tbl._insert_sql_source(sql_data_source, on_error=on_error)
+        existing = pxt.get_table(tbl_name, if_not_exists='ignore')
+        if if_exists == 'append' and existing is not None:
+            if not isinstance(existing, pxt.InsertableTable):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'`import_sql` requires a base table; {tbl_name!r} is a {type(existing).__name__.lower()}.',
+                )
+            _validate_append_compatibility(existing, tbl_name, inferred_schema)
+            existing._insert_sql_source(sql_data_source, on_error=on_error)
+            return existing
+
+        tbl = pxt.create_table(
+            tbl_name,
+            inferred_schema,
+            primary_key=primary_key,
+            comment=comment,
+            custom_metadata=custom_metadata,
+            if_exists='error',
+        )
+        try:
+            tbl._insert_sql_source(sql_data_source, on_error=on_error)
+        except BaseException:
+            pxt.drop_table(tbl, if_not_exists='ignore')
+            raise
         return tbl
 
-    tbl = pxt.create_table(
-        tbl_name,
-        inferred_schema,
-        primary_key=primary_key,
-        comment=comment,
-        custom_metadata=custom_metadata,
-        if_exists='error',
-    )
-    try:
-        tbl._insert_sql_source(sql_data_source, on_error=on_error)
-    except BaseException:
-        # If drop_table raises, Python's implicit exception chaining (PEP 3134) preserves the original
-        # insert error on `__context__` and the traceback still shows it.
-        pxt.drop_table(tbl, if_not_exists='ignore')
-        raise
-    return tbl
+    if isinstance(conn, sql.Engine):
+        with conn.connect() as connection:
+            return run(connection)
+    return run(conn)
 
 
 def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, inferred_schema: dict[str, Any]) -> None:

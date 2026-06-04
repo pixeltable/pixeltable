@@ -188,12 +188,15 @@ class InsertableTable(Table):
         ):
             if isinstance(data_source, QueryTableDataConduit):
                 status += self._tbl_version.get().insert(
-                    rows=None, query=data_source.pxt_query, print_stats=print_stats, fail_on_exception=fail_on_exception
+                    source=None,
+                    query=data_source.pxt_query,
+                    print_stats=print_stats,
+                    fail_on_exception=fail_on_exception,
                 )
             else:
                 for row_batch in data_source.valid_row_batch():
                     status += self._tbl_version.get().insert(
-                        rows=row_batch,
+                        source=row_batch,
                         query=None,
                         print_stats=print_stats,
                         fail_on_exception=fail_on_exception,
@@ -222,9 +225,8 @@ class InsertableTable(Table):
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
             status = self._tbl_version.get().insert(
-                rows=None,
+                source=sql_source,
                 query=None,
-                sql_source=sql_source,
                 print_stats=print_stats,
                 fail_on_exception=fail_on_exception,
                 return_rows=return_rows,
