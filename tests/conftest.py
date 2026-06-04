@@ -186,6 +186,11 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     Env.get().default_time_zone = None
     Env.get().user = None
     reload_catalog()
+    # reload_catalog() resets the runtime but not the process-global FileCache singleton. Rebuild it from the
+    # current file_cache_dir so each test starts from a state consistent with disk; without this, a test that
+    # churns the environment (e.g. TestEnvReset) leaves stale in-memory entries that fail the validate() below
+    # and cascade into every subsequent test on the same xdist worker.
+    FileCache.init()
     FileCache.get().validate()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
@@ -201,7 +206,8 @@ def _free_disk_space() -> None:
     # In CI, we sometimes run into disk space issues. We try to mitigate this by clearing out various caches between
     # tests.
 
-    # Clear the temp store and media dir
+    # Clear the temp store and media dir (these live under the per-worker PIXELTABLE_HOME, so clearing them
+    # is safe even when running concurrently under pytest-xdist).
     try:
         TempStore.clear()
         LocalStore(Env.get().media_dir).clear()
@@ -210,10 +216,15 @@ def _free_disk_space() -> None:
         # Sometimes this happens on Windows if a file is held open by a concurrent process.
         _logger.info('PermissionError trying to clear TempStore and media dir.')
 
-    try:
-        _clear_hf_caches()
-    except ImportError:
-        pass  # huggingface_hub not installed in this CI environment
+    # The huggingface cache is shared across all xdist workers (it lives outside PIXELTABLE_HOME). Clearing it
+    # here would delete other workers' in-flight downloads out from under them, corrupting the partial files
+    # (manifests as 'No such file or directory: tmp_...' / 'Unrecognized processing class'). Only clear it when
+    # this process is the sole one using the cache.
+    if os.environ.get('PYTEST_XDIST_WORKER') is None:
+        try:
+            _clear_hf_caches()
+        except ImportError:
+            pass  # huggingface_hub not installed in this CI environment
 
 
 def _clear_hf_caches() -> None:
