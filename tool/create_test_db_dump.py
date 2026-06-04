@@ -16,13 +16,13 @@ import toml
 
 import pixeltable as pxt
 from pixeltable import functions as pxtf, metadata, type_system as ts
-from pixeltable.env import Env
+from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
 from pixeltable.iterators.base import ComponentIterator
 from tool.udfs_for_db_dump import test_array_udf, test_binary_udf, test_date_udf, test_timestamp_udf, test_uuid_udf
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 # We use URLs (not local files) so that the dumps are portable. We also use repo references with fixed SHAs for all
@@ -113,7 +113,11 @@ class Dumper:
 
         Env._init_env(reinit_db=True)
 
-        Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
+        logging.getLogger('pixeltable').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter(LOG_FMT_STR))
+        logging.getLogger('pixeltable').addHandler(handler)
 
     def dump_db(self) -> None:
         md_version = metadata.VERSION

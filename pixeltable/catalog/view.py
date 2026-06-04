@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-import logging
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, List, Literal, Mapping
 from uuid import UUID
 
@@ -31,8 +29,6 @@ if TYPE_CHECKING:
     from pixeltable.catalog.table import TableMetadata
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
-
-_logger = logging.getLogger('pixeltable')
 
 
 class View(Table):

@@ -33,7 +33,7 @@ from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
 from pixeltable.utils.local_store import LocalStore, TempStore
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class BackgroundJobResponse(pydantic.BaseModel):

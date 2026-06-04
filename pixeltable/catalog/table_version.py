@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 
     from .table_version_path import TableVersionPath
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
