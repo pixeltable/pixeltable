@@ -14,7 +14,6 @@ from pixeltable import Query, catalog, exceptions as excs, exprs, func, share, t
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
-from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
 from pixeltable.share.protocol import PxtUri
@@ -1158,20 +1157,6 @@ def tool(fn: func.Function, name: str | None = None, description: str | None = N
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Aggregator UDFs cannot be used as tools')
 
     return func.tools.Tool(fn=fn, name=name, description=description)
-
-
-def configure_logging(
-    *, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None
-) -> None:
-    """Configure logging.
-
-    Args:
-        to_stdout: if True, also log to stdout
-        level: default log level
-        add: comma-separated list of 'module name:log level' pairs; ex.: add='video:10'
-        remove: comma-separated list of module names
-    """
-    return Env.get().configure_logging(to_stdout=to_stdout, level=level, add=add, remove=remove)
 
 
 def array(elements: Iterable) -> exprs.Expr:

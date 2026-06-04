@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import typing
 from pathlib import Path
 from typing import Any, cast
@@ -13,8 +12,6 @@ from pixeltable.utils.transactional_directory import transactional_directory
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
-
-_logger = logging.getLogger('pixeltable')
 
 
 def export_parquet(

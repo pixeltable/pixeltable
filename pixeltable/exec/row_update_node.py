@@ -1,12 +1,9 @@
-import logging
 from typing import Any, AsyncIterator
 
 from pixeltable import catalog, exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
-
-_logger = logging.getLogger('pixeltable')
 
 
 class RowUpdateNode(ExecNode):

@@ -19,7 +19,7 @@ from pixeltable.utils.local_store import TempStore
 
 from . import util
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @pxt.udf(is_method=True)

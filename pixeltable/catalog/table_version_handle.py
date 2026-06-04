@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -13,8 +12,6 @@ from .table_version import TableVersion, TableVersionKey
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Catalog, Column
-
-_logger = logging.getLogger('pixeltable')
 
 
 class TableVersionHandle:
