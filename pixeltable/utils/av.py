@@ -14,7 +14,7 @@ from typing_extensions import Self
 import pixeltable as pxt
 from pixeltable.env import Env
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 # format -> (codec, extension)
 AUDIO_FORMATS: dict[str, tuple[str, str]] = {

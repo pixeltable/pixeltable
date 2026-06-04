@@ -31,7 +31,7 @@ except ImportError:
     # label_studio_sdk>=1 compatibility
     import label_studio_sdk._legacy.project as ls_project
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @env.register_client('label_studio')

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import logging
 import os
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -19,8 +18,6 @@ from pixeltable.utils.local_store import LocalStore
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 from .globals import INLINED_OBJECT_MD_KEY, InlinedObjectMd
-
-_logger = logging.getLogger('pixeltable')
 
 
 class CellMaterializationNode(ExecNode):

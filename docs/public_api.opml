@@ -30,7 +30,6 @@
           <outline text="func|pixeltable.list_dirs" />
           <outline text="func|pixeltable.list_functions" />
           <outline text="func|pixeltable.list_tables" />
-          <outline text="func|pixeltable.configure_logging" />
 
           <!-- Decorators and helpers -->
           <outline text="func|pixeltable.udf" />
