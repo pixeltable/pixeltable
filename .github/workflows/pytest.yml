@@ -220,13 +220,13 @@ jobs:
       - name: Download HF models for notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/retry.sh 5 60 huggingface-cli download sentence-transformers/all-MiniLM-L6-v2
-          ./scripts/retry.sh 5 60 huggingface-cli download sentence-transformers/all-MiniLM-L12-v2
-          ./scripts/retry.sh 5 60 huggingface-cli download facebook/detr-resnet-50
-          ./scripts/retry.sh 5 60 huggingface-cli download openai/clip-vit-base-patch32
-          ./scripts/retry.sh 5 60 huggingface-cli download intfloat/e5-large-v2
-          ./scripts/retry.sh 5 60 huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF --include '*q5_k_m.gguf'
-          ./scripts/retry.sh 5 60 huggingface-cli download bartowski/Llama-3.2-1B-Instruct-GGUF --include '*Q5_K_M.gguf'
+          ./scripts/retry.sh 5 60 hf download sentence-transformers/all-MiniLM-L6-v2
+          ./scripts/retry.sh 5 60 hf download sentence-transformers/all-MiniLM-L12-v2
+          ./scripts/retry.sh 5 60 hf download facebook/detr-resnet-50
+          ./scripts/retry.sh 5 60 hf download openai/clip-vit-base-patch32
+          ./scripts/retry.sh 5 60 hf download intfloat/e5-large-v2
+          ./scripts/retry.sh 5 60 hf download Qwen/Qwen2.5-0.5B-Instruct-GGUF --include '*q5_k_m.gguf'
+          ./scripts/retry.sh 5 60 hf download bartowski/Llama-3.2-1B-Instruct-GGUF --include '*Q5_K_M.gguf'
           ./scripts/retry.sh 5 60 python -c "from datasets import load_dataset; load_dataset('cornell-movie-review-data/rotten_tomatoes', trust_remote_code=True)"
           ./scripts/retry.sh 5 60 python -c "from datasets import load_dataset; load_dataset('stanfordnlp/imdb', trust_remote_code=True)"
           ./scripts/retry.sh 5 60 python -c "from datasets import load_dataset; load_dataset('ylecun/mnist', trust_remote_code=True)"
