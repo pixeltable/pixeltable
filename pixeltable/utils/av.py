@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import re
 import subprocess
@@ -10,14 +8,13 @@ from types import TracebackType
 from typing import Any, Iterator, NoReturn
 
 import av
-import av.stream
 import PIL.Image
 from typing_extensions import Self
 
 import pixeltable as pxt
 from pixeltable.env import Env
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 # format -> (codec, extension)
 AUDIO_FORMATS: dict[str, tuple[str, str]] = {
@@ -26,71 +23,6 @@ AUDIO_FORMATS: dict[str, tuple[str, str]] = {
     'flac': ('flac', 'flac'),
     'mp4': ('aac', 'm4a'),
 }
-
-
-def get_metadata(path: str) -> dict:
-    with av.open(path) as container:
-        assert isinstance(container, av.container.InputContainer)
-        streams_info = [__get_stream_metadata(stream) for stream in container.streams]
-        result = {
-            'bit_exact': getattr(container, 'bit_exact', False),
-            'bit_rate': container.bit_rate,
-            'size': container.size,
-            'metadata': container.metadata,
-            'streams': streams_info,
-        }
-    return result
-
-
-def __get_stream_metadata(stream: av.stream.Stream) -> dict:
-    if stream.type not in ('audio', 'video'):
-        return {'type': stream.type}  # Currently unsupported
-
-    codec_context = stream.codec_context
-    codec_context_md: dict[str, Any] = {
-        'name': codec_context.name,
-        'codec_tag': codec_context.codec_tag.encode('unicode-escape').decode('utf-8'),
-        'profile': codec_context.profile,
-    }
-
-    # Compute duration_seconds from stream-level duration.
-    # We intentionally don't fall back to container.duration here because it's ambiguous —
-    # it may reflect a different stream's duration (e.g. audio vs video).
-    duration_seconds: float | None = None
-    if stream.duration is not None and stream.time_base is not None:
-        duration_seconds = float(stream.duration * stream.time_base)
-
-    metadata = {
-        'type': stream.type,
-        'duration': stream.duration,
-        'time_base': float(stream.time_base) if stream.time_base is not None else None,
-        'duration_seconds': duration_seconds,
-        'frames': stream.frames,
-        'metadata': stream.metadata,
-        'codec_context': codec_context_md,
-    }
-
-    if stream.type == 'audio':
-        # Additional metadata for audio
-        assert isinstance(stream.codec_context, av.AudioCodecContext)
-        channels = stream.codec_context.channels
-        codec_context_md['channels'] = int(channels) if channels is not None else None
-    else:
-        assert stream.type == 'video'
-        assert isinstance(stream, av.video.stream.VideoStream)
-        # Additional metadata for video
-        codec_context_md['pix_fmt'] = getattr(stream.codec_context, 'pix_fmt', None)
-        metadata.update(
-            **{
-                'width': stream.width,
-                'height': stream.height,
-                'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
-                'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
-                'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
-            }
-        )
-
-    return metadata
 
 
 def get_video_duration(path: str) -> float | None:
@@ -183,8 +115,9 @@ def get_max_volume_db(path: str) -> float | None:
 
 def has_audio_stream(path: str) -> bool:
     """Check if video has audio stream using PyAV."""
-    md = get_metadata(path)
-    return any(stream['type'] == 'audio' for stream in md['streams'])
+    with av.open(path) as container:
+        assert isinstance(container, av.container.InputContainer)
+        return any(stream.type == 'audio' for stream in container.streams)
 
 
 # bytes of memory per pixel of decoded frames, by pixel format

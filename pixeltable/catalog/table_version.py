@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
     from .table_version_path import TableVersionPath
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -469,7 +469,7 @@ class TableVersion:
         assert len(self.cols) == 0
         assert len(self.idxs) == 0
 
-        # Construct a TableVersionPath for column retargeting, if needed
+        # Construct a target table versions dict for column retargeting, if needed
         tvp: TableVersionPath | None = None
         if self.effective_version is not None:
             # for snapshot TableVersion instances, we need to retarget the column value_exprs to the snapshot;
@@ -483,6 +483,7 @@ class TableVersion:
             # "anchored" TableVersionPath.
             assert self.path is not None
             tvp = self.path
+        target_tbl_versions = {tvh.id: tvh.get() for tvh in tvp.get_tbl_versions()} if tvp is not None else None
 
         # Reconstruct Column and Index objects from metadata, populating all internal lookup structures.
         # Indexes are initialized in lock-step, immediately after their undo column is initialized.
@@ -511,7 +512,9 @@ class TableVersion:
                 col_md.schema_version_drop is None or col_md.schema_version_drop > self.schema_version
             )
 
-            value_expr = self._init_col_value_expr_from_md(col_md, schema_col_md, tvp) if is_visible else None
+            value_expr: exprs.Expr | None = None
+            if is_visible:
+                value_expr = self._init_col_value_expr_from_md(col_md, schema_col_md, target_tbl_versions)
 
             col = Column(
                 col_id=col_md.id,
@@ -559,11 +562,14 @@ class TableVersion:
             self.store_tbl = StoreTable(self)
 
     def _init_col_value_expr_from_md(
-        self, col_md: schema.ColumnMd, schema_col_md: schema.SchemaColumn | None, tvp: 'TableVersionPath | None'
+        self,
+        col_md: schema.ColumnMd,
+        schema_col_md: schema.SchemaColumn | None,
+        target_tbl_versions: dict[UUID, 'TableVersion'] | None,
     ) -> exprs.Expr | None:
         if col_md.value_expr is None:
             return None
-        value_expr = exprs.Expr.from_dict(col_md.value_expr)
+        value_expr = exprs.Expr.from_dict(col_md.value_expr, target_tbl_versions)
         value_expr.bind_rel_paths()
         if not value_expr.is_valid:
             col_name = schema_col_md.name if schema_col_md is not None else '<unnamed>'
@@ -575,8 +581,6 @@ class TableVersion:
                 ]
             )
             warnings.warn(message, category=excs.PixeltableWarning)  # noqa: B028
-        if tvp is not None:
-            value_expr = value_expr.retarget(tvp)
         return value_expr
 
     def _build_col_to_idx_maps(
@@ -606,7 +610,7 @@ class TableVersion:
 
     def _init_idx(self, idx: index.IndexBase, md: schema.IndexMd) -> None:
         indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
-        idx_col = self._lookup_column(indexed_col_id)
+        idx_col = self.lookup_column(indexed_col_id)
         assert idx_col is not None
         info = self.IndexInfo(
             id=md.id,
@@ -620,7 +624,7 @@ class TableVersion:
         self.idxs_by_name[md.name] = info
         self.idxs_by_col.setdefault(indexed_col_id, []).append(info)
 
-    def _lookup_column(self, qid: QColumnId) -> Column | None:
+    def lookup_column(self, qid: QColumnId) -> Column | None:
         """
         Look up the column with the given table id and column id, searching through the ancestors of this TableVersion
         to find it. We avoid referencing TableVersionPath in order to work properly with snapshots as well.
@@ -630,7 +634,7 @@ class TableVersion:
         if qid.tbl_id == self.id:
             return next((col for col in self.cols if col.id == qid.col_id), None)
         elif self.base is not None:
-            return self.base.get()._lookup_column(qid)
+            return self.base.get().lookup_column(qid)
         else:
             return None
 

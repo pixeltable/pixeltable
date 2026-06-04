@@ -18,7 +18,7 @@ class TestDirs:
         for name in dirs:
             dir = pxt.create_dir(name)
             assert dir._path() == name
-            assert dir._name == name.split('/')[-1]
+            assert dir._name() == name.split('/')[-1]
 
         # invalid names
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1dir'):
@@ -278,7 +278,7 @@ class TestDirs:
         dir3 = pxt.create_dir('dir1/dir2/dir3', parents=True)
         assert dir3._path() == 'dir1/dir2/dir3'
 
-        assert dir3._name == 'dir3'
+        assert dir3._name() == 'dir3'
         listing = pxt.list_dirs(recursive=True)
         assert listing == all_dirs
 
@@ -287,7 +287,7 @@ class TestDirs:
         pxt.drop_dir('dir1/dir2')
         dir4 = pxt.create_dir('dir1/dir2/dir3/dir4', parents=True)
         assert dir4._path() == 'dir1/dir2/dir3/dir4'
-        assert dir4._name == 'dir4'
+        assert dir4._name() == 'dir4'
         listing = pxt.list_dirs(recursive=True)
         all_dirs.append('dir1/dir2/dir3/dir4')
         assert listing == all_dirs

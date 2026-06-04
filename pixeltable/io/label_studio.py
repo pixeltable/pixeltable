@@ -31,7 +31,7 @@ except ImportError:
     # label_studio_sdk>=1 compatibility
     import label_studio_sdk._legacy.project as ls_project
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @env.register_client('label_studio')
@@ -116,7 +116,7 @@ class LabelStudioProject(Project):
 
     def sync(self, t: Table, export_data: bool, import_data: bool) -> UpdateStatus:
         _logger.info(
-            f'Syncing Label Studio project "{self.project_title}" with table `{t._name}`'
+            f'Syncing Label Studio project "{self.project_title}" with table `{t._name()}`'
             f' (export: {export_data}, import: {import_data}).'
         )
         # Collect all existing tasks into a dict with entries `rowid: task`
@@ -416,7 +416,7 @@ class LabelStudioProject(Project):
         updates = [{'_rowid': rowid, local_annotations_col.name: ann} for rowid, ann in annotations.items()]
         if len(updates) > 0:
             _logger.info(
-                f'Updating table {t._name!r}, column {local_annotations_col.name!r} '
+                f'Updating table {t._name()!r}, column {local_annotations_col.name!r} '
                 f'with {len(updates)} total annotations.'
             )
             # batch_update currently doesn't propagate from views to base tables. As a workaround, we call
@@ -582,7 +582,7 @@ class LabelStudioProject(Project):
 
         if title is None:
             # `title` defaults to table name
-            title = t._name
+            title = t._name()
 
         # Create a column to hold the annotations, if one does not yet exist
         if col_mapping is None or ANNOTATIONS_COLUMN in col_mapping.values():
