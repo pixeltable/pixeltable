@@ -39,7 +39,9 @@ class InMemoryDataNode(ExecNode):
     def _open(self) -> None:
         """Create row batch and populate with self.input_rows"""
         user_cols_by_name = {
-            col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx) for col_ref in self.output_exprs
+            col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
+            for col_ref in self.output_exprs
+            if col_ref.col.name is not None
         }
         output_cols_by_idx = {
             col_ref.slot_idx: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx) for col_ref in self.output_exprs

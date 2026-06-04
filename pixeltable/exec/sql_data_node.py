@@ -48,9 +48,12 @@ class SqlDataNode(ExecNode):
 
     def _open(self) -> None:
         # output_exprs are ColumnRefs to the destination table's insertable columns; index them by name so each
-        # SELECT output column can be matched to its destination slot.
+        # SELECT output column can be matched to its destination slot. Stored, non-computed index columns (eg, an
+        # index's undo column) also show up here with name=None; exclude them so they don't collide on a None key.
         dest_cols_by_name = {
-            col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx) for col_ref in self.output_exprs
+            col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
+            for col_ref in self.output_exprs
+            if col_ref.col.name is not None
         }
         all_output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
