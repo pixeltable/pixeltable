@@ -139,7 +139,7 @@ dev = [
     "nbmake>=1.5,<2",
     "mistune>=3.0.2,<4",
     "markitdown[pptx,docx,xlsx]>=0.1.3 ; python_version < '3.14'",
-    "pyiceberg>=0.6.0",
+    "pyiceberg>=0.9.0",
     "torch>=2.11",
     "torchaudio>=2.11",
     "torchvision>=0.23",
@@ -169,14 +169,15 @@ dev = [
     # whisperx is disabled because it hard-pins torch 2.8 (four full versions behind at the time of this writing).
     # "whisperx>=3.8.5 ; python_version < '3.14'",
     "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
-    "ollama>=0.5.1",
+    "ollama>=0.6",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
     "mcp>=1.23.0",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
     # of at least one library. We can re-enable it once they update their dependencies.
     # "fiftyone>=1.13 ; python_version < '3.14'",
-    "lancedb>=0.20 ; python_version < '3.14'",
+    "lancedb>=0.30",
+    "pylance>=6",
     "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.11",

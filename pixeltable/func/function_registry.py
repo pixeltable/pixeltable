@@ -13,7 +13,7 @@ from pixeltable.metadata import schema
 
 from .function import Function, InvalidFunction
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class FunctionRegistry:

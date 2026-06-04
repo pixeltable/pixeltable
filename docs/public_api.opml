@@ -30,7 +30,6 @@
           <outline text="func|pixeltable.list_dirs" />
           <outline text="func|pixeltable.list_functions" />
           <outline text="func|pixeltable.list_tables" />
-          <outline text="func|pixeltable.configure_logging" />
 
           <!-- Decorators and helpers -->
           <outline text="func|pixeltable.udf" />
@@ -146,6 +145,9 @@
           <outline text="uda|pixeltable.functions.mean" />
           <outline text="uda|pixeltable.functions.min" />
           <outline text="uda|pixeltable.functions.sum" />
+        </outline>
+        <outline text="module|pixeltable.functions.array">
+          <outline text="udf|pixeltable.functions.array.to_list" />
         </outline>
         <outline text="module|pixeltable.functions.audio">
           <outline text="iter|pixeltable.functions.audio.audio_splitter" />
@@ -503,6 +505,7 @@
           <outline text="func|pixeltable.io.import_huggingface_dataset" />
           <outline text="func|pixeltable.io.export_csv" />
           <outline text="func|pixeltable.io.export_json" />
+          <outline text="func|pixeltable.io.export_iceberg" />
           <outline text="func|pixeltable.io.export_parquet" />
           <outline text="func|pixeltable.io.export_sql" />
           <outline text="func|pixeltable.io.export_lancedb" />

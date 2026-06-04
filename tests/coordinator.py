@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from threading import Event, Lock, Thread, current_thread
 from typing import Any, Callable
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger('pixeltable_test')
 
 
 @dataclass

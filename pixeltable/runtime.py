@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from pixeltable.catalog.catalog import Catalog
     from pixeltable.exec import ExecPlan
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 _thread_local = threading.local()
 
 _XACT_ISOLATION_LEVEL = 'READ COMMITTED'
@@ -111,7 +111,7 @@ class Runtime:
             # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
             self._event_loop.slow_callback_duration = 3600
 
-        if Env.get().logging_is_enabled_for(logging.DEBUG, 'runtime'):
+        if _logger.isEnabledFor(logging.DEBUG):
             self._event_loop.set_debug(True)
 
     def get_client(self, name: str) -> Any:

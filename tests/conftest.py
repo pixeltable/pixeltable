@@ -4,6 +4,7 @@ import os
 import pathlib
 import platform
 import shutil
+import sys
 import uuid
 from typing import Callable, Iterator
 
@@ -20,7 +21,7 @@ import pixeltable.utils.fault_injection as prod_fault_injection
 import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
-from pixeltable.env import Env
+from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata.schema import base_metadata
 from pixeltable.runtime import get_runtime
@@ -38,7 +39,7 @@ from .utils import (
     skip_test_if_not_installed,
 )
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger('pixeltable_test')
 
 
 DO_RERUN: bool
@@ -139,7 +140,12 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
         Env._init_env(reinit_db=reinit_db)
         pxt.init()
 
-    Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
+    stdout_handler = logging.StreamHandler(stream=sys.stdout)
+    stdout_handler.setFormatter(logging.Formatter(LOG_FMT_STR))
+    pxt_logger = logging.getLogger('pixeltable')
+    pxt_logger.setLevel(logging.DEBUG)
+    pxt_logger.addHandler(stdout_handler)
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 
     yield
     FileCache.get().validate()

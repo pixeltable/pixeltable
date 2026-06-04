@@ -2,7 +2,6 @@
 Pixeltable UDFs for `DocumentType`.
 """
 
-import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
@@ -20,8 +19,6 @@ from pixeltable.utils.spacy import get_spacy_model
 
 if TYPE_CHECKING:
     import spacy
-
-_logger = logging.getLogger('pixeltable')
 
 
 class Element(Enum):

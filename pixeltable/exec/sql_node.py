@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     import pixeltable.plan
     from pixeltable.plan import SampleClause
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class OrderByItem(NamedTuple):
@@ -410,7 +410,7 @@ class SqlNode(ExecNode):
             if self._stmt is None:
                 self._stmt = self._create_stmt()
             stmt = self._stmt
-            if Env.get().logging_is_enabled_for(logging.DEBUG, 'sql_node'):
+            if _logger.isEnabledFor(logging.DEBUG):
                 # compiling the stmt to render it as a string is non-trivially expensive (hundreds
                 # of microseconds), so only do it when the debug log is actually consumed
                 try:

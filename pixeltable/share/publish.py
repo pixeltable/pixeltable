@@ -37,7 +37,7 @@ from .protocol.replica import (
     ReplicateResponse,
 )
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class _ProgressFileReader:

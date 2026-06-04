@@ -1,5 +1,4 @@
 import importlib.util
-import logging
 import random
 
 import sqlalchemy as sql
@@ -10,8 +9,6 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
-
-_logger = logging.getLogger('pixeltable')
 
 
 class ExecContext:

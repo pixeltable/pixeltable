@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
 
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class Table(SchemaObject):

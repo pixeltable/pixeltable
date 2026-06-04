@@ -24,7 +24,7 @@ def export_lancedb(
 
     __Requirements:__
 
-    - `pip install lancedb`
+    - `pip install lancedb pylance`
 
     Args:
         table_or_query : Table or Query to export.
@@ -37,6 +37,7 @@ def export_lancedb(
             - `'overwrite'`: overwrite the existing table
             - `'append'`: append to the existing table
     """
+    Env.get().require_package('lance')
     Env.get().require_package('lancedb')
 
     import lancedb  # type: ignore[import-untyped]
