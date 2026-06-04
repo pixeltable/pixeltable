@@ -5,7 +5,7 @@ import concurrent.futures
 import logging
 import threading
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, Literal, TypeVar
 from weakref import WeakKeyDictionary
 
 import sqlalchemy as sql
@@ -135,15 +135,20 @@ class Runtime:
         return self._run_coro_executor.submit(run, coro).result()
 
     @contextmanager
-    def begin_xact(self, *, for_write: bool = False, isolation_level: str | None = None) -> Iterator[sql.Connection]:
+    def begin_xact(
+        self,
+        *,
+        for_write: bool = False,
+        isolation_level: Literal['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'] | None = None,
+    ) -> Iterator[sql.Connection]:
         """Start or join a database transaction.
 
         Prefer Catalog.begin_xact() unless there is a specific reason to call this directly.
 
         Args:
             for_write: unused (TODO use or remove)
-            isolation_level: if specified, the isolation level for the new transaction; defaults to
-                _XACT_ISOLATION_LEVEL. Can only be set when starting the outermost transaction.
+            isolation_level: if specified, the isolation level for the new transaction. Can only be set when starting
+                the outermost transaction.
 
         TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
         that avoids tripping over any pending ops

@@ -87,7 +87,7 @@ def retry_loop(
     write_tvps: Collection[TableVersionPath] | None = None,
     write_tbl_ids: Collection[UUID] | None = None,
     lock_mutable_tree: bool = False,
-    isolation_level: str | None = None,
+    isolation_level: Literal['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'] | None = None,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
@@ -240,9 +240,6 @@ class Catalog:
         self._tbl_md_read_allowed = False
         self._column_dependencies = {}
         self._column_dependents = None
-        # Register as the runtime's catalog singleton before _init_store(): _init_store() runs through
-        # retry_loop, which resolves get_runtime().catalog and would otherwise re-enter Catalog() here.
-        get_runtime()._catalog = self
         self._init_store()
 
     def __deepcopy__(self, memo: dict[int, object]) -> 'Catalog':
@@ -342,7 +339,7 @@ class Catalog:
         lock_mutable_tree: bool = False,
         convert_db_excs: bool = True,
         finalize_pending_ops: bool = True,
-        isolation_level: str | None = None,
+        isolation_level: Literal['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'] | None = None,
     ) -> Iterator[sql.Connection]:
         """
         Return a context manager that yields a connection to the database. Idempotent.
@@ -2905,26 +2902,46 @@ class Catalog:
         """
         # - we need to run this as SERIALIZABLE in order to avoid a race when two processes are started against
         #   an empty store (they both see a count of 0 for the root dir and both create a new root dir)
-        # - the retry loop will handle the serialization failure
         # - this can only be run inside a new transaction, to ensure the isolation level
+        # - we don't use retry_loop() here because this is called from Catalog.__init__() (via _init_store()),
+        #   before the Catalog instance is registered with Runtime; retry_loop() would re-enter Catalog().
         assert not get_runtime().in_xact, 'create_user() must run as the outermost transaction'
 
-        @retry_loop(for_write=True, isolation_level='SERIALIZABLE')
-        def op() -> None:
-            session = get_runtime().session
-            # See if there are any directories in the catalog matching the specified user.
-            if session.query(schema.Dir).where(schema.Dir.md['user'].astext == user).count() > 0:
-                # At least one such directory exists; no need to create a new one.
-                return
-            fault_injection.process_fault(FaultLocation.CATALOG_CREATE_USER_AFTER_EXISTS_CHECK)
+        num_retries = 0
+        while True:
+            try:
+                with get_runtime().begin_xact(for_write=True, isolation_level='SERIALIZABLE'):
+                    session = get_runtime().session
+                    assert session is not None
+                    # See if there are any directories in the catalog matching the specified user.
+                    if session.query(schema.Dir).where(schema.Dir.md['user'].astext == user).count() > 0:
+                        # At least one such directory exists; no need to create a new one.
+                        return
+                    fault_injection.process_fault(FaultLocation.CATALOG_CREATE_USER_AFTER_EXISTS_CHECK)
 
-            dir_md = schema.DirMd(name='', user=user, additional_md={})
-            dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
-            session.add(dir_record)
-            session.flush()
-            _logger.info(f'Added root directory record for user: {user!r}')
-
-        op()
+                    dir_md = schema.DirMd(name='', user=user, additional_md={})
+                    dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
+                    session.add(dir_record)
+                    session.flush()
+                    _logger.info(f'Added root directory record for user: {user!r}')
+                    return
+            except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
+                if not isinstance(
+                    e.orig,
+                    (
+                        psycopg.errors.SerializationFailure,
+                        psycopg.errors.LockNotAvailable,
+                        psycopg.errors.DeadlockDetected,
+                    ),
+                ):
+                    raise
+                if _MAX_RETRIES != -1 and num_retries >= _MAX_RETRIES:
+                    raise excs.ConcurrencyError(
+                        excs.ErrorCode.SERIALIZATION_FAILURE, f'Serialization retry limit ({_MAX_RETRIES}) exceeded'
+                    ) from e
+                num_retries += 1
+                _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                time.sleep(random.uniform(0.1, 0.5))
 
     def _handle_path_collision(
         self,
