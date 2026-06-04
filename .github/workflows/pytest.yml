@@ -257,7 +257,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pixeltable-pytest-logs-${{ matrix.display-name }}-${{ matrix.os }}-${{ matrix.python-version }}
-          path: /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/logs
+          # xdist workers create their homes under popen-gw*/base*/; glob to catch all of them
+          path: /tmp/pytest-of-runner/**/.pixeltable/logs
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
