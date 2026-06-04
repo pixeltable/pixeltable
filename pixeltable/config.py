@@ -491,7 +491,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         ),
         'rate_limits': 'Per-model rate limits for Gemini API requests',
     },
-    'hf': {'auth_token': 'Hugging Face access token'},
+    'hf': {'token': 'Hugging Face access token'},
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},
     'reve': {'api_key': 'Reve API key', 'rate_limit': 'Rate limit for Reve API requests (requests per minute)'},
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
