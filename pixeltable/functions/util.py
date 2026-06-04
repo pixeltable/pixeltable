@@ -43,7 +43,7 @@ class ImageMetadata(TypedDict, total=False):
     height: int
     mode: str
     bits: int | None
-    format: str
+    format: str | None
 
 
 class CodecContextMetadata(TypedDict, total=False):
