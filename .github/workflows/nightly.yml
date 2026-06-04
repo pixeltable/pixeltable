@@ -121,14 +121,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install pixeltable ${{ matrix.package-configs }}
-          python -m pip install filelock pytest 'pytest-xdist[psutil]' pytest-rerunfailures pytest-benchmark
+          python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark coverage
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
         run: python -m spacy download en_core_web_sm
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        run: pytest -v -m 'not very_expensive' -n auto --dist loadgroup tests
+        run: |
+          coverage run -m --source=pixeltable pytest -v -m 'not very_expensive' tests
+          coverage report -m
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
