@@ -15,8 +15,8 @@ SKIP_NOTEBOOKS=(
 # Notebooks that are skipped unless --include-expensive is passed
 VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
-    img-image-to-image              # Resource intensive (~35 min on CPU runners)
-    object-detection-in-videos      # Resource intensive (~20 min on CPU runners)
+    img-image-to-image              # Resource intensive
+    object-detection-in-videos      # Resource intensive
     video-generate-ai               # High dollar cost
     working-with-gemini             # High dollar cost
     working-with-together           # Poor reliability
