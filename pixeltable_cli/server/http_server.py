@@ -28,7 +28,7 @@ from pixeltable import exceptions as excs
 from .router import RawResponse, Request
 from .routes import router
 
-_logger = logging.getLogger('pixeltable.pxt_cli')
+_logger = logging.getLogger('pixeltable.pixeltable_cli')
 
 # Origins for which the daemon answers CORS preflight: the SPA's Vite dev server (5173)
 # and the 8080 origin used by some sample deployments.

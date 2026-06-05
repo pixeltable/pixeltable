@@ -10,8 +10,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from pxt_cli.client.utils import ensure_running
-from pxt_cli.utils import validate_path_shape
+from pixeltable_cli.client.utils import ensure_running
+from pixeltable_cli.utils import validate_path_shape
 
 
 def _request(method: str, path: str, body: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> Any:

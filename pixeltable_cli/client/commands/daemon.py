@@ -5,8 +5,8 @@ import os
 import sys
 from typing import Any
 
-from pxt_cli.client.utils import ensure_running, fetch_health, kill_and_wait, read_pidfile
-from pxt_cli.utils import get_port, pidfile_path
+from pixeltable_cli.client.utils import ensure_running, fetch_health, kill_and_wait, read_pidfile
+from pixeltable_cli.utils import get_port, pidfile_path
 
 from ..parser import Parser
 

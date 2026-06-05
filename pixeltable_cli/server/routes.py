@@ -13,8 +13,8 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
-from pxt_cli import models
-from pxt_cli.utils import identity, validate_path_shape
+from pixeltable_cli import models
+from pixeltable_cli.utils import identity, validate_path_shape
 
 from . import bridge
 from .router import RawResponse, Request, Router

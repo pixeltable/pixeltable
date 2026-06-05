@@ -2,7 +2,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
-from pxt_cli.utils import validate_path_shape
+from pixeltable_cli.utils import validate_path_shape
 
 
 def _validate_pxt_path(v: str | None) -> str | None:

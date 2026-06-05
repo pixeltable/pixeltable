@@ -570,7 +570,7 @@ class Env:
                 )
 
         client = client_factory.init_fn(**init_kwargs)
-        redacted = {**init_kwargs}
+        redacted = dict(init_kwargs)
         if client_factory.credential_param is not None and client_factory.credential_param in redacted:
             redacted[client_factory.credential_param] = '<redacted>'
         self._logger.info(f'Initialized `{name}` client with parameters: {redacted}.')

@@ -6,9 +6,9 @@ from ..parser import Parser
 
 EPILOG = """\
 Examples:
-  pxt rm my_dir -f                # remove an empty directory
-  pxt rm my_dir -r -f             # recursive: also remove contained tables/views/subdirs
-  pxt rm my_dir -n -r             # dry-run
+  pxt drop-dir my_dir -f                # remove an empty directory
+  pxt drop-dir my_dir -r -f             # recursive: also remove contained tables/views/subdirs
+  pxt drop-dir my_dir -n -r             # dry-run
 
 Notes:
   Refuses tables/views; use 'pxt drop' for those.
@@ -17,7 +17,7 @@ Notes:
 
 
 def run(argv: list[str]) -> None:
-    ap = Parser(prog='pxt rm', epilog=EPILOG)
+    ap = Parser(prog='pxt drop-dir', epilog=EPILOG)
     ap.add_argument('path')
     ap.add_argument('-r', '--recursive', action='store_true')
     ap.add_argument('-f', '--force', action='store_true', help='skip confirmation')

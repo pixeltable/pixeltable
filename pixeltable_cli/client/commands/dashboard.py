@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import webbrowser
 
-from pxt_cli.client.utils import base_url, ensure_running
+from pixeltable_cli.client.utils import base_url, ensure_running
 
 from ..parser import Parser
 

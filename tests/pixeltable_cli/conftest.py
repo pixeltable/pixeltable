@@ -44,10 +44,14 @@ def pxt_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iter
     prior_port = os.environ.get('PXT_PORT')
     with open(log_path, 'w', encoding='utf-8') as log:
         proc = subprocess.Popen(
-            [sys.executable, '-m', 'pxt_cli.server.daemon'], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL
+            [sys.executable, '-m', 'pixeltable_cli.server.daemon'],
+            env=env,
+            stdout=log,
+            stderr=log,
+            stdin=subprocess.DEVNULL,
         )
     try:
-        from pxt_cli.client.utils import is_running
+        from pixeltable_cli.client.utils import is_running
 
         os.environ['PXT_PORT'] = str(port)
         deadline = time.time() + 15

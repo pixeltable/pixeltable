@@ -1,12 +1,12 @@
-"""`python -m pxt_cli.server.daemon` - pxt daemon entry point."""
+"""`python -m pixeltable_cli.server.daemon` - pxt daemon entry point."""
 
 import atexit
 import os
 import sys
 
-from pxt_cli.client.utils import is_running
-from pxt_cli.server.http_server import bind, run
-from pxt_cli.utils import get_port, pidfile_path
+from pixeltable_cli.client.utils import is_running
+from pixeltable_cli.server.http_server import bind, run
+from pixeltable_cli.utils import get_port, pidfile_path
 
 
 def _write_pidfile() -> None:

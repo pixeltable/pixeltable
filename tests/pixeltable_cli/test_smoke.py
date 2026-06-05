@@ -618,13 +618,13 @@ class TestDrop:
         assert pxt.get_table('cli_drop/nest/victim', if_not_exists='ignore') is None
 
         # rm the (now empty) directory
-        assert cli('rm', 'cli_drop/nest', '-f', '--json').json['dropped'] is True
+        assert cli('drop-dir', 'cli_drop/nest', '-f', '--json').json['dropped'] is True
 
         # rm refuses a non-empty dir without -r; -r succeeds
         pxt.create_dir('cli_drop.nest2', if_exists='ignore')
         pxt.create_table('cli_drop.nest2.t', {'a': pxt.Int}, if_exists='replace')
-        assert cli('rm', 'cli_drop/nest2', '-f', check=False).returncode != 0
-        assert cli('rm', 'cli_drop/nest2', '-r', '-f', '--json').json['dropped'] is True
+        assert cli('drop-dir', 'cli_drop/nest2', '-f', check=False).returncode != 0
+        assert cli('drop-dir', 'cli_drop/nest2', '-r', '-f', '--json').json['dropped'] is True
 
         # dry-run text + --json: no side effect, message includes 'would drop'
         r = cli('drop', 'cli_drop/dry', '-n')
@@ -636,13 +636,13 @@ class TestDrop:
 
         # rm text output
         pxt.create_dir('cli_drop_rmtxt', if_exists='ignore')
-        assert 'removed' in cli('rm', 'cli_drop_rmtxt', '-f').stdout
+        assert 'removed' in cli('drop-dir', 'cli_drop_rmtxt', '-f').stdout
 
         # rm dry-run text (both with and without -r)
         pxt.create_dir('cli_drop_dr', if_exists='ignore')
-        r = cli('rm', 'cli_drop_dr', '-n')
+        r = cli('drop-dir', 'cli_drop_dr', '-n')
         assert 'would remove' in r.stdout
-        r = cli('rm', 'cli_drop_dr', '-n', '-r')
+        r = cli('drop-dir', 'cli_drop_dr', '-n', '-r')
         assert 'would remove' in r.stdout
         assert 'recursive' in r.stdout
 
@@ -795,7 +795,7 @@ class TestRevert:
 
 
 class TestPathValidator:
-    """Client-side path validator (pxt_cli.client.http.quote_path). Catches every well-known
+    """Client-side path validator (pixeltable_cli.client.http.quote_path). Catches every well-known
     bad shape before the request reaches the server so the user gets a clear error message
     instead of a generic 'Invalid path' from pxt."""
 
@@ -955,7 +955,7 @@ class TestColdStartBudget:
         # not whatever python resolves to on PATH.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
-            [sys.executable, '-X', 'importtime', '-m', 'pxt_cli.client.main', 'ls'],
+            [sys.executable, '-X', 'importtime', '-m', 'pixeltable_cli.client.main', 'ls'],
             capture_output=True,
             text=True,
             env=env,

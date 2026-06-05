@@ -25,10 +25,10 @@ import pytest
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
-from pxt_cli import utils
-from pxt_cli.client import confirm, http, main as client_main, parser as client_parser, utils as client_utils
-from pxt_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
-from pxt_cli.server import daemon as server_daemon, routes as server_routes
+from pixeltable_cli import utils
+from pixeltable_cli.client import confirm, http, main as client_main, parser as client_parser, utils as client_utils
+from pixeltable_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
+from pixeltable_cli.server import daemon as server_daemon, routes as server_routes
 
 
 def _pick_port() -> int:
@@ -102,7 +102,7 @@ class TestProbe:
         """Cold start: no daemon on the port, the cli client spawns one and routes the command."""
         env = {**os.environ, 'PXT_PORT': str(fresh_port)}
         r = subprocess.run(
-            [sys.executable, '-m', 'pxt_cli.client.main', 'health'],
+            [sys.executable, '-m', 'pixeltable_cli.client.main', 'health'],
             capture_output=True,
             text=True,
             env=env,
@@ -1007,7 +1007,7 @@ class TestServerRouteHelpers:
 
 class TestDaemonCmd:
     """`pxt daemon start|stop|restart|status`. The action handlers in
-    pxt_cli/client/commands/daemon.py thread through utils/client_utils helpers; tests mock those at
+    pixeltable_cli/client/commands/daemon.py thread through utils/client_utils helpers; tests mock those at
     the boundary so they verify the command's decision logic without spawning real daemons."""
 
     def test_start_calls_ensure_running_and_prints(
@@ -1189,13 +1189,13 @@ class TestPxtPathValidator:
     """Pydantic validator that backs MoveBody.path / new_path."""
 
     def test_accepts_none_and_empty(self) -> None:
-        from pxt_cli.models import _validate_pxt_path
+        from pixeltable_cli.models import _validate_pxt_path
 
         assert _validate_pxt_path(None) is None
         assert _validate_pxt_path('') == ''
 
     def test_accepts_valid_path(self) -> None:
-        from pxt_cli.models import MoveBody
+        from pixeltable_cli.models import MoveBody
 
         m = MoveBody(path='a/b', new_path='c')
         assert m.path == 'a/b'
@@ -1204,7 +1204,7 @@ class TestPxtPathValidator:
     def test_rejects_bad_shape(self) -> None:
         import pydantic
 
-        from pxt_cli.models import MoveBody
+        from pixeltable_cli.models import MoveBody
 
         with pytest.raises(pydantic.ValidationError):
             MoveBody(path='/abs', new_path='c')
@@ -1216,7 +1216,7 @@ class TestDashboardCommand:
     """`pxt dashboard` URL launcher, in-process."""
 
     def test_ensure_running_failure_exits(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        from pxt_cli.client.commands import dashboard as dashboard_cmd
+        from pixeltable_cli.client.commands import dashboard as dashboard_cmd
 
         def boom() -> None:
             raise RuntimeError('cannot reach daemon')
@@ -1233,7 +1233,7 @@ class TestDeployCommand:
 
     def _run_with_error(self, args: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
         import pixeltable as pxt
-        from pxt_cli.client.commands import deploy as deploy_cmd
+        from pixeltable_cli.client.commands import deploy as deploy_cmd
 
         def boom(_name: str) -> None:
             raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'no such deployment')
@@ -1266,32 +1266,32 @@ class TestBadPathArgRejection:
         assert 'pxt paths' in capsys.readouterr().err
 
     def test_columns_bad_path(self, capsys: pytest.CaptureFixture) -> None:
-        from pxt_cli.client.commands import columns as columns_cmd
+        from pixeltable_cli.client.commands import columns as columns_cmd
 
         self._assert_arg_error(columns_cmd.run, ['/abs'], capsys)
 
     def test_computed_bad_path(self, capsys: pytest.CaptureFixture) -> None:
-        from pxt_cli.client.commands import computed as computed_cmd
+        from pixeltable_cli.client.commands import computed as computed_cmd
 
         self._assert_arg_error(computed_cmd.run, ['/abs'], capsys)
 
     def test_idxs_bad_path(self, capsys: pytest.CaptureFixture) -> None:
-        from pxt_cli.client.commands import idxs as idxs_cmd
+        from pixeltable_cli.client.commands import idxs as idxs_cmd
 
         self._assert_arg_error(idxs_cmd.run, ['/abs'], capsys)
 
     def test_mv_bad_source_path(self, capsys: pytest.CaptureFixture) -> None:
-        from pxt_cli.client.commands import mv as mv_cmd
+        from pixeltable_cli.client.commands import mv as mv_cmd
 
         self._assert_arg_error(mv_cmd.run, ['/abs', 'dst'], capsys)
 
     def test_mv_bad_new_dir(self, capsys: pytest.CaptureFixture) -> None:
-        from pxt_cli.client.commands import mv as mv_cmd
+        from pixeltable_cli.client.commands import mv as mv_cmd
 
         self._assert_arg_error(mv_cmd.run, ['src/foo', 'has..dot'], capsys)
 
     def test_rename_bad_path(self, capsys: pytest.CaptureFixture) -> None:
-        from pxt_cli.client.commands import rename as rename_cmd
+        from pixeltable_cli.client.commands import rename as rename_cmd
 
         self._assert_arg_error(rename_cmd.run, ['/abs', 'newname'], capsys)
 
@@ -1300,7 +1300,7 @@ class TestIdxsEmbeddingDisplay:
     """`pxt idxs` extra-column rendering for embedding indexes."""
 
     def test_embedding_extra_fields(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        from pxt_cli.client.commands import idxs as idxs_cmd
+        from pixeltable_cli.client.commands import idxs as idxs_cmd
 
         resp = {
             'entries': [
@@ -1339,7 +1339,7 @@ class TestConfigRouteWithGenericTypes:
     def test_config_route_handles_list_generic(self) -> None:
         # In-process call into the route handler; doesn't require the daemon subprocess.
         # The key signal: route returns a ConfigResponse rather than raising.
-        from pxt_cli.server.router import Request
+        from pixeltable_cli.server.router import Request
 
         req = Request(path_params={}, query={}, body_bytes=b'')
         resp = server_routes.config(req)

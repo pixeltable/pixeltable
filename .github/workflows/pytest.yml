@@ -206,7 +206,7 @@ jobs:
         run: ./scripts/set-up-ci-credentials.sh
       - name: Build dashboard SPA
         # The pxt daemon serves the SPA bundle when the dashboard feature flag is enabled;
-        # tests/pxt_cli/test_smoke.py exercises that path. The build output is gitignored,
+        # tests/pixeltable_cli/test_smoke.py exercises that path. The build output is gitignored,
         # so CI has to produce it before the test job runs.
         if: ${{ matrix.test-category == 'py' }}
         run: |

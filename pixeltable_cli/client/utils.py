@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from pxt_cli.utils import _IDENTITY_KEYS, _resolve_pixeltable_home, get_port, identity, pidfile_path
+from pixeltable_cli.utils import _IDENTITY_KEYS, _resolve_pixeltable_home, get_port, identity, pidfile_path
 
 _IS_WINDOWS = os.name == 'nt'
 
@@ -78,7 +78,9 @@ def spawn_detached() -> None:
         else:
             popen_kwargs['start_new_session'] = True
         with open(log_path, 'a', encoding='utf-8') as log:
-            subprocess.Popen([sys.executable, '-m', 'pxt_cli.server.daemon'], stdout=log, stderr=log, **popen_kwargs)
+            subprocess.Popen(
+                [sys.executable, '-m', 'pixeltable_cli.server.daemon'], stdout=log, stderr=log, **popen_kwargs
+            )
     except OSError as e:
         reason = e.strerror or e.__class__.__name__
         raise RuntimeError(f'pxt daemon log unavailable ({log_path}): {reason}') from None

@@ -4,7 +4,7 @@ import sys
 from collections.abc import Callable
 
 # Single source of truth for both the top-level help message and shell-mode dispatch.
-# Each key names a module under pxt_cli.client.commands.* exposing run(argv: list[str]) -> None.
+# Each key names a module under pixeltable_cli.client.commands.* exposing run(argv: list[str]) -> None.
 COMMANDS: dict[str, str] = {
     'health': 'show daemon info',
     'ls': 'list catalog entries',
@@ -19,8 +19,8 @@ COMMANDS: dict[str, str] = {
     'status': 'show daemon/runtime state',
     'config': 'show resolved configuration: every documented setting, its value, and its source',
     'computed': "list computed columns (alias for 'columns --computed')",
-    'drop': "drop a table or view (use 'rm' for directories)",
-    'rm': "remove a directory (use 'drop' for tables/views)",
+    'drop': "drop a table or view (use 'drop-dir' for directories)",
+    'drop-dir': "remove a directory (use 'drop' for tables/views)",
     'rename': 'rename a table/view/dir in place',
     'mv': 'move a table/view/dir to a different directory',
     'revert': 'undo the last op(s) on a table',
@@ -33,7 +33,7 @@ COMMANDS: dict[str, str] = {
 
 
 def _resolve(cmd: str) -> Callable[[list[str]], None]:
-    mod = importlib.import_module(f'pxt_cli.client.commands.{cmd}')
+    mod = importlib.import_module(f'pixeltable_cli.client.commands.{cmd.replace("-", "_")}')
     return mod.run
 
 
