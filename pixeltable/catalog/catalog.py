@@ -2284,10 +2284,10 @@ class Catalog:
         conn = get_runtime().conn
 
         if ignore_pending_drop:
-            # check whether this table is in the process of being dropped
+            # check whether this table is in the process of being dropped or has already been dropped
             q: sql.Executable = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
-            row = conn.execute(q).one()
-            if row.md['pending_stmt'] == schema.TableStatement.DROP_TABLE.value:
+            row = conn.execute(q).one_or_none()
+            if row is None or row.md['pending_stmt'] == schema.TableStatement.DROP_TABLE.value:
                 return None
 
         # check for pending ops
@@ -2307,6 +2307,7 @@ class Catalog:
         )
         row = conn.execute(q).one_or_none()
         if row is None:
+            # the table got dropped
             return None
         tbl_record, _ = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
 

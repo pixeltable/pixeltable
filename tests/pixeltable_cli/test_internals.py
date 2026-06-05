@@ -963,10 +963,10 @@ class TestServerRouteHelpers:
         (tmp_path / 'a').write_bytes(b'x' * 10)
         real_stat = os.stat
 
-        def flaky(p: str) -> object:
-            if p.endswith('a'):
+        def flaky(p: str | os.PathLike, *, follow_symlinks: bool = True) -> object:
+            if str(p).endswith('a'):
                 raise OSError('vanished')
-            return real_stat(p)
+            return real_stat(p, follow_symlinks=follow_symlinks)
 
         monkeypatch.setattr(server_routes.os, 'stat', flaky)
         # the failing file is skipped; the walk still completes
