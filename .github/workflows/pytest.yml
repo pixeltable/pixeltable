@@ -232,7 +232,8 @@ jobs:
           ./scripts/retry.sh 5 60 hf download microsoft/speecht5_tts --revision 30fcde30f19b87502b8435427b5f5068e401d5f6
           ./scripts/retry.sh 5 60 hf download microsoft/speecht5_hifigan --revision bb6f429406e86a9992357a972c0698b22043307d
           ./scripts/retry.sh 5 60 hf download Qwen/Qwen2-0.5B-Instruct-GGUF --revision 198f08841147e5196a6a69bd0053690fb1fd3857 --include '*q3_k_m.gguf'
-          ./scripts/retry.sh 5 60 hf download --repo-type dataset Cohere/wikipedia-2023-11-embed-multilingual-v3 --revision ade45fb52bd549f5e8c065636fe4160a43c2af36 --include 'cr/*' --include 'mi/*'
+          ./scripts/retry.sh 5 60 python -c "from datasets import load_dataset; load_dataset('Cohere/wikipedia-2023-11-embed-multilingual-v3', 'cr', trust_remote_code=True)"
+          ./scripts/retry.sh 5 60 python -c "from datasets import load_dataset; load_dataset('Cohere/wikipedia-2023-11-embed-multilingual-v3', 'mi', trust_remote_code=True)"
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:
@@ -258,9 +259,9 @@ jobs:
           ./scripts/retry.sh 5 60 hf download intfloat/e5-large-v2 --revision f169b11e22de13617baa190a028a32f3493550b6
           ./scripts/retry.sh 5 60 hf download Qwen/Qwen2.5-0.5B-Instruct-GGUF --revision 9217f5db79a29953eb74d5343926648285ec7e67 --include '*q5_k_m.gguf'
           ./scripts/retry.sh 5 60 hf download bartowski/Llama-3.2-1B-Instruct-GGUF --revision 067b946cf014b7c697f3654f621d577a3e3afd1c --include '*Q5_K_M.gguf'
-          ./scripts/retry.sh 5 60 hf download --repo-type dataset cornell-movie-review-data/rotten_tomatoes --revision aa13bc287fa6fcab6daf52f0dfb9994269ffea28
-          ./scripts/retry.sh 5 60 hf download --repo-type dataset stanfordnlp/imdb --revision e6281661ce1c48d982bc483cf8a173c1bbeb5d31
-          ./scripts/retry.sh 5 60 hf download --repo-type dataset ylecun/mnist --revision 77f3279092a1c1579b2250db8eafed0ad422088c
+          ./scripts/retry.sh 5 60 python -c "from datasets import load_dataset; load_dataset('cornell-movie-review-data/rotten_tomatoes', trust_remote_code=True)"
+          ./scripts/retry.sh 5 60 python -c "from datasets import load_dataset; load_dataset('stanfordnlp/imdb', trust_remote_code=True)"
+          ./scripts/retry.sh 5 60 python -c "from datasets import load_dataset; load_dataset('ylecun/mnist', trust_remote_code=True)"
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |

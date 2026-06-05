@@ -20,7 +20,7 @@ fi
 echo "Running command with $retries retries: $@"
 
 while (( retries-- > 0)); do
-    $@
+    "$@"
     RESULT="$?"
     if [[ "$RESULT" == 0 ]]; then
         break
