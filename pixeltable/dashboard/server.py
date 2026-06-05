@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import pixeltable as pxt
 from pixeltable.dashboard import bridge
 
-_logger = logging.getLogger('pixeltable.dashboard')
+_logger = logging.getLogger(__name__)
 
 DASHBOARD_DIST_PATH = Path(__file__).parent / 'static'
 

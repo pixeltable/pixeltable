@@ -420,7 +420,7 @@ class Expr(abc.ABC):
         }
 
     @classmethod
-    def all_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:
+    def list_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:
         return {tbl_id for e in exprs_ for tbl_id in e.tbl_ids()}
 
     @classmethod

@@ -25,7 +25,7 @@ from pixeltable.utils.pydantic import is_json_convertible
 
 from .utils import normalize_schema_names
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -151,7 +151,7 @@ class TableDataConduit:
             if col.is_computed:
                 self.computed_col_names.add(col.name)
         self.src_pk = []
-        self.tbl_name = table._name
+        self.tbl_name = table._name()
 
     # Check source columns : required, computed, unknown
     def check_source_columns_are_insertable(self, columns: Iterable[str]) -> None:
@@ -188,6 +188,7 @@ class QueryTableDataConduit(TableDataConduit):
         return t
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
+        # TODO: re-resolve schema at execution time if this is a SELECT *
         self.pxt_schema = self.pxt_query.schema
         self.pxt_pk = self.src_pk
         return self.pxt_schema

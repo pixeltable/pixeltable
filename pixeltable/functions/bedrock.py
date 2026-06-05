@@ -9,7 +9,6 @@ import asyncio
 import base64
 import io
 import json
-import logging
 import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,9 +32,6 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
 
     from pixeltable.utils.s3_store import S3Store
-
-_logger = logging.getLogger('pixeltable')
-
 _ASYNC_INVOCATION_POLL_INTERVAL_SECS = 5.0
 
 _ASYNC_INVOCATION_TIMEOUT_SECS = 600.0

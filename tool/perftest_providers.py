@@ -3,6 +3,7 @@ Performance test for chat completion endpoint integrations in Pixeltable.
 """
 
 import argparse
+import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -167,7 +168,7 @@ Examples:
     if args.model:
         provider_config.default_model = args.model
 
-    pxt.configure_logging(level=args.log_level)
+    logging.getLogger('pixeltable').setLevel(args.log_level)
     execute_perf_test(n=args.n, t=args.t, provider=provider_config)
 
 
