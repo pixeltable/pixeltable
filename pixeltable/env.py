@@ -74,8 +74,6 @@ class Env:
 
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
-    _logger: logging.Logger
-    _sql_logger: logging.Logger
     # List of loggers and file handlers to cleanup in the end. File handlers can repeat.
     _managed_logging_handlers: list[tuple[logging.Logger, logging.Handler]]
     _logfilename: str | None
@@ -573,7 +571,7 @@ class Env:
         redacted = dict(init_kwargs)
         if client_factory.credential_param is not None and client_factory.credential_param in redacted:
             redacted[client_factory.credential_param] = '<redacted>'
-        self._logger.info(f'Initialized `{name}` client with parameters: {redacted}.')
+        _logger.info(f'Initialized `{name}` client with parameters: {redacted}.')
         return client
 
     def get_client_credential_params(self) -> dict[str, str]:
