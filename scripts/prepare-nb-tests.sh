@@ -125,7 +125,7 @@ fi
 if [[ $INCLUDE_EXPENSIVE == false ]]; then
     for nb in "${EXPENSIVE_NOTEBOOKS[@]}"; do
         echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in EXPENSIVE_NOTEBOOKS."
-        rm -f "$TARGET_DIR/${nb}.ipynb"
+        rm "$TARGET_DIR/${nb}.ipynb"
     done
 fi
 
