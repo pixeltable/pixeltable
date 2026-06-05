@@ -18,7 +18,7 @@ from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 _JINA_BASE_URL = 'https://api.jina.ai'
 _RETRY_AFTER_RE = re.compile(r'\d{1,2}')

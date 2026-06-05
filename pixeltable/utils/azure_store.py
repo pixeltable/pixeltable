@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from azure.storage.blob import BlobProperties, BlobServiceClient
 
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 client_lock = threading.Lock()

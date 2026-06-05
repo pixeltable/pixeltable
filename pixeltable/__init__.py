@@ -51,7 +51,6 @@ from .globals import (
     TableNode,
     TreeNode,
     array,
-    configure_logging,
     create_dir,
     create_snapshot,
     create_table,

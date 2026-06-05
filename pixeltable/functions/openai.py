@@ -35,7 +35,7 @@ from pixeltable.utils.system import set_file_descriptor_limit
 if TYPE_CHECKING:
     import openai
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @env.register_client('openai', credential_param='api_key')

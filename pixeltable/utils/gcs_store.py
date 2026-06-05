@@ -22,7 +22,7 @@ from pixeltable.utils.object_stores import (
     StorageTarget,
 )
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @env.register_client('gcs_store', credential_param=None)

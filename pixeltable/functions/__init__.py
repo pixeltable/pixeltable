@@ -11,6 +11,7 @@ from pixeltable.utils.code import local_public_names
 
 from . import (
     anthropic,
+    array,
     audio,
     bedrock,
     bfl,

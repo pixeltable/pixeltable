@@ -14,7 +14,7 @@ import toml
 
 from pixeltable import exceptions as excs
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
 

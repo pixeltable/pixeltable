@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import logging
 from uuid import UUID
 
 from pixeltable.env import Env
@@ -9,8 +8,6 @@ from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 
 from .schema_object import SchemaObject
-
-_logger = logging.getLogger('pixeltable')
 
 
 class Dir(SchemaObject):

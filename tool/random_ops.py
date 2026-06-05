@@ -19,7 +19,6 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.config import Config
-from pixeltable.env import Env
 from tool.worker_harness import run_workers
 
 
@@ -150,7 +149,7 @@ class RandomTableOps:
     - Sleep for a short random time (0.1 to 0.5 seconds) before starting the next iteration.
     """
 
-    logger = logging.getLogger('random_ops')
+    logger = logging.getLogger('pixeltable.random_ops')
 
     config: RandomTableOpsConfig
     base_table_names: tuple[str, ...]
@@ -221,7 +220,7 @@ class RandomTableOps:
         logging.getLogger('pixeltable').setLevel(logging.DEBUG)
         logging.getLogger('pixeltable').addHandler(random_ops_log_handler)
 
-        Env.get().set_log_level(logging.DEBUG)
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 
     def _flush_stats(self, *, force: bool = False) -> None:
         if self.stats_file is None:
@@ -601,6 +600,7 @@ def main() -> None:
 
         worker_args = [
             [
+                '-u',  # run workers with unbuffered stdio to reduce buffering-related log reordering
                 '-c',
                 'from tool.random_ops import run; '
                 f'run({i}, {i >= args.workers - args.read_only_workers}, '

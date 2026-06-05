@@ -22,7 +22,7 @@ from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
 from pixeltable.env import Env
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pixeltable import exprs
