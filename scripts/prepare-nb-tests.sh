@@ -12,7 +12,7 @@ SKIP_NOTEBOOKS=(
     working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
 )
 
-# Notebooks that are skipped unless --include-expensive is passed
+# Notebooks that are skipped unless --include-very-expensive is passed
 VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
     video-generate-ai               # High dollar cost
@@ -41,7 +41,7 @@ SCRIPT_DIR="$(dirname "$0")"
 cd "$SCRIPT_DIR/.."
 
 DO_PIP_INSTALL=true
-INCLUDE_EXPENSIVE=false
+INCLUDE_VERY_EXPENSIVE=false
 INCLUDE_MERGE_QUEUE=false
 
 while [[ $# -gt 0 ]]; do
@@ -50,8 +50,8 @@ while [[ $# -gt 0 ]]; do
             DO_PIP_INSTALL=false
             shift
             ;;
-        --include-expensive)
-            INCLUDE_EXPENSIVE=true
+        --include-very-expensive)
+            INCLUDE_VERY_EXPENSIVE=true
             shift
             ;;
         --include-merge-queue)
@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--no-pip] [--include-expensive] [--include-merge-queue] target-path <notebook-paths>"
+            echo "Usage: $0 [--no-pip] [--include-very-expensive] [--include-merge-queue] target-path <notebook-paths>"
             exit 1
             ;;
         *)
@@ -70,7 +70,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$2" ]; then
-    echo "Usage: $0 [--no-pip] [--include-expensive] [--include-merge-queue] target-path <notebook-paths>"
+    echo "Usage: $0 [--no-pip] [--include-very-expensive] [--include-merge-queue] target-path <notebook-paths>"
     exit 1
 fi
 
@@ -82,8 +82,8 @@ echo "Notebook paths: $@"
 if [[ $DO_PIP_INSTALL == false ]]; then
     echo "Skipping pip install commands in notebooks."
 fi
-if [[ $INCLUDE_EXPENSIVE == true ]]; then
-    echo "Including expensive notebooks."
+if [[ $INCLUDE_VERY_EXPENSIVE == true ]]; then
+    echo "Including very expensive notebooks."
 fi
 if [[ $INCLUDE_MERGE_QUEUE == true ]]; then
     echo "Including merge-queue-only notebooks."
@@ -113,8 +113,8 @@ for nb in "${SKIP_NOTEBOOKS[@]}"; do
     rm "$TARGET_DIR/${nb}.ipynb"
 done
 
-# Remove expensive notebooks unless --include-expensive was passed
-if [[ $INCLUDE_EXPENSIVE == false ]]; then
+# Remove very expensive notebooks unless --include-very-expensive was passed
+if [[ $INCLUDE_VERY_EXPENSIVE == false ]]; then
     for nb in "${VERY_EXPENSIVE_NOTEBOOKS[@]}"; do
         echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in VERY_EXPENSIVE_NOTEBOOKS."
         rm "$TARGET_DIR/${nb}.ipynb"

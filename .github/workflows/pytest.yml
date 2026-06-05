@@ -54,7 +54,7 @@ env:
   PXTTEST_IN_CI: 1
   MINTLIFY_VERSION: 4.2.506
   NB_TEST_OPTS: >-
-    ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-expensive' || '' }}
+    ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-very-expensive' || '' }}
     ${{ github.event_name != 'pull_request' && '--include-merge-queue' || '' }}
   UV_VERSION: 0.9.3
 
