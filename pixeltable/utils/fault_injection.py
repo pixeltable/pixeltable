@@ -9,6 +9,7 @@ from typing import Any
 class FaultLocation(Enum):
     """Instrumented locations in the codebase where faults can be injected."""
 
+    CATALOG_CREATE_USER_AFTER_EXISTS_CHECK = auto()
     CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED = auto()
     CATALOG_FINALIZE_PENDING_OPS_NON_XACT = auto()
     CATALOG_LOAD_VIEW_OP_EXEC = auto()
