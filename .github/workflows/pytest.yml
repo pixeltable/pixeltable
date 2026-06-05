@@ -53,7 +53,9 @@ env:
   PXTTEST_COCKROACH_DB_ROOT_CERT: ${{ secrets.PXTTEST_COCKROACH_DB_ROOT_CERT }}
   PXTTEST_IN_CI: 1
   MINTLIFY_VERSION: 4.2.506
-  NB_TEST_OPTS: ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-expensive' || '' }}
+  NB_TEST_OPTS: >-
+    ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-expensive' || '' }}
+    ${{ github.event_name != 'pull_request' && '--include-merge-queue' || '' }}
   UV_VERSION: 0.9.3
 
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
@@ -86,6 +88,7 @@ env:
   GOOGLE_APPLICATION_CREDENTIALS: '/tmp/gcs-key.json'
   GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
   HF_AUTH_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
+  HF_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
   JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
