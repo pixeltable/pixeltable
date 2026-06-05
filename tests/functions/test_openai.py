@@ -50,6 +50,22 @@ class TestOpenai:
                 model_kwargs={'prompt': 'Translate the recording from Spanish into English.', 'temperature': 0.05},
             )
         )
+
+        # Response schema: transcription.text / .srt / .vtt are typed as String (non-null when present)
+        # and all fields are marked path-dependent via optional_keys. segments is a typed list.
+        tr_type = t.get_metadata()['columns']['transcription']['type_']
+        assert "'text': String" in tr_type
+        assert "'srt': String" in tr_type
+        assert "'vtt': String" in tr_type
+        assert "'segments':" in tr_type
+        assert (
+            "optional_keys=['duration', 'language', 'logprobs', 'segments', 'srt', 'text', 'usage', 'vtt', 'words']"
+        ) in tr_type
+        tl_type = t.get_metadata()['columns']['translation']['type_']
+        assert "'text': String" in tl_type
+        assert "'srt': String" in tl_type
+        assert "optional_keys=['duration', 'language', 'segments', 'srt', 'text', 'vtt']" in tl_type
+
         validate_update_status(
             t.insert([{'input': 'I am a banana.'}, {'input': 'Es fácil traducir del español al inglés.'}]),
             expected_rows=2,
@@ -61,6 +77,29 @@ class TestOpenai:
         assert len(results[0]['translation_2']['text']) > 0
         assert results[1]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
         assert results[1]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
+
+        # Schema-driven projection: text is typed String, so extracting it yields a first-class String column.
+        t.add_computed_column(transcribed=t.transcription.text)
+        assert t.get_metadata()['columns']['transcribed']['type_'] == 'String'
+
+        # Raw-format responses populate only the matching top-level field; other keys are absent.
+        # Exercised on a one-row mini-table to bound the number of additional remote calls.
+        t2 = pxt.create_table('test_tbl_raw_formats', {'input': pxt.String})
+        t2.add_computed_column(speech=speech(t2.input, model='tts-1', voice='onyx'))
+        t2.add_computed_column(
+            transcription_srt=transcriptions(t2.speech, model='whisper-1', model_kwargs={'response_format': 'srt'})
+        )
+        t2.add_computed_column(
+            translation_vtt=translations(t2.speech, model='whisper-1', model_kwargs={'response_format': 'vtt'})
+        )
+        validate_update_status(t2.insert(input='I am a banana.'), expected_rows=1)
+        row = t2.collect()[0]
+        srt = row['transcription_srt']
+        vtt = row['translation_vtt']
+        assert srt.keys() == {'srt'}
+        assert len(srt['srt']) > 0
+        assert vtt.keys() == {'vtt'}
+        assert vtt['vtt'].startswith('WEBVTT')
 
     def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -392,8 +431,19 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(moderation=moderations(input=t.input))
         t.add_computed_column(moderation_2=moderations(input=t.input, model='omni-moderation-latest'))
+
+        # Response schema: results is a typed list, each Moderation has a typed flagged Bool and nested categories.
+        mod_type = t.get_metadata()['columns']['moderation']['type_']
+        assert "'results':" in mod_type
+        assert "'flagged': Bool" in mod_type
+        assert "'categories':" in mod_type
+
         validate_update_status(t.insert(input='Say something interesting.'), 1)
         _ = t.head()
+
+        # Schema-driven projection: results[0].flagged is typed Bool.
+        t.add_computed_column(flagged=t.moderation.results[0].flagged)
+        assert t.get_metadata()['columns']['flagged']['type_'] == 'Bool'
 
     @pytest.mark.expensive
     def test_image_generations_gpt_image(self, uses_db: None) -> None:
@@ -407,10 +457,17 @@ class TestOpenai:
             img_2=image_generations(t.input, model='gpt-image-2', model_kwargs={'quality': 'low', 'size': '1024x1024'})
         )
 
+        img_type = t.get_metadata()['columns']['img']['type_']
+        assert "'data': Json[(Image, ...)]" in img_type
+        assert "'usage':" in img_type
+
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
         result = t.collect()
         assert isinstance(result['img'][0]['data'][0], PIL.Image.Image)
         assert isinstance(result['img_2'][0]['data'][0], PIL.Image.Image)
+
+        t.add_computed_column(first=t.img.data[0])
+        assert t.get_metadata()['columns']['first']['type_'] == 'Image'
 
     @pytest.mark.expensive
     def test_image_edits_gpt_image(self, uses_db: None) -> None:
@@ -428,9 +485,16 @@ class TestOpenai:
             )
         )
 
+        edited_type = t.get_metadata()['columns']['edited']['type_']
+        assert "'data': Json[(Image, ...)]" in edited_type
+        assert "'usage':" in edited_type
+
         validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
+
+        t.add_computed_column(first=t.edited.data[0])
+        assert t.get_metadata()['columns']['first']['type_'] == 'Image'
 
     @pytest.mark.expensive
     def test_image_edits_with_mask(self, uses_db: None) -> None:
@@ -467,9 +531,16 @@ class TestOpenai:
             )
         )
 
+        edited_type = t.get_metadata()['columns']['edited']['type_']
+        assert "'data': Json[(Image, ...)]" in edited_type
+        assert "'usage':" in edited_type
+
         validate_update_status(t.insert(img=src_img, mask=mask_img), 1)
         result = t.collect()
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
+
+        t.add_computed_column(first=t.edited.data[0])
+        assert t.get_metadata()['columns']['first']['type_'] == 'Image'
 
     @pytest.mark.skip(
         reason='[PXT-1115] Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.'
@@ -489,10 +560,17 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
         t.add_computed_column(variation=image_variations(t.img, model='dall-e-2', model_kwargs={'size': '512x512'}))
 
+        variation_type = t.get_metadata()['columns']['variation']['type_']
+        assert "'data': Json[(Image, ...)]" in variation_type
+        assert "'usage':" in variation_type
+
         validate_update_status(t.insert(img=src_img), 1)
         result = t.collect()
         assert isinstance(result['variation'][0]['data'][0], PIL.Image.Image)
         assert result['variation'][0]['data'][0].size == (512, 512)
+
+        t.add_computed_column(first=t.variation.data[0])
+        assert t.get_metadata()['columns']['first']['type_'] == 'Image'
 
     @pytest.mark.expensive
     def test_table_udf_tools(self, uses_db: None) -> None:
@@ -704,3 +782,169 @@ class TestOpenai:
         assert len(result) == 2
         for row in result:
             assert len(row['response']) > 0
+
+
+class TestOpenaiTypedDictAdherence:
+    """Detect drift between our TypedDict mirrors and the SDK Pydantic models. Doesn't need credentials."""
+
+    def _strip_required(self, s: object) -> object:
+        """Recursively drop 'required' keys from a JSON-schema-like structure. SDK Pydantic models and our
+        TypedDicts use different conventions for optional fields (Pydantic: has a default; TypedDict: may
+        be absent), so equality at this level isn't meaningful for adherence."""
+        if isinstance(s, dict):
+            return {k: self._strip_required(v) for k, v in s.items() if k != 'required'}
+        if isinstance(s, list):
+            return [self._strip_required(item) for item in s]
+        return s
+
+    def _normalize(self, ct: ts.ColumnType) -> object:
+        """JSON-schema view of ct with optional/required info stripped at every nested level."""
+        return self._strip_required(ct.to_json_schema())
+
+    def _td_fields(self, t: type) -> tuple[dict[str, ts.ColumnType], frozenset[str]]:
+        """Resolve a TypedDict to (field_types, optional_keys). Optional keys are meaningful at the top level."""
+        jt = ts.JsonType.from_python_type(t)
+        assert isinstance(jt, ts.JsonType), t
+        assert jt.type_schema is not None and isinstance(jt.type_schema.type_spec, dict), t
+        return jt.type_schema.type_spec, jt.type_schema.optional_keys
+
+    def _pydantic_fields(self, model: type) -> dict[str, ts.ColumnType]:
+        """Per-field JsonType conversion of a Pydantic model. Fields whose annotation can't be converted to
+        a Pixeltable type are omitted (callers must declare them in overrides)."""
+        import pydantic
+
+        assert issubclass(model, pydantic.BaseModel)
+        out: dict[str, ts.ColumnType] = {}
+        for name, info in model.model_fields.items():
+            try:
+                ct = ts.ColumnType.normalize_type(info.annotation, nullable_default=False)
+            except Exception:
+                continue
+            out[name] = ct
+        return out
+
+    def test_exact_mirror_types(self) -> None:
+        """JsonType equality for TypedDicts that are exact mirrors of an SDK Pydantic model."""
+        skip_test_if_not_installed('openai')
+        from openai.types import (
+            images_response as sdk_images,
+            moderation as sdk_moderation,
+            moderation_create_response as sdk_moderation_create_response,
+        )
+        from openai.types.audio import (
+            transcription as sdk_transcription,
+            transcription_verbose as sdk_transcription_verbose,
+        )
+
+        from pixeltable.functions import openai as pxt_openai
+
+        pairs = [
+            (pxt_openai.TranscriptionWord, sdk_transcription_verbose.TranscriptionWord),
+            (pxt_openai.TranscriptionSegment, sdk_transcription_verbose.TranscriptionSegment),
+            (pxt_openai.Logprob, sdk_transcription.Logprob),
+            (pxt_openai.UsageInputTokensDetails, sdk_images.UsageInputTokensDetails),
+            (pxt_openai.UsageOutputTokensDetails, sdk_images.UsageOutputTokensDetails),
+            (pxt_openai.Usage, sdk_images.Usage),
+            (pxt_openai.Categories, sdk_moderation.Categories),
+            (pxt_openai.CategoryScores, sdk_moderation.CategoryScores),
+            (pxt_openai.CategoryAppliedInputTypes, sdk_moderation.CategoryAppliedInputTypes),
+            (pxt_openai.Moderation, sdk_moderation.Moderation),
+            (pxt_openai.ModerationCreateResponse, sdk_moderation_create_response.ModerationCreateResponse),
+        ]
+        for ours, sdk in pairs:
+            ours_jt = ts.JsonType.from_python_type(ours)
+            sdk_jt = ts.JsonType.from_python_type(sdk)
+            assert isinstance(ours_jt, ts.JsonType) and isinstance(sdk_jt, ts.JsonType)
+            # Ignore optional_keys at every nested level: Pydantic and TypedDict mean different things
+            # by "optional", but model_dump() always emits all fields, so the dict shape matches.
+            assert self._normalize(ours_jt) == self._normalize(sdk_jt), (
+                f'{ours.__name__} drifted from {sdk.__module__}.{sdk.__name__}:\n  ours: {ours_jt}\n  sdk:  {sdk_jt}'
+            )
+
+    def test_transcription_response(self) -> None:
+        """TranscriptionResponse unions Transcription + TranscriptionVerbose; we add synth srt/vtt and
+        re-type usage as plain dict to avoid committing to one variant of the SDK Usage union."""
+        skip_test_if_not_installed('openai')
+        from openai.types.audio.transcription import Transcription
+        from openai.types.audio.transcription_verbose import TranscriptionVerbose
+
+        from pixeltable.functions.openai import TranscriptionResponse
+
+        ours_fields, ours_optional = self._td_fields(TranscriptionResponse)
+        sdk_fields: dict[str, ts.ColumnType] = {}
+        for model in (Transcription, TranscriptionVerbose):
+            sdk_fields.update(self._pydantic_fields(model))
+
+        synth = {'srt', 'vtt'}  # fields we add that the SDK does not have
+        overrides = {'usage'}  # fields we deliberately re-type (kept as dict); not convertible anyway
+
+        for name, sdk_type in sdk_fields.items():
+            if name in overrides:
+                continue
+            assert name in ours_fields, f'TranscriptionResponse missing SDK field {name!r}'
+            assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
+                f'TranscriptionResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_type}'
+            )
+
+        # SDK fields we couldn't convert must be in overrides
+        sdk_unconverted = set(Transcription.model_fields) | set(TranscriptionVerbose.model_fields)
+        sdk_unconverted -= set(sdk_fields)
+        assert sdk_unconverted <= overrides, (
+            f'Unhandled SDK fields (not convertible and not in overrides): {sdk_unconverted - overrides}'
+        )
+
+        extra = set(ours_fields) - set(sdk_fields) - synth - overrides
+        assert not extra, f'TranscriptionResponse has unexpected fields not in SDK or synth: {extra}'
+
+        # every field is path-dependent
+        assert ours_optional == frozenset(ours_fields.keys())
+
+    def test_translation_response(self) -> None:
+        """TranslationResponse unions Translation + TranslationVerbose; we add synth srt/vtt."""
+        skip_test_if_not_installed('openai')
+        from openai.types.audio.translation import Translation
+        from openai.types.audio.translation_verbose import TranslationVerbose
+
+        from pixeltable.functions.openai import TranslationResponse
+
+        ours_fields, ours_optional = self._td_fields(TranslationResponse)
+        sdk_fields: dict[str, ts.ColumnType] = {}
+        for model in (Translation, TranslationVerbose):
+            sdk_fields.update(self._pydantic_fields(model))
+
+        synth = {'srt', 'vtt'}
+
+        for name, sdk_type in sdk_fields.items():
+            assert name in ours_fields, f'TranslationResponse missing SDK field {name!r}'
+            assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
+                f'TranslationResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_type}'
+            )
+
+        extra = set(ours_fields) - set(sdk_fields) - synth
+        assert not extra, f'TranslationResponse has unexpected fields not in SDK or synth: {extra}'
+
+        assert ours_optional == frozenset(ours_fields.keys())
+
+    def test_images_response(self) -> None:
+        """ImagesResponse mirrors SDK ImagesResponse field-for-field, except data is non-null
+        (we guarantee a populated list in _decode_image_response)."""
+        skip_test_if_not_installed('openai')
+        from openai.types.images_response import ImagesResponse as SdkImagesResponse
+
+        from pixeltable.functions.openai import ImagesResponse
+
+        ours_fields, ours_optional = self._td_fields(ImagesResponse)
+        sdk_fields = self._pydantic_fields(SdkImagesResponse)
+
+        overrides = {'data'}  # we re-type and guarantee non-null
+        assert set(ours_fields) == set(sdk_fields), (
+            f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(sdk_fields)}'
+        )
+        for name, sdk_type in sdk_fields.items():
+            if name in overrides:
+                continue
+            assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
+                f'ImagesResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_type}'
+            )
+        # all fields always present
+        assert ours_optional == frozenset()
