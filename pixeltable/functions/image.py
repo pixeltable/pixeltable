@@ -21,6 +21,8 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 from pixeltable.utils.local_store import TempStore
 
+from . import util
+
 
 @pxt.udf(is_method=True)
 def b64_encode(img: PIL.Image.Image, image_format: str = 'png') -> str:
@@ -136,7 +138,7 @@ def _(self: Expr) -> ts.ColumnType:
 
 
 @pxt.udf(is_method=True)
-def get_metadata(self: PIL.Image.Image) -> dict:
+def get_metadata(self: PIL.Image.Image) -> util.ImageMetadata:
     """
     Return metadata for the image.
     """
@@ -146,7 +148,6 @@ def get_metadata(self: PIL.Image.Image) -> dict:
         'mode': self.mode,
         'bits': getattr(self, 'bits', None),
         'format': self.format,
-        'palette': self.palette,
     }
 
 
