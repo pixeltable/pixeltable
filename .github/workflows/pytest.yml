@@ -55,7 +55,7 @@ env:
   MINTLIFY_VERSION: 4.2.506
   NB_TEST_OPTS: >-
     ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-very-expensive' || '' }}
-    ${{ github.event_name != 'pull_request' && '--include-merge-queue' || '' }}
+    ${{ github.event_name != 'pull_request' && '--include-expensive' || '' }}
   UV_VERSION: 0.9.3
 
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA

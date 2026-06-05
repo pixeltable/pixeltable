@@ -20,9 +20,9 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-together           # Poor reliability
 )
 
-# Notebooks that are skipped unless --include-merge-queue is passed.
+# Notebooks that are skipped unless --include-expensive is passed.
 # These require resources (e.g. HuggingFace token) that are not available in PR runs.
-MERGE_QUEUE_NOTEBOOKS=(
+EXPENSIVE_NOTEBOOKS=(
     computed-columns
     data-import-huggingface
     doc-chunk-for-rag
@@ -42,7 +42,7 @@ cd "$SCRIPT_DIR/.."
 
 DO_PIP_INSTALL=true
 INCLUDE_VERY_EXPENSIVE=false
-INCLUDE_MERGE_QUEUE=false
+INCLUDE_EXPENSIVE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -54,13 +54,13 @@ while [[ $# -gt 0 ]]; do
             INCLUDE_VERY_EXPENSIVE=true
             shift
             ;;
-        --include-merge-queue)
-            INCLUDE_MERGE_QUEUE=true
+        --include-expensive)
+            INCLUDE_EXPENSIVE=true
             shift
             ;;
         -*)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--no-pip] [--include-very-expensive] [--include-merge-queue] target-path <notebook-paths>"
+            echo "Usage: $0 [--no-pip] [--include-very-expensive] [--include-expensive] target-path <notebook-paths>"
             exit 1
             ;;
         *)
@@ -70,7 +70,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$2" ]; then
-    echo "Usage: $0 [--no-pip] [--include-very-expensive] [--include-merge-queue] target-path <notebook-paths>"
+    echo "Usage: $0 [--no-pip] [--include-very-expensive] [--include-expensive] target-path <notebook-paths>"
     exit 1
 fi
 
@@ -85,8 +85,8 @@ fi
 if [[ $INCLUDE_VERY_EXPENSIVE == true ]]; then
     echo "Including very expensive notebooks."
 fi
-if [[ $INCLUDE_MERGE_QUEUE == true ]]; then
-    echo "Including merge-queue-only notebooks."
+if [[ $INCLUDE_EXPENSIVE == true ]]; then
+    echo "Including expensive notebooks."
 fi
 
 mkdir -p "$TARGET_DIR"
@@ -121,10 +121,10 @@ if [[ $INCLUDE_VERY_EXPENSIVE == false ]]; then
     done
 fi
 
-# Remove merge-queue-only notebooks unless --include-merge-queue was passed
-if [[ $INCLUDE_MERGE_QUEUE == false ]]; then
-    for nb in "${MERGE_QUEUE_NOTEBOOKS[@]}"; do
-        echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in MERGE_QUEUE_NOTEBOOKS."
+# Remove expensive notebooks unless --include-expensive was passed
+if [[ $INCLUDE_EXPENSIVE == false ]]; then
+    for nb in "${EXPENSIVE_NOTEBOOKS[@]}"; do
+        echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in EXPENSIVE_NOTEBOOKS."
         rm -f "$TARGET_DIR/${nb}.ipynb"
     done
 fi
