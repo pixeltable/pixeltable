@@ -21,7 +21,7 @@ VERY_EXPENSIVE_NOTEBOOKS=(
 )
 
 # Notebooks that are skipped unless --include-merge-queue is passed.
-# These require resources (e.g. HuggingFace token) that are only available outside of PR runs.
+# These require resources (e.g. HuggingFace token) that are not available in PR runs.
 MERGE_QUEUE_NOTEBOOKS=(
     computed-columns
     data-import-huggingface
