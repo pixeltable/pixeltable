@@ -205,6 +205,34 @@ jobs:
         run: uv cache clean
       - name: Set up credentials
         run: ./scripts/set-up-ci-credentials.sh
+      - name: Download HF models for unit tests
+        if: ${{ matrix.test-category == 'py' }}
+        env:
+          HF_HUB_OFFLINE: 0
+        run: |
+          ./scripts/retry.sh 5 60 hf download intfloat/e5-large-v2 --revision f169b11e22de13617baa190a028a32f3493550b6
+          ./scripts/retry.sh 5 60 hf download facebook/detr-resnet-50 --revision 1d5f47bd3bdd2c4bbfa585418ffe6da5028b4c0b
+          ./scripts/retry.sh 5 60 hf download facebook/detr-resnet-50-panoptic --revision d53b52a799403a8867920f82c869e40732b47037
+          ./scripts/retry.sh 5 60 hf download openai/clip-vit-base-patch32 --revision 3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268
+          ./scripts/retry.sh 5 60 hf download laion/CLIP-ViT-B-32-laion2B-s34B-b79K --revision 1a25a446712ba5ee05982a381eed697ef9b435cf
+          ./scripts/retry.sh 5 60 hf download google/vit-base-patch16-224 --revision 3f49326eb077187dfe1c2a2bb15fbd74e6ab91e3
+          ./scripts/retry.sh 5 60 hf download sentence-transformers/all-mpnet-base-v2 --revision e8c3b32edf5434bc2275fc9bab85f82640a19130
+          ./scripts/retry.sh 5 60 hf download BAAI/bge-reranker-base --revision 2cfc18c9415c912f9d8155881c133215df768a70
+          ./scripts/retry.sh 5 60 hf download cross-encoder/ms-marco-MiniLM-L-6-v2 --revision c5ee24cb16019beea0893ab7796b1df96625c6b8
+          ./scripts/retry.sh 5 60 hf download cross-encoder/ms-marco-TinyBERT-L-2-v2 --revision 81d1926f67cb8eee2c2be17ca9f793c7c3bd20cc
+          ./scripts/retry.sh 5 60 hf download facebook/s2t-small-librispeech-asr --revision 256e91a603c013ae09aa1e4c09cfc3f8acdf8d19
+          ./scripts/retry.sh 5 60 hf download facebook/s2t-medium-mustc-multilingual-st --revision 79cc4237d4495aea7863076900d2f23af77f3ddc
+          ./scripts/retry.sh 5 60 hf download Qwen/Qwen3-0.6B --revision c1899de289a04d12100db370d81485cdf75e47ca
+          ./scripts/retry.sh 5 60 hf download cardiffnlp/twitter-roberta-base-sentiment-latest --revision 3216a57f2a0d9c45a2e6c20157c20c49fb4bf9c7
+          ./scripts/retry.sh 5 60 hf download Falconsai/text_summarization --revision 6e505f907968c4a9360773ff57885cdc6dca4bfd
+          ./scripts/retry.sh 5 60 hf download distilbert/distilbert-base-cased-distilled-squad --revision 564e9b582944a57a3e586bbb98fd6f0a4118db7f
+          ./scripts/retry.sh 5 60 hf download Helsinki-NLP/opus-mt-en-fr --revision dd7f6540a7a48a7f4db59e5c0b9c42c8eea67f18
+          ./scripts/retry.sh 5 60 hf download dslim/bert-base-NER --revision d1a3e8f13f8c3566299d95fcfc9a8d2382a9affc
+          ./scripts/retry.sh 5 60 hf download openai/whisper-tiny --revision 169d4a4341b33bc18d8881c4b69c2e104e1cc0af
+          ./scripts/retry.sh 5 60 hf download microsoft/speecht5_tts --revision 30fcde30f19b87502b8435427b5f5068e401d5f6
+          ./scripts/retry.sh 5 60 hf download microsoft/speecht5_hifigan --revision bb6f429406e86a9992357a972c0698b22043307d
+          ./scripts/retry.sh 5 60 hf download Qwen/Qwen2-0.5B-Instruct-GGUF --revision 198f08841147e5196a6a69bd0053690fb1fd3857 --include '*q3_k_m.gguf'
+          ./scripts/retry.sh 5 60 hf download --repo-type dataset Cohere/wikipedia-2023-11-embed-multilingual-v3 --revision ade45fb52bd549f5e8c065636fe4160a43c2af36 --include 'cr/*' --include 'mi/*'
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:
