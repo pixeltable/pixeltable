@@ -21,7 +21,6 @@ VERY_EXPENSIVE_NOTEBOOKS=(
 )
 
 # Notebooks that are skipped unless --include-expensive is passed.
-# These require resources (e.g. HuggingFace token) that are not available in PR runs.
 EXPENSIVE_NOTEBOOKS=(
     computed-columns
     data-import-huggingface
