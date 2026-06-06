@@ -52,7 +52,6 @@ help:
 	@echo '  nbtest        Run `pytest` on notebooks'
 	@echo '  stresstest    Run stress tests such as random-ops'
 	@echo '  typecheck     Run `mypy`'
-	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 	@echo '  nbcheck       Run `./scripts/check-notebooks.sh`'
@@ -173,11 +172,6 @@ stresstest: install
 typecheck: install
 	@echo 'Running `mypy` ...'
 	@mypy pixeltable pixeltable_cli tests tool
-
-.PHONY: docscheck
-docscheck: install
-	@echo 'Running `mkdocs build --strict` ...'
-	@python -W ignore::DeprecationWarning -m mkdocs build --strict
 
 .PHONY: lint
 lint: install
