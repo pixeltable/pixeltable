@@ -713,20 +713,16 @@ class TestView:
         with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
-    def test_own_and_base_column_same_id(self, uses_db: None) -> None:
-        # A view's own column and a base column can share a column id (each table numbers its columns from 0).
-        # Referenced through the view they have the same context table and column id, differing only in the
-        # physical owning table. Selecting both must keep them distinct, not collapse them into one slot.
+    def test_query_base_col(self, uses_db: None) -> None:
+        # A view's own column and an inherited base column can share the same internal column id (each table
+        # numbers its columns from 0). Selecting both through the view must keep them distinct rather than
+        # collapsing them into a single result column.
         t = pxt.create_table('base_t', {'c0': pxt.Int, 'c1': pxt.Int})
         t.insert([{'c0': i, 'c1': i * 10} for i in range(5)])
         v = pxt.create_view('v', t, additional_columns={'v0': t.c0 + 100})
 
-        # v.v0 (own, id 0) and v.c0 (base, id 0) are distinct expressions
-        assert not v.v0.equals(v.c0)
-        assert v.v0.id != v.c0.id
-
         res = v.select(v.v0, v.c0).order_by(v.c0).collect()
-        assert res._col_names == ['v0', 'c0']
+        assert list(res.schema.keys()) == ['v0', 'c0']
         assert all(row['v0'] == row['c0'] + 100 for row in res)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])

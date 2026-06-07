@@ -194,8 +194,10 @@ class ColumnRef(Expr):
 
     def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
         cat = get_runtime().catalog
-        tbl = cat.get_table_by_id(self.col_md.tbl_id)
-        tvp = tbl._tbl_version_path
+        with cat.begin_xact(for_write=False):
+            tbl = cat.get_table_by_id(self.col_md.tbl_id)
+            tvp = tbl._tbl_version_path
+
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(for_write=True, write_tvps=[tvp], lock_mutable_tree=True):
             col = self.col

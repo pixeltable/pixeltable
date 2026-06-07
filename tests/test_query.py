@@ -187,7 +187,7 @@ class TestQuery:
 
         # full outer join:
         # - t1 ids are 0..999, t3 ids are 0,10,...,9990
-        # - 100 ids match, 900 are t1-only, and # 900 are t3-only
+        # - 100 ids match, 900 are t1-only, and 900 are t3-only
         query = t1.join(t3, on=t1.id == t3.id, how='full_outer').select(left_i=t1.i, right_f=t3.f)
         pd_df = query.collect().to_pandas()
         assert len(pd_df) == 1900
