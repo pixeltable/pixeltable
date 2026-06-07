@@ -4,7 +4,7 @@
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
-from ..utils import pxt_raises, skip_test_if_not_installed
+from ..utils import pxt_raises, skip_test_if_no_config, skip_test_if_not_installed
 
 
 class TestJson:
@@ -87,6 +87,7 @@ class TestJson:
         """
         Fully worked example of flattening object detection output.
         """
+        skip_test_if_no_config('auth_token', 'hf')
         skip_test_if_not_installed('transformers')
 
         t = pxt.create_table('img_table', {'id': pxt.Int, 'img': pxt.Image})

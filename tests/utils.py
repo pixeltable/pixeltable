@@ -29,6 +29,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
 from pixeltable.catalog import retry_loop
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.types import ColumnSpec
@@ -708,6 +709,11 @@ def skip_test_if_not_installed(*packages: str) -> None:
     for package in packages:
         if not Env.get().is_installed_package(package):
             pytest.skip(f'Package `{package}` is not installed.')
+
+
+def skip_test_if_no_config(key: str, section: str = 'pixeltable') -> None:
+    if not Config.get().get_string_value(key, section):
+        pytest.skip(f'Configuration `{section}.{key}` is not set.')
 
 
 def skip_test_if_not_in_path(*binaries: str) -> None:
