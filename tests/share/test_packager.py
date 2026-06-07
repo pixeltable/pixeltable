@@ -23,7 +23,7 @@ from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
 from pixeltable.metadata import schema
-from pixeltable.plan import FromClause
+from pixeltable.query_clauses import FromClause
 from pixeltable.runtime import get_runtime
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.local_store import LocalStore, TempStore
@@ -202,7 +202,7 @@ class TestPackager:
         """
         schema = tbl._get_schema()
         metadata = tbl.get_metadata()
-        depth = tbl._tbl_version_path.path_len()
+        depth = tbl._tbl_version_path.path_len
         result_set = tbl.head(n=5000)
         store_col_schema = self.__extract_store_col_schema(tbl)
         store_idx_schema = self.__extract_store_idx_schema(tbl)
@@ -231,7 +231,7 @@ class TestPackager:
         _ = repr(t)
 
         assert bundle_info.schema == t._get_schema()
-        assert bundle_info.depth == t._tbl_version_path.path_len()
+        assert bundle_info.depth == t._tbl_version_path.path_len
 
         # Certain metadata properties must be identical.
         metadata = t.get_metadata()

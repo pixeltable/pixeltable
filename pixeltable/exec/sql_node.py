@@ -210,7 +210,7 @@ class SqlNode(ExecNode):
         assert self.sql_elements.contains_all(self.select_list)
         self.sql_select_list_exprs = exprs.ExprSet(self.select_list)
         self.cellmd_item_idxs = exprs.ExprDict((ref, self.sql_select_list_exprs.add(ref)) for ref in self.cell_md_refs)
-        column_refs = [exprs.ColumnRef(col) for col in self.columns]
+        column_refs = [exprs.ColumnRef(col.column_version_md()) for col in self.columns]
         self.column_item_idxs = {col_ref.col: self.sql_select_list_exprs.add(col_ref) for col_ref in column_refs}
         column_cellmd_refs = [
             exprs.ColumnPropertyRef(col_ref, exprs.ColumnPropertyRef.Property.CELLMD)
@@ -660,14 +660,14 @@ class SqlJoinNode(SqlNode):
     """
 
     input_ctes: list[sql.CTE]
-    join_clauses: list['pixeltable.plan.JoinClause']
+    join_clauses: list['pixeltable.query_clauses.JoinClause']
     _cte_inputs: list[SqlNode]
 
     def __init__(
         self,
         row_builder: exprs.RowBuilder,
         inputs: Sequence[SqlNode],
-        join_clauses: list['pixeltable.plan.JoinClause'],
+        join_clauses: list['pixeltable.query_clauses.JoinClause'],
         select_list: Iterable[exprs.Expr],
     ):
         assert len(inputs) > 1
@@ -686,7 +686,7 @@ class SqlJoinNode(SqlNode):
         self._cte_inputs = list(inputs)
 
     def _create_stmt(self) -> sql.Select:
-        from pixeltable import plan
+        from pixeltable.query_clauses import JoinType
 
         stmt = super()._create_stmt()
         stmt = stmt.select_from(self.input_ctes[0])
@@ -694,23 +694,20 @@ class SqlJoinNode(SqlNode):
             join_clause = self.join_clauses[i]
             on_clause = (
                 self.sql_elements.get(join_clause.join_predicate)
-                if join_clause.join_type != plan.JoinType.CROSS
+                if join_clause.join_type != JoinType.CROSS
                 else sql.sql.expression.literal(True)
             )
-            is_outer = join_clause.join_type in (plan.JoinType.LEFT, plan.JoinType.FULL_OUTER)
+            is_outer = join_clause.join_type in (JoinType.LEFT, JoinType.FULL_OUTER)
             stmt = stmt.join(
-                self.input_ctes[i + 1],
-                onclause=on_clause,
-                isouter=is_outer,
-                full=join_clause == plan.JoinType.FULL_OUTER,
+                self.input_ctes[i + 1], onclause=on_clause, isouter=is_outer, full=join_clause == JoinType.FULL_OUTER
             )
         return stmt
 
     def init_bindings(self) -> None:
-        from pixeltable import plan
+        from pixeltable.query_clauses import JoinType
 
         for clause in self.join_clauses:
-            if clause.join_type != plan.JoinType.CROSS and clause.join_predicate is not None:
+            if clause.join_type != JoinType.CROSS and clause.join_predicate is not None:
                 self.bind_sources.append(clause.join_predicate)
         super().init_bindings()
 

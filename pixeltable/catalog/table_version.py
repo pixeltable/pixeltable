@@ -26,7 +26,7 @@ from pixeltable.utils.object_stores import ObjectOps
 
 from ..func.globals import resolve_symbol
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, MediaValidation, QColumnId, TableVersionMd, is_valid_identifier
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
@@ -47,37 +47,9 @@ if TYPE_CHECKING:
     from pixeltable.io import ExternalStore
     from pixeltable.plan import SampleClause
 
-    from .table_version_path import TableVersionPath
+    from .table_path import TableVersionPath
 
 _logger = logging.getLogger(__name__)
-
-
-@dataclasses.dataclass(frozen=True)
-class TableVersionMd:
-    """
-    Complete set of md records for a specific TableVersion instance.
-    """
-
-    tbl_md: schema.TableMd
-    version_md: schema.VersionMd
-    schema_version_md: schema.SchemaVersionMd
-
-    @property
-    def is_pure_snapshot(self) -> bool:
-        return (
-            self.tbl_md.view_md is not None
-            and self.tbl_md.view_md.is_snapshot
-            and self.tbl_md.view_md.predicate is None
-            and self.tbl_md.view_md.sample_clause is None
-            and len(self.schema_version_md.columns) == 0
-        )
-
-    def as_dict(self) -> dict:
-        return dataclasses.asdict(self, dict_factory=schema.md_dict_factory)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> TableVersionMd:
-        return schema.md_from_dict(cls, data)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -218,8 +190,8 @@ class TableVersion:
         self.store_tbl = None
 
         # mutable tables need their TableVersionPath for expr eval during updates
+        from .table_path import TableVersionPath
         from .table_version_handle import TableVersionHandle
-        from .table_version_path import TableVersionPath
 
         if self.is_snapshot:
             self.path = None
@@ -797,6 +769,7 @@ class TableVersion:
             all_cols.append(col)
             if col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex()
+
                 val_col, undo_col = Column.create_index_columns(
                     self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
                 )
@@ -878,6 +851,7 @@ class TableVersion:
             all_cols.append(col)
             if col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex()
+
                 val_col, undo_col = Column.create_index_columns(
                     self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
                 )
@@ -942,6 +916,10 @@ class TableVersion:
 
             if col.is_stored:
                 self.store_tbl.add_column(col, if_not_exists=False)
+
+            # cols_by_id was just mutated in-place; invalidate the TVP's cached CVMD so the next
+            # create_add_column_plan() call (e.g. for a btree index column) sees the new column.
+            self.path.clear_cached_md()
 
             if not col.is_computed or not col.is_stored or row_count == 0:
                 continue
@@ -1347,7 +1325,10 @@ class TableVersion:
             where_clause = where
         if errors_only:
             errortype_pred = (
-                exprs.ColumnPropertyRef(exprs.ColumnRef(target_columns[0]), exprs.ColumnPropertyRef.Property.ERRORTYPE)
+                exprs.ColumnPropertyRef(
+                    exprs.ColumnRef(self.path.get_column_md(target_columns[0].qid)),
+                    exprs.ColumnPropertyRef.Property.ERRORTYPE,
+                )
                 != None
             )
             where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])

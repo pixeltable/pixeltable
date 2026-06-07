@@ -33,9 +33,9 @@ from .insertable_table import InsertableTable
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table import Table
+from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
-from .table_version_path import TableVersionPath
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
 from .update_status import UpdateStatus
 from .view import View
@@ -462,6 +462,11 @@ class Catalog:
                 for tv in self._tbl_versions.values():
                     if tv.effective_version is None:
                         tv.is_validated = False
+
+                # invalidate TVPs' cached md
+                # TODO: remove this once we stop mutating TV instances in-place
+                for tvp in write_tvps:
+                    tvp.clear_cached_md()
 
                 if has_exc:
                     # Execute undo actions in reverse order (LIFO)

@@ -38,15 +38,15 @@ class BtreeIndex(IndexBase):
                 excs.ErrorCode.TYPE_MISMATCH,
                 f'Index on column {c.name}: B-tree index requires scalar or media type, got {c.col_type}',
             )
+        col_md = c.column_version_md()
         value_expr: exprs.Expr
+        col_ref = exprs.ColumnRef(col_md)
         if c.col_type.is_media_type():
             # an index on a media column is an index on the file url
             # no validation for media columns: we're only interested in the string value
-            value_expr = exprs.ColumnRef(c, perform_validation=False)
+            value_expr = exprs.ColumnRef(col_md)  # perform_validation=False is the default
         else:
-            value_expr = (
-                BtreeIndex.str_filter(exprs.ColumnRef(c)) if c.col_type.is_string_type() else exprs.ColumnRef(c)
-            )
+            value_expr = BtreeIndex.str_filter(col_ref) if c.col_type.is_string_type() else col_ref
         return value_expr
 
     def records_value_errors(self) -> bool:

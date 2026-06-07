@@ -31,8 +31,8 @@ from ..utils.filecache import FileCache
 from .column import Column
 from .globals import _ROWID_COLUMN_NAME, IfExistsParam, IfNotExistsParam, MediaValidation, is_valid_identifier
 from .schema_object import SchemaObject
+from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
-from .table_version_path import TableVersionPath
 from .update_status import UpdateStatus
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
@@ -69,6 +69,10 @@ class Table(SchemaObject):
         super().__init__(id)
         self._tbl_version_path = tbl_version_path
         self._tbl_version = None
+
+    @property
+    def tbl_path(self) -> TableVersionPath:
+        return self._tbl_version_path
 
     def __deepcopy__(self, memo: dict[int, Any]) -> 'Table':
         return self
@@ -140,15 +144,18 @@ class Table(SchemaObject):
             if info.col.name not in column_info:
                 continue
             if isinstance(info.idx, index.EmbeddingIndex):
-                col_ref = ColumnRef(info.col)
-                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
+                indexed_col_md = self._tbl_version_path.get_column_md(
+                    catalog.QColumnId(info.col.tbl_handle.id, info.col.id)
+                )
+                col_ref = ColumnRef(indexed_col_md)
+                embedding_fncall = info.idx.embeddings[info.col.col_type._type](col_ref)
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
                     index_type='embedding',
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
-                        embedding=str(embedding),
+                        embedding=str(embedding_fncall),
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
                 )
@@ -196,10 +203,10 @@ class Table(SchemaObject):
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
-        col = self._tbl_version_path.get_column(name)
-        if col is None:
+        col_md = self._tbl_version_path.get_column_md_by_name(name)
+        if col_md is None:
             raise AttributeError(f'Unknown column: {name}')
-        return ColumnRef(col, reference_tbl=self._tbl_version_path)
+        return ColumnRef(col_md, self._tbl_version_path.is_validate_on_read(col_md))
 
     def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
@@ -248,7 +255,7 @@ class Table(SchemaObject):
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
-        from pixeltable.plan import FromClause
+        from pixeltable.query_clauses import FromClause
 
         query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
         if len(items) == 0 and len(named_items) == 0:
@@ -266,7 +273,11 @@ class Table(SchemaObject):
             return self.select().where(pred)
 
     def join(
-        self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
+        self,
+        other: 'Table',
+        *,
+        on: 'exprs.Expr' | None = None,
+        how: 'pixeltable.query_clauses.JoinType.LiteralType' = 'inner',
     ) -> 'pxt.Query':
         """Join this table with another table."""
         with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
@@ -480,7 +491,8 @@ class Table(SchemaObject):
         pd_rows = []
         for name, info in self._tbl_version.get().idxs_by_name.items():
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
-                col_ref = ColumnRef(info.col)
+                col_md = self._tbl_version_path.get_column_md(catalog.QColumnId(info.col.tbl_handle.id, info.col.id))
+                col_ref = ColumnRef(col_md)
                 embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
                 row = {
                     'Index Name': name,
@@ -911,7 +923,7 @@ class Table(SchemaObject):
                     )
                 col = self._tbl_version.get().cols_by_name[column]
             else:
-                exists = self._tbl_version_path.has_column(column.col)
+                exists = self._tbl_version_path.has_column(column.col_md.qcolid)
                 if not exists:
                     if if_not_exists_ == IfNotExistsParam.ERROR:
                         raise excs.NotFoundError(
@@ -1157,7 +1169,7 @@ class Table(SchemaObject):
                 image_embed=image_embed,
                 column=col,  # Pass column for shape validation
             )
-            _ = idx.create_value_expr(col)
+            _ = idx.create_value_expr(col)  # validation only; result discarded
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?
             FileCache.get().emit_eviction_warnings()
@@ -1235,7 +1247,7 @@ class Table(SchemaObject):
             if col is None:
                 raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
         elif isinstance(column, ColumnRef):
-            exists = self._tbl_version_path.has_column(column.col)
+            exists = self._tbl_version_path.has_column(column.col.qid)
             if not exists:
                 raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column.col.qualified_name}'
@@ -1691,7 +1703,7 @@ class Table(SchemaObject):
                 else:
                     assert isinstance(column, ColumnRef)
                     col = column.col
-                    if not self._tbl_version_path.has_column(col):
+                    if not self._tbl_version_path.has_column(col.qid):
                         raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col.name}')
                     col_name = col.name
                 if not col.is_computed:

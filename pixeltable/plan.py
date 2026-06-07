@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import copy
-import dataclasses
-import enum
 from textwrap import dedent
-from typing import Any, ClassVar, Iterable, Literal, Sequence, cast
+from typing import Any, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -14,6 +12,7 @@ from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 from pixeltable.func.iterator import GeneratingFunctionCall
+from pixeltable.query_clauses import FromClause, SampleClause
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -25,7 +24,6 @@ def _get_combined_ordering(
 ) -> list[tuple[exprs.Expr, bool]]:
     """Returns an ordering that's compatible with both o1 and o2, or an empty list if no such ordering exists"""
     result: list[tuple[exprs.Expr, bool]] = []
-    # determine combined ordering
     for (e1, asc1), (e2, asc2) in zip(o1, o2):
         if e1.id != e2.id:
             return []
@@ -34,127 +32,12 @@ def _get_combined_ordering(
         asc = asc1 if asc1 is not None else asc2
         result.append((e1, asc))
 
-    # add remaining ordering of the longer list
     prefix_len = min(len(o1), len(o2))
     if len(o1) > prefix_len:
         result.extend(o1[prefix_len:])
     elif len(o2) > prefix_len:
         result.extend(o2[prefix_len:])
     return result
-
-
-class JoinType(enum.Enum):
-    INNER = 0
-    LEFT = 1
-    # TODO: implement
-    # RIGHT = 2
-    FULL_OUTER = 3
-    CROSS = 4
-
-    LiteralType = Literal['inner', 'left', 'full_outer', 'cross']
-
-    @classmethod
-    def validated(cls, name: str, error_prefix: str) -> JoinType:
-        try:
-            return cls[name.upper()]
-        except KeyError as exc:
-            val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__)
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, f'{error_prefix} must be one of: [{val_strs}]'
-            ) from exc
-
-
-@dataclasses.dataclass
-class JoinClause:
-    """Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement; excludes the joined table."""
-
-    join_type: JoinType
-    join_predicate: exprs.Expr | None  # None for join_type == CROSS
-
-
-@dataclasses.dataclass
-class FromClause:
-    """Corresponds to the From-clause ('FROM <tbl> JOIN ... ON (...) JOIN ...') of a SELECT statement"""
-
-    tbls: list[catalog.TableVersionPath]
-    join_clauses: list[JoinClause] = dataclasses.field(default_factory=list)
-
-    @property
-    def _first_tbl(self) -> catalog.TableVersionPath:
-        assert len(self.tbls) == 1
-        return self.tbls[0]
-
-
-@dataclasses.dataclass
-class SampleClause:
-    """Defines a sampling clause for a table."""
-
-    version: int | None
-    n: int | None
-    n_per_stratum: int | None
-    fraction: float | None
-    seed: int | None
-    stratify_exprs: list[exprs.Expr] | None
-
-    # The version of the hashing algorithm used for ordering and fractional sampling.
-    CURRENT_VERSION: ClassVar[int] = 1
-
-    def __post_init__(self) -> None:
-        # If no version was provided, provide the default version
-        if self.version is None:
-            self.version = self.CURRENT_VERSION
-
-    @property
-    def is_stratified(self) -> bool:
-        """Check if the sampling is stratified"""
-        return self.stratify_exprs is not None and len(self.stratify_exprs) > 0
-
-    @property
-    def is_repeatable(self) -> bool:
-        """Return true if the same rows will continue to be sampled if source rows are added or deleted."""
-        return not self.is_stratified and self.fraction is not None
-
-    def display_str(self, inline: bool = False) -> str:
-        return str(self)
-
-    def as_dict(self) -> dict:
-        """Return a dictionary representation of the object"""
-        d = dataclasses.asdict(self)
-        d['_classname'] = self.__class__.__name__
-        if self.is_stratified:
-            d['stratify_exprs'] = [e.as_dict() for e in self.stratify_exprs]
-        return d
-
-    @classmethod
-    def from_dict(cls, d: dict) -> SampleClause:
-        """Create a SampleClause from a dictionary representation"""
-        d_cleaned = {key: value for key, value in d.items() if key != '_classname'}
-        s = cls(**d_cleaned)
-        if s.is_stratified:
-            s.stratify_exprs = [exprs.Expr.from_dict(e) for e in d_cleaned.get('stratify_exprs', [])]
-        return s
-
-    def __repr__(self) -> str:
-        s = ','.join(e.display_str(inline=True) for e in self.stratify_exprs)
-        return (
-            f'sample_{self.version}(n={self.n}, n_per_stratum={self.n_per_stratum}, '
-            f'fraction={self.fraction}, seed={self.seed}, [{s}])'
-        )
-
-    @classmethod
-    def fraction_to_md5_hex(cls, fraction: float) -> str:
-        """Return the string representation of an approximation (to ~1e-9) of a fraction of the total space
-        of md5 hash values.
-        This is used for fractional sampling.
-        """
-        # Maximum count for the upper 32 bits of MD5: 2^32
-        max_md5_value = (2**32) - 1
-
-        # Calculate the fraction of this value
-        threshold_int = max_md5_value * int(1_000_000_000 * fraction) // 1_000_000_000
-
-        # Convert to hexadecimal string with padding
-        return format(threshold_int, '08x') + 'ffffffffffffffffffffffff'
 
 
 class Analyzer:
@@ -473,7 +356,7 @@ class Planner:
         for info in target.idxs.values():
             if info.val_col in unmodified_val_cols:
                 evaluated_cols.append(info.val_col)
-                select_list.append(exprs.ColumnRef(info.undo_col))
+                select_list.append(exprs.ColumnRef(info.undo_col.column_version_md()))
 
         return evaluated_cols, select_list, identity_cols
 
@@ -517,7 +400,9 @@ class Planner:
         cls.__check_valid_columns(target, recomputed_cols, 'updated in')
 
         # Substitute update target exprs into recomputed exprs before building select_list
-        spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
+        spec: dict[exprs.Expr, exprs.Expr] = {
+            exprs.ColumnRef(col.column_version_md()): e for col, e in update_targets.items()
+        }
         exprs.Expr.list_substitute(eval_exprs, spec)
         evaluated_cols: list[Column] = list(update_targets.keys()) + eval_cols
         select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
@@ -714,7 +599,9 @@ class Planner:
         updated_cols_list = list(updated_cols)
         # Prepend updated cols as ColumnRefs (RowUpdateNode modifies them in-place; no further substitution needed)
         evaluated_cols: list[Column] = updated_cols_list + eval_cols
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols_list] + eval_exprs
+        select_list: list[exprs.Expr] = [
+            exprs.ColumnRef(col.column_version_md()) for col in updated_cols_list
+        ] + eval_exprs
 
         # ExecNode tree (from bottom to top):
         # - SqlLookupNode to retrieve the existing rows
@@ -797,7 +684,7 @@ class Planner:
         # Identity columns are all other stored columns that aren't being recomputed
         # and go through select_list as ColumnRefs (no separate columns= path) unlike other update plans
         evaluated_cols: list[Column] = identity_cols + eval_cols
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(c) for c in identity_cols] + eval_exprs
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(c.column_version_md()) for c in identity_cols] + eval_exprs
 
         # Read the just-expired rows (v_max == current_version) to copy stored column values
         plan = cls.create_query_plan(
@@ -1031,8 +918,13 @@ class Planner:
         # If the from_clause has a single table, we can use it as the context table for the RowBuilder.
         # Otherwise there is no context table, but that's ok, because the context table is only needed for
         # table mutations, which can't happen during a join.
-        context_tbl = from_clause.tbls[0].tbl_version.get() if len(from_clause.tbls) == 1 else None
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl)
+        context_tbl = (
+            from_clause.tbls[0].tbl_version.get()
+            if len(from_clause.tbls) == 1 and isinstance(from_clause.tbls[0], catalog.TableVersionPath)
+            else None
+        )
+        from_paths = [t for t in from_clause.tbls if isinstance(t, catalog.TableVersionPath)]
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl, from_paths=from_paths)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
@@ -1129,7 +1021,7 @@ class Planner:
         scan_target_exprs = sql_exprs | join_exprs
         tbl_scan_plans: list[exec.SqlScanNode] = []
         plan: exec.ExecNode
-        for tbl in analyzer.from_clause.tbls:
+        for tbl in cast(list[catalog.TableVersionPath], analyzer.from_clause.tbls):
             # materialize all subexprs of scan_target_exprs that are bound by tbl
             tbl_scan_exprs = exprs.ExprSet(
                 exprs.Expr.list_subexprs(

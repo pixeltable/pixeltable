@@ -17,9 +17,9 @@ from pixeltable.types import ColumnSpec
 from .column import Column
 from .globals import MediaValidation
 from .table import Table
+from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
-from .table_version_path import TableVersionPath
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
 from .update_status import UpdateStatus
 

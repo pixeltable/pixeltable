@@ -266,25 +266,35 @@ class Expr(abc.ABC):
 
         if resolve_cols is None:
             resolve_cols = set()
+        resolve_qcolids = {col.qid for col in resolve_cols}
         result = self
         while True:
             target_col_refs = ExprSet(
                 [
                     e
                     for e in result.subexprs()
-                    if isinstance(e, ColumnRef) and e.col.is_computed and (not e.col.is_stored or e.col in resolve_cols)
+                    if isinstance(e, ColumnRef)
+                    and e.column_md.is_computed
+                    and (not e.column_md.is_stored or e.col_md.qcolid in resolve_qcolids)
                 ]
             )
             if len(target_col_refs) == 0:
                 return result
             result = result.substitute({ref: ref.col.value_expr for ref in target_col_refs})
 
-    def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
+    def is_bound_by(self, tbls: list[catalog.TablePath]) -> bool:
         """Returns True if this expr can be evaluated in the context of tbls."""
         from .column_ref import ColumnRef
 
+        def is_in(col_md: catalog.ColumnVersionMd, tbl: catalog.TablePath) -> bool:
+            # the column must be physically present *and* pinned to the same version: the same physical column
+            # of a snapshot and of its live table share a qcolid but have different col_effective_versions.
+            if not tbl.has_column(col_md.qcolid):
+                return False
+            return tbl.get_column_md(col_md.qcolid).col_effective_version == col_md.col_effective_version
+
         col_refs = self.subexprs(ColumnRef)
-        return all(any(tbl.has_column(col_ref.col) for tbl in tbls) for col_ref in col_refs)
+        return all(any(is_in(col_ref.col_md, tbl) for tbl in tbls) for col_ref in col_refs)
 
     def retarget(self, tbl: catalog.TableVersionPath) -> Self:
         """Retarget ColumnRefs in this expr to the specific TableVersions in tbl."""
@@ -415,9 +425,9 @@ class Expr(abc.ABC):
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
 
-        return {ref.col_handle.tbl_version.id for ref in self.subexprs(ColumnRef)} | {
-            ref.tbl.id for ref in self.subexprs(RowidRef)
-        }
+        col_ref_ids = {ref.col_md.qcolid.tbl_id for ref in self.subexprs(ColumnRef)}
+        rowid_ids = {ref.tbl.id for ref in self.subexprs(RowidRef)}
+        return col_ref_ids | rowid_ids
 
     @classmethod
     def list_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:

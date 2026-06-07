@@ -118,6 +118,7 @@ class RowBuilder:
         input_exprs: Iterable[Expr],
         tbl: catalog.TableVersion | None = None,
         for_view_load: bool = False,
+        from_paths: 'list[catalog.TableVersionPath] | None' = None,
     ):
         from .column_property_ref import ColumnPropertyRef
         from .column_ref import ColumnRef
@@ -165,7 +166,8 @@ class RowBuilder:
                     if not col.col_type.is_media_type()
                     else col.media_validation == catalog.MediaValidation.ON_WRITE
                 )
-                expr = ColumnRef(col, perform_validation=perform_validation)
+                pv = bool(perform_validation) if perform_validation is not None else False
+                expr = ColumnRef(col.column_version_md(), pv)
                 # recursive=True: needed for validating ColumnRef
                 expr = self._record_unique_expr(expr, recursive=True)
 
@@ -194,12 +196,27 @@ class RowBuilder:
         col_refs = [e for e in self.unique_exprs if isinstance(e, ColumnRef)]
         col_refs_needing_iter_eval = [col_ref for col_ref in col_refs if col_ref.needs_iterator_evaluation]
         component_views = [col_ref.col.get_tbl() for col_ref in col_refs_needing_iter_eval]
-        unstored_iter_args = {view.id: view.iterator_args_expr() for view in component_views}
+
+        def iter_arg_path(view: 'catalog.TableVersion') -> 'catalog.TableVersionPath | None':
+            # The (stored) iterator args reference base columns in the view's own context. They must be rebound to
+            # the path this query actually uses, so their base ColumnRefs resolve to the same TableVersion instances
+            # as the rest of the query (e.g. a snapshot's pinned base, not the live base); otherwise the base store
+            # table is referenced via two different instances in the same query. A snapshot view's TableVersion has
+            # no path of its own, so we take it from the query's from-clause.
+            if from_paths is not None:
+                for p in from_paths:
+                    if p.find_tbl_version(view.id) is not None:
+                        return p
+            return view.path
+
+        unstored_iter_args = {
+            view.id: view.iterator_args_expr().retarget(iter_arg_path(view)) for view in component_views
+        }
 
         # the *stored* output columns of the unstored iterators
         self.unstored_iter_outputs = {
             view.id: [
-                self._record_unique_expr(ColumnRef(col), recursive=True)
+                self._record_unique_expr(ColumnRef(col.column_version_md()), recursive=True)
                 for col in view.iterator_columns()
                 if col.is_stored
             ]
