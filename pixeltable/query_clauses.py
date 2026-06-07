@@ -56,7 +56,9 @@ class FromClause:
 
     @property
     def tvps(self) -> list[catalog.TableVersionPath]:
-        return cast(list[catalog.TableVersionPath], self.tbls)
+        # string type: catalog is TYPE_CHECKING-only (a runtime import here would be circular), and cast()
+        # ignores its type arg at runtime anyway
+        return cast('list[catalog.TableVersionPath]', self.tbls)
 
     @property
     def is_local(self) -> bool:

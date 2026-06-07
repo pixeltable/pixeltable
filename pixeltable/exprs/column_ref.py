@@ -118,7 +118,6 @@ class ColumnRef(Expr):
             ('col_tbl_id', self.col_md.qcolid.tbl_id),
             ('col_id', self.col_md.qcolid.col_id),
             ('col_effective_version', self.col_md.col_effective_version),
-            ('anchor_tbl_id', self.col_md.anchor_tbl_id),
             ('perform_validation', self.perform_validation),
         ]
 
@@ -128,7 +127,6 @@ class ColumnRef(Expr):
             self.col_md.qcolid == other.col_md.qcolid
             # the same physical column of a snapshot and of its live table share a qcolid but differ here
             and self.col_md.col_effective_version == other.col_md.col_effective_version
-            and self.col_md.anchor_tbl_id == other.col_md.anchor_tbl_id
             and self.perform_validation == other.perform_validation
         )
 
@@ -160,11 +158,11 @@ class ColumnRef(Expr):
             # This is not user accessible, but used internally to store cell metadata
             return super().__getattr__(name)
 
+        col_md = self.column_md
         if (
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
             or name == ColumnPropertyRef.Property.ERRORMSG.name.lower()
         ):
-            col_md = self.column_md
             is_valid = (col_md.is_computed or col_md.col_type.is_media_type()) and col_md.is_stored
             if not is_valid:
                 raise excs.RequestError(
@@ -176,7 +174,6 @@ class ColumnRef(Expr):
             name == ColumnPropertyRef.Property.FILEURL.name.lower()
             or name == ColumnPropertyRef.Property.LOCALPATH.name.lower()
         ):
-            col_md = self.column_md
             if not col_md.col_type.is_media_type():
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -548,6 +545,7 @@ class ColumnRef(Expr):
         col_name = self.col_md.name
         with get_runtime().catalog.begin_xact():
             tbl = get_runtime().catalog.get_table_by_id(self.col_md.qcolid.tbl_id)
+        # TODO: is this what we want? it's printing the path of the containing table, not of the context table
         helper = DescriptionHelper()
         helper.append(f'Column\n{col_name!r}\n(of table {tbl._path()!r})')
         col_df, _ = tbl._col_descriptor([col_name])
@@ -625,6 +623,8 @@ class ColumnRef(Expr):
 
     def _as_dict(self) -> dict:
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate it
+        # anchor_tbl_id is not serialized, so a replica/anchored column would round-trip to the live table
+        assert self.col_md.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(self.col_md.tbl_id),
             'effective_version': self.col_md.effective_version,

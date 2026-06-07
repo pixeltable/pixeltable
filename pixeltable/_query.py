@@ -448,15 +448,15 @@ class Query:
             select_list = [
                 (
                     exprs.ColumnRef(
-                        cmd,
-                        cast(catalog.TableVersionPath, tbl).is_validate_on_read(cmd)
+                        col_md,
+                        cast(catalog.TableVersionPath, tbl).is_validate_on_read(col_md)
                         if isinstance(tbl, catalog.TableVersionPath)
                         else False,
                     ),
                     None,
                 )
                 for tbl in tbls
-                for cmd in tbl.column_md()
+                for col_md in tbl.column_md()
             ]
 
         out_exprs: list[exprs.Expr] = []
@@ -1195,12 +1195,12 @@ class Query:
         for col_ref in col_refs:
             # identify the referenced column by name in 'other'
             col_name = col_ref.col.name
-            rhs_cmd = other.get_column_md_by_name(col_name)
-            if rhs_cmd is None:
+            rhs_col_md = other.get_column_md_by_name(col_name)
+            if rhs_col_md is None:
                 raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND, f'`on` column {col_name!r} not found in joined table'
                 )
-            rhs_col_ref = exprs.ColumnRef(rhs_cmd)
+            rhs_col_ref = exprs.ColumnRef(rhs_col_md)
 
             lhs_col_ref: exprs.ColumnRef | None = None
             if any(tbl.has_column(col_ref.col.qid) for tbl in self._from_clause.tbls):
@@ -1209,15 +1209,15 @@ class Query:
             else:
                 # col_ref comes from other, we need to look for a match in the existing from_clause by name
                 for tbl in self._from_clause.tbls:
-                    cmd = tbl.get_column_md_by_name(col_ref.col.name)
-                    if cmd is None:
+                    col_md = tbl.get_column_md_by_name(col_ref.col.name)
+                    if col_md is None:
                         continue
                     if lhs_col_ref is not None:
                         raise excs.RequestError(
                             excs.ErrorCode.UNSUPPORTED_OPERATION,
                             f'`on`: ambiguous column reference: {col_ref.col.name}',
                         )
-                    lhs_col_ref = exprs.ColumnRef(cmd)
+                    lhs_col_ref = exprs.ColumnRef(col_md)
                 if lhs_col_ref is None:
                     tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
                     raise excs.NotFoundError(

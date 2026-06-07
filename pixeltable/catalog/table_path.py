@@ -40,6 +40,13 @@ class TablePath(abc.ABC):
     @abc.abstractmethod
     def tbl_id(self) -> UUID: ...
 
+    @property
+    def tbl_ids(self) -> list[UUID]:
+        if self.base is not None:
+            return [self.tbl_id, *self.base.tbl_ids]
+        else:
+            return [self.tbl_id]
+
     @abc.abstractmethod
     def tbl_name(self) -> str: ...
 

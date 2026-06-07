@@ -102,12 +102,7 @@ class RowidRef(Expr):
     def is_bound_by(self, tbls: list[catalog.TablePath]) -> bool:
         # base impl checks ColumnRef subexprs and trivially returns True for RowidRef (which has none);
         # match against our tbl_id instead so rowid refs aren't pulled into unrelated table scans in joins
-        return any(
-            self.tbl_id == tv.id
-            for tbl in tbls
-            if isinstance(tbl, catalog.TableVersionPath)
-            for tv in tbl.get_tbl_versions()
-        )
+        return any(self.tbl_id in tbl.tbl_ids for tbl in tbls)
 
     def set_tbl(self, tbl: catalog.TableVersionPath) -> None:
         """Change the table that is being referenced.
