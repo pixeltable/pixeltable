@@ -23,7 +23,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.sql import log_explain, log_stmt
 from pixeltable.utils.uuid import uuid7
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class StoreBase:

@@ -17,7 +17,7 @@ import PIL.Image
 from pixeltable import env, exceptions as excs
 from pixeltable.utils.object_stores import FileDestination, ObjectPath, ObjectStoreBase, StorageObjectAddress
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class LocalStore(ObjectStoreBase):

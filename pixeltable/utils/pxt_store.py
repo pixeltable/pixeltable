@@ -30,7 +30,7 @@ from pixeltable.utils.object_stores import (
 )
 from pixeltable.utils.s3_store import S3CompatClientDict, S3Store
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 _PXTFS_URI_PATTERN = re.compile(r'^pxtfs://[^/]+/([^/?#]+)(.*)$')
 
@@ -49,7 +49,7 @@ class _PxtStoreCacheEntry:
 
 
 # pxt_store clients are thread-local (via Runtime._clients), consistent with r2/s3/b2/tigris.
-@env.register_client('pxt_store')
+@env.register_client('pxt_store', credential_param=None)
 def _() -> S3CompatClientDict:
     return S3CompatClientDict(profile=None, clients={})
 
