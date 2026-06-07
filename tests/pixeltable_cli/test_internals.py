@@ -959,7 +959,7 @@ class TestServerRouteHelpers:
         (sub / 'b').write_bytes(b'y' * 5)
         assert server_routes._dir_size(str(tmp_path)) == 15
 
-    def test_dir_size_skips_stat_errors(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_dir_size_skips_stat_errors(self, tmp_path: pathlib.Path) -> None:
         (tmp_path / 'a').write_bytes(b'x' * 10)
         real_stat = os.stat
 
@@ -968,9 +968,10 @@ class TestServerRouteHelpers:
                 raise OSError('vanished')
             return real_stat(p, follow_symlinks=follow_symlinks)
 
-        monkeypatch.setattr(server_routes.os, 'stat', flaky)
-        # the failing file is skipped; the walk still completes
-        assert server_routes._dir_size(str(tmp_path)) == 0
+        with pytest.MonkeyPatch.context() as m:
+            m.setattr(server_routes.os, 'stat', flaky)
+            # the failing file is skipped; the walk still completes
+            assert server_routes._dir_size(str(tmp_path)) == 0
 
     def test_redact_db_password_none(self) -> None:
         assert server_routes._redact_db_password(None) is None
