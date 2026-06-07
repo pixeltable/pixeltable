@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import logging
 from typing import cast
 
 from rich.progress import Progress, TaskID
-
-_logger = logging.getLogger('pixeltable')
 
 
 def _print_number(val: float | int | None) -> str:

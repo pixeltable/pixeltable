@@ -11,7 +11,7 @@ from pixeltable import Column, Table
 from pixeltable.catalog import ColumnHandle, TableVersion
 from pixeltable.catalog.update_status import UpdateStatus
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class ExternalStore(abc.ABC):

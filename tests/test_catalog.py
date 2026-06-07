@@ -292,14 +292,11 @@ class TestCatalog:
             )
             # Thread 0: start adding a computed column, this will block at the fault point
             .then_run_until(
-                thread_id=0,
-                name='add column',
-                event=fault.reached,
-                fn=lambda: (t := pxt.get_table('test'), t.add_computed_column(b=t.a + 1)),
+                thread_id=0, name='add column', event=fault.reached, fn=lambda: t.add_computed_column(b=t.a + 1)
             )
             # Thread 1: run an insert concurrently with add column in thread 0 once thread 0 is in finalize pending ops
             # point
-            .then_run(thread_id=1, name='insert', fn=lambda: pxt.get_table('test').insert([{'a': 1}]))
+            .then_run(thread_id=1, name='insert', fn=lambda: t.insert([{'a': 1}]))
             # Unblock thread 0
             .then_run(thread_id=1, name='unblock thread 0', fn=lambda: fault.unblock())
             .execute()
@@ -316,13 +313,13 @@ class TestCatalog:
         persisted TableVersion. Later that would result in Pixeltable acting on that stale TableVersion, which can cause
         various sorts of issues including a data corruption.
         """
-        pxt.create_table('base', {'a': pxt.Int})
+        base = pxt.create_table('base', {'a': pxt.Int})
 
         injected_exc = Exception('injected error')
 
         def create_view() -> None:
             with pytest.raises(Exception, match='injected'):
-                pxt.create_view('va', pxt.get_table('base'))
+                pxt.create_view('va', base)
 
         (
             MultiThreadedScenario()
@@ -341,16 +338,47 @@ class TestCatalog:
             .then_run(thread_id=0, name='create view that fails', fn=create_view)
             # Thread 1: Create view vb on the same base. This also advances the persisted view_sn to v+1, which
             # automatically matches thread 0's stale cached value.
-            .then_run(thread_id=1, name='create view', fn=lambda: pxt.create_view('vb', pxt.get_table('base')))
+            .then_run(thread_id=1, name='create view', fn=lambda: pxt.create_view('vb', base))
             # Thread 0: insert into base table. Before the fix, Catalog would observe that the cached TableVersion's
             # version and view_sn match the stored values, and based on that decide to skip reloading the table.
             # The outcome of that is the write is not propagated to vb.
-            .then_run(
-                thread_id=0, name='insert into base (stale cache)', fn=lambda: pxt.get_table('base').insert([{'a': 42}])
-            )
+            .then_run(thread_id=0, name='insert into base (stale cache)', fn=lambda: base.insert([{'a': 42}]))
             .execute()
         )
 
-        assert pxt.get_table('base').count() == 1
+        assert base.count() == 1
         # Verify that the insert was propagated to vb.
         assert pxt.get_table('vb').count() == 1
+
+    def test_load_table_concurrent_drop_store_tbl(self, uses_db: None, fault_injection: None) -> None:
+        """
+        Verifies a bug fix: one thread is loading a table while the other is dropping it.
+        """
+        pxt.create_table('test', {'a': pxt.Int})
+        block_in_store_base = BlockFault()
+
+        def get_table_expect_not_found() -> None:
+            with pxt_raises(excs.ErrorCode.TABLE_NOT_FOUND, match='Table was dropped'):
+                pxt.get_table('test')
+
+        (
+            MultiThreadedScenario()
+            # Thread 0: arm the fault that blocks right after _store_tbl_exists() returns True
+            .then_run(
+                thread_id=0,
+                name='inject fault',
+                fn=lambda: get_runtime().fault_manager.inject_fault(
+                    FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK, block_in_store_base
+                ),
+            )
+            # Thread 0: load the table with a cold cache; this will block in StoreBase. When it unblocks later, expect
+            # a "Table was dropped" error. Before the fix, this would raise an AssertionError.
+            .then_run_until(
+                thread_id=0, name='get table', event=block_in_store_base.reached, fn=get_table_expect_not_found
+            )
+            # Thread 1: drop the table while Thread 0 is frozen. This drops store table as well.
+            .then_run(thread_id=1, name='drop table', fn=lambda: pxt.drop_table('test'))
+            # Thread 1: unblock Thread 0 inside StoreBase
+            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: block_in_store_base.unblock())
+            .execute()
+        )

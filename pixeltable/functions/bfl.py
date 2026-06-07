@@ -23,7 +23,7 @@ from pixeltable.env import register_client
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class BflRateLimitedError(Exception):
@@ -159,7 +159,7 @@ class _BflClient:
         return await self._poll_result(task_id, polling_url)
 
 
-@register_client('bfl')
+@register_client('bfl', credential_param='api_key')
 def _(api_key: str) -> _BflClient:
     return _BflClient(api_key=api_key)
 

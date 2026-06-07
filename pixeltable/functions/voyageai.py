@@ -37,7 +37,7 @@ _embedding_dimensions_cache: dict[str, int] = {
 }
 
 
-@env.register_client('voyage')
+@env.register_client('voyage', credential_param='api_key')
 def _(api_key: str) -> 'AsyncClient':
     from voyageai import AsyncClient
 

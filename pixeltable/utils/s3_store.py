@@ -23,7 +23,7 @@ from pixeltable.utils.object_stores import (
     StorageTarget,
 )
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class S3CompatClientDict(NamedTuple):
@@ -33,49 +33,49 @@ class S3CompatClientDict(NamedTuple):
     clients: dict[str, Any]  # Map of endpoint URL to boto3 client instance
 
 
-@env.register_client('r2')
+@env.register_client('r2', credential_param=None)
 def _() -> Any:
     profile_name = Config.get().get_string_value('r2_profile')
     return S3CompatClientDict(profile=profile_name, clients={})
 
 
-@env.register_client('r2_resource')
+@env.register_client('r2_resource', credential_param=None)
 def _() -> Any:
     profile_name = Config.get().get_string_value('r2_profile')
     return S3CompatClientDict(profile=profile_name, clients={})
 
 
-@env.register_client('b2')
+@env.register_client('b2', credential_param=None)
 def _() -> Any:
     profile_name = Config.get().get_string_value('b2_profile')
     return S3CompatClientDict(profile=profile_name, clients={})
 
 
-@env.register_client('b2_resource')
+@env.register_client('b2_resource', credential_param=None)
 def _() -> Any:
     profile_name = Config.get().get_string_value('b2_profile')
     return S3CompatClientDict(profile=profile_name, clients={})
 
 
-@env.register_client('tigris')
+@env.register_client('tigris', credential_param=None)
 def _() -> Any:
     profile_name = Config.get().get_string_value('tigris_profile')
     return S3CompatClientDict(profile=profile_name, clients={})
 
 
-@env.register_client('tigris_resource')
+@env.register_client('tigris_resource', credential_param=None)
 def _() -> Any:
     profile_name = Config.get().get_string_value('tigris_profile')
     return S3CompatClientDict(profile=profile_name, clients={})
 
 
-@env.register_client('s3')
+@env.register_client('s3', credential_param=None)
 def _() -> Any:
     profile_name = Config.get().get_string_value('s3_profile')
     return S3CompatClientDict(profile=profile_name, clients={})
 
 
-@env.register_client('s3_resource')
+@env.register_client('s3_resource', credential_param=None)
 def _() -> Any:
     profile_name = Config.get().get_string_value('s3_profile')
     return S3CompatClientDict(profile=profile_name, clients={})

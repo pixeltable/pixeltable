@@ -6,10 +6,12 @@ This parent module contains general-purpose UDFs that apply to multiple data typ
 
 # ruff: noqa: F401
 
+from pixeltable.functions.util import CodecContextMetadata, ContainerMetadata, StreamMetadata
 from pixeltable.utils.code import local_public_names
 
 from . import (
     anthropic,
+    array,
     audio,
     bedrock,
     bfl,

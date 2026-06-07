@@ -17,7 +17,7 @@ from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
 from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 __all__ = ['RateLimitsScheduler', 'RequestRateScheduler']
 
