@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import pxt_raises, rerun, skip_test_if_not_installed
+from ..utils import pxt_raises, rerun, skip_test_if_no_config, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -22,6 +22,7 @@ class TestHfDatasets:
     NUM_SAMPLES = 100
 
     def test_import_hf_dataset(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        skip_test_if_no_config('auth_token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -47,7 +48,7 @@ class TestHfDatasets:
                 # so filter out that column.
                 # cr subdir has a small number of rows, avoid running out of space in CI runner
                 # see https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3/tree/main/cr
-                'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
+                'schema_overrides': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
             },
             # example of dataset dictionary with multiple splits
             {
@@ -76,7 +77,7 @@ class TestHfDatasets:
             tab = pxt.io.import_huggingface_dataset(
                 dataset_name,
                 hf_dataset,
-                schema_overrides=rec.get('schema_override', None),
+                schema_overrides=rec.get('schema_overrides', None),
                 column_name_for_split=split_column_name,
             )
             if isinstance(hf_dataset, datasets.Dataset):
@@ -92,6 +93,7 @@ class TestHfDatasets:
                 raise AssertionError()
 
     def test_insert_hf_dataset(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        skip_test_if_no_config('auth_token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -117,7 +119,7 @@ class TestHfDatasets:
                 # so filter out that column.
                 # cr subdir has a small number of rows, avoid running out of space in CI runner
                 # see https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3/tree/main/cr
-                'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
+                'schema_overrides': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
             },
             # example of dataset dictionary with multiple splits
             {
@@ -135,7 +137,7 @@ class TestHfDatasets:
             tab = pxt.io.import_huggingface_dataset(
                 dataset_name,
                 hf_dataset,
-                schema_overrides=rec.get('schema_override', None),
+                schema_overrides=rec.get('schema_overrides', None),
                 column_name_for_split=split_column_name,
             )
             if isinstance(hf_dataset, datasets.Dataset):
@@ -151,7 +153,7 @@ class TestHfDatasets:
                 raise AssertionError()
             len1 = tab.count()
             tab.insert(
-                hf_dataset, schema_overrides=rec.get('schema_override', None), column_name_for_split=split_column_name
+                hf_dataset, schema_overrides=rec.get('schema_overrides', None), column_name_for_split=split_column_name
             )
             assert tab.count() == len1 * 2
 
@@ -207,6 +209,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     def test_import_images(self, streaming: bool, uses_db: None) -> None:
+        skip_test_if_no_config('auth_token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -245,6 +248,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     def test_import_audio_small(self, streaming: bool, uses_db: None) -> None:
+        skip_test_if_no_config('auth_token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -263,6 +267,7 @@ class TestHfDatasets:
     # TODO: find dataset containing Audio that is not gigantic
     @pytest.mark.parametrize('streaming', [True])
     def test_import_audio(self, streaming: bool, uses_db: None) -> None:
+        skip_test_if_no_config('auth_token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 

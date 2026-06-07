@@ -16,7 +16,7 @@ from pixeltable.env import Env
 if TYPE_CHECKING:
     import fastapi
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 def _resolve_module_attr(dotted: str) -> Any:

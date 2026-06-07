@@ -15,7 +15,7 @@ from pixeltable.utils.progress_reporter import ProgressReporter
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class ObjectStoreSaveNode(ExecNode):

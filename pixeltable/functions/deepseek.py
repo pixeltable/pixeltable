@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     import openai
 
 
-@env.register_client('deepseek')
+@env.register_client('deepseek', credential_param='api_key')
 def _(api_key: str) -> 'openai.AsyncOpenAI':
     import openai
 

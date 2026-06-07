@@ -30,7 +30,7 @@ from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class TablePackager:

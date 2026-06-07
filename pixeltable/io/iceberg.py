@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+import uuid
+from itertools import chain
+from typing import TYPE_CHECKING, Iterable, Literal, Mapping
+
+import pyarrow as pa
+
+import pixeltable as pxt
+import pixeltable.exceptions as excs
+from pixeltable.env import Env
+from pixeltable.utils import fault_injection
+from pixeltable.utils.arrow import find_null_fields, to_arrow_schema, to_record_batches
+from pixeltable.utils.fault_injection import FaultLocation
+
+if TYPE_CHECKING:
+    from pyiceberg.catalog import Catalog
+    from pyiceberg.table import Table as IcebergTable
+
+
+def export_iceberg(
+    table_or_query: pxt.Table | pxt.Query,
+    catalog: Catalog,
+    table_name: str,
+    *,
+    batch_size_bytes: int = 128 * 2**20,
+    if_exists: Literal['error', 'replace', 'append'] = 'error',
+    schema_overrides: Mapping[str, pa.DataType] | None = None,
+) -> None:
+    """
+    Exports a query result or table to an Apache Iceberg table.
+
+    Data is streamed into the Iceberg table via pyarrow
+    [`RecordBatches`](https://arrow.apache.org/docs/python/generated/pyarrow.RecordBatch.html), the size of
+    which can be controlled with the `batch_size_bytes` parameter.
+
+    __Requirements:__
+
+    - `pip install pyiceberg`
+
+    Args:
+        table_or_query: Pixeltable `Table` or `Query` to export.
+        catalog: An Iceberg `Catalog` instance to write the table into.
+        table_name: Fully-qualified Iceberg table identifier (e.g. `'my_namespace.my_table'`). If the namespace
+            does not exist, it will be created.
+        batch_size_bytes: Maximum size in bytes for each in-memory pyarrow batch.
+        if_exists: Determines the behavior if the table already exists. Must be one of the following:
+
+            - `'error'`: raise an error
+            - `'replace'`: drop the existing table and create a new one
+            - `'append'`: append to the existing table (source schema must be compatible)
+        schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
+            name `name` will be given type `type`, instead of being inferred from the Pixeltable schema. The keys in
+            `schema_overrides` should be the column names of the Pixeltable schema.
+    """
+    Env.get().require_package('pyiceberg')
+
+    from pyiceberg.exceptions import NoSuchTableError
+
+    if if_exists not in ('error', 'replace', 'append'):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            "export_iceberg(): `if_exists` must be one of: ['error', 'replace', 'append']",
+        )
+
+    # pyiceberg requires a namespace-qualified identifier; bare names raise opaque errors deep
+    # inside catalog.load_table / create_table. Reject them up front with a clear message.
+    namespace, _, name = table_name.rpartition('.')
+    if not namespace or not name:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f"export_iceberg(): table_name {table_name!r} must be namespace-qualified (e.g. 'my_namespace.my_table').",
+        )
+
+    query: pxt.Query
+    if isinstance(table_or_query, pxt.catalog.Table):
+        query = table_or_query.select()
+    else:
+        query = table_or_query
+
+    existing_tbl: IcebergTable | None = None
+    try:
+        existing_tbl = catalog.load_table(table_name)
+    except NoSuchTableError:
+        pass
+
+    if existing_tbl is not None and if_exists == 'error':
+        raise excs.AlreadyExistsError(
+            excs.ErrorCode.PATH_ALREADY_EXISTS, f'export_iceberg(): table {table_name!r} already exists'
+        )
+
+    if schema_overrides is not None:
+        extraneous_overrides = schema_overrides.keys() - query.schema.keys()
+        if len(extraneous_overrides) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'export_iceberg(): some column(s) specified in `schema_overrides` are not present '
+                f'in the source: {", ".join(sorted(extraneous_overrides))}',
+            )
+
+    # Build a deterministic arrow schema up front so we can materialize the Iceberg table even
+    # when the query yields no rows, and reject fixed-shape tensor columns before we run the query.
+    # Variable-shape arrays are mapped to pa.list_(...) by to_arrow_type and are supported by Iceberg.
+    fallback_schema = to_arrow_schema(query.schema, schema_overrides)
+    fixed_tensor_cols = [f.name for f in fallback_schema if isinstance(f.type, pa.FixedShapeTensorType)]
+    if len(fixed_tensor_cols) > 0:
+        example_col = fixed_tensor_cols[0]
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'export_iceberg(): cannot export fixed-shape tensor column(s) {fixed_tensor_cols}. '
+            f'Iceberg has no fixed-shape tensor type; project each such column to a list before exporting, '
+            f'e.g. export_iceberg(t.select({example_col}=t.{example_col}.to_list()), catalog, table_name).',
+        )
+
+    batch_iter = to_record_batches(query, batch_size_bytes, schema_overrides)
+    first_batch = next(batch_iter, None)
+
+    # Prefer the first batch's schema: it carries the concrete nested types inferred from real JSON
+    # values (e.g. struct<x: int64>), whereas fallback_schema maps every JSON column to an empty
+    # pa.struct([]). fallback_schema is only used when the query is empty and there is nothing to infer.
+    arrow_schema = first_batch.schema if first_batch is not None else fallback_schema
+
+    # `pa.infer_type()` produces `pa.null()` for JSON keys whose value is None in every sampled row.
+    # Iceberg format-version 2 cannot represent a null-only column, so reject it up front rather
+    # than letting pyiceberg fail mid-write with a less actionable error.
+    null_paths = find_null_fields(arrow_schema)
+    if len(null_paths) > 0:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'export_iceberg(): cannot infer a concrete type for JSON field(s) {null_paths} because every sampled '
+            f'value is None. Iceberg has no null-only type; you can specify an explicit type using the '
+            f'schema_overrides parameter.',
+        )
+
+    catalog.create_namespace_if_not_exists(namespace)
+    batches: Iterable[pa.RecordBatch] = chain([first_batch], batch_iter) if first_batch is not None else batch_iter
+
+    if existing_tbl is not None and if_exists == 'append':
+        target_schema = existing_tbl.schema().as_arrow()
+
+        # Cast a zero-row slice to the target schema: pyarrow validates field names match
+        # exactly and that source types can be promoted to target types (e.g. string -> large_string).
+        try:
+            sample = (
+                first_batch.slice(0, 0)
+                if first_batch is not None
+                else pa.RecordBatch.from_arrays([pa.array([], type=f.type) for f in arrow_schema], schema=arrow_schema)
+            )
+            pa.Table.from_batches([sample]).cast(target_schema)
+        except (pa.ArrowInvalid, ValueError) as e:
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'export_iceberg(): source schema is not compatible with existing table {table_name!r}: {e}\n'
+                f'Source schema:\n{arrow_schema}\n'
+                f'Target schema:\n{target_schema}',
+            ) from e
+
+        # Stream batches and convert non-Pixeltable errors to user-facing error
+        try:
+            with existing_tbl.transaction() as tx:
+                fault_injection.process_fault(FaultLocation.IO_EXPORT_ICEBERG_APPEND)
+                for batch in batches:
+                    tx.append(pa.Table.from_batches([batch]))
+        except excs.Error:
+            raise
+        except Exception as e:
+            raise excs.Error(
+                excs.ErrorCode.INTERNAL_ERROR,
+                f'export_iceberg(): failed to append to Iceberg table {table_name!r}: {e}',
+            ) from e
+
+        return
+
+    # Write to a temp table and swap on success so a mid-stream failure leaves any existing
+    # original untouched. Drop-then-rename is two catalog calls and not truly atomic; a crash
+    # between them leaves the original gone but the data preserved under the temp name.
+    temp_name = f'{table_name}__pxt_tmp_{uuid.uuid4().hex[:8]}'
+
+    try:
+        temp_tbl = catalog.create_table(temp_name, schema=arrow_schema)
+        fault_injection.process_fault(FaultLocation.IO_EXPORT_ICEBERG_WRITE_TEMP)
+
+        with temp_tbl.transaction() as tx:
+            for batch in batches:
+                tx.append(pa.Table.from_batches([batch]))
+
+        fault_injection.process_fault(FaultLocation.IO_EXPORT_ICEBERG_BEFORE_SWAP)
+
+        if existing_tbl is not None:
+            catalog.drop_table(table_name)
+        catalog.rename_table(temp_name, table_name)
+
+    except excs.Error:
+        raise
+    except Exception as e:
+        raise excs.Error(
+            excs.ErrorCode.INTERNAL_ERROR, f'export_iceberg(): failed to write Iceberg table {table_name!r}: {e}'
+        ) from e
+    finally:
+        # Drop temp if it still exists; covers mid-stream errors and BaseException paths
+        # like KeyboardInterrupt. On success, rename consumed temp_name, so swallow NoSuchTableError.
+        try:
+            catalog.drop_table(temp_name)
+        except NoSuchTableError:
+            pass

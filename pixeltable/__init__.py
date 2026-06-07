@@ -51,7 +51,6 @@ from .globals import (
     TableNode,
     TreeNode,
     array,
-    configure_logging,
     create_dir,
     create_snapshot,
     create_table,
@@ -92,7 +91,7 @@ from .type_system import (
 )
 
 # This import must go last to avoid circular imports.
-from . import dashboard, functions, io, iterators  # isort: skip
+from . import functions, io, iterators  # isort: skip
 
 # This is the safest / most maintainable way to construct __all__: start with the default and "blacklist"
 # stuff that we don't want in there. (Using a "whitelist" is considerably harder to maintain.)

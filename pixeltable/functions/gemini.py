@@ -39,7 +39,7 @@ from pixeltable.utils.local_store import TempStore
 if TYPE_CHECKING:
     from google import genai
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 # Max raw file size (bytes) for inline data; larger files use the Files API.
 GEMINI_INLINE_LIMIT_BYTES = 4 * 2**20
@@ -51,7 +51,7 @@ _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 T = TypeVar('T', bound='genai.types.Operation')
 
 
-@env.register_client('gemini')
+@env.register_client('gemini', credential_param='api_key')
 def _(api_key: str | None = None) -> 'genai.client.Client':
     from google import genai
 

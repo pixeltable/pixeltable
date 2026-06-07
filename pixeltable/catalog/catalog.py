@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from .. import exprs
 
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api.DeclarativeBase]]) -> list[Any] | None:
@@ -87,6 +87,7 @@ def retry_loop(
     write_tvps: Collection[TableVersionPath] | None = None,
     write_tbl_ids: Collection[UUID] | None = None,
     lock_mutable_tree: bool = False,
+    isolation_level: Literal['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'] | None = None,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
@@ -114,6 +115,7 @@ def retry_loop(
                             write_tbl_ids=write_tbl_ids,
                             convert_db_excs=False,
                             lock_mutable_tree=lock_mutable_tree,
+                            isolation_level=isolation_level,
                             finalize_pending_ops=True,
                         ),
                     ):
@@ -338,6 +340,7 @@ class Catalog:
         lock_mutable_tree: bool = False,
         convert_db_excs: bool = True,
         finalize_pending_ops: bool = True,
+        isolation_level: Literal['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'] | None = None,
     ) -> Iterator[sql.Connection]:
         """
         Return a context manager that yields a connection to the database. Idempotent.
@@ -385,7 +388,7 @@ class Catalog:
                 has_exc = False
 
                 assert not self._undo_actions
-                with get_runtime().begin_xact(for_write=for_write) as conn:
+                with get_runtime().begin_xact(for_write=for_write, isolation_level=isolation_level) as conn:
                     with self._allow_tbl_md_read():
                         try:
                             self._acquire_locks(
@@ -398,7 +401,7 @@ class Catalog:
                             )
                             if for_write and lock_mutable_tree:
                                 self._compute_column_dependents(self._x_locked_tbl_ids)
-                            if Env.get().logging_is_enabled_for(logging.DEBUG, 'catalog'):
+                            if _logger.isEnabledFor(logging.DEBUG):
                                 # validate only when we don't see errors
                                 self.validate()
                         except PendingTableOpsError as e:
@@ -486,16 +489,11 @@ class Catalog:
         updates self._x_locked_tbl_ids accordingly.
 
         Refreshes the metadata cache for the read targets.
+
+        The order matters: TVPs are processed before tbl_ids in both groups so that ancestor-first validation
+        (write_tvps -> write_tbl_ids -> read_tvps -> read_tbl_ids) is established before any unordered ID pass runs.
         """
         x_locked_ids: set[UUID] = set()
-        for tbl_id in write_tbl_ids:
-            if tbl_id in x_locked_ids:
-                continue
-            x_locked_ids.update(
-                self._acquire_write_lock(
-                    tbl_id=tbl_id, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
-                )
-            )
         for tvp in write_tvps:
             if tvp.tbl_id in x_locked_ids:
                 continue
@@ -504,10 +502,18 @@ class Catalog:
                     tbl=tvp, for_write=True, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
                 )
             )
-        for tbl_id in read_tbl_ids:
-            self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
+        for tbl_id in write_tbl_ids:
+            if tbl_id in x_locked_ids:
+                continue
+            x_locked_ids.update(
+                self._acquire_write_lock(
+                    tbl_id=tbl_id, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
+                )
+            )
         for tvp in read_tvps:
             self._acquire_path_locks(tbl=tvp, for_write=False, check_pending_ops=finalize_pending_ops)
+        for tbl_id in read_tbl_ids:
+            self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
 
         self._x_locked_tbl_ids = x_locked_ids
 
@@ -580,7 +586,7 @@ class Catalog:
                 msg = ''
             _logger.debug(f'Exception: {e.orig.__class__}: {msg} ({e})')
             # Suppress the underlying SQL exception unless DEBUG is enabled
-            raise_from = e if Env.get().logging_is_enabled_for(logging.DEBUG, 'catalog') else None
+            raise_from = e if _logger.isEnabledFor(logging.DEBUG) else None
             if isinstance(e.orig, psycopg.errors.DuplicateColumn):
                 # TODO: extend message with the name of the schema column (not the store column)
                 raise excs.AlreadyExistsError(excs.ErrorCode.COLUMN_ALREADY_EXISTS, 'Duplicate column') from raise_from
@@ -2298,10 +2304,10 @@ class Catalog:
         conn = get_runtime().conn
 
         if ignore_pending_drop:
-            # check whether this table is in the process of being dropped
+            # check whether this table is in the process of being dropped or has already been dropped
             q: sql.Executable = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
-            row = conn.execute(q).one()
-            if row.md['pending_stmt'] == schema.TableStatement.DROP_TABLE.value:
+            row = conn.execute(q).one_or_none()
+            if row is None or row.md['pending_stmt'] == schema.TableStatement.DROP_TABLE.value:
                 return None
 
         # check for pending ops
@@ -2321,6 +2327,7 @@ class Catalog:
         )
         row = conn.execute(q).one_or_none()
         if row is None:
+            # the table got dropped
             return None
         tbl_record, _ = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
 
@@ -2914,18 +2921,48 @@ class Catalog:
         """
         Creates a catalog record (root directory) for the specified user, if one does not already exist.
         """
-        with get_runtime().begin_xact():
-            session = get_runtime().session
-            # See if there are any directories in the catalog matching the specified user.
-            if session.query(schema.Dir).where(schema.Dir.md['user'].astext == user).count() > 0:
-                # At least one such directory exists; no need to create a new one.
-                return
+        # - we need to run this as SERIALIZABLE in order to avoid a race when two processes are started against
+        #   an empty store (they both see a count of 0 for the root dir and both create a new root dir)
+        # - this can only be run inside a new transaction, to ensure the isolation level
+        # - we don't use retry_loop() here because this is called from Catalog.__init__() (via _init_store()),
+        #   before the Catalog instance is registered with Runtime; retry_loop() would re-enter Catalog().
+        assert not get_runtime().in_xact, 'create_user() must run as the outermost transaction'
 
-            dir_md = schema.DirMd(name='', user=user, additional_md={})
-            dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
-            session.add(dir_record)
-            session.flush()
-            _logger.info(f'Added root directory record for user: {user!r}')
+        num_retries = 0
+        while True:
+            try:
+                with get_runtime().begin_xact(for_write=True, isolation_level='SERIALIZABLE'):
+                    session = get_runtime().session
+                    assert session is not None
+                    # See if there are any directories in the catalog matching the specified user.
+                    if session.query(schema.Dir).where(schema.Dir.md['user'].astext == user).count() > 0:
+                        # At least one such directory exists; no need to create a new one.
+                        return
+                    fault_injection.process_fault(FaultLocation.CATALOG_CREATE_USER_AFTER_EXISTS_CHECK)
+
+                    dir_md = schema.DirMd(name='', user=user, additional_md={})
+                    dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
+                    session.add(dir_record)
+                    session.flush()
+                    _logger.info(f'Added root directory record for user: {user!r}')
+                    return
+            except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
+                if not isinstance(
+                    e.orig,
+                    (
+                        psycopg.errors.SerializationFailure,
+                        psycopg.errors.LockNotAvailable,
+                        psycopg.errors.DeadlockDetected,
+                    ),
+                ):
+                    raise
+                if _MAX_RETRIES != -1 and num_retries >= _MAX_RETRIES:
+                    raise excs.ConcurrencyError(
+                        excs.ErrorCode.SERIALIZATION_FAILURE, f'Serialization retry limit ({_MAX_RETRIES}) exceeded'
+                    ) from e
+                num_retries += 1
+                _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                time.sleep(random.uniform(0.1, 0.5))
 
     def _handle_path_collision(
         self,
