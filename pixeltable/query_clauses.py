@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
 import pixeltable.exceptions as excs
 
@@ -51,8 +51,12 @@ class FromClause:
         assert len(self.tbls) > 0
         first_type = type(self.tbls[0])
         assert all(type(t) is first_type for t in self.tbls), (
-            'cannot mix local (TableVersionPath) and hosted (TableMdPath) tables in a FromClause'
+            'cannot mix TableMdPath and TableVersionPath in a FromClause'
         )
+
+    @property
+    def tvps(self) -> list[catalog.TableVersionPath]:
+        return cast(list[catalog.TableVersionPath], self.tbls)
 
     @property
     def is_local(self) -> bool:

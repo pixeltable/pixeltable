@@ -494,7 +494,7 @@ class Query:
     @property
     def _first_tbl(self) -> catalog.TableVersionPath:
         assert self._from_clause.is_local
-        return cast(catalog.TableVersionPath, self._from_clause._first_tbl)
+        return self._from_clause.tvps[0]
 
     @property
     def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
@@ -641,7 +641,7 @@ class Query:
 
     def _from_clause_tbl_versions(self) -> dict[UUID, int]:
         assert self._from_clause.is_local
-        tvps = cast(list[catalog.TableVersionPath], self._from_clause.tbls)
+        tvps = self._from_clause.tvps
         out: dict[UUID, int] = {}
         for tbl in tvps:
             for tvh in tbl.get_tbl_versions():
@@ -652,7 +652,7 @@ class Query:
 
     def _create_query_plan(self) -> exec.ExecPlan:
         assert self._from_clause.is_local
-        tvps = cast(list[catalog.TableVersionPath], self._from_clause.tbls)
+        tvps = self._from_clause.tvps
         has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in tvps)
         if has_unversioned_tbl:
             # For now, we only support queries of the simplest form on unversioned tables
@@ -842,7 +842,7 @@ class Query:
     def _output_row_iterator(self, args: dict[str, Any] | None = None) -> Generator[list, None, None]:
         assert self._from_clause.is_local
         tbl_ids = self.referenced_tbl_ids()
-        tvps = cast(list[catalog.TableVersionPath], self._from_clause.tbls)
+        tvps = self._from_clause.tvps
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=tbl_ids):
             try:
                 planned_exprs = self._compiled_select_list()
@@ -857,7 +857,7 @@ class Query:
 
     def collect(self) -> ResultSet:
         assert self._from_clause.is_local
-        tvps = cast(list[catalog.TableVersionPath], self._from_clause.tbls)
+        tvps = self._from_clause.tvps
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
             return self._collect()
 
@@ -924,9 +924,7 @@ class Query:
         is_grouped = self.group_by_clause is not None or self.grouping_tbl is not None
 
         assert self._from_clause.is_local
-        with get_runtime().catalog.begin_xact(
-            for_write=False, read_tvps=cast(list[catalog.TableVersionPath], self._from_clause.tbls)
-        ):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tvps):
             plan_root = count_query._ensure_plan().exec_root
             if not isinstance(plan_root, exec.SqlNode):
                 raise excs.RequestError(
@@ -1067,7 +1065,7 @@ class Query:
                 try:
                     # retarget() returns a new expr for a bare ColumnRef (col_md is immutable); reassign so the
                     # retargeted version (with col_effective_version aligned to the snapshot) is the one checked.
-                    expr = expr.retarget(cast(catalog.TableVersionPath, self._from_clause.tbls[0]))
+                    expr = expr.retarget(self._from_clause.tvps[0])
                 except Exception:
                     # If retarget() fails, then the succeeding is_bound_by() will raise an error.
                     pass
@@ -1783,7 +1781,7 @@ class Query:
         d = {
             '_classname': 'Query',
             'from_clause': {
-                'tbls': [cast(catalog.TableVersionPath, tbl).as_dict() for tbl in self._from_clause.tbls],
+                'tbls': [tbl.as_dict() for tbl in self._from_clause.tvps],
                 'join_clauses': [dataclasses.asdict(clause) for clause in self._from_clause.join_clauses],
             },
             'select_list': [(e.as_dict(), name) for (e, name) in self.select_list]
@@ -1889,9 +1887,7 @@ class Query:
         else:
             assert self._from_clause.is_local
             with get_runtime().catalog.begin_xact(
-                for_write=False,
-                read_tvps=cast(list[catalog.TableVersionPath], self._from_clause.tbls),
-                read_tbl_ids=self.referenced_tbl_ids(),
+                for_write=False, read_tvps=self._from_clause.tvps, read_tbl_ids=self.referenced_tbl_ids()
             ):
                 return write_coco_dataset(self, dest_path)
 
@@ -1939,9 +1935,7 @@ class Query:
         else:
             assert self._from_clause.is_local
             with get_runtime().catalog.begin_xact(
-                for_write=False,
-                read_tvps=cast(list[catalog.TableVersionPath], self._from_clause.tbls),
-                read_tbl_ids=self.referenced_tbl_ids(),
+                for_write=False, read_tvps=self._from_clause.tvps, read_tbl_ids=self.referenced_tbl_ids()
             ):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)

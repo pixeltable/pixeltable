@@ -1021,7 +1021,7 @@ class Planner:
         scan_target_exprs = sql_exprs | join_exprs
         tbl_scan_plans: list[exec.SqlScanNode] = []
         plan: exec.ExecNode
-        for tbl in cast(list[catalog.TableVersionPath], analyzer.from_clause.tbls):
+        for tbl in analyzer.from_clause.tvps:
             # materialize all subexprs of scan_target_exprs that are bound by tbl
             tbl_scan_exprs = exprs.ExprSet(
                 exprs.Expr.list_subexprs(
