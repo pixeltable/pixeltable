@@ -22,7 +22,7 @@ from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
 from pixeltable.func.signature import Batch
 from pixeltable.metadata import VERSION, SystemInfo
-from pixeltable.metadata.converters.util import convert_table_md
+from pixeltable.metadata.converters.util import convert_table_md, convert_table_schema_version_md
 from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
 
@@ -105,7 +105,7 @@ class TestMigration:
             # `test_udf_stored_batched` in the DB artifact metadata with a non-pickled variant.
             # TODO: Remove this workaround once we implement a better solution for dealing with legacy pickled UDFs.
             with orm.Session(env.engine) as session:
-                convert_table_md(env.engine, substitution_fn=self.__replace_pickled_udfs)
+                convert_table_schema_version_md(env.engine, schema_column_updater=self.__replace_pickled_udfs)
 
             try:
                 reload_catalog()
@@ -137,7 +137,7 @@ class TestMigration:
                     self._verify_v49()
                 if old_version >= 50:
                     self._verify_v49_query_scalar()
-                # self._verify_v24(old_version)
+                    self._verify_v51_md()
 
                 pxt.drop_table('sample_table', force=True)
 
@@ -296,21 +296,19 @@ class TestMigration:
         return None
 
     @staticmethod
-    def __replace_pickled_udfs(k: str | None, v: Any) -> tuple[str | None, Any] | None:
+    def __replace_pickled_udfs(column_md: dict) -> None:
         # The following set of conditions uniquely identifies FunctionCall instances in the artifacts whose function
         # is `test_udf_stored_batched`. See comment above re: pickled UDFs in Python 3.10.
         # TODO: Remove this method once we implement a better solution for dealing with legacy pickled UDFs.
         if (
-            isinstance(v, dict)
-            and v.get('_classname') == 'FunctionCall'
-            and 'id' in v['fn']
-            and len(v['kwarg_idxs']) == 1
+            column_md['value_expr'] is not None
+            and column_md['value_expr'].get('_classname', None) == 'FunctionCall'
+            and 'id' in column_md['value_expr']['fn']
+            and len(column_md['value_expr']['kwarg_idxs']) == 1
         ):
-            del v['fn']['id']
-            v['fn']['path'] = replacement_batched_udf.self_path
-            v['fn']['signature'] = replacement_batched_udf.signature.as_dict()
-
-        return k, v
+            del column_md['value_expr']['fn']['id']
+            column_md['value_expr']['fn']['path'] = replacement_batched_udf.self_path
+            column_md['value_expr']['fn']['signature'] = replacement_batched_udf.signature.as_dict()
 
     @classmethod
     def _run_v30_tests(cls) -> None:
@@ -335,10 +333,38 @@ class TestMigration:
     @classmethod
     def _verify_v33(cls) -> None:
         with Env.get().engine.begin() as conn:
-            for row in conn.execute(sql.select(Table.md)):
-                table_md = row[0]
-                for col_md in table_md['column_md'].values():
-                    assert col_md['is_pk'] is not None
+            for row in conn.execute(sql.select(TableSchemaVersion.md)):
+                for column_md in row[0]['columns'].values():
+                    assert column_md['is_pk'] is not None
+
+    @classmethod
+    def _verify_v51_md(cls) -> None:
+        t = pxt.get_table('base_table')
+        tv = t._tbl_version_path.tbl_version.get()
+        # Validate ColumnMd.is_media_type against hardcoded correct values
+        for col_id, col_md in tv._tbl_md.column_md.items():
+            if col_id > 142:
+                # Ignore future columns
+                continue
+            schema_col = tv._schema_version_md.columns[col_id]
+            if schema_col.is_system_column:
+                # columns between 28 and 35 are index value/undo columns for media columns c8, c9, c10, c11
+                if col_id >= 28 and col_id <= 35:
+                    assert col_md.is_media_type, (
+                        f'{col_id} should have is_media_type=True: ColumnMd={col_md}, SchemaVersionMd={schema_col}'
+                    )
+                else:
+                    assert not col_md.is_media_type, (
+                        f'{col_id} should have is_media_type=False: ColumnMd={col_md}, SchemaVersionMd={schema_col}'
+                    )
+                continue
+            name = schema_col.name
+            if name in ('c8', 'c9', 'c10', 'c11', 'base_table_image_rot'):
+                assert col_md.is_media_type, f'{name} should have is_media_type=True'
+            else:
+                assert not col_md.is_media_type, (
+                    f'{name} should have is_media_type=False: ColumnMd={col_md}, SchemaVersionMd={schema_col}'
+                )
 
     @classmethod
     def _verify_v45(cls) -> None:

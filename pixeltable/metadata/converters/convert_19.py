@@ -9,7 +9,7 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 
 @register_converter(version=19)
-def _(engine: sql.engine.Engine) -> None:
+def _(engine: sql.engine.Engine, _dbms: object) -> None:
     # Convert all timestamp literals to aware datetimes
     convert_table_md(engine, substitution_fn=__update_timestamp_literals)
 

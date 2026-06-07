@@ -187,7 +187,7 @@ class Env:
         return self._verbosity
 
     @property
-    def dbms(self) -> Dbms | None:
+    def dbms(self) -> Dbms:
         assert self._dbms is not None
         return self._dbms
 
@@ -528,7 +528,7 @@ class Env:
     def _upgrade_metadata(self) -> None:
         from pixeltable import metadata
 
-        metadata.upgrade_md(self._sa_engine)
+        metadata.upgrade_md(self._sa_engine, self.dbms)
 
     @property
     def pxt_api_key(self) -> str | None:

@@ -5,7 +5,7 @@ from pixeltable.metadata.schema import Dir, Table, TableSchemaVersion, TableVers
 
 
 @register_converter(version=28)
-def _(engine: sql.engine.Engine) -> None:
+def _(engine: sql.engine.Engine, _dbms: object) -> None:
     with engine.begin() as conn:
         conn.execute(sql.update(Dir).values(md=Dir.md.concat({'user': None, 'additional_md': {}})))
         conn.execute(sql.update(Table).values(md=Table.md.concat({'user': None, 'additional_md': {}})))

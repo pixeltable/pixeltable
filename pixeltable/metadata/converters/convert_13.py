@@ -10,7 +10,7 @@ _logger = logging.getLogger(__name__)
 
 
 @register_converter(version=13)
-def _(engine: sql.engine.Engine) -> None:
+def _(engine: sql.engine.Engine, _dbms: object) -> None:
     with engine.begin() as conn:
         for row in conn.execute(sql.select(Table.id, Table.md)):
             id = row[0]
