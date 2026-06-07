@@ -22,7 +22,6 @@ class IndexBase(abc.ABC):
     def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
         """
         Validates that the index can be created on column c and returns an expression that computes the index value.
-        tbl_path is the resolution context for the ColumnRef in the returned expression.
         """
 
     @abc.abstractmethod

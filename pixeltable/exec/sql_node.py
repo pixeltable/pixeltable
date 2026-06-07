@@ -13,6 +13,7 @@ from pgvector.sqlalchemy import HalfVector  # type: ignore[import-untyped]
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
 from pixeltable.metadata import schema
+from pixeltable.query_clauses import JoinClause, JoinType
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
 
@@ -20,7 +21,6 @@ from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
 if TYPE_CHECKING:
-    import pixeltable.plan
     from pixeltable.plan import SampleClause
 
 _logger = logging.getLogger(__name__)
@@ -660,14 +660,14 @@ class SqlJoinNode(SqlNode):
     """
 
     input_ctes: list[sql.CTE]
-    join_clauses: list['pixeltable.query_clauses.JoinClause']
+    join_clauses: list[JoinClause]
     _cte_inputs: list[SqlNode]
 
     def __init__(
         self,
         row_builder: exprs.RowBuilder,
         inputs: Sequence[SqlNode],
-        join_clauses: list['pixeltable.query_clauses.JoinClause'],
+        join_clauses: list[JoinClause],
         select_list: Iterable[exprs.Expr],
     ):
         assert len(inputs) > 1
@@ -686,8 +686,6 @@ class SqlJoinNode(SqlNode):
         self._cte_inputs = list(inputs)
 
     def _create_stmt(self) -> sql.Select:
-        from pixeltable.query_clauses import JoinType
-
         stmt = super()._create_stmt()
         stmt = stmt.select_from(self.input_ctes[0])
         for i in range(len(self.join_clauses)):
@@ -699,7 +697,10 @@ class SqlJoinNode(SqlNode):
             )
             is_outer = join_clause.join_type in (JoinType.LEFT, JoinType.FULL_OUTER)
             stmt = stmt.join(
-                self.input_ctes[i + 1], onclause=on_clause, isouter=is_outer, full=join_clause == JoinType.FULL_OUTER
+                self.input_ctes[i + 1],
+                onclause=on_clause,
+                isouter=is_outer,
+                full=join_clause.join_type == JoinType.FULL_OUTER,
             )
         return stmt
 

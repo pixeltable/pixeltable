@@ -379,6 +379,8 @@ class Column:
         Only valid when the column is accessed in its own table's context (tbl_handle.id is the
         path-context table). For a base column accessed through a view path, use
         TableVersionPath.get_column_md() instead.
+
+        TODO: cache this
         """
         from .globals import ColumnVersionMd, QColumnId
 
