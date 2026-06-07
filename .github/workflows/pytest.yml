@@ -208,6 +208,14 @@ jobs:
         run: uv cache clean
       - name: Set up credentials
         run: ./scripts/set-up-ci-credentials.sh
+      - name: Build dashboard SPA
+        # The pxt daemon serves the SPA bundle when the dashboard feature flag is enabled;
+        # tests/pixeltable_cli/test_smoke.py exercises that path. The build output is gitignored,
+        # so CI has to produce it before the test job runs.
+        if: ${{ matrix.test-category == 'py' }}
+        run: |
+          conda install -y -c conda-forge nodejs
+          cd dashboard && npm install --silent && npm run build
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:

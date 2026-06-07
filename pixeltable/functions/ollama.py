@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     import ollama
 
 
-@env.register_client('ollama')
+@env.register_client('ollama', credential_param=None)
 def _(host: str) -> 'ollama.Client':
     import ollama
 

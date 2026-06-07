@@ -89,7 +89,7 @@ class _JinaClient:
                     raise JinaUnexpectedError(f'Jina API error (status {resp.status}): {error_text}')
 
 
-@register_client('jina')
+@register_client('jina', credential_param='api_key')
 def _(api_key: str) -> _JinaClient:
     return _JinaClient(api_key=api_key)
 
