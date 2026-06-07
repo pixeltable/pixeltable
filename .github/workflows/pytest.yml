@@ -12,6 +12,7 @@ name: tests
 #   - Python 3.11, 3.12, and 3.13 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.14 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.10 on ubuntu-24.04-arm and macos-15-intel.
+#   - Expensive notebook tests.
 #
 # On a weekly schedule, all of the above configurations are run (against branch 'main'), and additionally:
 #   - Python 3.10 on ubuntu-t4 (equipped with an NVIDIA T4 GPU).
@@ -53,7 +54,9 @@ env:
   PXTTEST_COCKROACH_DB_ROOT_CERT: ${{ secrets.PXTTEST_COCKROACH_DB_ROOT_CERT }}
   PXTTEST_IN_CI: 1
   MINTLIFY_VERSION: 4.2.506
-  NB_TEST_OPTS: ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-expensive' || '' }}
+  NB_TEST_OPTS: >-
+    ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-very-expensive' || '' }}
+    ${{ github.event_name != 'pull_request' && '--include-expensive' || '' }}
   UV_VERSION: 0.9.3
 
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
@@ -204,6 +207,14 @@ jobs:
         run: uv cache clean
       - name: Set up credentials
         run: ./scripts/set-up-ci-credentials.sh
+      - name: Build dashboard SPA
+        # The pxt daemon serves the SPA bundle when the dashboard feature flag is enabled;
+        # tests/pixeltable_cli/test_smoke.py exercises that path. The build output is gitignored,
+        # so CI has to produce it before the test job runs.
+        if: ${{ matrix.test-category == 'py' }}
+        run: |
+          conda install -y -c conda-forge nodejs
+          cd dashboard && npm install --silent && npm run build
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:

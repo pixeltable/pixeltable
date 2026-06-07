@@ -74,16 +74,18 @@ dependencies = [
     "pathspec>=0.10.2",
 ]
 
+[project.optional-dependencies]
+# `pxt serve` hosts a user-defined FastAPI app and shells out to uvicorn; the daemon
+# behind `pxt ls`/`pxt describe`/etc. is stdlib-only and does not need this extra.
+serve = ["fastapi[standard]>=0.120.0"]
+
 [project.urls]
 homepage = "https://pixeltable.com/"
 repository = "https://github.com/pixeltable/pixeltable"
 documentation = "https://docs.pixeltable.com/"
 
 [project.scripts]
-pxt = "pixeltable.cli:main"
-
-[project.entry-points."mkdocstrings.python.templates"]
-extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
+pxt = "pixeltable_cli.client.main:main"
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning>=0.8.2"]
@@ -128,9 +130,6 @@ dev = [
     "types-tqdm~=4.64",
     "ruff>=0.14",
     "notebook>=7.5.6",
-    "mkdocs>=1.6.0,<2",
-    "mkdocs-material>=9.5.23,<10",
-    "mkdocstrings-python>=1.10.2,<2",
     "black>=26.3.1",
     "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
     "pycocotools>=2.0.10",
@@ -145,7 +144,7 @@ dev = [
     "torchvision>=0.22",
     "torchcodec<0.8 ; python_version < '3.14'",  # Pinned for compatibility with torch 2.8
     "soundfile>=0.13",
-    "openai>=2",
+    "openai>=2.33",
     "anthropic>=0.53.0",
     "together>=2.8",
     "fal-client>=0.5.6",
@@ -170,7 +169,7 @@ dev = [
     "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
     "ollama>=0.6",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
-    "mcp>=1.23.0",
+    "mcp>=1.27.2",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
     # of at least one library. We can re-enable it once they update their dependencies.
@@ -193,6 +192,7 @@ dev = [
     "mdformat>=1.0.0",
     "nbqa>=1.9.1",
     "snowflake-sqlalchemy>=1.7.0",
+    # fastapi powers `pxt serve` (user-defined services); the pxt daemon itself is stdlib-only
     "fastapi[standard]>=0.120.0",
     "imagehash>=4.3",
     "scipy ; python_version < '3.14'",
@@ -233,6 +233,7 @@ exclude = [
 ]
 
 [tool.hatch.build.targets.wheel]
+packages = ["pixeltable", "pixeltable_cli"]
 exclude = [
     ".pytest_cache",
     ".pytype",
@@ -243,7 +244,7 @@ exclude = [
     "/tool",
 ]
 artifacts = [
-    "pixeltable/dashboard/static/**",
+    "pixeltable_cli/server/static/**",
 ]
 
 [tool.isort]
@@ -344,7 +345,7 @@ builtins-ignorelist = ["format", "input"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
-known-first-party = ["pixeltable"]
+known-first-party = ["pixeltable_cli", "pixeltable"]
 split-on-trailing-comma = false
 
 [tool.ruff.format]
