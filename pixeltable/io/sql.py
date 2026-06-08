@@ -119,7 +119,7 @@ def import_sql(
             - `'ignore'`: rows that error are skipped; the rest are inserted.
 
     Returns:
-        The destination `pxt.Table`.
+        The destination `Table`.
     """
     if if_exists not in ('error', 'append'):
         raise excs.RequestError(
