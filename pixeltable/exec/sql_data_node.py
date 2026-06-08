@@ -14,7 +14,7 @@ from .exec_node import ExecNode
 if TYPE_CHECKING:
     from pixeltable.io.data_sources import SqlDataSource
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class SqlDataNode(ExecNode):
