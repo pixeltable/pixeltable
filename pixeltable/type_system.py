@@ -774,10 +774,10 @@ class ColumnType:
             return IntType(nullable=nullable)
         if isinstance(sa_type, (sql.types.Numeric, sql.types.Float)):
             return FloatType(nullable=nullable)
-        if isinstance(sa_type, sql.types.Date) and not isinstance(sa_type, sql.types.DateTime):
-            return DateType(nullable=nullable)
         if isinstance(sa_type, sql.types.DateTime):
             return TimestampType(nullable=nullable)
+        if isinstance(sa_type, sql.types.Date):
+            return DateType(nullable=nullable)
         if isinstance(sa_type, sql.types.Uuid):
             return UUIDType(nullable=nullable)
         if isinstance(sa_type, sql.types.LargeBinary):
