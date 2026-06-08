@@ -3,7 +3,6 @@ import sysconfig
 import pytest
 
 import pixeltable as pxt
-from pixeltable.config import Config
 
 from ..utils import (
     get_audio_files,
