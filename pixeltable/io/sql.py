@@ -132,6 +132,7 @@ def import_sql(
     sa_cols = list(stmt.selected_columns)
     source_names: list[str] = []
     seen_cols: set[str] = set()
+    schema_overrides = schema_overrides or {}
     for i, sa_col in enumerate(sa_cols):
         col_name = getattr(sa_col, 'name', None) or getattr(sa_col, 'key', None)
         if col_name is None:
@@ -148,28 +149,33 @@ def import_sql(
         seen_cols.add(col_name)
         source_names.append(col_name)
 
-    inferred_schema: dict[str, Any] = {}
-    for sa_col, col_name in zip(sa_cols, source_names):
+    schema: dict[str, Any] = {}
+    for sa_col, col_name in zip(sa_cols, source_names, strict=True):
         # SQLAlchemy uses `None` for "unknown" (eg, on labeled expressions); treat that as nullable.
         nullable_attr = getattr(sa_col, 'nullable', True)
         nullable = True if nullable_attr is None else nullable_attr
-        pxt_type = ts.ColumnType.from_sa_type(sa_col.type, nullable=nullable)
-        if pxt_type is None and (schema_overrides is None or col_name not in schema_overrides):
+        pxt_type: ts.ColumnType | None
+        if col_name in schema_overrides:
+            pxt_type = schema_overrides[col_name]
+        else:
+            pxt_type = ts.ColumnType.from_sa_type(sa_col.type, nullable=nullable)
+
+        if pxt_type is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_TYPE,
                 f'Cannot infer a Pixeltable type for SQL source column {col_name!r} (SQLAlchemy type '
                 f'`{sa_col.type}`); provide an entry in `schema_overrides` to resolve it.',
             )
-        inferred_schema[col_name] = pxt_type  # may be None; overridden below
 
-    if schema_overrides is not None:
-        unknown = set(schema_overrides) - set(inferred_schema)
-        if unknown:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'`schema_overrides` references column(s) not in the SQL source: {", ".join(sorted(unknown))}',
-            )
-        inferred_schema.update(schema_overrides)
+        schema[col_name] = pxt_type
+
+    # Check that all schema_overrides keys are actually in the source schema; this helps catch typos
+    unknown = set(schema_overrides) - set(schema)
+    if len(unknown) > 0:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'`schema_overrides` references column(s) not in the SQL source: {", ".join(sorted(unknown))}',
+        )
 
     def run(connection: sql.Connection) -> pxt.Table:
         sql_data_source = SqlDataSource(select_stmt=stmt, col_names=source_names, conn=connection)
@@ -181,13 +187,13 @@ def import_sql(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'`import_sql` requires a base table; {tbl_name!r} is a {type(existing).__name__.lower()}.',
                 )
-            _validate_append_compatibility(existing, tbl_name, inferred_schema)
+            _validate_append_compatibility(existing, tbl_name, schema)
             existing._insert_sql_source(sql_data_source, on_error=on_error)
             return existing
 
         tbl = pxt.create_table(
             tbl_name,
-            inferred_schema,
+            schema=schema,
             primary_key=primary_key,
             comment=comment,
             custom_metadata=custom_metadata,
@@ -206,7 +212,7 @@ def import_sql(
     return run(conn)
 
 
-def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, inferred_schema: dict[str, Any]) -> None:
+def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, schema: dict[str, Any]) -> None:
     """Verify the SQL source schema can append into an existing destination table."""
     column_md = tbl.get_metadata()['columns']
     existing_schema = tbl._get_schema()
@@ -216,7 +222,7 @@ def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, infe
         name for name, col_type in existing_schema.items() if not col_type.nullable and name not in computed_col_names
     }
 
-    for col_name, src_type_raw in inferred_schema.items():
+    for col_name, src_type_raw in schema.items():
         if col_name in computed_col_names:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -237,7 +243,7 @@ def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, infe
                 f'destination column type `{dest_type}` in table {tbl_name!r}.',
             )
 
-    missing_cols = required_col_names - set(inferred_schema)
+    missing_cols = required_col_names - set(schema)
     if missing_cols:
         raise excs.RequestError(
             excs.ErrorCode.MISSING_REQUIRED,
