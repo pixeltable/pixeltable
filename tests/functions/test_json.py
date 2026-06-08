@@ -87,7 +87,7 @@ class TestJson:
         """
         Fully worked example of flattening object detection output.
         """
-        skip_test_if_no_config('auth_token', 'hf')
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
 
         t = pxt.create_table('img_table', {'id': pxt.Int, 'img': pxt.Image})
