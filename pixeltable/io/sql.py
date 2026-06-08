@@ -138,7 +138,7 @@ def import_sql(
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
                 f'SQL source has an unnamed output column at position {i}; alias it via '
-                f"`expr.label('name')` so it can be matched to a Pixeltable column.",
+                "`expr.label('name')` so it can be matched to a Pixeltable column.",
             )
         if col_name in seen_cols:
             raise excs.RequestError(
