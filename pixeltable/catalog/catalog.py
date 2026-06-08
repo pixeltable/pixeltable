@@ -95,6 +95,7 @@ def retry_loop(
             cat = get_runtime().catalog
             # retry_loop() is reentrant
             if cat._in_retry_loop:
+                cat._check_write_locks(write_tvps or [], write_tbl_ids or [], lock_mutable_tree)
                 return op(*args, **kwargs)
 
             num_retries = 0
@@ -366,11 +367,7 @@ class Catalog:
         read_tbl_ids = read_tbl_ids or []
         write_tbl_ids = write_tbl_ids or []
         if get_runtime().in_xact:
-            # make sure all required locks are already being held
-            for tvp in write_tvps:
-                assert tvp.tbl_id in self._x_locked_tbl_ids, f'{tvp.tbl_id} not locked: {self._x_locked_tbl_ids}'
-            for tbl_id in write_tbl_ids:
-                assert tbl_id in self._x_locked_tbl_ids, f'{tbl_id} not locked: {self._x_locked_tbl_ids}'
+            self._check_write_locks(write_tvps, write_tbl_ids, lock_mutable_tree)
             yield get_runtime().conn
             return
 
@@ -492,16 +489,11 @@ class Catalog:
         updates self._x_locked_tbl_ids accordingly.
 
         Refreshes the metadata cache for the read targets.
+
+        The order matters: TVPs are processed before tbl_ids in both groups so that ancestor-first validation
+        (write_tvps -> write_tbl_ids -> read_tvps -> read_tbl_ids) is established before any unordered ID pass runs.
         """
         x_locked_ids: set[UUID] = set()
-        for tbl_id in write_tbl_ids:
-            if tbl_id in x_locked_ids:
-                continue
-            x_locked_ids.update(
-                self._acquire_write_lock(
-                    tbl_id=tbl_id, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
-                )
-            )
         for tvp in write_tvps:
             if tvp.tbl_id in x_locked_ids:
                 continue
@@ -510,10 +502,18 @@ class Catalog:
                     tbl=tvp, for_write=True, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
                 )
             )
-        for tbl_id in read_tbl_ids:
-            self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
+        for tbl_id in write_tbl_ids:
+            if tbl_id in x_locked_ids:
+                continue
+            x_locked_ids.update(
+                self._acquire_write_lock(
+                    tbl_id=tbl_id, lock_mutable_tree=lock_mutable_tree, check_pending_ops=finalize_pending_ops
+                )
+            )
         for tvp in read_tvps:
             self._acquire_path_locks(tbl=tvp, for_write=False, check_pending_ops=finalize_pending_ops)
+        for tbl_id in read_tbl_ids:
+            self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
 
         self._x_locked_tbl_ids = x_locked_ids
 
@@ -713,6 +713,26 @@ class Catalog:
                     )
                 )
         return locked
+
+    def _check_write_locks(
+        self, write_tvps: Collection[TableVersionPath], write_tbl_ids: Collection[UUID], lock_mutable_tree: bool
+    ) -> None:
+        """Asserts that all specified write targets (and their mutable trees, if lock_mutable_tree) are locked."""
+
+        def assert_tree_locked(tbl_id: UUID) -> None:
+            tree = self._get_mutable_tree(tbl_id)
+            assert tree.issubset(self._x_locked_tbl_ids), (
+                f'mutable tree of {tbl_id} not fully locked: {tree - self._x_locked_tbl_ids}'
+            )
+
+        for tvp in write_tvps:
+            assert tvp.tbl_id in self._x_locked_tbl_ids, f'{tvp.tbl_id} not locked: {self._x_locked_tbl_ids}'
+            if lock_mutable_tree:
+                assert_tree_locked(tvp.tbl_id)
+        for tbl_id in write_tbl_ids:
+            assert tbl_id in self._x_locked_tbl_ids, f'{tbl_id} not locked: {self._x_locked_tbl_ids}'
+            if lock_mutable_tree:
+                assert_tree_locked(tbl_id)
 
     def _refresh_tbl_cache(self, *, tbl_id: UUID, check_pending_ops: bool = True) -> None:
         """

@@ -24,7 +24,7 @@ from pixeltable.config import Config
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata.schema import base_metadata
-from pixeltable.runtime import get_runtime
+from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
@@ -163,18 +163,25 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
             _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture()
 def fault_injection() -> Iterator[None]:
     """Enables fault injection"""
+    orig_process_fault = prod_fault_injection.process_fault
+    orig_create_fault_manager = prod_fault_injection.create_fault_manager
 
     # Monkey patch fault injection to product
     prod_fault_injection.process_fault = test_fault_injection.process_fault
     prod_fault_injection.create_fault_manager = test_fault_injection.create_fault_manager
 
+    # Recreate runtime to pick up a fault manager
+    reset_runtime()
+
     try:
         yield
     finally:
-        get_runtime().fault_manager.clear_faults()
+        prod_fault_injection.process_fault = orig_process_fault
+        prod_fault_injection.create_fault_manager = orig_create_fault_manager
+        reset_runtime()
 
 
 @pytest.fixture(scope='function')

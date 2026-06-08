@@ -417,7 +417,7 @@ class TableRestorer:
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
-            tf.extractall(path=self.tmp_dir)
+            tf.extractall(path=self.tmp_dir, filter='data')
 
         if self.bundle_md is None:
             # No metadata supplied; read it from the archive
