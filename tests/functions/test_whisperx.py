@@ -48,9 +48,7 @@ class TestWhisperx:
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
     def test_diarization(self, uses_db: None) -> None:
         skip_test_if_not_installed('whisperx')
-        if Config.get().get_string_value('token', section='hf') is None:
-            # Diarization requires a HF token for the opt-in pyannote models
-            pytest.skip('Skipping WhisperX diarization test (no HF_TOKEN configured)')
+        skip_test_if_no_config('token', 'hf')
         from pixeltable.functions import whisperx
 
         audio_file = next(
