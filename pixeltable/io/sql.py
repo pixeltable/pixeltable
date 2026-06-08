@@ -131,7 +131,7 @@ def import_sql(
     stmt = as_select(selectable)
     sa_cols = list(stmt.selected_columns)
     source_names: list[str] = []
-    seen: set[str] = set()
+    seen_cols: set[str] = set()
     for i, sa_col in enumerate(sa_cols):
         col_name = getattr(sa_col, 'name', None) or getattr(sa_col, 'key', None)
         if col_name is None:
@@ -140,12 +140,12 @@ def import_sql(
                 f'SQL source has an unnamed output column at position {i}; alias it via '
                 f"`expr.label('name')` so it can be matched to a Pixeltable column.",
             )
-        if col_name in seen:
+        if col_name in seen_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
                 f'SQL source has duplicate output column {col_name!r}; output column names must be unique.',
             )
-        seen.add(col_name)
+        seen_cols.add(col_name)
         source_names.append(col_name)
 
     inferred_schema: dict[str, Any] = {}
