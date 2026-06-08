@@ -200,17 +200,13 @@ class TableVersionPath(TablePath):
         if self.base is not None:
             self.base.clear_cached_md()
 
-    def _create_cvmd(self, tv: TableVersion) -> dict[QColumnId, ColumnVersionMd]:
-        # All physically reachable columns, keyed by qcolid: own columns (incl. system) plus every base column,
-        # regardless of include_base_columns or name shadowing. Name-based visibility (column_md(),
-        # get_column_md_by_name()) is applied separately. has_column()/get_column_md() resolve against this dict,
-        # which must match the set of columns physically present in the path (an unstored view column's value expr
-        # can reference a base column even when base columns aren't user-visible in the view).
+    def _create_column_version_md(self, tv: TableVersion) -> dict[QColumnId, ColumnVersionMd]:
+        # all physically reachable columns, keyed by qcolid
         effective_version = self.tbl_version.effective_version
         column_version_md: dict[QColumnId, ColumnVersionMd] = {}
         # own columns (all, incl. system) first, so they shadow same-named base columns in iteration order
         for col in tv.cols_by_id.values():
-            col_md_obj, _ = col.to_md()
+            col_md_obj = tv.tbl_md.column_md[col.id]
             schema_col = tv._schema_version_md.columns.get(col.id)
             qcolid = QColumnId(self.tbl_id, col.id)
             column_version_md[qcolid] = ColumnVersionMd(
@@ -224,14 +220,14 @@ class TableVersionPath(TablePath):
                 anchor_tbl_id=self.tbl_version.anchor_tbl_id,
             )
         if self.base is not None:
-            for base_cvmd in self.base._cached_cvmd().values():
+            for base_cvmd in self.base._cached_column_version_md().values():
                 column_version_md[base_cvmd.qcolid] = base_cvmd.with_context(self.tbl_version.id, effective_version)
         return column_version_md
 
-    def _cached_cvmd(self) -> dict[QColumnId, ColumnVersionMd]:
+    def _cached_column_version_md(self) -> dict[QColumnId, ColumnVersionMd]:
         cvmd: dict[QColumnId, ColumnVersionMd] | None = getattr(self._local, 'column_version_md', None)
         if cvmd is None:
-            self._local.column_version_md = self._create_cvmd(self._cached_tv())
+            self._local.column_version_md = self._create_column_version_md(self._cached_tv())
         return self._local.column_version_md
 
     @property
@@ -340,7 +336,7 @@ class TableVersionPath(TablePath):
             return None
 
     def has_column(self, qcolid: QColumnId) -> bool:
-        return qcolid in self._cached_cvmd()
+        return qcolid in self._cached_column_version_md()
 
     def column_md(self) -> list[ColumnVersionMd]:
         """Return metadata for all user columns visible by name in this path.
@@ -352,7 +348,7 @@ class TableVersionPath(TablePath):
         # own user columns
         result = [
             cvmd
-            for cvmd in self._cached_cvmd().values()
+            for cvmd in self._cached_column_version_md().values()
             if cvmd.qcolid.tbl_id == self.tbl_version.id and cvmd.schema_col is not None
         ]
         if self.base is not None and tv.include_base_columns:
@@ -367,7 +363,7 @@ class TableVersionPath(TablePath):
 
     def get_column_md(self, qcolid: QColumnId) -> ColumnVersionMd:
         """Return metadata for the column with the given qualified id (any physically reachable column)."""
-        cvmd = self._cached_cvmd().get(qcolid)
+        cvmd = self._cached_column_version_md().get(qcolid)
         if cvmd is None:
             raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Column {qcolid!r} not found')
         return cvmd
