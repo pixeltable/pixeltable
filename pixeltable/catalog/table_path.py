@@ -288,6 +288,10 @@ class TableVersionPath(TablePath):
             return [self.tbl_version]
         return [self.tbl_version, *self.base.get_tbl_versions()]
 
+    def tbl_versions(self) -> dict[UUID, TableVersion]:
+        """The TableVersion instances along this path, keyed by table id."""
+        return {h.id: h.get() for h in self.get_tbl_versions()}
+
     def get_bases(self) -> list[TableVersionHandle]:
         """Return all tbl versions"""
         if self.base is None:

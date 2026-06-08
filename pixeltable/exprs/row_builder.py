@@ -118,7 +118,7 @@ class RowBuilder:
         input_exprs: Iterable[Expr],
         tbl: catalog.TableVersion | None = None,
         for_view_load: bool = False,
-        from_paths: 'list[catalog.TableVersionPath] | None' = None,
+        iter_args: 'dict[UUID, Expr] | None' = None,
     ):
         from .column_property_ref import ColumnPropertyRef
         from .column_ref import ColumnRef
@@ -197,20 +197,13 @@ class RowBuilder:
         col_refs_needing_iter_eval = [col_ref for col_ref in col_refs if col_ref.needs_iterator_evaluation]
         component_views = [col_ref.col.get_tbl() for col_ref in col_refs_needing_iter_eval]
 
-        def iter_arg_path(view: 'catalog.TableVersion') -> 'catalog.TableVersionPath | None':
-            # The (stored) iterator args reference base columns in the view's own context. They must be rebound to
-            # the path this query actually uses, so their base ColumnRefs resolve to the same TableVersion instances
-            # as the rest of the query (e.g. a snapshot's pinned base, not the live base); otherwise the base store
-            # table is referenced via two different instances in the same query. A snapshot view's TableVersion has
-            # no path of its own, so we take it from the query's from-clause.
-            if from_paths is not None:
-                for p in from_paths:
-                    if p.find_tbl_version(view.id) is not None:
-                        return p
-            return view.path
-
+        # The (stored) iterator args reference base columns and must resolve to the same TableVersion instances as
+        # the rest of the query (e.g. a snapshot's pinned base, not the live base). The caller that knows the query's
+        # table instances (the planner) supplies the already-retargeted args in iter_args; absent that, the view's
+        # own (live) args are used as-is, which is correct when the component view is the live target being populated.
         unstored_iter_args = {
-            view.id: view.iterator_args_expr().retarget(iter_arg_path(view)) for view in component_views
+            view.id: iter_args[view.id] if iter_args is not None else view.iterator_args_expr()
+            for view in component_views
         }
 
         # the *stored* output columns of the unstored iterators

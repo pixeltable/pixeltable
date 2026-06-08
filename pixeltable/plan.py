@@ -923,8 +923,16 @@ class Planner:
             if len(from_clause.tbls) == 1 and isinstance(from_clause.tbls[0], catalog.TableVersionPath)
             else None
         )
-        from_paths = [t for t in from_clause.tbls if isinstance(t, catalog.TableVersionPath)]
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl, from_paths=from_paths)
+        # Component views with unstored iterator columns need their (stored, live-versioned) iterator args retargeted
+        # to the instances this query uses. Resolve each view against the from-clause path it is reached through, so
+        # a base table appearing at different versions in different join branches binds correctly per branch.
+        iter_args: dict[UUID, exprs.Expr] = {}
+        for p in from_clause.tvps:
+            for h in p.get_tbl_versions():
+                args = h.get().iterator_args_expr()
+                if args is not None:
+                    iter_args[h.id] = args.retarget_path(p)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl, iter_args=iter_args)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected

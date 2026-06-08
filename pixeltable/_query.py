@@ -1061,7 +1061,7 @@ class Query:
                 #     multiple TableVersionPaths.
                 expr = expr.copy()
                 try:
-                    expr = expr.retarget(self._from_clause.tvps[0])
+                    expr = expr.retarget_path(self._from_clause.tvps[0])
                 except Exception:
                     # If retarget() fails, then the succeeding is_bound_by() will raise an error.
                     pass

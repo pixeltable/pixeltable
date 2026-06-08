@@ -63,7 +63,57 @@ def error_iterator(n: int, error_idx: int) -> Iterator[FloatRow]:
         yield {'f': float(i)}
 
 
+class ScaledRow(TypedDict):
+    idx: int
+    scaled: int
+
+
+@pxt.iterator(unstored_cols=['scaled'])
+class scaled_iterator(pxt.PxtIterator):
+    """Emits 3 rows whose unstored `scaled` value derives from the base scalar `n`, so two different versions of
+    the same base table produce observably different output."""
+
+    def __init__(self, n: int):
+        self.n = n
+        self.i = 0
+
+    def __next__(self) -> ScaledRow:
+        if self.i >= 3:
+            raise StopIteration
+        row: ScaledRow = {'idx': self.i, 'scaled': self.n * 10 + self.i}
+        self.i += 1
+        return row
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.i = pos
+
+
 class TestComponentView:
+    @pytest.mark.skip(reason='join SQL aliases a base table shared across branches twice (DuplicateAlias)')
+    def test_exotic_join(self, uses_db: None) -> None:
+        # Two distinct component views over the same base, one live and one snapshotted, joined with both unstored
+        # iterator columns selected: the base table appears at two versions in one plan. Per-view iterator-arg
+        # retargeting binds each view to its own base version, but join SQL generation currently gives the shared
+        # base store table the same alias in both branches.
+        t = pxt.create_table('exotic_base', {'k': pxt.Int, 'n': pxt.Int})
+        validate_update_status(t.insert([{'k': 0, 'n': 5}]), expected_rows=1)
+        view_a = pxt.create_view('exotic_view_a', t, iterator=scaled_iterator(t.n))
+        view_b = pxt.create_view('exotic_view_b', t, iterator=scaled_iterator(t.n))
+        snap_b = pxt.create_snapshot('exotic_snap_b', view_b)  # pins the base at n=5
+        validate_update_status(t.update({'n': 9}), expected_rows=1)  # diverge live base from the snapshot
+
+        res = (
+            view_a.join(snap_b, on=view_a.idx == snap_b.idx)
+            .select(live=view_a.scaled, pinned=snap_b.scaled)
+            .order_by(view_a.idx)
+            .collect()
+        )
+        assert res['live'] == [90, 91, 92]
+        assert res['pinned'] == [50, 51, 52]
+
     def test_basic(self, uses_db: None) -> None:
         # create video table
         schema = {'video': pxt.Video, 'angle': pxt.Int, 'other_angle': pxt.Int}
