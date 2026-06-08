@@ -126,6 +126,20 @@ class ColumnVersionMd:
             anchor_tbl_id=self.anchor_tbl_id,
         )
 
+    def retarget(self, col_effective_version: int | None) -> ColumnVersionMd:
+        """Retarget to a specific version of the column's containing table."""
+        assert self.anchor_tbl_id is None  # replicas not supported
+        return ColumnVersionMd(
+            tbl_id=self.tbl_id,
+            effective_version=self.effective_version,
+            qcolid=self.qcolid,
+            col_effective_version=col_effective_version,
+            col_md=self.col_md,
+            schema_col=self.schema_col,
+            is_iterator_col=self.is_iterator_col,
+            anchor_tbl_id=self.anchor_tbl_id,
+        )
+
 
 @dataclasses.dataclass(frozen=True)
 class QColumnId:

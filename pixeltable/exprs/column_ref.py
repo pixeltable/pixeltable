@@ -132,23 +132,14 @@ class ColumnRef(Expr):
 
     # override
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> ColumnRef:
-        # Retarget only the column's physical owner (qcolid.tbl_id) to the given TableVersion, mirroring master,
-        # which rebound col_handle while preserving reference_tbl. The path-context (tbl_id/effective_version) is
-        # left intact; only the owner-version fields (col_effective_version, anchor_tbl_id) are updated.
+        # retarget only the column's physical owner (qcolid.tbl_id) to the given TableVersion while preserving the
+        # context path
         qcolid = self.col_md.qcolid
         target = tbl_versions[qcolid.tbl_id]
         assert qcolid.col_id in target.cols_by_id, f'{target}: {qcolid.col_id} not in {list(target.cols_by_id.keys())}'
-        new_cmd = catalog.ColumnVersionMd(
-            tbl_id=self.col_md.tbl_id,
-            effective_version=self.col_md.effective_version,
-            qcolid=qcolid,
-            col_effective_version=target.key.effective_version,
-            col_md=self.col_md.col_md,
-            schema_col=self.col_md.schema_col,
-            is_iterator_col=self.col_md.is_iterator_col,
-            anchor_tbl_id=target.key.anchor_tbl_id,
-        )
-        return ColumnRef(new_cmd, self.perform_validation)
+        assert target.anchor_tbl_id is None, 'replicas not supported'
+        new_col_md = self.col_md.retarget(target.effective_version)
+        return ColumnRef(new_col_md, self.perform_validation)
 
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef

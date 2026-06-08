@@ -641,9 +641,8 @@ class Query:
 
     def _from_clause_tbl_versions(self) -> dict[UUID, int]:
         assert self._from_clause.is_local
-        tvps = self._from_clause.tvps
         out: dict[UUID, int] = {}
-        for tbl in tvps:
+        for tbl in self._from_clause.tvps:
             for tvh in tbl.get_tbl_versions():
                 tv = tvh.get()
                 if tv.is_versioned:
@@ -819,6 +818,7 @@ class Query:
         """
         if self._referenced_tbl_ids is not None:
             return self._referenced_tbl_ids
+
         all_exprs = itertools.chain(
             # _select_list_exprs is None: no external ColumnRefs without an explicit select list
             self._select_list_exprs or [],
@@ -828,10 +828,8 @@ class Query:
         )
         tbl_ids = exprs.Expr.list_tbl_ids(all_exprs)
         for tp in self._from_clause.tbls:
-            if isinstance(tp, catalog.TableVersionPath):
-                tbl_ids.update(tvh.id for tvh in tp.get_tbl_versions())
-            else:
-                tbl_ids.add(tp.tbl_id)
+            tbl_ids.update(tp.tbl_ids)
+
         self._referenced_tbl_ids = tbl_ids
         return tbl_ids
 
@@ -1063,8 +1061,6 @@ class Query:
                 #     multiple TableVersionPaths.
                 expr = expr.copy()
                 try:
-                    # retarget() returns a new expr for a bare ColumnRef (col_md is immutable); reassign so the
-                    # retargeted version (with col_effective_version aligned to the snapshot) is the one checked.
                     expr = expr.retarget(self._from_clause.tvps[0])
                 except Exception:
                     # If retarget() fails, then the succeeding is_bound_by() will raise an error.
