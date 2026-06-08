@@ -216,7 +216,7 @@ def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, infe
         name for name, col_type in existing_schema.items() if not col_type.nullable and name not in computed_col_names
     }
 
-    for col_name, src_type_any in inferred_schema.items():
+    for col_name, src_type_raw in inferred_schema.items():
         if col_name in computed_col_names:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -228,7 +228,7 @@ def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, infe
                 excs.ErrorCode.COLUMN_NOT_FOUND,
                 f'SQL source column {col_name!r} does not match any column in destination table {tbl_name!r}.',
             )
-        src_type = ts.ColumnType.normalize_type(src_type_any, nullable_default=True, allow_builtin_types=False)
+        src_type = ts.ColumnType.normalize_type(src_type_raw, nullable_default=True, allow_builtin_types=False)
         dest_type = existing_schema[col_name]
         if not dest_type.is_supertype_of(src_type, ignore_nullable=True):
             raise excs.RequestError(
