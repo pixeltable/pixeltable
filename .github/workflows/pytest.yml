@@ -88,8 +88,7 @@ env:
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
   GOOGLE_APPLICATION_CREDENTIALS: '/tmp/gcs-key.json'
   GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-  HF_AUTH_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
-  HF_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
   JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

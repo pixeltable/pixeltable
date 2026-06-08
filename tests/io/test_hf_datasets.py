@@ -22,7 +22,7 @@ class TestHfDatasets:
     NUM_SAMPLES = 100
 
     def test_import_hf_dataset(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        skip_test_if_no_config('auth_token', 'hf')
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -93,7 +93,7 @@ class TestHfDatasets:
                 raise AssertionError()
 
     def test_insert_hf_dataset(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        skip_test_if_no_config('auth_token', 'hf')
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -209,7 +209,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     def test_import_images(self, streaming: bool, uses_db: None) -> None:
-        skip_test_if_no_config('auth_token', 'hf')
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -248,7 +248,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     def test_import_audio_small(self, streaming: bool, uses_db: None) -> None:
-        skip_test_if_no_config('auth_token', 'hf')
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -267,7 +267,7 @@ class TestHfDatasets:
     # TODO: find dataset containing Audio that is not gigantic
     @pytest.mark.parametrize('streaming', [True])
     def test_import_audio(self, streaming: bool, uses_db: None) -> None:
-        skip_test_if_no_config('auth_token', 'hf')
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
