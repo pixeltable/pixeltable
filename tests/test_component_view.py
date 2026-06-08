@@ -70,8 +70,8 @@ class ScaledRow(TypedDict):
 
 @pxt.iterator(unstored_cols=['scaled'])
 class scaled_iterator(pxt.PxtIterator):
-    """Emits 3 rows whose unstored `scaled` value derives from the base scalar `n`, so two different versions of
-    the same base table produce observably different output."""
+    """Emits 3 rows whose unstored scaled value derives from the base scalar n, so two different versions of
+    the same base table produce different output."""
 
     def __init__(self, n: int):
         self.n = n
@@ -92,17 +92,17 @@ class scaled_iterator(pxt.PxtIterator):
 
 
 class TestComponentView:
-    @pytest.mark.skip(reason='join SQL aliases a base table shared across branches twice (DuplicateAlias)')
-    def test_exotic_join(self, uses_db: None) -> None:
+    @pytest.mark.skip(reason='surfaces a bug (DuplicateAlias)')
+    def test_same_base_join(self, uses_db: None) -> None:
         # Two distinct component views over the same base, one live and one snapshotted, joined with both unstored
         # iterator columns selected: the base table appears at two versions in one plan. Per-view iterator-arg
         # retargeting binds each view to its own base version, but join SQL generation currently gives the shared
         # base store table the same alias in both branches.
-        t = pxt.create_table('exotic_base', {'k': pxt.Int, 'n': pxt.Int})
+        t = pxt.create_table('join_base', {'k': pxt.Int, 'n': pxt.Int})
         validate_update_status(t.insert([{'k': 0, 'n': 5}]), expected_rows=1)
-        view_a = pxt.create_view('exotic_view_a', t, iterator=scaled_iterator(t.n))
-        view_b = pxt.create_view('exotic_view_b', t, iterator=scaled_iterator(t.n))
-        snap_b = pxt.create_snapshot('exotic_snap_b', view_b)  # pins the base at n=5
+        view_a = pxt.create_view('join_view_a', t, iterator=scaled_iterator(t.n))
+        view_b = pxt.create_view('join_view_b', t, iterator=scaled_iterator(t.n))
+        snap_b = pxt.create_snapshot('join_snap_b', view_b)  # pins the base at n=5
         validate_update_status(t.update({'n': 9}), expected_rows=1)  # diverge live base from the snapshot
 
         res = (
