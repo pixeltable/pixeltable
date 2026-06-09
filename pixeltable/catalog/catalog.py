@@ -1860,7 +1860,8 @@ class Catalog:
                 # this is a mutable view of a mutable base;
                 # lock the base before the view, in order to avoid deadlocks with concurrent inserts/updates
                 base_id = tbl._tbl_version_path.base.tbl_id
-                assert self._acquire_write_lock(tbl_id=base_id), base_id
+                locked_uuids = self._acquire_write_lock(tbl_id=base_id)
+                self._x_locked_tbl_ids.update(locked_uuids)
 
             self._drop_tbl(tbl, force=force, is_replace=False)
 
@@ -1868,20 +1869,23 @@ class Catalog:
         drop_fn()
         self._roll_forward()
 
-    def _drop_tbl(self, tbl: Table | TableVersionPath, force: bool, is_replace: bool) -> None:
+    def _drop_tbl(
+        self, tbl: Table | TableVersionPath, force: bool, is_replace: bool, skip_base_tbl_lock_check: bool = False
+    ) -> None:
         """
         Drop the table (and recursively its views, if force == True).
 
         `tbl` can be an instance of `Table` for a user table, or `TableVersionPath` for a hidden (system) table.
-
-        Returns:
-            List of table ids that were dropped.
 
         Locking protocol:
         - X-lock base before X-locking any view
         - deadlock-free wrt to TableVersion.insert() (insert propagation also proceeds top-down)
         - X-locks parent dir: prevent concurrent creation of another SchemaObject
           in the same directory with the same name (which could lead to duplicate names if we get aborted)
+
+        If a mutable view is getting dropped, its base table must be x-locked before this function is called.
+
+        skip_base_tbl_lock_check is to skip invariant validation -- there is a known problem with _drop_dir: PXT-1198
         """
         is_pure_snapshot: bool
         if isinstance(tbl, TableVersionPath):
@@ -1898,7 +1902,8 @@ class Catalog:
         tbl_path_repr: str = str(tbl_id) if tbl is None else repr(tbl._path())
         if tbl is not None:
             self._acquire_dir_xlock(dir_id=tbl._dir_id())
-        self._acquire_write_lock(tbl_id=tbl_id)
+        locked_tbl_ids = self._acquire_write_lock(tbl_id=tbl_id)
+        self._x_locked_tbl_ids.update(locked_tbl_ids)
 
         view_ids = self.get_view_ids(tbl_id, for_update=True)
         is_replica = tvp.is_replica()
@@ -1912,7 +1917,9 @@ class Catalog:
                 for view_id in view_ids:
                     view = self.get_table_by_id(view_id, ignore_if_dropped=True)
                     if view is not None:
-                        self._drop_tbl(view, force=force, is_replace=is_replace)
+                        self._drop_tbl(
+                            view, force=force, is_replace=is_replace, skip_base_tbl_lock_check=skip_base_tbl_lock_check
+                        )
 
             elif is_replica:
                 # Dropping a replica with dependents and no 'force': just rename it to be a hidden table;
@@ -1943,6 +1950,9 @@ class Catalog:
             base_tv = self._get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
             self.mark_modified_tv(base_tv.handle)
             base_tv.tbl_md.view_sn += 1
+            assert skip_base_tbl_lock_check or base_id in self._x_locked_tbl_ids, (
+                f'Base table of the view being dropped {base_id} is not write-locked: {self._x_locked_tbl_ids}'
+            )
             result = get_runtime().conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
@@ -2005,7 +2015,12 @@ class Catalog:
                 _logger.debug(f'Dropping hidden base table {tvp.base.tbl_id} of dropped replica {tbl_id}.')
                 # we just dropped the anchor on `tvp.base`; we need to clear the anchor so that we can actually
                 # load the TableVersion instance in order to drop it
-                self._drop_tbl(tvp.base.anchor_to(None), force=False, is_replace=False)
+                self._drop_tbl(
+                    tvp.base.anchor_to(None),
+                    force=False,
+                    is_replace=False,
+                    skip_base_tbl_lock_check=skip_base_tbl_lock_check,
+                )
 
     @retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
@@ -2072,7 +2087,9 @@ class Catalog:
             tbl = self.get_table_by_id(row.id, ignore_if_dropped=True)
             # this table would have been dropped already if it's a view of a base we dropped earlier
             if tbl is not None:
-                self._drop_tbl(tbl, force=True, is_replace=False)
+                # TODO(PXT-1198): skip_base_tbl_lock_check=True is necessary because drop dir is not implemented
+                # correctly
+                self._drop_tbl(tbl, force=True, is_replace=False, skip_base_tbl_lock_check=True)
 
         # self.drop_dir(dir_id)
         conn.execute(sql.delete(schema.Dir).where(schema.Dir.id == dir_id))
@@ -2235,6 +2252,9 @@ class Catalog:
 
     def _move_table(self, tbl_id: UUID, new_name: str, new_dir_id: UUID) -> None:
         """Update dir_id/name for tbl_id."""
+        # TODO(PXT-1197): Catalog does not properly lock tables for the move
+        # This assertion validates a crucial invariant, but it fails today.
+        # assert tbl_id in self._x_locked_tbl_ids, f"Table {tbl_id} should be locked for the move but isn't"
         stmt = (
             sql.update(schema.Table)
             .where(schema.Table.id == tbl_id)
@@ -3048,6 +3068,12 @@ class Catalog:
             self._drop_dir(obj._id, path, force=True)
         else:
             assert isinstance(obj, Table)
+            tvp = obj._tbl_version_path
+            if isinstance(obj, View) and tvp.is_mutable() and tvp.base.is_mutable():
+                # Dropping a mutable view involves updating its base table's md. Lock the base table.
+                base_id = tvp.base.tbl_id
+                locked_tbl_ids = self._acquire_write_lock(tbl_id=base_id)
+                self._x_locked_tbl_ids.update(locked_tbl_ids)
             self._drop_tbl(obj, force=if_exists == IfExistsParam.REPLACE_FORCE, is_replace=True)
         return None
 
