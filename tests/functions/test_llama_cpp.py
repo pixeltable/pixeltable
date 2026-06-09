@@ -19,7 +19,7 @@ def cleanup_llama_cpp() -> Iterator[None]:
 @rerun(reruns=3, reruns_delay=15)  # Since it involves a HF model download
 class TestLlamaCpp:
     def test_create_chat_completions(self, uses_db: None) -> None:
-        skip_test_if_no_config('auth_token', 'hf')
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('llama_cpp')
         from pixeltable.functions import llama_cpp
 

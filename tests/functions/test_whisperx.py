@@ -3,7 +3,6 @@ import sysconfig
 import pytest
 
 import pixeltable as pxt
-from pixeltable.config import Config
 
 from ..utils import (
     get_audio_files,
@@ -21,7 +20,7 @@ from ..utils import (
 @pytest.mark.skipif(runs_linux_with_gpu(), reason='crashes on Linux with GPU')
 class TestWhisperx:
     def test_transcription(self, uses_db: None) -> None:
-        skip_test_if_no_config('auth_token', 'hf')
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('whisperx')
         from pixeltable.functions import whisperx
 
@@ -48,9 +47,7 @@ class TestWhisperx:
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
     def test_diarization(self, uses_db: None) -> None:
         skip_test_if_not_installed('whisperx')
-        if Config.get().get_string_value('auth_token', section='hf') is None:
-            # Diarization requires a HF access token for the opt-in pyannote models
-            pytest.skip('Skipping WhisperX diarization test (no HF_AUTH_TOKEN configured)')
+        skip_test_if_no_config('token', 'hf')
         from pixeltable.functions import whisperx
 
         audio_file = next(
