@@ -89,7 +89,9 @@ def generate_matrix(args: argparse.Namespace) -> None:
     if trigger == 'pull_request':
         # Tier 1 only: Just the standard tests on MAIN_PLATFORM.
         configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.10'))
-        configs.append(MatrixConfig('notebooks', 'ipynb', MAIN_PLATFORM, '3.10'))
+        # Notebook tests run only on the scheduled tier (see Tier 3 below). To restore them in PR CI,
+        # uncomment the following line.
+        # configs.append(MatrixConfig('notebooks', 'ipynb', MAIN_PLATFORM, '3.10'))
 
     else:
         if force_all or trigger == 'schedule':
@@ -105,7 +107,9 @@ def generate_matrix(args: argparse.Namespace) -> None:
         else:
             # Tier 2 only: Standard + expensive (but not very_expensive) tests on upgraded platform.
             configs.append(MatrixConfig('standard+', 'py', 'ubuntu-large', '3.10', pytest_options=EXPENSIVE_PYTEST))
-            configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.10'))
+            # Notebook tests run only on the scheduled tier (see Tier 3 above). To restore them in merge-queue
+            # CI, uncomment the following line.
+            # configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.10'))
 
         # Tiers 2 and 3: Various additional configurations.
 
