@@ -23,6 +23,10 @@ name: tests
 # Github Actions secrets are unavailable on PRs; hence any tests that require API keys will be skipped.
 # Secrets are available on all other triggers.
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
     branches: [main]
