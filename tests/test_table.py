@@ -284,8 +284,6 @@ class TestTable:
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
     def test_table_metadata(self, uses_db: None, local_embed: pxt.Function) -> None:
-        skip_test_if_not_installed('transformers')  # we need a `local_embed` instance to test index metadata
-
         pxt.create_dir('dir')
         pxt.create_dir('dir/subdir')
         for tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
@@ -3495,7 +3493,6 @@ class TestTable:
         )
 
         # test case: view with additional columns
-        skip_test_if_not_installed('sentence_transformers')
         v2 = pxt.create_view('test_subview', v.where(v.c1 != None), comment='This is an intriguing table comment.')
         v2.add_computed_column(computed1=v2.c2.apply(lambda x: np.full((3, 4), x), col_type=pxt.Array[(3, 4), pxt.Int]))  # type: ignore[misc]
         v2.add_embedding_index('c1', string_embed=local_embed)

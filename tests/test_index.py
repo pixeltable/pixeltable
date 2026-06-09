@@ -45,7 +45,6 @@ class TestIndex:
     def test_similarity_multiple_index(
         self, multi_idx_img_tbl: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        skip_test_if_not_installed('transformers')
         t = multi_idx_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
 
@@ -188,7 +187,6 @@ class TestIndex:
         t.drop_embedding_index(column='img')
 
     def test_query(self, uses_db: None, local_embed: pxt.Function) -> None:
-        skip_test_if_not_installed('transformers')
         queries = pxt.create_table('queries', {'query_text': pxt.String})
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?'},
@@ -257,7 +255,6 @@ class TestIndex:
         validate_update_status(queries.insert(query_rows))
 
     def test_search_fn(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
-        skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         _ = t.select(t.img.localpath).collect()
@@ -274,7 +271,6 @@ class TestIndex:
     def test_similarity_errors(
         self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table, local_embed: pxt.Function
     ) -> None:
-        skip_test_if_not_installed('transformers')
         t = indexed_img_tbl
 
         type_failures = (
@@ -331,7 +327,6 @@ class TestIndex:
 
     def test_add_index_after_drop(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         """Test that an index with the same name can be added after the previous one is dropped"""
-        skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
@@ -389,7 +384,6 @@ class TestIndex:
     def test_add_embedding_index_if_exists(
         self, small_img_tbl: pxt.Table, reload_tester: ReloadTester, local_embed: pxt.Function
     ) -> None:
-        skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         initial_indexes = len(t._list_index_info_for_test())
@@ -509,7 +503,6 @@ class TestIndex:
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
     def test_embedding_access(self, img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
-        skip_test_if_not_installed('transformers', 'sentence_transformers')
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
@@ -713,7 +706,6 @@ class TestIndex:
         reload_tester.run_reload_test()
 
     def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
-        skip_test_if_not_installed('transformers')
         img_t = small_img_tbl
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
@@ -1001,8 +993,6 @@ class TestIndex:
     def test_array_column_embedding_index(
         self, uses_db: None, local_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        skip_test_if_not_installed('transformers', 'sentence_transformers')
-
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
 
         t = pxt.create_table('array_embedding_test', {'id': pxt.Int, 'text': pxt.String})
@@ -1123,7 +1113,6 @@ class TestIndex:
             assert len(idx_info_list) == 1, "Should have one B-tree index on 'text'"
             idx_info = idx_info_list[0]
         else:
-            skip_test_if_not_installed('sentence_transformers')
             local_embed = request.getfixturevalue('local_embed')
             t.add_embedding_index('text', idx_name='text_idx', string_embed=local_embed)
             idx_info = t._tbl_version.get().idxs_by_name['text_idx']
@@ -1150,8 +1139,6 @@ class TestIndex:
 
     def test_similarity_index_lifecycle(self, uses_db: None, local_embed: pxt.Function) -> None:
         """Test similarity when index is dropped, recreated, and column is dropped."""
-        skip_test_if_not_installed('transformers', 'sentence_transformers')
-
         t = pxt.create_table('lifecycle_test', {'id': pxt.Int, 'text': pxt.String})
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
