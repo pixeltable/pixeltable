@@ -9,6 +9,7 @@ supporting chat completions and text generation with HuggingFace models.
 """
 
 import json
+import threading
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import pixeltable as pxt
@@ -19,11 +20,20 @@ if TYPE_CHECKING:
     import vllm
 
 
+class VllmCompletionOutput(TypedDict):
+    index: int
+    text: str
+    token_ids: list[int]
+    cumulative_logprob: float | None
+    finish_reason: str | None
+    stop_reason: pxt.Json | None  # str | int
+
+
 class VllmRequestOutput(TypedDict):
     request_id: str
     prompt: str | None
     prompt_token_ids: list[int] | None
-    outputs: list[dict]
+    outputs: list[VllmCompletionOutput]
     finished: bool
 
 
@@ -37,9 +47,6 @@ def chat_completions(
 ) -> VllmRequestOutput:
     """
     Generate a chat completion from a list of messages using vLLM.
-
-    Uses vLLM's high-throughput inference engine for efficient local LLM serving.
-    Models are loaded from HuggingFace and cached for reuse across calls.
 
     For additional details, see the
     [vLLM documentation](https://docs.vllm.ai/en/stable/).
@@ -151,9 +158,11 @@ def _lookup_model(model: str, engine_args: dict[str, Any]) -> 'vllm.LLM':
 
     args_key = json.dumps(engine_args, sort_keys=True, default=str)
     key = (model, args_key)
-    if key not in _model_cache:
-        _model_cache[key] = vllm.LLM(model=model, **engine_args)
-    return _model_cache[key]
+
+    with _model_cache_lock:
+        if key not in _model_cache:
+            _model_cache[key] = vllm.LLM(model=model, **engine_args)
+        return _model_cache[key]
 
 
 def _request_output_to_dict(output: 'vllm.RequestOutput') -> dict:
@@ -177,6 +186,7 @@ def _request_output_to_dict(output: 'vllm.RequestOutput') -> dict:
     }
 
 
+_model_cache_lock = threading.Lock()
 _model_cache: dict[tuple[str, str], 'vllm.LLM'] = {}
 
 
