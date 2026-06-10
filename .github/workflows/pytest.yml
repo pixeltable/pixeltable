@@ -225,27 +225,20 @@ jobs:
           # Use certifi instead of Windows cert store, to avoid failing on a corrupted cert store in the runner image
           echo "SSL_CERT_FILE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
           echo "REQUESTS_CA_BUNDLE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
-      - name: Clean Windows cert store (remove unparseable certs)
+      - name: Patch ssl via sitecustomize
         if: runner.os == 'Windows'
-        shell: powershell
         run: |
-          $stores = @('Root', 'CA', 'My')
-          $locations = @('LocalMachine', 'CurrentUser')
-          foreach ($loc in $locations) {
-            foreach ($store in $stores) {
-              $path = "Cert:\$loc\$store"
-              if (!(Test-Path $path)) { continue }
-              Get-ChildItem -Path $path | ForEach-Object {
-                try {
-                  # Try to parse the cert — if this throws, it's malformed
-                  $null = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($_.RawData)
-                } catch {
-                  Write-Host "Removing malformed cert: $($_.Subject) from $path"
-                  Remove-Item -Path $_.PSPath -Force
-                }
-              }
-            }
-          }
+          SITE=$(python -c "import site; print(site.getsitepackages()[0])")
+          cat >> "$SITE/sitecustomize.py" << 'EOF'
+          import ssl
+          _orig = ssl.SSLContext.load_default_certs
+          def _safe(self, purpose=ssl.Purpose.SERVER_AUTH):
+              try:
+                  _orig(self, purpose)
+              except ssl.SSLError:
+                  pass
+          ssl.SSLContext.load_default_certs = _safe
+          EOF
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:
