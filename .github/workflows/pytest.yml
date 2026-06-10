@@ -225,17 +225,27 @@ jobs:
           # Use certifi instead of Windows cert store, to avoid failing on a corrupted cert store in the runner image
           echo "SSL_CERT_FILE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
           echo "REQUESTS_CA_BUNDLE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
-      - name: Clean Windows cert store
+      - name: Clean Windows cert store (remove unparseable certs)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          # Remove any certs that can't be parsed (zero RawData length)
-          Get-ChildItem -Path Cert:\LocalMachine\Root |
-            Where-Object { $_.RawData.Length -eq 0 } |
-            Remove-Item -Force
-          Get-ChildItem -Path Cert:\CurrentUser\Root |
-            Where-Object { $_.RawData.Length -eq 0 } |
-            Remove-Item -Force
+          $stores = @('Root', 'CA', 'My')
+          $locations = @('LocalMachine', 'CurrentUser')
+          foreach ($loc in $locations) {
+            foreach ($store in $stores) {
+              $path = "Cert:\$loc\$store"
+              if (!(Test-Path $path)) { continue }
+              Get-ChildItem -Path $path | ForEach-Object {
+                try {
+                  # Try to parse the cert — if this throws, it's malformed
+                  $null = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($_.RawData)
+                } catch {
+                  Write-Host "Removing malformed cert: $($_.Subject) from $path"
+                  Remove-Item -Path $_.PSPath -Force
+                }
+              }
+            }
+          }
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:
