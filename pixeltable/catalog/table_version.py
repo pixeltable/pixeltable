@@ -437,12 +437,16 @@ class TableVersion:
         new_version = self.is_mutable and self.is_versioned
         if new_version:
             self.bump_version(bump_schema_version=True)
+        base_tbl_id: str | None = None
+        # if this is a mutable view of a mutable base, advance the base's view_sn in the end
+        if self.is_view and self.is_mutable and self.path.base.is_mutable():
+            base_tbl_id = str(self.path.base.tbl_id)
         id_str = str(self.id)
         ops = (
             TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
             .add(DeleteTableMediaFilesOp)
             .add(DropStoreTableOp, is_view=self.is_view)
-            .add(DeleteTableMdOp)
+            .add(DeleteTableMdOp, base_tbl_id=base_tbl_id)
             .build()
         )
         return ops, new_version

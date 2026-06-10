@@ -350,35 +350,72 @@ class TestCatalog:
         # Verify that the insert was propagated to vb.
         assert pxt.get_table('vb').count() == 1
 
-    def test_load_table_concurrent_drop_store_tbl(self, uses_db: None, fault_injection: None) -> None:
+    def test_load_view_concurrent_with_drop(self, uses_db: None, fault_injection: None) -> None:
         """
-        Verifies a bug fix: one thread is loading a table while the other is dropping it.
+        Start with a base table and a view. Thread 0 loads the view md, and is about to initialize it when Thread 1
+        drops it.
         """
-        pxt.create_table('test', {'a': pxt.Int})
-        block_in_store_base = BlockFault()
+        base = pxt.create_table('base', {'a': pxt.Int})
+        v = pxt.create_view('v', base, additional_columns={'b': base.a + 1})
+        base.insert([{'a': 1}])
+        block_before_init = BlockFault()
+        select_from_v = v.select(v.b)
 
-        def get_table_expect_not_found() -> None:
+        def access_column_expect_not_found() -> None:
+            # v is dropped concurrently by thread 1
+            # SERIALIZATION_FAILURE or TABLE_NOT_FOUND are both be acceptable this time
+            with pxt_raises(excs.ErrorCode.SERIALIZATION_FAILURE, match='conflicted'):
+                select_from_v.collect()
             with pxt_raises(excs.ErrorCode.TABLE_NOT_FOUND, match='Table was dropped'):
-                pxt.get_table('test')
+                select_from_v.collect()
 
         (
             MultiThreadedScenario()
-            # Thread 0: arm the fault that blocks right after _store_tbl_exists() returns True
             .then_run(
                 thread_id=0,
                 name='inject fault',
                 fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK, block_in_store_base
+                    FaultLocation.CATALOG_BEGIN_XACT_AFTER_ACQUIRE_LOCKS, block_before_init
                 ),
             )
-            # Thread 0: load the table with a cold cache; this will block in StoreBase. When it unblocks later, expect
-            # a "Table was dropped" error. Before the fix, this would raise an AssertionError.
             .then_run_until(
-                thread_id=0, name='get table', event=block_in_store_base.reached, fn=get_table_expect_not_found
+                thread_id=0, name='access column', event=block_before_init.reached, fn=access_column_expect_not_found
             )
-            # Thread 1: drop the table while Thread 0 is frozen. This drops store table as well.
-            .then_run(thread_id=1, name='drop table', fn=lambda: pxt.drop_table('test'))
-            # Thread 1: unblock Thread 0 inside StoreBase
-            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: block_in_store_base.unblock())
+            # Thread 1: drop v while Thread 0 is waiting to initialize it
+            .then_run(thread_id=1, name='drop view', fn=lambda: pxt.drop_table('v'))
+            # unblock Thread 0 to continue with v initialization that also loads base
+            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: block_before_init.unblock())
             .execute()
         )
+
+    def test_drop_view_concurrent_insert(self, uses_db: None, fault_injection: None) -> None:
+        """
+        TODO
+        """
+        base = pxt.create_table('base', {'a': pxt.Int})
+        _ = pxt.create_view('v', base)
+        block_in_finalize = BlockFault()
+
+        def drop_v() -> None:
+            # TODO should not raise
+            pxt.drop_table('v')
+
+        (
+            MultiThreadedScenario()
+            .then_run(
+                thread_id=1,
+                name='inject fault',
+                fn=lambda: get_runtime().fault_manager.inject_fault(
+                    FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, block_in_finalize
+                ),
+            )
+            # Thread 1: drop v but block mid-finalize
+            .then_run_until(thread_id=1, name='drop view', event=block_in_finalize.reached, fn=drop_v)
+            # Thread 0: attempt to insert into base
+            .then_run(thread_id=0, name='insert into base', fn=lambda: base.insert([{'a': 1}]))
+            .then_run(thread_id=0, name='unblock', fn=lambda: block_in_finalize.unblock())
+            .execute()
+        )
+
+        assert base.count() == 1
+        assert pxt.get_table('v', if_not_exists='ignore') is None
