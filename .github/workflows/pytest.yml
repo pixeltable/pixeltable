@@ -219,6 +219,13 @@ jobs:
         run: |
           conda install -y -c conda-forge nodejs
           cd dashboard && npm install --silent && npm run build
+      - name: Fix Windows SSL
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # Use certifi instead of Windows cert store, to avoid failing on a corrupted cert store in the runner image
+          echo "SSL_CERT_FILE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
+          echo "REQUESTS_CA_BUNDLE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:
