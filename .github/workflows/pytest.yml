@@ -225,6 +225,17 @@ jobs:
           # Use certifi instead of Windows cert store, to avoid failing on a corrupted cert store in the runner image
           echo "SSL_CERT_FILE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
           echo "REQUESTS_CA_BUNDLE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
+      - name: Clean Windows cert store
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # Remove any certs that can't be parsed (zero RawData length)
+          Get-ChildItem -Path Cert:\LocalMachine\Root |
+            Where-Object { $_.RawData.Length -eq 0 } |
+            Remove-Item -Force
+          Get-ChildItem -Path Cert:\CurrentUser\Root |
+            Where-Object { $_.RawData.Length -eq 0 } |
+            Remove-Item -Force
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:
