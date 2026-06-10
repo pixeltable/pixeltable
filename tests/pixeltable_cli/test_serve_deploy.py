@@ -1,4 +1,4 @@
-"""Tests for the pxt CLI (pixeltable/cli.py).
+"""Tests for `pxt serve` and `pxt deploy` (pixeltable_cli/client/commands/).
 
 All CLI tests live here so they are easy to find as new subcommands are added.
 Tests that exercise the underlying serving machinery (route resolution, FastAPI
@@ -18,7 +18,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import config
-from pixeltable.cli import main as cli_main
+from pixeltable_cli.client.main import main as cli_main
 from tests.utils import skip_test_if_not_installed
 
 # Mock Config.init to allow re-initialization for in-process cli_main() calls.
@@ -41,7 +41,7 @@ def _run_cli(
     """Invoke cli_main, assert exit code, and optionally assert stdout/stderr substrings."""
     actual_exit_code: int | str | None = 0
 
-    with patch('sys.argv', argv), patch('pixeltable.cli.config.Config.init', _init_with_reinit):
+    with patch('sys.argv', argv), patch('pixeltable_cli.client.commands.serve.config.Config.init', _init_with_reinit):
         try:
             cli_main()
         except SystemExit as e:
@@ -164,8 +164,8 @@ class TestCLI:
         skip_test_if_not_installed('fastapi', 'uvicorn')
 
         with (
-            patch('pixeltable.cli.lookup_service_config') as mock_load,
-            patch('pixeltable.cli.create_service_from_config') as mock_create,
+            patch('pixeltable_cli.client.commands.serve.lookup_service_config') as mock_load,
+            patch('pixeltable_cli.client.commands.serve.create_service_from_config') as mock_create,
             patch('uvicorn.run') as mock_run,
         ):
             mock_create.return_value = 'fake_app'
@@ -185,7 +185,7 @@ class TestCLI:
             mock_load.return_value = config.ServiceConfig(name='test-service', host='127.0.0.1', port=7777, routes=[])
             with (
                 patch('sys.argv', ['pxt', 'serve', 'test-service', '--config', str(config_path), '--port', '9999']),
-                patch('pixeltable.cli.config.Config.init', _init_with_reinit),
+                patch('pixeltable_cli.client.commands.serve.config.Config.init', _init_with_reinit),
             ):
                 cli_main()
             mock_load.assert_called_once_with('test-service')
@@ -310,7 +310,10 @@ class TestCLI:
         """--json startup record and EADDRINUSE error output (plain and JSON)."""
         skip_test_if_not_installed('fastapi', 'uvicorn')
 
-        with patch('pixeltable.cli.create_service_from_config') as mock_create, patch('uvicorn.run'):
+        with (
+            patch('pixeltable_cli.client.commands.serve.create_service_from_config') as mock_create,
+            patch('uvicorn.run'),
+        ):
             mock_create.return_value = 'fake_app'
 
             # --json startup record
@@ -324,7 +327,7 @@ class TestCLI:
         eaddrinuse = OSError(errno.EADDRINUSE, 'Address already in use')
 
         with (
-            patch('pixeltable.cli.create_service_from_config') as mock_create,
+            patch('pixeltable_cli.client.commands.serve.create_service_from_config') as mock_create,
             patch('uvicorn.run', side_effect=eaddrinuse),
         ):
             mock_create.return_value = 'fake_app'
@@ -350,7 +353,7 @@ class TestCLI:
 
         # pxt.Error plain: _emit_error writes 'pxt: error: ...' to stderr
         with patch(
-            'pixeltable.cli.create_service_from_config',
+            'pixeltable_cli.client.commands.serve.create_service_from_config',
             side_effect=pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bad config'),
         ):
             _run_cli(
@@ -362,7 +365,7 @@ class TestCLI:
 
         # pxt.Error --json: _emit_error writes a JSON error record to stderr
         with patch(
-            'pixeltable.cli.create_service_from_config',
+            'pixeltable_cli.client.commands.serve.create_service_from_config',
             side_effect=pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'bad config'),
         ):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--json'], capsys, exit_code=1)
@@ -372,18 +375,21 @@ class TestCLI:
 
         # uvicorn not installed: pxt.Error with install hint
         with (
-            patch('pixeltable.cli.create_service_from_config', return_value='fake_app'),
+            patch('pixeltable_cli.client.commands.serve.create_service_from_config', return_value='fake_app'),
             patch.dict('sys.modules', {'uvicorn': None}),
         ):
             _run_cli(
                 ['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins'],
                 capsys,
                 exit_code=1,
-                stderr='fastapi[standard]',
+                stderr='pixeltable[serve]',
             )
 
         # IPv6 host: URL is bracket-formatted in --json startup record
-        with patch('pixeltable.cli.create_service_from_config', return_value='fake_app'), patch('uvicorn.run'):
+        with (
+            patch('pixeltable_cli.client.commands.serve.create_service_from_config', return_value='fake_app'),
+            patch('uvicorn.run'),
+        ):
             _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--host', '::1', '--json'], capsys)
             data = json.loads(capsys.readouterr().out)
             assert data['url'] == 'http://[::1]:8000'
@@ -393,6 +399,6 @@ class TestCLI:
         _run_cli(['pxt', 'deploy'], capsys, exit_code=2, stderr='error')
 
         # happy path: deployment arg is forwarded to build_deploy_bundle
-        with patch('pixeltable.cli.deploy.build_deploy_bundle') as mock_build:
+        with patch('pixeltable_cli.client.commands.deploy.deploy.build_deploy_bundle') as mock_build:
             _run_cli(['pxt', 'deploy', 'staging'], capsys)
             mock_build.assert_called_once_with('staging')

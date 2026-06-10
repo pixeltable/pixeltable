@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     import fal_client
 
 
-@register_client('fal')
+@register_client('fal', credential_param='api_key')
 def _(api_key: str) -> 'fal_client.AsyncClient':
     import fal_client
 

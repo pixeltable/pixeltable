@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     import openai
 
 
-@register_client('openrouter')
+@register_client('openrouter', credential_param='api_key')
 def _(api_key: str, site_url: str | None = None, app_name: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 

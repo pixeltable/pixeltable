@@ -32,7 +32,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.dashboard.harness import DashboardHarness
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
@@ -75,7 +74,6 @@ class Env:
 
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
-    _dashboard_harness: DashboardHarness | None
     # List of loggers and file handlers to cleanup in the end. File handlers can repeat.
     _managed_logging_handlers: list[tuple[logging.Logger, logging.Handler]]
     _logfilename: str | None
@@ -154,11 +152,6 @@ class Env:
     def http_address(self) -> str:
         assert self._http_address is not None
         return self._http_address
-
-    @property
-    def dashboard_harness(self) -> DashboardHarness:
-        assert self._dashboard_harness is not None
-        return self._dashboard_harness
 
     @property
     def user(self) -> str | None:
@@ -575,8 +568,24 @@ class Env:
                 )
 
         client = client_factory.init_fn(**init_kwargs)
-        _logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
+        redacted = dict(init_kwargs)
+        if client_factory.credential_param is not None and client_factory.credential_param in redacted:
+            redacted[client_factory.credential_param] = '<redacted>'
+        _logger.info(f'Initialized `{name}` client with parameters: {redacted}.')
         return client
+
+    def get_client_credential_params(self) -> dict[str, str]:
+        """Return the credential-bearing init param for each registered API client.
+
+        Returns: Mapping from provider name to its credential param name; clients with no
+        credential param (eg object-store factories) are omitted.
+        """
+        out: dict[str, str] = {}
+        with _client_factories_lock:
+            for name, factory in _client_factories.items():
+                if factory.credential_param is not None:
+                    out[name] = factory.credential_param
+        return out
 
     def _start_web_server(self) -> None:
         """
@@ -605,13 +614,6 @@ class Env:
         register_heif_opener()
         self._start_web_server()
         self.__register_packages()
-
-        dashboard_port = Config.get().get_int_value('dashboard_port') or 22089
-        self._dashboard_harness = DashboardHarness(dashboard_port)
-
-        start_dashboard = Config.get().get_bool_value('start_dashboard')
-        if start_dashboard is not False:  # this curious conditional ensures we interpret `None` (default) as `True`
-            self._dashboard_harness.start()
 
     @property
     def default_video_encoder(self) -> str | None:
@@ -872,7 +874,7 @@ class Env:
         self._managed_logging_handlers.clear()
 
 
-def register_client(name: str) -> Callable:
+def register_client(name: str, *, credential_param: str | None) -> Callable:
     """Decorator that registers a third-party API client for use by Pixeltable.
 
     The decorated function is an initialization wrapper for the client, and can have
@@ -894,14 +896,21 @@ def register_client(name: str) -> Callable:
     otherwise it throws an exception.
 
     Args:
-        - name (str): The name of the API client (e.g., 'openai' or 'label-studio').
+        name: The name of the API client (e.g., 'openai' or 'label_studio').
+        credential_param: The factory parameter whose value must be treated as a secret, or
+            None for factories whose parameters carry no credentials (e.g. object-store clients
+            that read their auth from the surrounding AWS_*/GCS_* environment).
     """
 
     def decorator(fn: Callable) -> None:
         sig = inspect.signature(fn)
         params = dict(sig.parameters)
+        if credential_param is not None and credential_param not in params:
+            raise ValueError(
+                f'register_client({name!r}): credential_param {credential_param!r} is not a factory parameter'
+            )
         with _client_factories_lock:
-            _client_factories[name] = ApiClientFactory(init_fn=fn, params=params)
+            _client_factories[name] = ApiClientFactory(init_fn=fn, params=params, credential_param=credential_param)
 
     return decorator
 
@@ -914,6 +923,7 @@ _client_factories: dict[str, ApiClientFactory] = {}
 class ApiClientFactory:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
+    credential_param: str | None
 
 
 @dataclass

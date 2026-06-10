@@ -175,19 +175,19 @@ stresstest: install
 .PHONY: typecheck
 typecheck: install
 	@echo 'Running `mypy` ...'
-	@mypy pixeltable tests tool
+	@mypy pixeltable pixeltable_cli tests tool
 
 .PHONY: lint
 lint: install
 	@echo 'Running `ruff check` ...'
-	@ruff check pixeltable tests tool
+	@ruff check pixeltable pixeltable_cli tests tool
 
 .PHONY: formatcheck
 formatcheck: install
 	@echo 'Running `ruff format --check` ...'
-	@ruff format --check pixeltable tests tool
+	@ruff format --check pixeltable pixeltable_cli tests tool
 	@echo 'Running `ruff check --select I` ...'
-	@ruff check --select I pixeltable tests tool
+	@ruff check --select I pixeltable pixeltable_cli tests tool
 
 .PHONY: nbcheck
 nbcheck: install
@@ -197,9 +197,9 @@ nbcheck: install
 .PHONY: format
 format: install
 	@echo 'Running `ruff format` ...'
-	@ruff format pixeltable tests tool
+	@ruff format pixeltable pixeltable_cli tests tool
 	@echo 'Running `ruff check --select I --fix` ...'
-	@ruff check --select I --fix pixeltable tests tool
+	@ruff check --select I --fix pixeltable pixeltable_cli tests tool
 	@echo 'Running `./scripts/format-notebooks.sh` ...'
 	@./scripts/format-notebooks.sh
 

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
-@env.register_client('anthropic')
+@env.register_client('anthropic', credential_param='api_key')
 def _(api_key: str) -> 'anthropic.AsyncAnthropic':
     import anthropic
 

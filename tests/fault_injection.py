@@ -52,10 +52,6 @@ class FaultManager:
                 del self._fault_state[loc]
         fault(loc)
 
-    def clear_faults(self) -> None:
-        with self._lock:
-            self._fault_state.clear()
-
 
 class ExceptionFault:
     e: Exception
