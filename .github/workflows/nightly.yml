@@ -127,7 +127,6 @@ jobs:
         run: python -m spacy download en_core_web_sm
       - name: Fix Windows SSL
         if: runner.os == 'Windows'
-        shell: bash
         run: |
           # Use certifi instead of Windows cert store, to avoid failing on a corrupted cert store in the runner image
           echo "SSL_CERT_FILE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
