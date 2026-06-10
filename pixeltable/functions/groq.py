@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     import groq
 
 
-@register_client('groq')
+@register_client('groq', credential_param='api_key')
 def _(api_key: str) -> 'groq.AsyncGroq':
     import groq
 

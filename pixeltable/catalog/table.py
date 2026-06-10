@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
 
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class Table(SchemaObject):
@@ -236,7 +236,7 @@ class Table(SchemaObject):
     def _get_views(self, *, recursive: bool = True, mutable_only: bool = False) -> list['Table']:
         cat = get_runtime().catalog
         view_ids = cat.get_view_ids(self._id)
-        views = [cat.get_table_by_id(id) for id in view_ids]
+        views = [t for id in view_ids if (t := cat.get_table_by_id(id, ignore_if_dropped=True)) is not None]
         if mutable_only:
             views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:

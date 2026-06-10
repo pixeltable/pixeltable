@@ -9,7 +9,6 @@ import asyncio
 import base64
 import io
 import json
-import logging
 import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,9 +32,6 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
 
     from pixeltable.utils.s3_store import S3Store
-
-_logger = logging.getLogger('pixeltable')
-
 _ASYNC_INVOCATION_POLL_INTERVAL_SECS = 5.0
 
 _ASYNC_INVOCATION_TIMEOUT_SECS = 600.0
@@ -70,7 +66,7 @@ _DATA_URI_INPUT_MODEL_PREFIXES = (
 _IMAGE_GENERATION_MODEL_PREFIXES = ('stability.', 'us.stability.', 'amazon.nova-canvas', 'amazon.titan-image-generator')
 
 
-@env.register_client('bedrock')
+@env.register_client('bedrock', credential_param='api_key')
 def _(api_key: str | None = None, region_name: str | None = None) -> 'BaseClient':
     import boto3
 

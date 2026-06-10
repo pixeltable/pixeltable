@@ -30,7 +30,7 @@ from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class TablePackager:
@@ -417,7 +417,7 @@ class TableRestorer:
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
-            tf.extractall(path=self.tmp_dir)
+            tf.extractall(path=self.tmp_dir, filter='data')
 
         if self.bundle_md is None:
             # No metadata supplied; read it from the archive

@@ -31,10 +31,10 @@ except ImportError:
     # label_studio_sdk>=1 compatibility
     import label_studio_sdk._legacy.project as ls_project
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
-@env.register_client('label_studio')
+@env.register_client('label_studio', credential_param='api_key')
 def _(api_key: str, url: str) -> label_studio_sdk.Client:
     return label_studio_sdk.Client(api_key=api_key, url=url)
 

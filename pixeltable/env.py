@@ -32,14 +32,15 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.dashboard.harness import DashboardHarness
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
-from pixeltable.utils.http_server import make_server
+from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import ObjectPath
 from pixeltable.utils.sql import add_option_to_db_url
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
+
+LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
 T = TypeVar('T')
 
@@ -54,7 +55,6 @@ class Env:
     _instance: Env | None = None
     __initializing: bool = False
     _init_lock: threading.RLock = threading.RLock()
-    _log_fmt_str = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Path | None
     _file_cache_dir: Path | None  # cached object files with external URL
@@ -74,20 +74,13 @@ class Env:
 
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
-    _dashboard_harness: DashboardHarness | None
-    _logger: logging.Logger
-    _sql_logger: logging.Logger
     # List of loggers and file handlers to cleanup in the end. File handlers can repeat.
     _managed_logging_handlers: list[tuple[logging.Logger, logging.Handler]]
-    _default_log_level: int
     _logfilename: str | None
-    _log_to_stdout: bool
-    _module_log_level: dict[str, int]  # module name -> log level
     _file_cache_size_g: float
     _default_input_media_dest: str | None
     _default_output_media_dest: str | None
     _pxt_api_key: str | None
-    _stdout_handler: logging.StreamHandler
     _default_video_encoder: str | None
     _initialized: bool
 
@@ -142,20 +135,8 @@ class Env:
         self._http_address = None
         self._default_video_encoder = None
 
-        # logging-related state
-        self._logger = logging.getLogger('pixeltable')
-        self._logger.setLevel(logging.DEBUG)  # allow everything to pass, we filter in _log_filter()
-        self._logger.propagate = False
-        self._logger.addFilter(self._log_filter)
-        self._default_log_level = logging.INFO
         self._logfilename = None
-        self._log_to_stdout = False
-        self._module_log_level = {}  # module name -> log level
         self._managed_logging_handlers = []
-
-        # create logging handler to also log to stdout
-        self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
-        self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
         self._initialized = False
 
         self._resource_pool_info = {}
@@ -171,11 +152,6 @@ class Env:
     def http_address(self) -> str:
         assert self._http_address is not None
         return self._http_address
-
-    @property
-    def dashboard_harness(self) -> DashboardHarness:
-        assert self._dashboard_harness is not None
-        return self._dashboard_harness
 
     @property
     def user(self) -> str | None:
@@ -245,87 +221,9 @@ class Env:
         except NameError:
             return False
 
-    def configure_logging(
-        self,
-        *,
-        to_stdout: bool | None = None,
-        level: int | None = None,
-        add: str | None = None,
-        remove: str | None = None,
-    ) -> None:
-        """Configure logging.
-
-        Args:
-            to_stdout: if True, also log to stdout
-            level: default log level for pixeltable and its dependencies
-            add: comma-separated list of 'module name:log level' pairs; ex.: add='video:10'
-            remove: comma-separated list of module names
-        """
-        if to_stdout is not None:
-            self._set_log_to_stdout(to_stdout)
-        if level is not None:
-            self.set_log_level(level)
-        if add is not None:
-            for module, level_str in [t.split(':') for t in add.split(',')]:
-                self._set_module_log_level(module, int(level_str))
-        if remove is not None:
-            for module in remove.split(','):
-                self._set_module_log_level(module, None)
-        if to_stdout is None and level is None and add is None and remove is None:
-            self._print_log_config()
-
-    def _print_log_config(self) -> None:
-        print(f'logging to {self._logfilename}')
-        print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
-        print(f'default log level: {logging.getLevelName(self._default_log_level)}')
-        print(
-            f'module log levels: '
-            f'{",".join([name + ":" + logging.getLevelName(val) for name, val in self._module_log_level.items()])}'
-        )
-
-    def _set_log_to_stdout(self, enable: bool = True) -> None:
-        self._log_to_stdout = enable
-        if enable:
-            self._logger.addHandler(self._stdout_handler)
-        else:
-            self._logger.removeHandler(self._stdout_handler)
-
-    def set_log_level(self, level: int) -> None:
-        self._default_log_level = level
-        self._sql_logger.setLevel(level)
-
-    def _set_module_log_level(self, module: str, level: int | None) -> None:
-        if level is None:
-            self._module_log_level.pop(module, None)
-        else:
-            self._module_log_level[module] = level
-
     def is_installed_package(self, package_name: str) -> bool:
         assert package_name in self.__optional_packages
         return self.__optional_packages[package_name].is_installed
-
-    def _log_filter(self, record: logging.LogRecord) -> bool:
-        if record.name == 'pixeltable':
-            # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
-            path_parts = list(Path(record.pathname).parts)
-            path_parts.reverse()
-            if 'pixeltable' not in path_parts:
-                return False
-            max_idx = path_parts.index('pixeltable')
-            for module_name in path_parts[:max_idx]:
-                if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
-                    return True
-        return record.levelno >= self._default_log_level
-
-    def logging_is_enabled_for(self, level: int, module_name: str | None = None) -> bool:
-        """Use this instead of logger.isEnabledFor(level).
-
-        The pixeltable logger is set to DEBUG so all records reach the filter; this means
-        _logger.isEnabledFor(level) can be True even when 'level' output is suppressed.
-        """
-        if module_name is not None and self._module_log_level.get(module_name, level + 1) <= level:
-            return True
-        return level >= self._default_log_level
 
     @property
     def console_logger(self) -> ConsoleLogger:
@@ -341,12 +239,12 @@ class Env:
         if tz_name is not None:
             # Validate tzname
             if not isinstance(tz_name, str):
-                self._logger.error('Invalid time zone specified in configuration.')
+                _logger.error('Invalid time zone specified in configuration.')
             else:
                 try:
                     _ = ZoneInfo(tz_name)
                 except ZoneInfoNotFoundError:
-                    self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
+                    _logger.error(f'Invalid time zone specified in configuration: {tz_name}')
         else:
             tz_name = tzlocal.get_localzone_name()
         return tz_name
@@ -418,28 +316,33 @@ class Env:
         stdout_handler = ConsoleOutputHandler(stream=stdout)
         stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
-        self._logger.addHandler(stdout_handler)
-        self._managed_logging_handlers.append((self._logger, stdout_handler))
-        self._console_logger = ConsoleLogger(self._logger)
+        pxt_logger = logging.getLogger('pixeltable')
+        if pxt_logger.level == logging.NOTSET:
+            pxt_logger.setLevel(logging.INFO)
+        pxt_logger.propagate = False
+        pxt_logger.addHandler(stdout_handler)
+        self._managed_logging_handlers.append((pxt_logger, stdout_handler))
+        self._console_logger = ConsoleLogger(pxt_logger)
 
-        # configure _logger to log to a file
+        # configure pxt_logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
         fh = logging.FileHandler(self._log_dir / self._logfilename, mode='w')
-        fh.setFormatter(logging.Formatter(self._log_fmt_str))
-        self._logger.addHandler(fh)
-        self._managed_logging_handlers.append((self._logger, fh))
+        fh.setFormatter(logging.Formatter(LOG_FMT_STR))
+        pxt_logger.addHandler(fh)
+        self._managed_logging_handlers.append((pxt_logger, fh))
 
         # Configure sqlalchemy logging. Pixeltable users don't need to see the SQL queries by default
-        self._sql_logger = logging.getLogger('sqlalchemy.engine')
-        self._sql_logger.setLevel(logging.WARNING)
-        self._sql_logger.addHandler(fh)
-        self._sql_logger.propagate = False
-        self._managed_logging_handlers.append((self._sql_logger, fh))
+        sql_logger = logging.getLogger('sqlalchemy.engine')
+        if sql_logger.level == logging.NOTSET:
+            sql_logger.setLevel(logging.WARNING)
+        sql_logger.addHandler(fh)
+        sql_logger.propagate = False
+        self._managed_logging_handlers.append((sql_logger, fh))
 
         # configure pyav logging
         av_logfilename = self._logfilename.replace('.log', '_av.log')
         av_fh = logging.FileHandler(self._log_dir / av_logfilename, mode='w')
-        av_fh.setFormatter(logging.Formatter(self._log_fmt_str))
+        av_fh.setFormatter(logging.Formatter(LOG_FMT_STR))
         av_logger = logging.getLogger('libav')
         av_logger.addHandler(av_fh)
         self._managed_logging_handlers.append((av_logger, av_fh))
@@ -448,11 +351,10 @@ class Env:
         # configure web-server logging
         http_logfilename = self._logfilename.replace('.log', '_http.log')
         http_fh = logging.FileHandler(self._log_dir / http_logfilename, mode='w')
-        http_fh.setFormatter(logging.Formatter(self._log_fmt_str))
-        http_logger = logging.getLogger('pixeltable.http.server')
-        http_logger.addHandler(http_fh)
-        self._managed_logging_handlers.append((http_logger, http_fh))
-        http_logger.propagate = False
+        http_fh.setFormatter(logging.Formatter(LOG_FMT_STR))
+        _http_server_logger.addHandler(http_fh)
+        self._managed_logging_handlers.append((_http_server_logger, http_fh))
+        _http_server_logger.propagate = False
 
         self.clear_tmp_dir()
         tz_name = self._get_tz_name()
@@ -471,10 +373,10 @@ class Env:
 
         create_db = not self._store_db_exists()
         if create_db:
-            self._logger.info(f'creating database at: {self.db_url}')
+            _logger.info(f'creating database at: {self.db_url}')
             self._create_store_db()
         else:
-            self._logger.info(f'found database at: {self.db_url}')
+            _logger.info(f'found database at: {self.db_url}')
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
@@ -486,7 +388,6 @@ class Env:
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
-        self._set_log_to_stdout(False)
 
     def _init_db(self, config: Config) -> None:
         """
@@ -498,7 +399,7 @@ class Env:
                 db_url = sql.make_url(db_connect_str)
             except sql.exc.ArgumentError as e:
                 error = f'Invalid db connection string {db_connect_str}: {e}'
-                self._logger.error(error)
+                _logger.error(error)
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error) from e
             self._db_url = db_url.render_as_string(hide_password=False)
             self._db_name = db_url.database  # use the dbname given in connect string
@@ -510,9 +411,9 @@ class Env:
             # Check if database exists
             if not self._store_db_exists():
                 error = f'Database {self._db_name!r} does not exist'
-                self._logger.error(error)
+                _logger.error(error)
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
-            self._logger.info(f'Using database at: {self.db_url}')
+            _logger.info(f'Using database at: {self.db_url}')
         else:
             self._db_name = config.get_string_value('db') or 'pixeltable'
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
@@ -540,7 +441,7 @@ class Env:
         assert self._sa_engine is not None
         from pixeltable import metadata
 
-        self._logger.debug('Creating pixeltable metadata')
+        _logger.debug('Creating pixeltable metadata')
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
@@ -552,21 +453,21 @@ class Env:
             updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
         )
 
-        self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
-        self._logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
-        self._logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
+        _logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+        _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
+        _logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
 
         with self.engine.begin() as conn:
             tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
             assert isinstance(tz_name, str)
-            self._logger.info(f'Database time zone is now: {tz_name}')
+            _logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
             if self.is_using_cockroachdb:
                 # This could be set when the database is created, but we set it now
                 conn.execute(sql.text('SET null_ordered_last = true;'))
                 null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
                 assert isinstance(null_ordered_last, str)
-                self._logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
+                _logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
@@ -667,8 +568,24 @@ class Env:
                 )
 
         client = client_factory.init_fn(**init_kwargs)
-        self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
+        redacted = dict(init_kwargs)
+        if client_factory.credential_param is not None and client_factory.credential_param in redacted:
+            redacted[client_factory.credential_param] = '<redacted>'
+        _logger.info(f'Initialized `{name}` client with parameters: {redacted}.')
         return client
+
+    def get_client_credential_params(self) -> dict[str, str]:
+        """Return the credential-bearing init param for each registered API client.
+
+        Returns: Mapping from provider name to its credential param name; clients with no
+        credential param (eg object-store factories) are omitted.
+        """
+        out: dict[str, str] = {}
+        with _client_factories_lock:
+            for name, factory in _client_factories.items():
+                if factory.credential_param is not None:
+                    out[name] = factory.credential_param
+        return out
 
     def _start_web_server(self) -> None:
         """
@@ -697,13 +614,6 @@ class Env:
         register_heif_opener()
         self._start_web_server()
         self.__register_packages()
-
-        dashboard_port = Config.get().get_int_value('dashboard_port') or 22089
-        self._dashboard_harness = DashboardHarness(dashboard_port)
-
-        start_dashboard = Config.get().get_bool_value('start_dashboard')
-        if start_dashboard is not False:  # this curious conditional ensures we interpret `None` (default) as `True`
-            self._dashboard_harness.start()
 
     @property
     def default_video_encoder(self) -> str | None:
@@ -771,6 +681,7 @@ class Env:
         self.__register_package('openpyxl')
         self.__register_package('pyarrow')
         self.__register_package('pydantic')
+        self.__register_package('pyiceberg')
         self.__register_package('replicate')
         self.__register_package('reve')
         self.__register_package('runwayml')
@@ -962,7 +873,7 @@ class Env:
         self._managed_logging_handlers.clear()
 
 
-def register_client(name: str) -> Callable:
+def register_client(name: str, *, credential_param: str | None) -> Callable:
     """Decorator that registers a third-party API client for use by Pixeltable.
 
     The decorated function is an initialization wrapper for the client, and can have
@@ -984,14 +895,21 @@ def register_client(name: str) -> Callable:
     otherwise it throws an exception.
 
     Args:
-        - name (str): The name of the API client (e.g., 'openai' or 'label-studio').
+        name: The name of the API client (e.g., 'openai' or 'label_studio').
+        credential_param: The factory parameter whose value must be treated as a secret, or
+            None for factories whose parameters carry no credentials (e.g. object-store clients
+            that read their auth from the surrounding AWS_*/GCS_* environment).
     """
 
     def decorator(fn: Callable) -> None:
         sig = inspect.signature(fn)
         params = dict(sig.parameters)
+        if credential_param is not None and credential_param not in params:
+            raise ValueError(
+                f'register_client({name!r}): credential_param {credential_param!r} is not a factory parameter'
+            )
         with _client_factories_lock:
-            _client_factories[name] = ApiClientFactory(init_fn=fn, params=params)
+            _client_factories[name] = ApiClientFactory(init_fn=fn, params=params, credential_param=credential_param)
 
     return decorator
 
@@ -1004,6 +922,7 @@ _client_factories: dict[str, ApiClientFactory] = {}
 class ApiClientFactory:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
+    credential_param: str | None
 
 
 @dataclass
