@@ -251,7 +251,12 @@ def _clear_hf_caches() -> None:
                 revision.commit_hash
                 for repo in cache_info.repos
                 # Keep around models that are used by multiple tests
-                if repo.repo_id not in ('openai/clip-vit-base-patch32', 'intfloat/e5-large-v2')
+                if repo.repo_id
+                not in (
+                    'openai/clip-vit-base-patch32',
+                    'intfloat/e5-large-v2',
+                    'sentence-transformers/all-mpnet-base-v2',
+                )
                 for revision in repo.revisions
             ]
             cache_info.delete_revisions(*revisions_to_delete).execute()
