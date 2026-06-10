@@ -292,7 +292,7 @@ class TestFastAPI:
         assert 'expected 1' in resp.json()['detail']
 
         # shutdown disposes the engine cache
-        router._shutdown_worker_pool()
+        router._FastAPIRouter__shutdown()  # type: ignore[attr-defined]
         assert router._engine_cache == {}
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
