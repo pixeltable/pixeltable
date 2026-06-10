@@ -54,6 +54,97 @@ class TestFunction:
         # TODO: add Function.exec() and then use that
         assert deserialized.py_fn(1) == 2
 
+    def test_udf_gpu_hint(self) -> None:
+        f = pxt.udf(gpu='A100', _force_stored=True)(dummy_fn)
+
+        assert f.gpu == 'A100'
+        assert f.call_resource_pool({}) == 'modal:A100'
+
+        # Reload round-trip: a stored gpu UDF must still route to Modal after deserialization. The routing is
+        # established in CallableFunction.__init__, so it must survive to_store()/from_store() without the decorator.
+        md, binary = f.to_store()
+        deserialized = func.CallableFunction.from_store('dummy_fn', md, binary)
+        assert isinstance(deserialized, func.CallableFunction)
+        assert deserialized.gpu == 'A100'
+        assert deserialized.call_resource_pool({}) == 'modal:A100'
+
+    def test_udf_gpu_hint_validation(self) -> None:
+        with pytest.raises(pxt.Error, match='gpu must be a non-empty string'):
+            pxt.udf(gpu='', _force_stored=True)(dummy_fn)
+
+        with pytest.raises(pxt.Error, match='cannot specify both `gpu` and `resource_pool`'):
+            pxt.udf(gpu='A100', resource_pool='request-rate:test', _force_stored=True)(dummy_fn)
+
+    def test_udf_image_pip_hints(self) -> None:
+        f = pxt.udf(
+            gpu='A100',
+            image='nvidia/cuda:12.4.0-base',
+            apt=['libgl1', 'libglib2.0-0'],
+            pip=['torch', 'transformers'],
+            _force_stored=True,
+        )(dummy_fn)
+        assert f.image == 'nvidia/cuda:12.4.0-base'
+        assert f.apt == ['libgl1', 'libglib2.0-0']
+        assert f.pip == ['torch', 'transformers']
+
+        # image/apt/pip survive the store round-trip.
+        md, binary = f.to_store()
+        deserialized = func.CallableFunction.from_store('dummy_fn', md, binary)
+        assert isinstance(deserialized, func.CallableFunction)
+        assert deserialized.image == 'nvidia/cuda:12.4.0-base'
+        assert deserialized.apt == ['libgl1', 'libglib2.0-0']
+        assert deserialized.pip == ['torch', 'transformers']
+
+    def test_to_store_inlines_sibling_helper(self) -> None:
+        """A stored (path-less) UDF that references a sibling module-level helper must survive to_store/from_store in
+        a process that lacks its defining module, i.e. it is pickled by value (consistent with the Modal path)."""
+        import sys
+        import types
+
+        from pixeltable.func.runtime_adapter import dumps_by_value
+        from pixeltable.func.signature import Signature
+
+        mod = types.ModuleType('pxt_store_udf_mod')
+        # A user-code file path (not under site-packages/stdlib); it need not exist on disk.
+        mod.__file__ = __file__ + '.store_udf_mod.py'
+        exec(
+            'def helper(x: int) -> int:\n    return x + 100\n\ndef caller(x: int) -> int:\n    return helper(x)\n',
+            mod.__dict__,
+        )
+        sys.modules['pxt_store_udf_mod'] = mod
+        try:
+            sig = Signature.create(mod.caller)
+            cf = func.CallableFunction([sig], [mod.caller], self_name='caller')
+            md, binary = cf.to_store()
+            # to_store must use the same by-value serialization as the external runtime.
+            assert binary == dumps_by_value(mod.caller)
+        finally:
+            del sys.modules['pxt_store_udf_mod']
+
+        # The module is now gone and not importable from disk, simulating a fresh process reloading the catalog.
+        restored = func.CallableFunction.from_store('caller', md, binary)
+        assert isinstance(restored, func.CallableFunction)
+        assert restored.exec([5], {}) == 105
+
+    def test_udf_image_pip_validation(self) -> None:
+        with pytest.raises(pxt.Error, match='`image` requires `gpu`'):
+            pxt.udf(image='some-image', _force_stored=True)(dummy_fn)
+
+        with pytest.raises(pxt.Error, match='`apt` requires `gpu`'):
+            pxt.udf(apt=['libgl1'], _force_stored=True)(dummy_fn)
+
+        with pytest.raises(pxt.Error, match='`pip` requires `gpu`'):
+            pxt.udf(pip=['torch'], _force_stored=True)(dummy_fn)
+
+        with pytest.raises(pxt.Error, match='image must be a non-empty string'):
+            pxt.udf(gpu='A100', image='', _force_stored=True)(dummy_fn)
+
+        with pytest.raises(pxt.Error, match='apt must be a list of non-empty strings'):
+            pxt.udf(gpu='A100', apt=['libgl1', ''], _force_stored=True)(dummy_fn)
+
+        with pytest.raises(pxt.Error, match='pip must be a list of non-empty strings'):
+            pxt.udf(gpu='A100', pip=['torch', ''], _force_stored=True)(dummy_fn)
+
     def test_list(self, uses_db: None) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)

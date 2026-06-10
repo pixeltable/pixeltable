@@ -5,7 +5,7 @@ import datetime
 import itertools
 import logging
 import sys
-from typing import Any, Callable, Iterator, cast
+from typing import Any, Iterator, cast
 
 from pixeltable import exprs, func
 
@@ -64,8 +64,6 @@ class FnCallEvaluator(Evaluator):
 
     fn_call: exprs.FunctionCall
     fn: func.CallableFunction
-    scalar_py_fn: Callable | None  # only set for non-batching CallableFunctions
-
     # only set if fn.is_batched
     call_args_queue: asyncio.Queue[FnCallArgs] | None  # FnCallArgs waiting for execution
     batch_size: int | None
@@ -78,14 +76,9 @@ class FnCallEvaluator(Evaluator):
             self.call_args_queue = asyncio.Queue[FnCallArgs]()
             # we're not supplying sample arguments there, they're ignored anyway
             self.batch_size = self.fn.get_batch_size()
-            self.scalar_py_fn = None
         else:
             self.call_args_queue = None
             self.batch_size = None
-            if isinstance(self.fn, func.CallableFunction):
-                self.scalar_py_fn = self.fn.py_fn
-            else:
-                self.scalar_py_fn = None
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.fn_call.slot_idx >= 0
@@ -149,6 +142,11 @@ class FnCallEvaluator(Evaluator):
                     task = asyncio.create_task(self.eval_async(item))
                     self.dispatcher.register_task(task)
 
+        elif self.fn_call.resource_pool is not None:
+            # hand the call off to the resource pool's scheduler
+            scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
+            for item in rows_call_args:
+                scheduler.submit(item, self.eval_ctx)
         else:
             # create a single task for all rows
             task = asyncio.create_task(self.eval(rows_call_args))
@@ -222,7 +220,9 @@ class FnCallEvaluator(Evaluator):
             if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
                 return
             try:
-                item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
+                assert item.args is not None
+                assert item.kwargs is not None
+                item.row[self.fn_call.slot_idx] = self.fn.exec(item.args, item.kwargs)
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 item.row.set_exc(self.fn_call.slot_idx, exc)
@@ -238,8 +238,12 @@ class FnCallEvaluator(Evaluator):
         if self.call_args_queue is None or self.call_args_queue.empty():
             return
         batched_call_args = self._create_batch_call_args(list(self._queued_call_args_iter()))
-        task = asyncio.create_task(self.eval_batch(batched_call_args))
-        self.dispatcher.register_task(task)
+        if self.fn_call.resource_pool is not None:
+            scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
+            scheduler.submit(batched_call_args, self.eval_ctx)
+        else:
+            task = asyncio.create_task(self.eval_batch(batched_call_args))
+            self.dispatcher.register_task(task)
 
 
 class NestedRowList:

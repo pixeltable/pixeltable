@@ -7,17 +7,107 @@ import logging
 import math
 import sys
 import time
-from typing import Awaitable, Collection
+from typing import Collection
 
 from pixeltable import env, func
 from pixeltable.config import Config
+from pixeltable.func.modal_adapter import ModalAdapter
+from pixeltable.func.runtime_adapter import get_runtime_adapter
 from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
 from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 
 _logger = logging.getLogger('pixeltable')
 
-__all__ = ['RateLimitsScheduler', 'RequestRateScheduler']
+__all__ = ['ModalScheduler', 'RateLimitsScheduler', 'RequestRateScheduler']
+
+
+class ModalScheduler(Scheduler):
+    """Scheduler for UDFs routed to Modal via @pxt.udf(gpu=...)."""
+
+    adapter: ModalAdapter
+    num_in_flight: int
+    request_completed: asyncio.Event
+    total_requests: int
+    total_errors: int
+
+    # Upper bound on concurrent in-flight remote invocations. Each in-flight request occupies a worker thread
+    # (asyncio.to_thread), so this caps both thread usage and the number of simultaneous Modal calls.
+    MAX_IN_FLIGHT = 16
+
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
+        super().__init__(resource_pool, dispatcher)
+        # Use the process-shared adapter so the Modal app/image is built once and reused across executor runs and
+        # synchronous (query-time) calls, rather than rebuilt per scheduler instance.
+        adapter = get_runtime_adapter(resource_pool)
+        assert isinstance(adapter, ModalAdapter)
+        self.adapter = adapter
+        self.num_in_flight = 0
+        self.request_completed = asyncio.Event()
+        self.total_requests = 0
+        self.total_errors = 0
+        loop_task = asyncio.create_task(self._main_loop())
+        self.dispatcher.register_task(loop_task)
+
+    @classmethod
+    def matches(cls, resource_pool: str) -> bool:
+        return ModalAdapter.matches_resource_pool(resource_pool)
+
+    async def _main_loop(self) -> None:
+        # The Modal adapter is process-shared and owned by the runtime-adapter registry (closed at process exit), so
+        # it is intentionally NOT closed when this loop ends: a later synchronous/query-time call may reuse the same
+        # Modal app context.
+        while True:
+            item = await self.queue.get()
+            if self.dispatcher.exc_event.is_set():
+                continue
+            # Bound concurrency: wait for an in-flight request to complete before dispatching a new one.
+            while self.num_in_flight >= self.MAX_IN_FLIGHT and not self.dispatcher.exc_event.is_set():
+                self.request_completed.clear()
+                await self.request_completed.wait()
+            if self.dispatcher.exc_event.is_set():
+                continue
+            self.num_in_flight += 1
+            task = asyncio.create_task(self._exec(item.request, item.exec_ctx, is_task=True))
+            self.dispatcher.register_task(task)
+
+    async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx, is_task: bool) -> None:
+        assert all(not row.has_val[request.fn_call.slot_idx] for row in request.rows)
+        assert all(not row.has_exc(request.fn_call.slot_idx) for row in request.rows)
+
+        try:
+            pxt_fn = request.fn_call.fn
+            assert isinstance(pxt_fn, func.CallableFunction)
+            self.total_requests += 1
+            if request.is_batched:
+                assert request.batch_args is not None
+                assert request.batch_kwargs is not None
+                batch_result = await asyncio.to_thread(
+                    self.adapter.invoke_batch, pxt_fn, request.batch_args, request.batch_kwargs
+                )
+                assert len(batch_result) == len(request.rows)
+                for row, result in zip(request.rows, batch_result):
+                    row[request.fn_call.slot_idx] = result
+            else:
+                assert request.args is not None
+                assert request.kwargs is not None
+                result = await asyncio.to_thread(self.adapter.invoke, pxt_fn, request.args, request.kwargs)
+                request.row[request.fn_call.slot_idx] = result
+            self.dispatcher.dispatch(request.rows, exec_ctx)
+        except Exception as exc:
+            self.total_errors += 1
+            _, _, exc_tb = sys.exc_info()
+            for row in request.rows:
+                row.set_exc(request.fn_call.slot_idx, exc)
+            self.dispatcher.dispatch_exc(request.rows, request.fn_call.slot_idx, exc_tb, exec_ctx)
+        finally:
+            _logger.debug(
+                f'ModalScheduler stats: #in-flight={self.num_in_flight} #requests={self.total_requests} '
+                f'#errors={self.total_errors}'
+            )
+            if is_task:
+                self.num_in_flight -= 1
+                self.request_completed.set()
 
 
 class RateLimitsScheduler(Scheduler):
@@ -103,7 +193,7 @@ class RateLimitsScheduler(Scheduler):
             # check rate limits
             request_resources = self._get_request_resources(item.request)
             resource_delay = self._resource_delay(request_resources)
-            aws: list[Awaitable[None]] = []
+            aws: list[asyncio.Task[None]] = []
             completed_aw: asyncio.Task | None = None
             wait_for_reset: asyncio.Task | None = None
             if resource_delay > 0:
@@ -420,4 +510,4 @@ class RequestRateScheduler(Scheduler):
 
 
 # all concrete Scheduler subclasses that implement matches()
-SCHEDULERS = [RateLimitsScheduler, RequestRateScheduler]
+SCHEDULERS = [ModalScheduler, RateLimitsScheduler, RequestRateScheduler]

@@ -7,7 +7,9 @@ from .function import Function, InvalidFunction
 from .function_registry import FunctionRegistry
 from .iterator import GeneratingFunction, GeneratingFunctionCall, PxtIterator, iterator
 from .mcp import mcp_udfs
+from .modal_adapter import ModalAdapter
 from .query_template_function import QueryTemplateFunction, query, retrieval_udf
+from .runtime_adapter import RuntimeAdapter
 from .signature import Batch, Parameter, Signature
 from .tools import Tool, ToolChoice, Tools
 from .udf import expr_udf, make_function, udf

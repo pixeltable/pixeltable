@@ -33,6 +33,10 @@ def udf(
     is_property: bool = False,
     is_deterministic: bool = True,
     resource_pool: str | None = None,
+    gpu: str | None = None,
+    image: str | None = None,
+    apt: list[str] | None = None,
+    pip: list[str] | None = None,
     type_substitutions: Sequence[dict] | None = None,
     _force_stored: bool = False,
 ) -> Callable[[Callable], CallableFunction]: ...
@@ -52,6 +56,19 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         >>> @pxt.udf
         ... def my_function(x: int) -> int:
         ...     return x + 1
+
+    Remote GPU execution (Modal): pass `gpu` to run the UDF on Modal's serverless GPUs, optionally with `image`
+    (base container image), `apt` (system packages), and `pip` (Python packages) to define the remote environment:
+
+        >>> @pxt.udf(gpu='A100', pip=['torch==2.3.0', 'transformers==4.44.0'])
+        ... def embed(text: str) -> pxt.Array[(384,), pxt.Float]: ...
+
+    `gpu`, `image`, `apt`, and `pip` are part of the UDF's definition, just like its body: they are persisted with
+    the function and apply to every execution path (computed columns, index build, and query-time similarity).
+    Changing them is a definition change and, like changing the function body, does not automatically recompute
+    previously stored values. For reproducible images (and therefore reproducible results), pin `pip` versions
+    (e.g. `'torch==2.3.0'` rather than `'torch'`); unpinned packages may resolve to newer versions on later image
+    builds and produce different outputs.
     """
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
         # Decorator invoked without parentheses: @pxt.udf
@@ -75,6 +92,10 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         is_property = kwargs.pop('is_property', None)
         is_deterministic = kwargs.pop('is_deterministic', None)
         resource_pool = kwargs.pop('resource_pool', None)
+        gpu = kwargs.pop('gpu', None)
+        image = kwargs.pop('image', None)
+        apt = kwargs.pop('apt', None)
+        pip = kwargs.pop('pip', None)
         type_substitutions = kwargs.pop('type_substitutions', None)
         force_stored = kwargs.pop('_force_stored', False)
         if len(kwargs) > 0:
@@ -91,6 +112,10 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
                 is_property=is_property,
                 is_deterministic=is_deterministic,
                 resource_pool=resource_pool,
+                gpu=gpu,
+                image=image,
+                apt=apt,
+                pip=pip,
                 type_substitutions=type_substitutions,
                 force_stored=force_stored,
                 from_decorator=True,
@@ -109,6 +134,10 @@ def make_function(
     is_property: bool = False,
     is_deterministic: bool = True,
     resource_pool: str | None = None,
+    gpu: str | None = None,
+    image: str | None = None,
+    apt: list[str] | None = None,
+    pip: list[str] | None = None,
     type_substitutions: Sequence[dict] | None = None,
     function_name: str | None = None,
     force_stored: bool = False,
@@ -141,6 +170,26 @@ def make_function(
 
     # Display name to use for error messages
     errmsg_name = function_name if function_path is None else function_path
+
+    if gpu is not None:
+        if not isinstance(gpu, str) or len(gpu) == 0:
+            raise excs.Error(f'{errmsg_name}(): gpu must be a non-empty string')
+        if resource_pool is not None:
+            raise excs.Error(f'{errmsg_name}(): cannot specify both `gpu` and `resource_pool`')
+    else:
+        # image/apt/pip configure the remote Modal image, which only applies when the UDF runs on Modal (gpu set).
+        if image is not None:
+            raise excs.Error(f'{errmsg_name}(): `image` requires `gpu` to be specified')
+        if apt is not None:
+            raise excs.Error(f'{errmsg_name}(): `apt` requires `gpu` to be specified')
+        if pip is not None:
+            raise excs.Error(f'{errmsg_name}(): `pip` requires `gpu` to be specified')
+    if image is not None and (not isinstance(image, str) or len(image) == 0):
+        raise excs.Error(f'{errmsg_name}(): image must be a non-empty string')
+    if apt is not None and (not isinstance(apt, list) or not all(isinstance(p, str) and len(p) > 0 for p in apt)):
+        raise excs.Error(f'{errmsg_name}(): apt must be a list of non-empty strings')
+    if pip is not None and (not isinstance(pip, list) or not all(isinstance(p, str) and len(p) > 0 for p in pip)):
+        raise excs.Error(f'{errmsg_name}(): pip must be a list of non-empty strings')
 
     if defined_in_script:
         raise excs.Error(
@@ -204,7 +253,12 @@ def make_function(
         is_method=is_method,
         is_property=is_property,
         is_deterministic=is_deterministic,
+        gpu=gpu,
+        image=image,
+        apt=apt,
+        pip=pip,
     )
+    # Note: routing for `gpu` is established intrinsically in CallableFunction.__init__ (so it survives reload).
     if resource_pool is not None:
         result.resource_pool(lambda: resource_pool)
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 from uuid import UUID
 
@@ -10,10 +12,27 @@ import pixeltable.exceptions as excs
 from pixeltable.runtime import get_runtime
 
 from .function import Function
+from .runtime_adapter import RuntimeAdapter, dumps_by_value, get_runtime_adapter, modal_resource_pool
 from .signature import Signature
 
 if TYPE_CHECKING:
     from pixeltable import exprs
+
+
+def _run_maybe_off_loop(call: Callable[[], Any]) -> Any:
+    """Run a blocking external-runtime call, hopping to a worker thread if an event loop is already running.
+
+    The synchronous query-time path (e.g. embedding-index similarity) can reach `exec()` from inside a coroutine
+    running on the executor's event loop. Some external SDKs (Modal) bridge their sync API to async via their own
+    event loop, which can conflict when invoked from a thread that already has a running loop. Off-loading to a fresh
+    thread keeps that bridge on a clean thread. When no loop is running (the common direct-call case), we call inline.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return call()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(call).result()
 
 
 class CallableFunction(Function):
@@ -27,6 +46,12 @@ class CallableFunction(Function):
     py_fns: list[Callable]
     self_name: str | None
     batch_size: int | None
+    gpu: str | None
+    # Modal runtime image hints (only meaningful when `gpu` is set). `image` is a base container image reference;
+    # `apt` is a list of system packages (apt) and `pip` a list of pip packages to install in the remote image.
+    image: str | None
+    apt: list[str] | None
+    pip: list[str] | None
 
     def __init__(
         self,
@@ -38,6 +63,10 @@ class CallableFunction(Function):
         is_method: bool = False,
         is_property: bool = False,
         is_deterministic: bool = True,
+        gpu: str | None = None,
+        image: str | None = None,
+        apt: list[str] | None = None,
+        pip: list[str] | None = None,
     ):
         assert len(signatures) > 0
         assert len(signatures) == len(py_fns)
@@ -46,6 +75,10 @@ class CallableFunction(Function):
         self.py_fns = py_fns
         self.self_name = self_name
         self.batch_size = batch_size
+        self.gpu = gpu
+        self.image = image
+        self.apt = apt
+        self.pip = pip
         self.__doc__ = self.py_fns[0].__doc__
         super().__init__(
             signatures,
@@ -54,6 +87,11 @@ class CallableFunction(Function):
             is_property=is_property,
             is_deterministic=is_deterministic,
         )
+        if gpu is not None:
+            # Routing to Modal is intrinsic to the function: deriving it here (rather than in the @udf decorator)
+            # ensures that reloaded/deserialized functions (via from_store()) route to Modal identically.
+            pool = modal_resource_pool(gpu)
+            self.resource_pool(lambda: pool)
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         assert len(self.py_fns) > signature_idx
@@ -66,6 +104,18 @@ class CallableFunction(Function):
     @property
     def is_async(self) -> bool:
         return inspect.iscoroutinefunction(self.py_fn)
+
+    @property
+    def _runtime_adapter(self) -> RuntimeAdapter | None:
+        """The external runtime adapter for this UDF, or None if it runs in-process.
+
+        Keying on `self.gpu` keeps the common (pool-less) path a single attribute check; only GPU-hinted UDFs
+        consult the shared adapter registry. This makes synchronous execution (e.g. embedding-index query-time
+        embedding) route to the external runtime identically to the async dataflow path.
+        """
+        if self.gpu is None:
+            return None
+        return get_runtime_adapter(modal_resource_pool(self.gpu))
 
     def comment(self) -> str | None:
         return inspect.getdoc(self.py_fns[0])
@@ -92,7 +142,16 @@ class CallableFunction(Function):
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         assert not self.is_polymorphic
+        adapter = self._runtime_adapter
         if self.is_batched:
+            if adapter is not None:
+                # Mirror the local batched-singleton path on the remote runtime: pack every argument into a
+                # singleton list and let invoke_batch (via create_batch_kwargs) split constant vs batched kwargs.
+                batched_args = [[arg] for arg in args]
+                singleton_kwargs = {k: [v] for k, v in kwargs.items()}
+                batch_result = _run_maybe_off_loop(lambda: adapter.invoke_batch(self, batched_args, singleton_kwargs))
+                assert len(batch_result) == 1
+                return batch_result[0]
             # Pack the batched parameters into singleton lists
             constant_param_names = [p.name for p in self.signature.constant_parameters]
             batched_args = [[arg] for arg in args]
@@ -105,6 +164,10 @@ class CallableFunction(Function):
                 result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
             assert len(result) == 1
             return result[0]
+        elif adapter is not None:
+            # Query-time embedding (EmbeddingIndex.similarity_clause) reaches here while a read transaction is open;
+            # this is one remote round-trip inside a read-only xact (no row locks), which is acceptable.
+            return _run_maybe_off_loop(lambda: adapter.invoke(self, args, kwargs))
         elif inspect.iscoroutinefunction(self.py_fn):
             return get_runtime().run_coro(self.py_fn(*args, **kwargs))
         else:
@@ -132,6 +195,9 @@ class CallableFunction(Function):
         assert self.is_batched
         assert not self.is_polymorphic
         assert not self.is_async
+        adapter = self._runtime_adapter
+        if adapter is not None:
+            return _run_maybe_off_loop(lambda: adapter.invoke_batch(self, args, kwargs))
         # Unpack the constant parameters
         constant_kwargs, batched_kwargs = self.create_batch_kwargs(kwargs)
         return self.py_fn(*args, **constant_kwargs, **batched_kwargs)
@@ -188,8 +254,17 @@ class CallableFunction(Function):
 
     def to_store(self) -> tuple[dict, bytes]:
         assert not self.is_polymorphic  # multi-signature UDFs not allowed for stored fns
-        md = {'signature': self.signature.as_dict(), 'batch_size': self.batch_size}
-        return md, cloudpickle.dumps(self.py_fn)
+        md = {
+            'signature': self.signature.as_dict(),
+            'batch_size': self.batch_size,
+            'gpu': self.gpu,
+            'image': self.image,
+            'apt': self.apt,
+            'pip': self.pip,
+        }
+        # Pickle by value so a UDF that references sibling module-level helpers reloads in a process that lacks its
+        # defining module (consistent with how the same UDF is serialized for the external runtime).
+        return md, dumps_by_value(self.py_fn)
 
     @classmethod
     def from_store(cls, name: str | None, md: dict, binary_obj: bytes) -> Function:
@@ -197,7 +272,13 @@ class CallableFunction(Function):
         assert callable(py_fn)
         sig = Signature.from_dict(md['signature'])
         batch_size = md['batch_size']
-        return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size)
+        gpu = md.get('gpu')
+        image = md.get('image')
+        apt = md.get('apt')
+        pip = md.get('pip')
+        return CallableFunction(
+            [sig], [py_fn], self_name=name, batch_size=batch_size, gpu=gpu, image=image, apt=apt, pip=pip
+        )
 
     def validate_call(self, bound_args: dict[str, 'exprs.Expr']) -> None:
         from pixeltable import exprs
