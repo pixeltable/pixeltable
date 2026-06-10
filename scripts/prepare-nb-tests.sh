@@ -20,17 +20,23 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-together           # Poor reliability
 )
 
-# Notebooks that are skipped unless --include-expensive is passed.
+# Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.
 EXPENSIVE_NOTEBOOKS=(
+    audio-transcriptions
     computed-columns
     data-import-huggingface
     doc-chunk-for-rag
     embedding-indexes
     img-image-to-image
+    multimodal_backend
     queries-and-expressions
+    rag-demo
     rag-operations
     search-semantic-text
     search-similar-images
+    ten-minute-tour
+    using-label-studio-with-pixeltable
+    video-image-slideshow
     working-with-hugging-face
     working-with-llama-cpp
 )
