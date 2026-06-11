@@ -70,24 +70,26 @@ sequenceDiagram
 
 ## Quick Start
 
-This guide assumes that you have your Discord server setup (see [Discord Setup Guide](#discord-setup-guide) below).
+This guide assumes that you have your [Discord server setup](https://github.com/pixeltable/pixeltable/tree/main/examples/context-aware-discord-bot#-discord-setup-guide).
 
 ```bash
 # 1. Clone and setup
 git clone https://github.com/pixeltable/pixeltable.git
-cd pixeltable/docs/sample-apps/context-aware-discord-bot
+cd https://github.com/pixeltable/pixeltable/tree/main/examples/context-aware-discord-bot
+
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # 2. Install dependencies
-uv sync   # or: pip install -e .
-
-# 3. Set environment variables in .env
-cp .env_template .env
-# Edit .env: add DISCORD_TOKEN and OPENAI_API_KEY
-
-# 4. Initialize the Pixeltable schema (one-time)
+uv sync
+cp .env.example .env
 python setup_pixeltable.py
 
-# 5. Run the bot
+# 3. Set environment variables in .env
+DISCORD_TOKEN=your-discord-token
+OPENAI_API_KEY=your-openai-key
+
+# 4. Run the bot
 python bot.py
 ```
 ## Key Commands
@@ -202,8 +204,7 @@ More examples available on our [Hugging Face Spaces](https://huggingface.co/Pixe
 
 ## Support & Resources
 
-- [Documentation](https://docs.pixeltable.com/)
-- [Issue Tracker](https://github.com/pixeltable/pixeltable/issues)
-- [Discord Community](https://discord.gg/QPyqFYx2UN)
-- [Discussions](https://github.com/pixeltable/pixeltable/discussions)
-- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
+- 📚 [Documentation](https://docs.pixeltable.com/)
+- 🐛 [Issue Tracker](https://github.com/pixeltable/pixeltable/issues)
+- 💬 [Discord Community](https://discord.gg/6MnmFYZJ9N)
+- 💡 [Discussions](https://github.com/orgs/pixeltable/discussions)
