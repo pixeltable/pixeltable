@@ -5815,7 +5815,6 @@ dev = [
     { name = "soundfile" },
     { name = "spacy", marker = "python_full_version < '3.14'" },
     { name = "sqlalchemy-cockroachdb" },
-    { name = "starlette" },
     { name = "tabulate" },
     { name = "tiktoken" },
     { name = "timm" },
@@ -5840,8 +5839,6 @@ dev = [
     { name = "types-sqlalchemy-utils" },
     { name = "types-toml" },
     { name = "types-tqdm" },
-    { name = "ujson" },
-    { name = "urllib3" },
     { name = "voyageai", marker = "python_full_version < '3.14'" },
     { name = "whisperx", marker = "python_full_version < '3.14'" },
 ]
@@ -5962,7 +5959,6 @@ dev = [
     { name = "soundfile", specifier = ">=0.13" },
     { name = "spacy", marker = "python_full_version < '3.14'", specifier = ">=3.8.7,<3.9" },
     { name = "sqlalchemy-cockroachdb", specifier = ">=2.0.3" },
-    { name = "starlette", specifier = ">=1.0.1" },
     { name = "tabulate", specifier = ">=0.9" },
     { name = "tiktoken", specifier = ">=0.10" },
     { name = "timm", specifier = ">=1.0.11,<2" },
@@ -5984,8 +5980,6 @@ dev = [
     { name = "types-sqlalchemy-utils", specifier = "~=1.1" },
     { name = "types-toml", specifier = ">=0.10" },
     { name = "types-tqdm", specifier = "~=4.64" },
-    { name = "ujson", specifier = ">=5.12.1" },
-    { name = "urllib3", specifier = ">=2.7.0" },
     { name = "voyageai", marker = "python_full_version < '3.14'", specifier = ">=0.3.7" },
     { name = "whisperx", marker = "python_full_version < '3.14'", specifier = ">=3.8.5" },
 ]
