@@ -140,7 +140,6 @@ class TestFastAPI:
     ) -> None:
         """Test insert routes with all scalar types and various input/output combinations."""
         skip_test_if_not_installed('fastapi')
-
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir('test_serve')
