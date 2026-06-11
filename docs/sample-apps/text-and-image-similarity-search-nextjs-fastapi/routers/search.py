@@ -6,11 +6,11 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
+import config
 import PIL.Image
+import schema  # noqa: F401
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-import config
-import schema  # noqa: F401
 import pixeltable as pxt
 
 router = APIRouter()

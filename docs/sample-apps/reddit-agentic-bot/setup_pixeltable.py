@@ -14,10 +14,10 @@ from dotenv import load_dotenv
 # Pixeltable core imports
 import pixeltable as pxt
 from pixeltable.functions import string as pxt_str
-from pixeltable.functions.document import document_splitter
 
 # Pixeltable function imports - organized by category
 from pixeltable.functions.anthropic import invoke_tools, messages
+from pixeltable.functions.document import document_splitter
 from pixeltable.functions.huggingface import sentence_transformer
 
 # Load environment variables

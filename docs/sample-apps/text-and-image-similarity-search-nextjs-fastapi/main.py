@@ -1,8 +1,7 @@
+import config
 import schema  # noqa: F401 — initializes Pixeltable schema on import
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-import config
 from routers.search import router
 
 app = FastAPI()
