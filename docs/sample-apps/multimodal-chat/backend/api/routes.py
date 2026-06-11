@@ -15,8 +15,9 @@ from settings import ALLOWED_TYPES, logger
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config
+import setup_pixeltable  # noqa: F401
+
 import pixeltable as pxt
-import setup_pixeltable  # noqa: E402, F401
 
 router = APIRouter()
 
