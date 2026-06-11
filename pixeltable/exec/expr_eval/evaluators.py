@@ -11,7 +11,7 @@ from pixeltable import exceptions as excs, exprs, func
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class DefaultExprEvaluator(Evaluator):

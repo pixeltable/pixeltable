@@ -21,7 +21,7 @@ from .utils import (
     validate_update_status,
 )
 
-logger = logging.getLogger('pixeltable')
+logger = logging.getLogger('pixeltable_test')
 
 test_unstored_base_val: int = 0
 

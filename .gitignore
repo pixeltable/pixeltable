@@ -16,7 +16,7 @@ __pycache__
 /docs/local/
 /local/
 /pixeltable/_version.py
-/pixeltable/dashboard/static/
+/pixeltable_cli/server/static/
 /target/
 /tests/target/
 

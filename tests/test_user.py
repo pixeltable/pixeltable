@@ -1,7 +1,10 @@
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
+from pixeltable.utils.fault_injection import FaultLocation
 
+from .coordinator import MultiThreadedScenario
+from .fault_injection import BlockFault
 from .utils import pxt_raises
 
 
@@ -60,3 +63,37 @@ class TestUser:
         Env.get().user = 'pbrunelle'
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unknown user: pbrunelle'):
             pxt.create_dir('test_dir')
+
+    def test_create_user_concurrent(self, uses_db: None, fault_injection: None) -> None:
+        """
+        Repro for PXT-1183: two processes/threads creating the root dir for the same user concurrently must not
+        produce duplicate root dirs.
+        """
+        fault = BlockFault()
+
+        (
+            MultiThreadedScenario()
+            .then_run(
+                thread_id=0,
+                name='inject fault',
+                fn=lambda: get_runtime().fault_manager.inject_fault(
+                    FaultLocation.CATALOG_CREATE_USER_AFTER_EXISTS_CHECK, fault
+                ),
+            )
+            # Thread 0: create_user() blocks after checking that the root dir doesn't exist
+            .then_run_until(
+                thread_id=0,
+                name='create_user (blocks)',
+                event=fault.reached,
+                fn=lambda: get_runtime().catalog.create_user('user1'),
+            )
+            # Thread 1: create_user() for the same user
+            .then_run(thread_id=1, name='create_user (wins)', fn=lambda: get_runtime().catalog.create_user('user1'))
+            # Thread 1: unblock thread 0, which now hits a serialization failure and retries
+            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: fault.unblock())
+            .execute()
+        )
+
+        # verify user1 has a functioning catalog
+        Env.get().user = 'user1'
+        assert pxt.list_dirs() == []

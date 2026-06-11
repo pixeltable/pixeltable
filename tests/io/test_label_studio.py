@@ -28,7 +28,7 @@ from ..utils import (
     validate_update_status,
 )
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger('pixeltable_test')
 
 
 @pytest.mark.skipif(platform.system() == 'Windows', reason='Label Studio tests do not currently run on Windows')

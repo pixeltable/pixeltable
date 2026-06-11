@@ -7,14 +7,14 @@ import shutil
 import threading
 import typing
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Literal, TypeVar
+from typing import Annotated, Any, ClassVar, Literal, NamedTuple, TypeVar
 
 import pydantic
 import toml
 
 from pixeltable import exceptions as excs
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
 
@@ -159,6 +159,20 @@ class DeploymentConfig(pydantic.BaseModel):
         return v
 
 
+class ConfigKey(NamedTuple):
+    """An individual configuration setting from the known-schema registry."""
+
+    section: str
+    # top-level config section
+    key: str
+    # option name within the section
+    description: str
+    # human-readable summary for help output
+    expected_type: Any
+    # type get_value() should coerce to; defaults to str. May be a parameterized generic
+    # (eg list[ServiceConfig]) rather than a plain type, so we widen to Any.
+
+
 class Config:
     """
     The (global) Pixeltable configuration, as loaded from `config.toml`. Provides methods for retrieving
@@ -171,7 +185,9 @@ class Config:
     __home: Path
     __config_file: Path
     __config_overrides: dict[str, Any]
-    __config_dict: dict[str, Any]
+
+    # section -> key -> (value, source_path); source_path is None for settings that don't come from a file
+    __config_dict: dict[str, dict[str, tuple[Any, Path | None]]]
 
     def __init__(self, config_overrides: dict[str, Any], additional_config_files: list[str]) -> None:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
@@ -206,7 +222,7 @@ class Config:
 
         self.__config_dict = {}
 
-        # Load lowest precedence first (for additional configs, last specified = highest precedence)
+        # Load lowest precedence first (for additional configs, last specified = highest precedence).
         for source in (user_config, pyproject_config, project_config, *additional_configs):
             self.__merge_config(self.__config_dict, source)
 
@@ -262,14 +278,25 @@ class Config:
             ) from exc
 
     @classmethod
-    def __load_project_config(cls, path: Path) -> dict[str, Any]:
+    def __add_path(cls, config_dict: dict[str, Any], path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
+        """Augment config_dict with path."""
+        for _, section_dict in config_dict.items():
+            assert isinstance(section_dict, dict)
+        return {
+            section: {key: (value, path) for key, value in section_dict.items()}
+            for section, section_dict in config_dict.items()
+            if isinstance(section_dict, dict)
+        }
+
+    @classmethod
+    def __load_project_config(cls, path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load ./pixeltable.toml, if it exists. Same structure as the user config file."""
         config_dict = cls.__read_toml_file(path)
         cls.__validate_config(config_dict, path)
-        return config_dict
+        return cls.__add_path(config_dict, path)
 
     @classmethod
-    def __load_pyproject_config(cls, path: Path) -> dict[str, Any]:
+    def __load_pyproject_config(cls, path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the `[tool.pixeltable]` table from ./pyproject.toml, if it exists.
 
         Subsections are expressed as `[tool.pixeltable.<section>]` (e.g. `[tool.pixeltable.openai]`).
@@ -283,14 +310,14 @@ class Config:
                 excs.ErrorCode.INVALID_CONFIGURATION, f"Expected a table for '[tool.pixeltable]' in config file: {path}"
             )
         cls.__validate_config(config_dict, path)
-        return config_dict
+        return cls.__add_path(config_dict, path)
 
-    def __load_user_config(self) -> dict[str, Any]:
+    def __load_user_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the user's config file, creating a default one if it does not exist."""
         if self.__config_file.exists():
             config_dict = self.__read_toml_file(self.__config_file)
             self.__validate_config(config_dict, self.__config_file)
-            return config_dict
+            return self.__add_path(config_dict, self.__config_file)
 
         else:
             config_dict = self.__create_default_config(self.__config_file)
@@ -302,7 +329,7 @@ class Config:
                         excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
                     ) from exc
             _logger.info(f'Created default config file at: {self.__config_file}')
-            return config_dict
+            return self.__add_path(config_dict, self.__config_file)
 
     @classmethod
     def __validate_config(cls, config_dict: dict[str, Any], source: Path) -> None:
@@ -379,13 +406,12 @@ class Config:
         return validated_config
 
     @classmethod
-    def __merge_config(cls, base: dict[str, Any], overlay: dict[str, Any]) -> None:
+    def __merge_config(
+        cls, base: dict[str, dict[str, tuple[Any, Path | None]]], overlay: dict[str, dict[str, tuple[Any, Path]]]
+    ) -> None:
         """Merge `overlay` into `base` at the section.key level; `overlay` values take precedence."""
         for section, section_dict in overlay.items():
-            if section in base and isinstance(base[section], dict) and isinstance(section_dict, dict):
-                base[section].update(section_dict)
-            else:
-                base[section] = dict(section_dict) if isinstance(section_dict, dict) else section_dict
+            base.setdefault(section, {}).update(section_dict)
 
     def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
         override_var = f'{section}.{key}'
@@ -396,20 +422,37 @@ class Config:
             return os.environ[env_var]
         return default
 
+    def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
+        """Find key under section in __config_dict. Returns (value, source_path) or None."""
+        parts = section.split('.')
+        # explicit type decl for readability
+        top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
+        if top_section is None:
+            return None
+        if len(parts) == 1:
+            return top_section.get(key)
+
+        if parts[1] not in top_section:
+            return None
+        sub_section, source = top_section[parts[1]]
+        for p in parts[2:]:
+            if not isinstance(sub_section, dict):
+                return None
+            sub_section = sub_section.get(p)
+            if sub_section is None:
+                return None
+        if not isinstance(sub_section, dict) or key not in sub_section:
+            return None
+        return (sub_section[key], source)
+
     def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> T | None:
         value: Any = self.lookup_env(section, key)  # Try to get from environment first
         # Next try the config file
         if value is None:
-            # Resolve nested section dicts
-            lookup_elems = [*section.split('.'), key]
-            value = self.__config_dict
-            for el in lookup_elems:
-                if isinstance(value, dict):
-                    if el not in value:
-                        return None
-                    value = value[el]
-                else:
-                    return None
+            entry = self.__lookup_config_entry(section, key)
+            if entry is None:
+                return None
+            value = entry[0]
 
         if value is None:
             return None  # Not specified
@@ -447,6 +490,33 @@ class Config:
     def get_list_value(self, key: str, section: str = 'pixeltable') -> list[Any] | None:
         return self.get_value(key, list, section)
 
+    def config_keys(self) -> list[ConfigKey]:
+        """Return all configuration settings from the known-schema registry."""
+        result: list[ConfigKey] = []
+        for section, options in KNOWN_CONFIG_OPTIONS.items():
+            for key, info in options.items():
+                if isinstance(info, tuple):
+                    description, expected_type = info
+                else:
+                    description, expected_type = info, str
+                result.append(ConfigKey(section=section, key=key, description=description, expected_type=expected_type))
+        return result
+
+    def get_value_source(self, key: str, section: str = 'pixeltable') -> Path | Literal['env', 'unset']:
+        """Return the source of the config value returned by get_value():
+        - 'env': environment variable (or programmatic config override) is set
+        - Path: the file the value came from (one of user config, project pixeltable.toml,
+          pyproject.toml, or one of additional_config_files)
+        - 'unset': no layer carries the value
+        """
+        if self.lookup_env(section, key) is not None:
+            return 'env'
+        entry = self.__lookup_config_entry(section, key)
+        if entry is None:
+            return 'unset'
+        path = entry[1]
+        return path if path is not None else 'unset'
+
 
 KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'pixeltable': {
@@ -462,8 +532,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'api_key': 'API key for Pixeltable cloud',
         'input_media_dest': 'Default destination URI for input media data',
         'output_media_dest': 'Default destination URI for output (computed) media data',
-        'start_dashboard': 'Whether to launch the dashboard server as startup (default: true)',
-        'dashboard_port': 'Port for the dashboard server (default: 22089)',
         'r2_profile': 'AWS config profile name used to access R2 storage',
         's3_profile': 'AWS config profile name used to access S3 storage',
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
@@ -491,7 +559,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         ),
         'rate_limits': 'Per-model rate limits for Gemini API requests',
     },
-    'hf': {'auth_token': 'Hugging Face access token'},
+    'hf': {'token': 'Hugging Face access token'},
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},
     'reve': {'api_key': 'Reve API key', 'rate_limit': 'Rate limit for Reve API requests (requests per minute)'},
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},

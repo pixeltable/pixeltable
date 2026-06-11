@@ -9,7 +9,7 @@ from pixeltable import catalog, exceptions as excs, exprs
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class AggregationNode(ExecNode):

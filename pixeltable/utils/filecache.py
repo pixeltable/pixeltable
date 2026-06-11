@@ -16,7 +16,7 @@ import pixeltable.exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @dataclass

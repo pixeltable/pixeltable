@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import logging
 from pathlib import Path
 from types import NoneType
 from typing import Any, AsyncIterator
@@ -16,8 +15,6 @@ from pixeltable.utils import parse_local_file_path
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 from .globals import INLINED_OBJECT_MD_KEY, InlinedObjectMd
-
-_logger = logging.getLogger('pixeltable')
 
 
 def json_has_inlined_objs(element: Any) -> bool:

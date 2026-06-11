@@ -16,13 +16,13 @@ import toml
 
 import pixeltable as pxt
 from pixeltable import functions as pxtf, metadata, type_system as ts
-from pixeltable.env import Env
+from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
 from pixeltable.iterators.base import ComponentIterator
 from tool.udfs_for_db_dump import test_array_udf, test_binary_udf, test_date_udf, test_timestamp_udf, test_uuid_udf
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 # We use URLs (not local files) so that the dumps are portable. We also use repo references with fixed SHAs for all
@@ -113,7 +113,11 @@ class Dumper:
 
         Env._init_env(reinit_db=True)
 
-        Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
+        logging.getLogger('pixeltable').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter(LOG_FMT_STR))
+        logging.getLogger('pixeltable').addHandler(handler)
 
     def dump_db(self) -> None:
         md_version = metadata.VERSION
@@ -342,13 +346,6 @@ class Dumper:
         )
         pk_good.insert([{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}, {'id': 3, 'name': 'Charlie'}])
 
-        # Used to create table with invalid PK to test 49 -> 50 migration. This table can't be created on versions > 49
-        # as it will raise an error.
-        # pk_bad = pxt.create_table(
-        #     'pk_test_bad', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]}, primary_key='id'
-        # )
-        # pk_bad.insert([{'id': 1, 'name': 'Alice'}, {'id': 1, 'name': 'Bob'}, {'id': 1, 'name': 'Charlie'}])
-
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
         def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
             t.add_computed_column(**{f'{col_prefix}_{col_name}': col_expr}, stored=stored)
@@ -434,6 +431,7 @@ class Dumper:
         t.add_embedding_index(
             f'{col_prefix}_function_call',
             string_embed=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32'),
+            precision='fp32',
         )
 
         if t.get_metadata()['is_view']:

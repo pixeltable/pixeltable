@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import logging
 import sys
 from textwrap import dedent
 from typing import Any, Sequence
@@ -17,8 +16,6 @@ from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
 from .sql_element_cache import SqlElementCache
-
-_logger = logging.getLogger('pixeltable')
 
 
 class FunctionCall(Expr):

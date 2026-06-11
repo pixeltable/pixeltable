@@ -20,7 +20,6 @@ import pyarrow.parquet as pq
 import sqlalchemy as sql
 
 import pixeltable as pxt
-import pixeltable.utils.av as av_utils
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
 from pixeltable.catalog.table_version import TableVersionKey, TableVersionMd
 from pixeltable.exprs.data_row import CellMd
@@ -31,7 +30,7 @@ from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class TablePackager:
@@ -366,8 +365,10 @@ class TablePackager:
             return base64.b64encode(buffer.getvalue()).decode()
 
     def __encode_audio(self, audio_path: str) -> str | None:
+        from pixeltable.functions.util import get_metadata
+
         try:
-            audio_md = av_utils.get_metadata(audio_path)
+            audio_md = get_metadata(audio_path)
             if 'streams' in audio_md:
                 duration = audio_md['streams'][0]['duration_seconds']
                 assert isinstance(duration, float)
@@ -416,7 +417,7 @@ class TableRestorer:
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
-            tf.extractall(path=self.tmp_dir)
+            tf.extractall(path=self.tmp_dir, filter='data')
 
         if self.bundle_md is None:
             # No metadata supplied; read it from the archive

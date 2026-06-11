@@ -52,7 +52,6 @@ help:
 	@echo '  nbtest        Run `pytest` on notebooks'
 	@echo '  stresstest    Run stress tests such as random-ops'
 	@echo '  typecheck     Run `mypy`'
-	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 	@echo '  nbcheck       Run `./scripts/check-notebooks.sh`'
@@ -175,26 +174,21 @@ stresstest: install
 .PHONY: typecheck
 typecheck: install
 	@echo 'Running `mypy` ...'
-	@mypy pixeltable tests tool
+	@mypy pixeltable pixeltable_cli tests tool
 	# Separate direct check of model.py (which is shadowed by the generated model.pyi in the main run)
 	@mypy pixeltable/catalog/model.py
-
-.PHONY: docscheck
-docscheck: install
-	@echo 'Running `mkdocs build --strict` ...'
-	@python -W ignore::DeprecationWarning -m mkdocs build --strict
 
 .PHONY: lint
 lint: install
 	@echo 'Running `ruff check` ...'
-	@ruff check pixeltable tests tool
+	@ruff check pixeltable pixeltable_cli tests tool
 
 .PHONY: formatcheck
 formatcheck: install
 	@echo 'Running `ruff format --check` ...'
-	@ruff format --check pixeltable tests tool
+	@ruff format --check pixeltable pixeltable_cli tests tool
 	@echo 'Running `ruff check --select I` ...'
-	@ruff check --select I pixeltable tests tool
+	@ruff check --select I pixeltable pixeltable_cli tests tool
 
 .PHONY: nbcheck
 nbcheck: install
@@ -204,9 +198,9 @@ nbcheck: install
 .PHONY: format
 format: install
 	@echo 'Running `ruff format` ...'
-	@ruff format pixeltable tests tool
+	@ruff format pixeltable pixeltable_cli tests tool
 	@echo 'Running `ruff check --select I --fix` ...'
-	@ruff check --select I --fix pixeltable tests tool
+	@ruff check --select I --fix pixeltable pixeltable_cli tests tool
 	@echo 'Running `./scripts/format-notebooks.sh` ...'
 	@./scripts/format-notebooks.sh
 
