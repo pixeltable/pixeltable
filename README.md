@@ -26,7 +26,7 @@
 
 ## Make Building Multimodal AI Apps Dead Simple
 
-**The only multimodal backend where AI transformations live in the schema, not bolted on top.** Your table schema is the infrastructure spec: declare tables, views, computed columns, and indexes; storage, transforms, embeddings, agents, and serving follow from it.
+**The only multimodal backend where transforms live in the schema, not bolted on top.** Your table schema is the infrastructure spec: declare tables, views, computed columns, and indexes; storage, transforms, embeddings, agents, and serving follow from it.
 
 ## Core Capabilities
 
@@ -327,9 +327,9 @@ Teach AI coding assistants (Cursor, Claude Code, Copilot, etc.). [Learn more →
 npx skills add pixeltable/pixeltable-skill
 ```
 
-## Create a New Project
+## Start from a Template
 
-Scaffold a production-ready Pixeltable project in one command:
+Head start on a production-ready app: scaffold schema, routes, and deployment pattern in one command.
 
 ```bash
 uvx pixeltable-new myapp
