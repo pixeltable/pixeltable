@@ -2,12 +2,11 @@ import logging
 import time
 from dataclasses import dataclass
 from threading import Event, Lock, Thread, current_thread
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
-if TYPE_CHECKING:
-    from pixeltable.utils.fault_injection import FaultLocation
+from pixeltable.utils.fault_injection import FaultLocation
 
-    from .fault_injection import Fault
+from .fault_injection import Fault
 
 _logger = logging.getLogger('pixeltable_test')
 
@@ -45,7 +44,7 @@ class MultiThreadedScenario:
         self._steps.append(_Step(thread_id=thread_id, name=name, fn=fn, next_gate=event))
         return self
 
-    def then_inject_fault(self, *, thread_id: int, loc: 'FaultLocation', fault: 'Fault') -> 'MultiThreadedScenario':
+    def then_inject_fault(self, *, thread_id: int, loc: FaultLocation, fault: Fault) -> 'MultiThreadedScenario':
         """Append a step that arms `fault` at `loc` on Thread `thread_id`."""
         from pixeltable.runtime import get_runtime
 
