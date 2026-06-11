@@ -1888,6 +1888,14 @@ class Catalog:
         tbl_path_repr: str = str(tbl_id) if tbl is None else repr(tbl._path())
         if tbl is not None:
             self._acquire_dir_xlock(dir_id=tbl._dir_id())
+
+        # If the base table needs an update, lock it before locking the view.
+        if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
+            base_id = tvp.base.tbl_id
+            # Bug(PXT-1198): when multiple tables are getting dropped within one transaction (like when self._drop_dir
+            # calls self._drop_tbl), the expected base-before-view lock ordering is currently not guaranteed.
+            if base_id not in self._x_locked_tbl_ids:
+                self._x_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=base_id))
         self._acquire_write_lock(tbl_id=tbl_id)
 
         view_ids = self.get_view_ids(tbl_id, for_update=True)
@@ -1930,12 +1938,6 @@ class Catalog:
         # if this is a mutable view of a mutable base, advance the base's view_sn
         if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
             base_id = tvp.base.tbl_id
-            # Bug(PXT-1198): when multiple tables are getting dropped within one transaction (like when self._drop_dir
-            # calls self._drop_tbl), the expected base-before-view lock ordering is currently not guaranteed.
-            if base_id not in self._x_locked_tbl_ids:
-                # Updating the base table's md requires locking it.
-                base_locked_ids = self._acquire_write_lock(tbl_id=base_id)
-                self._x_locked_tbl_ids.update(base_locked_ids)
             base_tv = self._get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
             self.mark_modified_tv(base_tv.handle)
             base_tv.tbl_md.view_sn += 1
