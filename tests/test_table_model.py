@@ -20,10 +20,10 @@ class TestTableModel:
             name: pxt.String
             value: pxt.Float
             img: pxt.Image
-            incr = Column.value + 1
-            descr = pxtf.string.format('Name: {name}', name=Column.name)
+            incr = ExampleTableModel.value + 1
+            descr = pxtf.string.format('Name: {name}', name=ExampleTableModel.name)
 
-            clip_idx = EmbeddingIndex(Column.img, embedding=dummy_embedding.using(n=768))
+            clip_idx = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
 
         tbl = ExampleTableModel.create()
         metadata: dict[str, Any] = dict(tbl.get_metadata())

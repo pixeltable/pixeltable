@@ -132,6 +132,46 @@ class _PlaceholderFactory:
 Column: _PlaceholderFactory = _PlaceholderFactory()
 
 
+class _ColumnCtx:
+    def __getattr__(self, item: str) -> _PlaceholderColumnRef:
+        return getattr(Column, item)
+
+
+class _AnnotationRecorder(dict):
+    _decl_order: list[str]
+
+    def __init__(self, decl_order: list[str]) -> None:
+        super().__init__()
+        self._decl_order = decl_order
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if not key.startswith('__') and key not in self._decl_order:
+            self._decl_order.append(key)
+        super().__setitem__(key, value)
+
+
+class _ModelNamespace(dict):
+    """Class namespace that records the source order of every name bound in the body,
+    including bare annotations (which never write to the namespace itself)."""
+
+    decl_order: list[str]
+    column_ctx: _ColumnCtx
+
+    def __init__(self, name: str) -> None:
+        super().__init__()
+        self.decl_order = []
+        self.column_ctx = _ColumnCtx()
+        # Pre-seed __annotations__ so the compiler routes bare annotations through
+        # our recorder rather than a plain dict it would otherwise create.
+        super().__setitem__('__annotations__', _AnnotationRecorder(self.decl_order))
+        super().__setitem__(name, self.column_ctx)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if not key.startswith('__') and key not in self.decl_order:
+            self.decl_order.append(key)
+        super().__setitem__(key, value)
+
+
 @dataclass(frozen=True)
 class EmbeddingIndex:
     column: str | exprs.Expr
@@ -160,6 +200,9 @@ class TableModelMetaclass(type):
         mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
     ) -> TableModelMetaclass:
         import pixeltable as pxt
+
+        # Remove the _ColumnCtx object; it's no longer needed, and we need to "normalize" the namespace
+        namespace.pop(name)
 
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
@@ -279,6 +322,10 @@ class TableModelMetaclass(type):
                 namespace['__iterator__'] = None
 
         return super().__new__(mcs, name, bases, namespace)
+
+    @classmethod
+    def __prepare__(mcs, name: str, bases: tuple[type, ...], **kwargs: Any) -> dict[str, Any]:
+        return _ModelNamespace(name)
 
     def _resolve_tbl(cls) -> Table:
         import pixeltable as pxt
