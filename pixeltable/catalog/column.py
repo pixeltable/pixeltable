@@ -428,7 +428,9 @@ class Column:
         """Returns a ColumnHandle for this Column."""
         from .table_version_handle import ColumnHandle
 
-        assert self.tbl_handle is not None
+        if self.tbl_handle is None:
+            return None
+
         assert self.id is not None
         return ColumnHandle(self.tbl_handle, self.id)
 

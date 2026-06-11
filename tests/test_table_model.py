@@ -12,7 +12,7 @@ from .utils import assert_table_metadata_eq, dummy_embedding, pxt_raises
 
 
 class TestTableModel:
-    def test_table_model(self, uses_db: None) -> None:
+    def test_table_model_basic(self, uses_db: None) -> None:
         class ExampleTableModel(pxt.TableModel):
             __table_name__ = 'test_table'
 

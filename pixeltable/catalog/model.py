@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from pixeltable import exceptions as excs, exprs, func, type_system as ts
+from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.types import ColumnSpec
 
 from .catalog import retry_loop
@@ -133,20 +133,59 @@ Column: _PlaceholderFactory = _PlaceholderFactory()
 
 
 class _ColumnCtx:
-    def __getattr__(self, item: str) -> _PlaceholderColumnRef:
-        return getattr(Column, item)
+    known_cols: dict[str, catalog.Column]
+    known_idxs: dict[str, EmbeddingIndex]
+
+    def __init__(self) -> None:
+        self.known_cols = {}
+        self.known_idxs = {}
+
+    def __hasattr__(self, key: str) -> bool:
+        return key in self.known_cols
+
+    def __getattr__(self, item: str) -> exprs.ColumnRef:
+        if item not in self.known_cols:
+            raise AttributeError(f'Column {item!r} is not defined yet')
+        return _PlaceholderColumnRef(self.known_cols[item])
+
+    def set_col_value(self, name: str, value: Any) -> None:
+        assert name not in self.known_cols  # `value` always gets set before `type` if both are defined
+        if isinstance(value, EmbeddingIndex):
+            self.known_idxs[name] = value
+        else:
+            spec: ColumnSpec
+            if isinstance(value, _PlaceholderColumnSpec):
+                spec = value.column_spec
+            else:
+                # Computed column expression.
+                expr = exprs.Expr.from_object(value)
+                spec = ColumnSpec(value=expr)
+            self.known_cols[name] = catalog.Column.create(name, spec)
+
+    def set_col_type(self, name: str, type_: Any) -> None:
+        if name in self.known_cols:
+            # We previously processed this column via `set_col_value()`. Sanity check the type.
+            existing_col = self.known_cols[name]
+            if existing_col.col_type != type_:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Type annotation for column {name!r} '
+                    'conflicts with the `type=` argument in `Column()`',
+                )
+        else:
+            self.known_cols[name] = catalog.Column.create(name, type_)
 
 
 class _AnnotationRecorder(dict):
-    _decl_order: list[str]
+    _column_ctx: _ColumnCtx
 
-    def __init__(self, decl_order: list[str]) -> None:
+    def __init__(self, _column_ctx: _ColumnCtx) -> None:
         super().__init__()
-        self._decl_order = decl_order
+        self._column_ctx = _column_ctx
 
     def __setitem__(self, key: str, value: Any) -> None:
-        if not key.startswith('__') and key not in self._decl_order:
-            self._decl_order.append(key)
+        if not key.startswith('__'):
+            self._column_ctx.set_col_type(key, value)
         super().__setitem__(key, value)
 
 
@@ -154,21 +193,19 @@ class _ModelNamespace(dict):
     """Class namespace that records the source order of every name bound in the body,
     including bare annotations (which never write to the namespace itself)."""
 
-    decl_order: list[str]
     column_ctx: _ColumnCtx
 
     def __init__(self, name: str) -> None:
         super().__init__()
-        self.decl_order = []
         self.column_ctx = _ColumnCtx()
         # Pre-seed __annotations__ so the compiler routes bare annotations through
         # our recorder rather than a plain dict it would otherwise create.
-        super().__setitem__('__annotations__', _AnnotationRecorder(self.decl_order))
+        super().__setitem__('__annotations__', _AnnotationRecorder(self.column_ctx))
         super().__setitem__(name, self.column_ctx)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        if not key.startswith('__') and key not in self.decl_order:
-            self.decl_order.append(key)
+        if not key.startswith('__'):
+            self.column_ctx.set_col_value(key, value)
         super().__setitem__(key, value)
 
 
