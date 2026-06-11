@@ -114,35 +114,22 @@ pxt ls -l && pxt rows frames -n 3 && pxt errors frames
 
 See [CLI serving](https://docs.pixeltable.com/platform/cli).
 
-## Learn More about Unified Storage, Orchestration, and Retrieval
+## Demo
 
 See Pixeltable in action: table creation, computed columns, multimodal processing, and querying in a single workflow.
 
 https://github.com/user-attachments/assets/b50fd6df-5169-4881-9dbe-1b6e5d06cede
 
-Pixeltable combines storage, orchestration (computed columns + views), and retrieval (embedding indexes + queries) in one schema. No separate vector DB, orchestrator, or glue. [What is Pixeltable?](https://docs.pixeltable.com/overview/pixeltable) · [Deployment overview](https://docs.pixeltable.com/howto/deployment/overview)
+## Documentation
 
-### How the schema works
+One schema for storage, orchestration, and retrieval. [What is Pixeltable?](https://docs.pixeltable.com/overview/pixeltable) · [Deployment overview](https://docs.pixeltable.com/howto/deployment/overview)
 
-Declare tables, views, computed columns, and indexes once. Incremental recompute runs on stale cells only; failures are queryable per cell via `errormsg`. [Type system](https://docs.pixeltable.com/platform/type-system) · [Tables & data](https://docs.pixeltable.com/tutorials/tables-and-data-operations) · [Computed columns](https://docs.pixeltable.com/tutorials/computed-columns) · [Views](https://docs.pixeltable.com/platform/views) · [Iterators](https://docs.pixeltable.com/platform/iterators) · [Embedding indexes](https://docs.pixeltable.com/platform/embedding-indexes) · [Queries & expressions](https://docs.pixeltable.com/tutorials/queries-and-expressions) · [Iterative workflow](https://docs.pixeltable.com/howto/cookbooks/core/dev-iterative-workflow) · [Version control](https://docs.pixeltable.com/platform/version-control)
-
-### Agents, serving, and operations
-
-[Agents & MCP](https://docs.pixeltable.com/use-cases/agents-mcp) · [Tool calling](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling) · [RAG pipeline](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline) · [CLI & dashboard](https://docs.pixeltable.com/platform/cli) · [UDFs](https://docs.pixeltable.com/platform/udfs-in-pixeltable) · [Built-ins](https://docs.pixeltable.com/sdk/latest/pixeltable) · [30+ providers](https://docs.pixeltable.com/integrations/frameworks)
-
-### External storage and Pixeltable Cloud
-
-**S3 · GCS · Azure · R2 · B2 · Tigris:** [Cloud storage](https://docs.pixeltable.com/integrations/cloud-storage) · [Tigris guide](https://docs.pixeltable.com/howto/providers/working-with-tigris)
-
-Set `destination=` on columns, or `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` globally. [Configuration](https://docs.pixeltable.com/platform/configuration) · [External files](https://docs.pixeltable.com/platform/external-files)
-
-Publish to Pixeltable Cloud for team or public sharing. Replicate public datasets instantly, no account required. [Get started](https://docs.pixeltable.com/use-cases/get-started) · [Cloud services](https://docs.pixeltable.com/use-cases/services) · [Public datasets](https://www.pixeltable.com/data-products)
-
-### Local install and import/export
-
-One `pip install`: embedded PostgreSQL, orchestration engine, local dashboard. No Docker for dev; data in `~/.pixeltable`. [Storage architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) · [Working with external files](https://docs.pixeltable.com/platform/external-files)
-
-[CSV import](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) · [Hugging Face](https://docs.pixeltable.com/howto/cookbooks/data/data-import-huggingface) · [PyTorch export](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch) · [ML data wrangling](https://docs.pixeltable.com/use-cases/ml-data-wrangling) · [Sample apps](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps) · [Colab tour](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/overview/ten-minute-tour.ipynb)
+| Topic | Guides |
+|---|---|
+| **Schema & orchestration** | [Type system](https://docs.pixeltable.com/platform/type-system) · [Tables & data](https://docs.pixeltable.com/tutorials/tables-and-data-operations) · [Computed columns](https://docs.pixeltable.com/tutorials/computed-columns) · [Views](https://docs.pixeltable.com/platform/views) · [Iterators](https://docs.pixeltable.com/platform/iterators) · [Embedding indexes](https://docs.pixeltable.com/platform/embedding-indexes) · [Queries & expressions](https://docs.pixeltable.com/tutorials/queries-and-expressions) · [Iterative workflow](https://docs.pixeltable.com/howto/cookbooks/core/dev-iterative-workflow) · [Version control](https://docs.pixeltable.com/platform/version-control) |
+| **Agents & serving** | [Agents & MCP](https://docs.pixeltable.com/use-cases/agents-mcp) · [Tool calling](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling) · [RAG pipeline](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline) · [CLI & dashboard](https://docs.pixeltable.com/platform/cli) · [UDFs](https://docs.pixeltable.com/platform/udfs-in-pixeltable) · [Built-ins](https://docs.pixeltable.com/sdk/latest/pixeltable) · [30+ providers](https://docs.pixeltable.com/integrations/frameworks) |
+| **Cloud & storage** | [Cloud storage](https://docs.pixeltable.com/integrations/cloud-storage) (S3, GCS, Azure, R2, B2, Tigris) · [Configuration](https://docs.pixeltable.com/platform/configuration) · [External files](https://docs.pixeltable.com/platform/external-files) · [Get started](https://docs.pixeltable.com/use-cases/get-started) · [Cloud services](https://docs.pixeltable.com/use-cases/services) · [Public datasets](https://www.pixeltable.com/data-products) |
+| **Local & I/O** | [Storage architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) · [CSV import](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) · [Hugging Face](https://docs.pixeltable.com/howto/cookbooks/data/data-import-huggingface) · [PyTorch export](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch) · [ML data wrangling](https://docs.pixeltable.com/use-cases/ml-data-wrangling) · [Sample apps](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps) · [Colab tour](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/overview/ten-minute-tour.ipynb) |
 
 ## Contributing
 
