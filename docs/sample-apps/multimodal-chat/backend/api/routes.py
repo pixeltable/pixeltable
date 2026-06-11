@@ -46,7 +46,11 @@ async def upload_file(file: UploadFile = File(...)):
         docs_table.insert([{'document': abs_path}])
         return JSONResponse(
             status_code=200,
-            content={'message': f'Successfully uploaded {file.filename}', 'filename': file.filename, 'type': 'document'},
+            content={
+                'message': f'Successfully uploaded {file.filename}',
+                'filename': file.filename,
+                'type': 'document',
+            },
         )
     except Exception as e:
         logger.error(f'Error processing file: {e!s}')
@@ -116,7 +120,11 @@ async def upload_video(file: UploadFile = File(...)):
         docs_table.insert([{'video': full_path}])
         return JSONResponse(
             status_code=200,
-            content={'message': f'Successfully uploaded video: {file.filename}', 'filename': file.filename, 'path': full_path},
+            content={
+                'message': f'Successfully uploaded video: {file.filename}',
+                'filename': file.filename,
+                'path': full_path,
+            },
         )
     except Exception as e:
         logger.error(f'Error uploading video: {e!s}')
@@ -138,7 +146,11 @@ async def upload_audio(file: UploadFile = File(...)):
         docs_table.insert([{'audio': normalized_path}])
         return JSONResponse(
             status_code=200,
-            content={'message': f'Successfully uploaded audio: {file.filename}', 'filename': file.filename, 'path': normalized_path},
+            content={
+                'message': f'Successfully uploaded audio: {file.filename}',
+                'filename': file.filename,
+                'path': normalized_path,
+            },
         )
     except Exception as e:
         logger.error(f'Error uploading audio: {e!s}')

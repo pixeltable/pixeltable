@@ -55,8 +55,8 @@ graph LR
 ### Prerequisites
 
 - Node.js 18+
-- Python 3.9+
-- pip
+- Python 3.10+
+- [uv](https://docs.astral.sh/uv/)
 
 ### Frontend Setup
 

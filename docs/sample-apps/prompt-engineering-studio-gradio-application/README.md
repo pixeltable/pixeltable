@@ -26,14 +26,14 @@ jupyter notebook pixeltable-and-gradio-application.ipynb
 
 You'll also need:
 - A Mistral AI API key
-- Python 3.9 or later
+- Python 3.10 or later
 
 ### Running the Application
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/pixeltable-and-gradio-application.git
-cd pixeltable-and-gradio-application
+git clone https://github.com/pixeltable/pixeltable.git
+cd pixeltable/docs/sample-apps/prompt-engineering-studio-gradio-application
 ```
 
 2. Set your API key:

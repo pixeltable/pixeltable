@@ -20,11 +20,7 @@ def setup_schema() -> pxt.Table:
 
     pxt.create_dir(DIRECTORY, if_exists='ignore')
 
-    documents = pxt.create_table(
-        f'{DIRECTORY}.documents',
-        {'document_url': pxt.String},
-        if_exists='ignore',
-    )
+    documents = pxt.create_table(f'{DIRECTORY}.documents', {'document_url': pxt.String}, if_exists='ignore')
 
     messages = [
         {
@@ -32,7 +28,7 @@ def setup_schema() -> pxt.Table:
             'content': [
                 {
                     'type': 'text',
-                    'text': 'Create a detailed summary of the PDF. Extract the key points for the user. Dont Skip out.',
+                    'text': "Create a detailed summary of the PDF. Extract the key points for the user. Don't skip out.",
                 },
                 {'type': 'document_url', 'document_url': documents.document_url},
             ],
@@ -40,12 +36,10 @@ def setup_schema() -> pxt.Table:
     ]
 
     documents.add_computed_column(
-        api_response=chat_completions(model=MISTRAL_MODEL, messages=messages),
-        if_exists='ignore',
+        api_response=chat_completions(model=MISTRAL_MODEL, messages=messages), if_exists='ignore'
     )
     documents.add_computed_column(
-        document_summary=documents.api_response.choices[0].message.content.astype(pxt.String),
-        if_exists='ignore',
+        document_summary=documents.api_response.choices[0].message.content.astype(pxt.String), if_exists='ignore'
     )
     documents.add_embedding_index(
         column=documents.document_summary,

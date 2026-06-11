@@ -42,10 +42,7 @@ def init_media_toolkit() -> None:
     click.echo('Created image embedding index')
 
     frames_view = pxt.create_view(
-        'ai_media_frames',
-        table,
-        iterator=frame_iterator(video=table.video, fps=1),
-        if_exists='ignore',
+        'ai_media_frames', table, iterator=frame_iterator(video=table.video, fps=1), if_exists='ignore'
     )
     frames_view.add_embedding_index('frame', idx_name='frame_clip_idx', embedding=clip_model, if_exists='ignore')
     click.echo('Created frame embedding index')

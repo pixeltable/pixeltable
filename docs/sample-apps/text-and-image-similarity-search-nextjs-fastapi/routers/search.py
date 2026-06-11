@@ -1,5 +1,7 @@
+import atexit
 import io
 import json
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Literal
@@ -12,16 +14,35 @@ import schema  # noqa: F401
 import pixeltable as pxt
 
 router = APIRouter()
-TEMP_DIR = tempfile.mkdtemp()
+TEMP_DIR = Path(tempfile.mkdtemp())
+atexit.register(shutil.rmtree, TEMP_DIR, ignore_errors=True)
+
+
+def _safe_filename(filename: str | None) -> str:
+    return Path(filename or 'upload').name
+
+
+async def _read_text_query(upload: UploadFile | None) -> str:
+    if upload is None:
+        return ''
+    body = await upload.read()
+    if body:
+        return body.decode('utf-8', errors='replace').strip()
+    return (upload.filename or '').strip()
+
+
+async def _save_upload(file: UploadFile) -> Path:
+    temp_path = TEMP_DIR / _safe_filename(file.filename)
+    with temp_path.open('wb') as buffer:
+        buffer.write(await file.read())
+    return temp_path
 
 
 @router.post('/api/process-video')
 async def process_video(file: UploadFile = File(...)):  # noqa: B008
     try:
         video_table = pxt.get_table(f'{config.APP_NAMESPACE}.videos')
-        temp_path = Path(TEMP_DIR) / file.filename
-        with temp_path.open('wb') as buffer:
-            buffer.write(await file.read())
+        temp_path = await _save_upload(file)
         video_table.insert([{'video': str(temp_path)}])
         return {'message': 'Video processed successfully and frames are being indexed.'}
     except Exception as e:
@@ -39,9 +60,7 @@ async def upload_image(tags: str = Form(...), file: UploadFile = File(...)):  # 
         except (json.JSONDecodeError, ValueError) as e:
             raise HTTPException(status_code=400, detail=f'Invalid tags format: {e}') from e
 
-        temp_path = Path(TEMP_DIR) / file.filename
-        with temp_path.open('wb') as buffer:
-            buffer.write(await file.read())
+        temp_path = await _save_upload(file)
         image_table.insert([{'image': str(temp_path), 'tags': tags_list}])
         return {'message': 'Image uploaded and tagged successfully.'}
     except Exception as e:
@@ -58,7 +77,7 @@ async def search_video(
         frames_view = pxt.get_table(f'{config.APP_NAMESPACE}.frames')
 
         if search_type == 'text':
-            text_query = query.filename if query else ''
+            text_query = await _read_text_query(query)
             if not text_query:
                 raise HTTPException(status_code=400, detail='No text query provided')
             sim = frames_view.frame.similarity(string=text_query)
@@ -91,7 +110,7 @@ async def search_images(
         image_table = pxt.get_table(f'{config.APP_NAMESPACE}.images')
 
         if search_type == 'text':
-            text_query = query.filename if query else ''
+            text_query = await _read_text_query(query)
             if not text_query:
                 raise HTTPException(status_code=400, detail='No text query provided')
             sim = image_table.image.similarity(string=text_query)

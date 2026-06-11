@@ -75,7 +75,7 @@ This guide assumes that you have your [Discord server setup](https://github.com/
 ```bash
 # 1. Clone and setup
 git clone https://github.com/pixeltable/pixeltable.git
-cd https://github.com/pixeltable/pixeltable/tree/main/examples/context-aware-discord-bot
+cd pixeltable/docs/sample-apps/context-aware-discord-bot
 
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate

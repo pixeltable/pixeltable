@@ -10,13 +10,13 @@
   },
   "dependencies": {
     "next": "^15.0.2",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.19",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
     "autoprefixer": "^10.4.17",
     "eslint": "^9.24.0",
     "eslint-config-next": "^15.3.0",

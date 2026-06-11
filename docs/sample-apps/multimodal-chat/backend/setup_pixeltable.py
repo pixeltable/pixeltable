@@ -29,19 +29,15 @@ docs_table = pxt.create_table(
 )
 
 conversations = pxt.create_table(
-    f'{ns}.conversations',
-    {'role': pxt.String, 'content': pxt.String, 'timestamp': pxt.Timestamp},
-    if_exists='ignore',
+    f'{ns}.conversations', {'role': pxt.String, 'content': pxt.String, 'timestamp': pxt.Timestamp}, if_exists='ignore'
 )
 
 docs_table.add_computed_column(audio_extract=extract_audio(docs_table.video, format='mp3'), if_exists='ignore')
 docs_table.add_computed_column(
-    transcription=openai.transcriptions(audio=docs_table.audio_extract, model='whisper-1'),
-    if_exists='ignore',
+    transcription=openai.transcriptions(audio=docs_table.audio_extract, model='whisper-1'), if_exists='ignore'
 )
 docs_table.add_computed_column(
-    audio_transcription=openai.transcriptions(audio=docs_table.audio, model='whisper-1'),
-    if_exists='ignore',
+    audio_transcription=openai.transcriptions(audio=docs_table.audio, model='whisper-1'), if_exists='ignore'
 )
 docs_table.add_computed_column(audio_transcription_text=docs_table.audio_transcription.text, if_exists='ignore')
 docs_table.add_computed_column(transcription_text=docs_table.transcription.text, if_exists='ignore')
@@ -116,8 +112,7 @@ docs_table.add_computed_column(
     messages=functions.create_messages(docs_table.chat_history, docs_table.prompt), if_exists='ignore'
 )
 docs_table.add_computed_column(
-    response=openai.chat_completions(messages=docs_table.messages, model=config.LLM_MODEL),
-    if_exists='ignore',
+    response=openai.chat_completions(messages=docs_table.messages, model=config.LLM_MODEL), if_exists='ignore'
 )
 docs_table.add_computed_column(answer=docs_table.response.choices[0].message.content, if_exists='ignore')
 

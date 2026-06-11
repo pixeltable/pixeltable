@@ -30,7 +30,7 @@
 
 ## Core Capabilities
 
-Expand any row for what Pixeltable replaces, a quick example, and doc links.
+Expand any row for what Pixeltable replaces, a quick example, and doc links. Examples assume `import pixeltable as pxt`.
 
 <details>
 <summary><b>Store:</b> unified multimodal interface</summary>
@@ -66,9 +66,9 @@ t.insert(pxt.io.import_csv('data.csv'))
 t.insert(pxt.io.import_huggingface_dataset(dataset))
 
 # Export to analytics/ML formats
-pxt.io.export_parquet(table, 'data.parquet')
-pytorch_ds = table.to_pytorch_dataset('pt')  # PyTorch DataLoader ready
-coco_path = table.to_coco_dataset()  # COCO annotations
+pxt.io.export_parquet(t, 'data.parquet')
+pytorch_ds = t.to_pytorch_dataset('pt')  # PyTorch DataLoader ready
+coco_path = t.to_coco_dataset()  # COCO annotations
 ```
 
 [CSV import](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) · [Hugging Face](https://docs.pixeltable.com/howto/cookbooks/data/data-import-huggingface) · [PyTorch export](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch) · [ML data wrangling](https://docs.pixeltable.com/use-cases/ml-data-wrangling)
