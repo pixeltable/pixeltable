@@ -29,19 +29,19 @@
 
 **The only multimodal backend where AI transformations live in the schema, not bolted on top.** Your table schema is the infrastructure spec: declare tables, views, computed columns, and indexes; storage, transforms, embeddings, agents, and serving follow from it.
 
-| What you need | Without Pixeltable | With Pixeltable |
-|---|---|---|
-| **Store** multimodal data | S3 + Postgres + boto3 sync | `pxt.create_table()` with native media types + `destination=` |
-| **Import / export** | Per-format ETL scripts | `import_csv()`, Hugging Face, `export_parquet()`, PyTorch |
-| **Iterate** media into rows | FFmpeg/spaCy + child tables + FKs | `create_view()` + `FrameIterator` / `DocumentSplitter` |
-| **Orchestrate** on changes | Airflow + full reprocess + retry glue | `add_computed_column()` with incremental recompute on stale cells only |
-| **Extend** with your code | Handlers, no cache or retry | `@pxt.udf` / `@pxt.query` with parallelize, cache, retry |
-| **Index** embeddings | Pinecone / pgvector + manual ETL | `add_embedding_index()`, always in sync |
-| **Query** & experiment | Notebook → rewrite for production | `.select()` / `.sample()` → `add_computed_column()` |
-| **Agents** & tools | LangChain loops + tool wiring | `pxt.tools()` + `invoke_tools()` / MCP |
-| **Serve** endpoints | Hand-written FastAPI routes | `pxt serve` or `FastAPIRouter` |
-| **Inspect** & debug | Log scraping, no per-row failures | `pxt errors`, queryable `errormsg` per cell + [dashboard](https://docs.pixeltable.com/platform/dashboard) |
-| **Version** & rollback | DVC / MLflow + backfill scripts | `history()`, `revert()` for time travel |
+### What you need
+
+- **Store** multimodal data: `pxt.create_table()` with native media types + `destination=` (not S3 + Postgres + boto3 sync)
+- **Import / export**: `import_csv()`, Hugging Face, `export_parquet()`, PyTorch (not per-format ETL scripts)
+- **Iterate** media into rows: `create_view()` + `FrameIterator` / `DocumentSplitter` (not FFmpeg/spaCy + child tables + FKs)
+- **Orchestrate** on changes: `add_computed_column()` with incremental recompute on stale cells only (not Airflow + full reprocess + retry glue)
+- **Extend** with your code: `@pxt.udf` / `@pxt.query` with parallelize, cache, retry (not handlers, no cache or retry)
+- **Index** embeddings: `add_embedding_index()`, always in sync (not Pinecone / pgvector + manual ETL)
+- **Query** & experiment: `.select()` / `.sample()` → `add_computed_column()` (not notebook → rewrite for production)
+- **Agents** & tools: `pxt.tools()` + `invoke_tools()` / MCP (not LangChain loops + tool wiring)
+- **Serve** endpoints: `pxt serve` or `FastAPIRouter` (not hand-written FastAPI routes)
+- **Inspect** & debug: `pxt errors`, queryable `errormsg` per cell + [dashboard](https://docs.pixeltable.com/platform/dashboard) (not log scraping, no per-row failures)
+- **Version** & rollback: `history()`, `revert()` for time travel (not DVC / MLflow + backfill scripts)
 
 **Three deployment patterns** ([docs](https://docs.pixeltable.com/howto/deployment/overview) / [starter kit](https://github.com/pixeltable/pixeltable-starter-kit)):
 
