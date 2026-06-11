@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from threading import Event, Lock, Thread, current_thread
 from typing import Any, Callable
 
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 
 from .fault_injection import Fault
@@ -46,8 +47,6 @@ class MultiThreadedScenario:
 
     def then_inject_fault(self, *, thread_id: int, loc: FaultLocation, fault: Fault) -> 'MultiThreadedScenario':
         """Append a step that arms `fault` at `loc` on Thread `thread_id`."""
-        from pixeltable.runtime import get_runtime
-
         return self.then_run(
             thread_id=thread_id,
             name=f'inject fault at {loc.name}',
