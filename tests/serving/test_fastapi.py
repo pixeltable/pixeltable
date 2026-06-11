@@ -140,6 +140,7 @@ class TestFastAPI:
     ) -> None:
         """Test insert routes with all scalar types and various input/output combinations."""
         skip_test_if_not_installed('fastapi')
+
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir('test_serve')
@@ -215,84 +216,82 @@ class TestFastAPI:
         # engine cache reuse: three export_sql routes against the same db_connect share one engine
         assert len(router._engine_cache) == 1
 
-        client = make_test_client(router)
+        with make_test_client(router) as client:
+            all_input = {
+                'id': 1,
+                'str_col': 'hello',
+                'int_col': -5,
+                'float_col': -3.14,
+                'bool_col': True,
+                'json_col': {'key': 'value'},
+            }
+            resp = client.post('/all', json=all_input)
+            assert resp.status_code == 200, resp.text
+            expected = {
+                'id': 1,
+                'str_col': 'hello',
+                'int_col': -5,
+                'float_col': -3.14,
+                'bool_col': True,
+                'json_col': {'key': 'value'},
+                'str_upper': 'HELLO',
+                'int_plus1': -4,
+                'float_abs': 3.14,
+                'json_str': json.dumps({'key': 'value'}),
+            }
+            assert resp.json() == expected
+            row = t.where(t.id == 1).collect()[0]
+            assert row == expected
+            assert_sqlite_row(db_connect, 'out_all', {'id': 1}, expected)
 
-        all_input = {
-            'id': 1,
-            'str_col': 'hello',
-            'int_col': -5,
-            'float_col': -3.14,
-            'bool_col': True,
-            'json_col': {'key': 'value'},
-        }
-        resp = client.post('/all', json=all_input)
-        assert resp.status_code == 200, resp.text
-        expected = {
-            'id': 1,
-            'str_col': 'hello',
-            'int_col': -5,
-            'float_col': -3.14,
-            'bool_col': True,
-            'json_col': {'key': 'value'},
-            'str_upper': 'HELLO',
-            'int_plus1': -4,
-            'float_abs': 3.14,
-            'json_str': json.dumps({'key': 'value'}),
-        }
-        assert resp.json() == expected
-        row = t.where(t.id == 1).collect()[0]
-        assert row == expected
-        assert_sqlite_row(db_connect, 'out_all', {'id': 1}, expected)
+            resp = client.post('/partial-in', json={'id': 2, 'str_col': 'world', 'int_col': 10})
+            assert resp.status_code == 200, resp.text
+            expected = {
+                'id': 2,
+                'str_col': 'world',
+                'int_col': 10,
+                'float_col': None,
+                'bool_col': None,
+                'json_col': None,
+                'str_upper': 'WORLD',
+                'int_plus1': 11,
+                'float_abs': None,
+                'json_str': None,
+            }
+            assert resp.json() == expected
+            print(resp.json())
+            row = t.where(t.id == 2).collect()[0]
+            assert row == expected
 
-        resp = client.post('/partial-in', json={'id': 2, 'str_col': 'world', 'int_col': 10})
-        assert resp.status_code == 200, resp.text
-        expected = {
-            'id': 2,
-            'str_col': 'world',
-            'int_col': 10,
-            'float_col': None,
-            'bool_col': None,
-            'json_col': None,
-            'str_upper': 'WORLD',
-            'int_plus1': 11,
-            'float_abs': None,
-            'json_str': None,
-        }
-        assert resp.json() == expected
-        print(resp.json())
-        row = t.where(t.id == 2).collect()[0]
-        assert row == expected
+            resp = client.post('/partial-out', json={**all_input, 'id': 3})
+            assert resp.status_code == 200, resp.text
+            expected = {'id': 3, 'str_upper': 'HELLO', 'int_plus1': -4}
+            assert resp.json() == expected
+            row = t.where(t.id == 3).select(t.id, t.str_upper, t.int_plus1).collect()[0]
+            assert row == expected
 
-        resp = client.post('/partial-out', json={**all_input, 'id': 3})
-        assert resp.status_code == 200, resp.text
-        expected = {'id': 3, 'str_upper': 'HELLO', 'int_plus1': -4}
-        assert resp.json() == expected
-        row = t.where(t.id == 3).select(t.id, t.str_upper, t.int_plus1).collect()[0]
-        assert row == expected
+            resp = client.post('/minimal', json={'id': 4, 'int_col': 99})
+            assert resp.status_code == 200, resp.text
+            expected = {'int_plus1': 100}
+            assert resp.json() == expected
+            row = t.where(t.id == 4).select(t.int_plus1).collect()[0]
+            assert row == expected
+            assert_sqlite_row(db_connect, 'out_minimal', {'int_plus1': 100}, expected)
 
-        resp = client.post('/minimal', json={'id': 4, 'int_col': 99})
-        assert resp.status_code == 200, resp.text
-        expected = {'int_plus1': 100}
-        assert resp.json() == expected
-        row = t.where(t.id == 4).select(t.int_plus1).collect()[0]
-        assert row == expected
-        assert_sqlite_row(db_connect, 'out_minimal', {'int_plus1': 100}, expected)
+            # method='update': pxt insert triggers UPDATE of the existing target row keyed on id=42
+            resp = client.post('/update', json={'id': 42, 'str_col': 'fresh', 'int_col': 7})
+            assert resp.status_code == 200, resp.text
+            expected = {'id': 42, 'str_upper': 'FRESH', 'int_plus1': 8}
+            assert resp.json() == expected
+            # the baseline ('OLD', 0) was replaced by the new values
+            assert_sqlite_row(db_connect, 'out_update', {'id': 42}, expected)
 
-        # method='update': pxt insert triggers UPDATE of the existing target row keyed on id=42
-        resp = client.post('/update', json={'id': 42, 'str_col': 'fresh', 'int_col': 7})
-        assert resp.status_code == 200, resp.text
-        expected = {'id': 42, 'str_upper': 'FRESH', 'int_plus1': 8}
-        assert resp.json() == expected
-        # the baseline ('OLD', 0) was replaced by the new values
-        assert_sqlite_row(db_connect, 'out_update', {'id': 42}, expected)
+            # method='update' against an id that doesn't exist in the target -> HTTP 500 (zero rowcount)
+            resp = client.post('/update', json={'id': 999, 'str_col': 'ghost', 'int_col': 0})
+            assert resp.status_code == 500, resp.text
+            assert 'expected 1' in resp.json()['detail']
 
-        # method='update' against an id that doesn't exist in the target -> HTTP 500 (zero rowcount)
-        resp = client.post('/update', json={'id': 999, 'str_col': 'ghost', 'int_col': 0})
-        assert resp.status_code == 500, resp.text
-        assert 'expected 1' in resp.json()['detail']
-
-        # shutdown disposes the engine cache
-        router._FastAPIRouter__shutdown()  # type: ignore[attr-defined]
+        # exiting the TestClient context fired the lifespan shutdown handler
         assert router._engine_cache == {}
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
