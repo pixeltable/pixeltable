@@ -11,7 +11,7 @@ import sqlalchemy as sql
 import pixeltable.utils.sql as sql_utils
 from pixeltable import config, exceptions as excs, type_system as ts
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class SqlExporter:

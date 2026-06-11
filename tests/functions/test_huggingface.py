@@ -17,6 +17,7 @@ from ..utils import (
     pxt_raises,
     reload_catalog,
     rerun,
+    skip_test_if_no_config,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -26,6 +27,7 @@ from ..utils import (
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 class TestHuggingface:
     def test_hf_function(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentence_transformers')
         from pixeltable.functions.huggingface import sentence_transformer
 
@@ -52,6 +54,7 @@ class TestHuggingface:
         t.describe()
 
     def test_sentence_transformer(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentence_transformers')
         from pixeltable.functions.huggingface import sentence_transformer
 
@@ -88,6 +91,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
     def test_cross_encoder(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentence_transformers')
         from pixeltable.functions.huggingface import cross_encoder
 
@@ -119,6 +123,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
     def test_clip(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import clip
 
@@ -156,6 +161,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
     def test_detr_for_object_detection(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_object_detection
         from pixeltable.utils import coco
@@ -180,6 +186,7 @@ class TestHuggingface:
         assert t.get_metadata()['columns']['featured_object']['type_'] == 'String'
 
     def test_detr_for_segmentation(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_segmentation
 
@@ -254,6 +261,7 @@ class TestHuggingface:
             )
 
     def test_vit_for_image_classification(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import vit_for_image_classification
 
@@ -268,6 +276,7 @@ class TestHuggingface:
 
     @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
     def test_speech2text_for_conditional_generation(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentencepiece', 'transformers')
         from pixeltable.functions.huggingface import speech2text_for_conditional_generation
 
@@ -290,6 +299,7 @@ class TestHuggingface:
         assert 'construire' in result['translation'][0]
 
     def test_text_generation(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import text_generation
 
@@ -313,6 +323,7 @@ class TestHuggingface:
         assert 'Paris' in results[1]['completion']
 
     def test_text_classification(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import text_classification
 
@@ -340,6 +351,7 @@ class TestHuggingface:
 
     @pytest.mark.very_expensive  # Large model
     def test_image_captioning(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import image_captioning
 
@@ -360,6 +372,7 @@ class TestHuggingface:
         assert 'food' in result['caption']
 
     def test_summarization(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import summarization
 
@@ -386,6 +399,7 @@ class TestHuggingface:
         assert len(result['summary']) < len(long_text)  # Should be shorter than original
 
     def test_question_answering(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import question_answering
 
@@ -408,6 +422,7 @@ class TestHuggingface:
         assert 'paris' in result['answer']['answer'].lower()
 
     def test_translation(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentencepiece', 'transformers')
         from pixeltable.functions.huggingface import translation
 
@@ -426,6 +441,7 @@ class TestHuggingface:
         assert result['french'] != english_text  # Should be different from input
 
     def test_named_entity_recognition(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import token_classification
 
@@ -449,6 +465,7 @@ class TestHuggingface:
             assert 'word' in entity
 
     def test_automatic_speech_recognition(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('torchcodec', 'transformers')
         from pixeltable.functions.huggingface import automatic_speech_recognition
 
@@ -468,6 +485,7 @@ class TestHuggingface:
         assert len(result['transcript'].strip()) > 0
 
     def test_text_to_speech(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers', 'datasets', 'soundfile')
         from pixeltable.functions.huggingface import text_to_speech
 
@@ -488,6 +506,7 @@ class TestHuggingface:
 
     @pytest.mark.very_expensive  # Large model
     def test_text_to_image(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
         from pixeltable.functions.huggingface import text_to_image
@@ -515,6 +534,7 @@ class TestHuggingface:
 
     @pytest.mark.very_expensive  # Large model
     def test_image_to_image(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
         from pixeltable.functions.huggingface import image_to_image
@@ -540,6 +560,7 @@ class TestHuggingface:
 
     @pytest.mark.very_expensive  # Large model
     def test_image_to_video(self, uses_db: None) -> None:
+        skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
         from pixeltable.functions.huggingface import image_to_video

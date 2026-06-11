@@ -7,7 +7,7 @@ from pixeltable.functions import reve
 
 from ..utils import rerun, skip_test_if_no_client, validate_update_status
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger('pixeltable_test')
 
 
 @pytest.mark.remote_api

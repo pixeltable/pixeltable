@@ -1,7 +1,7 @@
 import logging
 import os
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 def set_file_descriptor_limit(preferred_limit: int) -> None:

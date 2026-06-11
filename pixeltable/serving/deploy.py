@@ -18,7 +18,7 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.serving._config import lookup_deployment_config, lookup_service_config
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 def build_deploy_bundle(deployment_name: str) -> Path:

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import logging
 from typing import NamedTuple
 
 from pixeltable import exceptions as excs
 
 from .globals import is_valid_identifier
-
-_logger = logging.getLogger('pixeltable')
 
 
 class Path(NamedTuple):
