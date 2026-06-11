@@ -22,27 +22,27 @@ class StringOp(Expr):
     operator: StringOperator
 
     def __init__(self, operator: StringOperator, op1: Expr, op2: Expr):
-        super().__init__(ts.StringType(nullable=op1.col_type.nullable))
+        super().__init__(ts.StringType(nullable=(op1.col_type.nullable or op2.col_type.nullable)))
         self.operator = operator
         self.components = [op1, op2]
-        assert op1.col_type.is_string_type()
-        if operator in (StringOperator.CONCAT, StringOperator.REPEAT):
-            if operator == StringOperator.CONCAT and not op2.col_type.is_string_type():
-                raise excs.RequestError(
-                    excs.ErrorCode.TYPE_MISMATCH,
-                    f'{self}: {operator} on strings requires string type, but {op2} has type {op2.col_type}',
-                )
-            if operator == StringOperator.REPEAT and not op2.col_type.is_int_type():
-                raise excs.RequestError(
-                    excs.ErrorCode.TYPE_MISMATCH,
-                    f'{self}: {operator} on strings requires int type, but {op2} has type {op2.col_type}',
-                )
-        else:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'{self}: invalid operation {operator} on strings; '
-                f'only operators {StringOperator.CONCAT} and {StringOperator.REPEAT} are supported',
-            )
+        match operator:
+            case StringOperator.CONCAT:
+                if not op1.col_type.is_string_type() or not op2.col_type.is_string_type():
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'{self}: {operator} on strings requires `String` and `String`, '
+                        f'but operands have types `{op1.col_type}` and `{op2.col_type}`',
+                    )
+            case StringOperator.REPEAT:
+                if not (op1.col_type.is_string_type() and op2.col_type.is_int_type()) and not (
+                    op1.col_type.is_int_type() and op2.col_type.is_string_type()
+                ):
+                    raise excs.RequestError(
+                        excs.ErrorCode.TYPE_MISMATCH,
+                        f'{self}: {operator} on strings requires `String` and `Int`, '
+                        f'but operands have types `{op1.col_type}` and `{op2.col_type}`',
+                    )
+
         self.id = self._create_id()
 
     @property
@@ -65,6 +65,9 @@ class StringOp(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('operator', self.operator.value)]
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> StringOp:
+        return StringOp(self.operator, self._op1.substitute(spec), self._op2.substitute(spec))
+
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         left = sql_elements.get(self._op1)
         right = sql_elements.get(self._op2)
@@ -73,34 +76,22 @@ class StringOp(Expr):
         if self.operator == StringOperator.CONCAT:
             return left.concat(right)
         if self.operator == StringOperator.REPEAT:
-            return sql.func.repeat(left.cast(sql.String), right.cast(sql.Integer))
+            if self._op1.col_type.is_string_type():
+                return sql.func.repeat(left.cast(sql.String), right.cast(sql.Integer))
+            else:
+                return sql.func.repeat(right.cast(sql.String), left.cast(sql.Integer))
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         op1_val = data_row[self._op1.slot_idx]
         op2_val = data_row[self._op2.slot_idx]
-        data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
 
-    def eval_nullable(self, op1_val: str | None, op2_val: int | str | None) -> str | None:
-        """
-        Return the result of evaluating the expression on two nullable int/float operands,
-        None is interpreted as SQL NULL
-        """
         if op1_val is None or op2_val is None:
-            return None
-        return self.eval_non_null(op1_val, op2_val)
-
-    def eval_non_null(self, op1_val: str, op2_val: int | str) -> str:
-        """
-        Return the result of evaluating the expression on two int/float operands
-        """
-        assert self.operator in (StringOperator.CONCAT, StringOperator.REPEAT)
-        if self.operator == StringOperator.CONCAT:
-            assert isinstance(op2_val, str)
-            return op1_val + op2_val
+            data_row[self.slot_idx] = None
+        elif self.operator == StringOperator.CONCAT:
+            data_row[self.slot_idx] = op1_val + op2_val
         else:
-            assert isinstance(op2_val, int)
-            return op1_val * op2_val
+            data_row[self.slot_idx] = op1_val * op2_val
 
     def _as_dict(self) -> dict:
         return {'operator': self.operator.value, **super()._as_dict()}

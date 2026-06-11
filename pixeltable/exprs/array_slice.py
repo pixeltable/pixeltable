@@ -46,6 +46,9 @@ class ArraySlice(Expr):
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> ArraySlice:
+        return ArraySlice(self._array.substitute(spec), self.index)
+
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         val = data_row[self._array.slot_idx]
         data_row[self.slot_idx] = val[self.index]

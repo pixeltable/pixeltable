@@ -25,6 +25,9 @@ class IsNull(Expr):
     def _equals(self, other: IsNull) -> bool:
         return True
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> IsNull:
+        return IsNull(self.components[0].substitute(spec))
+
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         c = self.components[0]
         if isinstance(c, ColumnRef) and c.col.stores_external_array():

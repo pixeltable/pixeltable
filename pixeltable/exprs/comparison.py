@@ -84,6 +84,9 @@ class Comparison(Expr):
             return True
         return (t1.is_date_type() or t1.is_timestamp_type()) and (t2.is_date_type() or t2.is_timestamp_type())
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> Comparison:
+        return Comparison(self.operator, self._op1.substitute(spec), self._op2.substitute(spec))
+
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         import pixeltable.index as index
 

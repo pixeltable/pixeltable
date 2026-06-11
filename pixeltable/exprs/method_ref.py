@@ -55,6 +55,9 @@ class MethodRef(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('method_name', self.method_name)]
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> 'MethodRef':
+        return MethodRef(self.base_expr.substitute(spec), self.method_name)
+
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 

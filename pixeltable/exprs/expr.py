@@ -22,6 +22,7 @@ from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes,
 
 if TYPE_CHECKING:
     from pixeltable import exprs, func
+    from pixeltable.exprs import unknown_expr
 
 
 class ExprScope:
@@ -235,26 +236,23 @@ class Expr(abc.ABC):
 
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         """
-        Replace 'old' with 'new' recursively, and return a new version of the expression
-        This method must be used in the form: expr = expr.substitute(spec)
+        Replace 'old' with 'new' recursively, and return a new version of the expression.
         """
-        from .literal import Literal
-
-        if isinstance(self, Literal):
-            return self
         for old, new in spec.items():
             if self.equals(old):
                 return new.copy()
-        for i in range(len(self.components)):
-            self.components[i] = self.components[i].substitute(spec)
-        result = self.maybe_literal()
-        result.id = result._create_id()
-        return result
+        return self._substitute(spec).maybe_literal()
+
+    def _substitute(self, spec: dict[Expr, Expr]) -> Expr:
+        return self.copy()
 
     @classmethod
-    def list_substitute(cls, expr_list: list[Expr], spec: dict[Expr, Expr]) -> None:
-        for i in range(len(expr_list)):
-            expr_list[i] = expr_list[i].substitute(spec)
+    def list_substitute(cls, expr_list: list[Expr], spec: dict[Expr, Expr]) -> list[Expr]:
+        return [expr.substitute(spec) for expr in expr_list]
+
+    @classmethod
+    def dict_substitute(cls, expr_dict: dict[str, Expr], spec: dict[Expr, Expr]) -> dict[str, Expr]:
+        return {key: expr.substitute(spec) for key, expr in expr_dict.items()}
 
     def resolve_computed_cols(self, resolve_cols: set[catalog.Column] | None = None) -> Expr:
         """
@@ -514,7 +512,6 @@ class Expr(abc.ABC):
         Compute the expr value for data_row and store the result in data_row[slot_idx].
         Not called if sql_expr() != None (exception: Literal).
         """
-        pass
 
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         """
@@ -642,7 +639,6 @@ class Expr(abc.ABC):
             at runtime if there are values in `t.json_col` that are not strings. It will _not_ convert those values to
             a string representation. (For that, use the [`dumps()`][pixeltable.functions.json.dumps] UDF instead.)
         """
-
         from pixeltable.exprs import TypeCast
 
         # Interpret the type argument the same way we would if given in a schema
@@ -678,13 +674,19 @@ class Expr(abc.ABC):
         raise NotImplementedError(f'Expression of type `{type(self)}` is not callable')
 
     def __getitem__(self, index: object) -> Expr:
-        if self.col_type.is_json_type():
-            from .json_path import JsonPath
+        from .array_slice import ArraySlice
+        from .json_path import JsonPath
+        from .unknown_expr import UnknownItemExpr
 
+        if self.col_type.is_invalid_type():
+            if not isinstance(index, (int, slice, str, tuple)) or (
+                isinstance(index, tuple) and any(not isinstance(i, (int, slice)) for i in index)
+            ):
+                raise AttributeError(f'Invalid indices: {index}')
+            return UnknownItemExpr(self, index)
+        if self.col_type.is_json_type():
             return JsonPath(self)[index]
         if self.col_type.is_array_type():
-            from .array_slice import ArraySlice
-
             if not isinstance(index, tuple):
                 index = (index,)
             if any(not isinstance(i, (int, slice)) for i in index):
@@ -698,7 +700,10 @@ class Expr(abc.ABC):
         """
         from .json_path import JsonPath
         from .method_ref import MethodRef
+        from .unknown_expr import UnknownAttrExpr
 
+        if self.col_type.is_invalid_type():
+            return UnknownAttrExpr(self, name)
         if self.col_type.is_json_type():
             return JsonPath(self).__getattr__(name)
         else:
@@ -760,16 +765,28 @@ class Expr(abc.ABC):
     def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
-    def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
-        if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
+    def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
+        from .unknown_expr import UnknownOpExpr
+
+        if self.col_type.is_invalid_type():
+            return UnknownOpExpr('__add__', self, other)
+        if self.col_type.is_string_type():
             return self._make_string_expr(StringOperator.CONCAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
-        if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
+    def __mul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
+        from .unknown_expr import UnknownOpExpr
+
+        if self.col_type.is_invalid_type():
+            return UnknownOpExpr('__mul__', self, other)
+        if (
+            self.col_type.is_string_type()
+            or isinstance(other, str)
+            or (isinstance(other, Expr) and other.col_type.is_string_type())
+        ):
             return self._make_string_expr(StringOperator.REPEAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
@@ -782,16 +799,24 @@ class Expr(abc.ABC):
     def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def __radd__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
-        if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
+    def __radd__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
+        from .unknown_expr import UnknownOpExpr
+
+        if self.col_type.is_invalid_type():
+            return UnknownOpExpr('__radd__', self, other)
+        if self.col_type.is_string_type():
             return self._rmake_string_expr(StringOperator.CONCAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __rmul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
-        if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
+    def __rmul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
+        from .unknown_expr import UnknownOpExpr
+
+        if self.col_type.is_invalid_type():
+            return UnknownOpExpr('__rmul__', self, other)
+        if self.col_type.is_string_type() or isinstance(other, str):
             return self._rmake_string_expr(StringOperator.REPEAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
 

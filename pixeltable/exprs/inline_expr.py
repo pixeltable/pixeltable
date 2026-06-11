@@ -41,7 +41,10 @@ class InlineArray(Expr):
                 )
             inferred_element_type = supertype
 
-        if inferred_element_type.is_scalar_type():
+        col_type: ts.ColumnType
+        if inferred_element_type.is_invalid_type():
+            col_type = ts.InvalidType(nullable=False)
+        elif inferred_element_type.is_scalar_type():
             col_type = ts.ArrayType((len(exprs),), inferred_element_type)
         elif inferred_element_type.is_array_type():
             assert isinstance(inferred_element_type, ts.ArrayType)
@@ -67,6 +70,9 @@ class InlineArray(Expr):
     def _equals(self, _: InlineArray) -> bool:
         return True  # Always true if components match
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> InlineArray:
+        return InlineArray(c.substitute(spec) for c in self.components)
+
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
@@ -88,7 +94,8 @@ class InlineArray(Expr):
             return InlineList(components)  # type: ignore[return-value]
 
     def as_literal(self) -> Literal | None:
-        assert isinstance(self.col_type, ts.ArrayType)
+        if not isinstance(self.col_type, ts.ArrayType):
+            return None  # InvalidType
         if not all(isinstance(comp, Literal) for comp in self.components):
             return None
         return Literal(
@@ -115,6 +122,9 @@ class InlineList(Expr):
 
     def _equals(self, _: InlineList) -> bool:
         return True  # Always true if components match
+
+    def _substitute(self, spec: dict[Expr, Expr]) -> InlineList:
+        return InlineList(c.substitute(spec) for c in self.components)
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
@@ -168,6 +178,9 @@ class InlineDict(Expr):
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('keys', self.keys)]
+
+    def _substitute(self, spec: dict[Expr, Expr]) -> InlineDict:
+        return InlineDict(dict(zip(self.keys, (c.substitute(spec) for c in self.components))))
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None

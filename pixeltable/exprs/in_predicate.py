@@ -18,7 +18,7 @@ class InPredicate(Expr):
 
     def __init__(self, lhs: Expr, value_set_literal: Iterable | None = None, value_set_expr: Expr | None = None):
         assert (value_set_literal is None) != (value_set_expr is None)
-        if not lhs.col_type.is_scalar_type():
+        if not (lhs.col_type.is_invalid_type() or lhs.col_type.is_scalar_type()):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'isin(): only supported for scalar types, not {lhs.col_type}'
             )
@@ -62,7 +62,8 @@ class InPredicate(Expr):
         result = []
         for val in value_list:
             try:
-                self._lhs.col_type.validate_literal(val)
+                if not self._lhs.col_type.is_invalid_type():
+                    self._lhs.col_type.validate_literal(val)
                 result.append(val)
             except TypeError:
                 pass
@@ -78,6 +79,10 @@ class InPredicate(Expr):
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('value_list', self.value_list)]
+
+    def _substitute(self, spec: dict[Expr, Expr]) -> InPredicate:
+        value_set_expr = self.components[1].substitute(spec) if len(self.components) == 2 else None
+        return InPredicate(self._lhs.substitute(spec), value_set_literal=self.value_list, value_set_expr=value_set_expr)
 
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         lhs_sql_exprs = sql_elements.get(self.components[0])

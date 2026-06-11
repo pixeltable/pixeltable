@@ -13,9 +13,11 @@ from .catalog import (
     InsertableTable,
     Table,
     TableMetadata,
+    TableModel,
     UpdateStatus,
     VersionMetadata,
     View,
+    ViewModel,
 )
 from .exceptions import (
     AlreadyExistsError,

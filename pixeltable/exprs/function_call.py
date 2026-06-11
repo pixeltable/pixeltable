@@ -308,13 +308,13 @@ class FunctionCall(Expr):
                 raise AssertionError(f'{name}: {idx} (of type `{type(idx)}`)')
         return bound_args
 
-    def substitute(self, spec: dict[Expr, Expr]) -> Expr:
+    def _substitute(self, spec: dict[Expr, Expr]) -> Expr:
         """
         Substitution of FunctionCall arguments could cause the return value to become more specific, in the case
         where a variable is replaced with a specific value.
         """
-        res = super().substitute(spec)
-        assert res is self
+        subst_args = Expr.list_substitute(self.args, spec)
+        subst_kwargs = Expr.dict_substitute(self.kwargs, spec)
         if self.is_valid:
             # If this FunctionCall is valid, re-evaluate the call_return_type of the substituted expression. If the
             # FunctionCall is not valid, it isn't safe to do this. (Really we should be asserting that it *is* valid,
@@ -323,9 +323,21 @@ class FunctionCall(Expr):
             # fix this by separately persisting the FunctionCall instances held by EmbeddingIndex to the db. That's
             # probably a good idea, but it's also probably not urgent, since it only affects Functions that have a
             # conditional_return_type implemented.)
-            self.return_type = self.fn.call_return_type(self.bound_args)
-            self.col_type = self.return_type
-        return self
+            _, bound_args = self.fn._bind_to_matching_signature(subst_args, subst_kwargs)
+            return_type = self.fn.call_return_type(bound_args)
+        else:
+            return_type = self.return_type
+
+        return FunctionCall(
+            self.fn,
+            subst_args,
+            subst_kwargs,
+            return_type,
+            Expr.list_substitute(self.order_by, spec) if self.order_by is not None else None,
+            Expr.list_substitute(self.group_by, spec) if self.group_by is not None else None,
+            self.is_method_call,
+            self.validation_error,
+        )
 
     @property
     def args(self) -> list[Expr]:

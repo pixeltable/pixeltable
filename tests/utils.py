@@ -1019,3 +1019,26 @@ def validate_repr(t: Any, expected: str) -> None:
 
     assert cleanup(repr(t)) == cleanup(expected), f'Expected repr: {expected}, actual: {t!r}'
     t._repr_html_()  # TODO: Is there a good way to test this output?
+
+
+@pxt.udf
+def dummy_embedding(text: str, n: int) -> pxt.Array[(None,), np.float32]:
+    if 'zero' in text:
+        arr = np.zeros((n,), dtype=np.float32)
+        arr[n // 2 :] = 1
+        return arr
+    if 'one' in text:
+        arr = np.zeros((n,), dtype=np.float32)
+        arr[: n // 2] = 1
+        return arr
+    return np.random.rand(n).astype(np.float32)
+
+
+@dummy_embedding.overload
+def _(img: PIL.Image.Image, n: int) -> pxt.Array[(None,), np.float32]:
+    return np.random.rand(n).astype(np.float32)
+
+
+@dummy_embedding.conditional_return_type
+def _(n: int) -> ts.ArrayType:
+    return ts.ArrayType((n,), dtype=np.dtype('float32'), nullable=False)

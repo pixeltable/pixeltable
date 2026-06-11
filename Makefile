@@ -124,8 +124,11 @@ install-deps:
 	@python -m ipykernel install --user --name=pixeltable
 	@touch .make-install/others
 
+pixeltable/catalog/model.pyi: pixeltable/catalog/model.py pixeltable/catalog/table.py tool/generate_type_stubs.py
+	@python tool/generate_type_stubs.py
+
 .PHONY: install
-install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others
+install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others pixeltable/catalog/model.pyi
 
 .PHONY: test
 test: pytest check
@@ -172,6 +175,8 @@ stresstest: install
 typecheck: install
 	@echo 'Running `mypy` ...'
 	@mypy pixeltable pixeltable_cli tests tool
+	# Separate direct check of model.py (which is shadowed by the generated model.pyi in the main run)
+	@mypy pixeltable/catalog/model.py
 
 .PHONY: lint
 lint: install

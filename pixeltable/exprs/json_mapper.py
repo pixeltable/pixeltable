@@ -57,6 +57,13 @@ class JsonMapper(Expr):
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
+    def _substitute(self, spec: dict[Expr, Expr]) -> JsonMapper:
+        # TODO JsonMapper has to resort to in-place substitution, in order to preserve slot_idx assignments in
+        #     nested execution. This isn't ideal; we should fix it when we address the JsonMapper exec issues.
+        self.components = [expr.substitute(spec) for expr in self.components]
+        self.id = self._create_id()
+        return self
+
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         from ..exec.expr_eval.evaluators import NestedRowList
 
@@ -171,6 +178,13 @@ class JsonMapperDispatch(Expr):
 
     def __repr__(self) -> str:
         return 'JsonMapperDispatch()'
+
+    def _substitute(self, spec: dict[Expr, Expr]) -> JsonMapperDispatch:
+        # TODO JsonMapper has to resort to in-place substitution, in order to preserve slot_idx assignments in
+        #     nested execution. This isn't ideal; we should fix it when we address the JsonMapper exec issues.
+        self.components = [expr.substitute(spec) for expr in self.components]
+        self.id = self._create_id()
+        return self
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # eval is handled by JsonMapperDispatcher
