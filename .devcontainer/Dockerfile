@@ -22,8 +22,6 @@ RUN apt-get update \
 RUN echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ubuntu \
  && chmod 0440 /etc/sudoers.d/ubuntu
 
-# Miniforge only. Conda env, project deps, and tools are set up at
-# post-create time so they live alongside the bind-mounted source.
 RUN arch="$(uname -m)" \
  && curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${arch}.sh" -o /tmp/miniforge.sh \
  && bash /tmp/miniforge.sh -b -p /opt/miniforge \
