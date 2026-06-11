@@ -18,7 +18,7 @@ EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
 VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
 
 MAIN_PLATFORM = 'ubuntu-24.04'
-BASIC_PLATFORMS = ('macos-15', 'windows-2025')
+BASIC_PLATFORMS = ('macos-15',)  # windows-2025 is disabled for the time being
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 

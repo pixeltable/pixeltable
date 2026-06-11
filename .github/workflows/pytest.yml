@@ -219,26 +219,6 @@ jobs:
         run: |
           conda install -y -c conda-forge nodejs
           cd dashboard && npm install --silent && npm run build
-      - name: Fix Windows SSL
-        if: runner.os == 'Windows'
-        run: |
-          # Use certifi instead of Windows cert store, to avoid failing on a corrupted cert store in the runner image
-          echo "SSL_CERT_FILE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
-          echo "REQUESTS_CA_BUNDLE=$(python -c 'import certifi; print(certifi.where())')" >> $GITHUB_ENV
-      - name: Patch ssl via sitecustomize
-        if: runner.os == 'Windows'
-        run: |
-          SITE=$(python -c "import site; print(site.getsitepackages()[0])")
-          cat >> "$SITE/sitecustomize.py" << 'EOF'
-          import ssl
-          _orig = ssl.SSLContext.load_default_certs
-          def _safe(self, purpose=ssl.Purpose.SERVER_AUTH):
-              try:
-                  _orig(self, purpose)
-              except ssl.SSLError:
-                  pass
-          ssl.SSLContext.load_default_certs = _safe
-          EOF
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:
