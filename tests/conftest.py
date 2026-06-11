@@ -4,6 +4,7 @@ import os
 import pathlib
 import platform
 import shutil
+import sys
 import uuid
 from typing import Callable, Iterator
 
@@ -16,12 +17,14 @@ from filelock import FileLock
 from sqlalchemy import text
 
 import pixeltable as pxt
+import pixeltable.utils.fault_injection as prod_fault_injection
+import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
-from pixeltable.env import Env
+from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata.schema import base_metadata
-from pixeltable.runtime import get_runtime
+from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
@@ -36,7 +39,7 @@ from .utils import (
     skip_test_if_not_installed,
 )
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger('pixeltable_test')
 
 
 DO_RERUN: bool
@@ -101,9 +104,6 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
-    # Disable dashboard thread during tests
-    # TODO: Find a way to test the dashboard server?
-    os.environ['PIXELTABLE_START_DASHBOARD'] = 'false'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
     reinit_db = True
     schema_name = None
@@ -136,7 +136,12 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
         Env._init_env(reinit_db=reinit_db)
         pxt.init()
 
-    Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
+    stdout_handler = logging.StreamHandler(stream=sys.stdout)
+    stdout_handler.setFormatter(logging.Formatter(LOG_FMT_STR))
+    pxt_logger = logging.getLogger('pixeltable')
+    pxt_logger.setLevel(logging.DEBUG)
+    pxt_logger.addHandler(stdout_handler)
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 
     yield
     FileCache.get().validate()
@@ -156,6 +161,27 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
                     engine.dispose()
         except Exception as e:
             _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
+
+
+@pytest.fixture()
+def fault_injection() -> Iterator[None]:
+    """Enables fault injection"""
+    orig_process_fault = prod_fault_injection.process_fault
+    orig_create_fault_manager = prod_fault_injection.create_fault_manager
+
+    # Monkey patch fault injection to product
+    prod_fault_injection.process_fault = test_fault_injection.process_fault
+    prod_fault_injection.create_fault_manager = test_fault_injection.create_fault_manager
+
+    # Recreate runtime to pick up a fault manager
+    reset_runtime()
+
+    try:
+        yield
+    finally:
+        prod_fault_injection.process_fault = orig_process_fault
+        prod_fault_injection.create_fault_manager = orig_create_fault_manager
+        reset_runtime()
 
 
 @pytest.fixture(scope='function')
@@ -214,7 +240,12 @@ def _clear_hf_caches() -> None:
                 revision.commit_hash
                 for repo in cache_info.repos
                 # Keep around models that are used by multiple tests
-                if repo.repo_id not in ('openai/clip-vit-base-patch32', 'intfloat/e5-large-v2')
+                if repo.repo_id
+                not in (
+                    'openai/clip-vit-base-patch32',
+                    'intfloat/e5-large-v2',
+                    'sentence-transformers/all-mpnet-base-v2',
+                )
                 for revision in repo.revisions
             ]
             cache_info.delete_revisions(*revisions_to_delete).execute()

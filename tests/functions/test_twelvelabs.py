@@ -89,3 +89,15 @@ class TestTwelveLabs:
         v.add_embedding_index(v.video_segment, embedding=embed.using(model_name='marengo3.0'))
         res = v.select(embedding=v.video_segment.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
+
+    def test_embed_large_media(self, uses_db: None) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        skip_test_if_no_client('twelvelabs')
+        from pixeltable.functions.twelvelabs import embed
+
+        # Test that large media files that require multipart upload can be embedded successfully
+        t = pxt.create_table('large_media_tbl', {'video': pxt.Video})
+        t.insert(video='s3://pxt-test/pytest-resources/large_videos/6mb.mp4')
+        t.add_embedding_index(t.video, embedding=embed.using(model_name='marengo3.0'))
+        res = t.select(embedding=t.video.embedding()).collect()
+        assert res['embedding'][0].shape == (512,)

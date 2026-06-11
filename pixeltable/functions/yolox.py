@@ -1,6 +1,5 @@
 """YOLOX object detection functions."""
 
-import logging
 from typing import TYPE_CHECKING
 
 import PIL.Image
@@ -13,8 +12,6 @@ from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from yolox.models import Yolox, YoloxProcessor  # type: ignore[import-untyped]
-
-_logger = logging.getLogger('pixeltable')
 
 
 @pxt.udf(batch_size=4)

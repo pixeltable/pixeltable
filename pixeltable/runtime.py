@@ -5,7 +5,7 @@ import concurrent.futures
 import logging
 import threading
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, Literal, TypeVar
 from weakref import WeakKeyDictionary
 
 import sqlalchemy as sql
@@ -13,13 +13,14 @@ from rich.progress import Progress
 from sqlalchemy import orm
 
 from pixeltable.env import Env
+from pixeltable.utils import fault_injection
 
 if TYPE_CHECKING:
     from pixeltable._query import Query
     from pixeltable.catalog.catalog import Catalog
     from pixeltable.exec import ExecPlan
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 _thread_local = threading.local()
 
 _XACT_ISOLATION_LEVEL = 'READ COMMITTED'
@@ -41,6 +42,7 @@ class Runtime:
     _progress: Progress | None
     _event_loop: asyncio.AbstractEventLoop | None  # event loop for this thread
     _run_coro_executor: concurrent.futures.ThreadPoolExecutor | None
+    fault_manager: Any
 
     # True if this thread's runtime was populated from another thread via copy_db_context()
     context_inherited: bool
@@ -65,6 +67,7 @@ class Runtime:
         self._run_coro_executor = None
         self._clients = {}
         self.context_inherited = False
+        self.fault_manager = fault_injection.create_fault_manager()
         self.plan_cache = WeakKeyDictionary()
 
     def copy_db_context(self, other: Runtime) -> None:
@@ -75,6 +78,7 @@ class Runtime:
         self._catalog = other.catalog
         self._progress = other._progress
         self.context_inherited = True
+        self.fault_manager = other.fault_manager
 
     @property
     def in_xact(self) -> bool:
@@ -107,7 +111,7 @@ class Runtime:
             # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
             self._event_loop.slow_callback_duration = 3600
 
-        if Env.get().logging_is_enabled_for(logging.DEBUG, 'runtime'):
+        if _logger.isEnabledFor(logging.DEBUG):
             self._event_loop.set_debug(True)
 
     def get_client(self, name: str) -> Any:
@@ -131,13 +135,20 @@ class Runtime:
         return self._run_coro_executor.submit(run, coro).result()
 
     @contextmanager
-    def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
+    def begin_xact(
+        self,
+        *,
+        for_write: bool = False,
+        isolation_level: Literal['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'] | None = None,
+    ) -> Iterator[sql.Connection]:
         """Start or join a database transaction.
 
         Prefer Catalog.begin_xact() unless there is a specific reason to call this directly.
 
         Args:
             for_write: unused (TODO use or remove)
+            isolation_level: if specified, the isolation level for the new transaction. Can only be set when starting
+                the outermost transaction.
 
         TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
         that avoids tripping over any pending ops
@@ -147,7 +158,7 @@ class Runtime:
         if not self.in_xact:
             assert self.session is None
             try:
-                self.isolation_level = _XACT_ISOLATION_LEVEL
+                self.isolation_level = isolation_level or _XACT_ISOLATION_LEVEL
                 with (
                     Env.get().engine.connect().execution_options(isolation_level=self.isolation_level) as conn,
                     orm.Session(conn) as session,
@@ -162,6 +173,10 @@ class Runtime:
                 self.isolation_level = None
         else:
             assert self.session is not None
+            assert isolation_level is None or isolation_level == self.isolation_level, (
+                f'cannot change isolation level to {isolation_level!r} for a joined transaction '
+                f'(current: {self.isolation_level!r})'
+            )
             assert self.isolation_level == _XACT_ISOLATION_LEVEL or not for_write
             yield self.conn
 

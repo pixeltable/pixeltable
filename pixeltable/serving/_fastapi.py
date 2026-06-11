@@ -25,12 +25,13 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 from pixeltable.serving import SqlExport
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
 from pixeltable.utils.local_store import LocalStore, TempStore
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class BackgroundJobResponse(pydantic.BaseModel):
@@ -156,6 +157,10 @@ class PxtEndpoint:
 class FastAPIRouter(fastapi.APIRouter):
     """
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
+
+    `FastAPIRouter` is for apps that already have a FastAPI server. If you do
+    not have one, use `pxt serve` from the CLI; Pixeltable creates and runs the
+    FastAPI app for you. Learn more here: [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving).
     """
 
     _executor: ThreadPoolExecutor
@@ -178,6 +183,23 @@ class FastAPIRouter(fastapi.APIRouter):
         # Shut down the worker pool when the parent app's lifespan ends. include_router()
         # merges this handler into the app's on_shutdown list, so it fires on app shutdown.
         self.add_event_handler('shutdown', self._shutdown)
+
+    def add_api_route(self, path: str, *args: Any, **kwargs: Any) -> None:
+        """Wrap FastAPI's add_api_route with a duplicate (path, method) check."""
+        # FastAPI's APIRoute normalizes methods to uppercase; match its contract.
+        new_methods = {m.upper() for m in (kwargs.get('methods') or ['GET'])}
+        # FastAPI stores routes under self.prefix + path; compare against the prefixed form
+        prefixed_path = self.prefix + path
+        for route in self.routes:
+            if not isinstance(route, fastapi.routing.APIRoute) or route.path != prefixed_path:
+                continue
+            if len(overlap := route.methods & new_methods) == 0:
+                continue
+            conflict = ', '.join(sorted(overlap))
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.PATH_ALREADY_EXISTS, f'route already registered: {conflict} {prefixed_path!r}'
+            )
+        super().add_api_route(path, *args, **kwargs)
 
     def _shutdown(self) -> None:
         # wait until in-flight requests are done and won't access _engine_cache
@@ -1132,9 +1154,27 @@ class FastAPIRouter(fastapi.APIRouter):
                 f'add_query_route(): GET endpoints cannot have uploadfile_inputs (got {uploadfile_inputs})',
             )
 
+        # Freeze the response schema at registration time by resolving SELECT * against the
+        # current columns. Subsequent requests use this materialized query, so adding or
+        # dropping columns on the underlying table doesn't silently change the API contract.
+        template_query = query.template_query
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=template_query._from_clause.tbls):
+            effective_select_list = list(template_query._effective_select_list)
+        template_query = pxt.Query(
+            select_list=[(e, n) for e, n in effective_select_list],
+            from_clause=template_query._from_clause,
+            where_clause=template_query.where_clause,
+            group_by_clause=template_query.group_by_clause,
+            grouping_tbl=template_query.grouping_tbl,
+            order_by_clause=template_query.order_by_clause,
+            limit=template_query.limit_val,
+            offset=template_query.offset_val,
+            sample_clause=template_query.sample_clause,
+        )
+
         query_params = dict(query.signature.parameters)
         query_schema = {p.name: p.col_type for p in query_params.values()}
-        result_schema = dict(query.template_query.schema)
+        result_schema = dict(template_query.schema)
 
         input_param_names, _ = self._validate_args(
             input_schema=query_schema,
@@ -1187,38 +1227,42 @@ class FastAPIRouter(fastapi.APIRouter):
         else:
             endpoint_model = output_model
 
-        template_query = query.template_query
+        # Apply per-expr rewrites for media/image columns. Done after validation so that
+        # _validate_args sees the original media-typed schema; the run_query closure below
+        # captures the rewritten query.
         has_img_col_refs = any(
-            item.col_type.is_image_type() and isinstance(item, exprs.ColumnRef)
-            for item, _ in template_query._effective_select_list
+            e.col_type.is_image_type() and isinstance(e, exprs.ColumnRef) for e, _ in effective_select_list
         )
         if has_img_col_refs or return_fileresponse:
-            # query rewrite:
-            # - return_fileresponse: we want a local path when referencing media columns, even if the media file is
-            #   stored externally
-            # - otherwise: we want the fileurl property when referencing image columns (to avoid getting a PIL.Image)
-            select_list: list[tuple[exprs.Expr, str]] = []
-            for e, name in query.template_query._effective_select_list:
+            rewritten_select_list: list[tuple[exprs.Expr, str]] = []
+            for e, name in effective_select_list:
                 if return_fileresponse and isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type():
-                    select_list.append((exprs.ColumnPropertyRef(e, exprs.ColumnPropertyRef.Property.LOCALPATH), name))
+                    # serve from a local path even if the media file is stored externally
+                    rewritten_select_list.append(
+                        (exprs.ColumnPropertyRef(e, exprs.ColumnPropertyRef.Property.LOCALPATH), name)
+                    )
                 elif isinstance(e, exprs.ColumnRef) and e.col_type.is_image_type():
-                    select_list.append((exprs.ColumnPropertyRef(e, exprs.ColumnPropertyRef.Property.FILEURL), name))
+                    # avoid materializing PIL.Image in the response payload
+                    rewritten_select_list.append(
+                        (exprs.ColumnPropertyRef(e, exprs.ColumnPropertyRef.Property.FILEURL), name)
+                    )
                 else:
-                    select_list.append((e, name))
+                    rewritten_select_list.append((e, name))
             template_query = pxt.Query(
-                select_list=select_list,
+                select_list=rewritten_select_list,
                 from_clause=template_query._from_clause,
                 where_clause=template_query.where_clause,
                 group_by_clause=template_query.group_by_clause,
                 grouping_tbl=template_query.grouping_tbl,
                 order_by_clause=template_query.order_by_clause,
-                limit=query.template_query.limit_val,
-                offset=query.template_query.offset_val,
-                sample_clause=query.template_query.sample_clause,
+                limit=template_query.limit_val,
+                offset=template_query.offset_val,
+                sample_clause=template_query.sample_clause,
             )
 
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            result_set = template_query._collect(args=call_kwargs)
+            with get_runtime().catalog.begin_xact(for_write=False, read_tvps=template_query._from_clause.tbls):
+                result_set = template_query._collect(args=call_kwargs)
             rows = list(result_set)
 
             # do error checking now, before converting data

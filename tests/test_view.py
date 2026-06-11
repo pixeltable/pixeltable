@@ -21,7 +21,7 @@ from .utils import (
     validate_update_status,
 )
 
-logger = logging.getLogger('pixeltable')
+logger = logging.getLogger('pixeltable_test')
 
 test_unstored_base_val: int = 0
 
@@ -234,8 +234,8 @@ class TestView:
             _ = pxt.create_view('view_with_base', other_base, if_exists='ignore')
 
         # sanity check persistence
-        _ = reload_tester.run_query(t.select())
-        _ = reload_tester.run_query(v3.select())
+        _ = reload_tester.run_query(t.select().order_by(t.c2))
+        _ = reload_tester.run_query(v3.select().order_by(v3.c2))
         reload_tester.run_reload_test()
 
     def test_add_column_to_view(self, uses_db: None, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
@@ -672,11 +672,11 @@ class TestView:
         assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1']
 
         v1.add_computed_column(bar2=t.c3, stored=False)
-        res = reload_tester.run_query(v1.select().limit(5))
+        res = reload_tester.run_query(v1.select().order_by(v1.c2).limit(5))
         assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1', 'bar2']
 
-        res2a = v1.select(t.c2, t.c3 * 2)
-        res2b = v1.select(v1.c2, v1.c3)
+        res2a = v1.select(t.c2, t.c3 * 2).order_by(t.c2)
+        res2b = v1.select(v1.c2, v1.c3).order_by(v1.c2)
         assert_resultset_eq(res2a.collect(), res2b.collect())
 
         res1 = reload_tester.run_query(v1.select(t.c2 == v1.c2, t.c3 * 2 == v1.c3))
@@ -685,7 +685,7 @@ class TestView:
         with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
-        res = reload_tester.run_query(v1.select(t.c4).limit(5))
+        res = reload_tester.run_query(v1.select(t.c4).order_by(v1.c2).limit(5))
         assert res._col_names == ['c4']
 
         v2 = pxt.create_view('test_view2', v1.select(v1.foo, c2=v1.c2, foo2=t.c2))
@@ -706,8 +706,8 @@ class TestView:
         reload_tester.run_reload_test()
 
         # Rerun after reload
-        res2a = v1.select(t.c2, t.c3 * 2)
-        res2b = v1.select(v1.c2, v1.c3)
+        res2a = v1.select(t.c2, t.c3 * 2).order_by(t.c2)
+        res2b = v1.select(v1.c2, v1.c3).order_by(v1.c2)
         assert_resultset_eq(res2a.collect(), res2b.collect())
 
         with pytest.raises(AttributeError, match='Unknown column: c1'):

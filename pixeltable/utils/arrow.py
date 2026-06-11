@@ -1,8 +1,7 @@
 import datetime
 import io
-import json
 import uuid
-from typing import TYPE_CHECKING, Any, Iterator, cast
+from typing import TYPE_CHECKING, Any, Iterator, Mapping, cast
 
 import numpy as np
 import PIL.Image
@@ -80,7 +79,10 @@ def to_arrow_type(pxt_type: ts.ColumnType) -> pa.DataType | None:
         return PXT_TO_PA_TYPES[pxt_type.__class__]
     elif isinstance(pxt_type, ts.ArrayType):
         shape = pxt_type.shape
-        assert shape is not None
+        if shape is None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot convert array column of unknown shape to arrow.'
+            )
         if any(d is None for d in shape):
             # we need to map this to a nested list of the dtype
             arrow_type = pa.from_numpy_dtype(pxt_type.dtype)
@@ -91,6 +93,34 @@ def to_arrow_type(pxt_type: ts.ColumnType) -> pa.DataType | None:
         return pa.fixed_shape_tensor(pa.from_numpy_dtype(pxt_type.dtype), pxt_type.shape)
     else:
         return None
+
+
+def to_arrow_schema(
+    pxt_schema: dict[str, ts.ColumnType], schema_overrides: Mapping[str, pa.DataType] | None = None
+) -> pa.Schema:
+    """Build a deterministic `pa.Schema` from a pixeltable schema, without requiring any data.
+
+    Each column type is mapped to its arrow equivalent via `to_arrow_type()`. A JSON column has no
+    fixed arrow type without sampling its values, so it is mapped to an empty `pa.struct([])`.
+
+    `schema_overrides` maps a column name to the arrow type that should be used instead of the
+    default mapping; useful for pinning JSON columns or downcasting scalar types.
+    """
+    pa_column_types: dict[str, pa.DataType] = {}
+    for col_name, col_type in pxt_schema.items():
+        if schema_overrides is not None and col_name in schema_overrides:
+            pa_column_types[col_name] = schema_overrides[col_name]
+            continue
+        if col_type.is_json_type():
+            pa_column_types[col_name] = pa.struct([])
+            continue
+        arrow_type = to_arrow_type(col_type)
+        if arrow_type is None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot convert column {col_name!r} of type {col_type} to arrow.'
+            )
+        pa_column_types[col_name] = arrow_type
+    return pa.schema(pa_column_types.items())
 
 
 def to_pxt_schema(
@@ -107,7 +137,10 @@ def to_pxt_schema(
 
 
 def _to_record_batch(
-    column_vals: dict[str, list[Any]], schema: pa.Schema, pxt_schema: dict[str, ts.ColumnType]
+    column_vals: dict[str, list[Any]],
+    schema: pa.Schema,
+    pxt_schema: dict[str, ts.ColumnType],
+    schema_overrides: Mapping[str, pa.DataType] | None = None,
 ) -> pa.RecordBatch:
     import pyarrow as pa
 
@@ -115,25 +148,48 @@ def _to_record_batch(
     for field in schema:
         assert field.name in pxt_schema
         pxt_type = pxt_schema[field.name]
-        if isinstance(field.type, pa.FixedShapeTensorType):
+        if schema_overrides is not None and field.name in schema_overrides:
+            try:
+                pa_arrays.append(pa.array(column_vals[field.name], type=field.type))
+            except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError) as e:
+                raise excs.RequestError(
+                    excs.ErrorCode.TYPE_MISMATCH,
+                    f'schema_overrides type {field.type} does not fit the data for column {field.name!r}: {e}',
+                ) from e
+        elif isinstance(field.type, pa.FixedShapeTensorType):
             stacked_arr = np.stack(column_vals[field.name])
             pa_arrays.append(pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr))
         elif pxt_type.is_array_type() and isinstance(field.type, pa.ListType):
             # convert ragged arrays to nested lists
-            list_col_vals = [val.tolist() for val in column_vals[field.name]]
+            list_col_vals = [val.tolist() if val is not None else None for val in column_vals[field.name]]
             pa_arrays.append(pa.array(list_col_vals))
-        elif field.type == pa.json_():
-            serialized = [json.dumps(v) if v is not None else None for v in column_vals[field.name]]
-            pa_arrays.append(pa.array(serialized, type=pa.json_()))
+        elif pxt_type.is_json_type():
+            # JSON columns are typed by `pa.infer_type()` against the first batch's values; later batches
+            # can still contain values that don't fit (e.g. an inferred `struct<x: int64>` from the first
+            # batch and a `{'x': 'foo'}` value in a later batch). Catch that here and surface a clear error.
+            try:
+                pa_arrays.append(pa.array(column_vals[field.name], type=field.type))
+            except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'JSON column {field.name!r} contains values that cannot be coerced to a single '
+                    f'arrow type {field.type} (e.g. a list with mixed element types).',
+                ) from e
         else:
             pa_array = cast(pa.Array, pa.array(column_vals[field.name]))
             pa_arrays.append(pa_array)
     return pa.RecordBatch.from_arrays(pa_arrays, schema=schema)
 
 
-def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.RecordBatch]:
+def to_record_batches(
+    query: 'pxt.Query', batch_size_bytes: int, schema_overrides: Mapping[str, pa.DataType] | None = None
+) -> Iterator[pa.RecordBatch]:
+    # KNOWN RACE: schema is snapshotted here, outside any xact; query.cursor() below opens
+    # its own xact internally and re-resolves the schema. For SELECT * queries, a concurrent
+    # schema mutation between these two reads can produce a layout mismatch.
+    schema = query.schema
     arrow_schema: pa.Schema | None = None  # initialized after first batch, when we have data to infer struct schemas
-    batch_columns: dict[str, list[Any]] = {k: [] for k in query.schema}
+    batch_columns: dict[str, list[Any]] = {k: [] for k in schema}
     current_byte_estimate = 0
     num_batch_rows = 0
     json_val_size: dict[str, int] = {}  # key: col_name, value: average size of corresponding pa.struct
@@ -145,13 +201,17 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
             return
         pa_column_types: dict[str, pa.DataType] = {}
         for col_name, col_type in query.schema.items():
-            if col_type.is_json_type():
+            if schema_overrides is not None and col_name in schema_overrides:
+                pa_column_types[col_name] = schema_overrides[col_name]
+            elif col_type.is_json_type():
                 try:
                     pa_type = pa.infer_type(batch_columns[col_name], mask=None)
-                except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError):
-                    # for mixed lists e.g. json including both lists and dicts
-                    # we need to fall back to json strings
-                    pa_type = pa.json_()
+                except (pa.lib.ArrowInvalid, pa.lib.ArrowTypeError) as e:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'JSON column {col_name!r} contains mixed types (e.g. both lists and dicts), which is not '
+                        f'supported when exporting to Arrow.',
+                    ) from e
                 pa_column_types[col_name] = pa_type
             else:
                 pa_column_types[col_name] = to_arrow_type(col_type)
@@ -160,7 +220,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
     try:
         for data_row in query.cursor():
             num_batch_rows += 1
-            for col_name, col_type in query.schema.items():
+            for col_name, col_type in schema.items():
                 val = data_row[col_name]
                 val_size_bytes: int
                 if val is None:
@@ -225,9 +285,9 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                         col_name: json_batch_size[col_name] // num_batch_rows for col_name in json_batch_size
                     }
                 create_arrow_schema()
-                record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
+                record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema, schema_overrides)
                 yield record_batch
-                batch_columns = {k: [] for k in query.schema}
+                batch_columns = {k: [] for k in schema}
                 current_byte_estimate = 0
                 num_batch_rows = 0
 
@@ -236,8 +296,32 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
 
     if num_batch_rows > 0:
         create_arrow_schema()
-        record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
+        record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema, schema_overrides)
         yield record_batch
+
+
+def find_null_fields(schema: pa.Schema) -> list[str]:
+    """Return dotted paths of every `pa.null()`-typed field nested inside `schema`."""
+    paths: list[str] = []
+
+    def walk(arrow_type: pa.DataType, path: str) -> None:
+        if pa.types.is_null(arrow_type):
+            paths.append(path)
+        elif pa.types.is_struct(arrow_type):
+            for f in arrow_type:
+                walk(f.type, f'{path}.{f.name}')
+        elif (
+            pa.types.is_list(arrow_type)
+            or pa.types.is_large_list(arrow_type)
+            or pa.types.is_fixed_size_list(arrow_type)
+        ):
+            walk(arrow_type.value_type, f'{path}[]')
+        elif pa.types.is_map(arrow_type):
+            walk(arrow_type.item_type, f'{path}{{}}')
+
+    for field in schema:
+        walk(field.type, field.name)
+    return paths
 
 
 def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
@@ -253,8 +337,6 @@ def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
             if isinstance(col, pa.ChunkedArray):
                 col = col.combine_chunks()
             out[name] = list(cast(pa.FixedShapeTensorArray, col).to_numpy_ndarray())
-        elif col.type == pa.json_():
-            out[name] = [json.loads(v) if v is not None else None for v in col.to_pylist()]
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()

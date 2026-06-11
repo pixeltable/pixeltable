@@ -21,7 +21,7 @@ def udf_with_exc(i: int, val: int) -> int:
 
 class TestLanceDb:
     def test_export(self, uses_db: None, tmp_path: Path) -> None:
-        skip_test_if_not_installed('lancedb')
+        skip_test_if_not_installed('lance', 'lancedb')
         import lancedb  # type: ignore[import-untyped]
 
         n_rows = 1000
@@ -61,7 +61,7 @@ class TestLanceDb:
         def validate_data(lance_table_name: str, rows: list[dict[str, Any]]) -> None:
             db = lancedb.connect(str(db_path))
             lance_tbl = db.open_table(lance_table_name)
-            lance_df = lance_tbl.to_pandas()
+            lance_df = lance_tbl.to_pandas().sort_values('row_id').reset_index(drop=True)
             assert len(lance_df) == len(rows)
             assert lance_df['row_id'].tolist() == [row['row_id'] for row in rows]
             assert [None if pd.isna(i) else i for i in lance_df['c_int'].tolist()] == [row['c_int'] for row in rows]
@@ -79,7 +79,7 @@ class TestLanceDb:
                 assert lance_img.mode == original_img.mode
 
         pxt.io.export_lancedb(t, db_path, 'test')
-        validate_data('test', list(t.collect()))
+        validate_data('test', list(t.order_by(t.row_id).collect()))
 
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists in'):
             pxt.io.export_lancedb(t, db_path, 'test', if_exists='error')
@@ -93,7 +93,7 @@ class TestLanceDb:
         # export query result containing PIL image, with if_exists='overwrite'
         t2 = pxt.create_table('test2', schema)
         t2.insert(rows[:100])
-        query = t2.order_by(t2.row_id, asc=False).select(
+        query = t2.order_by(t2.row_id, asc=True).select(
             t2.row_id,
             t2.c_int,
             t2.c_float,
@@ -110,7 +110,7 @@ class TestLanceDb:
 
         # if_exists='append'
         pxt.io.export_lancedb(t, db_path, 'test', if_exists='append', batch_size_bytes=1024)
-        validate_data('test', list(query.collect()) + list(t.collect()))
+        validate_data('test', sorted(list(query.collect()) + list(t.collect()), key=lambda r: r['row_id']))
 
         # error during export
         error_db_path = tmp_path / 'error_db'

@@ -4,7 +4,7 @@ import pathlib
 import urllib.request
 from typing import Any
 
-_logger = logging.getLogger('pixeltable.http.server')
+_logger = logging.getLogger(__name__)
 
 
 def get_file_uri(http_address: str, file_path: str) -> str:

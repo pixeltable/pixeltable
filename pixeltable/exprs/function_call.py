@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import inspect
-import logging
 import sys
 from textwrap import dedent
 from typing import Any, Sequence
+from uuid import UUID
 
 import sqlalchemy as sql
 
@@ -16,8 +16,6 @@ from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
 from .sql_element_cache import SqlElementCache
-
-_logger = logging.getLogger('pixeltable')
 
 
 class FunctionCall(Expr):
@@ -149,6 +147,13 @@ class FunctionCall(Expr):
     def _create_rowid_refs(self, tbl: catalog.Table) -> list[Expr]:
         target = tbl._tbl_version_path.tbl_version
         return [RowidRef(target, i) for i in range(target.get().num_rowid_columns())]
+
+    def tbl_ids(self) -> set[UUID]:
+        ids = super().tbl_ids()
+        if isinstance(self.fn, func.QueryTemplateFunction):
+            assert self.fn.template_query is not None
+            ids |= self.fn.template_query.referenced_tbl_ids()
+        return ids
 
     def default_column_name(self) -> str | None:
         return self.fn.name
@@ -464,7 +469,7 @@ class FunctionCall(Expr):
         }
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> FunctionCall:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> FunctionCall:
         fn = func.Function.from_dict(d['fn'])
         return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
         arg_idxs: list[int] = d['arg_idxs']
