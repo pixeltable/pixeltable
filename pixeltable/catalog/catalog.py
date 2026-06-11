@@ -1525,7 +1525,9 @@ class Catalog:
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
                 base_id = base.tbl_id
-                assert self._acquire_write_lock(tbl_id=base_id), base_id
+                locked_ids = self._acquire_write_lock(tbl_id=base_id)
+                assert locked_ids == {base_id}, base_id
+                self._x_locked_tbl_ids.update(locked_ids)
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
                 self.mark_modified_tv(base_tv.handle)
                 base_tv.tbl_md.view_sn += 1
@@ -1896,7 +1898,7 @@ class Catalog:
             # calls self._drop_tbl), the expected base-before-view lock ordering is currently not guaranteed.
             if base_id not in self._x_locked_tbl_ids:
                 self._x_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=base_id))
-        self._acquire_write_lock(tbl_id=tbl_id)
+        self._x_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=tbl_id))
 
         view_ids = self.get_view_ids(tbl_id, for_update=True)
         is_replica = tvp.is_replica()
