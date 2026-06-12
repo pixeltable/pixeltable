@@ -579,7 +579,7 @@ class stitch_tiles(pxt.Aggregator):
         height: The height of the original image, in pixels.
 
     Returns:
-        The reconstructed image, of size `(width, height)`.
+        The reconstructed image, of size `(width, height)`, or `None` if there are no non-null tiles.
 
     Examples:
         Split each image into tiles, draw a segmentation overlay on every tile, then stitch the overlaid tiles
@@ -602,16 +602,19 @@ class stitch_tiles(pxt.Aggregator):
         self.canvas = None
 
     def update(self, tile: PIL.Image.Image, tile_box: tuple[int, int, int, int], width: int, height: int) -> None:
-        if tile is None:
-            return
         if self.canvas is None:
             self.canvas = PIL.Image.new('RGB', (width, height))
+        elif self.canvas.size != (width, height):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'stitch_tiles(): width/height ({width}, {height}) does not match the size {self.canvas.size} '
+                'of previous tiles in the group',
+            )
         # Tiles that extend past the original image (the padding `tile_iterator` adds to edge tiles) are clipped
         # by `paste`, so the padding never appears in the result.
         self.canvas.paste(tile, (int(tile_box[0]), int(tile_box[1])))
 
-    def value(self) -> PIL.Image.Image:
-        assert self.canvas is not None
+    def value(self) -> PIL.Image.Image | None:
         return self.canvas
 
 
