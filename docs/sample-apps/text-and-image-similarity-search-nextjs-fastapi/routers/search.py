@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 import config
 import PIL.Image
@@ -32,10 +33,20 @@ async def _read_text_query(upload: UploadFile | None) -> str:
 
 
 async def _save_upload(file: UploadFile) -> Path:
-    temp_path = TEMP_DIR / _safe_filename(file.filename)
+    base = _safe_filename(file.filename)
+    suffix = Path(base).suffix
+    stem = Path(base).stem or 'upload'
+    temp_path = TEMP_DIR / f'{stem}_{uuid4().hex}{suffix}'
     with temp_path.open('wb') as buffer:
         buffer.write(await file.read())
     return temp_path
+
+
+async def _load_query_image(upload: UploadFile) -> PIL.Image.Image:
+    try:
+        return PIL.Image.open(io.BytesIO(await upload.read()))
+    except PIL.UnidentifiedImageError as e:
+        raise HTTPException(status_code=400, detail='Invalid image file') from e
 
 
 @router.post('/api/process-video')
@@ -84,7 +95,7 @@ async def search_video(
         else:
             if not query:
                 raise HTTPException(status_code=400, detail='No image provided')
-            query_image = PIL.Image.open(io.BytesIO(await query.read()))
+            query_image = await _load_query_image(query)
             sim = frames_view.frame.similarity(image=query_image)
 
         results = (
@@ -95,6 +106,8 @@ async def search_video(
         )
         encoded_frames = [f'data:image/png;base64,{row["encoded_frame"]}' for row in results]
         return {'frames': encoded_frames, 'success': True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -117,7 +130,7 @@ async def search_images(
         else:
             if not query:
                 raise HTTPException(status_code=400, detail='No image provided for search')
-            query_image = PIL.Image.open(io.BytesIO(await query.read()))
+            query_image = await _load_query_image(query)
             sim = image_table.image.similarity(image=query_image)
 
         results = (
@@ -131,5 +144,7 @@ async def search_images(
             {'image': f'data:image/png;base64,{row["encoded_image"]}', 'tags': row['tags']} for row in results
         ]
         return {'images': output_images, 'success': True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
