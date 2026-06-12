@@ -58,12 +58,15 @@ t = pxt.create_table(
 <summary><b>Import / export:</b> I/O without glue scripts</summary>
 <br>
 
-`import_csv()`, Hugging Face, `export_parquet()`, PyTorch, COCO, and more. Not per-format ETL scripts.
+`create_table(source=...)`, path/URL `insert()`, Hugging Face, `export_parquet()`, PyTorch, COCO, and more. Not per-format ETL scripts.
 
 ```python
-# Import from files, URLs, S3, Hugging Face
-t.insert(pxt.io.import_csv('data.csv'))
-t.insert(pxt.io.import_huggingface_dataset(dataset))
+# Create a table from a file, URL, or Hugging Face dataset
+pxt.create_table('app/data', source='data.csv')
+pxt.create_table('app/reviews', source=hf_dataset)
+
+# Append rows into an existing table from a path or URL
+t.insert('s3://my-bucket/new_rows.parquet')
 
 # Export to analytics/ML formats
 pxt.io.export_parquet(t, 'data.parquet')
@@ -175,7 +178,7 @@ def search_by_topic(topic: str):
 <summary><b>Index:</b> built-in vector search</summary>
 <br>
 
-`add_embedding_index()` stays in sync with table data. Query with `.similarity()` on any indexed column. Not Pinecone, pgvector, and manual ETL.
+`add_embedding_index()` stays in sync with table data. Combine `.similarity()` with `.where()` on metadata in one query — not a separate vector DB plus filter pipeline.
 
 ```python
 t.add_embedding_index(
@@ -184,7 +187,13 @@ t.add_embedding_index(
 )
 
 sim = t.img.similarity(string='cat playing with yarn')
-results = t.order_by(sim, asc=False).limit(10).collect()
+results = (
+    t.where(t.category == 'pets')       # metadata filter in the same query
+    .order_by(sim, asc=False)
+    .select(t.img, t.category, score=sim)
+    .limit(10)
+    .collect()
+)
 ```
 
 [Embedding indexes](https://docs.pixeltable.com/platform/embedding-indexes) · [Semantic search](https://docs.pixeltable.com/howto/cookbooks/search/search-semantic-text) · [Image search app](https://github.com/pixeltable/pixeltable/tree/release/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi)
