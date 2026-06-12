@@ -105,18 +105,25 @@ def import_sql(
         schema_overrides: Optional per-column overrides applied on top of the inferred schema. Keys are column
             names; values accept any Pixeltable type spec recognized by `pxt.create_table` (eg, `pxt.Image`,
             `pxt.Required[pxt.String]`).
-        primary_key: Forwarded to `pxt.create_table` when creating a new table.
-        comment: Forwarded to `pxt.create_table`.
-        custom_metadata: Forwarded to `pxt.create_table`.
+        primary_key: An optional column name or list of column names to use as the primary key(s) of the
+            table. Only applies when a new table is created; ignored when appending to an existing table.
+        comment: An optional comment; its meaning is user-defined. Only applies when a new table is created;
+            ignored when appending to an existing table.
+        custom_metadata: Optional user-defined metadata to associate with the table. Must be a valid
+            JSON-serializable object [str, int, float, bool, dict, list]. Only applies when a new table is
+            created; ignored when appending to an existing table.
         if_exists: How to handle the destination table.
 
             - `'error'`: create the table; fail if it already exists.
             - `'append'`: append into the table if it already exists (verifying the source schema is
               compatible); otherwise create it.
-        on_error: How to handle errors encountered while inserting source rows.
+        on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
+            invalid media file (such as a corrupt image) for one of the inserted rows.
 
-            - `'abort'`: any row error aborts the entire import.
-            - `'ignore'`: rows that error are skipped; the rest are inserted.
+            - If `on_error='abort'`, then an exception will be raised and the rows will not be inserted.
+            - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
+              with errors will have a `None` value for that cell, with information about the error stored in the
+              corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
     Returns:
         The destination `Table`.

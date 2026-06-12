@@ -34,14 +34,14 @@ class _DialectSpec:
 _IMPORT_DBMS = ['sqlite', 'postgresql']
 
 
-def _import_engine(dialect: str, tmp_path: pathlib.Path) -> sql.Engine:
-    """Build a SQLAlchemy Engine for use as an `import_sql` source. The Postgres dialect points at pixeltable's
+def _import_engine(dbms: str, tmp_path: pathlib.Path) -> sql.Engine:
+    """Build a SQLAlchemy Engine for use as an `import_sql` source. The 'postgresql' DBMS points at pixeltable's
     embedded database, which `uses_db` resets before each test (see `clean_db`)."""
-    if dialect == 'sqlite':
+    if dbms == 'sqlite':
         return sql.create_engine(f'sqlite:///{tmp_path / "import_src.db"}')
-    if dialect == 'postgresql':
+    if dbms == 'postgresql':
         return sql.create_engine(Env.get().db_url)
-    raise AssertionError(dialect)
+    raise AssertionError(dbms)
 
 
 def _seed_source(engine: sql.Engine, table_name: str, columns: list[sql.Column], rows: list[dict]) -> sql.Table:
@@ -237,12 +237,12 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"column 'img' of source type Image"):
             export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
 
-    @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
-    def test_import_full_table(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
+    @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
+    def test_import_full_table(self, uses_db: None, tmp_path: pathlib.Path, dbms: str) -> None:
         """End-to-end import of a full SA Table: type inference for all common SA types, nullable vs non-nullable
         propagation, NULL-to-None value roundtrip, exact value preservation, and the single-version-bump claim
         across batch boundaries (rows > the insert batch size so streaming actually engages)."""
-        engine = _import_engine(dialect, tmp_path)
+        engine = _import_engine(dbms, tmp_path)
         n = 2500  # > the 1024-row insert batch size, to force at least 3 batches
 
         seed_rows = [
@@ -317,12 +317,12 @@ class TestSql:
         assert len(result) == len(seed_rows)
         assert list(result) == seed_rows
 
-    @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
-    def test_import_select_and_filter(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
+    @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
+    def test_import_select_and_filter(self, uses_db: None, tmp_path: pathlib.Path, dbms: str) -> None:
         """Import via `sa.select(...)` rather than a bare Table: column projection (subset), row filter via
         `.where(...)`, labeled expressions, accepting an `sa.Connection` (not just an Engine), and the 0-row
         edge case (impossible filter -> empty destination, schema still created)."""
-        engine = _import_engine(dialect, tmp_path)
+        engine = _import_engine(dbms, tmp_path)
         rows = [{'c_int': i, 'c_str': f'row_{i}', 'c_float': float(i)} for i in range(20)]
         src = _seed_source(
             engine,
@@ -361,12 +361,12 @@ class TestSql:
         assert set(empty_cols) == {'c_int', 'c_str'}
         assert empty_tbl.count() == 0
 
-    @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
-    def test_import_text_columns(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
+    @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
+    def test_import_text_columns(self, uses_db: None, tmp_path: pathlib.Path, dbms: str) -> None:
         """Import via `sql.text(...).columns(...)`: raw SQL whose output columns are typed by the user. Type
         inference and nullability propagation must come from the `.columns(...)` declaration, not from the
         source table."""
-        engine = _import_engine(dialect, tmp_path)
+        engine = _import_engine(dbms, tmp_path)
         rows: list[dict[str, Any]] = [{'c_int': i, 'c_str': f'row_{i}', 'c_float': float(i)} for i in range(5)]
         _seed_source(
             engine,
@@ -398,11 +398,11 @@ class TestSql:
         ]
         assert list(result) == expected
 
-    @pytest.mark.parametrize('dialect', _IMPORT_DBMS)
-    def test_media_via_overrides(self, uses_db: None, tmp_path: pathlib.Path, dialect: str) -> None:
+    @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
+    def test_media_via_overrides(self, uses_db: None, tmp_path: pathlib.Path, dbms: str) -> None:
         """`schema_overrides` promotes plain String path columns into Pixeltable media types (Image, Video,
         Document)"""
-        engine = _import_engine(dialect, tmp_path)
+        engine = _import_engine(dbms, tmp_path)
         img_paths = get_image_files()[:2]
         video_paths = get_video_files(include_vfr=False, include_mpgs=False, extension='.mp4')[:2]
         doc_paths = [p for p in get_documents() if p.endswith('.pdf')][:2]
