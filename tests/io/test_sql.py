@@ -640,3 +640,28 @@ class TestSql:
         result = dest.order_by(dest.c_int).select(dest.c_int, dest.c_checked).collect()
         assert result['c_int'] == sorted(values)
         assert result['c_checked'] == [None if v < 0 else False for v in sorted(values)]
+
+    def test_import_abort_and_view_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """A row error under the default `on_error='abort'` aborts a new-table import and drops the freshly
+        created destination table; `if_exists='append'` rejects a view destination."""
+        engine = _import_engine('sqlite', tmp_path)
+        bad_file = tmp_path / 'not_an_image.txt'
+        bad_file.write_text('not an image')
+        rows = [{'c_int': 0, 'c_img': get_image_files()[0]}, {'c_int': 1, 'c_img': str(bad_file)}]
+        src = _seed_source(
+            engine,
+            'src_abort',
+            [sql.Column('c_int', sql.Integer, nullable=False), sql.Column('c_img', sql.String, nullable=False)],
+            rows,
+        )
+
+        # default on_error='abort': the failed insert rolls back the table creation, leaving no trace in the catalog
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match='Not a valid image'):
+            import_sql(src, engine, 'abort_dest', schema_overrides={'c_img': pxt.Image})
+        assert pxt.get_table('abort_dest', if_not_exists='ignore') is None
+
+        # if_exists='append' requires the destination to be a base table; a view is rejected
+        base = pxt.create_table('base_tbl', {'c_int': pxt.Int})
+        pxt.create_view('dest_view', base)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="requires a base table; 'dest_view' is a view"):
+            import_sql(src, engine, 'dest_view', if_exists='append')
