@@ -234,7 +234,7 @@ linkscheck: docs
 .PHONY: clean
 clean:
 	@rm -rf .make-install || true
-	@rm -rf pixeltable/dashboard/static || true
+	@rm -rf pixeltable_cli/server/static || true
 	@rm -rf site || true
 	@rm -rf target || true
 	@rm -rf tests/target || true
