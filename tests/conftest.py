@@ -35,8 +35,8 @@ from .utils import (
     create_all_datatypes_tbl,
     create_img_tbl,
     create_test_tbl,
+    local_embedding,
     reload_catalog,
-    skip_test_if_not_installed,
 )
 
 _logger = logging.getLogger('pixeltable_test')
@@ -52,6 +52,17 @@ def pytest_addoption(parser: argparsing.Parser) -> None:
 def pytest_configure(config: PytestConfig) -> None:
     global DO_RERUN  # noqa: PLW0603
     DO_RERUN = not config.getoption('--no-rerun')
+
+
+# Fixtures that download a Hugging Face model. Any test requesting one of these is implicitly a
+# Hugging Face test and is marked 'very_expensive'.
+_HF_FIXTURES = frozenset({'clip_embed', 'e5_embed', 'all_mpnet_embed'})
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    for item in items:
+        if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
+            item.add_marker(pytest.mark.very_expensive)
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
@@ -240,7 +251,12 @@ def _clear_hf_caches() -> None:
                 revision.commit_hash
                 for repo in cache_info.repos
                 # Keep around models that are used by multiple tests
-                if repo.repo_id not in ('openai/clip-vit-base-patch32', 'intfloat/e5-large-v2')
+                if repo.repo_id
+                not in (
+                    'openai/clip-vit-base-patch32',
+                    'intfloat/e5-large-v2',
+                    'sentence-transformers/all-mpnet-base-v2',
+                )
                 for revision in repo.revisions
             ]
             cache_info.delete_revisions(*revisions_to_delete).execute()
@@ -371,20 +387,59 @@ def small_img_tbl(uses_db: None) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(uses_db: None, clip_embed: pxt.Function) -> pxt.Table:
-    skip_test_if_not_installed('transformers')
+def indexed_img_tbl(uses_db: None, local_embed: pxt.Function) -> pxt.Table:
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
-    t.add_embedding_index('img', idx_name='img_idx0', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
+    t.add_embedding_index(
+        'img', idx_name='img_idx0', metric='cosine', image_embed=local_embed, string_embed=local_embed
+    )
     return t
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(uses_db: None, clip_embed: pxt.Function) -> pxt.Table:
-    skip_test_if_not_installed('transformers')
+def multi_idx_img_tbl(uses_db: None, local_embed: pxt.Function) -> pxt.Table:
     t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
-    t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
-    t.add_embedding_index('img', idx_name='img_idx2', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
+    t.add_embedding_index(
+        'img', idx_name='img_idx1', metric='cosine', image_embed=local_embed, string_embed=local_embed
+    )
+    t.add_embedding_index(
+        'img', idx_name='img_idx2', metric='cosine', image_embed=local_embed, string_embed=local_embed
+    )
     return t
+
+
+# Deterministic, download-free embedding (see tests.utils.local_embedding). Same shape as clip. Use this instead
+# of HF models fixtures, unless you intend to test the HF models specifically.
+@pytest.fixture
+def local_embed() -> pxt.Function:
+    return local_embedding.using(dim=512)
+
+
+# Parametrized embedding selectors for tests that assert real-model semantics:
+# - the 'local_embed' param runs the full test body against the download-free embedding
+# - the real-model param is marked 'very_expensive'
+# Each fixture returns (embedding, is_dummy_model); skip model-dependent assertions when is_dummy_model.
+@pytest.fixture(
+    params=[
+        pytest.param(False, id='local_embed'),
+        pytest.param(True, id='clip_embed', marks=pytest.mark.very_expensive),
+    ]
+)
+def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
+    if request.param:
+        return request.getfixturevalue('clip_embed'), False
+    return local_embedding.using(dim=512), True
+
+
+@pytest.fixture(
+    params=[
+        pytest.param(False, id='local_embed'),
+        pytest.param(True, id='mpnet_embed', marks=pytest.mark.very_expensive),
+    ]
+)
+def mpnet_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
+    if request.param:
+        return request.getfixturevalue('all_mpnet_embed'), False
+    return local_embedding.using(dim=512), True
 
 
 # Fixtures for various reusable Huggingface models. We build in retries to guard against network issues.

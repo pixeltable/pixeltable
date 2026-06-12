@@ -626,7 +626,7 @@ class TestPackager:
             name = 'replica' if n % 2 != 0 else f'replica_{n}'
             self.__restore_and_check_table(bundles[n], name)
 
-    def test_replica_ops(self, uses_db: None, clip_embed: pxt.Function) -> None:
+    def test_replica_ops(self, uses_db: None, local_embed: pxt.Function) -> None:
         t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String})
         t.insert({'icol': i, 'scol': f'string {i}'} for i in range(10))
         v = pxt.create_view('test_view', t)
@@ -676,7 +676,7 @@ class TestPackager:
             with pxt_raises(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add an index to a replica.'
             ):
-                s.add_embedding_index('icol', embedding=clip_embed)
+                s.add_embedding_index('icol', embedding=local_embed)
             with pxt_raises(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot drop an index from a replica.'
             ):
@@ -859,27 +859,27 @@ class TestPackager:
 
     @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
     def test_embedding_index(
-        self, uses_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
+        self, uses_db: None, local_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
-        skip_test_if_not_installed('imagehash', 'transformers')  # transformers needed for CLIP
+        skip_test_if_not_installed('imagehash')
 
         t = pxt.create_table('tbl', {'image': pxt.Image})
         images = get_image_files()[:10]
         t.insert({'image': image} for image in images)
-        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)
+        t.add_embedding_index('image', embedding=local_embed, precision=embedding_precision)
 
         self.__do_round_trip(t)
 
     @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
     def test_multi_version_embedding_index(
-        self, uses_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
+        self, uses_db: None, local_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
-        skip_test_if_not_installed('imagehash', 'transformers')  # transformers needed for CLIP
+        skip_test_if_not_installed('imagehash')
 
         t = pxt.create_table('tbl', {'id': pxt.Int, 'image': pxt.Image})
         images = get_image_files()
         t.insert({'id': i, 'image': image} for i, image in enumerate(images[:10]))
-        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)
+        t.add_embedding_index('image', embedding=local_embed, precision=embedding_precision)
         bundle1 = self.__package_table(t)
         sim_1 = t.image.similarity(string=images[25])
         sim_results_1 = t.select(t.id, sim_1).order_by(sim_1, asc=False).limit(5).collect()

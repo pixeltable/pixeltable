@@ -310,10 +310,10 @@ class Catalog:
                 for v in tbl_version.mutable_views:
                     assert v.effective_version is None, f'{v.id}:{v.effective_version}'
 
-    def mark_modified_tvs(self, *handle: TableVersionHandle) -> None:
-        """Record that the given TableVersion instances were modified in the current transaction"""
+    def mark_modified_tv(self, handle: TableVersionHandle) -> None:
+        """Record that the given TableVersion instance was modified in the current transaction"""
         assert get_runtime().in_xact
-        self._modified_tvs.update(handle)
+        self._modified_tvs.add(handle)
 
     @contextmanager
     def _allow_tbl_md_read(self) -> Iterator[None]:
@@ -878,7 +878,7 @@ class Catalog:
                         # Mark TableVersion as modified before it is actually modified to make sure that cache is
                         # cleared properly if an error occurs during op execution.
                         if tv is not None:
-                            self.mark_modified_tvs(tv.handle)
+                            self.mark_modified_tv(tv.handle)
                         if is_rollback:
                             op.undo(tv)
                         else:
@@ -1532,7 +1532,7 @@ class Catalog:
                 base_id = base.tbl_id
                 assert self._acquire_write_lock(tbl_id=base_id), base_id
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
-                self.mark_modified_tvs(base_tv.handle)
+                self.mark_modified_tv(base_tv.handle)
                 base_tv.tbl_md.view_sn += 1
                 result = get_runtime().conn.execute(
                     sql.update(schema.Table)
@@ -1946,7 +1946,7 @@ class Catalog:
         if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
             base_id = tvp.base.tbl_id
             base_tv = self._get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
-            self.mark_modified_tvs(base_tv.handle)
+            self.mark_modified_tv(base_tv.handle)
             base_tv.tbl_md.view_sn += 1
             result = get_runtime().conn.execute(
                 sql.update(schema.Table.__table__)
@@ -1965,7 +1965,7 @@ class Catalog:
             else:
                 # invalidate the TableVersion instance when we're done so that existing references to it can find out it
                 # has been dropped
-                self.mark_modified_tvs(tvp.tbl_version)
+                self.mark_modified_tv(tvp.tbl_version)
 
                 # write TableOps to execute the drop, plus the updated Table record
                 tv = tvp.tbl_version.get()
@@ -2913,7 +2913,7 @@ class Catalog:
         self._tbl_versions[key] = tbl_version
         # register this instance as modified, so that it gets purged if the transaction fails, it may not be
         # fully initialized
-        self.mark_modified_tvs(tbl_version.handle)
+        self.mark_modified_tv(tbl_version.handle)
         tbl_version.init()
         return tbl_version
 
