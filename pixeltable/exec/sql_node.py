@@ -358,9 +358,8 @@ class SqlNode(ExecNode):
             elif versioned:
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
 
-                if t.effective_version is None and not tv.is_replica:
-                    # v_max == MAX_VERSION: ensure we use the partial index;
-                    # replicas don't follow this invariant, so fall back to the inequality there
+                if t.effective_version is None:
+                    # v_max == MAX_VERSION: ensure we use the partial index
                     stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max == schema.Table.MAX_VERSION)
                 else:
                     stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)

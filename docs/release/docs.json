@@ -42,8 +42,7 @@
               "platform/iterators",
               "platform/embedding-indexes",
               "platform/version-control",
-              "platform/external-files",
-              "platform/data-sharing"
+              "platform/external-files"
             ]
           },
           {
@@ -319,8 +318,7 @@
           {
             "group": "Pixeltable Cloud",
             "pages": [
-              "use-cases/services",
-              "use-cases/get-started"
+              "use-cases/services"
             ]
           }
         ]
@@ -657,10 +655,6 @@
     {
       "source": "/cloud/services",
       "destination": "/use-cases/services"
-    },
-    {
-      "source": "/cloud/get-started",
-      "destination": "/use-cases/get-started"
     }
   ]
 }
