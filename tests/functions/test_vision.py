@@ -1253,6 +1253,12 @@ class TestVision:
         assert isinstance(empty_result, PIL.Image.Image)
         assert empty_result.size == (width, height)
 
+        # Masks whose (H, W) does not match the image are rejected with a clear error
+        mismatched_masks = np.zeros((2, height + 1, width), dtype=bool)
+        t.insert(img=img, masks=mismatched_masks)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='does not match image dimensions'):
+            _ = t.select(viz=overlay_segmentation(t.img, t.masks)).collect()
+
     def test_overlay_segmentation_stable_ids(self, uses_db: None) -> None:
         # The same object id must map to the same color regardless of its position in the mask stack or how
         # many other objects are present, so that a tracked object keeps a consistent color across frames.

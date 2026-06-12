@@ -4,7 +4,7 @@ from PIL.Image import Dither, Image, Quantize, Transpose
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.functions.image import alpha_composite, blend, composite, tile_iterator
+from pixeltable.functions.image import alpha_composite, blend, composite, stitch_tiles, tile_iterator
 
 from ..utils import SAMPLE_IMAGE_URL, pxt_raises
 
@@ -94,6 +94,41 @@ class TestImage:
                 assert result['tile'].size == (100, 100)
                 tile = image.crop(box)
                 assert list(result['tile'].getdata()) == list(tile.getdata())
+
+    def test_stitch_tiles(self, uses_db: None) -> None:
+        t = pxt.create_table('test_tbl', {'image': pxt.Image})
+        t.insert(image=SAMPLE_IMAGE_URL)
+        image: Image = t.collect()[0]['image']
+        for view_name, overlap in (('tiles_no_overlap', (0, 0)), ('tiles_overlap', (10, 10))):
+            v = pxt.create_view(view_name, t, iterator=tile_iterator(t.image, (100, 100), overlap=overlap))
+            result = (
+                v.select(stitched=stitch_tiles(v.tile, v.tile_box, v.image.width, v.image.height)).group_by(t).collect()
+            )
+            assert len(result) == 1
+            stitched: Image = result[0]['stitched']
+            assert stitched.size == image.size
+            assert stitched.tobytes() == image.tobytes()
+
+    def test_stitch_tiles_edge_cases(self, uses_db: None) -> None:
+        t = pxt.create_table('test_tbl', {'image': pxt.Image})
+        t.insert(image=SAMPLE_IMAGE_URL)
+        image: Image = t.collect()[0]['image']
+        v = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100)))
+
+        # inconsistent width/height within a group
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='does not match the size'):
+            _ = (
+                v.select(stitched=stitch_tiles(v.tile, v.tile_box, v.pos + image.width, image.height))
+                .group_by(t)
+                .collect()
+            )
+
+        # a group consisting entirely of None tiles yields None (rows with a None tile are skipped)
+        nt = pxt.create_table('null_tiles', {'tile': pxt.Image, 'tile_box': pxt.Json})
+        nt.insert([{'tile': None, 'tile_box': [0, 0, 100, 100]}, {'tile': None, 'tile_box': [100, 0, 200, 100]}])
+        result = nt.select(stitched=stitch_tiles(nt.tile, nt.tile_box, image.width, image.height)).collect()
+        assert len(result) == 1
+        assert result[0]['stitched'] is None
 
     def test_tile_iterator_errors(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image})

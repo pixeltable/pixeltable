@@ -1367,8 +1367,9 @@ def _overlay_id_map(
     contour_thickness: int,
 ) -> PIL.Image.Image:
     if segmentation.shape != (img.height, img.width):
-        raise ValueError(
-            f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})'
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})',
         )
     segment_ids = sorted(int(sid) for sid in np.unique(segmentation) if sid != background)
     if segment_colors is None:
@@ -1380,7 +1381,7 @@ def _overlay_id_map(
     segment_alpha = int(alpha * 255)
 
     overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
-    rgb_by_id = {id: PIL.ImageColor.getrgb(color_map[id]) for id in segment_ids}
+    rgb_by_id = {sid: PIL.ImageColor.getrgb(color_map[sid]) for sid in segment_ids}
     for segment_id in segment_ids:
         rgb = rgb_by_id[segment_id]
         mask = segmentation == segment_id
@@ -1462,8 +1463,14 @@ def _(
 ) -> PIL.Image.Image:
     num_instances = segmentation.shape[0]
     if ids is not None and len(ids) != num_instances:
-        raise ValueError(
-            f'`ids` (length {len(ids)}) must have the same length as the number of instance masks ({num_instances})'
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'`ids` (length {len(ids)}) must have the same length as the number of instance masks ({num_instances})',
+        )
+    if segmentation.shape[1:] != (img.height, img.width):
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'Instance mask shape {segmentation.shape[1:]} does not match image dimensions ({img.height}, {img.width})',
         )
     # Each instance is painted with its id, which determines its color. When `ids` is given (e.g. persistent
     # tracking ids), a given id maps to the same color in every frame; otherwise instances are numbered 1..N in
