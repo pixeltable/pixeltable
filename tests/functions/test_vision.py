@@ -1226,7 +1226,7 @@ class TestVision:
             t.select(udf_call).collect()
         t.delete()
 
-    @pytest.mark.expensive  # Resource-intensive
+    @pytest.mark.very_expensive  # Downloads a Hugging Face model
     def test_overlay_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_segmentation
