@@ -38,6 +38,7 @@ from ..utils import (
     get_video_files,
     pxt_raises,
     reload_catalog,
+    skip_test_if_cockroachdb,
     skip_test_if_not_installed,
 )
 
@@ -279,6 +280,7 @@ class TestPackager:
             return {(indexname, indexdef) for indexname, indexdef in result}
 
     def __purge_db(self) -> None:
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         clean_db()
         # Delete any locally stored media files (so that if any stale references to them inadvertently remain after
         # packaging, then those stale references will be invalid).
@@ -333,6 +335,7 @@ class TestPackager:
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
         """package() / restore() round trip for a single snapshot"""
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         # Add some additional columns to test various additional datatypes
         t = test_tbl
         t.add_column(dt=pxt.Date)
@@ -347,6 +350,7 @@ class TestPackager:
 
     def test_non_snapshot_round_trip(self, uses_db: None) -> None:
         """package() / restore() round trip for multiple versions of a table that is not a snapshot"""
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         t = pxt.create_table('tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -452,6 +456,7 @@ class TestPackager:
         """
         Two snapshots that are exported at different times, requiring rectification of the v_max values.
         """
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -475,6 +480,7 @@ class TestPackager:
         """
         Two snapshots that are exported at different times, involving column operations.
         """
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(100))
 
@@ -545,6 +551,7 @@ class TestPackager:
         """
         Another test with many snapshots, involving row and column additions and deletions.
         """
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         bundles: list[TestPackager.BundleInfo] = []
 
         t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
@@ -597,6 +604,7 @@ class TestPackager:
         A similar test, this one involving multiple versions of a table that is not a snapshot,
         intermixed with various snapshots.
         """
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         bundles: list[TestPackager.BundleInfo] = []
 
         t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
@@ -645,7 +653,7 @@ class TestPackager:
 
         self.__restore_and_check_table(t_bundle, 'tbl_replica')
         # Check that test_tbl has been renamed to a user table
-        assert pxt.list_tables() == ['view_replica', 'tbl_replica']
+        assert sorted(pxt.list_tables()) == sorted(['view_replica', 'tbl_replica'])
         assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
 
         t = pxt.get_table('tbl_replica')
@@ -791,7 +799,7 @@ class TestPackager:
         for i in (7, 5, 2, 10):
             self.__restore_and_check_table(bundles[i], f'replica_{i}')
 
-        assert pxt.list_tables() == [f'replica_{i}' for i in (2, 5, 7, 10)]  # 4 visible tables
+        assert sorted(pxt.list_tables()) == sorted([f'replica_{i}' for i in (2, 5, 7, 10)])  # 4 visible tables
         _x = pxt.globals._list_tables('_system', allow_system_paths=True)
         assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 7  # 7 hidden tables
 
