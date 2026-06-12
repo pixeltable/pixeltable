@@ -26,9 +26,7 @@
 
 ## Make Building Multimodal AI Data Apps Dead Simple
 
-**Pixeltable is the unified multimodal backend for AI data apps.** One Python API: store media, run models, index embeddings, serve endpoints, and version everything in a single system instead of gluing together blob storage, a vector DB, an orchestrator, and edge functions.
-
-**Your backend in the schema: tables, transforms, indexes, and APIs in one place.** Chunking, embeddings, agents, and serving run from computed columns on insert, not glue scripts you maintain separately. Transactions, caching, retries, and observability are built in. Extend with `@pxt.udf`, `@pxt.uda`, and `@pxt.query`.
+**Pixeltable is the unified multimodal backend for AI data apps.** One Python API: store media, run models, index embeddings, serve endpoints, and version everything in a single system instead of gluing together blob storage, a vector DB, an orchestrator, and edge functions. Chunking, embeddings, agents, and serving run from computed columns on insert, not glue scripts you maintain separately. Transactions, caching, retries, and observability are built in. Extend with `@pxt.udf`, `@pxt.uda`, and `@pxt.query`.
 
 ## Core Capabilities
 
