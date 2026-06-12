@@ -24,11 +24,11 @@
 [**AI Coding Skill**](https://github.com/pixeltable/pixeltable-skill) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
-## Schema-Defined Backend for Multimodal AI Apps
+## Make Building Multimodal AI Data Apps Dead Simple
 
-**Define your backend in Python schema — tables, transforms, indexes, and APIs in one place.** Chunking, embeddings, agents, and serving run from computed columns on insert, not edge functions and glue scripts you maintain separately.
+**Pixeltable is the unified multimodal backend for AI data apps.** One pip install, one Python API: store media, run models, index embeddings, serve endpoints, and version everything in one system instead of gluing together blob storage, a vector DB, an orchestrator, and edge functions.
 
-Use it as your AI backend alongside any auth/frontend stack, or ship a full app with FastAPI + React via the [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit).
+**Define your backend in Python schema: tables, transforms, indexes, and APIs in one place.** Chunking, embeddings, agents, and serving run from computed columns on insert, not glue scripts you maintain separately. Transactions, caching, retries, and observability are built in. Extend with `@pxt.udf`, `@pxt.uda`, and `@pxt.query`.
 
 ## Core Capabilities
 
@@ -370,8 +370,9 @@ outputs = ["title"]
 ```bash
 python demo.py   # create tables, views, and computed columns
 pxt serve video-api
-# curl -X POST localhost:8000/videos -H 'Content-Type: application/json' -d '{"video": "https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4", "title": "Bangkok"}'
-pxt ls -l && pxt rows frames -n 3 && pxt errors frames
+curl -X POST localhost:8000/videos -H 'Content-Type: application/json' \
+  -d '{"video": "https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4", "title": "Bangkok"}'
+pxt rows frames -n 1 --cols pos,thumb
 ```
 
 See [CLI serving](https://docs.pixeltable.com/platform/cli).
