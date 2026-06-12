@@ -572,14 +572,16 @@ class stitch_tiles(pxt.Aggregator):
     overwrite earlier ones. It composites pixels and does not merge or deduplicate detections across tile seams.
 
     Args:
-        tile: The image tile to paste, the same size as the tiles emitted by `tile_iterator`.
+        tile: The image tile to paste, the same size as the tiles emitted by `tile_iterator`. All tiles in a
+            group must have the same mode (and palette, for palette images).
         tile_box: The `(x1, y1, x2, y2)` pixel coordinates of the tile in the original image, as emitted by
             `tile_iterator`.
         width: The width of the original image, in pixels.
         height: The height of the original image, in pixels.
 
     Returns:
-        The reconstructed image, of size `(width, height)`, or `None` if there are no non-null tiles.
+        The reconstructed image, of size `(width, height)` and in the mode of the tiles, or `None` if there
+        are no non-null tiles.
 
     Examples:
         Split each image into tiles, draw a segmentation overlay on every tile, then stitch the overlaid tiles
@@ -603,12 +605,29 @@ class stitch_tiles(pxt.Aggregator):
 
     def update(self, tile: PIL.Image.Image, tile_box: tuple[int, int, int, int], width: int, height: int) -> None:
         if self.canvas is None:
-            self.canvas = PIL.Image.new('RGB', (width, height))
-        elif self.canvas.size != (width, height):
+            self.canvas = PIL.Image.new(tile.mode, (width, height))
+            palette = tile.getpalette()
+            if palette is not None:
+                self.canvas.putpalette(palette)
+
+        if self.canvas.size != (width, height):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 f'stitch_tiles(): width/height ({width}, {height}) does not match the size {self.canvas.size} '
                 'of previous tiles in the group',
+            )
+
+        if tile.mode != self.canvas.mode:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'stitch_tiles(): tile mode {tile.mode} does not match the mode {self.canvas.mode} '
+                'of previous tiles in the group',
+            )
+
+        if tile.getpalette() != self.canvas.getpalette():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                'stitch_tiles(): tile palette does not match the palette of previous tiles in the group',
             )
         # Tiles that extend past the original image (the padding `tile_iterator` adds to edge tiles) are clipped
         # by `paste`, so the padding never appears in the result.
