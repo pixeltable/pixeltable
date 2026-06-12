@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
 
+@pytest.mark.very_expensive  # Downloads Hugging Face datasets
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on Linux ARM instances in CI'
 )
