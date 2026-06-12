@@ -283,16 +283,14 @@ class TestTable:
         t = pxt.create_table('test', schema)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
-    def test_table_metadata(self, uses_db: None, clip_embed: pxt.Function) -> None:
-        skip_test_if_not_installed('transformers')  # we need a `clip_embed` instance to test index metadata
-
+    def test_table_metadata(self, uses_db: None, local_embed: pxt.Function) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir/subdir')
         for tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
-            view.add_embedding_index('col', embedding=clip_embed)
+            view.add_embedding_index('col', embedding=local_embed)
             puresnap_path = f'{tbl_path}_puresnap'
             puresnap = pxt.create_snapshot(puresnap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap_path = f'{tbl_path}_snap'
@@ -378,10 +376,10 @@ class TestTable:
                             'index_type': 'embedding',
                             'name': 'idx0',
                             'parameters': {
-                                'embedding': "clip(col, model_id='openai/clip-vit-base-patch32')",
+                                'embedding': 'local_embedding(col, dim=512)',
                                 'embedding_functions': [
-                                    "clip(text, model_id='openai/clip-vit-base-patch32')",
-                                    "clip(image, model_id='openai/clip-vit-base-patch32')",
+                                    'local_embedding(text, dim=512)',
+                                    'local_embedding(image, dim=512)',
                                 ],
                                 'metric': 'cosine',
                             },
@@ -3580,7 +3578,7 @@ class TestTable:
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
         assert expected_schema == actual_schema
 
-    def test_repr(self, uses_db: None, test_tbl: pxt.Table, all_mpnet_embed: pxt.Function) -> None:
+    def test_repr(self, uses_db: None, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         validate_repr(
             test_tbl,
             """
@@ -3619,10 +3617,9 @@ class TestTable:
         )
 
         # test case: view with additional columns
-        skip_test_if_not_installed('sentence_transformers')
         v2 = pxt.create_view('test_subview', v.where(v.c1 != None), comment='This is an intriguing table comment.')
         v2.add_computed_column(computed1=v2.c2.apply(lambda x: np.full((3, 4), x), col_type=pxt.Array[(3, 4), pxt.Int]))  # type: ignore[misc]
-        v2.add_embedding_index('c1', string_embed=all_mpnet_embed)
+        v2.add_embedding_index('c1', string_embed=local_embed)
         v2._link_external_store(MockProject.create(v2, 'project', {}, {}))
         validate_repr(
             v2,
@@ -3646,7 +3643,7 @@ class TestTable:
 
              Index Name Column  Metric                                          Embedding
             -----------------------------------------------------------------------------
-                   idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
+                   idx0     c1  cosine  local_embedding(c1, dim=512)
 
              External Store         Type
             ----------------------------

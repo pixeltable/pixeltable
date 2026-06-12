@@ -25,7 +25,7 @@ from pixeltable.utils.object_stores import (
 _logger = logging.getLogger(__name__)
 
 
-@env.register_client('gcs_store')
+@env.register_client('gcs_store', credential_param=None)
 def _() -> 'Client':
     """Create and return a GCS client, using default credentials if available,
     otherwise creating an anonymous client for public buckets.

@@ -1402,7 +1402,7 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
-        get_runtime().catalog.mark_modified_tvs(self.handle)
+        get_runtime().catalog.mark_modified_tv(self.handle)
         result = UpdateStatus()
         create_new_table_version = plan is not None
         if create_new_table_version:
@@ -1475,7 +1475,7 @@ class TableVersion:
         self, where: exprs.Expr | None, base_versions: list[int | None], timestamp: float
     ) -> UpdateStatus:
         """Delete rows in this table and propagate to views"""
-        get_runtime().catalog.mark_modified_tvs(self.handle)
+        get_runtime().catalog.mark_modified_tv(self.handle)
 
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
         if self.is_versioned:
@@ -1547,7 +1547,7 @@ class TableVersion:
         # revert schema changes:
         # - undo changes to self._tbl_md and write that back
         # - delete newly-added TableVersion/TableSchemaVersion records
-        get_runtime().catalog.mark_modified_tvs(self.handle)
+        get_runtime().catalog.mark_modified_tv(self.handle)
         old_version = self.version
         if self.version == self.schema_version:
             # physically delete newly-added columns and remove them from the stored md
@@ -1730,7 +1730,7 @@ class TableVersion:
         if timestamp is None:
             timestamp = time.time()
 
-        get_runtime().catalog.mark_modified_tvs(self.handle)
+        get_runtime().catalog.mark_modified_tv(self.handle)
 
         old_version = self._tbl_md.current_version
         assert self._version_md.version == old_version

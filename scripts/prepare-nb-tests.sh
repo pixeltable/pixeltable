@@ -12,7 +12,7 @@ SKIP_NOTEBOOKS=(
     working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
 )
 
-# Notebooks that are skipped unless --include-expensive is passed
+# Notebooks that are skipped unless --include-very-expensive is passed
 VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
     video-generate-ai               # High dollar cost
@@ -20,11 +20,33 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-together           # Poor reliability
 )
 
+# Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.
+EXPENSIVE_NOTEBOOKS=(
+    audio-transcriptions
+    computed-columns
+    data-import-huggingface
+    doc-chunk-for-rag
+    embedding-indexes
+    img-image-to-image
+    multimodal_backend
+    queries-and-expressions
+    rag-demo
+    rag-operations
+    search-semantic-text
+    search-similar-images
+    ten-minute-tour
+    using-label-studio-with-pixeltable
+    video-image-slideshow
+    working-with-hugging-face
+    working-with-llama-cpp
+)
+
 IFS=$'\n'
 SCRIPT_DIR="$(dirname "$0")"
 cd "$SCRIPT_DIR/.."
 
 DO_PIP_INSTALL=true
+INCLUDE_VERY_EXPENSIVE=false
 INCLUDE_EXPENSIVE=false
 
 while [[ $# -gt 0 ]]; do
@@ -33,13 +55,17 @@ while [[ $# -gt 0 ]]; do
             DO_PIP_INSTALL=false
             shift
             ;;
+        --include-very-expensive)
+            INCLUDE_VERY_EXPENSIVE=true
+            shift
+            ;;
         --include-expensive)
             INCLUDE_EXPENSIVE=true
             shift
             ;;
         -*)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--no-pip] [--include-expensive] target-path <notebook-paths>"
+            echo "Usage: $0 [--no-pip] [--include-very-expensive] [--include-expensive] target-path <notebook-paths>"
             exit 1
             ;;
         *)
@@ -49,7 +75,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$2" ]; then
-    echo "Usage: $0 [--no-pip] [--include-expensive] target-path <notebook-paths>"
+    echo "Usage: $0 [--no-pip] [--include-very-expensive] [--include-expensive] target-path <notebook-paths>"
     exit 1
 fi
 
@@ -60,6 +86,9 @@ echo "Target path: $TARGET_DIR"
 echo "Notebook paths: $@"
 if [[ $DO_PIP_INSTALL == false ]]; then
     echo "Skipping pip install commands in notebooks."
+fi
+if [[ $INCLUDE_VERY_EXPENSIVE == true ]]; then
+    echo "Including very expensive notebooks."
 fi
 if [[ $INCLUDE_EXPENSIVE == true ]]; then
     echo "Including expensive notebooks."
@@ -89,10 +118,18 @@ for nb in "${SKIP_NOTEBOOKS[@]}"; do
     rm "$TARGET_DIR/${nb}.ipynb"
 done
 
-# Remove expensive notebooks unless --include-expensive was passed
-if [[ $INCLUDE_EXPENSIVE == false ]]; then
+# Remove very expensive notebooks unless --include-very-expensive was passed
+if [[ $INCLUDE_VERY_EXPENSIVE == false ]]; then
     for nb in "${VERY_EXPENSIVE_NOTEBOOKS[@]}"; do
         echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in VERY_EXPENSIVE_NOTEBOOKS."
+        rm "$TARGET_DIR/${nb}.ipynb"
+    done
+fi
+
+# Remove expensive notebooks unless --include-expensive was passed
+if [[ $INCLUDE_EXPENSIVE == false ]]; then
+    for nb in "${EXPENSIVE_NOTEBOOKS[@]}"; do
+        echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in EXPENSIVE_NOTEBOOKS."
         rm "$TARGET_DIR/${nb}.ipynb"
     done
 fi

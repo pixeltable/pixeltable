@@ -19,7 +19,7 @@ async def _rate_limited_udf(x: int) -> int:  # noqa: RUF029
 
 
 class TestSchedulers:
-    def test_rate_limits_scheduler_exception_before_pool(self, uses_db: None) -> None:
+    def test_rate_limits_scheduler_exception_before_pool(self, uses_db: None, fault_injection: None) -> None:
         """
         The very first function evaluation raises an error in RateLimitsScheduler. The scheduler correctly identifies
         that pool_info is not yet available, and doesn't attempt to use it to determine the retry delay for this error.

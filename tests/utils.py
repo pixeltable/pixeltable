@@ -1,8 +1,10 @@
 import datetime
 import glob
+import hashlib
 import itertools
 import json
 import logging
+import math
 import os
 import random
 import re
@@ -29,6 +31,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
 from pixeltable.catalog import retry_loop
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.types import ColumnSpec
@@ -710,6 +713,11 @@ def skip_test_if_not_installed(*packages: str) -> None:
             pytest.skip(f'Package `{package}` is not installed.')
 
 
+def skip_test_if_no_config(key: str, section: str = 'pixeltable') -> None:
+    if not Config.get().get_string_value(key, section):
+        pytest.skip(f'Configuration `{section}.{key}` is not set.')
+
+
 def skip_test_if_not_in_path(*binaries: str) -> None:
     for binary in binaries:
         if shutil.which(binary) is None:
@@ -1013,3 +1021,47 @@ def validate_repr(t: Any, expected: str) -> None:
 
     assert cleanup(repr(t)) == cleanup(expected), f'Expected repr: {expected}, actual: {t!r}'
     t._repr_html_()  # TODO: Is there a good way to test this output?
+
+
+# A deterministic, download-free embedding used in place of HuggingFace models (clip, sentence_transformer) in tests
+# that exercise embedding-index machinery rather than real-model semantics. It is multimodal -- text is mapped via
+# character n-gram hashing and images via grayscale downsampling, both into the same fixed-dimensional space -- so it
+# is a drop-in for clip (used as both image_embed and string_embed) as well as for string-only embeddings. Identical
+# inputs produce identical vectors, so retrieving an item by querying with itself is exact. It does NOT model
+# cross-modal or lexically-independent semantics; tests that assert those use the real models on the very_expensive
+# (scheduled) tier.
+
+LOCAL_EMBED_DIM = 512  # matches openai/clip-vit-base-patch32; bind via local_embedding.using(dim=...)
+
+
+def _local_text_vec(text: str, dim: int) -> np.ndarray:
+    v = np.zeros(dim, dtype=np.float32)
+    t = (text or '').lower()
+    tokens = list(t) + [t[i : i + 3] for i in range(len(t) - 2)]  # unigrams + character trigrams
+    for tok in tokens:
+        v[int.from_bytes(hashlib.sha1(tok.encode('utf-8')).digest()[:4], 'big') % dim] += 1.0
+    norm = float(np.linalg.norm(v))
+    return v / norm if norm > 0 else v
+
+
+def _local_image_vec(image: PIL.Image.Image, dim: int) -> np.ndarray:
+    side = math.isqrt(dim)
+    grid = image.convert('L').resize((-(-dim // side), side))  # downsample to a grid of >= dim pixels
+    v = np.asarray(grid, dtype=np.float32).reshape(-1)[:dim]
+    norm = float(np.linalg.norm(v))
+    return v / norm if norm > 0 else v
+
+
+@pxt.udf
+def local_embedding(text: str, *, dim: int = LOCAL_EMBED_DIM) -> pxt.Array[(None,), np.float32]:
+    return _local_text_vec(text, dim)
+
+
+@local_embedding.overload
+def _(image: PIL.Image.Image, *, dim: int = LOCAL_EMBED_DIM) -> pxt.Array[(None,), np.float32]:
+    return _local_image_vec(image, dim)
+
+
+@local_embedding.conditional_return_type
+def _(dim: int) -> ts.ArrayType:
+    return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
