@@ -1525,7 +1525,9 @@ class Catalog:
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
                 base_id = base.tbl_id
-                assert self._acquire_write_lock(tbl_id=base_id), base_id
+                locked_ids = self._acquire_write_lock(tbl_id=base_id)
+                assert locked_ids == {base_id}, base_id
+                self._x_locked_tbl_ids.update(locked_ids)
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
                 self.mark_modified_tv(base_tv.handle)
                 base_tv.tbl_md.view_sn += 1
@@ -1855,13 +1857,6 @@ class Catalog:
                 _logger.info(f'Skipped table {path!r} (does not exist).')
                 return
             assert isinstance(tbl, Table)
-
-            if isinstance(tbl, View) and tbl._tbl_version_path.is_mutable() and tbl._tbl_version_path.base.is_mutable():
-                # this is a mutable view of a mutable base;
-                # lock the base before the view, in order to avoid deadlocks with concurrent inserts/updates
-                base_id = tbl._tbl_version_path.base.tbl_id
-                assert self._acquire_write_lock(tbl_id=base_id), base_id
-
             self._drop_tbl(tbl, force=force, is_replace=False)
 
         self._roll_forward_ids.clear()
@@ -1873,9 +1868,6 @@ class Catalog:
         Drop the table (and recursively its views, if force == True).
 
         `tbl` can be an instance of `Table` for a user table, or `TableVersionPath` for a hidden (system) table.
-
-        Returns:
-            List of table ids that were dropped.
 
         Locking protocol:
         - X-lock base before X-locking any view
@@ -1898,7 +1890,15 @@ class Catalog:
         tbl_path_repr: str = str(tbl_id) if tbl is None else repr(tbl._path())
         if tbl is not None:
             self._acquire_dir_xlock(dir_id=tbl._dir_id())
-        self._acquire_write_lock(tbl_id=tbl_id)
+
+        # If the base table needs an update, lock it before locking the view.
+        if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
+            base_id = tvp.base.tbl_id
+            # Bug(PXT-1198): when multiple tables are getting dropped within one transaction (like when self._drop_dir
+            # calls self._drop_tbl), the expected base-before-view lock ordering is currently not guaranteed.
+            if base_id not in self._x_locked_tbl_ids:
+                self._x_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=base_id))
+        self._x_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=tbl_id))
 
         view_ids = self.get_view_ids(tbl_id, for_update=True)
         is_replica = tvp.is_replica()
@@ -2235,6 +2235,9 @@ class Catalog:
 
     def _move_table(self, tbl_id: UUID, new_name: str, new_dir_id: UUID) -> None:
         """Update dir_id/name for tbl_id."""
+        # TODO(PXT-1197): Catalog does not properly lock tables for the move
+        # This assertion validates a crucial invariant, but it fails today.
+        # assert tbl_id in self._x_locked_tbl_ids, f"Table {tbl_id} should be locked for the move but isn't"
         stmt = (
             sql.update(schema.Table)
             .where(schema.Table.id == tbl_id)
