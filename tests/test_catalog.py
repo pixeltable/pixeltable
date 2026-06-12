@@ -283,13 +283,7 @@ class TestCatalog:
         (
             MultiThreadedScenario()
             # Thread 0: arm the fault in pending table ops finalization
-            .then_run(
-                thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault
-                ),
-            )
+            .then_inject_fault(thread_id=0, loc=FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault=fault)
             # Thread 0: start adding a computed column, this will block at the fault point
             .then_run_until(
                 thread_id=0, name='add column', event=fault.reached, fn=lambda: t.add_computed_column(b=t.a + 1)
@@ -326,12 +320,10 @@ class TestCatalog:
             # Thread 0: Warm up its catalog so base's tv is cached.
             .then_run(thread_id=0, name='warm up cache', fn=lambda: pxt.get_table('base'))
             # Thread 0: Arm a non-retriable exception fault inside create_view.
-            .then_run(
+            .then_inject_fault(
                 thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED, ExceptionFault(injected_exc)
-                ),
+                loc=FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED,
+                fault=ExceptionFault(injected_exc),
             )
             # Thread 0: Run create_view (va) that fails. Before the fix, base_tv was not added to _modified_tvs, so it
             # stays in cache with stale in-memory state, i.e. with view_sn=v+1
@@ -364,12 +356,8 @@ class TestCatalog:
         (
             MultiThreadedScenario()
             # Thread 0: arm the fault that blocks right after _store_tbl_exists() returns True
-            .then_run(
-                thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK, block_in_store_base
-                ),
+            .then_inject_fault(
+                thread_id=0, loc=FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK, fault=block_in_store_base
             )
             # Thread 0: load the table with a cold cache; this will block in StoreBase. When it unblocks later, expect
             # a "Table was dropped" error. Before the fix, this would raise an AssertionError.
