@@ -1,30 +1,28 @@
-import atexit
-import hashlib
-import os
-import shutil
 import sys
-import tempfile
 from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from settings import ALLOWED_TYPES, logger
 
-# Ensure backend/ is on path for config and setup_pixeltable imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Ensure backend/ and sample-apps/ are on path for local imports
+_BACKEND = Path(__file__).resolve().parent.parent
+_SAMPLE_APPS = _BACKEND.parents[1]
+for path in (_BACKEND, _SAMPLE_APPS):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-import config
-import setup_pixeltable  # noqa: F401
+import config  # noqa: E402
+import setup_pixeltable  # noqa: F401, E402
+import upload_utils  # noqa: E402
 
-import pixeltable as pxt
+import pixeltable as pxt  # noqa: E402
 
 router = APIRouter()
 
-TEMP_DIR = Path(tempfile.mkdtemp())
-atexit.register(shutil.rmtree, TEMP_DIR, ignore_errors=True)
+TEMP_DIR = upload_utils.create_upload_temp_dir()
 logger.info(f'Temporary directory: {TEMP_DIR.absolute()}')
 
 docs_table = pxt.get_table(f'{config.APP_NAMESPACE}.documents')
@@ -35,35 +33,16 @@ class ChatMessage(BaseModel):
     message: str
 
 
-def _safe_filename(filename: str | None) -> str:
-    return Path(filename or 'upload').name
-
-
-def _stable_file_id(file_path: Path) -> str:
-    return hashlib.sha256(str(file_path).encode()).hexdigest()[:16]
-
-
-async def _save_upload(file: UploadFile) -> Path:
-    base = _safe_filename(file.filename)
-    suffix = Path(base).suffix
-    stem = Path(base).stem or 'upload'
-    file_path = TEMP_DIR / f'{stem}_{uuid4().hex}{suffix}'
-    with file_path.open('wb') as buffer:
-        buffer.write(await file.read())
-    return file_path
-
-
 @router.post('/api/upload')
-async def upload_file(file: UploadFile = File(...)):  # noqa: B008
+def upload_file(file: UploadFile = File(...)):  # noqa: B008
     """Upload and process document files."""
     if file.content_type not in ALLOWED_TYPES['document']:
         raise HTTPException(status_code=400, detail='Invalid document format. Supported: PDF, MD, HTML, TXT, XML')
 
     file_path: Path | None = None
     try:
-        file_path = await _save_upload(file)
-        abs_path = str(file_path.absolute()).replace(os.sep, '/')
-        docs_table.insert([{'document': abs_path}])
+        file_path = upload_utils.save_upload(file, TEMP_DIR)
+        docs_table.insert([{'document': upload_utils.normalize_path(file_path)}])
         return JSONResponse(
             status_code=200,
             content={
@@ -80,45 +59,29 @@ async def upload_file(file: UploadFile = File(...)):  # noqa: B008
 
 
 @router.get('/api/files')
-async def list_files():
+def list_files():
     try:
-        doc_results = docs_table.select(docs_table.document).collect().to_pandas()
-        video_results = docs_table.select(docs_table.video).collect().to_pandas()
+        results = docs_table.select(docs_table.uuid, docs_table.document, docs_table.video).collect()
         files = []
 
-        for _, row in doc_results.iterrows():
-            path = row['document']
-            if not path:
-                continue
-            file_path = Path(path)
-            if file_path.exists():
-                files.append(
-                    {
-                        'id': _stable_file_id(file_path),
-                        'name': file_path.name,
-                        'size': file_path.stat().st_size,
-                        'type': 'document',
-                        'status': 'success',
-                        'uploadProgress': 100,
-                    }
-                )
-
-        for _, row in video_results.iterrows():
-            path = row['video']
-            if not path:
-                continue
-            file_path = Path(path)
-            if file_path.exists():
-                files.append(
-                    {
-                        'id': _stable_file_id(file_path),
-                        'name': file_path.name,
-                        'size': file_path.stat().st_size,
-                        'type': 'video',
-                        'status': 'success',
-                        'uploadProgress': 100,
-                    }
-                )
+        for row in results:
+            file_id = str(row['uuid'])
+            for col_name, file_type in [('document', 'document'), ('video', 'video')]:
+                path = row[col_name]
+                if not path:
+                    continue
+                file_path = Path(path)
+                if file_path.exists():
+                    files.append(
+                        {
+                            'id': file_id,
+                            'name': file_path.name,
+                            'size': file_path.stat().st_size,
+                            'type': file_type,
+                            'status': 'success',
+                            'uploadProgress': 100,
+                        }
+                    )
 
         files.sort(key=lambda x: (x['type'], x['name']))
         return JSONResponse(status_code=200, content={'files': files})
@@ -128,14 +91,14 @@ async def list_files():
 
 
 @router.post('/api/videos/upload')
-async def upload_video(file: UploadFile = File(...)):  # noqa: B008
+def upload_video(file: UploadFile = File(...)):  # noqa: B008
     if not any(file.content_type.startswith(vtype) for vtype in ALLOWED_TYPES['video']):
         raise HTTPException(400, 'Invalid video format')
 
     file_path: Path | None = None
     try:
-        file_path = await _save_upload(file)
-        full_path = str(file_path.absolute()).replace(os.sep, '/')
+        file_path = upload_utils.save_upload(file, TEMP_DIR)
+        full_path = upload_utils.normalize_path(file_path)
         docs_table.insert([{'video': full_path}])
         return JSONResponse(
             status_code=200,
@@ -153,14 +116,14 @@ async def upload_video(file: UploadFile = File(...)):  # noqa: B008
 
 
 @router.post('/api/audio/upload')
-async def upload_audio(file: UploadFile = File(...)):  # noqa: B008
+def upload_audio(file: UploadFile = File(...)):  # noqa: B008
     if not any(file.content_type.startswith(atype) for atype in ALLOWED_TYPES['audio']):
         raise HTTPException(400, 'Invalid audio format')
 
     file_path: Path | None = None
     try:
-        file_path = await _save_upload(file)
-        normalized_path = str(file_path.absolute()).replace(os.sep, '/')
+        file_path = upload_utils.save_upload(file, TEMP_DIR)
+        normalized_path = upload_utils.normalize_path(file_path)
         docs_table.insert([{'audio': normalized_path}])
         return JSONResponse(
             status_code=200,
@@ -177,7 +140,7 @@ async def upload_audio(file: UploadFile = File(...)):  # noqa: B008
         raise HTTPException(500, f'Error uploading audio: {e!s}') from e
 
 
-async def get_answer(question: str) -> str:
+def get_answer(question: str) -> str:
     docs_table.insert([{'question': question}])
     result = docs_table.select(docs_table.answer).where(docs_table.question == question).collect()
     if len(result) == 0:
@@ -189,10 +152,10 @@ async def get_answer(question: str) -> str:
 
 
 @router.post('/api/chat')
-async def chat(message: ChatMessage):
+def chat(message: ChatMessage):
     try:
         conversations.insert([{'role': 'user', 'content': message.message, 'timestamp': datetime.now()}])
-        response = await get_answer(message.message)
+        response = get_answer(message.message)
         conversations.insert([{'role': 'assistant', 'content': response, 'timestamp': datetime.now()}])
         return JSONResponse(status_code=200, content={'response': response, 'used_files': []})
     except Exception as e:
@@ -201,10 +164,10 @@ async def chat(message: ChatMessage):
 
 
 @router.get('/')
-async def root():
+def root():
     return 'Pixeltable Multimodal API'
 
 
 @router.get('/health')
-async def health_check():
+def health_check():
     return {'status': 'ok'}

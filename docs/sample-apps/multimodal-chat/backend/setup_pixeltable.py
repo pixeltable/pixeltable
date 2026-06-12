@@ -14,6 +14,7 @@ from pixeltable.functions import openai
 from pixeltable.functions.document import document_splitter
 from pixeltable.functions.huggingface import sentence_transformer
 from pixeltable.functions.string import string_splitter
+from pixeltable.functions.uuid import uuid7
 from pixeltable.functions.video import extract_audio
 
 if os.getenv('RESET_SCHEMA', 'false').lower() == 'true':
@@ -24,7 +25,8 @@ ns = config.APP_NAMESPACE
 
 docs_table = pxt.create_table(
     f'{ns}.documents',
-    {'document': pxt.Document, 'video': pxt.Video, 'audio': pxt.Audio, 'question': pxt.String},
+    {'uuid': uuid7(), 'document': pxt.Document, 'video': pxt.Video, 'audio': pxt.Audio, 'question': pxt.String},
+    primary_key=['uuid'],
     if_exists='ignore',
 )
 
