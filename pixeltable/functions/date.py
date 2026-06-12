@@ -99,7 +99,7 @@ def weekday(self: date) -> int:
 
 @weekday.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.extract('isodow', self) - 1
+    return sql.extract('isodow', self).cast(sql.Integer) - 1
 
 
 @pxt.udf(is_method=True)

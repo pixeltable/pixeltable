@@ -724,6 +724,16 @@ def skip_test_if_not_in_path(*binaries: str) -> None:
             pytest.skip(f'Binary `{binary}` is not in PATH.')
 
 
+def skip_test_if_cockroachdb(reason: str = 'Not supported on CockroachDB.') -> None:
+    if Env.get().is_using_cockroachdb:
+        pytest.skip(reason)
+
+
+def skip_test_if_not_local(reason: str = 'Requires a local (file-backed) Pixeltable database.') -> None:
+    if not Env.get().is_local:
+        pytest.skip(reason)
+
+
 def skip_test_if_no_client(client_name: str) -> None:
     try:
         _ = get_runtime().get_client(client_name)

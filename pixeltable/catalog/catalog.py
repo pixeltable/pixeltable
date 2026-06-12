@@ -1191,7 +1191,9 @@ class Catalog:
         cascade_row_count_excs = sql.func.coalesce(
             update_status['cascade_row_count_stats']['num_excs'].astext.cast(sql.Integer), 0
         )
-        errors = sql.func.coalesce(sql.func.sum(row_count_excs + cascade_row_count_excs), 0).label('errors')
+        errors = sql.func.coalesce(
+            sql.cast(sql.func.sum(row_count_excs + cascade_row_count_excs), sql.BigInteger), 0
+        ).label('errors')
         stmt = sql.select(schema.TableVersion.tbl_id, errors).group_by(schema.TableVersion.tbl_id)
         rows = get_runtime().conn.execute(stmt).all()
         return {r.tbl_id: r.errors for r in rows}
