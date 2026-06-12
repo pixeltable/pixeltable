@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from typing import TYPE_CHECKING, Any, List, Literal, Mapping
+from typing import TYPE_CHECKING, Any, List, Literal, Mapping, Sequence
 from uuid import UUID
 
 import pydantic
@@ -15,7 +15,6 @@ from pixeltable.catalog.globals import _POS_COLUMN_NAME
 from pixeltable.func.iterator import IteratorOutput
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
-
 from .column import Column
 from .globals import MediaValidation
 from .table import Table
