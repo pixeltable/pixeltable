@@ -44,6 +44,7 @@ from . import (
     uuid,
     video,
     vision,
+    vllm,
     voyageai,
     whisper,
     whisperx,

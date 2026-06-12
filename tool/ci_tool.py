@@ -19,7 +19,7 @@ EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
 VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
 
 MAIN_PLATFORM = 'ubuntu-24.04'
-BASIC_PLATFORMS = ('macos-15', 'windows-2022')
+BASIC_PLATFORMS = ('macos-15', 'windows-2025')
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
@@ -106,7 +106,8 @@ def generate_matrix(args: argparse.Namespace) -> None:
     if trigger == 'pull_request':
         # Tier 1 only: Just the standard tests on MAIN_PLATFORM.
         configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.10'))
-        configs.append(MatrixConfig('notebooks', 'ipynb', MAIN_PLATFORM, '3.10'))
+        # Notebook tests are not run on PRs (Hugging Face downloads are rate-limited without a token, which is
+        # unavailable on PRs). Non-HF notebooks run in the merge queue; all notebooks run on the scheduled tier.
 
     else:
         if force_all or trigger == 'schedule':
@@ -122,6 +123,8 @@ def generate_matrix(args: argparse.Namespace) -> None:
         else:
             # Tier 2 only: Standard + expensive (but not very_expensive) tests on upgraded platform.
             configs.append(MatrixConfig('standard+', 'py', 'ubuntu-large', '3.10', pytest_options=EXPENSIVE_PYTEST))
+            # Non-HF notebooks. HF-dependent notebooks are gated behind --include-expensive, which only the
+            # scheduled tier passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.10'))
 
         # Tiers 2 and 3: Various additional configurations.
