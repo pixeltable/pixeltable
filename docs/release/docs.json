@@ -487,6 +487,10 @@
       "destination": "/overview/quick-start"
     },
     {
+      "source": "/quickstart",
+      "destination": "/overview/quick-start"
+    },
+    {
       "source": "/overview/configuration",
       "destination": "/platform/configuration"
     },
