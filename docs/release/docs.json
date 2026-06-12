@@ -99,6 +99,7 @@
                       "howto/cookbooks/core/multimodal_backend",
                       "howto/cookbooks/core/workflow-api-keys",
                       "howto/cookbooks/core/dev-iterative-workflow",
+                      "howto/cookbooks/core/working-with-cli",
                       "howto/cookbooks/core/workflow-json-extraction",
                       "howto/cookbooks/core/workflow-uuid-identity",
                       "howto/cookbooks/core/query-join-tables",

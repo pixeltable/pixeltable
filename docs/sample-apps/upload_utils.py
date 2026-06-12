@@ -1,7 +1,7 @@
 """Shared upload helpers for FastAPI showcase apps.
 
-Use sync ``def`` route handlers with these helpers. Pixeltable I/O is synchronous;
-FastAPI runs ``def`` endpoints on a thread pool (see operations.mdx).
+Use sync `def` route handlers with these helpers. Pixeltable I/O is synchronous;
+FastAPI runs `def` endpoints on a thread pool (see operations.mdx).
 """
 
 from __future__ import annotations
