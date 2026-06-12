@@ -30,6 +30,7 @@ VERY_EXPENSIVE_NOTEBOOKS=(
 
 # Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.
 EXPENSIVE_NOTEBOOKS=(
+    audio-podcast-chapters
     audio-transcriptions
     computed-columns
     data-import-huggingface

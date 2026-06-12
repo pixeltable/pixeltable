@@ -858,7 +858,7 @@ class SqlSampleNode(SqlNode):
         per_strata_count_cte = (
             sql.select(
                 *sql_strata_exprs,
-                sql.func.ceil(fraction_samples * sql.func.count(1).cast(sql.Integer)).label('s_s_size'),
+                sql.func.ceil(fraction_samples * sql.func.count(1).cast(sql.Float)).cast(sql.Integer).label('s_s_size'),
             )
             .select_from(self.input_cte)
             .group_by(*sql_strata_exprs)
