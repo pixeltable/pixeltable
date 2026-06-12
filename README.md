@@ -24,9 +24,11 @@
 [**AI Coding Skill**](https://github.com/pixeltable/pixeltable-skill) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
-## Make Building Multimodal AI Apps Dead Simple
+## Schema-Defined Backend for Multimodal AI Apps
 
-**The only multimodal backend where transforms live in the schema, not bolted on top.** Your table schema is the infrastructure spec: declare tables, views, computed columns, and indexes; storage, transforms, embeddings, agents, and serving follow from it.
+**Define your backend in Python schema — tables, transforms, indexes, and APIs in one place.** Chunking, embeddings, agents, and serving run from computed columns on insert, not edge functions and glue scripts you maintain separately.
+
+Use it as your AI backend alongside any auth/frontend stack, or ship a full app with FastAPI + React via the [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit).
 
 ## Core Capabilities
 
