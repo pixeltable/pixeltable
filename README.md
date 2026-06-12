@@ -26,9 +26,9 @@
 
 ## Make Building Multimodal AI Data Apps Dead Simple
 
-**Pixeltable is the unified multimodal backend for AI data apps.** One pip install, one Python API: store media, run models, index embeddings, serve endpoints, and version everything in one system instead of gluing together blob storage, a vector DB, an orchestrator, and edge functions.
+**Pixeltable is the unified multimodal backend for AI data apps.** One Python API: store media, run models, index embeddings, serve endpoints, and version everything in a single system instead of gluing together blob storage, a vector DB, an orchestrator, and edge functions.
 
-**Define your backend in Python schema: tables, transforms, indexes, and APIs in one place.** Chunking, embeddings, agents, and serving run from computed columns on insert, not glue scripts you maintain separately. Transactions, caching, retries, and observability are built in. Extend with `@pxt.udf`, `@pxt.uda`, and `@pxt.query`.
+**Your backend in the schema: tables, transforms, indexes, and APIs in one place.** Chunking, embeddings, agents, and serving run from computed columns on insert, not glue scripts you maintain separately. Transactions, caching, retries, and observability are built in. Extend with `@pxt.udf`, `@pxt.uda`, and `@pxt.query`.
 
 ## Core Capabilities
 
@@ -369,10 +369,10 @@ outputs = ["title"]
 
 ```bash
 python demo.py   # create tables, views, and computed columns
-pxt serve video-api
+pxt serve video-api   # start REST API from pyproject.toml (POST /videos insert route)
 curl -X POST localhost:8000/videos -H 'Content-Type: application/json' \
-  -d '{"video": "https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4", "title": "Bangkok"}'
-pxt rows frames -n 1 --cols pos,thumb
+  -d '{"video": "https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4", "title": "Bangkok"}'   # insert video; triggers frame extraction + thumb
+pxt rows frames -n 1 --cols pos,thumb   # one frame row + computed thumbnail
 ```
 
 See [CLI serving](https://docs.pixeltable.com/platform/cli).
