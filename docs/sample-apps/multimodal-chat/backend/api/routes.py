@@ -141,8 +141,11 @@ def upload_audio(file: UploadFile = File(...)):  # noqa: B008
 
 
 def get_answer(question: str) -> str:
-    docs_table.insert([{'question': question}])
-    result = docs_table.select(docs_table.answer).where(docs_table.question == question).collect()
+    status = docs_table.insert([{'question': question}], return_rows=True)
+    if not status.rows:
+        return 'No response was generated. Please try asking another question.'
+    row_uuid = status.rows[0]['uuid']
+    result = docs_table.select(docs_table.answer).where(docs_table.uuid == row_uuid).collect()
     if len(result) == 0:
         return 'No response was generated. Please try asking another question.'
     answer = result['answer'][0]

@@ -33,7 +33,7 @@ def save_upload(file: UploadFile, temp_dir: Path) -> Path:
     stem = Path(base).stem or 'upload'
     temp_path = temp_dir / f'{stem}_{uuid4().hex}{suffix}'
     with temp_path.open('wb') as buffer:
-        buffer.write(file.file.read())
+        shutil.copyfileobj(file.file, buffer, length=1024 * 1024)
     return temp_path
 
 
@@ -54,6 +54,8 @@ def load_query_image(upload: UploadFile):
     import PIL.Image
 
     try:
-        return PIL.Image.open(io.BytesIO(upload.file.read()))
-    except PIL.UnidentifiedImageError as e:
+        img = PIL.Image.open(io.BytesIO(upload.file.read()))
+        img.load()
+        return img
+    except (PIL.UnidentifiedImageError, PIL.Image.DecompressionBombError, OSError) as e:
         raise HTTPException(status_code=400, detail='Invalid image file') from e
