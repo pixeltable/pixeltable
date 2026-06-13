@@ -20,6 +20,7 @@ import sys
 import urllib.error
 from collections.abc import Callable, Iterator
 from email.message import Message
+from typing import Any
 
 import pytest
 from typing_extensions import Self
@@ -117,6 +118,62 @@ class TestProbe:
         assert body['pid'] > 0
         # the spawned daemon's pidfile should now exist and contain that PID
         assert client_utils.read_pidfile() == body['pid']
+
+    def test_no_daemon_no_pidfile_just_spawns(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Cold start with no pidfile: spawn straight away, nothing to reclaim."""
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: None)
+        actions: list[str] = []
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
+        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+
+        client_utils.ensure_running()
+        assert actions == ['spawn']
+
+    def test_hung_daemon_is_reclaimed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A daemon we started is alive (pidfile names a live PID) but stays silent past the grace
+        window: it is hung, so kill it and spawn a replacement instead of failing to bind."""
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(client_utils, '_pid_alive', lambda pid: True)
+        monkeypatch.setattr(client_utils, '_await_health', lambda timeout: False)
+        actions: list[tuple[str, int] | str] = []
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
+        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+
+        client_utils.ensure_running()
+        assert actions == [('kill', 100), 'spawn']
+
+    def test_slow_starting_daemon_is_not_killed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A daemon we started is alive but still importing pixeltable; it answers health within the
+        grace window. It must be used as-is, not killed as if it were hung."""
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(client_utils, '_pid_alive', lambda pid: True)
+        monkeypatch.setattr(client_utils, '_await_health', lambda timeout: True)
+        actions: list[str] = []
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
+
+        url = client_utils.ensure_running()
+        assert url == client_utils.base_url()
+        assert actions == []
+
+    def test_dead_pidfile_just_spawns(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A stale pidfile naming a PID that is no longer alive (port already released): no reclaim,
+        just spawn."""
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(client_utils, '_pid_alive', lambda pid: False)
+        actions: list[str] = []
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
+        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+
+        client_utils.ensure_running()
+        assert actions == ['spawn']
 
     def test_identity_mismatch_refuses_unknown_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Safety: if a responder reports a different identity AND its PID doesn't match
@@ -329,6 +386,26 @@ class TestProbe:
         monkeypatch.setattr(client_utils.os, 'makedirs', boom)
         with pytest.raises(RuntimeError, match='pxt daemon log unavailable'):
             client_utils.spawn_detached()
+
+    def test_spawn_detached_does_not_inherit_cwd_on_sys_path(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # `python -m` puts the daemon's working directory at the front of sys.path. Pinning cwd to
+        # the pixeltable home and setting PYTHONSAFEPATH keeps a pixeltable/ folder in the directory
+        # pxt was invoked from out of the daemon's import path.
+        monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
+        calls: list[tuple[list[str], dict[str, Any]]] = []
+
+        def fake_popen(args: list[str], **kwargs: Any) -> None:
+            calls.append((args, kwargs))
+
+        monkeypatch.setattr(client_utils.subprocess, 'Popen', fake_popen)
+        client_utils.spawn_detached()
+
+        args, kwargs = calls[0]
+        assert args == [sys.executable, '-m', 'pixeltable_cli.server.daemon']
+        assert kwargs['cwd'] == client_utils._resolve_pixeltable_home()
+        assert kwargs['env']['PYTHONSAFEPATH'] == '1'
 
     def test_tail_daemon_log_missing(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
