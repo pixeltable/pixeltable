@@ -386,30 +386,30 @@ class TestCatalog:
 
     def test_drop_view_concurrent_insert(self, uses_db: None, fault_injection: None) -> None:
         """
-        TODO
+        Start with a base table and a view. Thread 0 drops the view, but pauses inside finalize pending ops (but without
+        the exclusive lock). Thread 1 swoops in in the meantime to insert a row into the base table. Both are expected
+        to succeed.
         """
         base = pxt.create_table('base', {'a': pxt.Int})
         _ = pxt.create_view('v', base)
         block_in_finalize = BlockFault()
 
-        def drop_v() -> None:
-            # TODO should not raise
-            pxt.drop_table('v')
-
         (
             MultiThreadedScenario()
             .then_run(
-                thread_id=1,
+                thread_id=0,
                 name='inject fault',
                 fn=lambda: get_runtime().fault_manager.inject_fault(
                     FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, block_in_finalize
                 ),
             )
-            # Thread 1: drop v but block mid-finalize
-            .then_run_until(thread_id=1, name='drop view', event=block_in_finalize.reached, fn=drop_v)
-            # Thread 0: attempt to insert into base
-            .then_run(thread_id=0, name='insert into base', fn=lambda: base.insert([{'a': 1}]))
-            .then_run(thread_id=0, name='unblock', fn=lambda: block_in_finalize.unblock())
+            # Thread 0: drop v but block mid-finalize
+            .then_run_until(
+                thread_id=0, name='drop view', event=block_in_finalize.reached, fn=lambda: pxt.drop_table('v')
+            )
+            # Thread 1: attempt to insert into base
+            .then_run(thread_id=1, name='insert into base', fn=lambda: base.insert([{'a': 1}]))
+            .then_run(thread_id=1, name='unblock', fn=lambda: block_in_finalize.unblock())
             .execute()
         )
 
