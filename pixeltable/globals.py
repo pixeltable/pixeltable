@@ -10,13 +10,12 @@ import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
 
-from pixeltable import Query, catalog, exceptions as excs, exprs, func, share, type_system as ts
+from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
-from pixeltable.share.protocol import PxtUri
 from pixeltable.types import ColumnSpec, DirectoryNode, TableKind, TableNode, TreeNode
 
 if TYPE_CHECKING:
@@ -185,14 +184,6 @@ def create_table(
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
     data_source: TableDataConduit | None = None
     if source is not None:
-        if isinstance(source, str) and source.strip().startswith('pxt://'):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'create_table(): Creating a table directly from a cloud URI is not supported.'
-                ' Please replicate the table locally first using `pxt.replicate()`:\n'
-                "replica_tbl = pxt.replicate('pxt://path/to/remote_table', 'local_replica_name')\n"
-                "pxt.create_table('new_table_name', source=replica_tbl)",
-            )
         data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
         src_schema_overrides: dict[str, ts.ColumnType] = {}
         if schema_overrides is not None:
@@ -358,10 +349,6 @@ def create_view(
         raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
     assert isinstance(base, (catalog.Table, Query))
 
-    if tbl_version_path.is_replica():
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot create a view or snapshot on top of a replica'
-        )
     assert tbl_version_path.is_versioned(), 'TODO: implement for unversioned tables [PXT-1101]'
 
     path_obj = catalog.Path.parse(path)
@@ -498,54 +485,6 @@ def create_snapshot(
     )
 
 
-def publish(
-    source: str | catalog.Table,
-    destination_uri: str,
-    bucket_name: str | None = None,
-    access: Literal['public', 'private'] = 'private',
-) -> None:
-    """
-    Publishes a replica of a local Pixeltable table to Pixeltable cloud. A given table can be published to at most one
-    URI per Pixeltable cloud database.
-
-    Args:
-        source: Path or table handle of the local table to be published.
-        destination_uri: Remote URI where the replica will be published, such as `'pxt://org_name/my_dir/my_table'`.
-        bucket_name: The name of the bucket to use to store replica's data. The bucket must be registered with
-            Pixeltable cloud. If no `bucket_name` is provided, the default storage bucket for the destination
-            database will be used.
-        access: Access control for the replica.
-
-            - `'public'`: Anyone can access this replica.
-            - `'private'`: Only the host organization can access.
-    """
-    pxt_uri = _parse_pxt_uri(destination_uri, 'destination_uri')
-
-    if isinstance(source, str):
-        source = get_table(source)
-
-    share.push_replica(pxt_uri, source, bucket_name, access)
-
-
-def replicate(remote_uri: str, local_path: str) -> catalog.Table:
-    """
-    Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of the replica in a
-    way that preserves the table structure of the original source data. Once replicated, the local table can be
-    queried offline just as any other Pixeltable table.
-
-    Args:
-        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'` or
-            `'pxt://org_name/my_dir/my_table:5'` (with version 5).
-        local_path: Local table path where the replica will be created, such as `'my_new_dir/my_new_tbl'`. It can be
-            the same or different from the cloud table name.
-
-    Returns:
-        A handle to the newly created local replica table.
-    """
-    pxt_uri = _parse_pxt_uri(remote_uri, 'remote_uri')
-    return share.pull_replica(local_path, pxt_uri)
-
-
 def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
     """Get a handle to an existing table, view, or snapshot.
 
@@ -640,11 +579,10 @@ def move(
 def drop_table(
     table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
-    """Drop a table, view, snapshot, or replica.
+    """Drop a table, view, or snapshot.
 
     Args:
-        table: Fully qualified name or table handle of the table to be dropped; or a remote URI of a cloud replica to
-            be deleted.
+        table: Fully qualified name or table handle of the table to be dropped.
         force: If `True`, will also drop all views and sub-views of this table.
         if_not_exists: Directive regarding how to handle if the path does not exist.
             Must be one of the following:
@@ -686,19 +624,8 @@ def drop_table(
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
-    if PxtUri.is_pxt_uri(tbl_path):
-        pxt_uri = PxtUri(tbl_path)
-        # Remote table
-        if force:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `force=True` with a cloud replica URI.'
-            )
-        # TODO: Handle if_not_exists properly
-        share.delete_replica(pxt_uri)
-    else:
-        # Local table
-        path_obj = catalog.Path.parse(tbl_path)
-        get_runtime().catalog.drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+    path_obj = catalog.Path.parse(tbl_path)
+    get_runtime().catalog.drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
@@ -810,9 +737,6 @@ def _get_subtree(
             elif view_md is not None:
                 kind = 'view'
                 version = current_version
-            elif tbl_md.get('is_replica'):
-                kind = 'replica'
-                version = current_version
             else:
                 kind = 'table'
                 version = current_version
@@ -860,11 +784,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
         >>> pxt.list_tables('dir1')
     """
-    return _list_tables(dir_path, recursive=recursive, allow_system_paths=False)
-
-
-def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths: bool = False) -> list[str]:
-    path_obj = catalog.Path.parse(dir_path, allow_empty_path=True, allow_system_path=allow_system_paths)
+    path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
     contents = get_runtime().catalog.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
@@ -984,8 +904,6 @@ def ls(path: str = '') -> pd.DataFrame:
     def op() -> list[list[str]]:
         rows: list[list[str]] = []
         for name, entry in dir_entries.items():
-            if name.startswith('_'):
-                continue
             if entry.dir is not None:
                 kind = 'dir'
                 version = ''
@@ -996,11 +914,7 @@ def ls(path: str = '') -> pd.DataFrame:
                 tbl = cat.get_table_by_id(entry.table.id)
                 md = tbl.get_metadata()
                 base = md['base'] or ''
-                if base.startswith('_'):
-                    base = '<anonymous base table>'
-                if md['is_replica']:
-                    kind = 'replica'
-                elif md['is_snapshot']:
+                if md['is_snapshot']:
                     kind = 'snapshot'
                 elif md['is_view']:
                     kind = 'view'
@@ -1181,16 +1095,3 @@ class DirContents(TypedDict):
     """List of directory paths contained in this directory."""
     tables: list[str]
     """List of table paths contained in this directory."""
-
-
-def _parse_pxt_uri(uri_str: str, param_name: str) -> PxtUri:
-    """Parse a URI string into a PxtUri, raising a user-friendly error on failure."""
-    try:
-        return PxtUri(uri_str)
-    except ValueError as e:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT,
-            f"`{param_name}` must be a remote Pixeltable URI with the prefix 'pxt://'"
-            " (such as 'pxt://org:db/path/to/table') or a pixeltable.com URL"
-            ' (such as https://pixeltable.com/t/org:db/path/to/table).',
-        ) from e

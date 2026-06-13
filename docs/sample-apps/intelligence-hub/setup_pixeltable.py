@@ -3,8 +3,11 @@
 Run once to initialize the database schema:
     python setup_pixeltable.py
 
-WARNING: This drops and recreates the namespace on every run.
+Idempotent by default. Set RESET_SCHEMA=true to wipe and recreate:
+    RESET_SCHEMA=true python setup_pixeltable.py
 """
+
+import os
 
 import config
 import functions
@@ -24,9 +27,11 @@ import custom_udfs.google_sheets as google_sheets
 import custom_udfs.slack as slack
 import custom_udfs.telegram as telegram
 
-# ── Clean slate ───────────────────────────────────────────────────────────────
+# ── Namespace ─────────────────────────────────────────────────────────────────
 
-pxt.drop_dir(config.APP_NAMESPACE, force=True)
+if os.getenv('RESET_SCHEMA', 'false').lower() == 'true':
+    pxt.drop_dir(config.APP_NAMESPACE, force=True)
+
 pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
 
 # ── 1. Sources Table ─────────────────────────────────────────────────────────
@@ -59,7 +64,7 @@ chunks = pxt.create_view(
 
 sentence_embed = sentence_transformer.using(model_id=config.EMBEDDING_MODEL_ID)
 
-chunks.add_embedding_index('text', string_embed=sentence_embed, if_exists='ignore')
+chunks.add_embedding_index('text', idx_name='chunks_text_idx', string_embed=sentence_embed, if_exists='ignore')
 
 print('  Chunks: view + embedding index')
 
@@ -67,7 +72,7 @@ print('  Chunks: view + embedding index')
 @pxt.query
 def search_chunks(query_text: str, n: int = 5):
     """Semantic search across all ingested content."""
-    sim = chunks.text.similarity(string=query_text)
+    sim = chunks.text.similarity(string=query_text, idx='chunks_text_idx')
     return chunks.order_by(sim, asc=False).limit(n).select(chunks.text, chunks.title, sim=sim)
 
 

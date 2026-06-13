@@ -56,9 +56,6 @@ class TableVersionPath:
         self._local.cached_tbl_version = None
         self._local.origin_catalog = None
 
-        if self.base is not None and tbl_version.anchor_tbl_id is not None:
-            self.base = self.base.anchor_to(tbl_version.anchor_tbl_id)
-
     def __deepcopy__(self, memo: dict[int, object]) -> TableVersionPath:
         # Thread-safe and structurally immutable: callers can share a single instance.
         return self
@@ -69,7 +66,7 @@ class TableVersionPath:
         result: TableVersionPath | None = None
         for tbl_id_str, effective_version in path[::-1]:
             tbl_id = UUID(tbl_id_str)
-            key = TableVersionKey(tbl_id, effective_version, None)
+            key = TableVersionKey(tbl_id, effective_version)
             result = TableVersionPath(TableVersionHandle(key), base=result)
         return result
 
@@ -94,19 +91,6 @@ class TableVersionPath:
         self._local.origin_catalog = cat
 
         return self._local.cached_tbl_version
-
-    def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
-        """
-        Return a new TableVersionPath with all of its non-snapshot TableVersions pointing to the given anchor_tbl_id.
-        (This will clear the existing anchor_tbl_id in the case anchor_tbl_id=None.)
-        """
-        if self.tbl_version.effective_version is not None:
-            return self
-
-        return TableVersionPath(
-            TableVersionHandle(TableVersionKey(self.tbl_version.id, None, anchor_tbl_id)),
-            base=self.base.anchor_to(anchor_tbl_id) if self.base is not None else None,
-        )
 
     def clear_cached_md(self) -> None:
         self._local.cached_tbl_version = None
@@ -149,9 +133,6 @@ class TableVersionPath:
 
     def is_component_view(self) -> bool:
         return self._cached_tv().is_component_view
-
-    def is_replica(self) -> bool:
-        return self._cached_tv().is_replica
 
     def is_mutable(self) -> bool:
         return self._cached_tv().is_mutable

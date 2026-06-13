@@ -1,0 +1,13 @@
+[project]
+name = "trading-insight-server"
+version = "0.1.0"
+description = "FastAPI backend for AI trading chart analysis with Pixeltable"
+requires-python = ">=3.10"
+dependencies = [
+    "pixeltable>=0.6.0",
+    "fastapi",
+    "uvicorn",
+    "python-dotenv",
+    "pillow",
+    "anthropic",
+]

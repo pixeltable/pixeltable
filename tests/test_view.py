@@ -8,7 +8,6 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.func import Batch
-from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
 from .utils import (
@@ -853,8 +852,6 @@ class TestView:
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
         orig_view_cols = v._get_schema().keys()
         view_s = pxt.create_snapshot('test_view_snap', v)
-        with get_runtime().catalog.begin_xact(for_write=False):
-            _ = get_runtime().catalog.load_md_for_export(view_s, as_replica=True)
         assert set(view_s._get_schema().keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:
@@ -959,7 +956,6 @@ class TestView:
                     },
                     'comment': None,
                     'indices': {},
-                    'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
                     'is_versioned': True,
@@ -1087,7 +1083,6 @@ class TestView:
                     },
                     'comment': None,
                     'indices': {},
-                    'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
                     'is_versioned': True,
@@ -1182,7 +1177,6 @@ class TestView:
                     },
                     'comment': None,
                     'indices': {},
-                    'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
                     'is_versioned': True,

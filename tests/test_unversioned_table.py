@@ -101,6 +101,3 @@ class TestUnversionedTable:
 
         with pytest.raises(excs.Error, match='Revert is supported on versioned tables only'):
             unversioned_tbl.revert()
-
-        with pytest.raises(excs.Error, match='Only versioned tables can be shared'):
-            pxt.publish(unversioned_tbl, 'pxt://myorg/my-dataset')

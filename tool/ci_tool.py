@@ -38,7 +38,6 @@ COCKROACH_LOCAL_TEST_MODULES = (
     'tests/test_snapshot.py',
     'tests/test_table.py',
     'tests/test_view.py',
-    'tests/share/test_packager.py',
 )
 
 
