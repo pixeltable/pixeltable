@@ -2915,6 +2915,7 @@ class Catalog:
         # register this instance as modified, so that it gets purged if the transaction fails, it may not be
         # fully initialized
         self.mark_modified_tv(tbl_version.handle)
+        fault_injection.process_fault(FaultLocation.CATALOG_LOAD_TBL_VERSION_BEFORE_INIT)
         tbl_version.init()
         return tbl_version
 

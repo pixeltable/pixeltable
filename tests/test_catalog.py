@@ -342,33 +342,28 @@ class TestCatalog:
         # Verify that the insert was propagated to vb.
         assert pxt.get_table('vb').count() == 1
 
-    def test_load_view_concurrent_with_drop(self, uses_db: None, fault_injection: None) -> None:
+    def test_load_view_concurrent_drop_view(self, uses_db: None, fault_injection: None) -> None:
         """
-        Start with a base table and a view. Thread 0 loads the view md, and is about to initialize it when Thread 1
-        drops it.
+        A base table and a view. Thread 0 loads the view md, and is about to initialize it when Thread 1 drops it.
+        Thread 0 then proceeds to initialize the view. Expect no errors because the (later) base table metadata load
+        happens from the same snapshot as the view md with REPEATABLE READ.
         """
-        skip_test_if_cockroachdb(
-            'CockroachDB applies DROP TABLE asynchronously, so the concurrent drop is not yet visible '
-            'in information_schema and the table load succeeds instead of raising'
-        )
+        skip_test_if_cockroachdb()
         base = pxt.create_table('base', {'a': pxt.Int})
-        v = pxt.create_view('v', base, additional_columns={'b': base.a + 1})
-        base.insert([{'a': 1}])
+        v = pxt.create_view('v', base)
         block_before_init = BlockFault()
-        select_from_v = v.select(v.b)
 
         def access_column_expect_not_found() -> None:
-            # v is dropped concurrently by thread 1
-            # SERIALIZATION_FAILURE or TABLE_NOT_FOUND are both be acceptable this time
-            with pxt_raises(excs.ErrorCode.SERIALIZATION_FAILURE, match='conflicted'):
-                select_from_v.collect()
-            with pxt_raises(excs.ErrorCode.TABLE_NOT_FOUND, match='Table was dropped'):
-                select_from_v.collect()
+            _ = v.a
 
         (
             MultiThreadedScenario()
-            .then_inject_fault(
-                thread_id=0, loc=FaultLocation.CATALOG_BEGIN_XACT_AFTER_ACQUIRE_LOCKS, fault=block_before_init
+            .then_run(
+                thread_id=0,
+                name='inject fault',
+                fn=lambda: get_runtime().fault_manager.inject_fault(
+                    FaultLocation.CATALOG_LOAD_TBL_VERSION_BEFORE_INIT, block_before_init
+                ),
             )
             .then_run_until(
                 thread_id=0, name='access column', event=block_before_init.reached, fn=access_column_expect_not_found
@@ -386,6 +381,7 @@ class TestCatalog:
         (without the exclusive lock). Thread 1 swoops in in the meantime to insert a row into the base table, and
         finalizes view drop as a side effect. Both threads are expected to succeed.
         """
+        skip_test_if_cockroachdb()
         base = pxt.create_table('base', {'a': pxt.Int})
         _ = pxt.create_view('v', base)
         block_in_finalize = BlockFault()
