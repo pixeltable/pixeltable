@@ -71,14 +71,12 @@ class TableMetadata(TypedDict):
     """The name of the table (ex: `'my_table'`)."""
     path: str
     """The full path of the table (ex: `'my_dir.my_subdir.my_table'`)."""
-    kind: Literal['table', 'view', 'snapshot', 'replica']
-    """The kind of table: `'table'`, `'view'`, `'snapshot'`, or `'replica'`."""
+    kind: Literal['table', 'view', 'snapshot']
+    """The kind of table: `'table'`, `'view'`, or `'snapshot'`."""
     columns: dict[str, ColumnMetadata]
     """Column metadata for all of the visible columns of the table."""
     indices: dict[str, IndexMetadata]
     """Index metadata for all of the indices of the table."""
-    is_replica: bool
-    """`True` if this table is a replica of another (shared) table."""
     is_versioned: bool
     """`True` if this is a versioned table."""
     is_view: bool

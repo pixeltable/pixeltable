@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from pixeltable import exprs
 
 
-TableKind = Literal['table', 'view', 'snapshot', 'replica']
+TableKind = Literal['table', 'view', 'snapshot']
 
 
 class DirectoryNode(TypedDict):
@@ -22,7 +22,7 @@ class DirectoryNode(TypedDict):
 
 
 class TableNode(TypedDict):
-    """A table/view/snapshot/replica entry in a [`TreeNode`][pixeltable.TreeNode] tree."""
+    """A table/view/snapshot entry in a [`TreeNode`][pixeltable.TreeNode] tree."""
 
     name: str
     path: str

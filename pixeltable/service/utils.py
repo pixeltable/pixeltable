@@ -1,16 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from abc import ABC, abstractmethod
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import BaseModel, field_validator, model_validator
-
-# Protocol version for replica operations. Used by both client and server
-# to determine request/response format and maintain backward compatibility.
-PROTOCOL_VERSION = 1
 
 _PXT_URL_PREFIXES = (
     'https://www.pixeltable.com/t/',
@@ -30,7 +25,11 @@ def is_valid_uuid(uuid_string: str) -> bool:
 
 
 class PxtUri(BaseModel):
-    """Pixeltable URI model for pxt:// URIs with validation and parsing."""
+    """Pixeltable URI model for pxt:// URIs with validation and parsing.
+
+    Identifies a Pixeltable resource (table, view, or directory) hosted in Pixeltable Cloud, in the form
+    pxt://<org>[:<db>]/<path>[:<version>], where the identifier may instead be a table UUID.
+    """
 
     uri: str  # The full URI string
 
@@ -183,12 +182,3 @@ class PxtUri(BaseModel):
     def is_pxt_uri(cls, uri: str) -> bool:
         """Return True if the string is a recognized Pixeltable URI or URL."""
         return uri.startswith('pxt://') or any(uri.startswith(prefix) for prefix in _PXT_URL_PREFIXES)
-
-
-class RequestBaseModel(BaseModel, ABC):
-    """Abstract base model for protocol requests that must have a PxtUri."""
-
-    @abstractmethod
-    def get_pxt_uri(self) -> PxtUri:
-        """Get the PxtUri from this request. Must be implemented by subclasses."""
-        pass
