@@ -489,6 +489,17 @@
         </outline>
       </outline>
 
+      <!-- Observability group -->
+      <outline text="group|Observability">
+        <outline text="module|pixeltable.otel">
+          <outline text="func|pixeltable.otel.init" />
+          <outline text="class|pixeltable.otel.PixeltableInstrumentor">
+            <outline text="method|pixeltable.otel.PixeltableInstrumentor.instrument" />
+            <outline text="method|pixeltable.otel.PixeltableInstrumentor.uninstrument" />
+          </outline>
+        </outline>
+      </outline>
+
       <!-- Import/Export group -->
       <outline text="group|Import/Export">
         <outline text="module|pixeltable.io">

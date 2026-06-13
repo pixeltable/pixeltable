@@ -4,17 +4,17 @@ import asyncio
 import logging
 import traceback
 from types import TracebackType
-from typing import AsyncIterator, Iterable
+from typing import Any, AsyncIterator, Iterable, Iterator
 
 import numpy as np
 
 import pixeltable.exceptions as excs
-from pixeltable import exprs
+from pixeltable import exprs, hooks
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
-from .evaluators import FnCallEvaluator, NestedRowList
+from .evaluators import FnCallEvaluator, JsonMapperDispatcher, NestedRowList
 from .globals import ExprEvalCtx, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
@@ -64,6 +64,12 @@ class ExprEvalNode(ExecNode):
     output_buffer: RowBuffer  # holds rows that are ready to be returned, in order
     progress_reporter: ProgressReporter | None
 
+    # instrumentation state (see Dispatcher protocol)
+    hooks_active: bool
+    col_names: dict[int, str]
+    span_handle: Any
+    tbl_name: str | None
+
     # debugging
     num_input_rows: int
     num_output_rows: int
@@ -111,10 +117,23 @@ class ExprEvalNode(ExecNode):
         for evaluator in self.eval_ctx.slot_evaluators.values():
             evaluator.reset()
         self.progress_reporter = None
+        self.hooks_active = False
+        self.col_names = {}
+        self.span_handle = None
+        self.tbl_name = None
 
     def _open(self) -> None:
         self._init_exec_state()
         self.progress_reporter = self.ctx.add_progress_reporter('Cell computations', 'cells')
+        self.hooks_active = hooks.active()
+        self.span_handle = self._span
+        if self.hooks_active:
+            self.tbl_name = self.row_builder.tbl.name if self.row_builder.tbl is not None else None
+            # multiple columns can map to the same slot (eg, a computed column plus its unnamed index value
+            # column); keep the user-facing name
+            for col, slot_idx in self.row_builder.table_columns.items():
+                if slot_idx is not None and col.name is not None:
+                    self.col_names.setdefault(slot_idx, col.name)
 
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
@@ -340,6 +359,11 @@ class ExprEvalNode(ExecNode):
         if len(rows) == 0 or self.exc_event.is_set():
             return
 
+        if self.hooks_active:
+            evaluator = exec_ctx.slot_evaluators.get(slot_with_exc)
+            if evaluator is not None:
+                evaluator.stats.errors += len(rows)
+
         if not self.ctx.ignore_errors:
             dependency_idxs = [e.slot_idx for e in exec_ctx.row_builder.unique_exprs[slot_with_exc].dependencies()]
             first_row = rows[0]
@@ -348,6 +372,18 @@ class ExprEvalNode(ExecNode):
             self.error = excs.ExprEvalError(e, f'expression {e}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0)
             self.exc_event.set()
             return
+
+        if self.hooks_active:
+            # rows dropped under on_error='ignore' are otherwise silent
+            hooks.emit(
+                'cell.error',
+                attrs={
+                    'pxt.table': self.tbl_name,
+                    'pxt.column': self.col_names.get(slot_with_exc),
+                    'error_type': type(rows[0].get_exc(slot_with_exc)).__name__,
+                    'count': len(rows),
+                },
+            )
 
         for row in rows:
             assert row.has_exc(slot_with_exc)
@@ -379,8 +415,9 @@ class ExprEvalNode(ExecNode):
         is_scheduled = np.stack([r.is_scheduled for r in rows], axis=0)
         missing_dependents = np.stack([r.missing_dependents for r in rows], axis=0)
 
-        # Compute progress (output slot materialization)
-        report_progress = self.progress_reporter is not None and self.eval_ctx is exec_ctx
+        # Compute progress (output slot materialization); the progress reporter is None in non-interactive
+        # runs, so instrumentation must not be gated on it
+        report_progress = (self.progress_reporter is not None or self.hooks_active) and self.eval_ctx is exec_ctx
         if report_progress:
             # Count currently non-materialized output slots (before updating missing_slots)
             missing_outputs_before: np.int64 = (missing_slots & self.outputs).sum()
@@ -393,7 +430,10 @@ class ExprEvalNode(ExecNode):
             missing_outputs_after: np.int64 = (missing_slots & self.outputs).sum()
             num_computed_outputs = int(missing_outputs_before - missing_outputs_after)
             if num_computed_outputs > 0:
-                self.progress_reporter.update(num_computed_outputs)
+                if self.progress_reporter is not None:
+                    self.progress_reporter.update(num_computed_outputs)
+                if self.hooks_active:
+                    hooks.emit('cells.computed', attrs={'pxt.table': self.tbl_name, 'count': num_computed_outputs})
 
         # Identify completed rows
         missing_slot_counts = missing_slots.sum(axis=1)  # (num_rows,)
@@ -478,6 +518,63 @@ class ExprEvalNode(ExecNode):
             ready_rows = [rows[i] for i in ready_row_idxs]
             _logger.debug(f'Scheduling {len(ready_rows)} rows for slot {slot_idx}')
             exec_ctx.slot_evaluators[slot_idx].schedule(ready_rows, slot_idx)
+
+    def _fn_evaluators(self) -> Iterator[tuple[int | None, FnCallEvaluator]]:
+        """Yield (slot idx, evaluator) for all FnCallEvaluators; slot idx is None for nested (JsonMapper) ones,
+        whose slot idxs belong to a different RowBuilder and must not be resolved against col_names."""
+
+        def walk(eval_ctx: ExprEvalCtx, is_top: bool) -> Iterator[tuple[int | None, FnCallEvaluator]]:
+            for slot_idx, evaluator in eval_ctx.slot_evaluators.items():
+                if isinstance(evaluator, FnCallEvaluator):
+                    yield (slot_idx if is_top else None), evaluator
+                elif isinstance(evaluator, JsonMapperDispatcher):
+                    yield from walk(evaluator.nested_eval_ctx, False)
+
+        yield from walk(self.eval_ctx, True)
+
+    def _close(self) -> None:
+        if not self.hooks_active:
+            return
+        for slot_idx, evaluator in self._fn_evaluators():
+            stats = evaluator.stats
+            if stats.count == 0 and stats.errors == 0:
+                continue
+            attrs: dict[str, Any] = {
+                'pxt.udf': evaluator.fn.display_name,
+                'pxt.column': self.col_names.get(slot_idx) if slot_idx is not None else None,
+                'pxt.table': self.tbl_name,
+                'count': stats.count,
+                'errors': stats.errors,
+                'retries': stats.retries,
+                'total_s': round(stats.total_s, 6),
+            }
+            if stats.count > 0:
+                attrs['avg_s'] = round(stats.total_s / stats.count, 6)
+                attrs['min_s'] = round(stats.min_s, 6)
+                attrs['max_s'] = round(stats.max_s, 6)
+            hooks.emit('udf.stats', attrs=attrs)
+
+    def span_end_attributes(self) -> dict[str, Any]:
+        attrs: dict[str, Any] = {'input_rows': self.num_input_rows, 'output_rows': self.num_output_rows}
+        for slot_idx, evaluator in self._fn_evaluators():
+            stats = evaluator.stats
+            if stats.count == 0 and stats.errors == 0:
+                continue
+            col_name = self.col_names.get(slot_idx) if slot_idx is not None else None
+            key = col_name if col_name is not None else evaluator.fn.display_name
+            attrs[f'udf.{key}.count'] = stats.count
+            attrs[f'udf.{key}.total_s'] = round(stats.total_s, 6)
+            if stats.count > 0:
+                attrs[f'udf.{key}.avg_s'] = round(stats.total_s / stats.count, 6)
+                attrs[f'udf.{key}.min_s'] = round(stats.min_s, 6)
+                attrs[f'udf.{key}.max_s'] = round(stats.max_s, 6)
+            if stats.errors > 0:
+                attrs[f'udf.{key}.errors'] = stats.errors
+            if stats.retries > 0:
+                attrs[f'udf.{key}.retries'] = stats.retries
+            if col_name is not None:
+                attrs[f'udf.{key}.fn'] = evaluator.fn.display_name
+        return attrs
 
     def register_task(self, t: asyncio.Task) -> None:
         self.tasks.add(t)

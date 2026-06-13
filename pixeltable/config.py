@@ -583,6 +583,15 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'app_name': 'Optional name for your application (for OpenRouter analytics)',
         'rate_limit': 'Rate limit for OpenRouter API requests',
     },
+    'otel': {
+        'enabled': 'Enable OpenTelemetry instrumentation when pixeltable[otel] is installed (default: true)',
+        'endpoint': 'OTLP collector endpoint (default: the local Phoenix collector at http://localhost:6006)',
+        'service_name': 'service.name resource attribute and Phoenix project name (default: pixeltable)',
+        'headers': "OTLP headers as comma-separated 'key=value' pairs",
+        'span_level': "Span verbosity: 'info' (default), 'debug', or 'trace'",
+        'metrics': 'Export metrics via OTLP (default: only when an explicit OTLP endpoint is configured)',
+        'logs': 'Export pixeltable logs via OTLP (default: only when an explicit OTLP endpoint is configured)',
+    },
     'replicate': {'api_token': 'Replicate API token'},
     'runwayml': {'api_secret': 'RunwayML API secret'},
     'together': {

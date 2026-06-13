@@ -10,7 +10,7 @@ import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
 
-from pixeltable import Query, catalog, exceptions as excs, exprs, func, share, type_system as ts
+from pixeltable import Query, catalog, exceptions as excs, exprs, func, hooks, share, type_system as ts
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
@@ -229,30 +229,31 @@ def create_table(
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
 
-    tbl, was_created = get_runtime().catalog.create_table(
-        path_obj,
-        schema,
-        if_exists=if_exists_,
-        primary_key=primary_key,
-        comment=comment,
-        custom_metadata=custom_metadata,
-        media_validation=media_validation_,
-        create_default_idxs=create_default_idxs,
-        is_versioned=_is_versioned,
-    )
+    with hooks.span('pixeltable.create_table', set_current=True, table=str(path_obj)):
+        tbl, was_created = get_runtime().catalog.create_table(
+            path_obj,
+            schema,
+            if_exists=if_exists_,
+            primary_key=primary_key,
+            comment=comment,
+            custom_metadata=custom_metadata,
+            media_validation=media_validation_,
+            create_default_idxs=create_default_idxs,
+            is_versioned=_is_versioned,
+        )
 
-    # TODO: combine data loading with table creation into a single transaction
-    if was_created:
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-        if isinstance(data_source, QueryTableDataConduit):
-            query = data_source.pxt_query
-            with get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
-            ):
-                tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
-        elif data_source is not None and not is_direct_query:
-            assert isinstance(tbl, catalog.InsertableTable)
-            tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+        # TODO: combine data loading with table creation into a single transaction
+        if was_created:
+            fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+            if isinstance(data_source, QueryTableDataConduit):
+                query = data_source.pxt_query
+                with get_runtime().catalog.begin_xact(
+                    for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
+                ):
+                    tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
+            elif data_source is not None and not is_direct_query:
+                assert isinstance(tbl, catalog.InsertableTable)
+                tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
     return tbl
 

@@ -614,6 +614,39 @@ class Env:
         register_heif_opener()
         self._start_web_server()
         self.__register_packages()
+        self.__init_otel()
+
+    def __init_otel(self) -> None:
+        """Enable OpenTelemetry instrumentation if the pixeltable[otel] extra is installed and not opted out.
+
+        Core pixeltable carries no OTEL dependency; pixeltable.otel is only imported after the gates pass.
+        """
+        if os.environ.get('PIXELTABLE_OTEL', '').lower() in ('0', 'false', 'off', 'no'):
+            return
+        if os.environ.get('OTEL_SDK_DISABLED', '').lower() == 'true':
+            return
+        if Config.get().get_bool_value('enabled', section='otel') is False:
+            return
+        # probe the sdk and exporter, not opentelemetry-api: the api is a common transitive dependency
+        # and its presence alone doesn't indicate the extra is installed. The probe stays behind the
+        # opt-out gates above: find_spec on a dotted name imports the parent package, and these (esp.
+        # `phoenix`, when the full arize-phoenix server is installed) are not free.
+        try:
+            if (
+                importlib.util.find_spec('opentelemetry.sdk') is None
+                or importlib.util.find_spec('opentelemetry.exporter.otlp.proto.http') is None
+            ):
+                return
+        except ModuleNotFoundError:
+            return
+        try:
+            from pixeltable.otel import _sdk
+
+            _sdk.setup(Config.get())
+            self._managed_logging_handlers.extend(_sdk.managed_log_handlers())
+        except Exception as e:
+            # failure isolation: pixeltable must come up even if otel init fails
+            _logger.warning(f'OpenTelemetry initialization failed; continuing without instrumentation: {e}')
 
     @property
     def default_video_encoder(self) -> str | None:
@@ -825,6 +858,15 @@ class Env:
         Internal cleanup method that properly closes all resources and resets state.
         This is called before destroying the singleton instance.
         """
+        # Flush OTEL telemetry and detach the hook bridge; the global providers survive (set-once per process)
+        if 'pixeltable.otel' in sys.modules:
+            try:
+                from pixeltable.otel import _sdk
+
+                _sdk.on_env_teardown()
+            except Exception as e:
+                _logger.warning(f'Error shutting down OpenTelemetry: {e}')
+
         # Stop HTTP server
         if self._httpd is not None:
             try:
