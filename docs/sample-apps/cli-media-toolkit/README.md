@@ -14,8 +14,8 @@
 ## Setup
 
 ```bash
-uv sync              # or: pip install -e .
-python init.py       # Initialize tables and CLIP indices
+uv sync
+python schema.py                   # Initialize tables and CLIP indices (idempotent)
 ```
 
 ## Quick Demo
@@ -159,11 +159,9 @@ Status:
 - `tempfile.mktemp()`: Standard Python temporary file handling for YouTube downloads
 - Eliminates startup overhead for repeated operations
 
-## Learn More
+## API Documentation
 
-- [Pixeltable Documentation](https://docs.pixeltable.com/)
-- [Video Functions Reference](https://docs.pixeltable.com/sdk/latest/pixeltable/functions/video)
-- [Image Functions Reference](https://docs.pixeltable.com/sdk/latest/pixeltable/functions/image)
-- [CLIP Integration](https://docs.pixeltable.com/integrations/hugging-face)
-- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
-- [Discord Community](https://discord.gg/QPyqFYx2UN)
+- [Video Functions](https://pixeltable.github.io/pixeltable/pixeltable/functions/video/)
+- [Image Functions](https://pixeltable.github.io/pixeltable/pixeltable/functions/image/) 
+- [CLIP Integration](https://pixeltable.github.io/pixeltable/pixeltable/functions/huggingface/#pixeltable.functions.huggingface.clip)
+- [Pixeltable Documentation](https://docs.pixeltable.com)

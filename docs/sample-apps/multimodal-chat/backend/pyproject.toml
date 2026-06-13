@@ -1,0 +1,16 @@
+[project]
+name = "multimodal-chat-backend"
+version = "0.1.0"
+description = "FastAPI backend for multimodal RAG chat with Pixeltable"
+requires-python = ">=3.10"
+dependencies = [
+    "pixeltable>=0.6.0",
+    "fastapi[standard]",
+    "uvicorn",
+    "python-dotenv",
+    "python-multipart",
+    "openai",
+    "sentence-transformers",
+    "spacy",
+    "pandas",
+]

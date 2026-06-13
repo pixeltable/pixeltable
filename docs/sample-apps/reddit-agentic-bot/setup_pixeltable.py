@@ -1,4 +1,5 @@
 # Standard library imports
+import os
 import uuid
 
 # Import centralized configuration **before** Pixeltable/UDF imports
@@ -12,11 +13,11 @@ from dotenv import load_dotenv
 
 # Pixeltable core imports
 import pixeltable as pxt
-import pixeltable.iterators as pxt_iterators  # Explicit import for clarity
 from pixeltable.functions import string as pxt_str
 
 # Pixeltable function imports - organized by category
 from pixeltable.functions.anthropic import invoke_tools, messages
+from pixeltable.functions.document import document_splitter
 from pixeltable.functions.huggingface import sentence_transformer
 
 # Load environment variables
@@ -24,11 +25,10 @@ load_dotenv()
 
 print(f"--- Initializing Pixeltable Environment for '{config.BASE_DIR}' ---")
 
-# Clean slate: Always attempt to drop the directory
-pxt.drop_dir(
-    config.BASE_DIR, force=True
-)  # Removes the specified directory and all contents from Pixeltable's storage backend.
-pxt.create_dir(config.BASE_DIR, if_exists='ignore')  # Creates a logical directory within Pixeltable for organization.
+if os.getenv('RESET_SCHEMA', 'false').lower() == 'true':
+    pxt.drop_dir(config.BASE_DIR, force=True)
+
+pxt.create_dir(config.BASE_DIR, if_exists='ignore')
 
 # === DOCUMENT PROCESSING ===
 docs_table_path = f'{config.BASE_DIR}.documents'
@@ -77,7 +77,7 @@ doc_chunks = pxt.create_view(
     chunks_view_path,
     documents,  # Base table for the view.
     # Use an Iterator to generate multiple output rows (chunks).
-    iterator=pxt_iterators.DocumentSplitter.create(
+    iterator=document_splitter(
         document=documents.doc, separators='token_limit', limit=250, overlap=0, metadata='title,heading,sourceline'
     ),
     # Schema is automatically inferred (+ heading, + source_uri).
@@ -86,7 +86,10 @@ doc_chunks = pxt.create_view(
 
 # Add an embedding index to accelerate similarity searches.
 doc_chunks.add_embedding_index(
-    column='text', string_embed=sentence_transformer.using(model_id=config.EMBEDDING_MODEL_ID), if_exists='ignore'
+    column='text',
+    idx_name='doc_chunks_text_idx',
+    string_embed=sentence_transformer.using(model_id=config.EMBEDDING_MODEL_ID),
+    if_exists='ignore',
 )
 
 
@@ -94,7 +97,7 @@ doc_chunks.add_embedding_index(
 @pxt.query
 def search_document_chunks(query_text: str):
     """Search indexed document chunks for relevant context, filtering by similarity."""
-    sim = doc_chunks.text.similarity(query_text)
+    sim = doc_chunks.text.similarity(string=query_text, idx='doc_chunks_text_idx')
     results = (
         doc_chunks.where((sim >= config.MIN_SIMILARITY_THRESHOLD) & (pxt_str.len(doc_chunks.text) > 50))
         .order_by(sim, asc=False)
@@ -130,26 +133,30 @@ questions = pxt.create_table(questions_table_path, q_schema, if_exists='ignore')
 # === DECLARATIVE WORKFLOW WITH COMPUTED COLUMNS ===
 
 # a. Retrieve Context (Now includes source_uri)
-questions.add_computed_column(retrieved_context=search_document_chunks(questions.question_text), if_exists='replace')
+questions.add_computed_column(retrieved_context=search_document_chunks(questions.question_text), if_exists='ignore')
 
 # --- Branch 1: Tool Usage ---
 
 # b. Format Initial Prompt (Needs source_uri from retrieved_context)
 questions.add_computed_column(
     initial_prompt=functions.format_initial_prompt(questions.question_text, questions.retrieved_context),
-    if_exists='replace',
+    if_exists='ignore',
 )
 
 # c. Call LLM 1 (Tool Selection)
 questions.add_computed_column(
     llm_response_1=messages(
-        model=config.LLM_MODEL_ID, system=config.SYSTEM_MESSAGE, messages=questions.initial_prompt, tools=tools
+        model=config.LLM_MODEL_ID,
+        messages=questions.initial_prompt,
+        tools=tools,
+        max_tokens=config.LLM_MAX_TOKENS,
+        model_kwargs={'system': config.SYSTEM_MESSAGE},
     ),
-    if_exists='replace',
+    if_exists='ignore',
 )
 
 # d. Invoke Tools
-questions.add_computed_column(tool_output=invoke_tools(tools, questions.llm_response_1), if_exists='replace')
+questions.add_computed_column(tool_output=invoke_tools(tools, questions.llm_response_1), if_exists='ignore')
 
 # --- Branch 2: General Knowledge ---
 
@@ -157,10 +164,11 @@ questions.add_computed_column(tool_output=invoke_tools(tools, questions.llm_resp
 questions.add_computed_column(
     llm_general_response=messages(
         model=config.LLM_MODEL_ID,
-        system=config.GENERAL_KNOWLEDGE_SYSTEM_MESSAGE,
         messages=[{'role': 'user', 'content': questions.question_text}],
+        max_tokens=config.LLM_MAX_TOKENS,
+        model_kwargs={'system': config.GENERAL_KNOWLEDGE_SYSTEM_MESSAGE},
     ),
-    if_exists='replace',
+    if_exists='ignore',
 )
 
 # --- Final Synthesis ---
@@ -170,19 +178,22 @@ questions.add_computed_column(
     synthesis_prompt_messages=functions.format_synthesis_messages(
         questions.question_text, questions.retrieved_context, questions.tool_output, questions.llm_general_response
     ),
-    if_exists='replace',
+    if_exists='ignore',
 )
 
 # g. Call LLM 3 (Synthesis)
 questions.add_computed_column(
     llm_synthesis_response=messages(
-        model=config.LLM_MODEL_ID, system=config.SYNTHESIS_SYSTEM_MESSAGE, messages=questions.synthesis_prompt_messages
+        model=config.LLM_MODEL_ID,
+        messages=questions.synthesis_prompt_messages,
+        max_tokens=config.LLM_MAX_TOKENS,
+        model_kwargs={'system': config.SYNTHESIS_SYSTEM_MESSAGE},
     ),
-    if_exists='replace',
+    if_exists='ignore',
 )
 
 # h. Extract Final Answer from Synthesis
-questions.add_computed_column(final_answer=questions.llm_synthesis_response.content[0].text, if_exists='replace')
+questions.add_computed_column(final_answer=questions.llm_synthesis_response.content[0].text, if_exists='ignore')
 
 print('\n✅ Data store and computation setup complete.')
 print("You can now run the 'reddit_bot.py' script.")

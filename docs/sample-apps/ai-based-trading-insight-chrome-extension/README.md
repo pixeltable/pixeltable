@@ -71,7 +71,10 @@ python -m venv venv
 source venv/bin/activate  # Windows: .\venv\Scripts\activate
 
 # Install dependencies
-pip install -r requirements.txt
+uv sync
+cp server/.env.example server/.env
+python server/schema.py
+uv run python server/main.py
 
 # Start backend
 python -m uvicorn main:app
@@ -161,12 +164,6 @@ sequenceDiagram
 - Analysis timeout: Verify API keys
 - Image processing: Check screenshot format
 
-## Learn More
-
-- [Pixeltable Documentation](https://docs.pixeltable.com/)
-- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
-- [Discord Community](https://discord.gg/QPyqFYx2UN)
-
-## Disclaimer
+## ⚠️ Disclaimer
 
 This application is for educational and research purposes only. Do not use it to make financial decisions. Always consult with a licensed financial advisor before making any investment decisions.
