@@ -1,3 +1,6 @@
+# mypy: ignore-errors
+# (whisperx is not in the dev environment)
+
 """WhisperX audio transcription and diarization functions."""
 
 from typing import TYPE_CHECKING, Any

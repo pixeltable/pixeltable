@@ -38,6 +38,7 @@ from ..utils import (
     get_video_files,
     pxt_raises,
     reload_catalog,
+    skip_test_if_cockroachdb,
     skip_test_if_not_installed,
 )
 
@@ -279,6 +280,7 @@ class TestPackager:
             return {(indexname, indexdef) for indexname, indexdef in result}
 
     def __purge_db(self) -> None:
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         clean_db()
         # Delete any locally stored media files (so that if any stale references to them inadvertently remain after
         # packaging, then those stale references will be invalid).
@@ -333,6 +335,7 @@ class TestPackager:
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
         """package() / restore() round trip for a single snapshot"""
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         # Add some additional columns to test various additional datatypes
         t = test_tbl
         t.add_column(dt=pxt.Date)
@@ -347,6 +350,7 @@ class TestPackager:
 
     def test_non_snapshot_round_trip(self, uses_db: None) -> None:
         """package() / restore() round trip for multiple versions of a table that is not a snapshot"""
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         t = pxt.create_table('tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -452,6 +456,7 @@ class TestPackager:
         """
         Two snapshots that are exported at different times, requiring rectification of the v_max values.
         """
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -475,6 +480,7 @@ class TestPackager:
         """
         Two snapshots that are exported at different times, involving column operations.
         """
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(100))
 
@@ -545,6 +551,7 @@ class TestPackager:
         """
         Another test with many snapshots, involving row and column additions and deletions.
         """
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         bundles: list[TestPackager.BundleInfo] = []
 
         t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
@@ -597,6 +604,7 @@ class TestPackager:
         A similar test, this one involving multiple versions of a table that is not a snapshot,
         intermixed with various snapshots.
         """
+        skip_test_if_cockroachdb('Replica restore not yet supported on CockroachDB')
         bundles: list[TestPackager.BundleInfo] = []
 
         t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
@@ -626,7 +634,7 @@ class TestPackager:
             name = 'replica' if n % 2 != 0 else f'replica_{n}'
             self.__restore_and_check_table(bundles[n], name)
 
-    def test_replica_ops(self, uses_db: None, clip_embed: pxt.Function) -> None:
+    def test_replica_ops(self, uses_db: None, local_embed: pxt.Function) -> None:
         t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String})
         t.insert({'icol': i, 'scol': f'string {i}'} for i in range(10))
         v = pxt.create_view('test_view', t)
@@ -645,7 +653,7 @@ class TestPackager:
 
         self.__restore_and_check_table(t_bundle, 'tbl_replica')
         # Check that test_tbl has been renamed to a user table
-        assert pxt.list_tables() == ['view_replica', 'tbl_replica']
+        assert sorted(pxt.list_tables()) == sorted(['view_replica', 'tbl_replica'])
         assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
 
         t = pxt.get_table('tbl_replica')
@@ -676,7 +684,7 @@ class TestPackager:
             with pxt_raises(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add an index to a replica.'
             ):
-                s.add_embedding_index('icol', embedding=clip_embed)
+                s.add_embedding_index('icol', embedding=local_embed)
             with pxt_raises(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot drop an index from a replica.'
             ):
@@ -791,7 +799,7 @@ class TestPackager:
         for i in (7, 5, 2, 10):
             self.__restore_and_check_table(bundles[i], f'replica_{i}')
 
-        assert pxt.list_tables() == [f'replica_{i}' for i in (2, 5, 7, 10)]  # 4 visible tables
+        assert sorted(pxt.list_tables()) == sorted([f'replica_{i}' for i in (2, 5, 7, 10)])  # 4 visible tables
         _x = pxt.globals._list_tables('_system', allow_system_paths=True)
         assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 7  # 7 hidden tables
 
@@ -859,27 +867,27 @@ class TestPackager:
 
     @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
     def test_embedding_index(
-        self, uses_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
+        self, uses_db: None, local_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
-        skip_test_if_not_installed('imagehash', 'transformers')  # transformers needed for CLIP
+        skip_test_if_not_installed('imagehash')
 
         t = pxt.create_table('tbl', {'image': pxt.Image})
         images = get_image_files()[:10]
         t.insert({'image': image} for image in images)
-        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)
+        t.add_embedding_index('image', embedding=local_embed, precision=embedding_precision)
 
         self.__do_round_trip(t)
 
     @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
     def test_multi_version_embedding_index(
-        self, uses_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
+        self, uses_db: None, local_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
-        skip_test_if_not_installed('imagehash', 'transformers')  # transformers needed for CLIP
+        skip_test_if_not_installed('imagehash')
 
         t = pxt.create_table('tbl', {'id': pxt.Int, 'image': pxt.Image})
         images = get_image_files()
         t.insert({'id': i, 'image': image} for i, image in enumerate(images[:10]))
-        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)
+        t.add_embedding_index('image', embedding=local_embed, precision=embedding_precision)
         bundle1 = self.__package_table(t)
         sim_1 = t.image.similarity(string=images[25])
         sim_results_1 = t.select(t.id, sim_1).order_by(sim_1, asc=False).limit(5).collect()

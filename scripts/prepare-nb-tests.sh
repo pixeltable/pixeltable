@@ -12,6 +12,14 @@ SKIP_NOTEBOOKS=(
     working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
 )
 
+# Check if `nvidia-smi` returns success; if not, skip GPU notebooks too
+if ! nvidia-smi > /dev/null 2>&1; then
+    echo "nvidia-smi not found or not working; skipping GPU notebooks."
+    SKIP_NOTEBOOKS+=(
+        working-with-vllm           # vLLM requires a CUDA environment
+    )
+fi
+
 # Notebooks that are skipped unless --include-very-expensive is passed
 VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
@@ -20,17 +28,24 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-together           # Poor reliability
 )
 
-# Notebooks that are skipped unless --include-expensive is passed.
+# Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.
 EXPENSIVE_NOTEBOOKS=(
+    audio-podcast-chapters
+    audio-transcriptions
     computed-columns
     data-import-huggingface
     doc-chunk-for-rag
     embedding-indexes
     img-image-to-image
+    multimodal_backend
     queries-and-expressions
+    rag-demo
     rag-operations
     search-semantic-text
     search-similar-images
+    ten-minute-tour
+    using-label-studio-with-pixeltable
+    video-image-slideshow
     working-with-hugging-face
     working-with-llama-cpp
 )

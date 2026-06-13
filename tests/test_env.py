@@ -4,7 +4,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import reset_runtime
 
-from .utils import pxt_raises
+from .utils import pxt_raises, skip_test_if_not_local
 
 
 def _reset_env(reinit: bool, db_name: str) -> None:
@@ -20,6 +20,7 @@ class TestEnvReset:
 
     def test_basic(self, uses_db: None) -> None:
         """Test basic env clear functionality."""
+        skip_test_if_not_local('Env reset tests require a local (file-backed) Pixeltable database')
         # Set environment
         dbname = 'test_basic_db'
         _reset_env(reinit=True, db_name=dbname)
@@ -45,6 +46,7 @@ class TestEnvReset:
 
     def test_switch_environments(self, uses_db: None) -> None:
         """Test switching between two environments."""
+        skip_test_if_not_local('Env reset tests require a local (file-backed) Pixeltable database')
         dbname1 = 'test_switch_environments_db1'
         dbname2 = 'test_switch_environments_db2'
 
@@ -84,6 +86,7 @@ class TestEnvReset:
 
     def test_metadata_persistence(self, uses_db: None) -> None:
         """Test that metadata persists across environment switches."""
+        skip_test_if_not_local('Env reset tests require a local (file-backed) Pixeltable database')
         metadata_db = 'test_metadata_persistence_db'
         # Environment 1 setup
         _reset_env(reinit=True, db_name=metadata_db)

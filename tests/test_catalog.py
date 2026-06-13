@@ -13,7 +13,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 from tests.conftest import clean_db
 from tests.coordinator import MultiThreadedScenario
 from tests.fault_injection import BlockFault, ExceptionFault
-from tests.utils import pxt_raises, reload_catalog
+from tests.utils import pxt_raises, reload_catalog, skip_test_if_cockroachdb
 
 
 class TestCatalog:
@@ -283,13 +283,7 @@ class TestCatalog:
         (
             MultiThreadedScenario()
             # Thread 0: arm the fault in pending table ops finalization
-            .then_run(
-                thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault
-                ),
-            )
+            .then_inject_fault(thread_id=0, loc=FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault=fault)
             # Thread 0: start adding a computed column, this will block at the fault point
             .then_run_until(
                 thread_id=0, name='add column', event=fault.reached, fn=lambda: t.add_computed_column(b=t.a + 1)
@@ -326,12 +320,10 @@ class TestCatalog:
             # Thread 0: Warm up its catalog so base's tv is cached.
             .then_run(thread_id=0, name='warm up cache', fn=lambda: pxt.get_table('base'))
             # Thread 0: Arm a non-retriable exception fault inside create_view.
-            .then_run(
+            .then_inject_fault(
                 thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED, ExceptionFault(injected_exc)
-                ),
+                loc=FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED,
+                fault=ExceptionFault(injected_exc),
             )
             # Thread 0: Run create_view (va) that fails. Before the fix, base_tv was not added to _modified_tvs, so it
             # stays in cache with stale in-memory state, i.e. with view_sn=v+1
@@ -355,6 +347,10 @@ class TestCatalog:
         Start with a base table and a view. Thread 0 loads the view md, and is about to initialize it when Thread 1
         drops it.
         """
+        skip_test_if_cockroachdb(
+            'CockroachDB applies DROP TABLE asynchronously, so the concurrent drop is not yet visible '
+            'in information_schema and the table load succeeds instead of raising'
+        )
         base = pxt.create_table('base', {'a': pxt.Int})
         v = pxt.create_view('v', base, additional_columns={'b': base.a + 1})
         base.insert([{'a': 1}])
