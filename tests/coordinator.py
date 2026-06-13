@@ -7,7 +7,7 @@ from typing import Any, Callable
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 
-from .fault_injection import Fault
+from .fault_injection import BlockFault, Fault
 
 _logger = logging.getLogger('pixeltable_test')
 
@@ -52,6 +52,10 @@ class MultiThreadedScenario:
             name=f'inject fault at {loc.name}',
             fn=lambda: get_runtime().fault_manager.inject_fault(loc, fault),
         )
+
+    def then_unblock(self, *, thread_id: int, fault: BlockFault) -> 'MultiThreadedScenario':
+        """Append a step that unblocks `fault` on Thread `thread_id`."""
+        return self.then_run(thread_id=thread_id, name=f'unblock {fault}', fn=fault.unblock)
 
     def execute(self, timeout: float = 10.0) -> None:
         """Run the scenario. Raises the first exception encountered in any thread."""
