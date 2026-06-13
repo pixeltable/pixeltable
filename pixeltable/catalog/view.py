@@ -15,6 +15,7 @@ from pixeltable.catalog.globals import _POS_COLUMN_NAME
 from pixeltable.func.iterator import IteratorOutput
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
+
 from .column import Column
 from .globals import MediaValidation
 from .table import Table
