@@ -214,6 +214,21 @@ class TestAudio:
         assert math.floor(drop_results[-1]['segment_end']) == 56
         reload_tester.run_reload_test()
 
+    def test_audio_splitter_overlap_smaller_than_packet(self, uses_db: None) -> None:
+        # sample.flac has ~0.096s packets; an overlap smaller than a single packet must still be honored. Selecting
+        # overlap packets by start timestamp drops the final packet (its start precedes the overlap window) and would
+        # yield contiguous, non-overlapping segments.
+        audio_filepath = get_audio_file('sample.flac')
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert([{'audio': audio_filepath}]))
+        view = pxt.create_view(
+            'audio_segments', base_t, iterator=audio_splitter(audio=base_t.audio, duration=1.0, overlap=0.05)
+        )
+        results = view.order_by(view.pos).select(view.segment_start, view.segment_end).collect()
+        assert len(results) > 1
+        # consecutive segments overlap in time despite the requested overlap being smaller than one packet
+        assert all(results[i + 1]['segment_start'] < results[i]['segment_end'] for i in range(len(results) - 1))
+
     def __frame_count(self, path: str) -> int:
         with av.open(path) as container:
             return sum(1 for _ in container.decode(audio=0))
@@ -339,9 +354,7 @@ class TestAudio:
         # the segments are contiguous and cover the whole clip
         assert results[0]['segment_start'] == 0.0
         assert results[-1]['segment_end'] == 12.0
-        assert all(
-            abs(results[i + 1]['segment_start'] - results[i]['segment_end']) < 1e-6 for i in range(len(results) - 1)
-        )
+        assert all(results[i + 1]['segment_start'] == results[i]['segment_end'] for i in range(len(results) - 1))
         reload_tester.run_reload_test()
 
         # silence-aware cutting also works under a byte budget

@@ -637,7 +637,10 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
                 # drop the final segment if it is shorter than min_segment_duration
                 return
             if more_content:
-                overlap_tail = [p for p in kept if p.pts >= segment_end_pts - overlap_pts]
+                # select by packet end, not start: a packet that begins before the overlap window but extends into
+                # it still covers part of the overlap, and testing pts alone would drop it (and zero out the overlap
+                # entirely when a packet is longer than overlap_pts)
+                overlap_tail = [p for p in kept if p.pts + p.duration > segment_end_pts - overlap_pts]
                 pending_packet_info = overlap_tail + trimmed + leftover + ([lookahead] if lookahead is not None else [])
 
             cumulative_target_pts += duration_pts
