@@ -29,7 +29,14 @@ from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, IfExistsParam, IfNotExistsParam, MediaValidation, is_valid_identifier
+from .globals import (
+    _ROWID_COLUMN_NAME,
+    IfExistsParam,
+    IfNotExistsParam,
+    MediaValidation,
+    QColumnId,
+    is_valid_identifier,
+)
 from .schema_object import SchemaObject
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
@@ -144,9 +151,7 @@ class Table(SchemaObject):
             if info.col.name not in column_info:
                 continue
             if isinstance(info.idx, index.EmbeddingIndex):
-                indexed_col_md = self._tbl_version_path.get_column_md(
-                    catalog.QColumnId(info.col.tbl_handle.id, info.col.id)
-                )
+                indexed_col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
                 col_ref = ColumnRef(indexed_col_md)
                 embedding_fncall = info.idx.embeddings[info.col.col_type._type](col_ref)
                 index_info[info.name] = IndexMetadata(
@@ -486,7 +491,7 @@ class Table(SchemaObject):
         pd_rows = []
         for name, info in self._tbl_version.get().idxs_by_name.items():
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
-                col_md = self._tbl_version_path.get_column_md(catalog.QColumnId(info.col.tbl_handle.id, info.col.id))
+                col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
                 col_ref = ColumnRef(col_md)
                 embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
                 row = {

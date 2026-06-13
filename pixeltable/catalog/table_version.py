@@ -85,15 +85,15 @@ class TableVersion:
         have TableVersions reference those
     - mutable TableVersions record their TableVersionPath, which is needed for expr evaluation in updates
 
+    Effective version distinguishes between live tables and snapshots:
+    - None for a live table (that can receive updates)
+    - VersionMd.version for a snapshot
+
     Instances of TableVersion should not be stored as member variables (ie, used across transaction boundaries).
     Use a TableVersionHandle instead.
 
     Only TableVersion and Catalog interact directly with stored metadata. Everything else needs to go through these
     two classes.
-
-    TableVersions come in two "flavors" depending on the `effective_version` setting:
-    - if None, it's a live table that tracks `tbl_md.current_version`
-    - if `effective_version` is defined, it's a snapshot of the specific version given by `effective_version`
     """
 
     key: TableVersionKey
