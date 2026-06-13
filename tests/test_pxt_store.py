@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-import pytest
-
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath
@@ -14,7 +12,6 @@ from .utils import pxt_raises, skip_test_if_no_pxt_credentials, skip_test_if_not
 PXT_DEST_URI = 'pxtfs://pixeltable:main/home/pytest'
 
 
-@pytest.mark.skip('Skip tests until pxt store changes are in the cloud')
 class TestPxtStore:
     """Tests for Pixeltable-managed storage (pxtfs:// home buckets)."""
 
