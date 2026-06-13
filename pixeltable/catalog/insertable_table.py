@@ -4,6 +4,8 @@ import enum
 import time
 from typing import TYPE_CHECKING, Any, Literal, Sequence, overload
 
+import pydantic
+
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
@@ -156,9 +158,6 @@ class InsertableTable(Table):
         data_source = TableDataConduit.create(
             source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
         )
-        if data_source.source_column_map is None:
-            data_source.src_pk = []
-
         data_source.add_table_info(self)
         data_source.prepare_for_insert_into_table()
 
@@ -168,6 +167,45 @@ class InsertableTable(Table):
             print_stats=print_stats,
             return_rows=return_rows,
         )
+
+    def compute(
+        self,
+        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+    ) -> list[dict[str, Any]]:
+        from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
+
+        # str/bytes are technically Sequences; reject them explicitly so we don't fall through to
+        # TableDataConduit.create() which would treat a string as a path/URL and trigger file I/O.
+        if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',
+            )
+        fail_on_exc = OnErrorParameter.fail_on_exception(on_error)
+        # TableDataConduit.is_rowdata_structure() only accepts list (not arbitrary Sequence) for the
+        # dict-source dispatch, so normalize to list here.
+        data_source = TableDataConduit.create(list(source))
+        if not isinstance(data_source, (RowDataTableDataConduit, PydanticTableDataConduit)):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'compute() requires a sequence of dicts or pydantic models; got {type(source).__name__}',
+            )
+        data_source.add_table_info(self)
+        data_source.prepare_for_insert_into_table()
+
+        result: list[dict[str, Any]] = []
+        try:
+            with get_runtime().catalog.begin_xact(read_tbl_ids=[self._id]):
+                for row_batch in data_source.valid_row_batch():
+                    result.extend(self._tbl_version.get().compute(row_batch, fail_on_exc=fail_on_exc))
+        except excs.ExprEvalError as e:
+            excs.raise_from_expr_eval_err(e)
+
+        FileCache.get().emit_eviction_warnings()
+        return result
 
     def insert_table_data_source(
         self,

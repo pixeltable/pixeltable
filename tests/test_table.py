@@ -1051,7 +1051,15 @@ class TestTable:
         t2.insert(t)
         assert len(t2.collect()) == 2 * len(t.collect())
 
-    def test_insert_pydantic_scalars(self, uses_db: None) -> None:
+    def _setup_pydantic_scalars(
+        self,
+    ) -> tuple[
+        pxt.Table,
+        type[pydantic.BaseModel],
+        list[pydantic.BaseModel],
+        type[pydantic.BaseModel],
+        list[pydantic.BaseModel],
+    ]:
         schema = {
             's': pxt.Required[pxt.String],
             'opt_s': pxt.String,
@@ -1064,8 +1072,6 @@ class TestTable:
         }
         t = pxt.create_table('test_pydantic_basic', schema)
         t.add_computed_column(c1=t.i + 1)
-
-        # TODO: remove this line
 
         # pydantic model matches schema exactly
         class E1(enum.Enum):
@@ -1083,7 +1089,7 @@ class TestTable:
             opt_s: str | None = None
 
         now = datetime.datetime.now()
-        rows1 = [
+        rows1: list[pydantic.BaseModel] = [
             TestModel1(
                 s=f'str_{i}',
                 i=i,
@@ -1097,11 +1103,6 @@ class TestTable:
             for i in range(100)
         ]
 
-        status = t.insert(rows1)
-        assert status.num_rows == 100
-        assert status.num_excs == 0
-        assert t.where(t.i < 50).count() == 50
-
         # optional fields are accepted if present in the input
         class TestModel2(pydantic.BaseModel):
             s: str | None = None
@@ -1112,7 +1113,19 @@ class TestTable:
             r: Literal['abc', 'def'] | None = None
             en: E1 | None = None
 
-        rows2 = [TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now, r='abc', en=E1.A) for i in range(100)]
+        rows2: list[pydantic.BaseModel] = [
+            TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now, r='abc', en=E1.A) for i in range(100)
+        ]
+
+        return t, TestModel1, rows1, TestModel2, rows2
+
+    def test_insert_pydantic_scalars(self, uses_db: None) -> None:
+        t, _, rows1, TestModel2, rows2 = self._setup_pydantic_scalars()  # noqa: N806
+
+        status = t.insert(rows1)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        assert t.where(t.i < 50).count() == 50
 
         status = t.insert(rows2)
         assert status.num_rows == 100
@@ -1121,12 +1134,123 @@ class TestTable:
 
         # missing required keys in input
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="Missing required column 'en'"):
+            now = datetime.datetime.now()
             rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
             _ = t.insert(rows3)
 
         # mixed models
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='Expected an instance of `TestModel1`; got `TestModel2`'):
             _ = t.insert(cast(list[pydantic.BaseModel], rows1 + rows2))
+
+    def test_compute_with_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('test_null_handling', {'id': pxt.Int, 'data': pxt.Json})
+        t.add_computed_column(inv=1 / t.id)
+        # unstored computed col: no persisted cellmd slot, but compute() must still emit :md on error
+        t.add_computed_column(inv2=2 / t.id, stored=False)
+
+        # ZeroDivisionError for first row, ignored
+        rows: list[dict[str, Any]] = [{'id': 0, 'data': None}, {'id': 2, 'data': {'k': 'v'}}]
+        out = t.compute(rows, on_error='ignore')
+        assert out[0] == {
+            'id': 0,
+            'data': None,
+            'inv': None,
+            'inv:md': {'errortype': 'ZeroDivisionError', 'errormsg': 'division by zero'},
+            'inv2': None,
+            'inv2:md': {'errortype': 'ZeroDivisionError', 'errormsg': 'division by zero'},
+        }
+        assert out[1] == {'id': 2, 'data': {'k': 'v'}, 'inv': 0.5, 'inv2': 1.0}
+
+        # same row with on_error='abort' raises
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ZeroDivisionError'):
+            t.compute([{'id': 0, 'data': None}], on_error='abort')
+
+    def test_compute_media_errors(self, uses_db: None) -> None:
+        """compute() with a computed column on a media input, exercising media validation errors."""
+        files = get_video_files(include_bad_video=True)
+        rows = [{'media': f} for f in files]
+        t = pxt.create_table('test_compute_media_errors', {'media': pxt.Video}, media_validation='on_write')
+        t.add_computed_column(md=t.media.get_metadata())
+
+        # on_error='ignore': bad row carries error info under 'media:md' (validation) and 'md:md' (computed col)
+        out = t.compute(rows, on_error='ignore')
+        assert len(out) == len(rows)
+        bad_idx = next(i for i, f in enumerate(files) if f.endswith('bad_video.mp4'))
+        bad, good = out[bad_idx], [r for i, r in enumerate(out) if i != bad_idx]
+        assert bad['media'] is None and bad['md'] is None
+        assert bad['media:md']['errortype'] == 'RequestError'
+        assert bad['md:md']['errortype'] == 'RequestError'
+        assert all(isinstance(r['md'], dict) and 'md:md' not in r for r in good)
+
+        # on_error='abort': the bad row raises
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match='bad_video'):
+            t.compute(rows, on_error='abort')
+
+    def test_compute_input_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('test_compute_input_errors', {'id': pxt.Int})
+        t.add_computed_column(plus1=t.id + 1)
+
+        # empty sequence
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-empty sequence'):
+            t.compute([])
+
+        # not a sequence (DataFrame)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-empty sequence'):
+            t.compute(pd.DataFrame([{'id': 1}]))  # type: ignore[arg-type]
+
+        # str and bytes are technically Sequences but must be rejected, not interpreted as file paths
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-empty sequence'):
+            t.compute('some_path.csv')  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-empty sequence'):
+            t.compute(b'\x00\x01')  # type: ignore[arg-type]
+
+        # non-list sequences of dicts (eg tuples) must work
+        out = t.compute(({'id': 1}, {'id': 2}))
+        assert out == [{'id': 1, 'plus1': 2}, {'id': 2, 'plus1': 3}]
+
+    def test_compute_with_idx(self, uses_db: None, clip_embed: pxt.Function) -> None:
+        skip_test_if_not_installed('transformers')
+        t = pxt.create_table('test_compute_with_idx', {'img': pxt.Image})
+        t.add_computed_column(rotated=t.img.rotate(90), stored=False)
+        t.add_computed_column(md=t.img.get_metadata())
+        t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', embedding=clip_embed)
+
+        files = get_image_files()[:2]
+        out = t.compute([{'img': f} for f in files])
+        assert all(set(row.keys()) == {'img', 'rotated', 'md', 'img:img_idx1'} for row in out)
+        assert all(isinstance(row['img'], str) for row in out)
+        assert all(isinstance(row['rotated'], PIL.Image.Image) for row in out)
+        assert all(isinstance(row['md'], dict) for row in out)
+        assert all(isinstance(row['img:img_idx1'], np.ndarray) and row['img:img_idx1'].shape == (512,) for row in out)
+
+    def test_insert_return_rows_with_idx(self, uses_db: None) -> None:
+        t = pxt.create_table('test_insert_return_rows_with_idx', {'id': pxt.Int, 'name': pxt.String})
+        status = t.insert([{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}], return_rows=True)
+        rows = status.rows or []
+        assert all(None not in row for row in rows)
+        assert all({'id', 'name'} <= row.keys() for row in rows)
+        assert [{'id': r['id'], 'name': r['name']} for r in rows] == [{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}]
+
+    def test_compute_pydantic_scalars(self, uses_db: None) -> None:
+        t, TestModel1, rows1, TestModel2, rows2 = self._setup_pydantic_scalars()  # noqa: N806
+
+        output = t.compute(rows1)
+        assert all(out['c1'] == out['i'] + 1 for out in output)
+        assert all(TestModel1(**out) == row for out, row in zip(output, rows1))
+
+        output = t.compute(rows2)
+        assert all(out['c1'] == out['i'] + 1 for out in output)
+        assert all(TestModel2(**out) == row for out, row in zip(output, rows2))
+
+        # missing required keys in input
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="Missing required column 'en'"):
+            now = datetime.datetime.now()
+            rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
+            _ = t.compute(rows3)
+
+        # mixed models
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='Expected an instance of `TestModel1`; got `TestModel2`'):
+            _ = t.compute(cast(list[pydantic.BaseModel], rows1 + rows2))
 
     def test_pydantic_errors(self, uses_db: None) -> None:
         # value provided for computed column
