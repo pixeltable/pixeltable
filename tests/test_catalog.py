@@ -367,12 +367,8 @@ class TestCatalog:
 
         (
             MultiThreadedScenario()
-            .then_run(
-                thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.CATALOG_BEGIN_XACT_AFTER_ACQUIRE_LOCKS, block_before_init
-                ),
+            .then_inject_fault(
+                thread_id=0, loc=FaultLocation.CATALOG_BEGIN_XACT_AFTER_ACQUIRE_LOCKS, fault=block_before_init
             )
             .then_run_until(
                 thread_id=0, name='access column', event=block_before_init.reached, fn=access_column_expect_not_found
@@ -396,12 +392,8 @@ class TestCatalog:
 
         (
             MultiThreadedScenario()
-            .then_run(
-                thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, block_in_finalize
-                ),
+            .then_inject_fault(
+                thread_id=0, loc=FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault=block_in_finalize
             )
             # Thread 0: drop v but block mid-finalize
             .then_run_until(
