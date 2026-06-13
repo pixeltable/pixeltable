@@ -243,7 +243,7 @@ def create_table(
                 tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
         elif data_source is not None and not is_direct_query:
             assert isinstance(tbl, catalog.InsertableTable)
-            tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+            tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
     return tbl
 

@@ -761,6 +761,33 @@ class ColumnType:
 
         return None
 
+    @classmethod
+    def from_sa_type(cls, sa_type: sql.types.TypeEngine, nullable: bool) -> ColumnType | None:
+        """
+        Return the pixeltable type corresponding to a SQLAlchemy type, or None if there is no mapping.
+
+        The inverse of `to_sa_type()`; used to infer a schema from an external SQL source.
+        """
+        if isinstance(sa_type, sql.types.Boolean):
+            return BoolType(nullable=nullable)
+        if isinstance(sa_type, sql.types.Integer):
+            return IntType(nullable=nullable)
+        if isinstance(sa_type, (sql.types.Numeric, sql.types.Float)):
+            return FloatType(nullable=nullable)
+        if isinstance(sa_type, sql.types.DateTime):
+            return TimestampType(nullable=nullable)
+        if isinstance(sa_type, sql.types.Date):
+            return DateType(nullable=nullable)
+        if isinstance(sa_type, sql.types.Uuid):
+            return UUIDType(nullable=nullable)
+        if isinstance(sa_type, sql.types.LargeBinary):
+            return BinaryType(nullable=nullable)
+        if isinstance(sa_type, sql.types.JSON):
+            return JsonType(nullable=nullable)
+        if isinstance(sa_type, sql.types.String):
+            return StringType(nullable=nullable)
+        return None
+
 
 class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):

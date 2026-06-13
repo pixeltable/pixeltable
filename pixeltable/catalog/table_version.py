@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from pixeltable._query import Query
     from pixeltable.catalog.table_version_handle import TableVersionHandle
     from pixeltable.io import ExternalStore
+    from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.plan import SampleClause
 
     from .table_version_path import TableVersionPath
@@ -1022,24 +1023,24 @@ class TableVersion:
 
     def insert(
         self,
-        rows: list[dict[str, Any]] | None,
+        source: list[dict[str, Any]] | SqlDataSource | None,
         query: Query | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
         return_rows: bool = False,
     ) -> UpdateStatus:
         """
-        Insert rows into this table, either from an explicit list of dicts or from a `Query`.
+        Insert rows into this table from an explicit list of dicts, a `Query`, or a `SqlDataSource`.
         """
         from pixeltable.plan import Planner
 
         assert self.is_insertable
-        assert (rows is None) != (query is None)  # Exactly one must be specified
-        if rows is not None:
-            plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
-
-        else:
+        # Exactly one of source / query must be specified
+        assert (source is None) != (query is None)
+        if query is not None:
             plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
+        else:
+            plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
 
         rowid_gen: Iterator[int] | None = None
         # For versioned tables, generate rowids from the table's sequence.
