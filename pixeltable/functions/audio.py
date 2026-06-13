@@ -5,7 +5,7 @@ Pixeltable UDFs for `AudioType`.
 import logging
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, ClassVar, TypedDict
+from typing import Any, Generator, NamedTuple, TypedDict
 
 import av
 import numpy as np
@@ -335,19 +335,75 @@ def normalize(audio: pxt.Audio) -> pxt.Audio:
     return av_utils.run_ffmpeg_cmdline(cmd, output_path)
 
 
+class _PacketInfo(NamedTuple):
+    """
+    A demuxed packet plus its original timestamps, retained separately because muxing rescales the packet in place
+    and overlap means the same packet is muxed into more than one segment.
+    """
+
+    packet: av.Packet
+    pts: int
+    dts: int | None
+    duration: int
+    mean_square: float = -1.0  # the packet's normalized energy
+
+
 class AudioSegment(TypedDict):
     segment_start: float
     segment_end: float
     audio_segment: pxt.Audio | None
 
 
+class _SilenceScanner:
+    """
+    Streaming run-length silence detector:
+    - packet information is fed in order via observe()
+    - tracks the current run of consecutive silent packets to identify silence based on init() parameters
+    """
+
+    threshold_meansq: float  # mean-square level at or below which a packet is silent
+    min_silence_len_pts: int  # minimum length of a silent run that qualifies as a cut point
+    min_segment_pts: int  # minimum distance from the segment start before a cut is allowed
+
+    # silence-related state
+    segment_start_pts: int | None  # start of the current segment, set on the first observe()
+    run_start_pts: int | None  # start of the current silent run, or None when not in one
+    cut_index: int | None  # index of the last packet to keep, or None if no qualifying silence yet
+
+    def __init__(self, threshold_ms: float, min_silence_len_pts: int, min_segment_pts: int):
+        self.threshold_meansq = threshold_ms
+        self.min_silence_len_pts = min_silence_len_pts
+        self.min_segment_pts = min_segment_pts
+        self.segment_start_pts = None
+        self.run_start_pts = None
+        self.cut_index = None
+
+    def observe(self, packet_index: int, start_pts: int, end_pts: int, mean_square: float) -> None:
+        """Feed the next packet data and update silence-related state."""
+        if self.segment_start_pts is None:
+            self.segment_start_pts = start_pts
+        if mean_square > self.threshold_meansq:
+            self.run_start_pts = None  # ending the current run
+            return
+        if self.run_start_pts is None:
+            self.run_start_pts = start_pts
+        # cut as late as possible within a run that is at least min_silence_len long, as long as the resulting
+        # segment is at least min_segment_duration
+        if (
+            end_pts - self.run_start_pts >= self.min_silence_len_pts
+            and end_pts - self.segment_start_pts >= self.min_segment_pts
+        ):
+            self.cut_index = packet_index
+
+
 @pxt.iterator
 class audio_splitter(pxt.PxtIterator[AudioSegment]):
     """
-    Iterator over segments of an audio file. The audio file is split into smaller segments,
-    where the duration of each segment is determined by `duration`.
+    Iterator over segments of an audio file. The audio file is split into smaller segments, sized either by
+    `duration` (seconds) or by `max_size` (bytes). Exactly one of the two must be specified.
 
-    If the input contains no audio, no segments are yielded.
+    - With `max_size`, every emitted segment is guaranteed not to exceed the given number of bytes.
+    - With `duration`, each segment is approximately that long (a segment may run over by up to one packet).
 
     __Outputs__:
 
@@ -357,10 +413,20 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
         - `segment_end` (`pxt.Float`): End time of the audio segment in seconds
         - `audio_segment` (`pxt.Audio | None`): The audio content of the segment
 
+    When `min_silence_len` is set, segment boundaries are snapped to silences so that segments do not end in the
+    middle of speech: each segment ends at the latest silence at or before its `duration` or `max_size` budget.
+    `trim_leading_silence` additionally drops silence from the start of every segment.
+
     Args:
-        duration: Audio segment duration in seconds
+        duration: Audio segment duration in seconds. Mutually exclusive with `max_size`.
+        max_size: Maximum audio segment size in bytes. Mutually exclusive with `duration`.
         overlap: Overlap between consecutive segments in seconds
-        min_segment_duration: Drop the last segment if it is smaller than `min_segment_duration`
+        min_segment_duration: Drop the last segment if it is smaller than `min_segment_duration` (in seconds).
+        min_silence_len: If set, enables silence-aware boundaries; the minimum length in seconds of a quiet stretch
+            that counts as a usable cut point.
+        silence_thresh: Level in dBFS at or below which audio is considered silent. Used when `min_silence_len` is set
+            or `trim_leading_silence` is true.
+        trim_leading_silence: If true, drop leading silence from each segment so it starts at audible content.
 
     Examples:
         This example assumes an existing table `tbl` with a column `audio` of type `pxt.Audio`.
@@ -372,173 +438,320 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
         ...     tbl,
         ...     iterator=audio_splitter(tbl.audio, duration=30.0, overlap=5.0),
         ... )
+
+        Create a view that splits all audio files into segments of at most 24 MB, for transcription:
+
+        >>> pxt.create_view(
+        ...     'audio_segments',
+        ...     tbl,
+        ...     iterator=audio_splitter(tbl.audio, max_size=24 * 1024 * 1024),
+        ... )
     """
 
     audio_path: Path
-    segment_duration: float
     overlap: float
     min_segment_duration: float
+    segment_duration: float  # set only in duration mode
+    max_size: int  # set only in max_size mode
+
+    # silence detection
+    trim_leading_silence: bool
+    with_silence: bool  # whether segment boundaries are placed at silences
+    decode_needed: bool  # whether packets must be decoded to measure energy (silence-aware cutting or leading trim)
+    silence_threshold_meansq: float  # mean-square form of silence_thresh
+    min_silence_len_pts: int  # set only when with_silence
 
     # audio stream details
     container: av.container.input.InputContainer
-    audio_time_base: Fraction  # seconds per presentation time
+    in_stream: av.audio.stream.AudioStream
+    audio_time_base: Fraction  # seconds per presentation timestamp unit
 
-    # List of segments to extract
-    # Each segment is defined by start and end presentation timestamps in audio file (int)
-    segments_to_extract_in_pts: list[tuple[int, int]] | None
+    # generator producing the output segments; created in __init__() and driven by __next__()
+    _segments: Generator[AudioSegment, None, None]
 
-    __codec_map: ClassVar[dict[str, str]] = {
-        'mp3': 'mp3',  # MP3 decoder -> mp3/libmp3lame encoder
-        'mp3float': 'mp3',  # MP3float decoder -> mp3 encoder
-        'aac': 'aac',  # AAC decoder -> AAC encoder
-        'vorbis': 'libvorbis',  # Vorbis decoder -> libvorbis encoder
-        'opus': 'libopus',  # Opus decoder -> libopus encoder
-        'flac': 'flac',  # FLAC decoder -> FLAC encoder
-        'wavpack': 'wavpack',  # WavPack decoder -> WavPack encoder
-        'alac': 'alac',  # ALAC decoder -> ALAC encoder
-    }
-
-    def __init__(self, audio: pxt.Audio, duration: float, *, overlap: float = 0.0, min_segment_duration: float = 0.0):
-        assert duration > 0.0
-        assert duration >= min_segment_duration
-        assert overlap < duration
+    def __init__(
+        self,
+        audio: pxt.Audio,
+        *,
+        duration: float | None = None,
+        max_size: int | None = None,
+        overlap: float = 0.0,
+        min_segment_duration: float = 0.0,
+        min_silence_len: float | None = None,
+        silence_thresh: float = -40.0,
+        trim_leading_silence: bool = False,
+    ):
+        assert (duration is None) != (max_size is None)
+        assert overlap >= 0.0
+        assert min_segment_duration >= 0.0
         audio_path = Path(audio)
         assert audio_path.exists() and audio_path.is_file()
         self.audio_path = audio_path
-        self.next_pos = 0
-        self.container = av.open(str(audio_path))
-        if len(self.container.streams.audio) == 0:
-            # No audio stream
-            return
-        self.segment_duration = duration
         self.overlap = overlap
         self.min_segment_duration = min_segment_duration
-        self.audio_time_base = self.container.streams.audio[0].time_base
+        self.trim_leading_silence = trim_leading_silence
+        self.with_silence = min_silence_len is not None
+        self.decode_needed = self.with_silence or trim_leading_silence
+        self.silence_threshold_meansq = 10.0 ** (silence_thresh / 10.0)
+        self.container = av.open(str(audio_path))
+        # AudioType.validate_media() rejects files without an audio stream before they can reach the iterator
+        assert len(self.container.streams.audio) > 0
+        self.in_stream = self.container.streams.audio[0]
+        self.audio_time_base = self.in_stream.time_base
+        if self.with_silence:
+            self.min_silence_len_pts = round(min_silence_len / self.audio_time_base)
 
-        audio_start_time_pts = self.container.streams.audio[0].start_time or 0
-        audio_start_time = float(audio_start_time_pts * self.audio_time_base)
-        total_audio_duration_pts = self.container.streams.audio[0].duration or 0
-        total_audio_duration = float(total_audio_duration_pts * self.audio_time_base)
-
-        self.segments_to_extract_in_pts = [
-            (round(start / self.audio_time_base), round(end / self.audio_time_base))
-            for (start, end) in self.build_segments(
-                audio_start_time, total_audio_duration, duration, overlap, min_segment_duration
-            )
-        ]
-        _logger.debug(
-            f'AudioIterator: path={self.audio_path} total_audio_duration_pts={total_audio_duration_pts} '
-            f'segments_to_extract_in_pts={self.segments_to_extract_in_pts}'
-        )
-
-    @classmethod
-    def build_segments(
-        cls,
-        start_time: float,
-        total_duration: float,
-        segment_duration: float,
-        overlap: float,
-        min_segment_duration: float,
-    ) -> list[tuple[float, float]]:
-        segments_to_extract_in: list[tuple[float, float]] = []
-        current_pos = start_time
-        end_time = start_time + total_duration
-        while current_pos < end_time:
-            segment_start = current_pos
-            segment_end = min(segment_start + segment_duration, end_time)
-            segments_to_extract_in.append((segment_start, segment_end))
-            if segment_end >= end_time:
-                break
-            current_pos = segment_end - overlap
-        # If the last segment is smaller than min_segment_duration then drop the last segment from the list
-        if (
-            len(segments_to_extract_in) > 0
-            and (segments_to_extract_in[-1][1] - segments_to_extract_in[-1][0]) < min_segment_duration
-        ):
-            return segments_to_extract_in[:-1]  # return all but the last segment
-        return segments_to_extract_in
+        if max_size is not None:
+            self.max_size = max_size
+            self._segments = self._iter_segments(size_mode=True)
+        else:
+            assert duration > 0.0
+            assert duration >= min_segment_duration
+            assert overlap < duration
+            self.segment_duration = duration
+            self._segments = self._iter_segments(size_mode=False)
 
     def __next__(self) -> AudioSegment:
-        if self.next_pos >= len(self.segments_to_extract_in_pts):
-            raise StopIteration
-        target_segment_start, target_segment_end = self.segments_to_extract_in_pts[self.next_pos]
-        segment_start_pts = 0
-        segment_end_pts = 0
-        segment_file = str(TempStore.create_path(extension=self.audio_path.suffix))
-        output_container = av.open(segment_file, mode='w')
-        input_stream = self.container.streams.audio[0]
-        codec_name = self.__codec_map.get(input_stream.codec_context.name, input_stream.codec_context.name)
-        output_stream = output_container.add_stream(codec_name, rate=input_stream.codec_context.sample_rate)
-        assert isinstance(output_stream, av.audio.stream.AudioStream)
-        frame_count = 0
-        # Since frames don't align with segment boundaries, we may have read an extra frame in previous iteration
-        # Seek to the nearest frame in stream at current segment start time
-        self.container.seek(target_segment_start, backward=True, stream=self.container.streams.audio[0])
-        while True:
-            try:
-                frame = next(self.container.decode(audio=0))
-            except EOFError as e:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_DATA_FORMAT, f"Failed to read audio file '{self.audio_path}': {e}"
-                ) from e
-            except StopIteration:
-                # no more frames to scan
-                break
-            if frame.pts < target_segment_start:
-                # Current frame is behind segment's start time, always get frame next to segment's start time
-                continue
-            if frame.pts >= target_segment_end:
-                # Frame has crossed the segment boundary, it should be picked up by next segment, throw away
-                # the current frame
-                break
-            frame_end = frame.pts + frame.samples
-            if frame_count == 0:
-                # Record start of the first frame
-                segment_start_pts = frame.pts
-            # Write frame to output container
-            frame_count += 1
-            # If encode returns packets, write them to output container. Some encoders will buffer the frames.
-            output_container.mux(output_stream.encode(frame))
-            # record this frame's end as segments end
-            segment_end_pts = frame_end
-            # Check if frame's end has crossed the segment boundary
-            if frame_end >= target_segment_end:
-                break
+        return next(self._segments)
 
-        # record result
-        if frame_count > 0:
-            # flush encoder
-            output_container.mux(output_stream.encode(None))
-            output_container.close()
+    def close(self) -> None:
+        self._segments.close()
+        self.container.close()
+
+    def _iter_segments(self, *, size_mode: bool) -> Generator[AudioSegment, None, None]:
+        """
+        Streaming segmenter for both modes. It pulls packets until the segment reaches its budget (bytes in size mode,
+        elapsed time in duration mode), then optionally moves the end to a silence and trims leading silence.
+        """
+        overlap_pts = round(self.overlap / self.audio_time_base)
+        min_duration_pts = round(self.min_segment_duration / self.audio_time_base)
+        duration_pts = 0 if size_mode else round(self.segment_duration / self.audio_time_base)
+        packets = self.container.demux(self.in_stream)
+
+        # plain duration (w/o silence) mode anchors segments to the absolute grid k * duration rather than to each
+        # segment's own start: the summed target and actual emitted lengths drive the segmentation so per-packet
+        # rounding overshoot can't accumulate into boundary drift;
+        # silence and trim modes instead bound each segment relative to its own start
+        cumulative_target_pts = 0
+        cumulative_emitted_pts = 0
+
+        # carryover for the next segment: the overlap tail, packets past the silence cut, any size-trimmed packets,
+        # and the one lookahead packet that did not fit the current segment
+        pending_packet_info: list[_PacketInfo] = []
+        eof = False
+        prev_start_pts: int | None = None
+
+        # in size mode, reserve room for the container header and trailer that the packet-size sum doesn't account
+        # for; seeded from the overhead observed so far so that after the first segment we usually fit in one remux
+        overhead_reserve = 0
+
+        while True:
+            segment = list(pending_packet_info)
+            segment_bytes = sum(p.packet.size for p in segment)
+            segment_start_pts = segment[0].pts if len(segment) > 0 else None
+            pending_packet_info = []
+            scanner = (
+                _SilenceScanner(self.silence_threshold_meansq, self.min_silence_len_pts, min_duration_pts)
+                if self.with_silence
+                else None
+            )
+            if scanner is not None:
+                for idx, packet_info in enumerate(segment):
+                    scanner.observe(
+                        idx, packet_info.pts, packet_info.pts + packet_info.duration, packet_info.mean_square
+                    )
+            lookahead: _PacketInfo | None = None
+
+            while not eof:
+                try:
+                    packet = next(packets)
+                except StopIteration:
+                    eof = True
+                    break
+                if packet.size == 0:
+                    # flush sentinel emitted at the end of demux(); nothing to remux
+                    continue
+
+                if segment_start_pts is None:
+                    segment_start_pts = packet.pts
+                is_full: bool
+                if size_mode:
+                    is_full = len(segment) > 0 and segment_bytes + packet.size > self.max_size - overhead_reserve
+                elif self.decode_needed:
+                    # silence/trim mode: bound each segment by duration measured from its own start, so the latest
+                    # silence within that window becomes the split point and a segment never runs past the budget
+                    is_full = len(segment) > 0 and packet.pts - segment_start_pts >= duration_pts
+                else:
+                    # plain duration mode: anchor split points to the absolute grid (k * duration) by comparing the
+                    # total emitted length against the total target, so per-packet rounding overshoot can't accumulate
+                    elapsed_pts = cumulative_emitted_pts + (packet.pts - segment_start_pts)
+                    is_full = len(segment) > 0 and elapsed_pts >= cumulative_target_pts + duration_pts
+                if is_full:
+                    # this packet starts the next segment
+                    lookahead = self._make_packet_info(packet)
+                    break
+
+                packet_info = self._make_packet_info(packet)
+                segment.append(packet_info)
+                segment_bytes += packet.size
+                if scanner is not None:
+                    scanner.observe(
+                        len(segment) - 1,
+                        packet_info.pts,
+                        packet_info.pts + packet_info.duration,
+                        packet_info.mean_square,
+                    )
+
+            if len(segment) == 0:
+                return
+
+            prefix, leftover = self._finalize_segment(segment, scanner)
+            if len(prefix) == 0:
+                # the segment was entirely leading silence; drop it and carry the rest forward
+                pending_packet_info = leftover + ([lookahead] if lookahead is not None else [])
+                if eof and len(pending_packet_info) == 0:
+                    return
+                continue
+
+            if size_mode:
+                # the reserve is only an estimate, so remux and trim to enforce the exact limit
+                segment_file, kept, trimmed = self._remux_measure_trim(prefix)
+                segment_size = Path(segment_file).stat().st_size
+                overhead_reserve = max(overhead_reserve, segment_size - sum(p.packet.size for p in kept))
+            else:
+                segment_file = self._remux(prefix)
+                kept, trimmed = prefix, []
+            segment_start_pts = kept[0].pts
+            segment_end_pts = kept[-1].pts + kept[-1].duration
+
+            if prev_start_pts is not None and segment_start_pts <= prev_start_pts:
+                budget_name = '`max_size`' if size_mode else '`duration`'
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'`overlap` is too large relative to {budget_name}; segments cannot advance',
+                )
+            prev_start_pts = segment_start_pts
+
+            more_content = (not eof) or lookahead is not None or len(trimmed) > 0 or len(leftover) > 0
+            if not more_content and (segment_end_pts - segment_start_pts) < min_duration_pts:
+                # drop the final segment if it is shorter than min_segment_duration
+                return
+            if more_content:
+                overlap_tail = [p for p in kept if p.pts >= segment_end_pts - overlap_pts]
+                pending_packet_info = overlap_tail + trimmed + leftover + ([lookahead] if lookahead is not None else [])
+
+            cumulative_target_pts += duration_pts
+            cumulative_emitted_pts += segment_end_pts - segment_start_pts
+
             result: AudioSegment = {
                 'segment_start': round(float(segment_start_pts * self.audio_time_base), 4),
                 'segment_end': round(float(segment_end_pts * self.audio_time_base), 4),
-                'audio_segment': segment_file if frame_count > 0 else None,
+                'audio_segment': segment_file,
             }
             _logger.debug('audio segment result: %s', result)
-            self.next_pos += 1
-            return result
-        else:
-            # It's possible that there are no frames in the range of the last segment, stop the iterator in this case.
-            # Note that start_time points at the first frame so case applies only for the last segment
-            assert self.next_pos == len(self.segments_to_extract_in_pts) - 1
-            self.next_pos += 1
-            raise StopIteration
+            yield result
+            if not more_content:
+                return
+
+    def _packet_energy(self, packet: av.Packet) -> float:
+        """Normalized mean-square amplitude of the packet, used to classify it as silent or audible"""
+        sumsq = 0.0
+        count = 0
+        for frame in packet.decode():
+            assert isinstance(frame, av.AudioFrame)
+            arr = frame.to_ndarray()
+            full_scale = float(np.iinfo(arr.dtype).max) + 1.0 if np.issubdtype(arr.dtype, np.integer) else 1.0
+            sumsq += float(np.square(arr.astype(np.float64) / full_scale).sum())
+            count += arr.size
+        return sumsq / count if count > 0 else 0.0
+
+    def _make_packet_info(self, packet: av.Packet) -> _PacketInfo:
+        mean_square = self._packet_energy(packet) if self.decode_needed else -1.0
+        return _PacketInfo(packet, packet.pts, packet.dts, packet.duration, mean_square)
+
+    def _finalize_segment(
+        self, segment: list[_PacketInfo], scanner: _SilenceScanner | None
+    ) -> tuple[list[_PacketInfo], list[_PacketInfo]]:
+        # Choose the cut: move to the latest qualifying silence if there is one, otherwise keep the whole accumulated
+        # segment. Then optionally drop leading silence. Returns the packets to emit and the packets past the cut that
+        # belong to the next segment.
+        cut = scanner.cut_index if scanner is not None and scanner.cut_index is not None else len(segment) - 1
+        prefix = segment[: cut + 1]
+        leftover = segment[cut + 1 :]
+        if self.trim_leading_silence:
+            lead = 0
+            while lead < len(prefix) and prefix[lead].mean_square <= self.silence_threshold_meansq:
+                lead += 1
+            prefix = prefix[lead:]
+        return prefix, leftover
+
+    def _remux_measure_trim(self, segment: list[_PacketInfo]) -> tuple[str, list[_PacketInfo], list[_PacketInfo]]:
+        # Remux seg into a segment file, dropping trailing packets until the file fits within max_size. Returns the
+        # segment file, the packets it contains, and the trimmed-off packets (in ascending order) for the next segment.
+        kept = list(segment)
+        trimmed: list[_PacketInfo] = []
+        while True:
+            segment_file = self._remux(kept)
+            if Path(segment_file).stat().st_size <= self.max_size:
+                return segment_file, kept, trimmed
+            if len(kept) == 1:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'`max_size` ({self.max_size} bytes) is too small to hold a single packet of audio file '
+                    f"'{self.audio_path}'",
+                )
+            trimmed.insert(0, kept.pop())
+
+    def _remux(self, packet_info: list[_PacketInfo]) -> str:
+        segment_file = str(TempStore.create_path(extension=self.audio_path.suffix))
+        start_pts = packet_info[0].pts
+        with av.open(segment_file, mode='w') as output_container:
+            output_stream = output_container.add_stream_from_template(self.in_stream)
+            for info in packet_info:
+                packet = info.packet
+                packet.stream = output_stream
+                # rebase timestamps to the segment start, derived from the stored originals since muxing mutates them
+                packet.pts = info.pts - start_pts
+                packet.dts = None if info.dts is None else info.dts - start_pts
+                packet.duration = info.duration
+                output_container.mux(packet)
+        return segment_file
 
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:
         duration = bound_args.get('duration')
+        max_size = bound_args.get('max_size')
         overlap = bound_args.get('overlap')
         min_segment_duration = bound_args.get('min_segment_duration')
+        min_silence_len = bound_args.get('min_silence_len')
+        silence_thresh = bound_args.get('silence_thresh')
 
-        if duration is not None and duration <= 0.0:
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`duration` must be a positive number')
-        if duration is not None and min_segment_duration is not None and duration < min_segment_duration:
+        if (duration is None) == (max_size is None):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, '`duration` must be at least `min_segment_duration`'
+                excs.ErrorCode.INVALID_ARGUMENT, 'Exactly one of `duration` or `max_size` must be specified'
             )
-        if duration is not None and overlap is not None and overlap >= duration:
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`overlap` must be strictly less than `duration`')
+        if overlap is not None and overlap < 0.0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`overlap` must be non-negative')
+        if min_segment_duration is not None and min_segment_duration < 0.0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`min_segment_duration` must be non-negative')
+        if min_silence_len is not None and min_silence_len <= 0.0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`min_silence_len` must be a positive number')
+        if silence_thresh is not None and silence_thresh >= 0.0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`silence_thresh` must be negative (dBFS)')
+
+        if duration is not None:
+            if duration <= 0.0:
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`duration` must be a positive number')
+            if min_segment_duration is not None and duration < min_segment_duration:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, '`duration` must be at least `min_segment_duration`'
+                )
+            if overlap is not None and overlap >= duration:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, '`overlap` must be strictly less than `duration`'
+                )
+        elif max_size <= 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`max_size` must be a positive number of bytes')
 
 
 __all__ = local_public_names(__name__)
