@@ -14,6 +14,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_sentences,
+    get_video_files,
     pxt_raises,
     reload_catalog,
     rerun,
@@ -208,6 +209,90 @@ class TestHuggingface:
         assert isinstance(result['segments_info'], list)
         assert len(result['segments_info']) > 0
         assert 'label_text' in result['segments_info'][0]
+
+    def test_sam_for_segmentation(self, uses_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from huggingface_hub import get_token
+
+        if get_token() is None:
+            pytest.skip('Skipping SAM 3 test: facebook/sam3 is gated and no Hugging Face token is configured')
+        from pixeltable.functions.huggingface import sam_for_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(seg=sam_for_segmentation(t.img, text='orange', threshold=0.3))
+        status = t.insert(img=SAMPLE_IMAGE_URL)
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+
+        res = t.select(height=t.img.height, width=t.img.width).collect()[0]
+        height, width = res['height'], res['width']
+        result = t.select(t.seg).collect()[0]['seg']
+        assert 'scores' in result
+        assert 'boxes' in result
+        assert 'masks' in result
+        assert isinstance(result['scores'], np.ndarray)
+        assert isinstance(result['boxes'], np.ndarray)
+        assert isinstance(result['masks'], np.ndarray)
+        n = len(result['scores'])
+        assert n > 0, 'Expected SAM 3 to find at least one "orange" instance in the sample image'
+        assert result['scores'].shape == (n,)
+        assert result['boxes'].shape == (n, 4)
+        assert result['masks'].shape == (n, height, width)
+        assert result['masks'].dtype == np.bool_
+        for box in result['boxes']:
+            assert len(box) == 4
+            x1, y1, x2, y2 = box
+            assert x1 < x2
+            assert y1 < y2
+        for score in result['scores']:
+            assert 0.0 <= score <= 1.0
+
+    def test_sam_for_segmentation_invalid_args(self, uses_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import sam_for_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.insert(img=SAMPLE_IMAGE_URL)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At least one of'):
+            t.add_computed_column(seg=sam_for_segmentation(t.img))
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='input_boxes_labels'):
+            t.add_computed_column(
+                seg=sam_for_segmentation(t.img, input_boxes=[[1.0, 2.0, 3.0, 4.0]], input_boxes_labels=[1, 0])
+            )
+
+    def test_sam_for_video_segmentation(self, uses_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from huggingface_hub import get_token
+
+        if get_token() is None:
+            pytest.skip('Skipping SAM 3 test: facebook/sam3 is gated and no Hugging Face token is configured')
+        from pixeltable.functions.huggingface import sam_for_video_segmentation
+
+        video_path = next(f for f in get_video_files() if f.endswith('bangkok_half_res.mp4'))
+        t = pxt.create_table('test_tbl', {'video': pxt.Video})
+        v = pxt.create_view(
+            'test_view', t, iterator=sam_for_video_segmentation(t.video, text='car', max_frame_num_to_track=2)
+        )
+        validate_update_status(t.insert(video=video_path), expected_rows=4)
+
+        results = v.select(v.pos, v.frame, v.object_ids, v.scores, v.boxes, v.masks).order_by(v.pos).collect()
+        assert len(results) == 3  # frames 0..max_frame_num_to_track
+        object_ids_per_frame = []
+        for row in results:
+            frame = row['frame']
+            assert frame.size == (640, 360)
+            n = len(row['object_ids'])
+            assert n > 0, 'Expected SAM 3 to track at least one "car" in the sample video'
+            assert row['object_ids'].shape == (n,)
+            assert row['scores'].shape == (n,)
+            assert row['boxes'].shape == (n, 4)
+            assert row['masks'].shape == (n, frame.height, frame.width)
+            assert row['masks'].dtype == np.bool_
+            object_ids_per_frame.append(set(row['object_ids'].tolist()))
+        # object ids are stable across frames: every frame shares at least one tracked object with the first
+        assert all(len(ids & object_ids_per_frame[0]) > 0 for ids in object_ids_per_frame[1:])
 
     def test_vit_for_image_classification(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')

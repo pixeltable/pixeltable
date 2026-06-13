@@ -1,10 +1,12 @@
 import re
 
+import PIL.Image
+import pytest
 from PIL.Image import Dither, Image, Quantize, Transpose
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.functions.image import alpha_composite, blend, composite, tile_iterator
+from pixeltable.functions.image import alpha_composite, blend, composite, stitch_tiles, tile_iterator
 
 from ..utils import SAMPLE_IMAGE_URL, pxt_raises
 
@@ -94,6 +96,59 @@ class TestImage:
                 assert result['tile'].size == (100, 100)
                 tile = image.crop(box)
                 assert list(result['tile'].getdata()) == list(tile.getdata())
+
+    @pytest.mark.parametrize('overlap', [(0, 0), (10, 10)])
+    @pytest.mark.parametrize('mode', ['RGB', 'L', 'RGBA'])
+    def test_stitch_tiles(self, mode: str, overlap: tuple[int, int], uses_db: None) -> None:
+        # a deterministic 256x256 source image; tiling at (100, 100) exercises edge tiles and padding
+        gradient = PIL.Image.linear_gradient('L')
+        t = pxt.create_table('test_tbl', {'image': pxt.Image})
+        t.insert(image=PIL.Image.merge('RGB', (gradient, gradient.rotate(90), gradient.rotate(180))))
+        image: Image = t.collect()[0]['image'].convert(mode)
+        v = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100), overlap=overlap))
+        # tiles are unstored, so the mode of the tile expression flows straight into stitch_tiles; the
+        # stitched image must preserve it
+        result = (
+            v.select(stitched=stitch_tiles(v.tile.convert(mode=mode), v.tile_box, v.image.width, v.image.height))
+            .group_by(t)
+            .collect()
+        )
+        assert len(result) == 1
+        stitched: Image = result[0]['stitched']
+        assert stitched.mode == mode
+        assert stitched.size == image.size
+        assert stitched.tobytes() == image.tobytes()
+
+    def test_stitch_tiles_edge_cases(self, uses_db: None) -> None:
+        tiles = pxt.create_table('tiles', {'tile': pxt.Image, 'tile_box': pxt.Json, 'width': pxt.Int})
+        tiles.insert(
+            [
+                {'tile': PIL.Image.new('RGB', (100, 100), (255, 0, 0)), 'tile_box': [0, 0, 100, 100], 'width': 200},
+                {'tile': PIL.Image.new('RGB', (100, 100), (0, 255, 0)), 'tile_box': [100, 0, 200, 100], 'width': 201},
+            ]
+        )
+
+        # width/height arguments that disagree within a group
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='does not match the size'):
+            _ = tiles.select(stitched=stitch_tiles(tiles.tile, tiles.tile_box, tiles.width, 100)).collect()
+
+        # a 'P' tile stitches to a 'P' image with the tile's palette
+        result = (
+            tiles.where(tiles.width == 200)
+            .select(stitched=stitch_tiles(tiles.tile.quantize(), tiles.tile_box, 200, 100))
+            .collect()
+        )
+        stitched: Image = result[0]['stitched']
+        expected: Image = tiles.where(tiles.width == 200).collect()[0]['tile'].quantize()
+        assert stitched.mode == 'P'
+        assert stitched.getpalette() == expected.getpalette()
+
+        # a group consisting entirely of None tiles yields None (rows with a None tile are skipped)
+        nulls = pxt.create_table('null_tiles', {'tile': pxt.Image, 'tile_box': pxt.Json})
+        nulls.insert([{'tile': None, 'tile_box': [0, 0, 100, 100]}, {'tile': None, 'tile_box': [100, 0, 200, 100]}])
+        result = nulls.select(stitched=stitch_tiles(nulls.tile, nulls.tile_box, 200, 100)).collect()
+        assert len(result) == 1
+        assert result[0]['stitched'] is None
 
     def test_tile_iterator_errors(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image})

@@ -2,6 +2,7 @@ import math
 from typing import Any
 
 import numpy as np
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -1225,6 +1226,73 @@ class TestVision:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly 4 coordinates'):
             t.select(udf_call).collect()
         t.delete()
+
+    def test_overlay_segmentation_instance_masks(self, uses_db: None) -> None:
+        # Synthetic instance-mask stack: 2 instances on a 4x6 image
+        height, width = 4, 6
+        masks = np.zeros((2, height, width), dtype=bool)
+        masks[0, 0:2, 0:3] = True  # instance 1 covers top-left quadrant
+        masks[1, 2:4, 3:6] = True  # instance 2 covers bottom-right quadrant
+
+        t = pxt.create_table(
+            'test_tbl',
+            {'img': pxt.Image, 'masks': pxt.Array[(None, None, None), pxt.Bool]},  # type: ignore[misc]
+        )
+        img = PIL.Image.new('RGB', (width, height), color=(128, 128, 128))
+        t.insert(img=img, masks=masks)
+
+        # Overload should accept the 3D bool stack directly, no adapter needed
+        result = t.select(viz=overlay_segmentation(t.img, t.masks)).collect()[0]['viz']
+        assert isinstance(result, PIL.Image.Image)
+        assert result.size == (width, height)
+
+        # Empty stack should also work and produce an image identical-shaped to the input
+        empty_masks = np.zeros((0, height, width), dtype=bool)
+        t.insert(img=img, masks=empty_masks)
+        empty_result = t.select(viz=overlay_segmentation(t.img, t.masks)).collect()[1]['viz']
+        assert isinstance(empty_result, PIL.Image.Image)
+        assert empty_result.size == (width, height)
+
+        # Masks whose (H, W) does not match the image are rejected with a clear error
+        mismatched_masks = np.zeros((2, height + 1, width), dtype=bool)
+        t.insert(img=img, masks=mismatched_masks)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='does not match image dimensions'):
+            _ = t.select(viz=overlay_segmentation(t.img, t.masks)).collect()
+
+    def test_overlay_segmentation_stable_ids(self, uses_db: None) -> None:
+        # The same object id must map to the same color regardless of its position in the mask stack or how
+        # many other objects are present, so that a tracked object keeps a consistent color across frames.
+        height, width = 4, 6
+        frame_a = np.zeros((2, height, width), dtype=bool)
+        frame_a[0, 0:2, 0:3] = True  # object id 5 (top-left)
+        frame_a[1, 2:4, 3:6] = True  # object id 9 (bottom-right)
+        frame_b = np.zeros((3, height, width), dtype=bool)
+        frame_b[0, 2:4, 3:6] = True  # object id 9 (now first in the stack)
+        frame_b[1, 0:2, 0:3] = True  # object id 5 (now second in the stack)
+        frame_b[2, 0:2, 3:6] = True  # object id 3 (a new object)
+
+        t = pxt.create_table(
+            'test_tbl',
+            {
+                'img': pxt.Image,
+                'masks': pxt.Array[(None, None, None), pxt.Bool],  # type: ignore[misc]
+                'ids': pxt.Array[(None,), pxt.Int],  # type: ignore[misc]
+            },
+        )
+        img = PIL.Image.new('RGB', (width, height), color=(128, 128, 128))
+        t.insert(img=img, masks=frame_a, ids=np.array([5, 9]))
+        t.insert(img=img, masks=frame_b, ids=np.array([9, 5, 3]))
+
+        res = t.select(viz=overlay_segmentation(t.img, t.masks, ids=t.ids, alpha=1.0, draw_contours=False)).collect()
+        viz_a = np.array(res[0]['viz'])
+        viz_b = np.array(res[1]['viz'])
+
+        # Object id 5 occupies the top-left region in both frames; its color must be identical.
+        np.testing.assert_array_equal(viz_a[0, 0], viz_b[0, 0])
+        # Object id 9 occupies the bottom-right region in both frames; its color must be identical.
+        np.testing.assert_array_equal(viz_a[3, 5], viz_b[3, 5])
+        # Distinct ids must get distinct colors.
+        assert not np.array_equal(viz_a[0, 0], viz_a[3, 5])
 
     @pytest.mark.very_expensive  # Downloads a Hugging Face model
     def test_overlay_segmentation(self, uses_db: None) -> None:
