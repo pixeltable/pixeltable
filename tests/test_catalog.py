@@ -376,15 +376,15 @@ class TestCatalog:
             # Thread 1: drop v while Thread 0 is waiting to initialize it
             .then_run(thread_id=1, name='drop view', fn=lambda: pxt.drop_table('v'))
             # unblock Thread 0 to continue with v initialization that also loads base
-            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: block_before_init.unblock())
+            .then_unblock(thread_id=1, fault=block_before_init)
             .execute()
         )
 
     def test_drop_view_concurrent_insert(self, uses_db: None, fault_injection: None) -> None:
         """
-        Start with a base table and a view. Thread 0 drops the view, but pauses inside finalize pending ops (but without
-        the exclusive lock). Thread 1 swoops in in the meantime to insert a row into the base table. Both are expected
-        to succeed.
+        Start with a base table and a view. Thread 0 begins to drop the view, but pauses inside finalize pending ops
+        (without the exclusive lock). Thread 1 swoops in in the meantime to insert a row into the base table, and
+        finalizes view drop as a side effect. Both threads are expected to succeed.
         """
         base = pxt.create_table('base', {'a': pxt.Int})
         _ = pxt.create_view('v', base)
@@ -401,7 +401,7 @@ class TestCatalog:
             )
             # Thread 1: attempt to insert into base
             .then_run(thread_id=1, name='insert into base', fn=lambda: base.insert([{'a': 1}]))
-            .then_run(thread_id=1, name='unblock', fn=lambda: block_in_finalize.unblock())
+            .then_unblock(thread_id=1, fault=block_in_finalize)
             .execute()
         )
 
