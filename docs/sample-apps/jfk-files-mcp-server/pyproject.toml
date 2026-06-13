@@ -1,0 +1,22 @@
+[project]
+name = "jfk-files-mcp-server"
+version = "0.1.0"
+description = "MCP server for JFK declassified files with semantic search"
+requires-python = ">=3.10"
+dependencies = [
+    "pixeltable>=0.6.0",
+    "beautifulsoup4",
+    "httpx",
+    "mistralai",
+    "mcp",
+    "python-dotenv",
+    "requests",
+    "sentence-transformers",
+    "spacy",
+    "starlette",
+    "tiktoken",
+    "uvicorn",
+]
+
+[project.optional-dependencies]
+dev = ["ruff"]

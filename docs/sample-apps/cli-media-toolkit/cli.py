@@ -218,7 +218,10 @@ def search_images(query, limit, threshold, save):
             query_type = 'text'
 
         # CLIP similarity search
-        sim = table.image.similarity(query_input, idx='image_clip_idx')
+        if query_type == 'image':
+            sim = table.image.similarity(image=query_input, idx='image_clip_idx')
+        else:
+            sim = table.image.similarity(string=query_input, idx='image_clip_idx')
         results = (
             table.where((table.image != None) & (sim > threshold))
             .order_by(sim, asc=False)
@@ -278,7 +281,10 @@ def search_frames(query, limit, threshold, save):
             query_type = 'text'
 
         # CLIP similarity search on frames
-        sim = frames_view.frame.similarity(query_input, idx='frame_clip_idx')
+        if query_type == 'image':
+            sim = frames_view.frame.similarity(image=query_input, idx='frame_clip_idx')
+        else:
+            sim = frames_view.frame.similarity(string=query_input, idx='frame_clip_idx')
         results = (
             frames_view.where(sim > threshold)
             .order_by(sim, asc=False)
@@ -710,7 +716,7 @@ def reset():
         pxt.drop_table('ai_media_toolkit', force=True)
         pxt.drop_table('ai_media_frames', force=True)
 
-        click.echo("Reset complete. Run 'python init.py' to reinitialize.")
+        click.echo("Reset complete. Run 'python schema.py' to reinitialize.")
 
     except Exception as e:
         click.echo(f'Error: {e}', err=True)

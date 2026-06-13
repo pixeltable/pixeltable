@@ -90,7 +90,7 @@ class RowidRef(Expr):
         tbl = (
             self.tbl.get()
             if self.tbl is not None
-            else get_runtime().catalog.get_tbl_version(TableVersionKey(self.tbl_id, None, None))
+            else get_runtime().catalog.get_tbl_version(TableVersionKey(self.tbl_id, None))
         )
         if (
             tbl.is_component_view
@@ -121,7 +121,7 @@ class RowidRef(Expr):
         tbl = (
             self.tbl.get()
             if self.tbl is not None
-            else get_runtime().catalog.get_tbl_version(TableVersionKey(self.tbl_id, None, None))
+            else get_runtime().catalog.get_tbl_version(TableVersionKey(self.tbl_id, None))
         )
         assert tbl.is_validated
         rowid_cols = tbl.store_tbl.rowid_columns()
@@ -135,7 +135,6 @@ class RowidRef(Expr):
 
     def _as_dict(self) -> dict:
         # TODO: Serialize the full TableVersionHandle, not just the UUID
-        assert self.tbl is None or self.tbl.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(self.tbl_id),
             'normalized_base_id': str(self.normalized_base_id),

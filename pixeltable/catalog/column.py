@@ -404,7 +404,6 @@ class Column:
             col_md=col_md,
             schema_col=schema_col,
             is_iterator_col=self.is_iterator_col,
-            anchor_tbl_id=self.tbl_handle.anchor_tbl_id,
         )
 
     def verify(self) -> None:

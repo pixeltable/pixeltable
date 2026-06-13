@@ -73,10 +73,6 @@ class ColumnVersionMd:
 
     is_iterator_col: bool = False
 
-    # anchor of qcolid.tbl_id in the path (set only for replica paths); needed to resolve the column against
-    # the same TableVersion instance the scan uses. TODO: remove together with replica support.
-    anchor_tbl_id: UUID | None = None
-
     @property
     def id(self) -> int:
         return self.col_md.id
@@ -123,12 +119,10 @@ class ColumnVersionMd:
             col_md=self.col_md,
             schema_col=self.schema_col,
             is_iterator_col=self.is_iterator_col,
-            anchor_tbl_id=self.anchor_tbl_id,
         )
 
     def retarget(self, col_effective_version: int | None) -> ColumnVersionMd:
         """Retarget to a specific version of the column's containing table."""
-        assert self.anchor_tbl_id is None  # replicas not supported
         return ColumnVersionMd(
             tbl_id=self.tbl_id,
             effective_version=self.effective_version,
@@ -137,7 +131,6 @@ class ColumnVersionMd:
             col_md=self.col_md,
             schema_col=self.schema_col,
             is_iterator_col=self.is_iterator_col,
-            anchor_tbl_id=self.anchor_tbl_id,
         )
 
 
@@ -196,13 +189,10 @@ class IfNotExistsParam(enum.Enum):
             ) from None
 
 
-def is_valid_identifier(name: str, *, allow_system_identifiers: bool = False, allow_hyphens: bool = False) -> bool:
-    # If allow_hyphens=True, we allow hyphens to appear in the name, but we still do not permit a name to start with
-    # one (even if allow_system_identifiers=True)
+def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
+    # If allow_hyphens=True, we allow hyphens to appear in the name, but we still do not permit a name to start with one
     adj_name = name.replace('-', '_') if allow_hyphens else name
-    return (
-        adj_name.isidentifier() and not name.startswith('-') and (allow_system_identifiers or not name.startswith('_'))
-    )
+    return adj_name.isidentifier() and not name.startswith('-') and not name.startswith('_')
 
 
 def is_system_column_name(name: str) -> bool:

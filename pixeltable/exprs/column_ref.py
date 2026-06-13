@@ -69,7 +69,7 @@ class ColumnRef(Expr):
     def __init__(self, col_md: catalog.ColumnVersionMd, perform_validation: bool = False):
         super().__init__(col_md.col_type)
         self.col_md = col_md
-        key = TableVersionKey(col_md.qcolid.tbl_id, col_md.col_effective_version, col_md.anchor_tbl_id)
+        key = TableVersionKey(col_md.qcolid.tbl_id, col_md.col_effective_version)
         self._col = catalog.ColumnHandle(catalog.TableVersionHandle(key), col_md.qcolid.col_id)
 
         # pos (id=0) is an unstored iterator column, but its value comes from the PK, not the iterator output dict
@@ -98,7 +98,7 @@ class ColumnRef(Expr):
     def tbl_version(self) -> catalog.TableVersionHandle:
         # the path-context table (e.g. the view a base column is accessed through), where column-level metadata
         # such as indexes lives - as opposed to _col, which is the column's physical owner
-        key = TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version, self.col_md.anchor_tbl_id)
+        key = TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
         return catalog.TableVersionHandle(key)
 
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
@@ -137,7 +137,6 @@ class ColumnRef(Expr):
         qcolid = self.col_md.qcolid
         target = tbl_versions[qcolid.tbl_id]
         assert qcolid.col_id in target.cols_by_id, f'{target}: {qcolid.col_id} not in {list(target.cols_by_id.keys())}'
-        assert target.anchor_tbl_id is None, 'replicas not supported'
         new_col_md = self.col_md.retarget(target.effective_version)
         return ColumnRef(new_col_md, self.perform_validation)
 
@@ -616,8 +615,6 @@ class ColumnRef(Expr):
 
     def _as_dict(self) -> dict:
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate it
-        # anchor_tbl_id is not serialized, so a replica/anchored column would round-trip to the live table
-        assert self.col_md.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(self.col_md.tbl_id),
             'effective_version': self.col_md.effective_version,
@@ -655,7 +652,7 @@ class ColumnRef(Expr):
         else:
             # validate_initialized=False: this can be called during TableVersion.__init__() while the TV is
             # still being loaded (e.g. deserializing iterator args), so we must not trigger a re-entrant load.
-            key = TableVersionKey(col_tbl_id, col_tbl_effective_version, None)
+            key = TableVersionKey(col_tbl_id, col_tbl_effective_version)
             tv = get_runtime().catalog.get_tbl_version(key, validate_initialized=False)
             col = tv.cols_by_id.get(col_id)
             if col is None:

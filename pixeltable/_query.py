@@ -1750,9 +1750,6 @@ class Query:
 
         # TODO: Reconcile these with Table.__check_mutable()
         assert len(self._from_clause.tbls) == 1
-        # First check if it's a replica, since every replica handle is also a snapshot
-        if self._first_tbl.is_replica():
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` on a replica.')
         if self._first_tbl.is_snapshot():
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` on a snapshot.')
 
