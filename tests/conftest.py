@@ -301,6 +301,14 @@ def clean_db(drop_md_tables: bool = False) -> None:
             if drop_md_tables:
                 # Drop existing metadata tables
                 conn.execute(text(f'DROP TABLE IF EXISTS {table_names} CASCADE'))
+            elif Env.get().is_using_cockroachdb:
+                # CockroachDB sometimes rejects TRUNCATE when other in-flight statements are
+                # dropping indexes on the same table; use DELETEs instead, in reverse FK
+                # dependency order (children before parents). dirs' self-referential FK is fine
+                # because FK constraints are checked at the end of each DELETE statement.
+                for tbl in reversed(base_metadata.sorted_tables):
+                    if tbl.name in existing_md_names:
+                        conn.execute(tbl.delete())
             else:
                 # Truncate existing metadata tables
                 conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))

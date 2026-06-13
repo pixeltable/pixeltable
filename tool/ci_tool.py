@@ -8,6 +8,7 @@ Command-line utility for CI/CD operations.
 import argparse
 import json
 import os
+import pathlib
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -22,7 +23,22 @@ BASIC_PLATFORMS = ('macos-15', 'windows-2025')
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
-COCKROACH_TEST_MODULES = ('table', 'index')
+COCKROACH_LIVE_TEST_MODULES = ('tests/test_table.py', 'tests/test_index.py')
+
+# CockroachDB local suite modules: `make slimtest` set + the primary-key index tests for partial index coverage.
+# test_unversioned_table.py is intentionally excluded (see TODO: implement for unversioned tables [PXT-1101])
+COCKROACH_LOCAL_TEST_MODULES = (
+    'tests/test_catalog.py',
+    'tests/test_dirs.py',
+    'tests/test_env.py',
+    'tests/test_exprs.py',
+    'tests/test_function.py',
+    'tests/test_index.py',
+    'tests/test_primary_key_index.py',
+    'tests/test_snapshot.py',
+    'tests/test_table.py',
+    'tests/test_view.py',
+)
 
 
 class MatrixConfig(NamedTuple):
@@ -126,17 +142,34 @@ def generate_matrix(args: argparse.Namespace) -> None:
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
         if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
-            configs.extend(
-                MatrixConfig(
-                    f'cockroach-{module}',
-                    'py',
-                    MAIN_PLATFORM,
-                    '3.10',
-                    pytest_options=f'--reruns 2 -m cockroachdb tests/test_{module}.py',
-                    pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
+            for module in COCKROACH_LIVE_TEST_MODULES:
+                short_name = pathlib.Path(module).stem.removeprefix('test_')
+                configs.append(
+                    MatrixConfig(
+                        f'cockroach-live-{short_name}',
+                        'py',
+                        MAIN_PLATFORM,
+                        '3.10',
+                        pytest_options=f'--reruns 2 -m cockroachdb {module}',
+                        pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
+                    )
                 )
-                for module in COCKROACH_TEST_MODULES
+
+        # Local test suite against a local single-node CockroachDB container. Restricted to the slimtest modules.
+        configs.append(
+            MatrixConfig(
+                'cockroach-local',
+                'py',
+                MAIN_PLATFORM,
+                '3.10',
+                pytest_options=f'{DEFAULT_PYTEST} {" ".join(COCKROACH_LOCAL_TEST_MODULES)}',
+                pre_test_cmd=(
+                    'bash scripts/start-cockroach-ci.sh && '
+                    'export PIXELTABLE_DB_CONNECT_STR='
+                    "'cockroachdb+psycopg://root@localhost:26257/pixeltable?sslmode=disable'"
+                ),
             )
+        )
 
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
         # different test runs don't interfere with each other and any stale data is easy to clean up.

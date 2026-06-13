@@ -114,10 +114,6 @@ class TestTable:
             pxt.create_table('test', schema)
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match='does not exist'):
             pxt.create_table('dir2/test2', schema)
-        with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Creating a table directly from a cloud URI is not supported'
-        ):
-            pxt.create_table('test', source='pxt://some/remote/table')
 
         _ = pxt.list_tables()
         _ = pxt.list_tables('dir1')
@@ -332,7 +328,6 @@ class TestTable:
                     },
                     'is_view': False,
                     'is_snapshot': False,
-                    'is_replica': False,
                     'is_versioned': True,
                     'kind': 'table',
                     'iterator_call': None,
@@ -387,7 +382,6 @@ class TestTable:
                     },
                     'is_view': True,
                     'is_snapshot': False,
-                    'is_replica': False,
                     'is_versioned': True,
                     'kind': 'view',
                     'iterator_call': None,
@@ -428,7 +422,6 @@ class TestTable:
                     'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
-                    'is_replica': False,
                     'is_versioned': True,
                     'kind': 'snapshot',
                     'iterator_call': None,
@@ -486,7 +479,6 @@ class TestTable:
                     'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
-                    'is_replica': False,
                     'is_versioned': True,
                     'kind': 'snapshot',
                     'iterator_call': None,
@@ -634,7 +626,6 @@ class TestTable:
                 },
                 'is_view': False,
                 'is_snapshot': False,
-                'is_replica': False,
                 'is_versioned': True,
                 'kind': 'table',
                 'iterator_call': None,
@@ -784,7 +775,6 @@ class TestTable:
                 },
                 'is_view': True,
                 'is_snapshot': False,
-                'is_replica': False,
                 'is_versioned': True,
                 'kind': 'view',
                 'iterator_call': None,
@@ -811,7 +801,6 @@ class TestTable:
                 'kind': 'view',
                 'is_view': True,
                 'is_snapshot': False,
-                'is_replica': False,
                 'is_versioned': True,
                 'base': 'test',
                 'iterator_call': 'DummyIterator(n)',

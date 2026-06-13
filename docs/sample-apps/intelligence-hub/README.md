@@ -56,10 +56,11 @@ git clone https://github.com/pixeltable/pixeltable.git
 cd pixeltable/docs/sample-apps/intelligence-hub
 
 # Environment
-uv sync                         # or: pip install -e .
+uv sync
 cp .env.example .env            # optionally add OPENAI_API_KEY (falls back to local llama.cpp)
+# For local LLM fallback: uv sync --extra local-llm
 
-# Initialize schema (one-time)
+# Initialize schema (idempotent; RESET_SCHEMA=true to wipe)
 python setup_pixeltable.py
 
 # Ingest seed data
