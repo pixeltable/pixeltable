@@ -23,6 +23,8 @@ fi
 # Notebooks that are skipped unless --include-very-expensive is passed
 VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
+    img-image-to-image              # Resource intensive
+    object-detection-in-videos      # Resource intensive
     video-generate-ai               # High dollar cost
     working-with-gemini             # High dollar cost
     working-with-together           # Poor reliability
