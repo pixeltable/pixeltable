@@ -697,6 +697,8 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
             segment_file = self._remux(kept)
             if Path(segment_file).stat().st_size <= self.max_size:
                 return segment_file, kept, trimmed
+            # this remux is too big; discard
+            TempStore.delete_media_file(Path(segment_file))
             if len(kept) == 1:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
