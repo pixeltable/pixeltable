@@ -1282,6 +1282,8 @@ class Query:
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         assert len(self._from_clause.tbls) > 0
+        # joining against a hosted table is not supported yet; tbl_path is a LocalTable impl detail
+        assert isinstance(other, catalog.LocalTable)
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and unversioned tables'
@@ -1298,10 +1300,10 @@ class Query:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'`how={how!r}` requires `on` to be present'
                 )
-            join_pred = self._create_join_predicate(other.tbl_path, on)
+            join_pred = self._create_join_predicate(other._tbl_path, on)
         join_clause = JoinClause(join_type=JoinType.validated(how, '`how`'), join_predicate=join_pred)
         from_clause = FromClause(
-            tbls=[*self._from_clause.tbls, other.tbl_path], join_clauses=[*self._from_clause.join_clauses, join_clause]
+            tbls=[*self._from_clause.tbls, other._tbl_path], join_clauses=[*self._from_clause.join_clauses, join_clause]
         )
         return Query(
             from_clause=from_clause,
