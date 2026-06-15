@@ -457,6 +457,10 @@
         <outline text="module|pixeltable.functions.twelvelabs">
           <outline text="udf|pixeltable.functions.twelvelabs.embed" />
         </outline>
+        <outline text="module|pixeltable.functions.vllm">
+          <outline text="udf|pixeltable.functions.vllm.chat_completions" />
+          <outline text="udf|pixeltable.functions.vllm.generate" />
+        </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />
           <outline text="udf|pixeltable.functions.voyageai.rerank" />

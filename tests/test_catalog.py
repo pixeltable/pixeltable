@@ -8,12 +8,10 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.catalog import Path, is_valid_identifier
 from pixeltable.runtime import get_runtime
-from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.fault_injection import FaultLocation
-from tests.conftest import clean_db
 from tests.coordinator import MultiThreadedScenario
 from tests.fault_injection import BlockFault, ExceptionFault
-from tests.utils import pxt_raises, reload_catalog
+from tests.utils import pxt_raises, skip_test_if_cockroachdb
 
 
 class TestCatalog:
@@ -146,18 +144,8 @@ class TestCatalog:
         assert dotted_appended.components == unix_appended.components == ('a', 'b', 'c', 'd')
 
     def test_ls(self, uses_db: None) -> None:
-        t = pxt.create_table('tbl_for_replica', {'a': pxt.Int})
-        snapshot = pxt.create_snapshot('snapshot_for_replica', t)
-        packager = TablePackager(snapshot)
-        bundle_path = packager.package()
-        clean_db()
-        reload_catalog()
-
         pxt.create_dir('test_dir')
         pxt.create_dir('test_dir/subdir')
-
-        restorer = TableRestorer('test_dir/replica1')
-        restorer.restore(bundle_path)
 
         t = pxt.create_table('test_dir/tbl', {'a': pxt.Int})
         t.insert(a=3)
@@ -173,13 +161,12 @@ class TestCatalog:
         print(repr(df))
         assert dedent(repr(df)) == dedent(
             '''
-                 Name      Kind Version                      Base
-             replica1   replica       0  <anonymous base table>:0
-            snapshot1  snapshot                           view1:2
-            snapshot2  snapshot                  test_dir/view2:0
-               subdir       dir                                  |
-                  tbl     table       4                          |
-                view2      view       1              test_dir/tbl
+                 Name      Kind Version              Base
+            snapshot1  snapshot                   view1:2
+            snapshot2  snapshot          test_dir/view2:0
+               subdir       dir                          |
+                  tbl     table       4                  |
+                view2      view       1      test_dir/tbl
             '''
         ).strip('\n').replace('|', '')  # fmt: skip
 
@@ -283,13 +270,7 @@ class TestCatalog:
         (
             MultiThreadedScenario()
             # Thread 0: arm the fault in pending table ops finalization
-            .then_run(
-                thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault
-                ),
-            )
+            .then_inject_fault(thread_id=0, loc=FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault=fault)
             # Thread 0: start adding a computed column, this will block at the fault point
             .then_run_until(
                 thread_id=0, name='add column', event=fault.reached, fn=lambda: t.add_computed_column(b=t.a + 1)
@@ -326,12 +307,10 @@ class TestCatalog:
             # Thread 0: Warm up its catalog so base's tv is cached.
             .then_run(thread_id=0, name='warm up cache', fn=lambda: pxt.get_table('base'))
             # Thread 0: Arm a non-retriable exception fault inside create_view.
-            .then_run(
+            .then_inject_fault(
                 thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED, ExceptionFault(injected_exc)
-                ),
+                loc=FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED,
+                fault=ExceptionFault(injected_exc),
             )
             # Thread 0: Run create_view (va) that fails. Before the fix, base_tv was not added to _modified_tvs, so it
             # stays in cache with stale in-memory state, i.e. with view_sn=v+1
@@ -354,6 +333,10 @@ class TestCatalog:
         """
         Verifies a bug fix: one thread is loading a table while the other is dropping it.
         """
+        skip_test_if_cockroachdb(
+            'CockroachDB applies DROP TABLE asynchronously, so the concurrent drop is not yet visible '
+            'in information_schema and the table load succeeds instead of raising'
+        )
         pxt.create_table('test', {'a': pxt.Int})
         block_in_store_base = BlockFault()
 
@@ -364,12 +347,8 @@ class TestCatalog:
         (
             MultiThreadedScenario()
             # Thread 0: arm the fault that blocks right after _store_tbl_exists() returns True
-            .then_run(
-                thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK, block_in_store_base
-                ),
+            .then_inject_fault(
+                thread_id=0, loc=FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK, fault=block_in_store_base
             )
             # Thread 0: load the table with a cold cache; this will block in StoreBase. When it unblocks later, expect
             # a "Table was dropped" error. Before the fix, this would raise an AssertionError.

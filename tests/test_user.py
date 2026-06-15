@@ -73,13 +73,7 @@ class TestUser:
 
         (
             MultiThreadedScenario()
-            .then_run(
-                thread_id=0,
-                name='inject fault',
-                fn=lambda: get_runtime().fault_manager.inject_fault(
-                    FaultLocation.CATALOG_CREATE_USER_AFTER_EXISTS_CHECK, fault
-                ),
-            )
+            .then_inject_fault(thread_id=0, loc=FaultLocation.CATALOG_CREATE_USER_AFTER_EXISTS_CHECK, fault=fault)
             # Thread 0: create_user() blocks after checking that the root dir doesn't exist
             .then_run_until(
                 thread_id=0,
