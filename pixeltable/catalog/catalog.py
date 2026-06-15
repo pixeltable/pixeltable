@@ -395,7 +395,6 @@ class Catalog:
                                 lock_mutable_tree=lock_mutable_tree,
                                 finalize_pending_ops=finalize_pending_ops,
                             )
-                            fault_injection.process_fault(FaultLocation.CATALOG_BEGIN_XACT_AFTER_ACQUIRE_LOCKS)
                             if for_write and lock_mutable_tree:
                                 self._compute_column_dependents(self._x_locked_tbl_ids)
                             if _logger.isEnabledFor(logging.DEBUG):
