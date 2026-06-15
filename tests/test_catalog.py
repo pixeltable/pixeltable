@@ -8,12 +8,10 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.catalog import Path, is_valid_identifier
 from pixeltable.runtime import get_runtime
-from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.fault_injection import FaultLocation
-from tests.conftest import clean_db
 from tests.coordinator import MultiThreadedScenario
 from tests.fault_injection import BlockFault, ExceptionFault
-from tests.utils import pxt_raises, reload_catalog, skip_test_if_cockroachdb
+from tests.utils import pxt_raises, skip_test_if_cockroachdb
 
 
 class TestCatalog:
@@ -146,18 +144,8 @@ class TestCatalog:
         assert dotted_appended.components == unix_appended.components == ('a', 'b', 'c', 'd')
 
     def test_ls(self, uses_db: None) -> None:
-        t = pxt.create_table('tbl_for_replica', {'a': pxt.Int})
-        snapshot = pxt.create_snapshot('snapshot_for_replica', t)
-        packager = TablePackager(snapshot)
-        bundle_path = packager.package()
-        clean_db()
-        reload_catalog()
-
         pxt.create_dir('test_dir')
         pxt.create_dir('test_dir/subdir')
-
-        restorer = TableRestorer('test_dir/replica1')
-        restorer.restore(bundle_path)
 
         t = pxt.create_table('test_dir/tbl', {'a': pxt.Int})
         t.insert(a=3)
@@ -173,13 +161,12 @@ class TestCatalog:
         print(repr(df))
         assert dedent(repr(df)) == dedent(
             '''
-                 Name      Kind Version                      Base
-             replica1   replica       0  <anonymous base table>:0
-            snapshot1  snapshot                           view1:2
-            snapshot2  snapshot                  test_dir/view2:0
-               subdir       dir                                  |
-                  tbl     table       4                          |
-                view2      view       1              test_dir/tbl
+                 Name      Kind Version              Base
+            snapshot1  snapshot                   view1:2
+            snapshot2  snapshot          test_dir/view2:0
+               subdir       dir                          |
+                  tbl     table       4                  |
+                view2      view       1      test_dir/tbl
             '''
         ).strip('\n').replace('|', '')  # fmt: skip
 

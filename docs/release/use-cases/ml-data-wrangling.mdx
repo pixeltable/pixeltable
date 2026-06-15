@@ -128,15 +128,8 @@ description: 'Process video, audio, documents, and images into training-ready da
     **Why curate?** ML models are only as good as their training data. Use Pixeltable's search and filtering to find edge cases, remove duplicates, balance classes, and iterate on your data quality before export.
     </Tip>
   </Tab>
-  <Tab title="4. Share & Export">
+  <Tab title="4. Export">
     <Steps>
-      <Step title="Share" icon="cloud-arrow-up">
-        Publish to cloud: [`publish()`](/platform/data-sharing), [`replicate()`](/platform/data-sharing), `push()`, `pull()`
-
-        <Card title="Data Sharing" icon="share-nodes" href="/platform/data-sharing">
-          Collaborate with your team via cloud replicas
-        </Card>
-      </Step>
       <Step title="Export" icon="file-export">
         Training and data formats: [`export_csv()`](/sdk/latest/io#func-export_csv), [`export_json()`](/sdk/latest/io#func-export_json), [`export_parquet()`](/sdk/latest/io#func-export_parquet), [`to_pytorch_dataset()`](/sdk/latest/query#method-to_pytorch_dataset), [`to_coco_dataset()`](/sdk/latest/query#method-to_coco_dataset), [`export_lancedb()`](/sdk/latest/io#func-export_lancedb)
 

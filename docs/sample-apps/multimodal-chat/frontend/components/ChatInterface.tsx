@@ -54,14 +54,14 @@ interface VideoFile {
   error?: string;
   uploadProgress?: number;
 }
-interface MarkdownProps {
-  node?: any;
-  inline?: boolean;
-  className?: string;
-  children?: React.ReactNode;
+interface ApiFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  domain?: string;
 }
 
-const MAX_FILE_SIZE = 150 * 1024 * 1024;
 const ALLOWED_DOCUMENT_TYPES = [
   // PDF
   "application/pdf",
@@ -82,7 +82,6 @@ const ALLOWED_DOCUMENT_TYPES = [
   "text/xml",
   ".xml"
 ].join(",");
-const ALLOWED_VIDEO_TYPES = "video/*";
 
 const ChatMessage = ({ message }: { message: Message }) => {
   return (
@@ -106,7 +105,16 @@ const ChatMessage = ({ message }: { message: Message }) => {
           <div className="prose max-w-none text-black">
             <ReactMarkdown
               components={{
-                code: ({ node, inline, className, children, ...props }: MarkdownProps) => {
+                code: ({
+                  inline,
+                  className,
+                  children,
+                  ...props
+                }: {
+                  inline?: boolean;
+                  className?: string;
+                  children?: React.ReactNode;
+                }) => {
                   if (inline) {
                     return (
                       <code className="bg-gray-200 rounded px-1 py-0.5" {...props}>
@@ -291,7 +299,7 @@ export default function EnhancedChatInterface() {
       if (!response.ok) throw new Error('Failed to fetch files');
       const data = await response.json();
       const processedFiles = {
-        documents: data.files.filter((f: any) => f.type === 'document').map((f: any) => ({
+        documents: data.files.filter((f: ApiFile) => f.type === 'document').map((f: ApiFile) => ({
           id: f.id,
           name: f.name,
           size: f.size,
@@ -300,7 +308,7 @@ export default function EnhancedChatInterface() {
           uploadProgress: 100,
           domain: f.domain
         })),
-        videos: data.files.filter((f: any) => f.type === 'video').map((f: any) => ({
+        videos: data.files.filter((f: ApiFile) => f.type === 'video').map((f: ApiFile) => ({
           id: f.id,
           name: f.name,
           size: f.size,
