@@ -332,8 +332,9 @@ class TestCatalog:
     def test_load_view_concurrent_drop_view(self, uses_db: None, fault_injection: None) -> None:
         """
         A base table and a view. Thread 0 loads the view md, and is about to initialize it when Thread 1 drops it.
-        Thread 0 then proceeds to initialize the view. Expect no errors because the (later) base table metadata load
-        happens from the same snapshot as the view md with REPEATABLE READ.
+        Thread 0 then proceeds to initialize the view, which involves loading the base table. At READ COMMITTED
+        isolation level, this scenario would have resulted in an AssertionError because the base table and the view
+        would be inconsistent with one another.
         """
         skip_test_if_cockroachdb()
         base = pxt.create_table('base', {'a': pxt.Int})
