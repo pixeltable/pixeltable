@@ -1127,6 +1127,8 @@ class Table(SchemaObject):
             ...     image_embed=image_embedding_fn,
             ... )
         """
+        from pixeltable.index import EmbeddingIndex
+
         assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
             'TODO: implement for unversioned tables [PXT-1101]'
         )
@@ -1155,7 +1157,6 @@ class Table(SchemaObject):
                 assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
                 self.drop_index(idx_name=idx_name)
                 assert idx_name not in self._tbl_version.get().idxs_by_name
-            from pixeltable.index import EmbeddingIndex
 
             # idx_name must be a valid pixeltable column name
             if idx_name is not None:

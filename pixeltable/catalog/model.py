@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import dataclasses
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
 from .catalog import retry_loop
-from .globals import is_valid_identifier
+from .globals import MediaValidation, is_valid_identifier
 from .table import Table
+from .table_version import TableVersion, TableVersionKey
+from .table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
     import pixeltable as pxt
@@ -59,11 +63,21 @@ class _PlaceholderColumnRef(exprs.Expr):
     which gets substituted with an actual ColumnRef during Table creation.
     """
 
-    def __init__(self, name: str, column_spec: ColumnSpec | None = None) -> None:
-        # Placeholders have column type `InvalidType(nullable=False)`, the universal subtype.
+    column_spec: ColumnSpec
 
-        super().__init__(ts.InvalidType(nullable=False))
+    def __init__(self, name: str, column_spec: ColumnSpec | None = None) -> None:
+        col_type: ts.ColumnType
+        if 'type' in column_spec:
+            type_ = column_spec['type']
+            col_type = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+        else:
+            assert 'value' in column_spec
+            col_type = column_spec['value'].col_type
+
+        super().__init__(col_type)
+
         self.name = name
+        self.column_spec = column_spec
         self.id = self._create_id()
 
     def __repr__(self) -> str:
@@ -133,59 +147,73 @@ Column: _PlaceholderFactory = _PlaceholderFactory()
 
 
 class _ColumnCtx:
-    known_cols: dict[str, catalog.Column]
+    new_tbl_handle: uuid.UUID
+    known_cols: dict[str, _PlaceholderColumnRef]
     known_idxs: dict[str, EmbeddingIndex]
 
     def __init__(self) -> None:
+        self.new_tbl_id = uuid.uuid4()
         self.known_cols = {}
         self.known_idxs = {}
 
     def __hasattr__(self, key: str) -> bool:
         return key in self.known_cols
 
-    def __getattr__(self, item: str) -> exprs.ColumnRef:
+    def __getattr__(self, item: str) -> _PlaceholderColumnRef:
         if item not in self.known_cols:
             raise AttributeError(f'Column {item!r} is not defined yet')
-        return _PlaceholderColumnRef(self.known_cols[item])
+        return self.known_cols[item]
 
-    def set_col_value(self, name: str, value: Any) -> None:
-        assert name not in self.known_cols  # `value` always gets set before `type` if both are defined
+    def set_col_value(self, name: str, value: Any) -> EmbeddingIndex | _PlaceholderColumnRef:
         if isinstance(value, EmbeddingIndex):
             self.known_idxs[name] = value
+            return value
         else:
+            assert name not in self.known_cols  # `value` always gets set before `type` if both are defined
             spec: ColumnSpec
             if isinstance(value, _PlaceholderColumnSpec):
                 spec = value.column_spec
+                if ('type' in spec) == ('value' in spec):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_SCHEMA,
+                        f'Column specification for {name!r} must define `type` or `value`, but not both.',
+                    )
             else:
                 # Computed column expression.
                 expr = exprs.Expr.from_object(value)
-                spec = ColumnSpec(value=expr)
-            self.known_cols[name] = catalog.Column.create(name, spec)
+                spec = {'value': expr}
+            col_ref = _PlaceholderColumnRef(name, spec)
+            self.known_cols[name] = col_ref
+            return col_ref
 
-    def set_col_type(self, name: str, type_: Any) -> None:
+    def set_col_type(self, name: str, type_: Any) -> _PlaceholderColumnRef:
+        if name in self.known_idxs:
+            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Cannot set a type annotation for index {name!r}.')
         if name in self.known_cols:
             # We previously processed this column via `set_col_value()`. Sanity check the type.
-            existing_col = self.known_cols[name]
-            if existing_col.col_type != type_:
+            existing_col_ref = self.known_cols[name]
+            if existing_col_ref.col_type != type_:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Type annotation for column {name!r} '
-                    'conflicts with the `type=` argument in `Column()`',
+                    f'Type annotation for column {name!r} conflicts with the `type=` argument in `Column()`',
                 )
+            return existing_col_ref
         else:
-            self.known_cols[name] = catalog.Column.create(name, type_)
+            col_ref = _PlaceholderColumnRef(name, {'type': type_})
+            self.known_cols[name] = col_ref
+            return col_ref
 
 
 class _AnnotationRecorder(dict):
-    _column_ctx: _ColumnCtx
+    namespace: _ModelNamespace
 
-    def __init__(self, _column_ctx: _ColumnCtx) -> None:
+    def __init__(self, namespace: _ModelNamespace) -> None:
         super().__init__()
-        self._column_ctx = _column_ctx
+        self.namespace = namespace
 
     def __setitem__(self, key: str, value: Any) -> None:
-        if not key.startswith('__'):
-            self._column_ctx.set_col_type(key, value)
+        if not key.startswith('_'):
+            self.namespace.set_col_type(key, value)
         super().__setitem__(key, value)
 
 
@@ -200,13 +228,19 @@ class _ModelNamespace(dict):
         self.column_ctx = _ColumnCtx()
         # Pre-seed __annotations__ so the compiler routes bare annotations through
         # our recorder rather than a plain dict it would otherwise create.
-        super().__setitem__('__annotations__', _AnnotationRecorder(self.column_ctx))
+        super().__setitem__('__annotations__', _AnnotationRecorder(self))
         super().__setitem__(name, self.column_ctx)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        if not key.startswith('__'):
-            self.column_ctx.set_col_value(key, value)
+        print(f'Setting {key} = {value!r}')
+        if not key.startswith('_'):
+            # Replace the value with a _PlaceholderColumnRef or EmbeddingIndex
+            value = self.column_ctx.set_col_value(key, value)
         super().__setitem__(key, value)
+
+    def set_col_type(self, key: str, type_: Any) -> None:
+        col_ref = self.column_ctx.set_col_type(key, type_)
+        super().__setitem__(key, col_ref)
 
 
 @dataclass(frozen=True)
@@ -227,7 +261,7 @@ class TableModelMetaclass(type):
     Metaclass that collects annotated column definitions and other table metadata from a class body.
     """
 
-    __columns__: dict[str, ColumnSpec]
+    __columns__: dict[str, _PlaceholderColumnRef]
     __indexes__: dict[str, EmbeddingIndex]
     __table_name__: str
     __base_table__: str | Table | 'pxt.Query' | None
@@ -239,7 +273,8 @@ class TableModelMetaclass(type):
         import pixeltable as pxt
 
         # Remove the _ColumnCtx object; it's no longer needed, and we need to "normalize" the namespace
-        namespace.pop(name)
+        column_ctx = namespace.pop(name)
+        assert isinstance(column_ctx, _ColumnCtx)
 
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
@@ -262,58 +297,13 @@ class TableModelMetaclass(type):
         # 2. Process declarations. We need to process bare annotations (such as `col1: int`) as well as
         #    values (such as `col2 = Column.col1 + 1` or `idx0 = EmbeddingIndex(...)`).
 
-        annotations = namespace.get('__annotations__', {})
+        namespace['__columns__'] = column_ctx.known_cols
+        namespace['__indexes__'] = column_ctx.known_idxs
 
-        # Build a dictionary of declarations: name -> (annotation, namespace_value)
-        decls: dict[str, tuple[Any, Any]] = {}
-
-        for attr_name, annotation in annotations.items():
-            if attr_name.startswith('_'):
-                continue
-            value = namespace.get(attr_name)  # It might also have a value
-            decls[attr_name] = (annotation, value)
-
-        for attr_name, value in namespace.items():
-            if attr_name.startswith('_') or attr_name in decls:
-                # Skip if we already processed it in the preceding loop
-                continue
-            decls[attr_name] = (None, value)  # No annotation (or we'd have processed it before)
-
-        # Now process the declarations to build column and index dictionaries.
-        columns: dict[str, ColumnSpec] = {}
-        indexes: dict[str, EmbeddingIndex] = {}
-        for attr_name, (annotation, value) in decls.items():
-            if value is None:
-                assert annotation is not None
-                # Pure type annotation; no value
-                columns[attr_name] = ColumnSpec(type=annotation)
-            elif isinstance(value, EmbeddingIndex):
-                indexes[attr_name] = value
-            elif isinstance(value, _PlaceholderColumnSpec):
-                spec = value.column_spec
-                if annotation is not None:
-                    if spec.get('type') is None:
-                        # Fill the annotation into the ColumnSpec if it's missing
-                        spec = spec.copy()
-                        spec['type'] = annotation
-                    elif spec['type'] != annotation:
-                        raise excs.RequestError(
-                            excs.ErrorCode.INVALID_SCHEMA,
-                            f'Type annotation for column {attr_name!r} '
-                            'conflicts with the `type=` argument in `Column()`',
-                        )
-                columns[attr_name] = spec
-            else:
-                # Computed column expression.
-                expr = exprs.Expr.from_object(value)
-                columns[attr_name] = ColumnSpec(type=annotation, value=expr)
-
-            # Remove the attribute from the namespace so that the metaclass __getattr__ handler can resolve it into
-            # proper ColumnRef instances at runtime.
-            namespace.pop(attr_name, None)
-
-        namespace['__columns__'] = columns
-        namespace['__indexes__'] = indexes
+        # for col_name in column_ctx.known_cols:
+        #     namespace.pop(col_name)
+        # for idx_name in column_ctx.known_idxs:
+        #     namespace.pop(idx_name)
 
         # 3. Validate __base_table__ and __iterator__ declarations.
 
@@ -375,14 +365,36 @@ class TableModelMetaclass(type):
     def create(cls, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error') -> Table:
         import pixeltable as pxt
 
-        columns: dict[str, ColumnSpec] = cls.__columns__
+        tbl_media_validation = 'on_write'  # TODO: allow configuring this at the table level
+
+        columns: dict[str, _PlaceholderColumnRef] = cls.__columns__
         indexes: dict[str, EmbeddingIndex] = cls.__indexes__
 
-        # Create the table with its non-computed columns
-        initial_schema = {col_name: col_spec for col_name, col_spec in columns.items() if col_spec.get('value') is None}
+        catalog_columns: list[catalog.Column] = []
+        subst_dict = exprs.ExprDict[exprs.ColumnRef]()
 
-        tbl: pxt.Table
-        tbl_name = cls.__table_name__
+        tbl_id = uuid.uuid4()
+        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None, None))
+        for name, placeholder in columns.items():
+            subst_spec: ColumnSpec = placeholder.column_spec.copy()
+            if 'value' in subst_spec:
+                subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
+            catalog_col = catalog.Column.create(name, subst_spec)
+            catalog_col.tbl_handle = tbl_handle
+            catalog_col.id = len(subst_dict)
+            catalog_columns.append(catalog_col)
+            # Explicitly set perform_validation in order to avoid prematurely deferencing table properties.
+            # It defaults to the table-level media_validation if not set in the ColumnSpec.
+            subst_dict[placeholder] = exprs.ColumnRef(
+                catalog_col, perform_validation=subst_spec.get('media_validation', tbl_media_validation) == 'on_read'
+            )
+
+        # Create the table with its non-computed columns
+        # initial_schema = {col_name: col_spec for col_name, col_spec in columns.items() if col_spec.get('value') is None}
+
+        cat = get_runtime().catalog
+        tbl_path = catalog.Path.parse(cls.__table_name__)
+
         if issubclass(cls, ViewModel):
             base = cls.__base_table__
             iterator = cls.__iterator__
@@ -395,52 +407,32 @@ class TableModelMetaclass(type):
                 tbl_name, base, additional_columns=initial_schema, iterator=iterator, if_exists=if_exists
             )
         else:
-            tbl = pxt.create_table(tbl_name, initial_schema, if_exists=if_exists)
+            create_fn = retry_loop(for_write=True)(
+                lambda: cat._create_table(
+                    tbl_path, catalog_columns, if_exists, None, None, None, MediaValidation.ON_WRITE, True, True, tbl_id
+                )
+            )
+            cat._roll_forward_ids.clear()
+            tbl_id_, _ = create_fn()
+            assert tbl_id == tbl_id_
+            cat._roll_forward()
 
-        @retry_loop(for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True)
-        def finish_schema() -> None:
-            # Now add computed columns, in declaration order, substituting placeholder references to existing columns
-            # with actual references. Each time we add a new computed column, add it to the substitution dictionary
-            # so that subsequent columns can reference it.
 
-            # Initialize the substitution dictionary with all existing columns in the table. This will include the
-            # non-computed columns that were just created, as well as any existing (computed or non-) visible columns
-            # of this view's ancestors.
-            subst_dict = {getattr(Column, col_name): getattr(tbl, col_name) for col_name in tbl.columns()}
+        get_fn = retry_loop(read_tbl_ids=[tbl_id])(lambda: cat.get_table_by_id(tbl_id))
+        tbl = get_fn()
 
-            # Now add the new computed columns.
-            for col_name, col_spec in columns.items():
-                expr = col_spec.get('value')
-                if expr is not None:
-                    realized_expr: exprs.Expr = expr.copy().substitute(subst_dict)
-                    residual_placeholders = list(realized_expr.subexprs(_PlaceholderColumnRef))
-                    if len(residual_placeholders) > 0:
-                        raise excs.RequestError(
-                            excs.ErrorCode.INVALID_SCHEMA,
-                            f'Computed column {col_name!r} references undefined column(s): {residual_placeholders}',
-                        )
-                    tbl.add_computed_column(
-                        **{col_name: realized_expr},
-                        stored=col_spec.get('stored'),
-                        destination=col_spec.get('destination'),
-                        custom_metadata=col_spec.get('custom_metadata'),
-                        comment=col_spec.get('comment', ''),
-                    )
-                    subst_dict[getattr(Column, col_name)] = getattr(tbl, col_name)
+        # Now add any declared indexes.
+        for idx_name, idx_spec in indexes.items():
+            col_ref = idx_spec.column
+            if isinstance(col_ref, str):
+                col_ref = getattr(tbl, col_ref)
+            elif isinstance(col_ref, _PlaceholderColumnRef):
+                col_ref = getattr(tbl, col_ref.name)
+            kwargs = dataclasses.asdict(idx_spec)
+            kwargs['column'] = col_ref
+            kwargs['idx_name'] = idx_name
+            tbl.add_embedding_index(**kwargs)
 
-            # Now add any declared indexes.
-            for idx_name, idx_spec in indexes.items():
-                col_ref = idx_spec.column
-                if isinstance(col_ref, str):
-                    col_ref = getattr(tbl, col_ref)
-                elif isinstance(col_ref, _PlaceholderColumnRef):
-                    col_ref = getattr(tbl, col_ref.name)
-                kwargs = dataclasses.asdict(idx_spec)
-                kwargs['column'] = col_ref
-                kwargs['idx_name'] = idx_name
-                tbl.add_embedding_index(**kwargs)
-
-        finish_schema()
         return tbl
 
     def __getattr__(cls, item: str) -> Any:

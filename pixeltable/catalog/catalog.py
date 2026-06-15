@@ -1463,32 +1463,20 @@ class Catalog:
         Otherwise, creates a new table `t` and returns `t, True` (or raises an exception if the operation fails).
         """
 
-        @retry_loop(for_write=True)
-        def create_fn() -> tuple[UUID, bool]:
-            import pixeltable.metadata.schema
-
-            existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
-            if existing is not None:
-                assert isinstance(existing, Table)
-                return existing._id, False
-
-            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-            assert dir is not None
-
-            md, ops = InsertableTable._create(
-                path.name,
-                schema,
-                primary_key=primary_key,
-                comment=comment,
-                custom_metadata=custom_metadata,
-                media_validation=media_validation,
-                create_default_idxs=create_default_idxs,
-                is_versioned=is_versioned,
+        columns = [Column.create(name, spec) for name, spec in schema.items()]
+        create_fn = retry_loop(for_write=True)(
+            lambda: self._create_table(
+                path,
+                columns,
+                if_exists,
+                primary_key,
+                comment,
+                custom_metadata,
+                media_validation,
+                create_default_idxs,
+                is_versioned,
             )
-            tbl_id = UUID(md.tbl_md.tbl_id)
-            md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
-            self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
-            return tbl_id, True
+        )
 
         self._roll_forward_ids.clear()
         tbl_id, is_created = create_fn()
@@ -1502,6 +1490,49 @@ class Catalog:
             return tbl, is_created
 
         return _get_tbl()
+
+    def _create_table(
+        self,
+        path: Path,
+        columns: list[Column],
+        if_exists: IfExistsParam,
+        primary_key: list[str] | None,
+        comment: str | None,
+        custom_metadata: Any,
+        media_validation: MediaValidation,
+        create_default_idxs: bool,
+        is_versioned: bool,
+        tbl_id: UUID | None = None,
+    ) -> tuple[UUID, bool]:
+        import pixeltable.metadata.schema
+
+        if primary_key is None:
+            primary_key = []
+
+        existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
+        if existing is not None:
+            assert isinstance(existing, Table)
+            return existing._id, False
+
+        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+        assert dir is not None
+
+        md, ops = InsertableTable._create(
+            path.name,
+            columns,
+            primary_key=primary_key,
+            comment=comment,
+            custom_metadata=custom_metadata,
+            media_validation=media_validation,
+            create_default_idxs=create_default_idxs,
+            is_versioned=is_versioned,
+            tbl_id=tbl_id,
+        )
+        if tbl_id is None:
+            tbl_id = UUID(md.tbl_md.tbl_id)
+        md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
+        self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+        return tbl_id, True
 
     def create_view(
         self,

@@ -117,7 +117,7 @@ class TestTableModel:
                     'incr': {
                         'name': 'incr',
                         'type_': 'Float',
-                        'version_added': 1,
+                        'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
                         'media_validation': None,
@@ -134,7 +134,7 @@ class TestTableModel:
                     'descr': {
                         'name': 'descr',
                         'type_': 'Required[String]',
-                        'version_added': 2,
+                        'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
                         'media_validation': None,
@@ -171,8 +171,8 @@ class TestTableModel:
                 'is_replica': False,
                 'is_view': False,
                 'is_snapshot': False,
-                'version': 3,
-                'schema_version': 3,
+                'version': 1,
+                'schema_version': 1,
                 'comment': None,
                 'custom_metadata': None,
                 'media_validation': 'on_write',
