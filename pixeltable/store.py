@@ -366,7 +366,14 @@ class StoreBase:
             # check that all columns are present
             q = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
             store_col_info = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
-            tbl_col_info = {col.store_name() for col in self.tbl_version.get().cols_by_id.values() if col.is_stored}
+            # check all stored columns, including dropped ones: they remain part of the physical table
+            tbl_col_info: set[str] = set()
+            for col_md in self.tbl_version.get().tbl_md.column_md.values():
+                if not col_md.stored:
+                    continue
+                tbl_col_info.add(catalog.Column.store_name_from_id(col_md.id))
+                if col_md.stores_cellmd:
+                    tbl_col_info.add(catalog.Column.cellmd_store_name_from_id(col_md.id))
             assert tbl_col_info.issubset(store_col_info)
 
             # check that all visible indices are present
