@@ -333,25 +333,20 @@ class TestCatalog:
         """
         Start with a base table and a view. Thread 0 loads the view md, and is about to initialize it when Thread 1
         drops it. Thread 0 then proceeds to initialize the view, which involves loading the base table. At READ
-        COMMITTED isolation level, this scenario would have resulted in an AssertionError because the base table and
-        the view would be inconsistent with one another.
+        COMMITTED isolation level, this scenario results in an AssertionError because the base table and
+        the view are inconsistent with one another.
         """
         skip_test_if_cockroachdb()
         base = pxt.create_table('base', {'a': pxt.Int})
         v = pxt.create_view('v', base)
         block_before_init = BlockFault()
 
-        def access_column_expect_not_found() -> None:
-            _ = v.a
-
         (
             MultiThreadedScenario()
             .then_inject_fault(
                 thread_id=0, loc=FaultLocation.CATALOG_LOAD_TBL_VERSION_BEFORE_INIT, fault=block_before_init
             )
-            .then_run_until(
-                thread_id=0, name='access column', event=block_before_init.reached, fn=access_column_expect_not_found
-            )
+            .then_run_until(thread_id=0, name='access column', event=block_before_init.reached, fn=lambda: v.a)
             # Thread 1: drop v while Thread 0 is waiting to initialize it
             .then_run(thread_id=1, name='drop view', fn=lambda: pxt.drop_table('v'))
             # unblock Thread 0 to continue with v initialization that also loads base
@@ -363,7 +358,8 @@ class TestCatalog:
         """
         Start with a base table and a view. Thread 0 begins to drop the view, but pauses inside finalize pending ops
         (without the exclusive lock). Thread 1 swoops in in the meantime to insert a row into the base table, and
-        finalizes view drop as a side effect. Both threads are expected to succeed.
+        finalizes view drop as a side effect. Before the fix, this would result in the insert failing with "table not
+        found" error.
         """
         skip_test_if_cockroachdb()
         base = pxt.create_table('base', {'a': pxt.Int})
@@ -379,7 +375,7 @@ class TestCatalog:
             .then_run_until(
                 thread_id=0, name='drop view', event=block_in_finalize.reached, fn=lambda: pxt.drop_table('v')
             )
-            # Thread 1: attempt to insert into base
+            # Thread 1: insert into base
             .then_run(thread_id=1, name='insert into base', fn=lambda: base.insert([{'a': 1}]))
             .then_unblock(thread_id=1, fault=block_in_finalize)
             .execute()
