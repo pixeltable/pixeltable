@@ -7,7 +7,7 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 
 @register_converter(version=24)
-def _(engine: sql.engine.Engine, _dbms: object) -> None:
+def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, substitution_fn=__substitute_md)
 
 

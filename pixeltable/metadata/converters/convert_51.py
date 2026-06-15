@@ -4,11 +4,10 @@ import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.schema import Table, TableSchemaVersion
-from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 
 
 @register_converter(version=51)
-def _(engine: sql.engine.Engine, dbms: Dbms) -> None:
+def _(engine: sql.engine.Engine) -> None:
     """
     Changes in version 52:
     - some column metadata (col_type, is_pk, value_expr) moved from the table level (ColumnMd) to
@@ -18,8 +17,8 @@ def _(engine: sql.engine.Engine, dbms: Dbms) -> None:
 
     This converter reads all table and schema metadata in memory, updates them, and writes them back.
     """
-    assert isinstance(dbms, (CockroachDbms, PostgresqlDbms)), dbms
-    is_cockroachdb = isinstance(dbms, CockroachDbms)
+    assert engine.dialect.name in ('cockroachdb', 'postgresql'), engine.dialect.name
+    is_cockroachdb = engine.dialect.name == 'cockroachdb'
 
     with engine.connect().execution_options(isolation_level='SERIALIZABLE') as conn:
         # Read the table and table schema version metadata from the store

@@ -7,7 +7,7 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 
 @register_converter(version=47)
-def _(engine: sql.engine.Engine, _dbms: object) -> None:
+def _(engine: sql.engine.Engine) -> None:
     """
     Materializes the `stores_cellmd` property on ColumnMd based on the existing logic around column and index types.
     """

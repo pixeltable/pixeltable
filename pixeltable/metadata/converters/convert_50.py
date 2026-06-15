@@ -17,7 +17,7 @@ from pixeltable.metadata.schema import Dir, Table, TableVersion
 
 
 @register_converter(version=50)
-def _(engine: sql.engine.Engine, dbms: object) -> None:
+def _(engine: sql.engine.Engine) -> None:
     with engine.begin() as conn:
         # Check before making any changes, so that a database with replicas is left untouched at its current version.
         replica_paths = __user_replica_paths(conn)

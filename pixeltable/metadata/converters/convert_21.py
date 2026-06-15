@@ -7,7 +7,7 @@ from pixeltable.metadata.converters.util import convert_table_md, convert_table_
 
 
 @register_converter(version=21)
-def _(engine: sql.engine.Engine, _dbms: object) -> None:
+def _(engine: sql.engine.Engine) -> None:
     convert_table_schema_version_md(
         engine,
         table_schema_version_md_updater=__update_table_schema_version,

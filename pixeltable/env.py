@@ -528,7 +528,7 @@ class Env:
     def _upgrade_metadata(self) -> None:
         from pixeltable import metadata
 
-        metadata.upgrade_md(self._sa_engine, self.dbms)
+        metadata.upgrade_md(self._sa_engine)
 
     @property
     def pxt_api_key(self) -> str | None:

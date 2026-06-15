@@ -11,7 +11,6 @@ from sqlalchemy import orm
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.utils.console_output import ConsoleLogger
-from pixeltable.utils.dbms import Dbms
 
 from .schema import SystemInfo, SystemInfoMd
 
@@ -37,11 +36,11 @@ def create_system_info(engine: sql.engine.Engine) -> None:
 
 # conversion functions for upgrading the metadata schema from one version to the following
 # key: old schema version
-converter_cbs: dict[int, Callable[[sql.engine.Engine, Dbms], None]] = {}
+converter_cbs: dict[int, Callable[[sql.engine.Engine], None]] = {}
 
 
-def register_converter(version: int) -> Callable[[Callable[[sql.engine.Engine, Dbms], None]], None]:
-    def decorator(fn: Callable[[sql.engine.Engine, Dbms], None]) -> None:
+def register_converter(version: int) -> Callable[[Callable[[sql.engine.Engine], None]], None]:
+    def decorator(fn: Callable[[sql.engine.Engine], None]) -> None:
         assert version not in converter_cbs
         converter_cbs[version] = fn
 
@@ -53,7 +52,7 @@ for _, modname, _ in pkgutil.iter_modules([os.path.dirname(__file__) + '/convert
     importlib.import_module('pixeltable.metadata.converters.' + modname)
 
 
-def upgrade_md(engine: sql.engine.Engine, dbms: Dbms) -> None:
+def upgrade_md(engine: sql.engine.Engine) -> None:
     """Upgrade the metadata schema to the current version"""
     with orm.Session(engine) as session:
         # Get exclusive lock on SystemInfo row
@@ -75,7 +74,7 @@ def upgrade_md(engine: sql.engine.Engine, dbms: Dbms) -> None:
                 raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No metadata converter for version {md_version}')
             # We can't use the console logger in Env, because Env might not have been initialized yet.
             _console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')
-            converter_cbs[md_version](engine, dbms)
+            converter_cbs[md_version](engine)
             md_version += 1
         # update system info
         conn = session.connection()
