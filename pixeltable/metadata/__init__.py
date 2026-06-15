@@ -36,7 +36,7 @@ def create_system_info(engine: sql.engine.Engine) -> None:
 
 
 # conversion functions for upgrading the metadata schema from one version to the following
-# key: old schema version; value: callable(engine, dbms)
+# key: old schema version
 converter_cbs: dict[int, Callable[[sql.engine.Engine, Dbms], None]] = {}
 
 
