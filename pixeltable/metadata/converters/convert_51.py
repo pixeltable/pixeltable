@@ -7,10 +7,10 @@ from pixeltable.metadata.schema import Table, TableSchemaVersion
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 
 
-@register_converter(version=50)
+@register_converter(version=51)
 def _(engine: sql.engine.Engine, dbms: Dbms) -> None:
     """
-    Changes in version 51:
+    Changes in version 52:
     - some column metadata (col_type, is_pk, value_expr) moved from the table level (ColumnMd) to
     SchemaVersionMd in order to allow for future versioning of these metadata.
     - Only user columns used to be represented by SchemaVersionMd, now system columns are also there.
