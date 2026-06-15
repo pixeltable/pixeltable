@@ -540,8 +540,6 @@ class TableVersion:
         """
         Look up the column with the given table id and column id, searching through the ancestors of this TableVersion
         to find it. We avoid referencing TableVersionPath in order to work properly with snapshots as well.
-
-        This will search through *all* known columns, including columns that are not visible in this TableVersion.
         """
         if qid.tbl_id == self.id:
             return self.cols_by_id.get(qid.col_id)
