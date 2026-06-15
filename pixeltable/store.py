@@ -217,7 +217,7 @@ class StoreBase:
             idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
         # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
-        primary_index = [col for col in tbl_version.cols if col.is_pk]
+        primary_index = [col for col in tbl_version.cols_by_id.values() if col.is_pk]
         if len(primary_index) > 0:
             assert tbl_version.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
             pk_idx_exprs: list[sql.ColumnElement] = []
@@ -366,7 +366,7 @@ class StoreBase:
             # check that all columns are present
             q = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
             store_col_info = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
-            tbl_col_info = {col.store_name() for col in self.tbl_version.get().cols if col.is_stored}
+            tbl_col_info = {col.store_name() for col in self.tbl_version.get().cols_by_id.values() if col.is_stored}
             assert tbl_col_info.issubset(store_col_info)
 
             # check that all visible indices are present

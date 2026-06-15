@@ -423,7 +423,7 @@ class LabelStudioProject(Project):
             # batch_update on the actual ancestor table that holds the annotations column.
             # TODO(aaron-siegel): Simplify this once propagation is properly implemented in batch_update
             ancestor = t
-            while local_annotations_col not in ancestor._tbl_version.get().cols:
+            while local_annotations_col not in ancestor._tbl_version.get().cols_by_id.values():
                 assert ancestor._get_base_table is not None
                 ancestor = ancestor._get_base_table()
             update_status = ancestor.batch_update(updates)

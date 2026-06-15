@@ -143,13 +143,11 @@ class TableVersion:
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
     mutable_views: frozenset[TableVersionHandle]
 
-    # User and system columns that are live in this schema version.
-    # TODO should be the same as cols_by_id. Check and get rid of cols if possible.
-    cols: list[Column]
+    # User and system columns that are live in this schema version, ordered by column id (asc). The order matters for
+    # iterator_columns().
+    cols_by_id: dict[int, Column]
     # contains only user-facing (named) columns visible in this version
     cols_by_name: dict[str, Column]
-    # contains only columns visible in this version, both system and user
-    cols_by_id: dict[int, Column]
 
     # True if this TableVersion instance can have indices:
     # - live version of a mutable table
@@ -230,7 +228,6 @@ class TableVersion:
         self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0
 
-        self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
         self.idxs = {}
@@ -374,7 +371,7 @@ class TableVersion:
     def delete_media(self, tbl_version: int | None = None) -> None:
         # Assemble a set of column destinations and delete objects from all of them
         # None is a valid column destination which refers to the default object location
-        destinations = {col.destination for col in self.cols if col.is_stored}
+        destinations = {col.destination for col in self.cols_by_id.values() if col.is_stored}
         for dest in destinations:
             ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
 
@@ -412,7 +409,7 @@ class TableVersion:
     def _init_schema(self) -> None:
         from pixeltable.store import StoreComponentView, StoreTable, StoreView
 
-        assert len(self.cols) == 0
+        assert len(self.cols_by_id) == 0
         assert len(self.idxs) == 0
 
         # Construct a target table versions dict for column retargeting, if needed
@@ -467,7 +464,6 @@ class TableVersion:
                 comment=schema_col_md.comment if schema_col_md is not None else '',
             )
 
-            self.cols.append(col)
             self.cols_by_id[col.id] = col
             if not col.is_system_col:
                 self.cols_by_name[col.name] = col
@@ -548,7 +544,7 @@ class TableVersion:
         This will search through *all* known columns, including columns that are not visible in this TableVersion.
         """
         if qid.tbl_id == self.id:
-            return next((col for col in self.cols if col.id == qid.col_id), None)
+            return self.cols_by_id.get(qid.col_id)
         elif self.base is not None:
             return self.base.get().lookup_column(qid)
         else:
@@ -832,7 +828,6 @@ class TableVersion:
             col.schema_version_add = self.schema_version
             # add the column to the lookup structures now, rather than after the store changes executed successfully,
             # because it might be referenced by the next column's value_expr
-            self.cols.append(col)
             self.cols_by_id[col.id] = col
             if not col.is_system_col:
                 self.cols_by_name[col.name] = col
@@ -933,7 +928,6 @@ class TableVersion:
                 del self.cols_by_name[col.name]
             assert col.id in self.cols_by_id
             del self.cols_by_id[col.id]
-            self.cols.remove(col)
             # update stored md
             self._tbl_md.column_md[col.id].schema_version_drop = col.schema_version_drop
             del self._schema_version_md.columns[col.id]
@@ -1438,7 +1432,7 @@ class TableVersion:
         old_version = self.version
         if self.version == self.schema_version:
             # physically delete newly-added columns and remove them from the stored md
-            added_cols = [col for col in self.cols if col.schema_version_add == self.schema_version]
+            added_cols = [col for col in self.cols_by_id.values() if col.schema_version_add == self.schema_version]
             if len(added_cols) > 0:
                 self._tbl_md.next_col_id = min(col.id for col in added_cols)
                 for col in added_cols:
@@ -1708,7 +1702,8 @@ class TableVersion:
 
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns (including the pos column)"""
-        return self.cols[: self.num_iterator_cols]
+        # This is correct because self.cols_by_id is ordered by id (asc).
+        return list(self.cols_by_id.values())[: self.num_iterator_cols]
 
     def iterator_args_expr(self) -> InlineDict | None:
         if self.is_component_view:
@@ -1717,12 +1712,12 @@ class TableVersion:
 
     def primary_key_columns(self) -> list[Column]:
         """Return all non-system columns"""
-        return [c for c in self.cols if c.is_pk]
+        return [c for c in self.cols_by_id.values() if c.is_pk]
 
     @property
     def primary_key(self) -> list[str]:
         """Return the names of the primary key columns"""
-        return [c.name for c in self.cols if c.is_pk]
+        return [c.name for c in self.cols_by_id.values() if c.is_pk]
 
     def get_required_col_names(self) -> list[str]:
         """Return the names of all columns for which values must be specified in insert()"""
