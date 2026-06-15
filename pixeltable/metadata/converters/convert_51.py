@@ -80,7 +80,7 @@ _EMBEDDING_INDEX_FQN = 'pixeltable.index.embedding_index.EmbeddingIndex'
 
 
 def _get_embedding_val_col_precisions(table_md: dict) -> dict[str, str]:
-    """Returns a map of col_id (as str) -> precision str for embedding index val/undo columns."""
+    """Returns a map of str(col_id) to precision str for embedding index val/undo columns."""
     result: dict[str, str] = {}
     for idx_md in table_md.get('index_md', {}).values():
         if idx_md.get('class_fqn') != _EMBEDDING_INDEX_FQN:
@@ -104,7 +104,7 @@ def _convert_table_and_versions(table_md: dict, schema_versions: dict[int, dict]
         assert '_classname' in col_type, (table_md, col_id)
         classname = col_type['_classname']
 
-        # Populate ColumnMd's sa_col_type
+        # Populate ColumnMd's sa_col_type if this column is stored
         stored = table_col_md.get('stored', True)
         sa_col_type = None
         if stored:
@@ -128,7 +128,7 @@ def _convert_table_and_versions(table_md: dict, schema_versions: dict[int, dict]
                 sa_col_type = _CLASSNAME_TO_SA_TYPE[classname]
         table_col_md['sa_col_type'] = sa_col_type
 
-        # For each column in table md, find the schema versions in which those columns were visible, and update
+        # For each column in table md, find the schema versions in which those columns are visible, and update
         # SchemaVersionMds to add or change those columns.
         for schema_ver, schema_version_md in schema_versions.items():
             if schema_ver < table_col_md['schema_version_add']:
