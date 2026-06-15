@@ -28,7 +28,7 @@ from ..utils import (
     validate_update_status,
 )
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger('pixeltable_test')
 
 
 @pytest.mark.skipif(platform.system() == 'Windows', reason='Label Studio tests do not currently run on Windows')
@@ -288,6 +288,7 @@ class TestLabelStudio:
     def __is_expected_url(cls, url: str) -> bool:
         return url.startswith('file:') or url.startswith('https://') or url.startswith('s3://')
 
+    @pytest.mark.very_expensive  # Downloads a Hugging Face model
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
     @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_preannotations(self, ls_image_table: pxt.InsertableTable) -> None:

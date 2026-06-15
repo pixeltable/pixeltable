@@ -6,7 +6,7 @@ import sqlalchemy as sql
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.converters.util import convert_table_md
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 @register_converter(version=27)

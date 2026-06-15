@@ -1,0 +1,14 @@
+[project]
+name = "prompt-engineering-studio"
+version = "0.1.0"
+description = "Gradio app for prompt engineering and comparison with Pixeltable"
+requires-python = ">=3.10"
+dependencies = [
+    "pixeltable>=0.6.0",
+    "gradio>=4.0",
+    "textblob",
+    "nltk",
+    "mistralai",
+    "jupyter",
+    "ipykernel",
+]

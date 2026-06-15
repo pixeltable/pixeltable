@@ -7,7 +7,7 @@ import sqlalchemy as sql
 
 from pixeltable.metadata.schema import Function, Table, TableSchemaVersion
 
-__logger = logging.getLogger('pixeltable')
+__logger = logging.getLogger(__name__)
 
 
 def convert_table_md(

@@ -218,7 +218,6 @@ class TableStatement(Enum):
 class TableMd:
     tbl_id: str  # uuid.UUID
     name: str
-    is_replica: bool
 
     user: str | None
 
@@ -268,7 +267,7 @@ class TableMd:
 
     @property
     def is_mutable(self) -> bool:
-        return not self.is_snapshot and not self.is_replica
+        return not self.is_snapshot
 
     @property
     def is_pure_snapshot(self) -> bool:
@@ -319,9 +318,6 @@ class VersionMd:
     schema_version: int
     user: str | None = None  # User that created this version
     update_status: UpdateStatus | None = None  # UpdateStatus of the change that created this version
-    # A version fragment cannot be queried or instantiated via get_table(). A fragment represents a version of a
-    # replica table that has incomplete data, and exists only to provide base table support for a dependent view.
-    is_fragment: bool = False
     additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)  # deprecated
 
 

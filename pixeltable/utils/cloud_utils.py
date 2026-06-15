@@ -15,8 +15,12 @@ import requests
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.share.protocol.bucket import GetBucketCredentialsRequest, GetBucketCredentialsResponse
-from pixeltable.share.protocol.presigned_url import GetPresignedUrlRequest, GetPresignedUrlResponse
+from pixeltable.service.pxtfs_protocol import (
+    GetBucketCredentialsRequest,
+    GetBucketCredentialsResponse,
+    GetPresignedUrlRequest,
+    GetPresignedUrlResponse,
+)
 
 PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 

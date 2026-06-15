@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     import pixeltable.plan
     from pixeltable.plan import SampleClause
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class OrderByItem(NamedTuple):
@@ -358,9 +358,8 @@ class SqlNode(ExecNode):
             elif versioned:
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
 
-                if t.effective_version is None and not tv.is_replica:
-                    # v_max == MAX_VERSION: ensure we use the partial index;
-                    # replicas don't follow this invariant, so fall back to the inequality there
+                if t.effective_version is None:
+                    # v_max == MAX_VERSION: ensure we use the partial index
                     stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max == schema.Table.MAX_VERSION)
                 else:
                     stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
@@ -410,7 +409,7 @@ class SqlNode(ExecNode):
             if self._stmt is None:
                 self._stmt = self._create_stmt()
             stmt = self._stmt
-            if Env.get().logging_is_enabled_for(logging.DEBUG, 'sql_node'):
+            if _logger.isEnabledFor(logging.DEBUG):
                 # compiling the stmt to render it as a string is non-trivially expensive (hundreds
                 # of microseconds), so only do it when the debug log is actually consumed
                 try:
@@ -859,7 +858,7 @@ class SqlSampleNode(SqlNode):
         per_strata_count_cte = (
             sql.select(
                 *sql_strata_exprs,
-                sql.func.ceil(fraction_samples * sql.func.count(1).cast(sql.Integer)).label('s_s_size'),
+                sql.func.ceil(fraction_samples * sql.func.count(1).cast(sql.Float)).cast(sql.Integer).label('s_s_size'),
             )
             .select_from(self.input_cte)
             .group_by(*sql_strata_exprs)

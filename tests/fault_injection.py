@@ -19,7 +19,7 @@ from typing import Any, Protocol
 
 from pixeltable.utils.fault_injection import FaultLocation
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger('pixeltable_test')
 
 
 class Fault(Protocol):
@@ -51,10 +51,6 @@ class FaultManager:
             if not fault.recurring:
                 del self._fault_state[loc]
         fault(loc)
-
-    def clear_faults(self) -> None:
-        with self._lock:
-            self._fault_state.clear()
 
 
 class ExceptionFault:

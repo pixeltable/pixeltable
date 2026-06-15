@@ -25,7 +25,7 @@ from pixeltable.utils.pydantic import is_json_convertible
 
 from .utils import normalize_schema_names
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:

@@ -31,7 +31,7 @@ from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
 from pixeltable.utils.local_store import LocalStore, TempStore
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class BackgroundJobResponse(pydantic.BaseModel):
@@ -182,7 +182,7 @@ class FastAPIRouter(fastapi.APIRouter):
         self._register_jobs_route()
         # Shut down the worker pool when the parent app's lifespan ends. include_router()
         # merges this handler into the app's on_shutdown list, so it fires on app shutdown.
-        self.add_event_handler('shutdown', self._shutdown)
+        self.add_event_handler('shutdown', self.__shutdown)
 
     def add_api_route(self, path: str, *args: Any, **kwargs: Any) -> None:
         """Wrap FastAPI's add_api_route with a duplicate (path, method) check."""
@@ -201,7 +201,7 @@ class FastAPIRouter(fastapi.APIRouter):
             )
         super().add_api_route(path, *args, **kwargs)
 
-    def _shutdown(self) -> None:
+    def __shutdown(self) -> None:
         # wait until in-flight requests are done and won't access _engine_cache
         self._executor.shutdown(wait=True, cancel_futures=True)
         for eng in self._engine_cache.values():

@@ -1,7 +1,10 @@
 import datetime
 import glob
+import hashlib
 import itertools
 import json
+import logging
+import math
 import os
 import random
 import re
@@ -13,7 +16,7 @@ import uuid
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from typing import Any, Callable, Iterator, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Iterator, TypedDict
 from unittest import TestCase
 from uuid import uuid4
 
@@ -28,12 +31,16 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
 from pixeltable.catalog import retry_loop
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.object_stores import ObjectOps
+
+if TYPE_CHECKING:
+    from pyiceberg.catalog.sql import SqlCatalog
 
 TESTS_DIR = Path(os.path.dirname(__file__))
 
@@ -113,7 +120,11 @@ def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Tabl
 
 
 def create_table_data(
-    t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10, non_serializable_json: bool = False
+    t: pxt.Table,
+    col_names: list[str] | None = None,
+    num_rows: int = 10,
+    non_serializable_json: bool = False,
+    arrow_compatible_json: bool = False,
 ) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
@@ -128,17 +139,25 @@ def create_table_data(
                     'tags': ['a', 'b'],
                     'label': 'potted plant',
                     'bounding_box': [0.370, 0.335, 0.039, 0.163],
-                    'mask': None,
+                    'mask': 'rle:0,1,0,1',
                     'confidence': 0.95,
                     'iscrowd': 0,
                     'verified': True,
                 }
             ]
         },
-        {'level1': {'level2': {'level3': [1, 2.0, 'three', False, None]}}},
-        [{'key': 'val1', 'n': 1}, {'key': 'val2', 'n': 2}],
-        {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False, 'n': None},
+        {'level1': {'level2': {'level3': [1, 2, 3, 4]}}},
+        {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False},
     ]
+    if not arrow_compatible_json:
+        # Samples pyarrow cannot type-infer: mixed-type lists, top-level non-dicts, all-None fields.
+        serializable_json_values.extend(
+            [
+                {'level1': {'level2': {'level3': [1, 2.0, 'three', False, None]}}},
+                [{'key': 'val1', 'n': 1}, {'key': 'val2', 'n': 2}],
+                {'s': 'hello', 'i': 42, 'f': 2.718, 'b': False, 'n': None},
+            ]
+        )
 
     # Non-serializable samples: contain PIL images, numpy arrays, or bytes.
     non_serializable_json_values: list[Any] = [
@@ -288,7 +307,7 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     return tbl
 
 
-def create_all_datatypes_tbl(non_serializable_json: bool = False) -> pxt.Table:
+def create_all_datatypes_tbl(non_serializable_json: bool = False, arrow_compatible_json: bool = False) -> pxt.Table:
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
@@ -308,7 +327,9 @@ def create_all_datatypes_tbl(non_serializable_json: bool = False) -> pxt.Table:
         'c_document': pxt.Document,
     }
     tbl = pxt.create_table('all_datatype_tbl', schema)
-    example_rows = create_table_data(tbl, num_rows=11, non_serializable_json=non_serializable_json)
+    example_rows = create_table_data(
+        tbl, num_rows=11, non_serializable_json=non_serializable_json, arrow_compatible_json=arrow_compatible_json
+    )
 
     for i, r in enumerate(example_rows):
         r['row_id'] = i  # row_id
@@ -692,10 +713,25 @@ def skip_test_if_not_installed(*packages: str) -> None:
             pytest.skip(f'Package `{package}` is not installed.')
 
 
+def skip_test_if_no_config(key: str, section: str = 'pixeltable') -> None:
+    if not Config.get().get_string_value(key, section):
+        pytest.skip(f'Configuration `{section}.{key}` is not set.')
+
+
 def skip_test_if_not_in_path(*binaries: str) -> None:
     for binary in binaries:
         if shutil.which(binary) is None:
             pytest.skip(f'Binary `{binary}` is not in PATH.')
+
+
+def skip_test_if_cockroachdb(reason: str = 'Not supported on CockroachDB.') -> None:
+    if Env.get().is_using_cockroachdb:
+        pytest.skip(reason)
+
+
+def skip_test_if_not_local(reason: str = 'Requires a local (file-backed) Pixeltable database.') -> None:
+    if not Env.get().is_local:
+        pytest.skip(reason)
 
 
 def skip_test_if_no_client(client_name: str) -> None:
@@ -759,6 +795,20 @@ def validate_sync_status(
         assert status.pxt_rows_updated == expected_pxt_rows_updated, status
     if expected_num_excs is not None:
         assert status.num_excs == expected_num_excs, status
+
+
+def iceberg_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> 'SqlCatalog':
+    """
+    Instantiate a sqlite Iceberg catalog at the specified path. If no catalog exists, one will be created.
+    """
+    Env.get().require_package('pyiceberg')
+
+    from pyiceberg.catalog.sql import SqlCatalog
+
+    if isinstance(warehouse_path, str):
+        warehouse_path = Path(warehouse_path)
+    warehouse_path.mkdir(parents=True, exist_ok=True)
+    return SqlCatalog(name, uri=f'sqlite:///{warehouse_path}/catalog.db', warehouse=f'file://{warehouse_path}')
 
 
 def make_test_arrow_table(output_path: Path) -> str:
@@ -825,15 +875,16 @@ def reload_catalog(reload: bool = True) -> None:
 
 @contextmanager
 def capture_console_output() -> Iterator[StringIO]:
+    pxt_logger = logging.getLogger('pixeltable')
     try:
         sio = StringIO()
         handler = ConsoleOutputHandler(stream=sio)
         handler.setLevel(10)
         handler.addFilter(ConsoleMessageFilter())
-        Env.get()._logger.addHandler(handler)
+        pxt_logger.addHandler(handler)
         yield sio
     finally:
-        Env.get()._logger.removeHandler(handler)
+        pxt_logger.removeHandler(handler)
         sio.flush()
 
 
@@ -980,3 +1031,47 @@ def validate_repr(t: Any, expected: str) -> None:
 
     assert cleanup(repr(t)) == cleanup(expected), f'Expected repr: {expected}, actual: {t!r}'
     t._repr_html_()  # TODO: Is there a good way to test this output?
+
+
+# A deterministic, download-free embedding used in place of HuggingFace models (clip, sentence_transformer) in tests
+# that exercise embedding-index machinery rather than real-model semantics. It is multimodal -- text is mapped via
+# character n-gram hashing and images via grayscale downsampling, both into the same fixed-dimensional space -- so it
+# is a drop-in for clip (used as both image_embed and string_embed) as well as for string-only embeddings. Identical
+# inputs produce identical vectors, so retrieving an item by querying with itself is exact. It does NOT model
+# cross-modal or lexically-independent semantics; tests that assert those use the real models on the very_expensive
+# (scheduled) tier.
+
+LOCAL_EMBED_DIM = 512  # matches openai/clip-vit-base-patch32; bind via local_embedding.using(dim=...)
+
+
+def _local_text_vec(text: str, dim: int) -> np.ndarray:
+    v = np.zeros(dim, dtype=np.float32)
+    t = (text or '').lower()
+    tokens = list(t) + [t[i : i + 3] for i in range(len(t) - 2)]  # unigrams + character trigrams
+    for tok in tokens:
+        v[int.from_bytes(hashlib.sha1(tok.encode('utf-8')).digest()[:4], 'big') % dim] += 1.0
+    norm = float(np.linalg.norm(v))
+    return v / norm if norm > 0 else v
+
+
+def _local_image_vec(image: PIL.Image.Image, dim: int) -> np.ndarray:
+    side = math.isqrt(dim)
+    grid = image.convert('L').resize((-(-dim // side), side))  # downsample to a grid of >= dim pixels
+    v = np.asarray(grid, dtype=np.float32).reshape(-1)[:dim]
+    norm = float(np.linalg.norm(v))
+    return v / norm if norm > 0 else v
+
+
+@pxt.udf
+def local_embedding(text: str, *, dim: int = LOCAL_EMBED_DIM) -> pxt.Array[(None,), np.float32]:
+    return _local_text_vec(text, dim)
+
+
+@local_embedding.overload
+def _(image: PIL.Image.Image, *, dim: int = LOCAL_EMBED_DIM) -> pxt.Array[(None,), np.float32]:
+    return _local_image_vec(image, dim)
+
+
+@local_embedding.conditional_return_type
+def _(dim: int) -> ts.ArrayType:
+    return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)

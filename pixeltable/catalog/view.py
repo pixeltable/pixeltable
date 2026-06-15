@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-import logging
 from typing import TYPE_CHECKING, Any, List, Literal, Mapping
 from uuid import UUID
 
@@ -29,8 +28,6 @@ if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
-_logger = logging.getLogger('pixeltable')
-
 
 class View(Table):
     """A `Table` that presents a virtual view of another table (or view).
@@ -48,8 +45,6 @@ class View(Table):
             self._tbl_version = tbl_version_path.tbl_version
 
     def _display_name(self) -> str:
-        if self._tbl_version_path.is_replica():
-            return 'replica'
         if self._tbl_version_path.is_snapshot():
             return 'snapshot'
         if self._tbl_version_path.is_view():
@@ -208,7 +203,7 @@ class View(Table):
             return md, None
         else:
             tbl_id = md.tbl_md.tbl_id
-            key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
+            key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = (
                 TableOpsBuilder(tbl_id, tbl_version=md.tbl_md.current_version)
@@ -254,7 +249,7 @@ class View(Table):
         assert not tbl_version.is_snapshot
 
         return TableVersionPath(
-            TableVersionHandle(TableVersionKey(tbl_version.id, tbl_version.version, None)),
+            TableVersionHandle(TableVersionKey(tbl_version.id, tbl_version.version)),
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 
@@ -280,8 +275,10 @@ class View(Table):
             md['path'] = f'{self._path()}:{self._tbl_version_path.version()}'
         base_tbl_id = self._base_tbl_id
         if base_tbl_id is not None:
+            # base_tbl_id is set, so this view has a base schema object, which must still exist
             base_tbl = self._get_base_table()
-            base_path = '<anonymous base table>' if base_tbl is None else base_tbl._path()
+            assert base_tbl is not None
+            base_path = base_tbl._path()
             base_version = self._effective_base_versions[0]
             md['base'] = base_path if base_version is None else f'{base_path}:{base_version}'
 
@@ -333,7 +330,12 @@ class View(Table):
         return self._tbl_version_path.base.tbl_id
 
     def _get_base_table(self) -> 'Table' | None:
-        """Returns None if there is no base table, or if the base table is hidden."""
+        """Returns the base table, or None if there is no separate base schema object.
+
+        The latter happens for an anonymous snapshot (a snapshot that is not itself a schema object, where
+        _tbl_version_path.tbl_id == self._id): it pins a version of this same table rather than sitting on top of a
+        distinct base.
+        """
         base_tbl_id = self._base_tbl_id
         if base_tbl_id is None:
             return None
@@ -358,7 +360,6 @@ class View(Table):
                 base_descr = f'{base._path()}:{effective_version}'
                 bases_descrs.append(f'{base_descr!r}')
         if len(bases_descrs) > 0:
-            # bases_descrs can be empty in the case of a table-replica
             result.append(f' (of {", ".join(bases_descrs)})')
 
         if self._tbl_version_path.tbl_version.get().predicate is not None:

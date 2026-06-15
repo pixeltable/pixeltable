@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import enum
 import itertools
-import logging
 from dataclasses import dataclass
 from uuid import UUID
 
 import pixeltable.exceptions as excs
-
-_logger = logging.getLogger('pixeltable')
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
@@ -74,13 +71,10 @@ class IfNotExistsParam(enum.Enum):
             ) from None
 
 
-def is_valid_identifier(name: str, *, allow_system_identifiers: bool = False, allow_hyphens: bool = False) -> bool:
-    # If allow_hyphens=True, we allow hyphens to appear in the name, but we still do not permit a name to start with
-    # one (even if allow_system_identifiers=True)
+def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
+    # If allow_hyphens=True, we allow hyphens to appear in the name, but we still do not permit a name to start with one
     adj_name = name.replace('-', '_') if allow_hyphens else name
-    return (
-        adj_name.isidentifier() and not name.startswith('-') and (allow_system_identifiers or not name.startswith('_'))
-    )
+    return adj_name.isidentifier() and not name.startswith('-') and not name.startswith('_')
 
 
 def is_system_column_name(name: str) -> bool:
