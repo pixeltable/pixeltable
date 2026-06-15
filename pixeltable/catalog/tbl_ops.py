@@ -177,7 +177,8 @@ class DeleteTableMdOp(TableOp):
     needs_tv: ClassVar[bool] = False
     needs_xact: ClassVar[bool] = True
 
-    base_tbl_id: str | None
+    # Defaults to None so that already existing pending ops can be deserialized. TODO: clean this up later
+    base_tbl_id: str | None = None
 
     def exec(self, tv: TableVersion | None) -> None:
         assert get_runtime().in_xact
