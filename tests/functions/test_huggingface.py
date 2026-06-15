@@ -23,6 +23,7 @@ from ..utils import (
 )
 
 
+@pytest.mark.very_expensive  # Downloads Hugging Face models
 @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 class TestHuggingface:

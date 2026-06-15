@@ -56,22 +56,23 @@ graph LR
 
 - Node.js 18+
 - Python 3.10+
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+- [uv](https://docs.astral.sh/uv/)
+
+### Frontend Setup
+
+```bash
+cd docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi/frontend
+npm install
+npm run dev
+```
 
 ### Backend Setup
 
 ```bash
 cd docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi
-uv sync   # or: pip install -e .
-python app.py
-```
-
-### Frontend Setup
-
-```bash
-cd frontend
-npm install
-npm run dev
+uv sync
+python schema.py    # one-time init (RESET_SCHEMA=true to wipe)
+uv run python main.py
 ```
 
 ## 🚀 Deployment
@@ -97,13 +98,6 @@ INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
 
-## Learn More
+## 📄 License
 
-- [Pixeltable Documentation](https://docs.pixeltable.com/)
-- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
-- [Embedding Indexes Guide](https://docs.pixeltable.com/platform/embedding-indexes)
-- [Discord Community](https://discord.gg/QPyqFYx2UN)
-
-## License
-
-Apache 2.0
+This library is licensed under the Apache 2.0 License.

@@ -1,36 +1,13 @@
 ---
 title: 'Cloud Offering'
-description: 'Data sharing, endpoints, and collaboration via Pixeltable Cloud'
+description: 'Endpoints, storage, and collaboration via Pixeltable Cloud'
 ---
 
 Pixeltable Cloud extends the local SDK with team collaboration and production deployment capabilities.
 
 ---
 
-## Publish & Replicate ✅ Available Now
-
-| Feature | API |
-|---------|-----|
-| Publish datasets | [`pxt.publish(source, destination_uri)`](/platform/data-sharing) |
-| Replicate datasets | [`pxt.replicate(remote_uri, local_path)`](/platform/data-sharing) |
-| Sync updates | `push()`, `pull()` |
-| Access control | `access='public'` or `'private'` |
-
-```python
-# Publish your curated dataset
-pxt.publish(source='my-table', destination_uri='pxt://myorg/my-dataset')
-
-# Anyone can replicate public datasets (no account required)
-coco = pxt.replicate(remote_uri='pxt://pixeltable:fiftyone/coco_mini_2017', local_path='coco-copy')
-```
-
-<Card title="Data Sharing Guide" icon="share" href="/platform/data-sharing">
-  Full documentation on publish, replicate, push, and pull
-</Card>
-
----
-
-## 2. Endpoints
+## 1. Endpoints
 
 Self-hosted HTTP serving is available now. Cloud deployment with managed hosting is coming soon.
 
@@ -52,7 +29,7 @@ Self-hosted HTTP serving is available now. Cloud deployment with managed hosting
 
 ---
 
-## 3. Cloud Storage ✅ Available Now
+## 2. Cloud Storage ✅ Available Now
 
 Every Pixeltable Cloud account includes a free managed storage bucket for media files. No cloud provider account or bucket configuration required.
 
@@ -76,7 +53,7 @@ t.add_computed_column(
 
 ---
 
-## 4. Live Tables 🔜 Coming Soon
+## 3. Live Tables 🔜 Coming Soon
 
 Multi-writer collaboration and serverless compute.
 

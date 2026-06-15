@@ -3,24 +3,23 @@
 Run once to initialize the database schema:
     python setup_pixeltable.py
 
-Can also be imported and called from bot.py on startup.
+Idempotent by default. Set RESET_SCHEMA=true to wipe and recreate.
+Imported by bot.py on startup.
 """
 
+import os
+
 import config
-import numpy as np
+import functions
 
 import pixeltable as pxt
 from pixeltable.functions import openai
-from pixeltable.functions.huggingface import sentence_transformer
-from pixeltable.iterators.string import StringSplitter
+from pixeltable.functions.string import string_splitter
 
-# ── Clean slate ───────────────────────────────────────────────────────────────
+if os.getenv('RESET_SCHEMA', 'false').lower() == 'true':
+    pxt.drop_dir(config.APP_NAMESPACE, force=True)
 
-pxt.drop_dir(config.APP_NAMESPACE, force=True)
 pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
-
-
-# ── 1. Messages Table + Sentence View + Embedding Index ──────────────────────
 
 messages = pxt.create_table(
     f'{config.APP_NAMESPACE}.messages',
@@ -31,22 +30,14 @@ messages = pxt.create_table(
 sentences = pxt.create_view(
     f'{config.APP_NAMESPACE}.sentences',
     messages,
-    iterator=StringSplitter.create(text=messages.content, separators='sentence'),
+    iterator=string_splitter(text=messages.content, separators='sentence'),
     if_exists='ignore',
 )
 
-
-@pxt.expr_udf
-def get_embeddings(text: str) -> np.ndarray:
-    return sentence_transformer(text, model_id=config.EMBEDDING_MODEL_ID)
-
-
-sentences.add_embedding_index('text', string_embed=get_embeddings, if_exists='ignore')
-
+sentences.add_embedding_index(
+    'text', idx_name='sentences_text_idx', string_embed=functions.get_embeddings, if_exists='ignore'
+)
 print('  Messages: table + sentences view + embedding index')
-
-
-# ── 2. Chat Table + Computed Columns ─────────────────────────────────────────
 
 chat = pxt.create_table(
     f'{config.APP_NAMESPACE}.chat',
@@ -57,7 +48,7 @@ chat = pxt.create_table(
 
 @pxt.query
 def get_context(question_text: str):
-    sim = sentences.text.similarity(question_text)
+    sim = sentences.text.similarity(string=question_text, idx='sentences_text_idx')
     return (
         sentences.order_by(sim, asc=False)
         .select(text=sentences.text, username=sentences.username, sim=sim)
@@ -66,18 +57,7 @@ def get_context(question_text: str):
 
 
 chat.add_computed_column(context=get_context(chat.question), if_exists='ignore')
-
-
-@pxt.udf
-def create_prompt(context: list[dict], question: str) -> str:
-    context_str = '\n'.join(
-        f'{msg["username"]}: {msg["text"]}' for msg in context if msg['sim'] > config.SIMILARITY_THRESHOLD
-    )
-    return f'Context:\n{context_str}\n\nQuestion: {question}'
-
-
-chat.add_computed_column(prompt=create_prompt(chat.context, chat.question), if_exists='ignore')
-
+chat.add_computed_column(prompt=functions.create_prompt(chat.context, chat.question), if_exists='ignore')
 chat.add_computed_column(
     response=openai.chat_completions(
         messages=[{'role': 'system', 'content': config.SYSTEM_PROMPT}, {'role': 'user', 'content': chat.prompt}],
