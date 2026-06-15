@@ -279,7 +279,7 @@ class TestCatalog:
             # point
             .then_run(thread_id=1, name='insert', fn=lambda: t.insert([{'a': 1}]))
             # Unblock thread 0
-            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: fault.unblock())
+            .then_unblock(thread_id=1, fault=fault)
             .execute()
         )
 
