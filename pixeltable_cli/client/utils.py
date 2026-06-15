@@ -135,10 +135,43 @@ def wait_for_health(timeout: float = 15.0) -> None:
 
 
 # A daemon that is starting up has already written its pidfile (the bind precedes the write) but
-# does not serve /api/health until it finishes importing pixeltable, which is not cheap. Before
-# treating a live-but-silent daemon as hung, give it this long to come up so we don't kill one
-# that a concurrent `pxt` invocation just spawned.
+# does not serve /api/health until it finishes importing pixeltable. Before treating a live-but-silent daemon as hung,
+# give it this long to come up so we don't kill one that a concurrent pxt invocation just spawned.
 _STARTUP_GRACE_PERIOD_SECS = 10.0
+
+
+# The module the daemon is launched as (see spawn_detached()).
+_DAEMON_MODULE = 'pixeltable_cli.server.daemon'
+
+
+def _pid_cmdline(pid: int) -> str | None:
+    """The command line of pid as a single string, or None if it can't be read."""
+    # Linux exposes argv directly and cheaply via /proc; no subprocess needed.
+    try:
+        with open(f'/proc/{pid}/cmdline', 'rb') as f:
+            raw = f.read()
+        if raw != b'':
+            return raw.replace(b'\x00', b' ').decode('utf-8', errors='replace')
+    except OSError:
+        pass
+    if _IS_WINDOWS:
+        # No cheap stdlib argv source; the caller falls back to refusing to kill.
+        return None
+    # macOS/BSD (and Linux without a readable /proc entry): ask ps for the full command line.
+    try:
+        out = subprocess.run(
+            ['ps', '-p', str(pid), '-o', 'args='], capture_output=True, text=True, timeout=2.0, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = out.stdout.strip()
+    return line if line != '' else None
+
+
+def _pid_is_our_daemon(pid: int) -> bool:
+    """Best-effort check that pid is one of our daemon processes rather than an unrelated process."""
+    cmdline = _pid_cmdline(pid)
+    return cmdline is not None and _DAEMON_MODULE in cmdline
 
 
 def _pid_alive(pid: int) -> bool:
@@ -220,11 +253,12 @@ def ensure_running() -> str:
                 )
     else:
         # Nothing is answering /api/health. Either no daemon is up, or one we started bound the
-        # port and then wedged before serving health. The pidfile is our ownership record: if it
-        # names a live process, that process is our daemon, so reclaim the port rather than let
-        # spawn_detached() fail to bind it.
+        # port and then wedged before serving health. The pidfile records the PID, but PIDs get
+        # recycled and the file is only bookkeeping, so a live PID is not proof of ownership: only
+        # reclaim the port (kill the holder) once we've confirmed the live process is actually our
+        # daemon. An unconfirmed PID is treated as a stale pidfile and we just spawn.
         stale_pid = read_pidfile()
-        if stale_pid is not None and _pid_alive(stale_pid):
+        if stale_pid is not None and _pid_alive(stale_pid) and _pid_is_our_daemon(stale_pid):
             # It may just be slow to start, so give it a grace window before concluding it is
             # hung; a daemon that comes up in the meantime is used as-is.
             if _await_health(_STARTUP_GRACE_PERIOD_SECS):
