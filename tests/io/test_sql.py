@@ -641,6 +641,22 @@ class TestSql:
         assert result['c_int'] == sorted(values)
         assert result['c_checked'] == [None if v < 0 else False for v in sorted(values)]
 
+    def test_import_null_into_non_nullable(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """A source NULL mapped to a non-nullable destination column aborts the import, like the in-memory insert
+        path, rather than being silently stored; this holds regardless of `on_error`."""
+        engine = _import_engine('sqlite', tmp_path)
+        src = _seed_source(
+            engine,
+            'src_null',
+            [sql.Column('c_int', sql.Integer, nullable=False), sql.Column('c_str', sql.String, nullable=True)],
+            [{'c_int': 1, 'c_str': 'a'}, {'c_int': 2, 'c_str': None}],
+        )
+        overrides = {'c_str': pxt.Required[pxt.String]}
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-None'):
+            import_sql(src, engine, 'null_dest', schema_overrides=overrides)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-None'):
+            import_sql(src, engine, 'null_dest', schema_overrides=overrides, on_error='ignore')
+
     def test_import_abort_and_view_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """A row error under the default `on_error='abort'` aborts a new-table import and drops the freshly
         created destination table; `if_exists='append'` rejects a view destination."""

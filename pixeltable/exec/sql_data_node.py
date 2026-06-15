@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, AsyncIterator
 
 import sqlalchemy as sql
 
+import pixeltable.exceptions as excs
 from pixeltable import catalog, exprs
 from pixeltable.utils.local_store import TempStore
 
@@ -76,6 +77,11 @@ class SqlDataNode(ExecNode):
             output_row = self.row_builder.make_row()
             for col_info, val in zip(self._mapped_cols, sa_row, strict=True):
                 col = col_info.col
+                # the store accepts NULLs into any column, so non-nullable columns are enforced here
+                if val is None and not col.col_type.nullable:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Error in column {col.name}: expected non-None value'
+                    )
                 if col.col_type.is_image_type() and isinstance(val, bytes):
                     # Mirror InMemoryDataNode: spill image bytes to TempStore and assign the resulting path.
                     # DataRow.__setitem__ only runs on-write media validation when given a path/URL, not bytes.
