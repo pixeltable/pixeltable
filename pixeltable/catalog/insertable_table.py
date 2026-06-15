@@ -56,7 +56,6 @@ class InsertableTable(Table):
         self._tbl_version = tbl_version
 
     def _display_name(self) -> str:
-        assert not self._tbl_version_path.is_replica()
         return 'table'
 
     @classmethod

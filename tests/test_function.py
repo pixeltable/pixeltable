@@ -24,6 +24,7 @@ from .utils import (
     get_video_files,
     pxt_raises,
     reload_catalog,
+    skip_test_if_cockroachdb,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -414,6 +415,9 @@ class TestFunction:
         validate_update_status(t.insert(rows))
 
     def test_query_bound_limit_offset(self, uses_db: None) -> None:
+        skip_test_if_cockroachdb(
+            'Skipped on CockroachDB due to columns still being created when add_computed_column() fails.'
+        )
         t = pxt.create_table('test', {'c1': pxt.Int})
         t.insert([{'c1': i} for i in range(10)])
 
