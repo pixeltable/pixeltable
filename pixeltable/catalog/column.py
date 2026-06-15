@@ -589,6 +589,9 @@ class Column:
         return f'col_{col_id}_cellmd'
 
     def cellmd_store_name(self) -> str:
+        assert self.id is not None
+        assert self.is_stored
+        assert self.stores_cellmd
         return Column.cellmd_store_name_from_id(self.id)
 
     def __str__(self) -> str:
