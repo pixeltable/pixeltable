@@ -4,7 +4,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import sqlalchemy as sql
-from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import URL
 from sqlalchemy.sql.expression import FromClause, SelectBase
 
@@ -57,7 +57,7 @@ def add_option_to_db_url(url: str | URL, option: str) -> URL:
 def _postgresql_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
     """Type mapping for dialect 'postgresql'."""
     if col_type.is_json_type():
-        return sql.dialects.postgresql.JSONB()
+        return postgresql.JSONB()
     return col_type.to_sa_type()
 
 
@@ -76,7 +76,7 @@ def _snowflake_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
 def _sqlite_sa_type(col_type: 'ts.ColumnType') -> sql.types.TypeEngine:
     """Type mapping for dialect 'sqlite'."""
     if col_type.is_json_type():
-        return sql.dialects.sqlite.JSON()
+        return sqlite.JSON()
     return col_type.to_sa_type()
 
 
