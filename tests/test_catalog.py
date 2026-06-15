@@ -354,6 +354,10 @@ class TestCatalog:
             .execute()
         )
 
+        assert pxt.get_table('v', if_not_exists='ignore') is None
+        base.insert([{'a': 1}])
+        assert base.count() == 1
+
     def test_drop_view_concurrent_insert(self, uses_db: None, fault_injection: None) -> None:
         """
         Start with a base table and a view. Thread 0 begins to drop the view, but pauses inside finalize pending ops
