@@ -107,7 +107,7 @@ class Dir(Base):
 class ColumnMd:
     """
     Records the non-versioned metadata of a column.
-    - immutable attributes: id, stored, stores_cellmd, is_media_type, sa_col_type
+    - immutable attributes: id, stored, stores_cellmd, sa_col_type
     - when a column was added/dropped, which is needed to GC unreachable storage columns
       (a column that was added after table snapshot n and dropped before table snapshot n+1 can be removed
       from the stored table).
@@ -122,11 +122,6 @@ class ColumnMd:
 
     # Indicates if this column has another accessory column that stores cell metadata such as execution errors
     stores_cellmd: bool
-
-    # Indicates if this column is of a media type (image, video, document, etc.)
-    # This exists only for Packager as it has a special treatment for media columns. Any other use of this value
-    # is likely architecturally unsound.
-    is_media_type: bool
 
     # For stored columns, this is a serialized sqlalchemy type of the store column. For unstored columns, it's None.
     sa_col_type: dict | None = None

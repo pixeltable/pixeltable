@@ -14,7 +14,7 @@ def _(engine: sql.engine.Engine, dbms: Dbms) -> None:
     - some column metadata (col_type, is_pk, value_expr) moved from the table level (ColumnMd) to
     SchemaVersionMd in order to allow for future versioning of these metadata.
     - Only user columns used to be represented by SchemaVersionMd, now system columns are also there.
-    - New attrs in ColumnMd: is_media_type and sa_col_type.
+    - New attr in ColumnMd: sa_col_type.
 
     This converter reads all table and schema metadata in memory, updates them, and writes them back.
     """
@@ -57,8 +57,6 @@ def _(engine: sql.engine.Engine, dbms: Dbms) -> None:
 # field name -> is required
 _COL_FIELDS_TO_MOVE = {'col_type': True, 'is_pk': True, 'value_expr': False}
 
-_MEDIA_TYPE_CLASSNAMES = {'ImageType', 'AudioType', 'VideoType', 'DocumentType'}
-
 # Maps Pixeltable types to serialized store type
 _CLASSNAME_TO_SA_TYPE: dict[str, dict | None] = {
     'StringType': {'type': 'String'},
@@ -100,13 +98,11 @@ def _convert_table_and_versions(table_md: dict, schema_versions: dict[int, dict]
     embedding_val_col_precisions = _get_embedding_val_col_precisions(table_md)
 
     for col_id, table_col_md in table_md['column_md'].items():
-        # Populate ColumnMd's is_media_type
         assert 'col_type' in table_col_md, (table_md, col_id)
         col_type = table_col_md['col_type']
         assert isinstance(col_type, dict), (table_md, col_id)
         assert '_classname' in col_type, (table_md, col_id)
         classname = col_type['_classname']
-        table_col_md['is_media_type'] = classname in _MEDIA_TYPE_CLASSNAMES
 
         # Populate ColumnMd's sa_col_type
         stored = table_col_md.get('stored', True)

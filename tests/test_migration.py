@@ -137,7 +137,6 @@ class TestMigration:
                     self._verify_v49()
                 if old_version >= 50:
                     self._verify_v49_query_scalar()
-                    self._verify_v51_md()
 
                 pxt.drop_table('sample_table', force=True)
 
@@ -336,35 +335,6 @@ class TestMigration:
             for row in conn.execute(sql.select(TableSchemaVersion.md)):
                 for column_md in row[0]['columns'].values():
                     assert column_md['is_pk'] is not None
-
-    @classmethod
-    def _verify_v51_md(cls) -> None:
-        t = pxt.get_table('base_table')
-        tv = t._tbl_version_path.tbl_version.get()
-        # Validate ColumnMd.is_media_type against hardcoded correct values
-        for col_id, col_md in tv._tbl_md.column_md.items():
-            if col_id > 142:
-                # Ignore future columns
-                continue
-            schema_col = tv._schema_version_md.columns[col_id]
-            if schema_col.is_system_column:
-                # columns between 28 and 35 are index value/undo columns for media columns c8, c9, c10, c11
-                if col_id >= 28 and col_id <= 35:
-                    assert col_md.is_media_type, (
-                        f'{col_id} should have is_media_type=True: ColumnMd={col_md}, SchemaVersionMd={schema_col}'
-                    )
-                else:
-                    assert not col_md.is_media_type, (
-                        f'{col_id} should have is_media_type=False: ColumnMd={col_md}, SchemaVersionMd={schema_col}'
-                    )
-                continue
-            name = schema_col.name
-            if name in ('c8', 'c9', 'c10', 'c11', 'base_table_image_rot'):
-                assert col_md.is_media_type, f'{name} should have is_media_type=True'
-            else:
-                assert not col_md.is_media_type, (
-                    f'{name} should have is_media_type=False: ColumnMd={col_md}, SchemaVersionMd={schema_col}'
-                )
 
     @classmethod
     def _verify_v45(cls) -> None:

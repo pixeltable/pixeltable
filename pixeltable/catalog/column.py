@@ -377,7 +377,6 @@ class Column:
             schema_version_drop=self.schema_version_drop,
             stored=self.stored,
             stores_cellmd=self.stores_cellmd,
-            is_media_type=self.col_type.is_media_type(),
             destination=self._explicit_destination,
             sa_col_type=sa_type_as_dict(self.sa_col_type) if self.stored else None,
         )

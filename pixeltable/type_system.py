@@ -1986,10 +1986,6 @@ ALL_PIXELTABLE_TYPES = (
 )
 
 
-def is_media_type(col_type: ColumnType.Type) -> bool:
-    return col_type in {ColumnType.Type.IMAGE, ColumnType.Type.VIDEO, ColumnType.Type.AUDIO, ColumnType.Type.DOCUMENT}
-
-
 _SA_TYPE_NAMES: dict[type, str] = {
     sql.types.String: 'String',
     sql.types.BigInteger: 'BigInteger',
