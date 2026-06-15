@@ -878,10 +878,6 @@ class TimestampType(ColumnType):
     def has_supertype(self) -> bool:
         return not self.nullable
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.TIMESTAMP(timezone=True)
-
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime):
             raise TypeError(f'Expected datetime.datetime, got {val.__class__.__name__}')
@@ -904,10 +900,6 @@ class DateType(ColumnType):
     def has_supertype(self) -> bool:
         return not self.nullable
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.Date()
-
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.date):
             raise TypeError(f'Expected datetime.date, got {val.__class__.__name__}')
@@ -926,10 +918,6 @@ class UUIDType(ColumnType):
 
     def has_supertype(self) -> bool:
         return not self.nullable
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.UUID(as_uuid=True)
 
     def _to_json_schema(self) -> dict[str, Any]:
         return {'type': 'string', 'format': 'uuid'}
@@ -953,10 +941,6 @@ class UUIDType(ColumnType):
 class BinaryType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.BINARY, nullable=nullable)
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.LargeBinary()
 
     def _to_base_str(self) -> str:
         return 'Binary'
@@ -1085,10 +1069,6 @@ class JsonType(ColumnType):
             type_schema=JsonType.TypeSchema.from_dict(type_schema) if type_schema is not None else None,
             nullable=d['nullable'],
         )
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.dialects.postgresql.JSONB()
 
     def print_value(self, val: Any) -> str:
         val_type = self.infer_literal_type(val)
@@ -1563,10 +1543,6 @@ class ArrayType(ColumnType):
             return np.array(val, dtype=self.dtype)
         return val
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.LargeBinary()
-
 
 class ImageType(ColumnType):
     def __init__(
@@ -1647,10 +1623,6 @@ class ImageType(ColumnType):
         assert 'mode' in d
         return cls(width=d['width'], height=d['height'], mode=d['mode'], nullable=d['nullable'])
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.String()
-
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str) and val.startswith('data:'):
             # try parsing this as a `data:` URL, and if successful, decode the image immediately
@@ -1685,11 +1657,6 @@ class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.VIDEO, nullable=nullable)
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        # stored as a file path
-        return sql.String()
-
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
 
@@ -1717,11 +1684,6 @@ class VideoType(ColumnType):
 class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.AUDIO, nullable=nullable)
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        # stored as a file path
-        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
@@ -1794,11 +1756,6 @@ class DocumentType(ColumnType):
 
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self._doc_formats))
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        # stored as a file path
-        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
