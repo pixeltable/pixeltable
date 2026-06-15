@@ -55,7 +55,7 @@ class MultiThreadedScenario:
 
     def then_unblock(self, *, thread_id: int, fault: BlockFault) -> 'MultiThreadedScenario':
         """Append a step that unblocks `fault` on Thread `thread_id`."""
-        return self.then_run(thread_id=thread_id, name=f'unblock {fault}', fn=fault.unblock)
+        return self.then_run(thread_id=thread_id, name=f'unblock', fn=fault.unblock)
 
     def execute(self, timeout: float = 10.0) -> None:
         """Run the scenario. Raises the first exception encountered in any thread."""
