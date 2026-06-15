@@ -4,6 +4,7 @@ read the pidfile, tail the log on failed startup. Stdlib-only so importing this 
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -140,8 +141,11 @@ def wait_for_health(timeout: float = 15.0) -> None:
 _STARTUP_GRACE_PERIOD_SECS = 10.0
 
 
-# The module the daemon is launched as (see spawn_detached()).
+# The module the daemon is launched as (see spawn_detached()). We match the `-m <module>` launch
+# form rather than a bare substring so a recycled PID whose argv merely mentions the module name
+# (eg `python -c '...pixeltable_cli.server.daemon...'`) isn't mistaken for our daemon and killed.
 _DAEMON_MODULE = 'pixeltable_cli.server.daemon'
+_DAEMON_CMDLINE_RE = re.compile(rf'-m\s+{re.escape(_DAEMON_MODULE)}(\s|$)')
 
 
 def _pid_cmdline(pid: int) -> str | None:
@@ -171,7 +175,7 @@ def _pid_cmdline(pid: int) -> str | None:
 def _pid_is_our_daemon(pid: int) -> bool:
     """Best-effort check that pid is one of our daemon processes rather than an unrelated process."""
     cmdline = _pid_cmdline(pid)
-    return cmdline is not None and _DAEMON_MODULE in cmdline
+    return cmdline is not None and _DAEMON_CMDLINE_RE.search(cmdline) is not None
 
 
 def _pid_alive(pid: int) -> bool:

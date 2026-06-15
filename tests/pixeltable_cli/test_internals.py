@@ -542,6 +542,14 @@ class TestProbe:
         monkeypatch.setattr(client_utils, '_pid_cmdline', lambda pid: '/usr/bin/vim notes.txt')
         assert client_utils._pid_is_our_daemon(100) is False
 
+    def test_pid_is_our_daemon_rejects_module_name_as_bare_substring(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A recycled PID whose argv merely mentions the module name (without the `-m <module>`
+        launch form) must not be mistaken for our daemon."""
+        monkeypatch.setattr(
+            client_utils, '_pid_cmdline', lambda pid: 'python -c import pixeltable_cli.server.daemon as d'
+        )
+        assert client_utils._pid_is_our_daemon(100) is False
+
     def test_pid_is_our_daemon_refuses_when_cmdline_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If the command line can't be read, ownership is unconfirmed -> treat as not ours."""
         monkeypatch.setattr(client_utils, '_pid_cmdline', lambda pid: None)
