@@ -547,11 +547,23 @@ class TestProbe:
         monkeypatch.setattr(client_utils, '_pid_cmdline', lambda pid: None)
         assert client_utils._pid_is_our_daemon(100) is False
 
+    @pytest.mark.skipif(os.name == 'nt', reason='_pid_cmdline has no stdlib argv source on Windows')
     def test_pid_cmdline_reads_self(self) -> None:
-        """The running interpreter's own command line is readable and mentions python."""
+        """On POSIX the running interpreter's own command line is readable and mentions python."""
         cmdline = client_utils._pid_cmdline(os.getpid())
         assert cmdline is not None
         assert 'python' in cmdline.lower() or 'pytest' in cmdline.lower()
+
+    def test_pid_cmdline_returns_none_on_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Windows has no cheap stdlib argv source, so _pid_cmdline reports unknown (None) and
+        the caller falls back to refusing to kill rather than reclaiming."""
+        monkeypatch.setattr(client_utils, '_IS_WINDOWS', True)
+
+        def no_proc(_p: str, *a: object, **kw: object) -> None:
+            raise OSError('no /proc on windows')
+
+        monkeypatch.setattr('builtins.open', no_proc)
+        assert client_utils._pid_cmdline(os.getpid()) is None
 
 
 class TestIdentity:
