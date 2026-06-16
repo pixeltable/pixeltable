@@ -187,9 +187,9 @@ class DeleteTableMdOp(TableOp):
             try:
                 cat._incr_view_sn(uuid.UUID(self.base_tbl_id))
             except excs.NotFoundError as e:
+                # The base may have already been dropped if we're tearing down the entire hierarchy at once.
                 if e.error_code != excs.ErrorCode.TABLE_NOT_FOUND:
                     raise
-                # The base may have already been dropped if we're tearing down the entire hierarchy at once.
         cat.delete_tbl_md(uuid.UUID(self.tbl_id))
 
     def undo(self, tv: TableVersion | None) -> None:
