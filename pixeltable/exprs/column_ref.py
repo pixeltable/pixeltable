@@ -152,11 +152,6 @@ class ColumnRef(Expr):
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
 
-        # resolve column properties
-        if name == ColumnPropertyRef.Property.CELLMD.name.lower():
-            # This is not user accessible, but used internally to store cell metadata
-            return super().__getattr__(name)
-
         if (
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
             or name == ColumnPropertyRef.Property.ERRORMSG.name.lower()
@@ -169,6 +164,7 @@ class ColumnRef(Expr):
                     f'{name} only valid for a stored computed or media column: {self}',
                 )
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
+
         if (
             name == ColumnPropertyRef.Property.FILEURL.name.lower()
             or name == ColumnPropertyRef.Property.LOCALPATH.name.lower()

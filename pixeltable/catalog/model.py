@@ -2,18 +2,20 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable.catalog.table_version_path import TableVersionPath
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
 from .catalog import retry_loop
 from .globals import MediaValidation, is_valid_identifier
 from .table import Table
-from .table_version import TableVersion, TableVersionKey
+from .table_version import TableVersionKey
 from .table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
@@ -91,6 +93,12 @@ class _PlaceholderColumnRef(exprs.Expr):
     def eval(self, data_row: exprs.data_row.DataRow, row_builder: exprs.row_builder.RowBuilder) -> None:
         raise AssertionError('It should never be possible to observe a placeholder in an execution context.')
 
+    def __getattr__(self, item: str) -> Any:
+        if item in ('errortype', 'errormsg', 'fileurl', 'localpath'):
+            prop = exprs.ColumnPropertyRef.Property[item.upper()]
+            return exprs.ColumnPropertyRef(self, prop)
+        return super().__getattr__(item)
+
 
 @dataclass
 class _PlaceholderColumnSpec:
@@ -105,10 +113,19 @@ class _PlaceholderFactory:
     a priori as actual columns.
     """
 
+    _column_ctx: _ColumnCtx | None
+
+    def __init__(self) -> None:
+        self.set_column_ctx(None)
+
     def __getattr__(self, key: str) -> _PlaceholderColumnRef:
         if not isinstance(key, str) or not is_valid_identifier(key):
             raise AttributeError(f'Invalid column name: {key}')
-        return _PlaceholderColumnRef(key)
+        if self._column_ctx is None:
+            raise AttributeError(
+                f'Cannot reference abstract column {key!r} outside of a `TableModel` or `ViewModel` definition'
+            )
+        return getattr(self._column_ctx, key)
 
     def __hasattr__(self, key: str) -> bool:
         return isinstance(key, str) and is_valid_identifier(key)
@@ -140,6 +157,9 @@ class _PlaceholderFactory:
             'comment': comment,
         }
         return _PlaceholderColumnSpec(column_spec)
+
+    def set_column_ctx(self, column_ctx: _ColumnCtx | None) -> None:
+        self._column_ctx = column_ctx
 
 
 Column: _PlaceholderFactory = _PlaceholderFactory()
@@ -229,9 +249,14 @@ class _ModelNamespace(dict):
         # our recorder rather than a plain dict it would otherwise create.
         super().__setitem__('__annotations__', _AnnotationRecorder(self))
         super().__setitem__(name, self.column_ctx)
+        Column.set_column_ctx(self.column_ctx)
+        self._finalizer = weakref.finalize(self, lambda: self.cleanup_column_ctx())
+
+    def cleanup_column_ctx(self) -> None:
+        if Column._column_ctx is self.column_ctx:
+            Column.set_column_ctx(None)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        print(f'Setting {key} = {value!r}')
         if not key.startswith('_'):
             # Replace the value with a _PlaceholderColumnRef or EmbeddingIndex
             value = self.column_ctx.set_col_value(key, value)
@@ -266,6 +291,10 @@ class TableModelMetaclass(type):
     __base_table__: str | Table | 'pxt.Query' | None
     __iterator__: func.GeneratingFunctionCall | None
 
+    @classmethod
+    def __prepare__(mcs, name: str, bases: tuple[type, ...], **kwargs: Any) -> dict[str, Any]:
+        return _ModelNamespace(name)
+
     def __new__(
         mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
     ) -> TableModelMetaclass:
@@ -299,10 +328,10 @@ class TableModelMetaclass(type):
         namespace['__columns__'] = column_ctx.known_cols
         namespace['__indexes__'] = column_ctx.known_idxs
 
-        # for col_name in column_ctx.known_cols:
-        #     namespace.pop(col_name)
-        # for idx_name in column_ctx.known_idxs:
-        #     namespace.pop(idx_name)
+        for col_name in column_ctx.known_cols:
+            namespace.pop(col_name)
+        for idx_name in column_ctx.known_idxs:
+            namespace.pop(idx_name)
 
         # 3. Validate __base_table__ and __iterator__ declarations.
 
@@ -349,10 +378,6 @@ class TableModelMetaclass(type):
 
         return super().__new__(mcs, name, bases, namespace)
 
-    @classmethod
-    def __prepare__(mcs, name: str, bases: tuple[type, ...], **kwargs: Any) -> dict[str, Any]:
-        return _ModelNamespace(name)
-
     def _resolve_tbl(cls) -> Table:
         import pixeltable as pxt
 
@@ -394,27 +419,67 @@ class TableModelMetaclass(type):
         cat = get_runtime().catalog
         tbl_path = catalog.Path.parse(cls.__table_name__)
 
-        if issubclass(cls, ViewModel):
+        if issubclass(cls, TableModel):
+            create_fn = retry_loop(for_write=True)(
+                lambda: cat._create_table(
+                    path=tbl_path,
+                    columns=catalog_columns,
+                    if_exists=if_exists,
+                    primary_key=None,
+                    comment=None,
+                    custom_metadata=None,
+                    media_validation=MediaValidation.ON_WRITE,
+                    create_default_idxs=True,
+                    is_versioned=True,
+                    tbl_id=tbl_id,
+                )
+            )
+
+        else:
+            assert issubclass(cls, ViewModel)
             base = cls.__base_table__
             iterator = cls.__iterator__
-            assert isinstance(base, (str, pxt.Table, pxt.Query)), type(base)
+
+            base_tvp: TableVersionPath
             if isinstance(base, str):
                 base = pxt.get_table(base)
                 assert base is not None
+                base_tvp = base._tbl_version_path
+            elif isinstance(base, pxt.Query):
+                # TODO: Validate query
+                select_list = base.select_list
+                where = base.where_clause
+                sample_clause = base.sample_clause
+                base_tvp = base._first_tbl
+            else:
+                assert isinstance(base, pxt.Table), type(base)
+                base_tvp = base._tbl_version_path
+
             assert iterator is None or isinstance(iterator, func.GeneratingFunctionCall)
-            tbl = pxt.create_view(
-                tbl_name, base, additional_columns=initial_schema, iterator=iterator, if_exists=if_exists
-            )
-        else:
+
             create_fn = retry_loop(for_write=True)(
-                lambda: cat._create_table(
-                    tbl_path, catalog_columns, if_exists, None, None, None, MediaValidation.ON_WRITE, True, True, tbl_id
+                lambda: cat._create_view(
+                    path=tbl_path,
+                    base=base_tvp,
+                    select_list=select_list,
+                    where=where,
+                    sample_clause=sample_clause,
+                    additional_columns=catalog_columns,
+                    is_snapshot=False,
+                    create_default_idxs=True,
+                    iterator=iterator,
+                    comment=None,
+                    custom_metadata=None,
+                    media_validation=MediaValidation.ON_WRITE,
+                    if_exists=if_exists,
+                    tbl_id=tbl_id,
                 )
             )
-            cat._roll_forward_ids.clear()
-            tbl_id_, _ = create_fn()
-            assert tbl_id == tbl_id_
-            cat._roll_forward()
+
+        cat._roll_forward_ids.clear()
+        tbl_id_, _ = create_fn()
+        assert tbl_id == tbl_id_
+        cat._roll_forward()
 
         get_fn = retry_loop(read_tbl_ids=[tbl_id])(lambda: cat.get_table_by_id(tbl_id))
         tbl = get_fn()

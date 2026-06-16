@@ -191,8 +191,8 @@ class TestTableModel:
             name: pxt.String
             value: pxt.Float
             img: pxt.Image
-            incr = Column.value + 1
-            descr = pxtf.string.format('Name: {name}', name=Column.name)
+            incr = ExampleTableModel.value + 1
+            descr = pxtf.string.format('Name: {name}', name=ExampleTableModel.name)
 
         with pxt_raises(excs.ErrorCode.PATH_NOT_FOUND, match="Path 'test_table' does not exist"):
             _ = ExampleTableModel.id

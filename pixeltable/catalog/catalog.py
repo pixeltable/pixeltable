@@ -1539,50 +1539,23 @@ class Catalog:
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
     ) -> Table:
-        @retry_loop(for_write=True)
-        def create_fn() -> UUID:
-            if not is_snapshot and base.is_mutable():
-                # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
-                # the view
-                base_id = base.tbl_id
-                assert len(self._acquire_write_lock(tbl_id=base_id)) == 1, base_id
-                self._x_locked_tbl_ids.add(base_id)
-                base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None), validate_initialized=True)
-                self.mark_modified_tv(base_tv.handle)
-                base_tv.tbl_md.view_sn += 1
-                result = get_runtime().conn.execute(
-                    sql.update(schema.Table)
-                    .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
-                    .where(schema.Table.id == base.tbl_id)
-                )
-                assert result.rowcount == 1, result.rowcount
-
-            existing = self._handle_path_collision(path, View, is_snapshot, if_exists, base=base)
-            if existing is not None:
-                assert isinstance(existing, View)
-                return existing._id
-
-            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-            assert dir is not None
-            md, ops = View._create(
-                path.name,
-                base=base,
-                select_list=select_list,
-                additional_columns=additional_columns,
-                predicate=where,
-                sample_clause=sample_clause,
-                is_snapshot=is_snapshot,
-                create_default_idxs=create_default_idxs,
-                iterator_call=iterator,
-                comment=comment,
-                custom_metadata=custom_metadata,
-                media_validation=media_validation,
+        create_fn = retry_loop(for_write=True)(
+            lambda: self._create_view(
+                path,
+                base,
+                select_list,
+                where,
+                sample_clause,
+                additional_columns,
+                is_snapshot,
+                create_default_idxs,
+                iterator,
+                comment,
+                custom_metadata,
+                media_validation,
+                if_exists,
             )
-            tbl_id = UUID(md.tbl_md.tbl_id)
-            md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
-            self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
-            fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
-            return tbl_id
+        )
 
         self._roll_forward_ids.clear()
         view_id = create_fn()
@@ -1597,6 +1570,67 @@ class Catalog:
             return self.get_table_by_id(view_id)
 
         return _get_tbl()
+
+    def _create_view(
+        self,
+        path: Path,
+        base: TableVersionPath,
+        select_list: list[tuple[exprs.Expr, str | None]] | None,
+        where: exprs.Expr | None,
+        sample_clause: 'SampleClause' | None,
+        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
+        is_snapshot: bool,
+        create_default_idxs: bool,
+        iterator: func.GeneratingFunctionCall | None,
+        comment: str | None,
+        custom_metadata: Any,
+        media_validation: MediaValidation,
+        if_exists: IfExistsParam,
+        tbl_id: UUID | None = None,
+    ) -> UUID:
+        if not is_snapshot and base.is_mutable():
+            # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
+            # the view
+            base_id = base.tbl_id
+            assert len(self._acquire_write_lock(tbl_id=base_id)) == 1, base_id
+            self._x_locked_tbl_ids.add(base_id)
+            base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None), validate_initialized=True)
+            self.mark_modified_tv(base_tv.handle)
+            base_tv.tbl_md.view_sn += 1
+            result = get_runtime().conn.execute(
+                sql.update(schema.Table)
+                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
+                .where(schema.Table.id == base.tbl_id)
+            )
+            assert result.rowcount == 1, result.rowcount
+
+        existing = self._handle_path_collision(path, View, is_snapshot, if_exists, base=base)
+        if existing is not None:
+            assert isinstance(existing, View)
+            return existing._id
+
+        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+        assert dir is not None
+        md, ops = View._create(
+            path.name,
+            base=base,
+            select_list=select_list,
+            additional_columns=additional_columns,
+            predicate=where,
+            sample_clause=sample_clause,
+            is_snapshot=is_snapshot,
+            create_default_idxs=create_default_idxs,
+            iterator_call=iterator,
+            comment=comment,
+            custom_metadata=custom_metadata,
+            media_validation=media_validation,
+            tbl_id=tbl_id,
+        )
+        tbl_id = UUID(md.tbl_md.tbl_id)
+        md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
+        self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+        fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
+        return tbl_id
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)

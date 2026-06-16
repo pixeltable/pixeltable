@@ -83,6 +83,7 @@ class View(Table):
         custom_metadata: Any,
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,
+        tbl_id: UUID | None = None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
 
@@ -196,6 +197,7 @@ class View(Table):
             view_md=view_md,
             create_default_idxs=create_default_idxs,
             is_versioned=base.is_versioned(),
+            tbl_id=tbl_id,
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
