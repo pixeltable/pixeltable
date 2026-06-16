@@ -361,7 +361,9 @@ def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None
 
     if not json_output:
         print(f'Starting Pixeltable service {cfg.name}...')
-    server = PxtServer(uvicorn.Config(app, host=cfg.host, port=cfg.port))
+    # log_config=None keeps uvicorn from installing its own stderr handlers, we don't want its logging in the console.
+    # Env routes uvicorn loggers to a file.
+    server = PxtServer(uvicorn.Config(app, host=cfg.host, port=cfg.port, log_config=None))
     try:
         server.run()
     except KeyboardInterrupt:
