@@ -360,7 +360,7 @@ def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None
                 print(_started_status(self.config.host, port, is_ssl, len(cfg.routes), json_output))
 
     if not json_output:
-        print(f'Starting Pixeltable service: {cfg.name}...')
+        print(f'Starting Pixeltable service {cfg.name}...')
     server = PxtServer(uvicorn.Config(app, host=cfg.host, port=cfg.port))
     try:
         server.run()
