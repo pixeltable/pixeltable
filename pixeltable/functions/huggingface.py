@@ -518,23 +518,15 @@ def sam_for_segmentation(
 
 class Sam3VideoSegmentationFrame(TypedDict):
     frame: pxt.Image
+    frame_attrs: pxt.Json
     object_ids: pxt.Array[(None,), pxt.Int]
     scores: pxt.Array[(None,), pxt.Float]
     boxes: pxt.Array[(None, 4), pxt.Float]
     masks: pxt.Array[(None, None, None), pxt.Bool]
 
 
-@pxt.iterator
-def sam_for_video_segmentation(
-    video: pxt.Video,
-    *,
-    text: str,
-    model_id: str = 'facebook/sam3',
-    fps: int | None = None,
-    max_frame_num_to_track: int | None = None,
-    image_size: int = 1008,
-    revision: str | None = None,
-) -> Iterator[Sam3VideoSegmentationFrame]:
+@pxt.iterator(unstored_cols=['frame'])
+class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
     """
     Tracks objects across the frames of a video using SAM 3 (Segment Anything Model 3) Promptable Concept
     Segmentation. This is the video counterpart of `sam_for_segmentation`: given a concept prompt, it detects
@@ -555,7 +547,10 @@ def sam_for_video_segmentation(
 
     One row per frame, with the following columns:
 
-    - `frame` (`pxt.Image`): The video frame.
+    - `frame` (`pxt.Image`): The video frame. Not stored; re-extracted from the source video on demand (like
+        `frame_iterator`), so the source video must remain available.
+    - `frame_attrs` (`pxt.Json`): Frame metadata from `frame_iterator` (e.g. `index`, `time`), used to re-extract
+        `frame` on demand.
     - `object_ids` (`pxt.Array`): The persistent id of each tracked object present in the frame, shape
         `(num_objects,)`. The same id refers to the same object across frames.
     - `scores` (`pxt.Array`): The detection score of each object, shape `(num_objects,)`, aligned with
@@ -591,54 +586,127 @@ def sam_for_video_segmentation(
         ... )
         >>> v.select(out=make_video(v.pos, v.overlay)).group_by(videos).collect()
     """
-    env.Env.get().require_package('transformers')
-    if not isinstance(text, str) or len(text) == 0:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`text` must be a non-empty concept prompt')
-    device = resolve_torch_device('auto')
-    from transformers import Sam3VideoModel, Sam3VideoProcessor
-    from transformers.video_utils import load_video
 
-    # `image_size` runs the model and processor at a custom resolution; lower is faster but less accurate. It
-    # propagates through `from_pretrained` to the nested detector/tracker configs, just like `revision`.
-    model = _lookup_model(
-        model_id,
-        Sam3VideoModel.from_pretrained,
-        device=device,
-        revision=revision,
-        image_size=image_size,
-        cache_key=(
-            model_id,
+    text: str
+    model_id: str
+    max_frame_num_to_track: int | None
+    image_size: int
+    revision: str | None
+
+    # The wrapped `frame_iterator` is the sole source of frames: it feeds the tracker, supplies the `frame` and
+    # `frame_attrs` outputs, and (via `seek()`) re-extracts `frame` on demand for the unstored column.
+    frames: pxt.PxtIterator[Any]
+
+    # The active source of output rows: the tracking pass during population, or a frame-only pass after a
+    # `seek()`. Built lazily so that re-extracting `frame` via `seek()` never loads the model.
+    rows: Iterator[Sam3VideoSegmentationFrame] | None
+
+    def __init__(
+        self,
+        video: pxt.Video,
+        *,
+        text: str,
+        model_id: str = 'facebook/sam3',
+        fps: int | None = None,
+        max_frame_num_to_track: int | None = None,
+        image_size: int = 1008,
+        revision: str | None = None,
+    ) -> None:
+        from pixeltable.functions.video import frame_iterator
+
+        self.frames = frame_iterator.decorated_callable(video=video, fps=fps)  # type: ignore[attr-defined]
+        self.text = text
+        self.model_id = model_id
+        self.max_frame_num_to_track = max_frame_num_to_track
+        self.image_size = image_size
+        self.revision = revision
+        self.rows = None
+
+    def _track(self) -> Iterator[Sam3VideoSegmentationFrame]:
+        env.Env.get().require_package('transformers')
+        device = resolve_torch_device('auto')
+        from transformers import Sam3VideoModel, Sam3VideoProcessor
+
+        # `image_size` runs the model and processor at a custom resolution; lower is faster but less accurate. It
+        # propagates through `from_pretrained` to the nested detector/tracker configs, just like `revision`.
+        model = _lookup_model(
+            self.model_id,
             Sam3VideoModel.from_pretrained,
-            device,
-            ('revision', revision),
-            ('image_size', image_size),
-        ),
-    )
-    processor = _lookup_processor(model_id, Sam3VideoProcessor.from_pretrained, revision=revision, size=image_size)
-
-    video_frames, _ = load_video(str(video), fps=fps)  # type: ignore[arg-type]  # load_video accepts a path/URL at runtime
-    session = processor.init_video_session(
-        video=video_frames, inference_device=device, processing_device='cpu', video_storage_device='cpu'
-    )
-    processor.add_text_prompt(inference_session=session, text=text)
-
-    # `propagate_in_video_iterator` is decorated with `@torch.inference_mode()`, so the per-frame forward pass
-    # already runs without grad tracking.
-    for model_outputs in model.propagate_in_video_iterator(
-        inference_session=session, max_frame_num_to_track=max_frame_num_to_track
-    ):
-        result = processor.postprocess_outputs(session, model_outputs)
-        frame_image = PIL.Image.fromarray(np.asarray(video_frames[model_outputs.frame_idx]))
-        masks_np = result['masks'].cpu().numpy()
-        if masks_np.dtype != np.bool_:
-            masks_np = masks_np.astype(bool)
-        yield Sam3VideoSegmentationFrame(
-            frame=frame_image,
-            object_ids=result['object_ids'].cpu().numpy(),
-            scores=result['scores'].cpu().numpy(),
-            boxes=result['boxes'].cpu().numpy(),
-            masks=masks_np,
+            device=device,
+            revision=self.revision,
+            image_size=self.image_size,
+            cache_key=(
+                self.model_id,
+                Sam3VideoModel.from_pretrained,
+                device,
+                ('revision', self.revision),
+                ('image_size', self.image_size),
+            ),
         )
+        processor = _lookup_processor(
+            self.model_id, Sam3VideoProcessor.from_pretrained, revision=self.revision, size=self.image_size
+        )
+
+        # The tracker needs the whole clip up front, so drain the wrapped `frame_iterator`; `frame_idx` then
+        # indexes directly into `extracted`.
+        extracted = list(self.frames)
+        session = processor.init_video_session(
+            video=[item['frame'] for item in extracted],
+            inference_device=device,
+            processing_device='cpu',
+            video_storage_device='cpu',
+        )
+        processor.add_text_prompt(inference_session=session, text=self.text)
+
+        # `propagate_in_video_iterator` is decorated with `@torch.inference_mode()`, so the per-frame forward pass
+        # already runs without grad tracking.
+        for model_outputs in model.propagate_in_video_iterator(
+            inference_session=session, max_frame_num_to_track=self.max_frame_num_to_track
+        ):
+            result = processor.postprocess_outputs(session, model_outputs)
+            masks_np = result['masks'].cpu().numpy()
+            if masks_np.dtype != np.bool_:
+                masks_np = masks_np.astype(bool)
+            item = extracted[model_outputs.frame_idx]
+            yield Sam3VideoSegmentationFrame(
+                frame=item['frame'],
+                frame_attrs=item['frame_attrs'],
+                object_ids=result['object_ids'].cpu().numpy(),
+                scores=result['scores'].cpu().numpy(),
+                boxes=result['boxes'].cpu().numpy(),
+                masks=masks_np,
+            )
+
+    def __next__(self) -> Sam3VideoSegmentationFrame:
+        if self.rows is None:
+            self.rows = self._track()
+        return next(self.rows)
+
+    def seek(self, pos: int, **stored_outputs: Any) -> None:
+        # Re-extraction of the unstored `frame`: reposition the wrapped `frame_iterator` to `pos` and serve
+        # frames from it. The tracking outputs come from storage, so `frame` is the only column produced here.
+        self.frames.seek(pos, frame_attrs=stored_outputs['frame_attrs'])
+        self.rows = self._frames_only()
+
+    def _frames_only(self) -> Iterator[Sam3VideoSegmentationFrame]:
+        for item in self.frames:
+            yield Sam3VideoSegmentationFrame(
+                frame=item['frame'],
+                frame_attrs=item['frame_attrs'],
+                object_ids=np.empty(0, dtype=np.int64),
+                scores=np.empty(0, dtype=np.float32),
+                boxes=np.empty((0, 4), dtype=np.float32),
+                masks=np.empty((0, 0, 0), dtype=bool),
+            )
+
+    def close(self) -> None:
+        self.frames.close()
+
+    @classmethod
+    def validate(cls, bound_args: dict[str, Any]) -> None:
+        text = bound_args.get('text')
+        if not isinstance(text, str) or len(text) == 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`text` must be a non-empty concept prompt')
 
 
 @pxt.udf(batch_size=4)
