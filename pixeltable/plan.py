@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
