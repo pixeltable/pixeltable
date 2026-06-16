@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
-import pgvector.sqlalchemy as sql_vector  # type: ignore[import-untyped]
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
@@ -1953,8 +1953,8 @@ _SA_TYPE_NAMES: dict[type, str] = {
     sql.types.Date: 'Date',
     sql.types.UUID: 'UUID',
     sql.dialects.postgresql.json.JSONB: 'JSONB',
-    sql_vector.HALFVEC: 'HalfVec',
-    sql_vector.Vector: 'Vector',
+    pgvector.sqlalchemy.HALFVEC: 'HalfVec',
+    pgvector.sqlalchemy.Vector: 'Vector',
 }
 
 _SA_TYPE_BY_NAME: dict[str, type] = {name: t for t, name in _SA_TYPE_NAMES.items()}
@@ -1970,7 +1970,7 @@ def sa_type_as_dict(t: sql.types.TypeEngine) -> dict:
         assert t.as_uuid
     if isinstance(t, sql.types.LargeBinary):
         assert t.length is None
-    if isinstance(t, (sql_vector.HALFVEC, sql_vector.Vector)):
+    if isinstance(t, (pgvector.sqlalchemy.HALFVEC, pgvector.sqlalchemy.Vector)):
         assert t.dim is not None
         d['dim'] = t.dim
     return d
@@ -1983,7 +1983,7 @@ def sa_type_from_dict(d: dict) -> sql.types.TypeEngine:
         t = sql.types.TIMESTAMP(timezone=True)
     elif clazz == sql.types.UUID:
         t = sql.types.UUID(as_uuid=True)
-    elif clazz in (sql_vector.HALFVEC, sql_vector.Vector):
+    elif clazz in (pgvector.sqlalchemy.HALFVEC, pgvector.sqlalchemy.Vector):
         t = clazz(d['dim'])
     else:
         t = clazz()

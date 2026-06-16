@@ -215,7 +215,7 @@ class Column:
         custom_metadata: Any = None
         comment: str | None = None
 
-        sa_col_type: sql.types.TypeEngine = None
+        sa_col_type: sql.types.TypeEngine | None = None
         # TODO: Should we fully deprecate passing ts.ColumnType here?
         if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
             col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
