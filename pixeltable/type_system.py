@@ -1954,7 +1954,7 @@ _SA_TYPE_NAMES: dict[type, str] = {
     sql.types.UUID: 'UUID',
     sql.dialects.postgresql.json.JSONB: 'JSONB',
     sql_vector.HALFVEC: 'HalfVec',
-    sql_vector.VECTOR: 'Vector',
+    sql_vector.Vector: 'Vector',
 }
 
 _SA_TYPE_BY_NAME: dict[str, type] = {name: t for t, name in _SA_TYPE_NAMES.items()}
@@ -1970,7 +1970,7 @@ def sa_type_as_dict(t: sql.types.TypeEngine) -> dict:
         assert t.as_uuid
     if isinstance(t, sql.types.LargeBinary):
         assert t.length is None
-    if isinstance(t, (sql_vector.HALFVEC, sql_vector.VECTOR)):
+    if isinstance(t, (sql_vector.HALFVEC, sql_vector.Vector)):
         assert t.dim is not None
         d['dim'] = t.dim
     return d
@@ -1983,7 +1983,7 @@ def sa_type_from_dict(d: dict) -> sql.types.TypeEngine:
         t = sql.types.TIMESTAMP(timezone=True)
     elif clazz == sql.types.UUID:
         t = sql.types.UUID(as_uuid=True)
-    elif clazz in (sql_vector.HALFVEC, sql_vector.VECTOR):
+    elif clazz in (sql_vector.HALFVEC, sql_vector.Vector):
         t = clazz(d['dim'])
     else:
         t = clazz()
