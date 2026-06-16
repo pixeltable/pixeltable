@@ -26,11 +26,7 @@ if TYPE_CHECKING:
 
 
 class TableProxy(Table):
-    """A handle to a hosted table, reached over RPC (delegated execution).
-
-    Non-functioning placeholder: it carries the table's path, but every operation raises
-    NotImplementedError. Execution, metadata, and persistence are supplied by the dispatch server, which
-    is out of scope here.
+    """Abstract base for handles to hosted tables, reached over RPC (delegated execution).
     """
 
     _path_obj: CatalogPath

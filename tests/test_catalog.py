@@ -153,6 +153,15 @@ class TestCatalog:
         # Version must be non-negative.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.from_components(('tbl',), version=-1)
+        # Components must be valid identifiers (the ('',) root sentinel excepted), and non-empty.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('a', 'bad name'))
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('a', ''))
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(())
+        assert Path.from_components(('a', 'b')).components == ('a', 'b')
+        assert Path.from_components(('',)).is_root  # the root sentinel is accepted
         # Hyphenated org/db slugs are accepted.
         hosted = Path.parse('pxt://my-org:my-db/tbl')
         assert (hosted.org, hosted.db) == ('my-org', 'my-db')

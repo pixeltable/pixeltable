@@ -47,6 +47,11 @@ class Path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid database name: {self.db!r}')
         if self.version is not None and self.version < 0:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Version must be non-negative: {self.version}')
+        if len(self.components) == 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, 'Path must have at least one component')
+        # ('',) is the root sentinel; any other component must be a valid identifier
+        if self.components != ('',) and not all(is_valid_identifier(c, allow_hyphens=True) for c in self.components):
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path component in {self.components!r}')
 
     @classmethod
     def parse(cls, path: str, *, allow_empty_path: bool = False, allow_versioned_path: bool = False) -> Path:
@@ -87,8 +92,7 @@ class Path:
 
         if components == ('',) and not allow_empty_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
-        if components != ('',) and not all(is_valid_identifier(c, allow_hyphens=True) for c in components):
-            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
+        # component identifier validation is enforced by __post_init__ at construction
         if version is not None and not allow_versioned_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Versioned path not allowed here: {path}')
 
