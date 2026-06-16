@@ -45,9 +45,7 @@ class TestHistory:
         v = pxt.create_view('view_of_test', t, comment='view of test table')
         r = fn(v)
         print(r)
-        view_created_at = (
-            r[0]['created_at'] if variant == 'get_versions' else r['created_at'][0]
-        )
+        view_created_at = r[0]['created_at'] if variant == 'get_versions' else r['created_at'][0]
         # created_at should be recent
         assert view_created_at > datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=30)
         assert view_created_at < datetime.datetime.now(tz=datetime.timezone.utc)
