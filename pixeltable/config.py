@@ -585,12 +585,14 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     },
     'otel': {
         'enabled': 'Enable OpenTelemetry instrumentation when pixeltable[otel] is installed (default: true)',
-        'endpoint': 'OTLP collector endpoint (default: the local Phoenix collector at http://localhost:6006)',
+        'provider': "Telemetry backend: 'auto' (default; Phoenix if installed, else OTLP),"
+        " 'phoenix', 'langfuse', 'logfire', 'grafana', or 'otlp'",
+        'endpoint': 'OTLP collector endpoint; the default depends on otel.provider',
         'service_name': 'service.name resource attribute and Phoenix project name (default: pixeltable)',
         'headers': "OTLP headers as comma-separated 'key=value' pairs",
         'span_level': "Span verbosity: 'info' (default), 'debug', or 'trace'",
-        'metrics': 'Export metrics via OTLP (default: only when an explicit OTLP endpoint is configured)',
-        'logs': 'Export pixeltable logs via OTLP (default: only when an explicit OTLP endpoint is configured)',
+        'metrics': 'Export metrics via OTLP (default: only when the backend ingests them, eg grafana)',
+        'logs': 'Export pixeltable logs via OTLP (default: only when the backend ingests them, eg grafana)',
     },
     'replicate': {'api_token': 'Replicate API token'},
     'runwayml': {'api_secret': 'RunwayML API secret'},
