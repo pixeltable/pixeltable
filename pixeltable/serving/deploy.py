@@ -171,6 +171,8 @@ def _export_tables_md(table_paths: set[str]) -> dict[str, Any]:
     # Get all tables mentioned by any route contained in this deployment. These must be local tables.
     tables: list[pxt.catalog.LocalTable] = []
     for path in sorted(table_paths):
+        if not pxt.catalog.Path.parse(path).is_local:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot deploy a hosted table: {path!r}')
         tbl = pxt.get_table(path)
         if not isinstance(tbl, pxt.catalog.LocalTable):
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot deploy a hosted table: {path!r}')

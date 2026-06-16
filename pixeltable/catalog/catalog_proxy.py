@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, NoReturn
+
+from pixeltable import exceptions as excs
 
 from .catalog_base import CatalogBase
-from .insertable_table_proxy import InsertableTableProxy
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -21,11 +22,14 @@ if TYPE_CHECKING:
 
 class CatalogProxy(CatalogBase):
     """
-    An implementation of CatalogBase that delegates to a hosted catalog .
+    An implementation of CatalogBase that delegates to a hosted catalog.
     """
 
     def __init__(self, catalog_uri: str):
         self._catalog_uri = catalog_uri
+
+    def _unsupported(self) -> NoReturn:
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Hosted catalogs are not supported yet.')
 
     def create_table(
         self,
@@ -39,7 +43,7 @@ class CatalogProxy(CatalogBase):
         create_default_idxs: bool,
         is_versioned: bool,
     ) -> tuple[Table, bool]:
-        return InsertableTableProxy(path), True
+        self._unsupported()
 
     def create_view(
         self,
@@ -57,29 +61,29 @@ class CatalogProxy(CatalogBase):
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
     ) -> Table:
-        raise NotImplementedError
+        self._unsupported()
 
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
-        raise NotImplementedError
+        self._unsupported()
 
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
     ) -> Table | None:
-        raise NotImplementedError
+        self._unsupported()
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-        raise NotImplementedError
+        self._unsupported()
 
     def move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
-        raise NotImplementedError
+        self._unsupported()
 
     def get_dir_contents(
         self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
     ) -> dict[str, DirEntry]:
-        raise NotImplementedError
+        self._unsupported()
 
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
-        raise NotImplementedError
+        self._unsupported()
 
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-        raise NotImplementedError
+        self._unsupported()

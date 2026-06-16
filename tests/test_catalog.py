@@ -170,6 +170,23 @@ class TestCatalog:
         ]
         # Same-named local and hosted paths are distinct.
         assert Path.parse('a/b') != Path.parse('pxt://variata:main/a/b')
+
+    def test_hosted_ops_unsupported(self) -> None:
+        # Hosted catalogs are stubbed: an operation routed to a hosted path must raise a user-facing
+        # UNSUPPORTED_OPERATION error, not a bare NotImplementedError.
+        uri = 'pxt://variata:main'
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.get_table(f'{uri}/tbl')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.create_table(f'{uri}/tbl', {'c': pxt.String})
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.drop_table(f'{uri}/tbl')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.create_dir(f'{uri}/d')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.drop_dir(f'{uri}/d')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.move(f'{uri}/a', f'{uri}/b')
         assert not Path.parse('a').is_ancestor(Path.parse('pxt://variata:main/a/b'))
 
     @pytest.mark.parametrize('path_str', ['a.b.c', 'a/b/c'])
