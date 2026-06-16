@@ -6,10 +6,10 @@ from pixeltable.metadata import register_converter
 from pixeltable.metadata.schema import Table, TableSchemaVersion
 
 
-@register_converter(version=51)
+@register_converter(version=52)
 def _(engine: sql.engine.Engine) -> None:
     """
-    Changes in version 52:
+    Changes in version 53:
     - some column metadata (col_type, is_pk, value_expr) moved from the table level (ColumnMd) to
     SchemaVersionMd in order to allow for future versioning of these metadata.
     - Only user columns used to be represented by SchemaVersionMd, now system columns are also there.

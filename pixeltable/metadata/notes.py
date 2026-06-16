@@ -2,7 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
-    52: 'Various column metadata moved from ColumnMd to SchemaColumn for versioning',
+    53: 'Various column metadata moved from ColumnMd to SchemaColumn for versioning',
     51: 'Remove replica support (is_replica/is_fragment fields)',
     50: 'Primary key index enforcement via migration',
     49: 'SimilarityExpr: migrate from indexed_col to table_version_key',
