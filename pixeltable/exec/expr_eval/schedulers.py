@@ -15,7 +15,7 @@ from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
-from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
+from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler, udf_span
 
 _logger = logging.getLogger(__name__)
 
@@ -203,12 +203,10 @@ class RateLimitsScheduler(Scheduler):
             )
             self.total_requests += 1
             call_result: Any
-            with hooks.span(
-                f'udf.{pxt_fn.display_name}',
+            with udf_span(
+                self.dispatcher,
+                request.fn_call,
                 level=hooks.DEBUG,
-                parent=self.dispatcher.span_handle,
-                set_current=True,
-                column=self.dispatcher.col_names.get(request.fn_call.slot_idx),
                 resource_pool=self.resource_pool,
                 batch_size=len(request.rows) if request.is_batched else None,
                 retries=num_retries or None,
@@ -389,12 +387,10 @@ class RequestRateScheduler(Scheduler):
             )
             self.total_requests += 1
             call_result: Any
-            with hooks.span(
-                f'udf.{pxt_fn.display_name}',
+            with udf_span(
+                self.dispatcher,
+                request.fn_call,
                 level=hooks.DEBUG,
-                parent=self.dispatcher.span_handle,
-                set_current=True,
-                column=self.dispatcher.col_names.get(request.fn_call.slot_idx),
                 resource_pool=self.resource_pool,
                 batch_size=len(request.rows) if request.is_batched else None,
                 retries=num_retries or None,

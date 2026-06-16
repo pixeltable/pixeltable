@@ -94,10 +94,11 @@ class _OtelSubscriber(hooks.Subscriber):
             metric_attrs = _clean_attrs(
                 {k: attrs.get(k) for k in ('pxt.udf', 'pxt.column', 'pxt.resource_pool', 'model')}
             )
-            self._udf_duration.record(attrs.get('duration_s', 0.0), metric_attrs)
+            # extract the model from the response before recording, so duration and tokens share attributes
             model, tokens = extract_usage(attrs.get('_result'))
             if model is not None and 'model' not in metric_attrs:
                 metric_attrs['model'] = model
+            self._udf_duration.record(attrs.get('duration_s', 0.0), metric_attrs)
             for token_type, count in tokens.items():
                 self._udf_tokens.add(count, {**metric_attrs, 'type': token_type})
         elif name == 'xact.retry':

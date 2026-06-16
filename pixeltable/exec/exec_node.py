@@ -209,16 +209,20 @@ class ExecNode(abc.ABC):
     ) -> None:
         # Ensure progress stops on exit (including empty results, errors, interrupts)
         get_runtime().stop_progress()
-        self._close_aux()
+        self._close_aux(exc_val)
 
-    def _close_aux(self) -> None:
-        """Call _close() top-down; node spans end bottom-up so children end before their consumer's span."""
+    def _close_aux(self, exc: BaseException | None = None) -> None:
+        """Call _close() top-down; node spans end bottom-up so children end before their consumer's span.
+
+        A plan-terminating exception is recorded on every open node span so failed queries surface as errored.
+        """
         self._close()
         if self.input is not None:
-            self.input._close_aux()
+            self.input._close_aux(exc)
         if self._span is not None:
             hooks.span_end(
                 self._span,
+                exc=exc,
                 attrs=lambda: {f'pxt.{k}': v for k, v in self.span_end_attributes().items() if v is not None},
             )
             self._span = None

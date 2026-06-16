@@ -467,14 +467,12 @@ class StoreBase:
 
                     if len(table_rows) >= self.__INSERT_BATCH_SIZE:
                         self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
-                        self._emit_rows_written(len(table_rows))
                         if progress_reporter is not None:
                             progress_reporter.update(len(table_rows))
                         table_rows.clear()
 
                 if len(table_rows) > 0:
                     self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
-                    self._emit_rows_written(len(table_rows))
                     if progress_reporter is not None:
                         progress_reporter.update(len(table_rows))
 
@@ -565,7 +563,6 @@ class StoreBase:
                 # if a batch is ready for insertion into the database, insert it
                 if len(table_rows) >= self.__INSERT_BATCH_SIZE:
                     self.sql_insert(self.sa_tbl, store_col_names, table_rows)
-                    self._emit_rows_written(len(table_rows))
                     if progress_reporter is not None:
                         progress_reporter.update(len(table_rows))
                     if return_rows:
@@ -575,7 +572,6 @@ class StoreBase:
             # insert any remaining rows
             if len(table_rows) > 0:
                 self.sql_insert(self.sa_tbl, store_col_names, table_rows)
-                self._emit_rows_written(len(table_rows))
                 if progress_reporter is not None:
                     progress_reporter.update(len(table_rows))
                 if return_rows:
@@ -596,10 +592,6 @@ class StoreBase:
             }
             for row in table_rows
         ]
-
-    def _emit_rows_written(self, count: int) -> None:
-        if hooks.active():
-            hooks.emit('rows.written', attrs={'pxt.table': self.tbl_version.get().name, 'count': count})
 
     def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
         assert len(table_rows) > 0
@@ -629,6 +621,9 @@ class StoreBase:
                     f'({", ".join(pk_col_names)}) exceeds the maximum btree index row size',
                 ) from e
             raise
+
+        if hooks.active():
+            hooks.emit('rows.written', attrs={'pxt.table': self.tbl_version.get().name, 'count': len(table_rows)})
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
         #     differences in the data representation that SQLAlchemy/psycopg expect. The below code will do the

@@ -120,7 +120,7 @@ class ObjectStoreSaveNode(ExecNode):
     def span_end_attributes(self) -> dict[str, Any]:
         if self._total_objects == 0:
             return {}
-        return {'files_saved': self._total_objects, 'bytes': self._total_bytes}
+        return {'files': self._total_objects, 'bytes': self._total_bytes}
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""

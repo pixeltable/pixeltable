@@ -12,6 +12,7 @@ import base64
 import dataclasses
 import logging
 import os
+import threading
 from importlib.util import find_spec
 from typing import Any
 
@@ -41,10 +42,12 @@ class _State:
     owns_meter_provider: bool = False
     tracer_provider: Any = None
     meter_provider: Any = None
+    logger_provider: Any = None
     log_handlers: list[tuple[logging.Logger, logging.Handler]] = dataclasses.field(default_factory=list)
 
 
 _state = _State()
+_setup_lock = threading.Lock()
 
 
 def init(
@@ -55,8 +58,8 @@ def init(
     headers: str | None = None,
     metrics: bool | None = None,
     logs: bool | None = None,
-    tracer_provider: Any | None = None,
-    meter_provider: Any | None = None,
+    tracer_provider: Any = None,
+    meter_provider: Any = None,
 ) -> None:
     """Manually configure pixeltable's OpenTelemetry instrumentation.
 
@@ -109,20 +112,49 @@ def setup(
     headers: str | None = None,
     metrics: bool | None = None,
     logs: bool | None = None,
-    tracer_provider: Any | None = None,
-    meter_provider: Any | None = None,
+    tracer_provider: Any = None,
+    meter_provider: Any = None,
 ) -> None:
     """Set up providers (once per process) and attach the hook bridge.
 
     Must not call Env.get(): this runs inside Env setup, while the Env singleton is still initializing.
     """
-    if _state.initialized:
-        # Env re-init: re-attach the bridge to the standing providers
-        PixeltableInstrumentor().instrument(
-            tracer_provider=_state.tracer_provider, meter_provider=_state.meter_provider
+    # serialize concurrent setup: the auto path holds Env's init lock, but a user init() call does not
+    with _setup_lock:
+        if _state.initialized:
+            # Env re-init: re-attach the bridge to the standing providers
+            PixeltableInstrumentor().instrument(
+                tracer_provider=_state.tracer_provider, meter_provider=_state.meter_provider
+            )
+            return
+        _setup(
+            config,
+            user_call=user_call,
+            provider=provider,
+            endpoint=endpoint,
+            service_name=service_name,
+            headers=headers,
+            metrics=metrics,
+            logs=logs,
+            tracer_provider=tracer_provider,
+            meter_provider=meter_provider,
         )
-        return
 
+
+def _setup(
+    config: Config,
+    *,
+    user_call: bool,
+    provider: str | None,
+    endpoint: str | None,
+    service_name: str | None,
+    headers: str | None,
+    metrics: bool | None,
+    logs: bool | None,
+    tracer_provider: Any,
+    meter_provider: Any,
+) -> None:
+    """Provider setup proper; runs once, under _setup_lock held by setup()."""
     level_name = (config.get_string_value('span_level', section='otel') or 'info').lower()
     if level_name not in _SPAN_LEVELS:
         raise excs.RequestError(
@@ -319,6 +351,7 @@ def _set_up_log_export(cfg_endpoint: str | None, cfg_headers: str | None, cfg_se
     logger_provider = LoggerProvider(resource=_create_resource(cfg_service))
     logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
     set_logger_provider(logger_provider)
+    _state.logger_provider = logger_provider
     handler = LoggingHandler(logger_provider=logger_provider)
     pxt_logger = logging.getLogger('pixeltable')
     pxt_logger.addHandler(handler)
@@ -362,6 +395,8 @@ def on_env_teardown() -> None:
     for provider, owned in (
         (_state.tracer_provider, _state.owns_tracer_provider),
         (_state.meter_provider, _state.owns_meter_provider),
+        # the log export path always creates its own LoggerProvider, so we always own it
+        (_state.logger_provider, _state.logger_provider is not None),
     ):
         if owned and provider is not None:
             try:

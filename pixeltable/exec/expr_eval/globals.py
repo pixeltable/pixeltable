@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Iterable, Protocol
@@ -154,7 +155,7 @@ class Dispatcher(Protocol):
     # instrumentation state, set per execution
     hooks_active: bool  # hooks.active() snapshot
     col_names: dict[int, str]  # slot idx -> table column name, when known; populated when hooks are active
-    span_handle: Any  # span of the owning node (hooks.AnySpanHandle | None); parent for evaluator work spans
+    span_handle: hooks.AnySpanHandle | None  # span of the owning node; parent for evaluator work spans
 
     def dispatch(self, rows: list[exprs.DataRow], exec_ctx: Any) -> None:
         """Dispatches row slots to the appropriate schedulers; does not block"""
@@ -167,6 +168,24 @@ class Dispatcher(Protocol):
     def register_task(self, f: asyncio.Task) -> None:
         """Register task with dispatcher for subsequent cleanup; does not block"""
         ...
+
+
+def udf_span(
+    dispatcher: Dispatcher, fn_call: exprs.FunctionCall, *, level: int, **attrs: Any
+) -> AbstractContextManager[hooks.AnySpanHandle | None]:
+    """Open a 'udf.<name>' work span for `fn_call`, parented on the owning node's span.
+
+    set_current=True so work inside the call (eg, model.load) nests under this span. Extra keyword
+    attrs (batch_size, resource_pool, retries) pass through to the span; None values are dropped.
+    """
+    return hooks.span(
+        f'udf.{fn_call.fn.display_name}',
+        level=level,
+        parent=dispatcher.span_handle,
+        set_current=True,
+        column=dispatcher.col_names.get(fn_call.slot_idx),
+        **attrs,
+    )
 
 
 class Evaluator(abc.ABC):

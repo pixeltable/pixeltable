@@ -637,7 +637,8 @@ class Env:
                 or importlib.util.find_spec('opentelemetry.exporter.otlp.proto.http') is None
             ):
                 return
-        except ModuleNotFoundError:
+        except ImportError:
+            # a broken/partial install can raise ImportError (or its ModuleNotFoundError subclass)
             return
         try:
             from pixeltable.otel import _sdk
