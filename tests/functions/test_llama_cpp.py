@@ -16,9 +16,9 @@ def cleanup_llama_cpp() -> Iterator[None]:
     llama_cpp.cleanup()
 
 
+@pytest.mark.expensive  # downloads from HF
 @rerun(reruns=3, reruns_delay=15)  # Since it involves a HF model download
 class TestLlamaCpp:
-    @pytest.mark.expensive  # downloads from HF
     def test_create_chat_completions(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('llama_cpp')
@@ -55,7 +55,6 @@ class TestLlamaCpp:
         assert len(result['choices'][0]['message']['content']) > 0
         assert len(result2['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.expensive  # downloads large models
     @pytest.mark.parametrize('model', ['mistral', 'gemma', 'qwen'])
     def test_tool_invocations(self, uses_db: None, model: str) -> None:
         skip_test_if_not_installed('llama_cpp')
