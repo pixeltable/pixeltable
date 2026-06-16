@@ -530,6 +530,7 @@ def sam_for_video_segmentation(
     *,
     text: str,
     model_id: str = 'facebook/sam3',
+    fps: int | None = None,
     max_frame_num_to_track: int | None = None,
     image_size: int = 1008,
     revision: str | None = None,
@@ -567,6 +568,7 @@ def sam_for_video_segmentation(
         video: The video to segment and track.
         text: The concept prompt as a short noun phrase (e.g., `'person'`).
         model_id: The pretrained SAM 3 model to use (default `facebook/sam3`).
+        fps: The frames per second to sample from the video. If not specified, uses the video's native fps.
         max_frame_num_to_track: The maximum number of frames to track. If not specified, all frames are tracked.
         image_size: The square input resolution (in pixels) the model runs at (default 1008). Lowering it (e.g.
             `560`) is substantially faster but reduces accuracy, since SAM 3 is tuned for 1008px.
@@ -614,7 +616,7 @@ def sam_for_video_segmentation(
     )
     processor = _lookup_processor(model_id, Sam3VideoProcessor.from_pretrained, revision=revision, size=image_size)
 
-    video_frames, _ = load_video(str(video))  # type: ignore[arg-type]  # load_video accepts a path/URL at runtime
+    video_frames, _ = load_video(str(video), fps=fps)  # type: ignore[arg-type]  # load_video accepts a path/URL at runtime
     session = processor.init_video_session(
         video=video_frames, inference_device=device, processing_device='cpu', video_storage_device='cpu'
     )
