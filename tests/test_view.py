@@ -712,6 +712,18 @@ class TestView:
         with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
+    def test_query_base_col(self, uses_db: None) -> None:
+        # A view's own column and an inherited base column can share the same internal column id (each table
+        # numbers its columns from 0). Selecting both through the view must keep them distinct rather than
+        # collapsing them into a single result column.
+        t = pxt.create_table('base_t', {'c0': pxt.Int, 'c1': pxt.Int})
+        t.insert([{'c0': i, 'c1': i * 10} for i in range(5)])
+        v = pxt.create_view('v', t, additional_columns={'v0': t.c0 + 100})
+
+        res = v.select(v.v0, v.c0).order_by(v.c0).collect()
+        assert list(res.schema.keys()) == ['v0', 'c0']
+        assert all(row['v0'] == row['c0'] + 100 for row in res)
+
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
     def test_computed_cols(self, do_reload_catalog: bool, uses_db: None) -> None:
         t = self.create_tbl()

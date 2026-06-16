@@ -17,9 +17,9 @@ from pixeltable.types import ColumnSpec
 from .column import Column
 from .globals import MediaValidation
 from .table import Table
+from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
-from .table_version_path import TableVersionPath
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
 from .update_status import UpdateStatus
 
@@ -169,15 +169,15 @@ class View(Table):
 
         # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions
         if is_snapshot:
-            predicate = predicate.retarget(base_version_path) if predicate is not None else None
+            predicate = predicate.retarget_path(base_version_path) if predicate is not None else None
             if sample_clause is not None:
-                exprs.Expr.retarget_list(sample_clause.stratify_exprs, base_version_path)
+                exprs.Expr.retarget_path_list(sample_clause.stratify_exprs, base_version_path)
             iterator_args_expr = (
-                iterator_args_expr.retarget(base_version_path) if iterator_args_expr is not None else None
+                iterator_args_expr.retarget_path(base_version_path) if iterator_args_expr is not None else None
             )
             for col in columns:
                 if col.value_expr is not None:
-                    col.set_value_expr(col.value_expr.retarget(base_version_path))
+                    col.set_value_expr(col.value_expr.retarget_path(base_version_path))
 
         view_md = md_schema.ViewMd(
             is_snapshot=is_snapshot,

@@ -343,7 +343,7 @@ class Column:
             # TODO(aaron-siegel): This is a temporary solution and it will be replaced by a proper `destination`
             #   parameter for computed columns. Among other things, this solution does not work for video or audio.
             #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
-            computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
+            computed_with=exprs.ColumnRef(col.column_version_md()).apply(lambda x: x, col_type=col.col_type),
             sa_col_type=col.col_type.to_sa_type(),
             stored=True,
             stores_cellmd=True,
@@ -391,6 +391,30 @@ class Column:
             comment=self._comment,
         )
         return col_md, col_schema_md
+
+    def column_version_md(self) -> 'catalog.ColumnVersionMd':
+        """
+        Return a ColumnVersionMd for this column.
+
+        Only valid when the column is accessed in its own table's context (tbl_handle.id is the
+        path-context table). For a base column accessed through a view path, use
+        TableVersionPath.get_column_md() instead.
+
+        TODO: cache this
+        """
+        from .globals import ColumnVersionMd, QColumnId
+
+        pos = None if self.is_system_col else 0  # placeholder; only matters for column ordering in column_md() output
+        col_md, schema_col = self.to_md(pos)
+        return ColumnVersionMd(
+            tbl_id=self.tbl_handle.id,
+            effective_version=self.tbl_handle.effective_version,
+            qcolid=QColumnId(self.tbl_handle.id, self.id),
+            col_effective_version=self.tbl_handle.effective_version,
+            col_md=col_md,
+            schema_col=schema_col,
+            is_iterator_col=self.is_iterator_col,
+        )
 
     def verify(self) -> None:
         """Self-validation of a user column.
