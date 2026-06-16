@@ -575,6 +575,8 @@ def move(
             excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
         )
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
+    if not path_obj.is_local or not new_path_obj.is_local:
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): Hosted paths are not yet supported')
     if path_obj.is_ancestor(new_path_obj):
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'move(): cannot move {path!r} into its own subdirectory'

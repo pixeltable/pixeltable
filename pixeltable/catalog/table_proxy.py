@@ -26,8 +26,7 @@ if TYPE_CHECKING:
 
 
 class TableProxy(Table):
-    """Abstract base for handles to hosted tables, reached over RPC (delegated execution).
-    """
+    """Abstract base for handles to hosted tables, reached over RPC (delegated execution)."""
 
     _path_obj: CatalogPath
 
