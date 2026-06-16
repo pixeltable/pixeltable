@@ -39,8 +39,6 @@ FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
         'limit',
         'list_views',
         'order_by',
-        'pull',
-        'push',
         'recompute_columns',
         'sample',
         'select',
@@ -54,7 +52,8 @@ FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
 )
 
 # Sanity check to guard against drift in the SDK surface.
-assert all(hasattr(Table, method) for method in FORWARDED_TABLE_METHODS)
+for method in FORWARDED_TABLE_METHODS:
+    assert hasattr(Table, method), method
 
 
 class _PlaceholderColumnRef(exprs.Expr):
@@ -374,7 +373,7 @@ class TableModelMetaclass(type):
         subst_dict = exprs.ExprDict[exprs.ColumnRef]()
 
         tbl_id = uuid.uuid4()
-        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None, None))
+        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
         for name, placeholder in columns.items():
             subst_spec: ColumnSpec = placeholder.column_spec.copy()
             if 'value' in subst_spec:
@@ -416,7 +415,6 @@ class TableModelMetaclass(type):
             tbl_id_, _ = create_fn()
             assert tbl_id == tbl_id_
             cat._roll_forward()
-
 
         get_fn = retry_loop(read_tbl_ids=[tbl_id])(lambda: cat.get_table_by_id(tbl_id))
         tbl = get_fn()

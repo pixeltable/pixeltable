@@ -40,7 +40,7 @@ sequenceDiagram
 
 ## 🛠️ Prerequisites
 
-*   Python 3.9+ & Pip
+*   Python 3.10+ and [uv](https://docs.astral.sh/uv/)
 *   Running Pixeltable Instance ([Installation Guide](https://pixeltable.com/docs/installation/))
 *   Reddit Account & API Credentials:
     *   Go to <https://www.reddit.com/prefs/apps/> and click "create another app...".
@@ -54,8 +54,8 @@ sequenceDiagram
 
 ## ⚙️ Installation & Setup
 
-1.  **Install:** `uv sync` (or `pip install -e .`)
-3.  **Configure `.env` and add your credentials.
+1.  **Install:** `uv sync`
+2.  **Configure `.env`:** `cp .env.example .env` and add your credentials.
     ```dotenv
     # Reddit API Credentials (Script App Type)
     REDDIT_CLIENT_ID="YOUR_REDDIT_CLIENT_ID"
@@ -67,8 +67,8 @@ sequenceDiagram
     # LLM API Key
     ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY"
     ```
-6.  **Review `config.py`:** Check models, sources, target subreddit, prompts.
-7.  **Setup Pixeltable Data Store and Computation:** `python setup_pixeltable.py` (only once!)
+3.  **Review `config.py`:** Check models, sources, target subreddit, prompts.
+4.  **Setup Pixeltable:** `python setup_pixeltable.py` (idempotent; `RESET_SCHEMA=true` to wipe)
     *   📝 **Note:** This script ingests documents from `config.SOURCE_DATA`, creates embeddings, and builds indexes. It may take several minutes to complete, especially on the first run or with large documents. Performance depends on your CPU/GPU and the embedding model used.
 
 ## ▶️ Running the Bot
@@ -159,10 +159,4 @@ Reddit Bot finished.
 *   **👍👎 Feedback Loop:** Allow users to rate answers (`!good_answer`).
 *   **🌐 Multi-Subreddit / Conditional Logic:** Monitor more subs with varying rules.
 
-See [Pixeltable cookbooks](https://docs.pixeltable.com/howto/cookbooks) for patterns you can add to this bot (short-term/long-term memory, tool calling, multimodal RAG).
-
-## Learn More
-
-- [Pixeltable Documentation](https://docs.pixeltable.com/)
-- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
-- [Discord Community](https://discord.gg/QPyqFYx2UN)
+See [Pixeltable examples](https://docs.pixeltable.com/examples/use-cases) for different implementations of the above that you can add to this Reddit bot from maintaining short-term and long-term memory to additional interactions.

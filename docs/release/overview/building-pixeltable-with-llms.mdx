@@ -99,6 +99,11 @@ Connect your AI tool to Pixeltable directly via the [Model Context Protocol](htt
 
     See [configuration for Cursor, Claude Desktop, and more](https://github.com/pixeltable/mcp-server-pixeltable-developer) in the repo README.
   </Tab>
+  <Tab title="CLI for agents">
+    The `pxt` CLI (v0.6.5+) exposes the same catalog with `--json` on every inspection and query command, plus `pxt shell` for multi-command sessions. Agents can inspect tables, count rows, and debug computed-column failures without importing Python.
+
+    See the [Working with the Pixeltable CLI](/howto/cookbooks/core/working-with-cli) cookbook.
+  </Tab>
   <Tab title="Build Your Own">
     Any Pixeltable UDF or query function can be exposed as an MCP tool with a single call:
 

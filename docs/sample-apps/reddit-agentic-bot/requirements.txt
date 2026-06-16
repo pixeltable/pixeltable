@@ -1,0 +1,20 @@
+# Core Libraries
+pixeltable==0.3.12 # Pinning version
+python-dotenv # For loading .env files
+
+# Reddit Interaction
+praw
+
+# LLM & Search Tools
+anthropic # For Claude models via Pixeltable
+duckduckgo-search # For web search tool
+yfinance # For financial data tool
+
+# Embeddings & NLP
+sentence-transformers # For embedding generation
+transformers # Dependency for sentence-transformers
+tiktoken # For token counting in DocumentSplitter
+
+# Utilities & Dependencies
+requests # For HTTP requests (often used implicitly)
+numpy # Core numerical dependency

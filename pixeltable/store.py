@@ -3,10 +3,9 @@ from __future__ import annotations
 import abc
 import logging
 import time
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterator
 from uuid import UUID
 
-import more_itertools
 import psycopg
 import sqlalchemy as sql
 
@@ -304,11 +303,6 @@ class StoreBase:
 
         This runs a sequence of DDL statements (Create Table, Alter Table Add Column, Create Index), each of which
         is run in its own transaction.
-
-        The exception to that are local replicas, for which TableRestorer creates an enclosing transaction. In theory,
-        this should avoid the potential for race conditions that motivate the error handling present in
-        _exec_if_not_exists() (meaning: we shouldn't see those errors when creating local replicas).
-        TODO: remove the special case for local replicas in order to make the logic easier to reason about.
         """
         postgres_dialect = sql.dialects.postgresql.dialect()
 
@@ -724,15 +718,6 @@ class StoreBase:
         result = conn.execute(stmt)
         for row in result:
             yield dict(zip(result.keys(), row))
-
-    def load_rows(self, rows: Iterable[dict[str, Any]], batch_size: int = 10_000) -> None:
-        """
-        When instantiating a replica, we can't rely on the usual insertion code path, which contains error handling
-        and other logic that doesn't apply.
-        """
-        conn = get_runtime().conn
-        for batch in more_itertools.batched(rows, batch_size):
-            conn.execute(sql.insert(self.sa_tbl), batch)
 
 
 class StoreTable(StoreBase):

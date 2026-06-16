@@ -12,7 +12,7 @@ import pandas as pd
 from typing_extensions import overload
 
 import pixeltable as pxt
-from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
+from pixeltable import env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -168,7 +168,6 @@ class Table(SchemaObject):
             columns=column_info,
             indices=index_info,
             is_versioned=tv.is_versioned,
-            is_replica=tv.is_replica,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),
@@ -186,10 +185,6 @@ class Table(SchemaObject):
     def _get_version(self) -> int | None:
         """Return the version of this table or None if not versioned. Used by tests to ascertain version changes."""
         return self._tbl_version_path.version()
-
-    def _get_pxt_uri(self) -> str | None:
-        with get_runtime().catalog.begin_xact(read_tbl_ids=[self._id]):
-            return get_runtime().catalog.get_additional_md(self._id).get('pxt_uri')
 
     def __hash__(self) -> int:
         return hash(self._tbl_version_path.tbl_id)
@@ -1769,74 +1764,6 @@ class Table(SchemaObject):
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
 
-    def push(self) -> None:
-        from pixeltable.share import push_replica
-        from pixeltable.share.protocol import PxtUri
-
-        pxt_uri = self._get_pxt_uri()
-        tbl_version = self._tbl_version_path.tbl_version.get()
-
-        if tbl_version.is_replica:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'push(): Cannot push replica table {self._name()!r}. (Did you mean `pull()`?)',
-            )
-
-        if pxt_uri is None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'push(): Table {self._name()!r} has not yet been published to Pixeltable Cloud. '
-                'To publish it, use `pxt.publish()` instead.',
-            )
-
-        if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'push(): Cannot push specific-version table handle {tbl_version.versioned_name!r}. '
-                'To push the latest version instead:\n'
-                f'  t = pxt.get_table({self._name()!r})\n'
-                f'  t.push()',
-            )
-
-        if self._tbl_version is None:
-            # Named snapshots never have new versions to push.
-            env.Env.get().console_logger.info('push(): Everything up to date.')
-            return
-
-        # Parse the pxt URI to extract org/db and create a UUID-based URI for pushing
-        parsed_uri = PxtUri(uri=pxt_uri)
-        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
-
-        push_replica(uuid_uri_obj, self)
-
-    def pull(self) -> None:
-        from pixeltable.share import pull_replica
-        from pixeltable.share.protocol import PxtUri
-
-        pxt_uri = self._get_pxt_uri()
-        tbl_version = self._tbl_version_path.tbl_version.get()
-
-        if not tbl_version.is_replica or pxt_uri is None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'pull(): Table {self._name()!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).',
-            )
-
-        if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'pull(): Cannot pull specific-version table handle {tbl_version.versioned_name!r}. '
-                'To pull the latest version instead:\n'
-                f'  t = pxt.get_table({self._name()!r})\n'
-                f'  t.pull()',
-            )
-
-        # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
-        parsed_uri = PxtUri(uri=pxt_uri)
-        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
-
-        pull_replica(self._path(), uuid_uri_obj)
-
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.get().external_stores.keys())
 
@@ -2046,10 +1973,6 @@ class Table(SchemaObject):
         return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))
 
     def __check_mutable(self, op_descr: str) -> None:
-        if self._tbl_version_path.is_replica():
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot {op_descr} a replica.'
-            )
         if self._tbl_version_path.is_snapshot():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot {op_descr} a snapshot.'

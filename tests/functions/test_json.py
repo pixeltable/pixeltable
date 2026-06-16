@@ -1,6 +1,8 @@
 # mypy: disable-error-code="misc"
 
 
+import pytest
+
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
@@ -83,6 +85,7 @@ class TestJson:
         assert res['my_int'] == [j for i in range(50) for j in range(i + 1)]
         assert res['my_str'] == [f'string_{j}' if j < i else None for i in range(50) for j in range(i + 1)]
 
+    @pytest.mark.very_expensive  # Downloads a Hugging Face model
     def test_list_iterator_appl(self, uses_db: None) -> None:
         """
         Fully worked example of flattening object detection output.

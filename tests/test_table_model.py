@@ -168,7 +168,6 @@ class TestTableModel:
                     },
                 },
                 'is_versioned': True,
-                'is_replica': False,
                 'is_view': False,
                 'is_snapshot': False,
                 'version': 1,

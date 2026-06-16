@@ -4,9 +4,7 @@ import inspect
 import sys
 from typing import TYPE_CHECKING, Any, Callable, Sequence, overload
 
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
-from pixeltable import catalog
+from pixeltable import catalog, exceptions as excs, type_system as ts
 
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplate, ExprTemplateFunction

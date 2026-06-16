@@ -569,7 +569,7 @@ class Expr(abc.ABC):
         """
         Turn dict that was produced by calling Expr.as_dict() into an instance of the correct Expr subclass.
 
-        tbl_versions: when deserializing snapshot or replica expressions, pass a mapping of table UUID to the
+        tbl_versions: when deserializing snapshot expressions, pass a mapping of table UUID to the
         target TableVersion so that ColumnRefs are resolved directly to the correct version without creating references
         to columns that were later dropped. This allows us to create immediately correct ColumnRefs that don't need
         further retargeting.

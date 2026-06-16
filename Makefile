@@ -1,6 +1,9 @@
+# Check for CUDA installation
+IS_CUDA_INSTALLED := $(shell nvidia-smi > /dev/null 2>&1 && echo 1 || echo 0)
+
 # Parameter defaults
 DURATION := 120
-UV_ARGS := --group extra-dev
+UV_ARGS := --group extra-dev $(if $(filter 1,$(IS_CUDA_INSTALLED)),--group cuda-dev)
 WORKERS := 12
 
 # Common test args
@@ -115,6 +118,7 @@ DASHBOARD_SOURCES := $(shell find dashboard -type f -not -path '*/node_modules/*
 .PHONY: install-deps
 install-deps:
 	@echo 'Installing dependencies from uv ...'
+	@echo 'UV_ARGS: $(UV_ARGS)'
 	@touch pyproject.toml
 	@VIRTUAL_ENV="$(CONDA_PREFIX)" uv sync --active $(UV_ARGS)
 
@@ -159,7 +163,7 @@ fullpytest: install
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,unversioned_table,view}.py tests/share/test_packager.py
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,unversioned_table,view}.py
 
 .PHONY: nbtest
 nbtest: install
@@ -239,7 +243,7 @@ linkscheck: docs
 .PHONY: clean
 clean:
 	@rm -rf .make-install || true
-	@rm -rf pixeltable/dashboard/static || true
+	@rm -rf pixeltable_cli/server/static || true
 	@rm -rf site || true
 	@rm -rf target || true
 	@rm -rf tests/target || true

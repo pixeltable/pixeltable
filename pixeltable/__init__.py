@@ -69,8 +69,6 @@ from .globals import (
     list_tables,
     ls,
     move,
-    publish,
-    replicate,
     tool,
     tools,
 )

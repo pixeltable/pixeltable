@@ -631,7 +631,6 @@ class ColumnRef(Expr):
         tbl_handle = self.col_handle.tbl_version
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
-        assert tbl_handle.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(tbl_handle.id),
             'tbl_version': tbl_handle.effective_version,
@@ -655,9 +654,8 @@ class ColumnRef(Expr):
             tbl_version = tbl_versions[tbl_id]
         else:
             # validate_initialized=False: this gets called as part of TableVersion.init()
-            # TODO: When we have views on replicas, we will need to store anchor_tbl_id in metadata as well.
             tbl_version = get_runtime().catalog.get_tbl_version(
-                TableVersionKey(tbl_id, version_from_dict, None), validate_initialized=False
+                TableVersionKey(tbl_id, version_from_dict), validate_initialized=False
             )
         col = tbl_version.cols_by_id.get(col_id)
         if col is None:
