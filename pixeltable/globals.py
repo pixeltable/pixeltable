@@ -329,6 +329,10 @@ def create_view(
     tbl_path: TablePath
     select_list: list[tuple[exprs.Expr, str | None]] | None = None
     where: exprs.Expr | None = None
+    if isinstance(base, catalog.TableProxy):
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'create_view() is not supported on a hosted table yet.'
+        )
     if isinstance(base, catalog.Table):
         tbl_path = base._tbl_path
         sample_clause = None

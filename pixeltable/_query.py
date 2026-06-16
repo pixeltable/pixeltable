@@ -1283,7 +1283,10 @@ class Query:
         """
         assert len(self._from_clause.tbls) > 0
         # joining against a hosted table is not supported yet; tbl_path is a LocalTable impl detail
-        assert isinstance(other, catalog.LocalTable)
+        if not isinstance(other, catalog.LocalTable):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'join() is not supported against a hosted table.'
+            )
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and unversioned tables'

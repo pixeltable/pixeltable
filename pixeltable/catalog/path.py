@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
 import re
-from typing import NamedTuple
 
 from pixeltable import exceptions as excs
 
@@ -21,24 +21,32 @@ _URL_PREFIXES = (
 )
 
 
-class Path(NamedTuple):
+@dataclasses.dataclass(frozen=True, slots=True, order=True, kw_only=True)
+class Path:
     """A table/dir location, in the in-process catalog or in a remote/proxied catalog.
 
     Identifies the catalog it lives in (org/db) plus the path within that catalog (components) and an
-    optional version.
+    optional version. Org/db is None for local paths.
 
-    org is None for the in-process catalog: direct execution against the user's own Postgres, no
-    proxy, catalog_uri ''. When org is set, the catalog is reached over RPC; org[:db] names it. The
-    org slug 'local' is reserved for a local proxy daemon (e.g. pxt://local:testdb), which is still a
-    proxied catalog, distinct from the in-process one.
-
-    Construct via parse() or from_components(), never positionally.
+    Construct via parse() or from_components(), which apply context-specific rules.
     """
 
     org: str | None = None  # None => in-process catalog (catalog_uri ''); a slug => remote/proxied catalog
     db: str | None = None  # database within the org; always None when org is None, optional otherwise
     components: tuple[str, ...] = ('',)  # ('',) denotes the catalog root
     version: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.db is not None and self.org is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_PATH, f'Path specifies a database ({self.db!r}) but no organization'
+            )
+        if self.org is not None and not is_valid_identifier(self.org, allow_hyphens=True):
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid organization name: {self.org!r}')
+        if self.db is not None and not is_valid_identifier(self.db, allow_hyphens=True):
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid database name: {self.db!r}')
+        if self.version is not None and self.version < 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Version must be non-negative: {self.version}')
 
     @classmethod
     def parse(cls, path: str, *, allow_empty_path: bool = False, allow_versioned_path: bool = False) -> Path:
@@ -67,8 +75,6 @@ class Path(NamedTuple):
                 version = int(parts[1])
             except ValueError:
                 raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}') from None
-            if version < 0:
-                raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Version must be non-negative: {path!r}')
 
         # Split the in-db path part into components (dotted form accepted for backward compatibility).
         components: tuple[str, ...]
@@ -93,8 +99,6 @@ class Path(NamedTuple):
     def from_components(
         cls, components: tuple[str, ...], *, version: int | None = None, org: str | None = None, db: str | None = None
     ) -> Path:
-        if version is not None and version < 0:
-            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Version must be non-negative: {version}')
         return cls(org=org, db=db, components=tuple(components), version=version)
 
     @classmethod
@@ -138,12 +142,12 @@ class Path(NamedTuple):
     def parent(self) -> Path:
         if len(self.components) == 1:
             # Includes the case of the root path, which is its own parent.
-            return self._replace(components=('',), version=None)
-        return self._replace(components=self.components[:-1], version=None)
+            return dataclasses.replace(self, components=('',), version=None)
+        return dataclasses.replace(self, components=self.components[:-1], version=None)
 
     def append(self, name: str) -> Path:
         components = (name,) if self.is_root else (*self.components, name)
-        return self._replace(components=components, version=None)
+        return dataclasses.replace(self, components=components, version=None)
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -166,7 +170,7 @@ class Path(NamedTuple):
         if self.is_root:
             return []
         return [
-            self._replace(components=self.components[:i] if i > 0 else ('',), version=None)
+            dataclasses.replace(self, components=self.components[:i] if i > 0 else ('',), version=None)
             for i in range(len(self.components))
         ]
 

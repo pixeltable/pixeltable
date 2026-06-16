@@ -168,14 +168,18 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
 
 
 def _export_tables_md(table_paths: set[str]) -> dict[str, Any]:
-    # Get all tables mentioned by any route contained in this deployment. These are local tables.
-    tables = [pxt.get_table(path) for path in sorted(table_paths)]
-    assert all(isinstance(tbl, pxt.catalog.LocalTable) for tbl in tables)
+    # Get all tables mentioned by any route contained in this deployment. These must be local tables.
+    tables: list[pxt.catalog.LocalTable] = []
+    for path in sorted(table_paths):
+        tbl = pxt.get_table(path)
+        if not isinstance(tbl, pxt.catalog.LocalTable):
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot deploy a hosted table: {path!r}')
+        tables.append(tbl)
 
     # Get the md for all ancestors of all such tables.
     catalog = get_runtime().catalog
     with catalog.begin_xact(for_write=False):
-        tables_md = [catalog.load_md_for_export(tbl) for tbl in tables if isinstance(tbl, pxt.catalog.LocalTable)]
+        tables_md = [catalog.load_md_for_export(tbl) for tbl in tables]
 
     # The ancestor md is returned as: primary table first, followed by ancestors in descending order.
     # Reverse so that ancestors come first, then flatten and de-duplicate (since some tables might have common

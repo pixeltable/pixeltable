@@ -33,6 +33,8 @@ class TableProxy(Table):
     is out of scope here.
     """
 
+    _path_obj: CatalogPath
+
     def __init__(self, path: CatalogPath):
         super().__init__(uuid4())  # placeholder id; the real id is assigned by the dispatch server
         self._path_obj = path
@@ -42,6 +44,9 @@ class TableProxy(Table):
 
     def _dir_id(self) -> UUID | None:
         raise NotImplementedError
+
+    def _path(self) -> 'CatalogPath':
+        return self._path_obj
 
     @property
     def _tbl_path(self) -> 'TableMdPath':

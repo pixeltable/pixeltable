@@ -132,6 +132,31 @@ class TestCatalog:
         # Bad identifier component in a hosted path.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.parse('pxt://variata:main/a..b')
+        # Org slug parses out of the netloc but isn't a valid identifier.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.parse('pxt://bad org/tbl')
+        # An extra colon lands in the db slug, which then fails identifier validation.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.parse('pxt://variata:main:extra/tbl')
+
+    def test_path_construction_invariants(self) -> None:
+        # Invariants enforced at construction, so they hold for from_components() (and direct
+        # construction), not only for parse().
+        # A db requires an org.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('tbl',), db='main')
+        # Org and db must be valid slugs.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('tbl',), org='bad org')
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('tbl',), org='variata', db='bad:db')
+        # Version must be non-negative.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('tbl',), version=-1)
+        # Hyphenated org/db slugs are accepted.
+        hosted = Path.parse('pxt://my-org:my-db/tbl')
+        assert (hosted.org, hosted.db) == ('my-org', 'my-db')
+        assert Path.from_components(('tbl',), org='my-org', db='my-db').catalog_uri == 'pxt://my-org:my-db'
 
     def test_hosted_path_navigation(self) -> None:
         # Navigation preserves the catalog (org/db) and drops the version.
