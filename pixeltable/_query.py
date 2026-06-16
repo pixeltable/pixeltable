@@ -22,6 +22,7 @@ from typing import (
     NoReturn,
     Sequence,
     TypeVar,
+    cast,
 )
 from uuid import UUID
 
@@ -30,11 +31,12 @@ import pydantic
 import sqlalchemy.exc as sql_exc
 from typing_extensions import Self
 
-from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
+from pixeltable import catalog, exceptions as excs, exec, exprs, type_system as ts
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
-from pixeltable.plan import Planner, SampleClause
+from pixeltable.plan import Planner
+from pixeltable.query_clauses import FromClause, JoinClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.description_helper import DescriptionHelper
@@ -373,7 +375,7 @@ class Query:
     """
 
     # immutable after init()
-    _from_clause: plan.FromClause
+    _from_clause: FromClause
 
     select_list: list[tuple[exprs.Expr, str | None]] | None
     # construction-time snapshot of the resolved select list; None if select_list is None
@@ -395,7 +397,7 @@ class Query:
 
     def __init__(
         self,
-        from_clause: plan.FromClause | None = None,
+        from_clause: FromClause | None = None,
         select_list: list[tuple[exprs.Expr, str | None]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
@@ -407,9 +409,9 @@ class Query:
     ):
         self._from_clause = from_clause
 
-        if from_clause is not None:
-            # we want to find out about dropped tables early
-            get_runtime().catalog.validate_tbls_exist({tvp.tbl_version.id for tvp in from_clause.tbls})
+        if from_clause is not None and from_clause.is_local:
+            # find out about dropped tables early; only applicable for local tables
+            get_runtime().catalog.validate_tbls_exist({t.tbl_id for t in from_clause.tbls})
 
         # exprs contain execution state and therefore cannot be shared
         self.select_list = copy.deepcopy(select_list)
@@ -435,7 +437,7 @@ class Query:
 
     @classmethod
     def _normalize_select_list(
-        cls, tbls: list[catalog.TableVersionPath], select_list: list[tuple[exprs.Expr, str | None]] | None
+        cls, tbls: list[catalog.TablePath], select_list: list[tuple[exprs.Expr, str | None]] | None
     ) -> tuple[list[exprs.Expr], list[str]]:
         """
         Expand select list information with all columns and their names
@@ -443,7 +445,19 @@ class Query:
             a pair composed of the list of expressions and the list of corresponding names
         """
         if select_list is None:
-            select_list = [(exprs.ColumnRef(col), None) for tbl in tbls for col in tbl.columns()]
+            select_list = [
+                (
+                    exprs.ColumnRef(
+                        col_md,
+                        cast(catalog.TableVersionPath, tbl).is_validate_on_read(col_md)
+                        if isinstance(tbl, catalog.TableVersionPath)
+                        else False,
+                    ),
+                    None,
+                )
+                for tbl in tbls
+                for col_md in tbl.column_md()
+            ]
 
         out_exprs: list[exprs.Expr] = []
         out_names: list[str] = []  # keep track of order
@@ -479,7 +493,8 @@ class Query:
 
     @property
     def _first_tbl(self) -> catalog.TableVersionPath:
-        return self._from_clause._first_tbl
+        assert self._from_clause.is_local
+        return self._from_clause.tvps[0]
 
     @property
     def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
@@ -625,8 +640,9 @@ class Query:
         return plan
 
     def _from_clause_tbl_versions(self) -> dict[UUID, int]:
+        assert self._from_clause.is_local
         out: dict[UUID, int] = {}
-        for tbl in self._from_clause.tbls:
+        for tbl in self._from_clause.tvps:
             for tvh in tbl.get_tbl_versions():
                 tv = tvh.get()
                 if tv.is_versioned:
@@ -634,7 +650,9 @@ class Query:
         return out
 
     def _create_query_plan(self) -> exec.ExecPlan:
-        has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in self._from_clause.tbls)
+        assert self._from_clause.is_local
+        tvps = self._from_clause.tvps
+        has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in tvps)
         if has_unversioned_tbl:
             # For now, we only support queries of the simplest form on unversioned tables
             assert len(self._from_clause.tbls) == 1, 'TODO: implement for unversioned tables [PXT-1101]'
@@ -649,7 +667,7 @@ class Query:
             assert group_by_clause is None
             num_rowid_cols = len(self.grouping_tbl.get().store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
-            first_tbl = self._from_clause.tbls[0]
+            first_tbl = tvps[0]
             assert num_rowid_cols <= len(first_tbl.tbl_version.get().store_tbl.rowid_columns())
             group_by_clause = Planner.rowid_columns(first_tbl.tbl_version, num_rowid_cols)
 
@@ -800,6 +818,7 @@ class Query:
         """
         if self._referenced_tbl_ids is not None:
             return self._referenced_tbl_ids
+
         all_exprs = itertools.chain(
             # _select_list_exprs is None: no external ColumnRefs without an explicit select list
             self._select_list_exprs or [],
@@ -808,8 +827,9 @@ class Query:
             [] if self.order_by_clause is None else (e for e, _ in self.order_by_clause),
         )
         tbl_ids = exprs.Expr.list_tbl_ids(all_exprs)
-        for tvp in self._from_clause.tbls:
-            tbl_ids.update(tvh.id for tvh in tvp.get_tbl_versions())
+        for tp in self._from_clause.tbls:
+            tbl_ids.update(tp.tbl_ids)
+
         self._referenced_tbl_ids = tbl_ids
         return tbl_ids
 
@@ -818,8 +838,10 @@ class Query:
         return self._ensure_plan().select_list_exprs
 
     def _output_row_iterator(self, args: dict[str, Any] | None = None) -> Generator[list, None, None]:
+        assert self._from_clause.is_local
         tbl_ids = self.referenced_tbl_ids()
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=tbl_ids):
+        tvps = self._from_clause.tvps
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=tbl_ids):
             try:
                 planned_exprs = self._compiled_select_list()
                 for data_row in self._exec(args=args):
@@ -832,9 +854,9 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        with get_runtime().catalog.begin_xact(
-            for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=self.referenced_tbl_ids()
-        ):
+        assert self._from_clause.is_local
+        tvps = self._from_clause.tvps
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
             return self._collect()
 
     def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
@@ -899,7 +921,8 @@ class Query:
         )
         is_grouped = self.group_by_clause is not None or self.grouping_tbl is not None
 
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tbls):
+        assert self._from_clause.is_local
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tvps):
             plan_root = count_query._ensure_plan().exec_root
             if not isinstance(plan_root, exec.SqlNode):
                 raise excs.RequestError(
@@ -1031,14 +1054,14 @@ class Query:
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {raw_expr}')
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
-            if len(self._from_clause.tbls) == 1:
+            if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
                 # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
                 # such as `snapshot.select(base_tbl.col)`
                 # TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
                 #     multiple TableVersionPaths.
                 expr = expr.copy()
                 try:
-                    expr.retarget(self._from_clause.tbls[0])
+                    expr = expr.retarget_path(self._from_clause.tvps[0])
                 except Exception:
                     # If retarget() fails, then the succeeding is_bound_by() will raise an error.
                     pass
@@ -1046,7 +1069,7 @@ class Query:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f"That expression cannot be evaluated in the context of this query's tables "
-                    f'({",".join(tbl.tbl_version.get().versioned_name for tbl in self._from_clause.tbls)}): {expr}',
+                    f'({", ".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr}',
                 )
             select_list.append((expr, name))
 
@@ -1123,7 +1146,7 @@ class Query:
         )
 
     def _create_join_predicate(
-        self, other: catalog.TableVersionPath, on: exprs.Expr | Sequence[exprs.ColumnRef]
+        self, other: catalog.TablePath, on: exprs.Expr | Sequence[exprs.ColumnRef]
     ) -> exprs.Expr:
         """Verifies user-specified 'on' argument and converts it into a join predicate."""
         col_refs: list[exprs.ColumnRef] = []
@@ -1167,29 +1190,30 @@ class Query:
         assert len(col_refs) > 0 and len(joined_tbls) >= 2
         for col_ref in col_refs:
             # identify the referenced column by name in 'other'
-            rhs_col = other.get_column(col_ref.col.name)
-            if rhs_col is None:
+            col_name = col_ref.col.name
+            rhs_col_md = other.get_column_md_by_name(col_name)
+            if rhs_col_md is None:
                 raise excs.NotFoundError(
-                    excs.ErrorCode.COLUMN_NOT_FOUND, f'`on` column {col_ref.col.name!r} not found in joined table'
+                    excs.ErrorCode.COLUMN_NOT_FOUND, f'`on` column {col_name!r} not found in joined table'
                 )
-            rhs_col_ref = exprs.ColumnRef(rhs_col)
+            rhs_col_ref = exprs.ColumnRef(rhs_col_md)
 
             lhs_col_ref: exprs.ColumnRef | None = None
-            if any(tbl.has_column(col_ref.col) for tbl in self._from_clause.tbls):
+            if any(tbl.has_column(col_ref.col.qid) for tbl in self._from_clause.tbls):
                 # col_ref comes from the existing from_clause, we use that directly
                 lhs_col_ref = col_ref
             else:
                 # col_ref comes from other, we need to look for a match in the existing from_clause by name
                 for tbl in self._from_clause.tbls:
-                    col = tbl.get_column(col_ref.col.name)
-                    if col is None:
+                    col_md = tbl.get_column_md_by_name(col_ref.col.name)
+                    if col_md is None:
                         continue
                     if lhs_col_ref is not None:
                         raise excs.RequestError(
                             excs.ErrorCode.UNSUPPORTED_OPERATION,
                             f'`on`: ambiguous column reference: {col_ref.col.name}',
                         )
-                    lhs_col_ref = exprs.ColumnRef(col)
+                    lhs_col_ref = exprs.ColumnRef(col_md)
                 if lhs_col_ref is None:
                     tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
                     raise excs.NotFoundError(
@@ -1209,7 +1233,7 @@ class Query:
         self,
         other: catalog.Table,
         on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
-        how: plan.JoinType.LiteralType = 'inner',
+        how: JoinType.LiteralType = 'inner',
     ) -> Query:
         """
         Join this Query with a table.
@@ -1274,11 +1298,10 @@ class Query:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'`how={how!r}` requires `on` to be present'
                 )
-            join_pred = self._create_join_predicate(other._tbl_version_path, on)
-        join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, '`how`'), join_predicate=join_pred)
-        from_clause = plan.FromClause(
-            tbls=[*self._from_clause.tbls, other._tbl_version_path],
-            join_clauses=[*self._from_clause.join_clauses, join_clause],
+            join_pred = self._create_join_predicate(other.tbl_path, on)
+        join_clause = JoinClause(join_type=JoinType.validated(how, '`how`'), join_predicate=join_pred)
+        from_clause = FromClause(
+            tbls=[*self._from_clause.tbls, other.tbl_path], join_clauses=[*self._from_clause.join_clauses, join_clause]
         )
         return Query(
             from_clause=from_clause,
@@ -1751,7 +1774,7 @@ class Query:
         d = {
             '_classname': 'Query',
             'from_clause': {
-                'tbls': [tbl.as_dict() for tbl in self._from_clause.tbls],
+                'tbls': [tbl.as_dict() for tbl in self._from_clause.tvps],
                 'join_clauses': [dataclasses.asdict(clause) for clause in self._from_clause.join_clauses],
             },
             'select_list': [(e.as_dict(), name) for (e, name) in self.select_list]
@@ -1774,9 +1797,11 @@ class Query:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
         assert get_runtime().in_xact, 'Run Query.from_dict() in a transaction because it may involve metadata loading'
-        tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
-        join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
-        from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
+        tbls: list[catalog.TablePath] = [
+            catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']
+        ]
+        join_clauses = [JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
+        from_clause = FromClause(tbls=tbls, join_clauses=join_clauses)
         select_list = (
             [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] if d['select_list'] is not None else None
         )
@@ -1814,7 +1839,10 @@ class Query:
         # add list of referenced table versions (the actual versions, not the effective ones) in order to force cache
         # invalidation when any of the referenced tables changes
         d['tbl_versions'] = [
-            tbl_version.get().version for tbl in self._from_clause.tbls for tbl_version in tbl.get_tbl_versions()
+            tbl_version.get().version
+            for tbl in self._from_clause.tbls
+            if isinstance(tbl, catalog.TableVersionPath)
+            for tbl_version in tbl.get_tbl_versions()
         ]
         summary_string = json.dumps(d)
         return hashlib.sha256(summary_string.encode()).hexdigest()
@@ -1850,8 +1878,9 @@ class Query:
             assert data_file_path.is_file()
             return data_file_path
         else:
+            assert self._from_clause.is_local
             with get_runtime().catalog.begin_xact(
-                for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=self.referenced_tbl_ids()
+                for_write=False, read_tvps=self._from_clause.tvps, read_tbl_ids=self.referenced_tbl_ids()
             ):
                 return write_coco_dataset(self, dest_path)
 
@@ -1897,8 +1926,9 @@ class Query:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
+            assert self._from_clause.is_local
             with get_runtime().catalog.begin_xact(
-                for_write=False, read_tvps=self._from_clause.tbls, read_tbl_ids=self.referenced_tbl_ids()
+                for_write=False, read_tvps=self._from_clause.tvps, read_tbl_ids=self.referenced_tbl_ids()
             ):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)

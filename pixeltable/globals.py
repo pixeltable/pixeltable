@@ -336,7 +336,7 @@ def create_view(
         sample_clause = None
     elif isinstance(base, Query):
         base._validate_mutable_op_sequence('create_view', allow_select=True)
-        tbl_version_path = base._from_clause.tbls[0]
+        tbl_version_path = base._from_clause.tvps[0]
         where = base.where_clause
         sample_clause = base.sample_clause
         select_list = base.select_list
