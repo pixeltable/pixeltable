@@ -129,7 +129,7 @@ class LoadViewOp(TableOp):
     view_path: dict[str, Any]  # needed to create the view load plan
 
     def exec(self, tv: TableVersion | None) -> None:
-        from pixeltable.catalog.table_version_path import TableVersionPath
+        from pixeltable.catalog.table_path import TableVersionPath
         from pixeltable.plan import Planner
 
         fault_injection.process_fault(FaultLocation.CATALOG_LOAD_VIEW_OP_EXEC)

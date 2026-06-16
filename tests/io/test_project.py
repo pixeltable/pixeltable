@@ -163,7 +163,8 @@ class TestProject:
         assert t.rot_other_img.col.handle in store1.stored_proxies  # Stored proxy
         assert store1.stored_proxies[t.rot_other_img.col.handle].get().get_tbl().id == t._tbl_version.id
         # Verify that the stored proxies are properly materialized, and we can query them
-        ref = ColumnRef(store1.stored_proxies[t.rot_img.col.handle].get())
+        col = store1.stored_proxies[t.rot_img.col.handle].get()
+        ref = ColumnRef(col.column_version_md())
         proxies = t.select(img=ref, path=ref.localpath).collect()
         assert all(os.path.isfile(proxies['path'][i]) for i in range(len(proxies)))
         proxies['img'][0].load()
