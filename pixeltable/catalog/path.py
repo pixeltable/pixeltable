@@ -51,7 +51,7 @@ class Path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, 'Path must have at least one component')
         # ('',) is the root sentinel; any other component must be a valid identifier
         if self.components != ('',) and not all(is_valid_identifier(c, allow_hyphens=True) for c in self.components):
-            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path component in {self.components!r}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {".".join(self.components)}')
 
     @classmethod
     def parse(cls, path: str, *, allow_empty_path: bool = False, allow_versioned_path: bool = False) -> Path:
