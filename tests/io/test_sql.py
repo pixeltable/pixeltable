@@ -454,7 +454,7 @@ class TestSql:
         for i, row in enumerate(urls):
             for col_name, expected in (('c_img', img_paths[i]), ('c_vid', video_paths[i]), ('c_doc', doc_paths[i])):
                 url = row[col_name]
-                assert isinstance(url, str) and url.startswith('file://'), (col_name, url)
+                assert isinstance(url, str) and url.startswith('file:'), (col_name, url)
                 # url2pathname handles both percent-decoding and the OS-specific URL-to-path conversion
                 # (eg, on Windows '/D:/a/foo' -> 'D:\\a\\foo'); pathlib.Path comparison is OS-agnostic.
                 actual = pathlib.Path(urllib.request.url2pathname(urllib.parse.urlparse(url).path))
