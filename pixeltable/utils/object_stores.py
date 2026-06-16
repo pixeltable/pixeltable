@@ -521,7 +521,7 @@ class ObjectOps:
         tbl_id: UUID,
         col_id: int,
         tbl_version: int,
-        col_name: str | None,
+        col_name: str,
         src_path: Path,
         relocate_or_delete: bool,
     ) -> str:
