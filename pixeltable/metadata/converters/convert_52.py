@@ -17,8 +17,7 @@ def _(engine: sql.engine.Engine) -> None:
 
     This converter reads all table and schema metadata in memory, updates them, and writes them back.
     """
-    assert engine.dialect.name in ('cockroachdb', 'postgresql'), engine.dialect.name
-    is_cockroachdb = engine.dialect.name == 'cockroachdb'
+    assert engine.dialect.name == 'postgresql', engine.dialect.name
 
     with engine.connect().execution_options(isolation_level='SERIALIZABLE') as conn:
         # Read the table and table schema version metadata from the store
@@ -38,7 +37,7 @@ def _(engine: sql.engine.Engine) -> None:
 
         # Convert and write back the updated metadata
         for tbl_id, tbl_md in table_mds.items():
-            _convert_table_and_versions(tbl_md, table_schema_versions[tbl_id], is_cockroachdb)
+            _convert_table_and_versions(tbl_md, table_schema_versions[tbl_id])
             result = conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=tbl_md))
             assert result.rowcount == 1
             for schema_version, schema_version_md in table_schema_versions[tbl_id].items():
@@ -90,7 +89,7 @@ def _get_embedding_val_col_precisions(table_md: dict) -> dict[str, str]:
     return result
 
 
-def _convert_table_and_versions(table_md: dict, schema_versions: dict[int, dict], is_cockroachdb: bool) -> None:
+def _convert_table_and_versions(table_md: dict, schema_versions: dict[int, dict]) -> None:
     assert len(schema_versions) > 0, table_md.get('tbl_id')
     # Build map of embedding index val/undo col_ids to precision, to assign correct Vector SA types. Nothing special
     # is needed for B-tree indexes as their columns simply inherit the type of the indexed column.
@@ -113,16 +112,12 @@ def _convert_table_and_versions(table_md: dict, schema_versions: dict[int, dict]
                 shape = col_type.get('shape')
                 assert shape is not None and len(shape) == 1, f'Expected 1-D shape for embedding col, got {shape!r}'
                 vector_len = shape[0]
-                if is_cockroachdb:
-                    sa_col_type = {'type': 'Vector', 'dim': vector_len}
-                else:
-                    # postgresql
-                    precision = embedding_val_col_precisions[col_id]
-                    sa_col_type = (
-                        {'type': 'HalfVec', 'dim': vector_len}
-                        if precision == 'fp16'
-                        else {'type': 'Vector', 'dim': vector_len}
-                    )
+                precision = embedding_val_col_precisions[col_id]
+                sa_col_type = (
+                    {'type': 'HalfVec', 'dim': vector_len}
+                    if precision == 'fp16'
+                    else {'type': 'Vector', 'dim': vector_len}
+                )
             else:
                 sa_col_type = _CLASSNAME_TO_SA_TYPE[classname]
         table_col_md['sa_col_type'] = sa_col_type
