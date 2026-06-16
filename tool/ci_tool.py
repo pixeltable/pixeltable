@@ -8,7 +8,6 @@ Command-line utility for CI/CD operations.
 import argparse
 import json
 import os
-import pathlib
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +21,7 @@ MAIN_PLATFORM = 'ubuntu-24.04'
 BASIC_PLATFORMS = ('macos-15', 'windows-2025')
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
+
 
 class MatrixConfig(NamedTuple):
     display_name_prefix: str
