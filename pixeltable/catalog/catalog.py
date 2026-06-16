@@ -1514,9 +1514,8 @@ class Catalog:
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
                 base_id = base.tbl_id
-                locked_ids = self._acquire_write_lock(tbl_id=base_id)
-                assert locked_ids == {base_id}, base_id
-                self._x_locked_tbl_ids.update(locked_ids)
+                assert len(self._acquire_write_lock(tbl_id=base_id)) == 1, base_id
+                self._x_locked_tbl_ids.add(base_id)
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None), validate_initialized=True)
                 self.mark_modified_tv(base_tv.handle)
                 base_tv.tbl_md.view_sn += 1
