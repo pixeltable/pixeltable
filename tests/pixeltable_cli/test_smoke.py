@@ -909,6 +909,39 @@ class TestDashboard:
         assert csv_body.splitlines()[0] == 'x'
         assert 'cli_dash_t_t.csv' in disp
 
+    def test_dirs_and_status_contract(self, cli: PxtRunner, pxt_daemon: int) -> None:
+        """Pin the response shapes the dashboard SPA reads in dashboard/src/api/client.ts.
+        getDirectoryTree reads the node list from tree.entries of /api/dirs?tree=true (the response
+        is an object, not a top-level array), and getStatus reads the flat pxt_version / home /
+        total_* fields from /api/status and maps them into its own nested shape."""
+        pxt.create_dir('cli_dash_contract', if_exists='ignore')
+        pxt.create_table('cli_dash_contract.t', {'x': pxt.Int}, if_exists='replace')
+        base = f'http://127.0.0.1:{pxt_daemon}'
+
+        with urllib.request.urlopen(f'{base}/api/dirs?tree=true', timeout=5) as r:
+            dirs = json.loads(r.read())
+        # The SPA indexes into tree.entries; calling .reduce() on the response itself is the crash
+        # this guards against, so the response must be an object and tree.entries must be a list.
+        assert isinstance(dirs, dict)
+        assert isinstance(dirs['tree']['entries'], list)
+        dir_node = next(n for n in dirs['tree']['entries'] if n['path'] == 'cli_dash_contract')
+        assert dir_node['kind'] == 'directory'
+        assert all(k in dir_node for k in ('name', 'path', 'kind', 'entries'))
+        table_node = next(n for n in dir_node['entries'] if n['path'] == 'cli_dash_contract/t')
+        assert table_node['kind'] == 'table'
+        assert all(k in table_node for k in ('name', 'path', 'kind', 'version', 'error_count', 'base'))
+
+        with urllib.request.urlopen(f'{base}/api/status', timeout=5) as r:
+            status = json.loads(r.read())
+        # The fields the SPA maps from. They are flat on the response; a regression to a nested
+        # {version, config} shape would silently break getStatus, so pin the flat layout.
+        assert all(
+            k in status
+            for k in ('pxt_version', 'home', 'db_url', 'media_dir', 'file_cache_dir', 'total_tables', 'total_errors')
+        )
+        assert 'version' not in status
+        assert 'config' not in status
+
     def test_spa_static_files(self, cli: PxtRunner, pxt_daemon: int) -> None:
         """GET / returns the SPA shell; bundled assets are served from /."""
         base = f'http://127.0.0.1:{pxt_daemon}'
