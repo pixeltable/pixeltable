@@ -243,7 +243,7 @@ def create_table(
                 tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
         elif data_source is not None and not is_direct_query:
             assert isinstance(tbl, catalog.InsertableTable)
-            tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+            tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
     return tbl
 
@@ -336,7 +336,7 @@ def create_view(
         sample_clause = None
     elif isinstance(base, Query):
         base._validate_mutable_op_sequence('create_view', allow_select=True)
-        tbl_version_path = base._from_clause.tbls[0]
+        tbl_version_path = base._from_clause.tvps[0]
         where = base.where_clause
         sample_clause = base.sample_clause
         select_list = base.select_list

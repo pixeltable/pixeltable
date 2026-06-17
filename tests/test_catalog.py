@@ -11,7 +11,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 from tests.coordinator import MultiThreadedScenario
 from tests.fault_injection import BlockFault, ExceptionFault
-from tests.utils import pxt_raises, skip_test_if_cockroachdb
+from tests.utils import pxt_raises
 
 
 class TestCatalog:
@@ -336,7 +336,6 @@ class TestCatalog:
         COMMITTED isolation level, this scenario results in an AssertionError because the base table and
         the view are inconsistent with one another.
         """
-        skip_test_if_cockroachdb()
         base = pxt.create_table('base', {'a': pxt.Int})
         v = pxt.create_view('v', base)
         block_before_init = BlockFault()

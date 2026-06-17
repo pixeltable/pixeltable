@@ -165,9 +165,11 @@ class EmbeddingIndex(IndexBase):
                 f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.',
             )
 
+        col_md = c.column_version_md()
+
         # For ARRAY columns, return column reference directly - array already contains the embeddings.
         if c.col_type.is_array_type():
-            return exprs.ColumnRef(c)
+            return exprs.ColumnRef(col_md)
         # For non-array columns, apply the embedding function
         if c.col_type._type not in self.embeddings:
             raise excs.RequestError(
@@ -176,7 +178,7 @@ class EmbeddingIndex(IndexBase):
             )
 
         embed_fn = self.embeddings[c.col_type._type]
-        return embed_fn(exprs.ColumnRef(c))
+        return embed_fn(exprs.ColumnRef(col_md))
 
     def records_value_errors(self) -> bool:
         return True

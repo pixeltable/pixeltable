@@ -2,7 +2,7 @@
 
 import pixeltable as pxt
 from pixeltable.index.btree import BtreeIndex
-from tests.utils import pxt_raises, reload_catalog, skip_test_if_cockroachdb, validate_update_status
+from tests.utils import pxt_raises, reload_catalog, validate_update_status
 
 
 class TestPrimaryKeyIndex:
@@ -86,7 +86,6 @@ class TestPrimaryKeyIndex:
 
     def test_pk_index_row_too_large(self, uses_db: None) -> None:
         """Many PK columns can exceed the btree max row size; error message should be user-friendly."""
-        skip_test_if_cockroachdb('CockroachDB does not enforce the same btree row-size limit as PostgreSQL')
         schema = {f'k{i}': pxt.Required[pxt.String] for i in range(11)}
         pk_cols = [f'k{i}' for i in range(11)]
         t = pxt.create_table('test_pk', schema, primary_key=pk_cols)

@@ -84,7 +84,8 @@ PxtRunner = Callable[..., PxtResult]
 @pytest.fixture
 def cli(pxt_daemon: int, uses_db: None) -> PxtRunner:
     def _run(*args: str, check: bool = True) -> PxtResult:
-        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
+        # BROWSER=true prevents an actual browser tab open on `pxt dashboard` when tests are run on a dev machine.
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
         r = subprocess.run(
             ['pxt', *args], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL
         )

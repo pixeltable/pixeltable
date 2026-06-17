@@ -118,6 +118,7 @@ class RowBuilder:
         input_exprs: Iterable[Expr],
         tbl: catalog.TableVersion | None = None,
         for_view_load: bool = False,
+        iter_args: 'dict[UUID, Expr] | None' = None,
     ):
         from .column_property_ref import ColumnPropertyRef
         from .column_ref import ColumnRef
@@ -165,7 +166,8 @@ class RowBuilder:
                     if not col.col_type.is_media_type()
                     else col.media_validation == catalog.MediaValidation.ON_WRITE
                 )
-                expr = ColumnRef(col, perform_validation=perform_validation)
+                pv = bool(perform_validation) if perform_validation is not None else False
+                expr = ColumnRef(col.column_version_md(), pv)
                 # recursive=True: needed for validating ColumnRef
                 expr = self._record_unique_expr(expr, recursive=True)
 
@@ -194,12 +196,20 @@ class RowBuilder:
         col_refs = [e for e in self.unique_exprs if isinstance(e, ColumnRef)]
         col_refs_needing_iter_eval = [col_ref for col_ref in col_refs if col_ref.needs_iterator_evaluation]
         component_views = [col_ref.col.get_tbl() for col_ref in col_refs_needing_iter_eval]
-        unstored_iter_args = {view.id: view.iterator_args_expr() for view in component_views}
+
+        # The (stored) iterator args reference base columns and must resolve to the same TableVersion instances as
+        # the rest of the query (e.g. a snapshot's pinned base, not the live base). The caller that knows the query's
+        # table instances (the planner) supplies the already-retargeted args in iter_args; absent that, the view's
+        # own (live) args are used as-is, which is correct when the component view is the live target being populated.
+        unstored_iter_args = {
+            view.id: iter_args[view.id] if iter_args is not None else view.iterator_args_expr()
+            for view in component_views
+        }
 
         # the *stored* output columns of the unstored iterators
         self.unstored_iter_outputs = {
             view.id: [
-                self._record_unique_expr(ColumnRef(col), recursive=True)
+                self._record_unique_expr(ColumnRef(col.column_version_md()), recursive=True)
                 for col in view.iterator_columns()
                 if col.is_stored
             ]
