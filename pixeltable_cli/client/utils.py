@@ -4,6 +4,7 @@ read the pidfile, tail the log on failed startup. Stdlib-only so importing this 
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -77,9 +78,21 @@ def spawn_detached() -> None:
             )
         else:
             popen_kwargs['start_new_session'] = True
+
+        # `python -m` puts the daemon's working directory at the front of sys.path. If pxt is
+        # invoked from a directory that contains a pixeltable/ or pixeltable_cli/ folder, that
+        # folder shadows the installed package and the daemon imports the wrong code. Anchor the
+        # daemon's cwd to the pixeltable home (which holds no importable packages) and set
+        # PYTHONSAFEPATH so the working directory is not prepended to sys.path at all (3.11+).
+        env = {**os.environ, 'PYTHONSAFEPATH': '1'}
         with open(log_path, 'a', encoding='utf-8') as log:
             subprocess.Popen(
-                [sys.executable, '-m', 'pixeltable_cli.server.daemon'], stdout=log, stderr=log, **popen_kwargs
+                [sys.executable, '-m', 'pixeltable_cli.server.daemon'],
+                stdout=log,
+                stderr=log,
+                cwd=_resolve_pixeltable_home(),
+                env=env,
+                **popen_kwargs,
             )
     except OSError as e:
         reason = e.strerror or e.__class__.__name__
@@ -102,17 +115,67 @@ def _tail_daemon_log(n_lines: int = 10) -> str:
     return '\n'.join(lines[-n_lines:]).rstrip()
 
 
-def wait_for_health(timeout: float = 15.0) -> None:
+def _await_health(timeout: float) -> bool:
+    """Poll /api/health until it responds or the timeout elapses. Returns whether it came up."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if is_running():
-            return
+            return True
         time.sleep(0.1)
+    return False
+
+
+def wait_for_health(timeout: float = 15.0) -> None:
+    if _await_health(timeout):
+        return
     tail = _tail_daemon_log()
     msg = f'pxt daemon did not come up within {timeout}s'
     if tail != '':
         msg += f'\n--- daemon log tail ---\n{tail}'
     raise RuntimeError(msg)
+
+
+# A daemon that is starting up has already written its pidfile (the bind precedes the write) but
+# does not serve /api/health until it finishes importing pixeltable. Before treating a live-but-silent daemon as hung,
+# give it this long to come up so we don't kill one that a concurrent pxt invocation just spawned.
+_STARTUP_GRACE_PERIOD_SECS = 10.0
+
+
+# The module the daemon is launched as (see spawn_detached()). We match the `-m <module>` launch
+# form rather than a bare substring so a recycled PID whose argv merely mentions the module name
+# (eg `python -c '...pixeltable_cli.server.daemon...'`) isn't mistaken for our daemon and killed.
+_DAEMON_MODULE = 'pixeltable_cli.server.daemon'
+_DAEMON_CMDLINE_RE = re.compile(rf'-m\s+{re.escape(_DAEMON_MODULE)}(\s|$)')
+
+
+def _pid_cmdline(pid: int) -> str | None:
+    """The command line of pid as a single string, or None if it can't be read."""
+    # Linux exposes argv directly and cheaply via /proc; no subprocess needed.
+    try:
+        with open(f'/proc/{pid}/cmdline', 'rb') as f:
+            raw = f.read()
+        if raw != b'':
+            return raw.replace(b'\x00', b' ').decode('utf-8', errors='replace')
+    except OSError:
+        pass
+    if _IS_WINDOWS:
+        # No cheap stdlib argv source; the caller falls back to refusing to kill.
+        return None
+    # macOS/BSD (and Linux without a readable /proc entry): ask ps for the full command line.
+    try:
+        out = subprocess.run(
+            ['ps', '-p', str(pid), '-o', 'args='], capture_output=True, text=True, timeout=2.0, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = out.stdout.strip()
+    return line if line != '' else None
+
+
+def _pid_is_our_daemon(pid: int) -> bool:
+    """Best-effort check that pid is one of our daemon processes rather than an unrelated process."""
+    cmdline = _pid_cmdline(pid)
+    return cmdline is not None and _DAEMON_CMDLINE_RE.search(cmdline) is not None
 
 
 def _pid_alive(pid: int) -> bool:
@@ -193,6 +256,18 @@ def ensure_running() -> str:
                     f'pxt daemon restart did not produce a matching responder on port {get_port()}: {reason}'
                 )
     else:
+        # Nothing is answering /api/health. Either no daemon is up, or one we started bound the
+        # port and then wedged before serving health. The pidfile records the PID, but PIDs get
+        # recycled and the file is only bookkeeping, so a live PID is not proof of ownership: only
+        # reclaim the port (kill the holder) once we've confirmed the live process is actually our
+        # daemon. An unconfirmed PID is treated as a stale pidfile and we just spawn.
+        stale_pid = read_pidfile()
+        if stale_pid is not None and _pid_alive(stale_pid) and _pid_is_our_daemon(stale_pid):
+            # It may just be slow to start, so give it a grace window before concluding it is
+            # hung; a daemon that comes up in the meantime is used as-is.
+            if _await_health(_STARTUP_GRACE_PERIOD_SECS):
+                return base_url()
+            kill_and_wait(stale_pid)
         spawn_detached()
         wait_for_health()
     return base_url()

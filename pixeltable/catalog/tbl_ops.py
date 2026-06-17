@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import sqlalchemy as sql
 
+import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import fault_injection
@@ -168,12 +169,28 @@ class CreateTableMdOp(TableOp):
 
 @dataclasses.dataclass
 class DeleteTableMdOp(TableOp):
+    """
+    If it's a mutable view that's being dropped, this op will also advance the base table's view_sn. mutable_base_tbl_id
+    must be provided in that case.
+    """
+
     needs_tv: ClassVar[bool] = False
     needs_xact: ClassVar[bool] = True
 
+    # Defaults to None so that already existing pending ops can be deserialized. TODO: clean this up later
+    mutable_base_tbl_id: str | None = None
+
     def exec(self, tv: TableVersion | None) -> None:
         assert get_runtime().in_xact
-        get_runtime().catalog.delete_tbl_md(uuid.UUID(self.tbl_id))
+        cat = get_runtime().catalog
+        if self.mutable_base_tbl_id is not None:
+            try:
+                cat._incr_view_sn(uuid.UUID(self.mutable_base_tbl_id))
+            except excs.NotFoundError as e:
+                # The base may have already been dropped if we're tearing down the entire hierarchy at once.
+                if e.error_code != excs.ErrorCode.TABLE_NOT_FOUND:
+                    raise
+        cat.delete_tbl_md(uuid.UUID(self.tbl_id))
 
     def undo(self, tv: TableVersion | None) -> None:
         raise AssertionError()
