@@ -193,6 +193,7 @@
                       "howto/cookbooks/data/data-export-s3",
                       "howto/cookbooks/data/data-export-pytorch",
                       "howto/cookbooks/data/data-export-sql",
+                      "howto/cookbooks/data/data-export-analytics",
                       "howto/cookbooks/data/data-sampling"
                     ]
                   }
