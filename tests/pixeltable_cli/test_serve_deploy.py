@@ -194,7 +194,7 @@ class TestCLI:
             assert cfg.port == 9999
             assert cfg.host == '127.0.0.1'
             assert cfg.name == 'test-service'
-            mock_uvi_config.assert_called_once_with('fake_app', host='127.0.0.1', port=9999)
+            mock_uvi_config.assert_called_once_with('fake_app', host='127.0.0.1', port=9999, log_config=None)
             mock_run.assert_called_once_with()
 
             mock_create.reset_mock()
@@ -218,7 +218,7 @@ class TestCLI:
             assert route.outputs == ['id', 'name', 'name_upper']
             assert route.background is True
             assert route.return_fileresponse is False
-            mock_uvi_config.assert_called_once_with('fake_app', host='0.0.0.0', port=9000)
+            mock_uvi_config.assert_called_once_with('fake_app', host='0.0.0.0', port=9000, log_config=None)
             mock_run.assert_called_once_with()
 
             mock_create.reset_mock()
