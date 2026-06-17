@@ -1158,7 +1158,9 @@ class FastAPIRouter(fastapi.APIRouter):
         # current columns. Subsequent requests use this materialized query, so adding or
         # dropping columns on the underlying table doesn't silently change the API contract.
         template_query = query.template_query
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=template_query._from_clause.tbls):
+        from_clause = template_query._from_clause
+        assert from_clause.is_local
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=from_clause.tvps):
             effective_select_list = list(template_query._effective_select_list)
         template_query = pxt.Query(
             select_list=[(e, n) for e, n in effective_select_list],
@@ -1261,7 +1263,7 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            with get_runtime().catalog.begin_xact(for_write=False, read_tvps=template_query._from_clause.tbls):
+            with get_runtime().catalog.begin_xact(for_write=False, read_tvps=template_query._from_clause.tvps):
                 result_set = template_query._collect(args=call_kwargs)
             rows = list(result_set)
 

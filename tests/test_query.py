@@ -185,6 +185,16 @@ class TestQuery:
         assert len(pd_df[~pd_df.f.isnull()]) == 100  # correct number of nulls
         assert (pd_df[~pd_df.f.isnull()].out == 1000.0).all()  # correct sum
 
+        # full outer join:
+        # - t1 ids are 0..999, t3 ids are 0,10,...,9990
+        # - 100 ids match, 900 are t1-only, and 900 are t3-only
+        query = t1.join(t3, on=t1.id == t3.id, how='full_outer').select(left_i=t1.i, right_f=t3.f)
+        pd_df = query.collect().to_pandas()
+        assert len(pd_df) == 1900
+        assert len(pd_df[pd_df.left_i.isnull()]) == 900  # t3-only rows
+        assert len(pd_df[pd_df.right_f.isnull()]) == 900  # t1-only rows
+        assert len(pd_df[pd_df.left_i.notnull() & pd_df.right_f.notnull()]) == 100  # matched rows
+
         # TODO: implement right outer join
         # # right outer join
         # df = (

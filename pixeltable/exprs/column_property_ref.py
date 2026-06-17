@@ -56,9 +56,9 @@ class ColumnPropertyRef(Expr):
         return self.prop in (self.Property.ERRORTYPE, self.Property.ERRORMSG, self.Property.CELLMD)
 
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
-        if not self.col_ref.col_handle.get().is_stored:
+        col = self.col_ref.col
+        if not col.is_stored:
             return None
-        col = self.col_ref.col_handle.get()
 
         # the errortype/-msg properties of a read-validated media column need to be extracted from the DataRow
         if (
