@@ -933,8 +933,9 @@ class Catalog:
 
             except Exception as e:
                 if excs.is_table_not_found_error(e):
-                    _logger.error(f'Finalize pending ops({tbl_id}): table not found', exc_info=True)
-                    raise
+                    _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
+                    # nothing to do
+                    return None
 
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
                     _logger.error(
@@ -1697,21 +1698,6 @@ class Catalog:
                     msg = f'{tbl._display_str()} has dependents.'
                 raise excs.RequestError(excs.ErrorCode.CONSTRAINT_VIOLATION, msg)
 
-        # if this is a mutable view of a mutable base, advance the base's view_sn
-        if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
-            base_id = tvp.base.tbl_id
-            base_tv = self._get_tbl_version(TableVersionKey(base_id, None), validate_initialized=True)
-            self.mark_modified_tv(base_tv.handle)
-            base_tv.tbl_md.view_sn += 1
-            result = get_runtime().conn.execute(
-                sql.update(schema.Table.__table__)
-                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
-                .where(schema.Table.id == base_id)
-            )
-            assert result.rowcount == 1, result.rowcount
-            # force reload of base TV instance in order to make its state consistent with the stored metadata
-            self._clear_tv_cache(base_tv.key)
-
         if is_pure_snapshot:
             # there is no physical table, but we still need to delete the Table record; we can do that right now
             # as part of the current transaction
@@ -1745,6 +1731,23 @@ class Catalog:
             del self._tbls[tbl_id, version]
 
         _logger.info(f'Dropped table {tbl_path_repr}.')
+
+    def _incr_view_sn(self, tbl_id: UUID) -> None:
+        """Increments the table's view_sn in the store within the current transaction"""
+        self._clear_tv_cache(TableVersionKey(tbl_id, None))
+        assert self._acquire_write_lock(tbl_id=tbl_id, check_pending_ops=False), tbl_id
+        result = get_runtime().conn.execute(
+            sql.update(schema.Table)
+            .values(
+                md=sql.func.jsonb_set(
+                    schema.Table.md,
+                    pg_array(['view_sn']),
+                    sql.func.to_jsonb(sql.cast(schema.Table.md['view_sn'].astext, sql.Integer) + 1),
+                )
+            )
+            .where(schema.Table.id == tbl_id)
+        )
+        assert result.rowcount == 1, (tbl_id, result.rowcount)
 
     @retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
@@ -2558,6 +2561,7 @@ class Catalog:
         # register this instance as modified, so that it gets purged if the transaction fails, it may not be
         # fully initialized
         self.mark_modified_tv(tbl_version.handle)
+        fault_injection.process_fault(FaultLocation.CATALOG_LOAD_TBL_VERSION_BEFORE_INIT)
         tbl_version.init()
         return tbl_version
 
