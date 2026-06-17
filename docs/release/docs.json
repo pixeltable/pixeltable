@@ -42,8 +42,7 @@
               "platform/iterators",
               "platform/embedding-indexes",
               "platform/version-control",
-              "platform/external-files",
-              "platform/data-sharing"
+              "platform/external-files"
             ]
           },
           {
@@ -99,6 +98,7 @@
                       "howto/cookbooks/core/multimodal_backend",
                       "howto/cookbooks/core/workflow-api-keys",
                       "howto/cookbooks/core/dev-iterative-workflow",
+                      "howto/cookbooks/core/working-with-cli",
                       "howto/cookbooks/core/workflow-json-extraction",
                       "howto/cookbooks/core/workflow-uuid-identity",
                       "howto/cookbooks/core/query-join-tables",
@@ -156,6 +156,7 @@
                       "howto/cookbooks/audio/audio-transcribe",
                       "howto/use-cases/audio-transcriptions",
                       "howto/cookbooks/audio/audio-summarize-podcast",
+                      "howto/cookbooks/audio/audio-podcast-chapters",
                       "howto/cookbooks/audio/audio-text-to-speech",
                       "howto/cookbooks/audio/audio-extract-from-video"
                     ]
@@ -319,8 +320,7 @@
           {
             "group": "Pixeltable Cloud",
             "pages": [
-              "use-cases/services",
-              "use-cases/get-started"
+              "use-cases/services"
             ]
           }
         ]
@@ -484,6 +484,10 @@
     },
     {
       "source": "/overview/installation",
+      "destination": "/overview/quick-start"
+    },
+    {
+      "source": "/quickstart",
       "destination": "/overview/quick-start"
     },
     {
@@ -657,10 +661,6 @@
     {
       "source": "/cloud/services",
       "destination": "/use-cases/services"
-    },
-    {
-      "source": "/cloud/get-started",
-      "destination": "/use-cases/get-started"
     }
   ]
 }

@@ -19,6 +19,7 @@ from pixeltable.functions.video import frame_iterator
 
 from .utils import (
     ReloadTester,
+    create_all_datatypes_tbl,
     get_audio_files,
     get_documents,
     get_video_files,
@@ -183,6 +184,16 @@ class TestQuery:
         assert len(pd_df) == 1000
         assert len(pd_df[~pd_df.f.isnull()]) == 100  # correct number of nulls
         assert (pd_df[~pd_df.f.isnull()].out == 1000.0).all()  # correct sum
+
+        # full outer join:
+        # - t1 ids are 0..999, t3 ids are 0,10,...,9990
+        # - 100 ids match, 900 are t1-only, and 900 are t3-only
+        query = t1.join(t3, on=t1.id == t3.id, how='full_outer').select(left_i=t1.i, right_f=t3.f)
+        pd_df = query.collect().to_pandas()
+        assert len(pd_df) == 1900
+        assert len(pd_df[pd_df.left_i.isnull()]) == 900  # t3-only rows
+        assert len(pd_df[pd_df.right_f.isnull()]) == 900  # t1-only rows
+        assert len(pd_df[pd_df.left_i.notnull() & pd_df.right_f.notnull()]) == 100  # matched rows
 
         # TODO: implement right outer join
         # # right outer join
@@ -869,7 +880,7 @@ class TestQuery:
             elt_count += 1
         assert elt_count == 1
 
-    def test_pytorch_dataset_caching(self, all_datatypes_tbl: pxt.Table) -> None:
+    def test_pytorch_dataset_caching(self, uses_db: None) -> None:
         """Tests that dataset caching works
         1. using the same dataset twice in a row uses the cache
         2. adding a row to the table invalidates the cached version
@@ -878,7 +889,8 @@ class TestQuery:
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
-        t = all_datatypes_tbl
+        # to_pytorch_dataset goes through arrow codepath via export_parquet
+        t = create_all_datatypes_tbl(arrow_compatible_json=True)
 
         t.drop_column('c_video')  # null value video column triggers internal assertions in DataRow
         # see https://github.com/pixeltable/pixeltable/issues/38

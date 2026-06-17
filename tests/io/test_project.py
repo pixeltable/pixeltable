@@ -10,7 +10,7 @@ from pixeltable.io.external_store import MockProject, Project
 from pixeltable.type_system import ColumnType
 from tests.utils import get_image_files, pxt_raises, reload_catalog
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger('pixeltable_test')
 
 
 class TestProject:
@@ -163,7 +163,8 @@ class TestProject:
         assert t.rot_other_img.col.handle in store1.stored_proxies  # Stored proxy
         assert store1.stored_proxies[t.rot_other_img.col.handle].get().get_tbl().id == t._tbl_version.id
         # Verify that the stored proxies are properly materialized, and we can query them
-        ref = ColumnRef(store1.stored_proxies[t.rot_img.col.handle].get())
+        col = store1.stored_proxies[t.rot_img.col.handle].get()
+        ref = ColumnRef(col.column_version_md())
         proxies = t.select(img=ref, path=ref.localpath).collect()
         assert all(os.path.isfile(proxies['path'][i]) for i in range(len(proxies)))
         proxies['img'][0].load()

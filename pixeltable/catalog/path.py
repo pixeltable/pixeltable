@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import logging
 from typing import NamedTuple
 
 from pixeltable import exceptions as excs
 
 from .globals import is_valid_identifier
-
-_logger = logging.getLogger('pixeltable')
 
 
 class Path(NamedTuple):
@@ -15,13 +12,7 @@ class Path(NamedTuple):
     version: int | None = None
 
     @classmethod
-    def parse(
-        cls,
-        path: str,
-        allow_empty_path: bool = False,
-        allow_system_path: bool = False,
-        allow_versioned_path: bool = False,
-    ) -> Path:
+    def parse(cls, path: str, allow_empty_path: bool = False, allow_versioned_path: bool = False) -> Path:
         components: tuple[str, ...]
         version: int | None
         # Extract version if present
@@ -50,9 +41,7 @@ class Path(NamedTuple):
         if components == ('',) and not allow_empty_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
 
-        if components != ('',) and not all(
-            is_valid_identifier(c, allow_system_identifiers=allow_system_path, allow_hyphens=True) for c in components
-        ):
+        if components != ('',) and not all(is_valid_identifier(c, allow_hyphens=True) for c in components):
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
 
         if version is not None and not allow_versioned_path:
@@ -72,10 +61,6 @@ class Path(NamedTuple):
     @property
     def is_root(self) -> bool:
         return not self.components[0]
-
-    @property
-    def is_system_path(self) -> bool:
-        return self.components[0].startswith('_')
 
     @property
     def parent(self) -> Path:

@@ -1,26 +1,31 @@
 name: tests
 
 # On PR updates, the basic test configurations are run:
-#   - Python 3.10 on ubuntu-24.04, macos-15, and windows-2022 runners.
+#   - Python 3.10 on ubuntu-24.04, macos-15, and windows-2025 runners.
 #   - A minimal installation of Pixeltable (--no-dev) with Python 3.10 on ubuntu-24.04.
-#   - Notebook tests.
 #   - Linting, type-checking, docstring validation, etc.
 #   - Random ops (for 30 minutes).
 #
 # In merge queue, all of the above configurations are run, and additionally:
-#   - Python 3.14 on ubuntu-24.04, macos-15, and windows-2022 runners.
+#   - Python 3.14 on ubuntu-24.04, macos-15, and windows-2025 runners.
 #   - Python 3.11, 3.12, and 3.13 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.14 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.10 on ubuntu-24.04-arm and macos-15-intel.
+#   - Notebook tests, excluding Hugging Face-dependent notebooks.
 #
 # On a weekly schedule, all of the above configurations are run (against branch 'main'), and additionally:
 #   - Python 3.10 on ubuntu-t4 (equipped with an NVIDIA T4 GPU).
+#   - Hugging Face-dependent and other expensive notebook tests.
 #
 # A workflow_dispatch trigger will emulate the merge queue tests by default, but can be optionally
 #     selected to run all configurations including ubuntu-t4.
 #
 # Github Actions secrets are unavailable on PRs; hence any tests that require API keys will be skipped.
 # Secrets are available on all other triggers.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
   pull_request:
@@ -53,7 +58,11 @@ env:
   PXTTEST_COCKROACH_DB_ROOT_CERT: ${{ secrets.PXTTEST_COCKROACH_DB_ROOT_CERT }}
   PXTTEST_IN_CI: 1
   MINTLIFY_VERSION: 4.2.506
-  NB_TEST_OPTS: ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-expensive' || '' }}
+  # HF-dependent notebooks (--include-expensive) and resource/dollar-heavy notebooks (--include-very-expensive) run
+  # only on the scheduled tier (or a run-on-all-platforms dispatch). The merge queue runs the remaining non-HF
+  # notebooks; PRs run none.
+  NB_TEST_OPTS: >-
+    ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-very-expensive --include-expensive' || '' }}
   UV_VERSION: 0.9.3
 
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
@@ -85,7 +94,7 @@ env:
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
   GOOGLE_APPLICATION_CREDENTIALS: '/tmp/gcs-key.json'
   GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-  HF_AUTH_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
   JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -204,6 +213,14 @@ jobs:
         run: uv cache clean
       - name: Set up credentials
         run: ./scripts/set-up-ci-credentials.sh
+      - name: Build dashboard SPA
+        # The pxt daemon serves the SPA bundle when the dashboard feature flag is enabled;
+        # tests/pixeltable_cli/test_smoke.py exercises that path. The build output is gitignored,
+        # so CI has to produce it before the test job runs.
+        if: ${{ matrix.test-category == 'py' }}
+        run: |
+          conda install -y -c conda-forge nodejs
+          cd dashboard && npm install --silent && npm run build
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:

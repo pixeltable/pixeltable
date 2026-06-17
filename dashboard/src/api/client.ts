@@ -22,7 +22,7 @@ export async function getDirectoryTree(): Promise<TreeNode[]> {
 }
 
 export async function getTableMetadata(path: string): Promise<TableMetadata> {
-  return fetchJson<TableMetadata>(`${API_BASE}/tables/meta/${encodeURIComponent(path)}`);
+  return fetchJson<TableMetadata>(`${API_BASE}/dashboard/tables/${encodeURIComponent(path)}/meta`);
 }
 
 export async function getTableData(
@@ -43,17 +43,19 @@ export async function getTableData(
   if (options.errorsOnly) params.set('errors_only', 'true');
 
   const query = params.toString();
-  return fetchJson<TableData>(`${API_BASE}/tables/data/${encodeURIComponent(path)}${query ? `?${query}` : ''}`);
+  return fetchJson<TableData>(`${API_BASE}/dashboard/tables/${encodeURIComponent(path)}/data${query ? `?${query}` : ''}`);
 }
 
 export async function search(query: string, limit = 50): Promise<SearchResults> {
   const params = new URLSearchParams({ q: query, limit: String(limit) });
-  return fetchJson<SearchResults>(`${API_BASE}/search?${params}`);
+  return fetchJson<SearchResults>(`${API_BASE}/dashboard/search?${params}`);
 }
 
 export async function getPipeline(tablePath?: string): Promise<PipelineResponse> {
-  const query = tablePath !== undefined ? `?path=${encodeURIComponent(tablePath)}` : '';
-  return fetchJson<PipelineResponse>(`${API_BASE}/pipeline${query}`);
+  const url = tablePath !== undefined
+    ? `${API_BASE}/dashboard/tables/${encodeURIComponent(tablePath)}/pipeline`
+    : `${API_BASE}/dashboard/pipeline`;
+  return fetchJson<PipelineResponse>(url);
 }
 
 interface SystemConfig {

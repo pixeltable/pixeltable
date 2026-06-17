@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import asyncio
-import logging
 import queue
 import threading
 from types import TracebackType
@@ -17,8 +16,6 @@ from pixeltable.runtime import get_runtime
 
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
-
-_logger = logging.getLogger('pixeltable')
 
 
 class ExecNode(abc.ABC):

@@ -29,7 +29,7 @@ env:
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-  HF_AUTH_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
@@ -70,7 +70,7 @@ jobs:
             os: macos-15-intel
           - python-version: "3.10"
             package-configs: ""
-            os: windows-2022
+            os: windows-2025
           - python-version: "3.10"
             package-configs: ""
             os: ubuntu-24.04-arm

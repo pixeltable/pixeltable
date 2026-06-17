@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     import fireworks.client  # type: ignore[import-untyped]
 
 
-@env.register_client('fireworks')
+@env.register_client('fireworks', credential_param='api_key')
 def _(api_key: str) -> 'fireworks.client.Fireworks':
     import fireworks.client
 

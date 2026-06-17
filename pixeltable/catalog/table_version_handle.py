@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -13,8 +12,6 @@ from .table_version import TableVersion, TableVersionKey
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Catalog, Column
-
-_logger = logging.getLogger('pixeltable')
 
 
 class TableVersionHandle:
@@ -49,10 +46,7 @@ class TableVersionHandle:
         return hash((self.id, self.effective_version))
 
     def __repr__(self) -> str:
-        return (
-            f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version}, '
-            f'anchor_tbl_id={self.anchor_tbl_id})'
-        )
+        return f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version})'
 
     @property
     def id(self) -> UUID:
@@ -61,10 +55,6 @@ class TableVersionHandle:
     @property
     def effective_version(self) -> int | None:
         return self.key.effective_version
-
-    @property
-    def anchor_tbl_id(self) -> UUID | None:
-        return self.key.anchor_tbl_id
 
     @property
     def is_snapshot(self) -> bool:

@@ -8,6 +8,7 @@ Command-line utility for CI/CD operations.
 import argparse
 import json
 import os
+import pathlib
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -18,11 +19,26 @@ EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
 VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
 
 MAIN_PLATFORM = 'ubuntu-24.04'
-BASIC_PLATFORMS = ('macos-15', 'windows-2022')
+BASIC_PLATFORMS = ('macos-15', 'windows-2025')
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
-COCKROACH_TEST_MODULES = ('table', 'index')
+COCKROACH_LIVE_TEST_MODULES = ('tests/test_table.py', 'tests/test_index.py')
+
+# CockroachDB local suite modules: `make slimtest` set + the primary-key index tests for partial index coverage.
+# test_unversioned_table.py is intentionally excluded (see TODO: implement for unversioned tables [PXT-1101])
+COCKROACH_LOCAL_TEST_MODULES = (
+    'tests/test_catalog.py',
+    'tests/test_dirs.py',
+    'tests/test_env.py',
+    'tests/test_exprs.py',
+    'tests/test_function.py',
+    'tests/test_index.py',
+    'tests/test_primary_key_index.py',
+    'tests/test_snapshot.py',
+    'tests/test_table.py',
+    'tests/test_view.py',
+)
 
 
 class MatrixConfig(NamedTuple):
@@ -89,7 +105,8 @@ def generate_matrix(args: argparse.Namespace) -> None:
     if trigger == 'pull_request':
         # Tier 1 only: Just the standard tests on MAIN_PLATFORM.
         configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.10'))
-        configs.append(MatrixConfig('notebooks', 'ipynb', MAIN_PLATFORM, '3.10'))
+        # Notebook tests are not run on PRs (Hugging Face downloads are rate-limited without a token, which is
+        # unavailable on PRs). Non-HF notebooks run in the merge queue; all notebooks run on the scheduled tier.
 
     else:
         if force_all or trigger == 'schedule':
@@ -105,6 +122,8 @@ def generate_matrix(args: argparse.Namespace) -> None:
         else:
             # Tier 2 only: Standard + expensive (but not very_expensive) tests on upgraded platform.
             configs.append(MatrixConfig('standard+', 'py', 'ubuntu-large', '3.10', pytest_options=EXPENSIVE_PYTEST))
+            # Non-HF notebooks. HF-dependent notebooks are gated behind --include-expensive, which only the
+            # scheduled tier passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.10'))
 
         # Tiers 2 and 3: Various additional configurations.
@@ -123,17 +142,34 @@ def generate_matrix(args: argparse.Namespace) -> None:
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
         if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
-            configs.extend(
-                MatrixConfig(
-                    f'cockroach-{module}',
-                    'py',
-                    MAIN_PLATFORM,
-                    '3.10',
-                    pytest_options=f'--reruns 2 -m cockroachdb tests/test_{module}.py',
-                    pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
+            for module in COCKROACH_LIVE_TEST_MODULES:
+                short_name = pathlib.Path(module).stem.removeprefix('test_')
+                configs.append(
+                    MatrixConfig(
+                        f'cockroach-live-{short_name}',
+                        'py',
+                        MAIN_PLATFORM,
+                        '3.10',
+                        pytest_options=f'--reruns 2 -m cockroachdb {module}',
+                        pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
+                    )
                 )
-                for module in COCKROACH_TEST_MODULES
+
+        # Local test suite against a local single-node CockroachDB container. Restricted to the slimtest modules.
+        configs.append(
+            MatrixConfig(
+                'cockroach-local',
+                'py',
+                MAIN_PLATFORM,
+                '3.10',
+                pytest_options=f'{DEFAULT_PYTEST} {" ".join(COCKROACH_LOCAL_TEST_MODULES)}',
+                pre_test_cmd=(
+                    'bash scripts/start-cockroach-ci.sh && '
+                    'export PIXELTABLE_DB_CONNECT_STR='
+                    "'cockroachdb+psycopg://root@localhost:26257/pixeltable?sslmode=disable'"
+                ),
             )
+        )
 
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
         # different test runs don't interfere with each other and any stale data is easy to clean up.

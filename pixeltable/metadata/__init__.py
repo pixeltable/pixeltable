@@ -14,11 +14,11 @@ from pixeltable.utils.console_output import ConsoleLogger
 
 from .schema import SystemInfo, SystemInfoMd
 
-_console_logger = ConsoleLogger(logging.getLogger('pixeltable'))
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
+_console_logger = ConsoleLogger(_logger)
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
-VERSION = 50
+VERSION = 52
 
 
 def create_system_info(engine: sql.engine.Engine) -> None:

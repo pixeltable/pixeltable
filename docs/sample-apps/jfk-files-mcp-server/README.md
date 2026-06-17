@@ -58,7 +58,8 @@ MISTRAL_API_KEY=your-mistral-api-key
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+uv sync
+python schema.py && python load_data.py
 ```
 
 2. Install Spacy Model:
@@ -130,8 +131,6 @@ Pixeltable handles the entire workflow from data ingest to search, allowing you 
 
 ## Learn More
 
-- [Pixeltable Documentation](https://docs.pixeltable.com/)
 - [MCP Servers Documentation](https://docs.pixeltable.com/libraries/mcp)
-- [MCP Server (Developer Edition)](https://github.com/pixeltable/mcp-server-pixeltable-developer)
-- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
-- [Discord Community](https://discord.gg/QPyqFYx2UN)
+- [More Pixeltable MCP servers](https://github.com/pixeltable/pixeltable-mcp-server)
+- [Pixeltable Documentation](https://docs.pixeltable.com/)

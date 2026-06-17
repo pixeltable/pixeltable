@@ -184,6 +184,21 @@ class TestSnapshot:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='different base table'):
             _ = pxt.create_snapshot('snap_with_base', other_base, if_exists='ignore')
 
+    def test_mixed_version_join(self, uses_db: None) -> None:
+        # A single query plan can reference the same physical column at two different versions: a table joined
+        # with a snapshot of itself. Each version must resolve to its own value; if the two versions of a column
+        # collapse into one, the snapshot columns return the live values and the join predicate t.id == snap.id
+        # degenerates into a cross product.
+        t = pxt.create_table('mixed_version', {'id': pxt.Int, 'v': pxt.Int})
+        validate_update_status(t.insert([{'id': i, 'v': i} for i in range(5)]), expected_rows=5)
+        snap = pxt.create_snapshot('mixed_version_snap', t)
+        # diverge the live table from the snapshot so the two versions of `v` hold different values
+        validate_update_status(t.update({'v': t.v + 100}), expected_rows=5)
+
+        res = t.join(snap, on=t.id == snap.id).select(live_v=t.v, snap_v=snap.v).order_by(t.id).collect()
+        assert res['live_v'] == [100, 101, 102, 103, 104]
+        assert res['snap_v'] == [0, 1, 2, 3, 4]
+
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter while creating a snapshot."""
         t = create_test_tbl()
@@ -209,7 +224,7 @@ class TestSnapshot:
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    def test_errors(self, test_tbl: pxt.Table, clip_embed: pxt.Function) -> None:
+    def test_errors(self, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         tbl = test_tbl
         snap = pxt.create_snapshot('snap', tbl)
         display_str = "snapshot 'snap'"
@@ -241,7 +256,7 @@ class TestSnapshot:
         ):
             img_tbl = create_img_tbl()
             snap = pxt.create_snapshot('img_snap', img_tbl)
-            snap.add_embedding_index('img', image_embed=clip_embed)
+            snap.add_embedding_index('img', image_embed=local_embed)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot create default indexes on a snapshot'):
             _ = pxt.create_view('default_snap', tbl, is_snapshot=True, create_default_idxs=True)

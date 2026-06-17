@@ -8,7 +8,6 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.func import Batch
-from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
 from .utils import (
@@ -21,7 +20,7 @@ from .utils import (
     validate_update_status,
 )
 
-logger = logging.getLogger('pixeltable')
+logger = logging.getLogger('pixeltable_test')
 
 test_unstored_base_val: int = 0
 
@@ -713,6 +712,18 @@ class TestView:
         with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
+    def test_query_base_col(self, uses_db: None) -> None:
+        # A view's own column and an inherited base column can share the same internal column id (each table
+        # numbers its columns from 0). Selecting both through the view must keep them distinct rather than
+        # collapsing them into a single result column.
+        t = pxt.create_table('base_t', {'c0': pxt.Int, 'c1': pxt.Int})
+        t.insert([{'c0': i, 'c1': i * 10} for i in range(5)])
+        v = pxt.create_view('v', t, additional_columns={'v0': t.c0 + 100})
+
+        res = v.select(v.v0, v.c0).order_by(v.c0).collect()
+        assert list(res.schema.keys()) == ['v0', 'c0']
+        assert all(row['v0'] == row['c0'] + 100 for row in res)
+
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
     def test_computed_cols(self, do_reload_catalog: bool, uses_db: None) -> None:
         t = self.create_tbl()
@@ -853,8 +864,6 @@ class TestView:
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
         orig_view_cols = v._get_schema().keys()
         view_s = pxt.create_snapshot('test_view_snap', v)
-        with get_runtime().catalog.begin_xact(for_write=False):
-            _ = get_runtime().catalog.load_md_for_export(view_s, as_replica=True)
         assert set(view_s._get_schema().keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:
@@ -959,7 +968,6 @@ class TestView:
                     },
                     'comment': None,
                     'indices': {},
-                    'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
                     'is_versioned': True,
@@ -1087,7 +1095,6 @@ class TestView:
                     },
                     'comment': None,
                     'indices': {},
-                    'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
                     'is_versioned': True,
@@ -1182,7 +1189,6 @@ class TestView:
                     },
                     'comment': None,
                     'indices': {},
-                    'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
                     'is_versioned': True,

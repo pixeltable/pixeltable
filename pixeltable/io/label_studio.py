@@ -31,10 +31,10 @@ except ImportError:
     # label_studio_sdk>=1 compatibility
     import label_studio_sdk._legacy.project as ls_project
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
-@env.register_client('label_studio')
+@env.register_client('label_studio', credential_param='api_key')
 def _(api_key: str, url: str) -> label_studio_sdk.Client:
     return label_studio_sdk.Client(api_key=api_key, url=url)
 
@@ -273,7 +273,7 @@ class LabelStudioProject(Project):
                     # Media column that has a stored proxy; use it. We have to give it a name,
                     # since it's an anonymous column
                     stored_proxy_col = self.stored_proxies[col].get()
-                    expr_refs[f'{col_name}_proxy'] = ColumnRef(stored_proxy_col).localpath
+                    expr_refs[f'{col_name}_proxy'] = ColumnRef(stored_proxy_col.column_version_md()).localpath
                 else:
                     # Media column without a stored proxy; this means it's a stored computed column,
                     # and we can just use the localpath

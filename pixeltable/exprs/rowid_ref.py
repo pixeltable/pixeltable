@@ -90,7 +90,7 @@ class RowidRef(Expr):
         tbl = (
             self.tbl.get()
             if self.tbl is not None
-            else get_runtime().catalog.get_tbl_version(TableVersionKey(self.tbl_id, None, None))
+            else get_runtime().catalog.get_tbl_version(TableVersionKey(self.tbl_id, None))
         )
         if (
             tbl.is_component_view
@@ -99,10 +99,10 @@ class RowidRef(Expr):
             return catalog.globals._POS_COLUMN_NAME
         return ''
 
-    def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
+    def is_bound_by(self, tbls: list[catalog.TablePath]) -> bool:
         # base impl checks ColumnRef subexprs and trivially returns True for RowidRef (which has none);
         # match against our tbl_id instead so rowid refs aren't pulled into unrelated table scans in joins
-        return any(self.tbl_id == tv.id for tbl in tbls for tv in tbl.get_tbl_versions())
+        return any(self.tbl_id in tbl.tbl_ids for tbl in tbls)
 
     def set_tbl(self, tbl: catalog.TableVersionPath) -> None:
         """Change the table that is being referenced.
@@ -121,7 +121,7 @@ class RowidRef(Expr):
         tbl = (
             self.tbl.get()
             if self.tbl is not None
-            else get_runtime().catalog.get_tbl_version(TableVersionKey(self.tbl_id, None, None))
+            else get_runtime().catalog.get_tbl_version(TableVersionKey(self.tbl_id, None))
         )
         assert tbl.is_validated
         rowid_cols = tbl.store_tbl.rowid_columns()
@@ -135,7 +135,6 @@ class RowidRef(Expr):
 
     def _as_dict(self) -> dict:
         # TODO: Serialize the full TableVersionHandle, not just the UUID
-        assert self.tbl is None or self.tbl.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(self.tbl_id),
             'normalized_base_id': str(self.normalized_base_id),

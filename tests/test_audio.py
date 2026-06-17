@@ -412,7 +412,7 @@ class TestAudio:
         assert len(audio_data) > 0
         return audio_data, duration_seconds, sample_rate
 
-    @pytest.mark.expensive  # Large dataset; requires substantial disk space
+    @pytest.mark.very_expensive  # Downloads a Hugging Face dataset
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
     def test_encode_dataset_audio(self, uses_db: None) -> None:
         """

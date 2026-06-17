@@ -13,7 +13,7 @@ except ImportError:
     class FastAPIRouter:  # type: ignore[no-redef]
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             raise ImportError(
-                "pixeltable.serving.FastAPIRouter requires fastapi; install it with `pip install 'fastapi[standard]'`"
+                "pixeltable.serving.FastAPIRouter requires fastapi; install it with `pip install 'pixeltable[serve]'`"
             )
 
 

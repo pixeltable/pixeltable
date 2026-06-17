@@ -19,19 +19,20 @@ def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     components = v['components']
     assert len(components) == 2
     col_ref_dict = components[0]
-    from pixeltable.exprs import ColumnRef
 
-    qcol_id = ColumnRef.get_column_id(d=col_ref_dict)
-    tbl_id = qcol_id.tbl_id
+    # The ColumnRef serialization at this version is {'tbl_id', 'tbl_version', 'col_id', ...}. Read those fields
+    # directly rather than via the live ColumnRef helpers, whose serialization format has since changed.
+    col_tbl_id = col_ref_dict['tbl_id']
+    col_id = col_ref_dict['col_id']
     tbl_version = col_ref_dict['tbl_version']
-    table_version_key = {'id': str(tbl_id), 'effective_version': tbl_version, 'anchor_tbl_id': None}
+    table_version_key = {'id': str(col_tbl_id), 'effective_version': tbl_version, 'anchor_tbl_id': None}
     # copy index name, class name etc
     new_d: dict[str, Any] = {kk: vv for kk, vv in v.items() if kk != 'components'}
     # Skip column ref from components
     new_d['components'] = [components[1]]
     new_d['table_version_key'] = table_version_key
     new_d['idx_name'] = v.get('idx_name')
-    new_d['qcol_id'] = {'tbl_id': str(qcol_id.tbl_id), 'col_id': qcol_id.col_id}
+    new_d['qcol_id'] = {'tbl_id': str(col_tbl_id), 'col_id': col_id}
     new_d['_classname'] = v['_classname']
     return (k, new_d)
 

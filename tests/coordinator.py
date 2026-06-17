@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from threading import Event, Lock, Thread, current_thread
 from typing import Any, Callable
 
-_logger = logging.getLogger('pixeltable')
+from pixeltable.runtime import get_runtime
+from pixeltable.utils.fault_injection import FaultLocation
+
+from .fault_injection import Fault
+
+_logger = logging.getLogger('pixeltable_test')
 
 
 @dataclass
@@ -39,6 +44,14 @@ class MultiThreadedScenario:
         """Append a step that runs `fn` on Thread `thread_id`; `event` gates the next step."""
         self._steps.append(_Step(thread_id=thread_id, name=name, fn=fn, next_gate=event))
         return self
+
+    def then_inject_fault(self, *, thread_id: int, loc: FaultLocation, fault: Fault) -> 'MultiThreadedScenario':
+        """Append a step that arms `fault` at `loc` on Thread `thread_id`."""
+        return self.then_run(
+            thread_id=thread_id,
+            name=f'inject fault at {loc.name}',
+            fn=lambda: get_runtime().fault_manager.inject_fault(loc, fault),
+        )
 
     def execute(self, timeout: float = 10.0) -> None:
         """Run the scenario. Raises the first exception encountered in any thread."""

@@ -31,7 +31,7 @@ from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
 from pixeltable.utils.local_store import LocalStore, TempStore
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class BackgroundJobResponse(pydantic.BaseModel):
@@ -182,7 +182,7 @@ class FastAPIRouter(fastapi.APIRouter):
         self._register_jobs_route()
         # Shut down the worker pool when the parent app's lifespan ends. include_router()
         # merges this handler into the app's on_shutdown list, so it fires on app shutdown.
-        self.add_event_handler('shutdown', self._shutdown)
+        self.add_event_handler('shutdown', self.__shutdown)
 
     def add_api_route(self, path: str, *args: Any, **kwargs: Any) -> None:
         """Wrap FastAPI's add_api_route with a duplicate (path, method) check."""
@@ -201,7 +201,7 @@ class FastAPIRouter(fastapi.APIRouter):
             )
         super().add_api_route(path, *args, **kwargs)
 
-    def _shutdown(self) -> None:
+    def __shutdown(self) -> None:
         # wait until in-flight requests are done and won't access _engine_cache
         self._executor.shutdown(wait=True, cancel_futures=True)
         for eng in self._engine_cache.values():
@@ -1158,7 +1158,9 @@ class FastAPIRouter(fastapi.APIRouter):
         # current columns. Subsequent requests use this materialized query, so adding or
         # dropping columns on the underlying table doesn't silently change the API contract.
         template_query = query.template_query
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=template_query._from_clause.tbls):
+        from_clause = template_query._from_clause
+        assert from_clause.is_local
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=from_clause.tvps):
             effective_select_list = list(template_query._effective_select_list)
         template_query = pxt.Query(
             select_list=[(e, n) for e, n in effective_select_list],
@@ -1261,7 +1263,7 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            with get_runtime().catalog.begin_xact(for_write=False, read_tvps=template_query._from_clause.tbls):
+            with get_runtime().catalog.begin_xact(for_write=False, read_tvps=template_query._from_clause.tvps):
                 result_set = template_query._collect(args=call_kwargs)
             rows = list(result_set)
 

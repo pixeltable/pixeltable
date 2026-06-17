@@ -1,6 +1,9 @@
+# Check for CUDA installation
+IS_CUDA_INSTALLED := $(shell nvidia-smi > /dev/null 2>&1 && echo 1 || echo 0)
+
 # Parameter defaults
 DURATION := 120
-UV_ARGS := --group extra-dev
+UV_ARGS := --group extra-dev $(if $(filter 1,$(IS_CUDA_INSTALLED)),--group cuda-dev)
 WORKERS := 12
 
 # Common test args
@@ -52,7 +55,6 @@ help:
 	@echo '  nbtest        Run `pytest` on notebooks'
 	@echo '  stresstest    Run stress tests such as random-ops'
 	@echo '  typecheck     Run `mypy`'
-	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 	@echo '  nbcheck       Run `./scripts/check-notebooks.sh`'
@@ -116,6 +118,7 @@ DASHBOARD_SOURCES := $(shell find dashboard -type f -not -path '*/node_modules/*
 .PHONY: install-deps
 install-deps:
 	@echo 'Installing dependencies from uv ...'
+	@echo 'UV_ARGS: $(UV_ARGS)'
 	@touch pyproject.toml
 	@VIRTUAL_ENV="$(CONDA_PREFIX)" uv sync --active $(UV_ARGS)
 
@@ -157,7 +160,7 @@ fullpytest: install
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,unversioned_table,view}.py tests/share/test_packager.py
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,unversioned_table,view}.py
 
 .PHONY: nbtest
 nbtest: install
@@ -172,24 +175,19 @@ stresstest: install
 .PHONY: typecheck
 typecheck: install
 	@echo 'Running `mypy` ...'
-	@mypy pixeltable tests tool
-
-.PHONY: docscheck
-docscheck: install
-	@echo 'Running `mkdocs build --strict` ...'
-	@python -W ignore::DeprecationWarning -m mkdocs build --strict
+	@mypy pixeltable pixeltable_cli tests tool
 
 .PHONY: lint
 lint: install
 	@echo 'Running `ruff check` ...'
-	@ruff check pixeltable tests tool
+	@ruff check pixeltable pixeltable_cli tests tool
 
 .PHONY: formatcheck
 formatcheck: install
 	@echo 'Running `ruff format --check` ...'
-	@ruff format --check pixeltable tests tool
+	@ruff format --check pixeltable pixeltable_cli tests tool
 	@echo 'Running `ruff check --select I` ...'
-	@ruff check --select I pixeltable tests tool
+	@ruff check --select I pixeltable pixeltable_cli tests tool
 
 .PHONY: nbcheck
 nbcheck: install
@@ -199,9 +197,9 @@ nbcheck: install
 .PHONY: format
 format: install
 	@echo 'Running `ruff format` ...'
-	@ruff format pixeltable tests tool
+	@ruff format pixeltable pixeltable_cli tests tool
 	@echo 'Running `ruff check --select I --fix` ...'
-	@ruff check --select I --fix pixeltable tests tool
+	@ruff check --select I --fix pixeltable pixeltable_cli tests tool
 	@echo 'Running `./scripts/format-notebooks.sh` ...'
 	@./scripts/format-notebooks.sh
 
@@ -240,7 +238,7 @@ linkscheck: docs
 .PHONY: clean
 clean:
 	@rm -rf .make-install || true
-	@rm -rf pixeltable/dashboard/static || true
+	@rm -rf pixeltable_cli/server/static || true
 	@rm -rf site || true
 	@rm -rf target || true
 	@rm -rf tests/target || true

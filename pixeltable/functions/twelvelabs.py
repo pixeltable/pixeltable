@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 TWELVELABS_INLINE_LIMIT_BYTES = 2 * 2**20
 
 
-@env.register_client('twelvelabs')
+@env.register_client('twelvelabs', credential_param='api_key')
 def _(api_key: str) -> 'twelvelabs.AsyncTwelveLabs':
     import twelvelabs
 

@@ -20,13 +20,13 @@ if TYPE_CHECKING:
     from azure.storage.blob import BlobProperties, BlobServiceClient
 
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 client_lock = threading.Lock()
 
 
-@env.register_client('azure_blob')
+@env.register_client('azure_blob', credential_param=None)
 def _() -> dict[str, 'BlobServiceClient']:
     return {}
 

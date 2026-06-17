@@ -12,7 +12,7 @@ import pandas as pd
 from typing_extensions import overload
 
 import pixeltable as pxt
-from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
+from pixeltable import env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -29,10 +29,17 @@ from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, IfExistsParam, IfNotExistsParam, MediaValidation, is_valid_identifier
+from .globals import (
+    _ROWID_COLUMN_NAME,
+    IfExistsParam,
+    IfNotExistsParam,
+    MediaValidation,
+    QColumnId,
+    is_valid_identifier,
+)
 from .schema_object import SchemaObject
+from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
-from .table_version_path import TableVersionPath
 from .update_status import UpdateStatus
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
@@ -45,7 +52,7 @@ if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
 
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class Table(SchemaObject):
@@ -69,6 +76,10 @@ class Table(SchemaObject):
         super().__init__(id)
         self._tbl_version_path = tbl_version_path
         self._tbl_version = None
+
+    @property
+    def tbl_path(self) -> TableVersionPath:
+        return self._tbl_version_path
 
     def __deepcopy__(self, memo: dict[int, Any]) -> 'Table':
         return self
@@ -140,15 +151,16 @@ class Table(SchemaObject):
             if info.col.name not in column_info:
                 continue
             if isinstance(info.idx, index.EmbeddingIndex):
-                col_ref = ColumnRef(info.col)
-                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
+                indexed_col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
+                col_ref = ColumnRef(indexed_col_md)
+                embedding_fncall = info.idx.embeddings[info.col.col_type._type](col_ref)
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
                     index_type='embedding',
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
-                        embedding=str(embedding),
+                        embedding=str(embedding_fncall),
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
                 )
@@ -168,7 +180,6 @@ class Table(SchemaObject):
             columns=column_info,
             indices=index_info,
             is_versioned=tv.is_versioned,
-            is_replica=tv.is_replica,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),
@@ -187,19 +198,15 @@ class Table(SchemaObject):
         """Return the version of this table or None if not versioned. Used by tests to ascertain version changes."""
         return self._tbl_version_path.version()
 
-    def _get_pxt_uri(self) -> str | None:
-        with get_runtime().catalog.begin_xact(read_tbl_ids=[self._id]):
-            return get_runtime().catalog.get_additional_md(self._id).get('pxt_uri')
-
     def __hash__(self) -> int:
         return hash(self._tbl_version_path.tbl_id)
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
-        col = self._tbl_version_path.get_column(name)
-        if col is None:
+        col_md = self._tbl_version_path.get_column_md_by_name(name)
+        if col_md is None:
             raise AttributeError(f'Unknown column: {name}')
-        return ColumnRef(col, reference_tbl=self._tbl_version_path)
+        return ColumnRef(col_md, self._tbl_version_path.is_validate_on_read(col_md))
 
     def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
@@ -236,7 +243,7 @@ class Table(SchemaObject):
     def _get_views(self, *, recursive: bool = True, mutable_only: bool = False) -> list['Table']:
         cat = get_runtime().catalog
         view_ids = cat.get_view_ids(self._id)
-        views = [cat.get_table_by_id(id) for id in view_ids]
+        views = [t for id in view_ids if (t := cat.get_table_by_id(id, ignore_if_dropped=True)) is not None]
         if mutable_only:
             views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
@@ -248,7 +255,7 @@ class Table(SchemaObject):
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
-        from pixeltable.plan import FromClause
+        from pixeltable.query_clauses import FromClause
 
         query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
         if len(items) == 0 and len(named_items) == 0:
@@ -266,7 +273,11 @@ class Table(SchemaObject):
             return self.select().where(pred)
 
     def join(
-        self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
+        self,
+        other: 'Table',
+        *,
+        on: 'exprs.Expr' | None = None,
+        how: 'pixeltable.query_clauses.JoinType.LiteralType' = 'inner',
     ) -> 'pxt.Query':
         """Join this table with another table."""
         with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
@@ -480,7 +491,8 @@ class Table(SchemaObject):
         pd_rows = []
         for name, info in self._tbl_version.get().idxs_by_name.items():
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
-                col_ref = ColumnRef(info.col)
+                col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
+                col_ref = ColumnRef(col_md)
                 embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
                 row = {
                     'Index Name': name,
@@ -911,7 +923,7 @@ class Table(SchemaObject):
                     )
                 col = self._tbl_version.get().cols_by_name[column]
             else:
-                exists = self._tbl_version_path.has_column(column.col)
+                exists = self._tbl_version_path.has_column(column.col_md.qcolid)
                 if not exists:
                     if if_not_exists_ == IfNotExistsParam.ERROR:
                         raise excs.NotFoundError(
@@ -1157,7 +1169,7 @@ class Table(SchemaObject):
                 image_embed=image_embed,
                 column=col,  # Pass column for shape validation
             )
-            _ = idx.create_value_expr(col)
+            _ = idx.create_value_expr(col)  # validation only; result discarded
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?
             FileCache.get().emit_eviction_warnings()
@@ -1235,7 +1247,7 @@ class Table(SchemaObject):
             if col is None:
                 raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
         elif isinstance(column, ColumnRef):
-            exists = self._tbl_version_path.has_column(column.col)
+            exists = self._tbl_version_path.has_column(column.col.qid)
             if not exists:
                 raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column.col.qualified_name}'
@@ -1691,7 +1703,7 @@ class Table(SchemaObject):
                 else:
                     assert isinstance(column, ColumnRef)
                     col = column.col
-                    if not self._tbl_version_path.has_column(col):
+                    if not self._tbl_version_path.has_column(col.qid):
                         raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col.name}')
                     col_name = col.name
                 if not col.is_computed:
@@ -1751,74 +1763,6 @@ class Table(SchemaObject):
             tv.revert()
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
-
-    def push(self) -> None:
-        from pixeltable.share import push_replica
-        from pixeltable.share.protocol import PxtUri
-
-        pxt_uri = self._get_pxt_uri()
-        tbl_version = self._tbl_version_path.tbl_version.get()
-
-        if tbl_version.is_replica:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'push(): Cannot push replica table {self._name()!r}. (Did you mean `pull()`?)',
-            )
-
-        if pxt_uri is None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'push(): Table {self._name()!r} has not yet been published to Pixeltable Cloud. '
-                'To publish it, use `pxt.publish()` instead.',
-            )
-
-        if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'push(): Cannot push specific-version table handle {tbl_version.versioned_name!r}. '
-                'To push the latest version instead:\n'
-                f'  t = pxt.get_table({self._name()!r})\n'
-                f'  t.push()',
-            )
-
-        if self._tbl_version is None:
-            # Named snapshots never have new versions to push.
-            env.Env.get().console_logger.info('push(): Everything up to date.')
-            return
-
-        # Parse the pxt URI to extract org/db and create a UUID-based URI for pushing
-        parsed_uri = PxtUri(uri=pxt_uri)
-        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
-
-        push_replica(uuid_uri_obj, self)
-
-    def pull(self) -> None:
-        from pixeltable.share import pull_replica
-        from pixeltable.share.protocol import PxtUri
-
-        pxt_uri = self._get_pxt_uri()
-        tbl_version = self._tbl_version_path.tbl_version.get()
-
-        if not tbl_version.is_replica or pxt_uri is None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'pull(): Table {self._name()!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).',
-            )
-
-        if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'pull(): Cannot pull specific-version table handle {tbl_version.versioned_name!r}. '
-                'To pull the latest version instead:\n'
-                f'  t = pxt.get_table({self._name()!r})\n'
-                f'  t.pull()',
-            )
-
-        # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
-        parsed_uri = PxtUri(uri=pxt_uri)
-        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
-
-        pull_replica(self._path(), uuid_uri_obj)
 
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.get().external_stores.keys())
@@ -2029,10 +1973,6 @@ class Table(SchemaObject):
         return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))
 
     def __check_mutable(self, op_descr: str) -> None:
-        if self._tbl_version_path.is_replica():
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot {op_descr} a replica.'
-            )
         if self._tbl_version_path.is_snapshot():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot {op_descr} a snapshot.'

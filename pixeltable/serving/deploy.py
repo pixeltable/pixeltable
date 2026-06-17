@@ -18,7 +18,7 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.serving._config import lookup_deployment_config, lookup_service_config
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 def build_deploy_bundle(deployment_name: str) -> Path:
@@ -174,7 +174,7 @@ def _export_tables_md(table_paths: set[str]) -> dict[str, Any]:
     # Get the md for all ancestors of all such tables.
     catalog = get_runtime().catalog
     with catalog.begin_xact(for_write=False):
-        tables_md = [catalog.load_md_for_export(tbl, as_replica=False) for tbl in tables]
+        tables_md = [catalog.load_md_for_export(tbl) for tbl in tables]
 
     # The ancestor md is returned as: primary table first, followed by ancestors in descending order.
     # Reverse so that ancestors come first, then flatten and de-duplicate (since some tables might have common

@@ -3,10 +3,9 @@ from __future__ import annotations
 import abc
 import logging
 import time
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterator
 from uuid import UUID
 
-import more_itertools
 import psycopg
 import sqlalchemy as sql
 
@@ -17,12 +16,13 @@ from pixeltable.exec import ExecNode
 from pixeltable.index.btree import BtreeIndex
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
+from pixeltable.utils import fault_injection
 from pixeltable.utils.exception_handler import run_cleanup
-from pixeltable.utils.fault_injection import FaultLocation, process_fault
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.sql import log_explain, log_stmt
 from pixeltable.utils.uuid import uuid7
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger(__name__)
 
 
 class StoreBase:
@@ -125,7 +125,7 @@ class StoreBase:
         """Create and return system columns"""
         rowid_cols: list[sql.Column]
         if self._store_tbl_exists():
-            process_fault(FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK)
+            fault_injection.process_fault(FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK)
             # derive our rowid Columns from the existing table, without having to access self.base.store_tbl:
             # self.base may not exist anymore (both this table and our base got dropped in the same transaction, and
             # the base was finalized before this table)
@@ -303,11 +303,6 @@ class StoreBase:
 
         This runs a sequence of DDL statements (Create Table, Alter Table Add Column, Create Index), each of which
         is run in its own transaction.
-
-        The exception to that are local replicas, for which TableRestorer creates an enclosing transaction. In theory,
-        this should avoid the potential for race conditions that motivate the error handling present in
-        _exec_if_not_exists() (meaning: we shouldn't see those errors when creating local replicas).
-        TODO: remove the special case for local replicas in order to make the logic easier to reason about.
         """
         postgres_dialect = sql.dialects.postgresql.dialect()
 
@@ -723,15 +718,6 @@ class StoreBase:
         result = conn.execute(stmt)
         for row in result:
             yield dict(zip(result.keys(), row))
-
-    def load_rows(self, rows: Iterable[dict[str, Any]], batch_size: int = 10_000) -> None:
-        """
-        When instantiating a replica, we can't rely on the usual insertion code path, which contains error handling
-        and other logic that doesn't apply.
-        """
-        conn = get_runtime().conn
-        for batch in more_itertools.batched(rows, batch_size):
-            conn.execute(sql.insert(self.sa_tbl), batch)
 
 
 class StoreTable(StoreBase):
