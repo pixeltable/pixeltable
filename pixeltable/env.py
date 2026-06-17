@@ -358,7 +358,8 @@ class Env:
 
         # Route uvicorn's loggers to the main pxt log file
         uvicorn_logger = logging.getLogger('uvicorn')
-        uvicorn_logger.setLevel(logging.INFO)
+        if uvicorn_logger.level == logging.NOTSET:
+            uvicorn_logger.setLevel(logging.INFO)
         uvicorn_logger.addHandler(fh)
         uvicorn_logger.propagate = False
         self._managed_logging_handlers.append((uvicorn_logger, fh))
