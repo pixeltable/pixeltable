@@ -456,7 +456,7 @@ class StoreBase:
         row_builder = exec_plan.row_builder
 
         try:
-            table_rows: list[tuple[Any]] = []
+            table_rows: list[list[Any]] = []
             with exec_plan:
                 progress_reporter = exec_plan.ctx.add_progress_reporter(
                     f'Column values written (table {self.tbl_version.get().name!r})', 'rows'
@@ -465,7 +465,7 @@ class StoreBase:
                 # insert rows from exec_plan into temp table
                 for row_batch in exec_plan:
                     num_rows += len(row_batch)
-                    batch_table_rows: list[tuple[Any]] = []
+                    batch_table_rows: list[list[Any]] = []
 
                     for row in row_batch:
                         if abort_on_exc and row.has_exc():
@@ -476,7 +476,7 @@ class StoreBase:
                             ) from exc
                         table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
                         num_excs += num_row_exc
-                        batch_table_rows.append(tuple(table_row))
+                        batch_table_rows.append(table_row)
 
                     table_rows.extend(batch_table_rows)
 
@@ -535,9 +535,8 @@ class StoreBase:
 
         store_col_names = row_builder.store_column_names()
 
-        table_rows: list[tuple[Any]] = []
+        table_rows: list[list[Any]] = []
         inserted_rows: list[dict[str, Any]] = []  # column name -> stored value
-        output_map = row_builder.get_output_map()
 
         with exec_plan:
             progress_reporter = exec_plan.ctx.add_progress_reporter(
@@ -546,7 +545,7 @@ class StoreBase:
 
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
-                batch_table_rows: list[tuple[Any]] = []
+                batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
                 for row in row_batch:
@@ -568,7 +567,7 @@ class StoreBase:
                     table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
 
-                    batch_table_rows.append(tuple(table_row))
+                    batch_table_rows.append(table_row)
 
                 table_rows.extend(batch_table_rows)
 
@@ -578,7 +577,7 @@ class StoreBase:
                     if progress_reporter is not None:
                         progress_reporter.update(len(table_rows))
                     if return_rows:
-                        inserted_rows.extend(self.create_output_rows(table_rows, output_map))
+                        inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
                     table_rows.clear()
 
             # insert any remaining rows
@@ -587,25 +586,13 @@ class StoreBase:
                 if progress_reporter is not None:
                     progress_reporter.update(len(table_rows))
                 if return_rows:
-                    inserted_rows.extend(self.create_output_rows(table_rows, output_map))
+                    inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
 
             row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
 
             return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
 
-    def create_output_rows(self, table_rows: list[tuple[Any]], output_map: list[str | None]) -> list[dict[str, Any]]:
-        """Convert table rows to output rows (ie, UpdateStatus.rows)"""
-        return [
-            {
-                # sql.Null check: make sure to convert stored NULLs back to None
-                output_map[i]: (None if isinstance(row[i], sql.sql.elements.Null) else row[i])
-                for i in range(len(output_map))
-                if output_map[i] is not None
-            }
-            for row in table_rows
-        ]
-
-    def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
+    def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[list[Any]]) -> None:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
