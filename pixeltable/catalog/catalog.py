@@ -2302,6 +2302,13 @@ class Catalog:
                 assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
+                # Validate that the columns in schema_version_md are consistent with tbl_md.
+                sch_col_ids = set(schema_version_md.columns.keys())
+                for tbl_col_id, tbl_col_md in tbl_md.column_md.items():
+                    if tbl_col_md.is_visible_in_version(tbl_md.current_schema_version):
+                        assert tbl_col_id in sch_col_ids, (tbl_md.tbl_id, tbl_col_id)
+                        sch_col_ids.remove(tbl_col_id)
+                assert len(sch_col_ids) == 0, (tbl_md.tbl_id, sch_col_ids)
             if pending_ops is not None:
                 assert tbl_md.pending_stmt is not None
                 assert all(op.tbl_id == str(tbl_id) for op in pending_ops)

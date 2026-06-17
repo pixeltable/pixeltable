@@ -155,6 +155,7 @@ class View(Table):
                     Column(
                         col_name,
                         col_type=output_info.col_type,
+                        sa_col_type=output_info.col_type.to_sa_type() if output_info.is_stored else None,
                         is_iterator_col=True,
                         stored=output_info.is_stored,
                         stores_cellmd=stores_cellmd,
