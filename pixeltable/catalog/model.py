@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog.table_path import TableVersionPath
+from pixeltable.query_clauses import SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
@@ -163,6 +164,104 @@ class _PlaceholderFactory:
 
 
 Column: _PlaceholderFactory = _PlaceholderFactory()
+
+
+@dataclasses.dataclass
+class _PlaceholderQuery:
+    """
+    A placeholder query object that can be used in ViewModel definitions to reference a base table or query
+    that is not yet defined at the time of class body execution.
+    """
+
+    from_clause: str | Table
+    select_list: list[tuple[exprs.Expr, str | None]] | None
+    where_clause: exprs.Expr | None
+    group_by_clause: list[exprs.Expr] | None
+    order_by_clause: list[tuple[exprs.Expr, bool]] | None
+    limit_val: exprs.Expr | None
+    offset_val: exprs.Expr | None
+    sample_clause: SampleClause | None
+
+    def __init__(
+        self,
+        from_clause: str | Table,
+        select_list: list[tuple[exprs.Expr, str | None]] | None = None,
+        where_clause: exprs.Expr | None = None,
+        group_by_clause: list[exprs.Expr] | None = None,
+        order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,
+        limit_val: exprs.Expr | None = None,
+        offset_val: exprs.Expr | None = None,
+        sample_clause: SampleClause | None = None,
+    ) -> None:
+        self.from_clause = from_clause
+        self.select_list = select_list
+        self.where_clause = where_clause
+        self.group_by_clause = group_by_clause
+        self.order_by_clause = order_by_clause
+        self.limit_val = limit_val
+        self.offset_val = offset_val
+        self.sample_clause = sample_clause
+
+    def select(self, *items: Any, **named_items: Any) -> _PlaceholderQuery:
+        if self.select_list is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA, '`select()` list already specified in `ViewModel` base query.'
+            )
+        for name in named_items:
+            if not is_valid_identifier(name):
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid name: {name}')
+        select_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
+        if len(select_list) == 0:
+            return self
+        return dataclasses.replace(self, select_list=select_list)
+
+    def where(self, pred: exprs.Expr) -> _PlaceholderQuery:
+        if self.where_clause is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA, '`where()` clause already specified in `ViewModel` base query.'
+            )
+        return dataclasses.replace(self, where_clause=pred)
+
+    def group_by(self, *grouping_items: exprs.Expr) -> _PlaceholderQuery:
+        if self.group_by_clause is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA, '`group_by()` clause already specified in `ViewModel` base query.'
+            )
+        return dataclasses.replace(self, group_by_clause=list(grouping_items))
+
+    def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> _PlaceholderQuery:
+        order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
+        order_by_clause.extend((e.copy(), asc) for e in expr_list)
+        return dataclasses.replace(self, order_by_clause=order_by_clause)
+
+    def limit(self, n: int, offset: int | None = None) -> _PlaceholderQuery:
+        if self.limit_val is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA, '`limit()` clause already specified in `ViewModel` base query.'
+            )
+        limit_val = exprs.Expr.from_object(n)
+        offset_val = exprs.Expr.from_object(offset) if offset is not None else None
+        return dataclasses.replace(self, limit_val=limit_val, offset_val=offset_val)
+
+    def sample(
+        self,
+        n: int | None = None,
+        n_per_stratum: int | None = None,
+        fraction: float | None = None,
+        seed: int | None = None,
+        stratify_by: Any = None,
+    ) -> _PlaceholderQuery:
+        if self.sample_clause is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA, '`sample()` clause already specified in `ViewModel` base query.'
+            )
+        stratify_exprs: list[exprs.Expr] = []
+        if stratify_by is not None:
+            if isinstance(stratify_by, exprs.Expr):
+                stratify_by = [stratify_by]
+            stratify_exprs = list(stratify_by)
+        sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
+        return dataclasses.replace(self, sample_clause=sample_clause)
 
 
 class _ColumnCtx:
@@ -410,7 +509,8 @@ class TableModelMetaclass(type):
             # Explicitly set perform_validation in order to avoid prematurely deferencing table properties.
             # It defaults to the table-level media_validation if not set in the ColumnSpec.
             subst_dict[placeholder] = exprs.ColumnRef(
-                catalog_col.column_version_md(), perform_validation=subst_spec.get('media_validation', tbl_media_validation) == 'on_read'
+                catalog_col.column_version_md(),
+                perform_validation=subst_spec.get('media_validation', tbl_media_validation) == 'on_read',
             )
 
         # Create the table with its non-computed columns

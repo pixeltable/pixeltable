@@ -143,7 +143,6 @@ class ColumnRef(Expr):
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
 
-
         col_md = self.column_md
         if (
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()

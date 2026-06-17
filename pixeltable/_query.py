@@ -1464,7 +1464,7 @@ class Query:
             if not isinstance(e, exprs.Expr):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in order_by(): {e}')
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
-        order_by_clause.extend([(e.copy(), asc) for e in expr_list])
+        order_by_clause.extend((e.copy(), asc) for e in expr_list)
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
