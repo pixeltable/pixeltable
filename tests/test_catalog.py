@@ -11,7 +11,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 from tests.coordinator import MultiThreadedScenario
 from tests.fault_injection import BlockFault, ExceptionFault
-from tests.utils import pxt_raises, skip_test_if_cockroachdb
+from tests.utils import pxt_raises
 
 
 class TestCatalog:
@@ -333,10 +333,6 @@ class TestCatalog:
         """
         Verifies a bug fix: one thread is loading a table while the other is dropping it.
         """
-        skip_test_if_cockroachdb(
-            'CockroachDB applies DROP TABLE asynchronously, so the concurrent drop is not yet visible '
-            'in information_schema and the table load succeeds instead of raising'
-        )
         pxt.create_table('test', {'a': pxt.Int})
         block_in_store_base = BlockFault()
 
