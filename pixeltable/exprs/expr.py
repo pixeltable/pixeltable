@@ -22,7 +22,6 @@ from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes,
 
 if TYPE_CHECKING:
     from pixeltable import exprs, func
-    from pixeltable.exprs import unknown_expr
 
 
 class ExprScope:
@@ -676,14 +675,7 @@ class Expr(abc.ABC):
     def __getitem__(self, index: object) -> Expr:
         from .array_slice import ArraySlice
         from .json_path import JsonPath
-        from .unknown_expr import UnknownItemExpr
 
-        if self.col_type.is_invalid_type():
-            if not isinstance(index, (int, slice, str, tuple)) or (
-                isinstance(index, tuple) and any(not isinstance(i, (int, slice)) for i in index)
-            ):
-                raise AttributeError(f'Invalid indices: {index}')
-            return UnknownItemExpr(self, index)
         if self.col_type.is_json_type():
             return JsonPath(self)[index]
         if self.col_type.is_array_type():
@@ -700,10 +692,7 @@ class Expr(abc.ABC):
         """
         from .json_path import JsonPath
         from .method_ref import MethodRef
-        from .unknown_expr import UnknownAttrExpr
 
-        if self.col_type.is_invalid_type():
-            return UnknownAttrExpr(self, name)
         if self.col_type.is_json_type():
             return JsonPath(self).__getattr__(name)
         else:
@@ -765,11 +754,7 @@ class Expr(abc.ABC):
     def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
-    def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
-        from .unknown_expr import UnknownOpExpr
-
-        if self.col_type.is_invalid_type():
-            return UnknownOpExpr('__add__', self, other)
+    def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
         if self.col_type.is_string_type():
             return self._make_string_expr(StringOperator.CONCAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
@@ -777,11 +762,7 @@ class Expr(abc.ABC):
     def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
-        from .unknown_expr import UnknownOpExpr
-
-        if self.col_type.is_invalid_type():
-            return UnknownOpExpr('__mul__', self, other)
+    def __mul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
         if (
             self.col_type.is_string_type()
             or isinstance(other, str)
@@ -799,11 +780,7 @@ class Expr(abc.ABC):
     def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def __radd__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
-        from .unknown_expr import UnknownOpExpr
-
-        if self.col_type.is_invalid_type():
-            return UnknownOpExpr('__radd__', self, other)
+    def __radd__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
         if self.col_type.is_string_type():
             return self._rmake_string_expr(StringOperator.CONCAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
@@ -811,11 +788,7 @@ class Expr(abc.ABC):
     def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __rmul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | unknown_expr.UnknownOpExpr:
-        from .unknown_expr import UnknownOpExpr
-
-        if self.col_type.is_invalid_type():
-            return UnknownOpExpr('__rmul__', self, other)
+    def __rmul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
         if self.col_type.is_string_type() or isinstance(other, str):
             return self._rmake_string_expr(StringOperator.REPEAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)

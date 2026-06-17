@@ -181,11 +181,6 @@ class ColumnRef(Expr):
                 )
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
 
-        if self.col_type.is_json_type():
-            from .json_path import JsonPath
-
-            return JsonPath(self, [name])
-
         return super().__getattr__(name)
 
     def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
