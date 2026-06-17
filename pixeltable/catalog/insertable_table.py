@@ -23,6 +23,7 @@ from .update_status import UpdateStatus
 if TYPE_CHECKING:
     from pixeltable import exprs
     from pixeltable.globals import TableDataSource
+    from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
 
     from .table import Table
@@ -164,14 +165,14 @@ class InsertableTable(LocalTable):
         data_source.add_table_info(self)
         data_source.prepare_for_insert_into_table()
 
-        return self.insert_table_data_source(
+        return self._insert_table_data_source(
             data_source=data_source,
             fail_on_exception=fail_on_exception,
             print_stats=print_stats,
             return_rows=return_rows,
         )
 
-    def insert_table_data_source(
+    def _insert_table_data_source(
         self,
         data_source: TableDataConduit,
         fail_on_exception: bool,
@@ -188,17 +189,49 @@ class InsertableTable(LocalTable):
         ):
             if isinstance(data_source, QueryTableDataConduit):
                 status += self._tbl_version.get().insert(
-                    rows=None, query=data_source.pxt_query, print_stats=print_stats, fail_on_exception=fail_on_exception
+                    source=None,
+                    query=data_source.pxt_query,
+                    print_stats=print_stats,
+                    fail_on_exception=fail_on_exception,
                 )
             else:
                 for row_batch in data_source.valid_row_batch():
                     status += self._tbl_version.get().insert(
-                        rows=row_batch,
+                        source=row_batch,
                         query=None,
                         print_stats=print_stats,
                         fail_on_exception=fail_on_exception,
                         return_rows=return_rows,
                     )
+
+        Env.get().console_logger.info(status.insert_msg(start_ts))
+        FileCache.get().emit_eviction_warnings()
+        return status
+
+    def _insert_sql_source(
+        self,
+        sql_source: SqlDataSource,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        return_rows: bool = False,
+    ) -> pxt.UpdateStatus:
+        """Stream a SqlDataSource into this table through a single insert plan.
+
+        Assumes the source's columns have already been validated against this table's schema.
+        """
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        start_ts = time.perf_counter()
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        ):
+            status = self._tbl_version.get().insert(
+                source=sql_source,
+                query=None,
+                print_stats=print_stats,
+                fail_on_exception=fail_on_exception,
+                return_rows=return_rows,
+            )
 
         Env.get().console_logger.info(status.insert_msg(start_ts))
         FileCache.get().emit_eviction_warnings()

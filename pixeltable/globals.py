@@ -14,7 +14,7 @@ from pixeltable import InsertableTable, Query, catalog, exceptions as excs, expr
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
-from pixeltable.io.table_data_conduit import TableDataConduit
+from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, TableKind, TableNode, TreeNode
 
@@ -205,6 +205,9 @@ def create_table(
         data_source.infer_schema()
         schema = data_source.pxt_schema  # type: ignore[assignment]
         primary_key = data_source.pxt_pk
+        is_direct_query = data_source.is_direct_query()
+    else:
+        is_direct_query = False
 
     if len(schema) == 0 or not isinstance(schema, dict):
         raise excs.RequestError(
@@ -239,9 +242,17 @@ def create_table(
     )
 
     # TODO: combine data loading with table creation into a single transaction
-    if was_created and data_source is not None:
-        assert isinstance(tbl, InsertableTable)
-        tbl.insert_table_data_source(data_source, OnErrorParameter.fail_on_exception(on_error))
+    if was_created:
+        assert isinstance(tbl, catalog.InsertableTable)
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        if isinstance(data_source, QueryTableDataConduit):
+            query = data_source.pxt_query
+            with get_runtime().catalog.begin_xact(
+                for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
+            ):
+                tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
+        elif data_source is not None and not is_direct_query:
+            tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
     return tbl
 

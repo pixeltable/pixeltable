@@ -927,7 +927,7 @@ class TestDashboardCommand:
     """The `pxt dashboard` command (a thin URL-launcher) exercised through subprocess."""
 
     def test_prints_url(self, cli: PxtRunner, pxt_daemon: int) -> None:
-        # webbrowser.open is best-effort in headless CI; assert only the URL print + reachability.
+        # Note: normally, `pxt dashboard` opens browser, but `PxtRunner` suppresses that in tests.
         r = cli('dashboard')
         assert r.returncode == 0
         assert f':{pxt_daemon}' in r.stdout
