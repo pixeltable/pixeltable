@@ -364,7 +364,6 @@ class TestCatalog:
         finalizes view drop as a side effect. Before the fix, this would result in the insert failing with "table not
         found" error.
         """
-        skip_test_if_cockroachdb()
         base = pxt.create_table('base', {'a': pxt.Int})
         _ = pxt.create_view('v', base)
         block_in_finalize = BlockFault()
