@@ -34,7 +34,7 @@ class MetadataUtils:
                 continue
             old_col = old_md[col_id]
             diff = cls._diff_col(old_col, new_col)
-            if diff:
+            if diff is not None:
                 if old_col.name is not None:
                     assert new_col.name is not None, "A user-visible column can't become a system column"
                     altered[old_col.name] = diff
@@ -52,11 +52,11 @@ class MetadataUtils:
 
         # Format the result
         t = []
-        if added:
+        if len(added) > 0:
             t.append('Added: ' + ', '.join(added))
-        if altered:
+        if len(altered) > 0:
             t.append('Altered: ' + ', '.join((f'{name} ({desc})' for name, desc in altered.items())))
-        if dropped:
+        if len(dropped) > 0:
             t.append('Dropped: ' + ', '.join(dropped))
         return ', '.join(t)
 
@@ -78,7 +78,7 @@ class MetadataUtils:
         assert old.comment == new.comment, 'Not implemented: describe a comment change'
         assert old.custom_metadata == new.custom_metadata, 'Not implemented: describe a custom metadata change'
 
-        if diff:
+        if len(diff) > 0:
             return ', '.join(diff)
         return None
 
