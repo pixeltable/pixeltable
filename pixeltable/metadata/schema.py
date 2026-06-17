@@ -378,8 +378,8 @@ class SchemaVersionMd:
     comment: str | None
 
     # default validation strategy for any media column of this table
-    # stores column.MediaValidation.name.lower() or None if unspecified
-    media_validation: str | None
+    # stores column.MediaValidation.name.lower()
+    media_validation: str
     additional_md: dict[str, Any]  # deprecated
     # user-defined metadata - must be a valid JSON-serializable object
     custom_metadata: Any = None
