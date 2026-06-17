@@ -93,7 +93,7 @@ endif
 	@python -m pip install -q uv==$(UV_VERSION)
 	@echo 'Installing conda packages ...'
 	@if ! which mamba >/dev/null 2>&1; then conda install -q -y -c conda-forge mamba; fi
-	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto nodejs lychee 'cmake>=3.22'
+	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto 'nodejs>=20' lychee 'cmake>=3.22'
 	@echo 'Installing mintlify ...'
 	@if ! which mint >/dev/null 2>&1 || ! mint --version | grep -Fq '$(MINTLIFY_VERSION)'; then \
 		npm install --silent -g mint@$(MINTLIFY_VERSION); \

@@ -33,9 +33,9 @@ from .insertable_table import InsertableTable
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table import Table
+from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
-from .table_version_path import TableVersionPath
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
 from .update_status import UpdateStatus
 from .view import View
@@ -455,6 +455,11 @@ class Catalog:
                 for tv in self._tbl_versions.values():
                     if tv.effective_version is None:
                         tv.is_validated = False
+
+                # invalidate TVPs' cached md
+                # TODO: remove this once we stop mutating TV instances in-place
+                for tvp in write_tvps:
+                    tvp.clear_cached_md()
 
                 if has_exc:
                     # Execute undo actions in reverse order (LIFO)
@@ -928,8 +933,9 @@ class Catalog:
 
             except Exception as e:
                 if excs.is_table_not_found_error(e):
-                    _logger.error(f'Finalize pending ops({tbl_id}): table not found', exc_info=True)
-                    raise
+                    _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
+                    # nothing to do
+                    return None
 
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
                     _logger.error(
@@ -1514,7 +1520,8 @@ class Catalog:
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
                 base_id = base.tbl_id
-                assert self._acquire_write_lock(tbl_id=base_id), base_id
+                assert len(self._acquire_write_lock(tbl_id=base_id)) == 1, base_id
+                self._x_locked_tbl_ids.add(base_id)
                 base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None), validate_initialized=True)
                 self.mark_modified_tv(base_tv.handle)
                 base_tv.tbl_md.view_sn += 1
@@ -1623,13 +1630,6 @@ class Catalog:
                 _logger.info(f'Skipped table {path!r} (does not exist).')
                 return
             assert isinstance(tbl, Table)
-
-            if isinstance(tbl, View) and tbl._tbl_version_path.is_mutable() and tbl._tbl_version_path.base.is_mutable():
-                # this is a mutable view of a mutable base;
-                # lock the base before the view, in order to avoid deadlocks with concurrent inserts/updates
-                base_id = tbl._tbl_version_path.base.tbl_id
-                assert self._acquire_write_lock(tbl_id=base_id), base_id
-
             self._drop_tbl(tbl, force=force, is_replace=False)
 
         self._roll_forward_ids.clear()
@@ -1641,9 +1641,6 @@ class Catalog:
         Drop the table (and recursively its views, if force == True).
 
         `tbl` can be an instance of `Table` for a user table, or `TableVersionPath` for a hidden (system) table.
-
-        Returns:
-            List of table ids that were dropped.
 
         Locking protocol:
         - X-lock base before X-locking any view
@@ -1666,7 +1663,15 @@ class Catalog:
         tbl_path_repr: str = str(tbl_id) if tbl is None else repr(tbl._path())
         if tbl is not None:
             self._acquire_dir_xlock(dir_id=tbl._dir_id())
-        self._acquire_write_lock(tbl_id=tbl_id)
+
+        # If the base table needs an update, lock it before locking the view.
+        if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
+            base_id = tvp.base.tbl_id
+            # Bug(PXT-1198): when multiple tables are getting dropped within one transaction (like when self._drop_dir
+            # calls self._drop_tbl), the expected base-before-view lock ordering is currently not guaranteed.
+            if base_id not in self._x_locked_tbl_ids:
+                self._x_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=base_id))
+        self._x_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=tbl_id))
 
         view_ids = self.get_view_ids(tbl_id, for_update=True)
 
@@ -1692,21 +1697,6 @@ class Catalog:
                 else:
                     msg = f'{tbl._display_str()} has dependents.'
                 raise excs.RequestError(excs.ErrorCode.CONSTRAINT_VIOLATION, msg)
-
-        # if this is a mutable view of a mutable base, advance the base's view_sn
-        if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
-            base_id = tvp.base.tbl_id
-            base_tv = self._get_tbl_version(TableVersionKey(base_id, None), validate_initialized=True)
-            self.mark_modified_tv(base_tv.handle)
-            base_tv.tbl_md.view_sn += 1
-            result = get_runtime().conn.execute(
-                sql.update(schema.Table.__table__)
-                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
-                .where(schema.Table.id == base_id)
-            )
-            assert result.rowcount == 1, result.rowcount
-            # force reload of base TV instance in order to make its state consistent with the stored metadata
-            self._clear_tv_cache(base_tv.key)
 
         if is_pure_snapshot:
             # there is no physical table, but we still need to delete the Table record; we can do that right now
@@ -1741,6 +1731,23 @@ class Catalog:
             del self._tbls[tbl_id, version]
 
         _logger.info(f'Dropped table {tbl_path_repr}.')
+
+    def _incr_view_sn(self, tbl_id: UUID) -> None:
+        """Increments the table's view_sn in the store within the current transaction"""
+        self._clear_tv_cache(TableVersionKey(tbl_id, None))
+        assert self._acquire_write_lock(tbl_id=tbl_id, check_pending_ops=False), tbl_id
+        result = get_runtime().conn.execute(
+            sql.update(schema.Table)
+            .values(
+                md=sql.func.jsonb_set(
+                    schema.Table.md,
+                    pg_array(['view_sn']),
+                    sql.func.to_jsonb(sql.cast(schema.Table.md['view_sn'].astext, sql.Integer) + 1),
+                )
+            )
+            .where(schema.Table.id == tbl_id)
+        )
+        assert result.rowcount == 1, (tbl_id, result.rowcount)
 
     @retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
@@ -1942,6 +1949,9 @@ class Catalog:
 
     def _move_table(self, tbl_id: UUID, new_name: str, new_dir_id: UUID) -> None:
         """Update dir_id/name for tbl_id."""
+        # TODO(PXT-1197): Catalog does not properly lock tables for the move
+        # This assertion validates a crucial invariant, but it fails today.
+        # assert tbl_id in self._x_locked_tbl_ids, f"Table {tbl_id} should be locked for the move but isn't"
         stmt = (
             sql.update(schema.Table)
             .where(schema.Table.id == tbl_id)
@@ -2551,6 +2561,7 @@ class Catalog:
         # register this instance as modified, so that it gets purged if the transaction fails, it may not be
         # fully initialized
         self.mark_modified_tv(tbl_version.handle)
+        fault_injection.process_fault(FaultLocation.CATALOG_LOAD_TBL_VERSION_BEFORE_INIT)
         tbl_version.init()
         return tbl_version
 
