@@ -433,7 +433,7 @@ class TableVersion:
                 tbl_handle=self.handle,
                 destination=col_md.destination,
                 custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
-                comment=schema_col_md.comment or '',
+                comment=schema_col_md.comment,
             )
 
             self.cols_by_id[col.id] = col
