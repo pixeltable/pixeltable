@@ -55,9 +55,9 @@ class SimilarityExpr(Expr):
         # is unnecessary here — we only need the column to resolve the embedding index at plan time,
         # not at eval time. Storing column and table version identifiers avoids that overhead.
         if col_ref is not None:
-            tv = col_ref.tbl.get()
+            tv = col_ref.tbl_version.get()
             column = col_ref.col
-            self.qcol_id = column.qid
+            self.qcol_id = col_ref.col_md.qcolid
             self.table_version_key = tv.key
         else:
             # During deserialization
@@ -97,7 +97,7 @@ class SimilarityExpr(Expr):
         assert self.qcol_id is not None
 
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.path.get_column_by_qid(self.qcol_id)
+        col = tbl_version.path.get_column_by_id(self.qcol_id) if tbl_version.path is not None else None
         if col is None:
             return f'<invalid>.similarity({self.components[0]}, {idx_str})'
         return f'{col.name}.similarity({self.components[0]}, {idx_str})'
@@ -141,12 +141,12 @@ class SimilarityExpr(Expr):
         except excs.Error as e:
             return str(e)
 
-    def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
+    def is_bound_by(self, tbls: list[catalog.TablePath]) -> bool:
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
         col = tbl_version.lookup_column(self.qcol_id)
         if col is None:
             return False
-        return any(tbl.has_column(col) for tbl in tbls)
+        return any(tbl.has_column(col.qid) for tbl in tbls)
 
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
         super()._retarget(tbl_versions)

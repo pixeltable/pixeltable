@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
-from pixeltable.catalog.table_version_path import TableVersionPath
+from pixeltable.catalog.table_path import TableVersionPath
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
@@ -410,7 +410,7 @@ class TableModelMetaclass(type):
             # Explicitly set perform_validation in order to avoid prematurely deferencing table properties.
             # It defaults to the table-level media_validation if not set in the ColumnSpec.
             subst_dict[placeholder] = exprs.ColumnRef(
-                catalog_col, perform_validation=subst_spec.get('media_validation', tbl_media_validation) == 'on_read'
+                catalog_col.column_version_md(), perform_validation=subst_spec.get('media_validation', tbl_media_validation) == 'on_read'
             )
 
         # Create the table with its non-computed columns
