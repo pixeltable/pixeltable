@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 _thread_local = threading.local()
 
-_XACT_ISOLATION_LEVEL = 'READ COMMITTED'
+_XACT_ISOLATION_LEVEL = 'REPEATABLE READ'
 
 _T = TypeVar('_T')
 
