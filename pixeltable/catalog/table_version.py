@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from pixeltable._query import Query
     from pixeltable.catalog.table_version_handle import TableVersionHandle
     from pixeltable.io import ExternalStore
+    from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.plan import SampleClause
 
     from .table_path import TableVersionPath
@@ -356,12 +357,16 @@ class TableVersion:
         new_version = self.is_mutable and self.is_versioned
         if new_version:
             self.bump_version(bump_schema_version=True)
+        mutable_base_tbl_id: str | None = None
+        # if this is a mutable view of a mutable base, advance the base's view_sn in the end
+        if self.is_view and self.is_mutable and self.path.base.is_mutable():
+            mutable_base_tbl_id = str(self.path.base.tbl_id)
         id_str = str(self.id)
         ops = (
             TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
             .add(DeleteTableMediaFilesOp)
             .add(DropStoreTableOp, is_view=self.is_view)
-            .add(DeleteTableMdOp)
+            .add(DeleteTableMdOp, mutable_base_tbl_id=mutable_base_tbl_id)
             .build()
         )
         return ops, new_version
@@ -1000,24 +1005,24 @@ class TableVersion:
 
     def insert(
         self,
-        rows: list[dict[str, Any]] | None,
+        source: list[dict[str, Any]] | SqlDataSource | None,
         query: Query | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
         return_rows: bool = False,
     ) -> UpdateStatus:
         """
-        Insert rows into this table, either from an explicit list of dicts or from a `Query`.
+        Insert rows into this table from an explicit list of dicts, a `Query`, or a `SqlDataSource`.
         """
         from pixeltable.plan import Planner
 
         assert self.is_insertable
-        assert (rows is None) != (query is None)  # Exactly one must be specified
-        if rows is not None:
-            plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
-
-        else:
+        # Exactly one of source / query must be specified
+        assert (source is None) != (query is None)
+        if query is not None:
             plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
+        else:
+            plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
 
         rowid_gen: Iterator[int] | None = None
         # For versioned tables, generate rowids from the table's sequence.

@@ -11,7 +11,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 from tests.coordinator import MultiThreadedScenario
 from tests.fault_injection import BlockFault, ExceptionFault
-from tests.utils import pxt_raises, skip_test_if_cockroachdb
+from tests.utils import pxt_raises
 
 
 class TestCatalog:
@@ -279,7 +279,7 @@ class TestCatalog:
             # point
             .then_run(thread_id=1, name='insert', fn=lambda: t.insert([{'a': 1}]))
             # Unblock thread 0
-            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: fault.unblock())
+            .then_unblock(thread_id=1, fault=fault)
             .execute()
         )
 
@@ -329,35 +329,59 @@ class TestCatalog:
         # Verify that the insert was propagated to vb.
         assert pxt.get_table('vb').count() == 1
 
-    def test_load_table_concurrent_drop_store_tbl(self, uses_db: None, fault_injection: None) -> None:
+    def test_load_view_concurrent_drop_view(self, uses_db: None, fault_injection: None) -> None:
         """
-        Verifies a bug fix: one thread is loading a table while the other is dropping it.
+        Start with a base table and a view. Thread 0 loads the view md, and is about to initialize it when Thread 1
+        drops it. Thread 0 then proceeds to initialize the view, which involves loading the base table. At READ
+        COMMITTED isolation level, this scenario results in an AssertionError because the base table and
+        the view are inconsistent with one another.
         """
-        skip_test_if_cockroachdb(
-            'CockroachDB applies DROP TABLE asynchronously, so the concurrent drop is not yet visible '
-            'in information_schema and the table load succeeds instead of raising'
-        )
-        pxt.create_table('test', {'a': pxt.Int})
-        block_in_store_base = BlockFault()
-
-        def get_table_expect_not_found() -> None:
-            with pxt_raises(excs.ErrorCode.TABLE_NOT_FOUND, match='Table was dropped'):
-                pxt.get_table('test')
+        base = pxt.create_table('base', {'a': pxt.Int})
+        v = pxt.create_view('v', base)
+        block_before_init = BlockFault()
 
         (
             MultiThreadedScenario()
-            # Thread 0: arm the fault that blocks right after _store_tbl_exists() returns True
             .then_inject_fault(
-                thread_id=0, loc=FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK, fault=block_in_store_base
+                thread_id=0, loc=FaultLocation.CATALOG_LOAD_TBL_VERSION_BEFORE_INIT, fault=block_before_init
             )
-            # Thread 0: load the table with a cold cache; this will block in StoreBase. When it unblocks later, expect
-            # a "Table was dropped" error. Before the fix, this would raise an AssertionError.
-            .then_run_until(
-                thread_id=0, name='get table', event=block_in_store_base.reached, fn=get_table_expect_not_found
-            )
-            # Thread 1: drop the table while Thread 0 is frozen. This drops store table as well.
-            .then_run(thread_id=1, name='drop table', fn=lambda: pxt.drop_table('test'))
-            # Thread 1: unblock Thread 0 inside StoreBase
-            .then_run(thread_id=1, name='unblock thread 0', fn=lambda: block_in_store_base.unblock())
+            .then_run_until(thread_id=0, name='access column', event=block_before_init.reached, fn=lambda: v.a)
+            # Thread 1: drop v while Thread 0 is waiting to initialize it
+            .then_run(thread_id=1, name='drop view', fn=lambda: pxt.drop_table('v'))
+            # unblock Thread 0 to continue with v initialization that also loads base
+            .then_unblock(thread_id=1, fault=block_before_init)
             .execute()
         )
+
+        assert pxt.get_table('v', if_not_exists='ignore') is None
+        base.insert([{'a': 1}])
+        assert base.count() == 1
+
+    def test_drop_view_concurrent_insert(self, uses_db: None, fault_injection: None) -> None:
+        """
+        Start with a base table and a view. Thread 0 begins to drop the view, but pauses inside finalize pending ops
+        (without the exclusive lock). Thread 1 swoops in in the meantime to insert a row into the base table, and
+        finalizes view drop as a side effect. Before the fix, this would result in the insert failing with "table not
+        found" error.
+        """
+        base = pxt.create_table('base', {'a': pxt.Int})
+        _ = pxt.create_view('v', base)
+        block_in_finalize = BlockFault()
+
+        (
+            MultiThreadedScenario()
+            .then_inject_fault(
+                thread_id=0, loc=FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault=block_in_finalize
+            )
+            # Thread 0: drop v but block mid-finalize
+            .then_run_until(
+                thread_id=0, name='drop view', event=block_in_finalize.reached, fn=lambda: pxt.drop_table('v')
+            )
+            # Thread 1: insert into base
+            .then_run(thread_id=1, name='insert into base', fn=lambda: base.insert([{'a': 1}]))
+            .then_unblock(thread_id=1, fault=block_in_finalize)
+            .execute()
+        )
+
+        assert base.count() == 1
+        assert pxt.get_table('v', if_not_exists='ignore') is None

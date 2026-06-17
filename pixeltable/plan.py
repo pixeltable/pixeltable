@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from textwrap import dedent
-from typing import Any, Iterable, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -13,6 +13,9 @@ from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 from pixeltable.func.iterator import GeneratingFunctionCall
 from pixeltable.query_clauses import FromClause, SampleClause
+
+if TYPE_CHECKING:
+    from pixeltable.io.data_sources import SqlDataSource
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -249,9 +252,11 @@ class Analyzer:
 class Planner:
     @classmethod
     def create_insert_plan(
-        cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
+        cls, tbl: catalog.TableVersion, source: list[dict[str, Any]] | SqlDataSource, ignore_errors: bool
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.insert()"""
+        """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource."""
+        from pixeltable.io.data_sources import SqlDataSource
+
         assert not tbl.is_view
         # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
@@ -261,8 +266,15 @@ class Planner:
 
         row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
 
-        # create InMemoryDataNode for 'rows'
-        plan: exec.ExecNode = exec.InMemoryDataNode(tbl.handle, rows, row_builder)
+        plan: exec.ExecNode
+        batch_size: int
+        if isinstance(source, SqlDataSource):
+            plan = exec.SqlDataNode(tbl.handle, source, row_builder)
+            batch_size = 1024
+        else:
+            assert isinstance(source, list)
+            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder)
+            batch_size = 0
 
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
 
@@ -275,7 +287,7 @@ class Planner:
         if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
+        plan.set_ctx(exec.ExecContext(row_builder, batch_size=batch_size, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
 
         return plan
