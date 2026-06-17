@@ -152,15 +152,15 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
-    def show(self, *args: Any, **kwargs: Any) -> 'ResultSet':
-        """Return rows from this table."""
+    def show(self, n: int = 20) -> 'ResultSet':
+        """Return the first n rows from this table."""
 
     @abc.abstractmethod
-    def head(self, *args: Any, **kwargs: Any) -> 'ResultSet':
+    def head(self, n: int = 10) -> 'ResultSet':
         """Return the first n rows inserted into this table."""
 
     @abc.abstractmethod
-    def tail(self, *args: Any, **kwargs: Any) -> 'ResultSet':
+    def tail(self, n: int = 10) -> 'ResultSet':
         """Return the last n rows inserted into this table."""
 
     @abc.abstractmethod

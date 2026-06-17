@@ -67,7 +67,7 @@ class TestCatalog:
 
         # Test empty path
         empty_parsed = Path.parse('', allow_empty_path=True)
-        assert empty_parsed.components == ('',)
+        assert empty_parsed.components == ()
         assert str(empty_parsed) == ''
 
         # Test versioned paths with SLASH
@@ -153,15 +153,15 @@ class TestCatalog:
         # Version must be non-negative.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.from_components(('tbl',), version=-1)
-        # Components must be valid identifiers (the ('',) root sentinel excepted), and non-empty.
+        # Components must be valid, non-empty identifiers; the empty tuple is the root.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.from_components(('a', 'bad name'))
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.from_components(('a', ''))
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
-            Path.from_components(())
+            Path.from_components(('',))  # a single empty component is not the root
         assert Path.from_components(('a', 'b')).components == ('a', 'b')
-        assert Path.from_components(('',)).is_root  # the root sentinel is accepted
+        assert Path.from_components(()).is_root  # the empty tuple is the root
         # Hyphenated org/db slugs are accepted.
         hosted = Path.parse('pxt://my-org:my-db/tbl')
         assert (hosted.org, hosted.db) == ('my-org', 'my-db')
@@ -173,7 +173,7 @@ class TestCatalog:
         assert path.parent == Path.from_components(('a', 'b'), org='variata', db='main')
         assert path.append('d') == Path.from_components(('a', 'b', 'c', 'd'), org='variata', db='main')
         assert path.ancestors() == [
-            Path.from_components(('',), org='variata', db='main'),
+            Path.from_components((), org='variata', db='main'),
             Path.from_components(('a',), org='variata', db='main'),
             Path.from_components(('a', 'b'), org='variata', db='main'),
         ]
@@ -203,16 +203,12 @@ class TestCatalog:
         # Test with both dot and slash paths (both result in '/' representation)
         # multiple ancestors in path
         path = Path.parse(path_str)
-        expected_ancestors = [
-            Path.from_components(('',)),
-            Path.from_components(('a',)),
-            Path.from_components(('a', 'b')),
-        ]
+        expected_ancestors = [Path.from_components(()), Path.from_components(('a',)), Path.from_components(('a', 'b'))]
         assert path.ancestors() == expected_ancestors
 
         # single element in path
         path = Path.parse('a')
-        assert path.ancestors() == [Path.from_components(('',))]
+        assert path.ancestors() == [Path.from_components(())]
 
         # root
         path = Path.parse('', allow_empty_path=True)

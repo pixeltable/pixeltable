@@ -291,14 +291,14 @@ class LocalTable(Table):
     def cursor(self) -> 'pxt._query.ResultCursor':
         return self.select().cursor()
 
-    def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
-        return self.select().show(*args, **kwargs)
+    def show(self, n: int = 20) -> 'pxt._query.ResultSet':
+        return self.select().show(n)
 
-    def head(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
-        return self.select().head(*args, **kwargs)
+    def head(self, n: int = 10) -> 'pxt._query.ResultSet':
+        return self.select().head(n)
 
-    def tail(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
-        return self.select().tail(*args, **kwargs)
+    def tail(self, n: int = 10) -> 'pxt._query.ResultSet':
+        return self.select().tail(n)
 
     def count(self) -> int:
         return self.select().count()

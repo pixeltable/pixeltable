@@ -10,7 +10,7 @@ import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
 
-from pixeltable import InsertableTable, Query, catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config

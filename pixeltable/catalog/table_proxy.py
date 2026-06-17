@@ -96,13 +96,13 @@ class TableProxy(Table):
     def cursor(self) -> 'ResultCursor':
         raise NotImplementedError
 
-    def show(self, *args: Any, **kwargs: Any) -> 'ResultSet':
+    def show(self, n: int = 20) -> 'ResultSet':
         raise NotImplementedError
 
-    def head(self, *args: Any, **kwargs: Any) -> 'ResultSet':
+    def head(self, n: int = 10) -> 'ResultSet':
         raise NotImplementedError
 
-    def tail(self, *args: Any, **kwargs: Any) -> 'ResultSet':
+    def tail(self, n: int = 10) -> 'ResultSet':
         raise NotImplementedError
 
     def count(self) -> int:

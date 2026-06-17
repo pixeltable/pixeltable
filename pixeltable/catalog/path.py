@@ -33,7 +33,7 @@ class Path:
 
     org: str | None = None  # None => in-process catalog (catalog_uri ''); a slug => remote/proxied catalog
     db: str | None = None  # database within the org; always None when org is None, optional otherwise
-    components: tuple[str, ...] = ('',)  # ('',) denotes the catalog root
+    components: tuple[str, ...] = ()  # the empty tuple denotes the catalog root
     version: int | None = None
 
     def __post_init__(self) -> None:
@@ -47,10 +47,8 @@ class Path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid database name: {self.db!r}')
         if self.version is not None and self.version < 0:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Version must be non-negative: {self.version}')
-        if len(self.components) == 0:
-            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, 'Path must have at least one component')
-        # ('',) is the root sentinel; any other component must be a valid identifier
-        if self.components != ('',) and not all(is_valid_identifier(c, allow_hyphens=True) for c in self.components):
+        # the root is the empty tuple; every component of a non-root path must be a valid identifier
+        if not all(is_valid_identifier(c, allow_hyphens=True) for c in self.components):
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {".".join(self.components)}')
 
     @classmethod
@@ -88,15 +86,14 @@ class Path:
         elif '/' in path_part:
             components = tuple(path_part.split('/'))
         else:
-            components = (path_part,) if path_part else ('',)
+            components = (path_part,) if path_part else ()
 
-        if components == ('',) and not allow_empty_path:
+        if len(components) == 0 and not allow_empty_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
         # component identifier validation is enforced by __post_init__ at construction
         if version is not None and not allow_versioned_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Versioned path not allowed here: {path}')
 
-        assert len(components) > 0
         return cls(org=org, db=db, components=components, version=version)
 
     @classmethod
@@ -132,7 +129,7 @@ class Path:
 
     @property
     def len(self) -> int:
-        return 0 if self.is_root else len(self.components)
+        return len(self.components)
 
     @property
     def name(self) -> str:
@@ -140,18 +137,15 @@ class Path:
 
     @property
     def is_root(self) -> bool:
-        return not self.components[0]
+        return len(self.components) == 0
 
     @property
     def parent(self) -> Path:
-        if len(self.components) == 1:
-            # Includes the case of the root path, which is its own parent.
-            return dataclasses.replace(self, components=('',), version=None)
+        # the root (empty components) is its own parent: ()[:-1] == ()
         return dataclasses.replace(self, components=self.components[:-1], version=None)
 
     def append(self, name: str) -> Path:
-        components = (name,) if self.is_root else (*self.components, name)
-        return dataclasses.replace(self, components=components, version=None)
+        return dataclasses.replace(self, components=(*self.components, name), version=None)
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -174,8 +168,7 @@ class Path:
         if self.is_root:
             return []
         return [
-            dataclasses.replace(self, components=self.components[:i] if i > 0 else ('',), version=None)
-            for i in range(len(self.components))
+            dataclasses.replace(self, components=self.components[:i], version=None) for i in range(len(self.components))
         ]
 
     def __repr__(self) -> str:
