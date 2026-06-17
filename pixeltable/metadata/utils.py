@@ -24,8 +24,9 @@ class MetadataUtils:
             return ''
         # added, altered, and dropped track diffs of user-visible columns only. That's what we want to report to users
         # in the end.
-        added, dropped = [], []
-        altered = {}
+        added: list[str] = []
+        dropped: list[str] = []
+        altered: dict[str, str] = {}
 
         for col_id, new_col in new_md.items():
             if col_id not in old_md:
@@ -66,7 +67,7 @@ class MetadataUtils:
         the same.
         """
         assert len(fields(old)) == 8, 'This method needs to be updated whenever SchemaColumn changes'
-        diff = []
+        diff: list[str] = []
         # Note: we ignore pos because columns changing places are not very interesting to users, and because they are
         # usually a side effect of other changes such as drop column.
         if old.name != new.name:
