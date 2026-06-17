@@ -580,7 +580,7 @@ class Column:
 
     def set_sa_cols(self, sa_col: sql.Column, sa_cellmd_col: sql.Column | None) -> None:
         # `type() is` check is weak as it ignores some SQL type parameters (e.g. vector dimensions), but anything
-        # stronger would be unnecessary complicated.
+        # stronger would be unnecessarily complicated.
         assert type(sa_col.type) is type(self.sa_col_type)
         self.sa_col = sa_col
 
