@@ -68,7 +68,7 @@ class Column:
     schema_version_drop: int | None
     stores_cellmd: bool
     sa_col: sql.schema.Column | None
-    sa_col_type: sql.types.TypeEngine | None
+    sa_col_type: sql.types.TypeEngine | None  # set iff the column is stored
     sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
     _value_expr: exprs.Expr | None
     # TODO it is likely not required anymore, and with some additional work can be removed.
