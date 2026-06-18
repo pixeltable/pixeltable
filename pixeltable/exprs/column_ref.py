@@ -13,6 +13,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import func
 from pixeltable.catalog.table_version import TableVersionKey
+from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 
 from ..utils.description_helper import DescriptionHelper
@@ -499,13 +500,13 @@ class ColumnRef(Expr):
         from pixeltable._query import Query
         from pixeltable.query_clauses import FromClause
 
-        # Load the context table at its effective_version, so a column accessed via a snapshot/view resolves
-        # against that pinned version rather than the live table. get_table_by_id() reads metadata and so must
-        # run inside a transaction; the resulting path's handles resolve lazily, so it stays valid afterwards.
-        cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
-            tbl = cat.get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
-        return Query(FromClause([tbl._tbl_version_path])).select(self)
+        # Resolve the column's table against the catalog it belongs to (which may be a hosted/proxy catalog),
+        # at its effective_version so a column accessed via a snapshot/view resolves against the pinned version
+        # rather than the live table. get_table_by_id() manages its own transaction, so no begin_xact is needed
+        # here (and a proxy catalog has none).
+        cat = get_runtime().get_catalog(catalog_uri=Env.get().tbl_catalog_uri(self.col_md.tbl_id))
+        tbl = cat.get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
+        return Query(FromClause([tbl._tbl_path])).select(self)
 
     def show(self, *args: Any, **kwargs: Any) -> 'ResultSet':
         return self.select().show(*args, **kwargs)

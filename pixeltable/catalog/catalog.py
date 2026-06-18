@@ -1421,13 +1421,21 @@ class Catalog(CatalogBase):
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
     ) -> LocalTable | None:
-        """Must be executed inside a transaction. Might raise PendingTableOpsError."""
+        """Loads the table if it isn't already cached, starting its own (re-entrant) transaction to do so.
+        Might raise PendingTableOpsError."""
         if (tbl_id, version) not in self._tbls:
-            if version is None:
-                return self._load_tbl(tbl_id, ignore_pending_drop=ignore_if_dropped)
-            else:
-                return self._load_tbl_at_version(tbl_id, version)
-        return self._tbls.get((tbl_id, version))
+            # begin_xact() is re-entrant: it joins the caller's transaction if there is one, and otherwise
+            # starts a fresh read transaction (which also permits the metadata load). Cache hits stay xact-free.
+            with self.begin_xact(for_write=False):
+                if version is None:
+                    tbl = self._load_tbl(tbl_id, ignore_pending_drop=ignore_if_dropped)
+                else:
+                    tbl = self._load_tbl_at_version(tbl_id, version)
+        else:
+            tbl = self._tbls.get((tbl_id, version))
+        if tbl is not None:
+            Env.get().record_tbl_catalog_uri(tbl._id, '')
+        return tbl
 
     def create_table(
         self,

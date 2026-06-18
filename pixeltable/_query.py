@@ -1220,8 +1220,7 @@ class Query:
                         continue
                     if lhs_col_ref is not None:
                         raise excs.RequestError(
-                            excs.ErrorCode.UNSUPPORTED_OPERATION,
-                            f'`on`: ambiguous column reference: {col_name!r}',
+                            excs.ErrorCode.UNSUPPORTED_OPERATION, f'`on`: ambiguous column reference: {col_name!r}'
                         )
                     lhs_col_ref = exprs.ColumnRef(col_md)
                 if lhs_col_ref is None:

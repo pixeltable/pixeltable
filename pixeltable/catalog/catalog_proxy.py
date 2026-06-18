@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping
 
 from pixeltable import exceptions as excs
+from pixeltable.env import Env
 
 from .catalog_base import CatalogBase
 from .globals import normalize_schema
@@ -36,6 +37,8 @@ class CatalogProxy(CatalogBase):
 
     def _make_table(self, md: list[TableVersionMd]) -> Table:
         tbl_md_path = TableMdPath.from_md(md, self._catalog_uri)
+        # record which catalog this table belongs to, so a ColumnRef into it can resolve against this proxy
+        Env.get().record_tbl_catalog_uri(tbl_md_path.tbl_id, self._catalog_uri)
         if tbl_md_path.is_view():
             return ViewProxy(tbl_md_path, self._client)
         return InsertableTableProxy(tbl_md_path, self._client)
