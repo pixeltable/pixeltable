@@ -1222,8 +1222,9 @@ class TestTable:
         assert all(isinstance(row['md'], dict) for row in out)
         assert all(isinstance(row['img:img_idx1'], np.ndarray) and row['img:img_idx1'].shape == (512,) for row in out)
 
-    def test_insert_return_rows_with_idx(self, uses_db: None) -> None:
-        t = pxt.create_table('test_insert_return_rows_with_idx', {'id': pxt.Int, 'name': pxt.String})
+    def test_insert_return_rows_with_idx(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = pxt.create_table(p('test_insert_return_rows_with_idx'), {'id': pxt.Int, 'name': pxt.String})
         status = t.insert([{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}], return_rows=True)
         rows = status.rows or []
         assert all(None not in row for row in rows)
@@ -1868,7 +1869,9 @@ class TestTable:
             for path in paths:
                 assert os.path.exists(path) and os.path.isfile(path)
 
-    def test_validate_json(self, uses_db: None) -> None:
+    def test_validate_json(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+
         class MySchema(TypedDict):
             a: str
             b: int
@@ -1882,7 +1885,7 @@ class TestTable:
             d: bool
 
         t = pxt.create_table(
-            'test',
+            p('test'),
             {
                 'json_col_1': MySchema,
                 'json_col_2': MySchemaOpt,
@@ -2522,7 +2525,7 @@ class TestTable:
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
-    def test_batch_update_return_rows(self, uses_db: None) -> None:
+    def test_batch_update_return_rows(self, uses_env: Callable[[str], str]) -> None:
         """Coverage for the `return_rows` parameter on Table.batch_update().
 
         Note: at the time of writing, `Table.batch_update()` does not actually cascade to
@@ -2531,8 +2534,9 @@ class TestTable:
         table has no computed columns. If batch_update's cascade behavior is fixed later, add a
         cascade-with-computed-columns case here mirroring `test_update_return_rows`.
         """
+        p = uses_env
         t = pxt.create_table(
-            'test_batch_update_return_rows',
+            p('test_batch_update_return_rows'),
             {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'name': pxt.String},
             primary_key='id',
         )
@@ -2584,10 +2588,12 @@ class TestTable:
         assert status.rows is None  # default return_rows=False
         assert status.num_rows == 1
 
-    def test_update_return_rows(self, uses_db: None) -> None:
+    def test_update_return_rows(self, uses_env: Callable[[str], str]) -> None:
         """Coverage for the `return_rows` parameter on Table.update()."""
+        p = uses_env
         t = pxt.create_table(
-            'test_update_return_rows', {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'name': pxt.String}
+            p('test_update_return_rows'),
+            {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'name': pxt.String},
         )
         t.insert(
             [{'id': 1, 'val': 10, 'name': 'a'}, {'id': 2, 'val': 20, 'name': 'b'}, {'id': 3, 'val': 30, 'name': 'c'}]
@@ -3027,9 +3033,10 @@ class TestTable:
         t = pxt.get_table(t._name())
         assert set(t.columns()) == orig_cols
 
-    def test_bool_column(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_bool_column(self, uses_env: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = uses_env
         # test adding a bool column with constant value
-        t1 = pxt.create_table('test1', {'c1': pxt.Int})
+        t1 = pxt.create_table(p('test1'), {'c1': pxt.Int})
         t1.insert([{'c1': 1}, {'c1': 2}])
         assert t1.count() == 2
         t1.add_computed_column(bool_const=False)
@@ -3042,9 +3049,9 @@ class TestTable:
         assert res['bool_const'] == [False, False, False, False]
 
         # test adding a bool column with constant value to a view
-        t2 = pxt.create_table('test2', {'c1': pxt.Int})
+        t2 = pxt.create_table(p('test2'), {'c1': pxt.Int})
         validate_update_status(t2.insert([{'c1': 1}, {'c1': 2}]), expected_rows=2)
-        v = pxt.create_view('test_view', t2)
+        v = pxt.create_view(p('test_view'), t2)
         assert v.count() == 2
         v.add_computed_column(bool_const=True)
         assert v.where(v.bool_const).count() == 2
@@ -3073,7 +3080,7 @@ class TestTable:
         res = t1.where(~t1.bool_computed).order_by(t1.c1).collect()
         assert res['c1'] == [1]
 
-        t3 = pxt.create_table('test3', {'c1': pxt.Int, 'c2': pxt.Bool})
+        t3 = pxt.create_table(p('test3'), {'c1': pxt.Int, 'c2': pxt.Bool})
         t3.insert([{'c1': 1, 'c2': True}, {'c1': 2, 'c2': False}])
         assert t3.count() == 2
 
@@ -3438,10 +3445,11 @@ class TestTable:
             s1.drop_column('s1')
         assert 's1' in s1.columns()
 
-    def test_drop_column_via_reference(self, uses_db: None) -> None:
-        t1 = pxt.create_table('test1', {'c1': pxt.String, 'c2': pxt.String})
+    def test_drop_column_via_reference(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t1 = pxt.create_table(p('test1'), {'c1': pxt.String, 'c2': pxt.String})
         t1.insert([{'c1': 'a1', 'c2': 'b1'}, {'c1': 'a2', 'c2': 'b2'}])
-        t2 = pxt.create_table('test2', {'c1': pxt.String, 'c2': pxt.String})
+        t2 = pxt.create_table(p('test2'), {'c1': pxt.String, 'c2': pxt.String})
 
         # cannot pass another table's column reference
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=r'Unknown column: test2.c2'):
@@ -3536,9 +3544,11 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    def test_computed_column_types(self, uses_db: None) -> None:
+    def test_computed_column_types(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         t = pxt.create_table(
-            'test', {'c1': pxt.Int, 'c1_r': pxt.Required[pxt.Int], 'c2': pxt.String, 'c2_r': pxt.Required[pxt.String]}
+            p('test'),
+            {'c1': pxt.Int, 'c1_r': pxt.Required[pxt.Int], 'c2': pxt.String, 'c2_r': pxt.Required[pxt.String]},
         )
 
         # Ensure that arithmetic and (non-nullable) function call expressions inherit nullability from their arguments
@@ -3778,11 +3788,12 @@ class TestTable:
                                c8  Required[Array[(2, 3), int64]]         test_tbl            [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
-    def test_common_col_names(self, uses_db: None) -> None:
+    def test_common_col_names(self, uses_env: Callable[[str], str]) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""
+        p = uses_env
         names = ['id', 'name', 'version', 'comment']
         schema = dict.fromkeys(names, pxt.Int)
-        tbl = pxt.create_table('test', schema)
+        tbl = pxt.create_table(p('test'), schema)
         status = tbl.insert(dict.fromkeys(names, id) for id in range(10))
         assert status.num_rows == 10
         assert status.num_excs == 0
@@ -3870,14 +3881,15 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             t.revert()
 
-    def test_drop_column_in_view_predicate(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
-        v1 = pxt.create_view('view1', t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})
-        v2 = pxt.create_view('view2', v1.where((t.c1 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int})
+    def test_drop_column_in_view_predicate(self, uses_env: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = uses_env
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.Int})
+        v1 = pxt.create_view(p('view1'), t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})
+        v2 = pxt.create_view(p('view2'), v1.where((t.c1 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int})
         v3 = pxt.create_view(
-            'view3', v2.where(((v1.vc1 + v2.vc2) - (t.c1 + t.c2)) % 5 == 0), additional_columns={'vc3': pxt.Int}
+            p('view3'), v2.where(((v1.vc1 + v2.vc2) - (t.c1 + t.c2)) % 5 == 0), additional_columns={'vc3': pxt.Int}
         )
-        _ = pxt.create_view('view4', v3.where((t.c2 / v3.vc3) < 19), additional_columns={'vc4': pxt.Int})
+        _ = pxt.create_view(p('view4'), v3.where((t.c2 / v3.vc3) < 19), additional_columns={'vc4': pxt.Int})
 
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
@@ -3907,8 +3919,9 @@ class TestTable:
         assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
 
-    def test_drop_last_column(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
+    def test_drop_last_column(self, uses_env: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = uses_env
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.Int})
         # drop the first column
         t.drop_column('c1')
         # drop an unknown column
@@ -3984,31 +3997,33 @@ class TestTable:
         assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_table_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
-        t = pxt.create_table('tbl', {'c': pxt.Int}, comment='This is a test table.')
+    def test_table_comment(self, uses_env: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = uses_env
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int}, comment='This is a test table.')
         assert t.get_metadata()['comment'] == 'This is a test table.'
 
         reload_catalog(do_reload_catalog)
-        t = pxt.get_table('tbl')
+        t = pxt.get_table(p('tbl'))
         assert t.get_metadata()['comment'] == 'This is a test table.'
 
         # check that raw object JSON comments are rejected
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`comment` must be a string'):
-            pxt.create_table('tbl_invalid', {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
+            pxt.create_table(p('tbl_invalid'), {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_table_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+    def test_table_custom_metadata(self, uses_env: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = uses_env
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
-        t = pxt.create_table('tbl', {'c': pxt.Int}, custom_metadata=custom_metadata)
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int}, custom_metadata=custom_metadata)
         assert t.get_metadata()['custom_metadata'] == custom_metadata
 
         reload_catalog(do_reload_catalog)
-        t = pxt.get_table('tbl')
+        t = pxt.get_table(p('tbl'))
         assert t.get_metadata()['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`custom_metadata` must be JSON-serializable'):
-            pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
+            pxt.create_table(p('tbl_invalid'), {'c': pxt.Int}, custom_metadata={'key': set})
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_column_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
@@ -4032,21 +4047,25 @@ class TestTable:
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
-        t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'comment': 'This is a test column.'}})
+    def test_column_comment(self, uses_env: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = uses_env
+        t = pxt.create_table(p('tbl'), {'c': {'type': pxt.Int, 'comment': 'This is a test column.'}})
         assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
 
         reload_catalog(do_reload_catalog)
-        t = pxt.get_table('tbl')
+        t = pxt.get_table(p('tbl'))
         assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
 
         # add_computed_column with comment
         t.add_computed_column(c2=t.c + 1, comment='This is a computed column.')
 
         reload_catalog(do_reload_catalog)
-        t = pxt.get_table('tbl')
+        t = pxt.get_table(p('tbl'))
         assert t.get_metadata()['columns']['c2']['comment'] == 'This is a computed column.'
 
         # check that raw object JSON comments are rejected for columns
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'comment' must be a string"):
-            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[dict-item]
+            pxt.create_table(
+                p('tbl_invalid'),
+                {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
+            )

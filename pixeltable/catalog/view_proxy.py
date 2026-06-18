@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import exceptions as excs
 
 from .table_proxy import TableProxy
 
 if TYPE_CHECKING:
-    from pixeltable import exprs
+    from pixeltable import exprs, type_system as ts
 
+    from ..globals import TableDataSource
     from .table_path import TableMdPath
     from .update_status import UpdateStatus
 
@@ -29,5 +30,23 @@ class ViewProxy(TableProxy):
             return md_path.base
         return md_path
 
+    def insert(
+        self,
+        source: TableDataSource | None = None,
+        /,
+        *,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
+        schema_overrides: dict[str, ts.ColumnType] | None = None,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        return_rows: bool = False,
+        **kwargs: Any,
+    ) -> UpdateStatus:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot insert into a {self._display_name()}.'
+        )
+
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot delete from a {self._display_name()}.')
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot delete from a {self._display_name()}.'
+        )

@@ -99,6 +99,9 @@ def serialize(obj: Any) -> Any:
         return {_TAG: 'UUID', 'v': str(obj)}
     if isinstance(obj, datetime.datetime):
         return {_TAG: 'datetime', 'v': obj.isoformat()}
+    if isinstance(obj, datetime.date):
+        # check after datetime (datetime is a subclass of date)
+        return {_TAG: 'date', 'v': obj.isoformat()}
     if isinstance(obj, pathlib.Path):
         return str(obj)  # filesystem paths travel as strings
     if isinstance(obj, list):
@@ -162,5 +165,7 @@ def deserialize(obj: Any) -> Any:
             return UUID(v)
         if tag == 'datetime':
             return datetime.datetime.fromisoformat(v)
+        if tag == 'date':
+            return datetime.date.fromisoformat(v)
         raise AssertionError(f'unknown proxy serialization tag: {tag!r}')
     return obj

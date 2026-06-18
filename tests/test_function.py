@@ -5,7 +5,7 @@ import typing
 import warnings
 from datetime import datetime, timezone
 from textwrap import dedent
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pytest
@@ -745,7 +745,8 @@ class TestFunction:
     def binding_test_udf(p1: str, p2: str, p3: str, p4: str = 'default') -> str:
         return f'{p1} {p2} {p3} {p4}'
 
-    def test_partial_binding(self, uses_db: None) -> None:
+    def test_partial_binding(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = self.binding_test_udf.using(p1='x', p3='z')
         pb3 = self.binding_test_udf.using(p1='x', p2='y', p3='z')
@@ -757,7 +758,7 @@ class TestFunction:
         assert len(pb3.signatures[0].required_parameters) == 0
         assert pb2.signatures[0].required_parameters[0].name == 'p2'
 
-        t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
+        t = pxt.create_table(p('test'), {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
         t.insert(c1='a', c2='b', c3='c')
         t.add_computed_column(pb1=pb1(t.c1, t.c3))
         t.add_computed_column(pb2=pb2(t.c2))
@@ -780,7 +781,8 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='missing a required argument'):
             _ = pb1(p1='a')
 
-    def test_nested_partial_binding(self, uses_db: None) -> None:
+    def test_nested_partial_binding(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = pb1.using(p1='x')
         pb3 = pb2.using(p3='z')
@@ -792,7 +794,7 @@ class TestFunction:
         assert len(pb3.signatures[0].required_parameters) == 0
         assert pb2.signatures[0].required_parameters[0].name == 'p3'
 
-        t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
+        t = pxt.create_table(p('test'), {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
         t.insert(c1='a', c2='b', c3='c')
         t.add_computed_column(pb1=pb1(t.c1, t.c3))
         t.add_computed_column(pb2=pb2(t.c3))
@@ -1754,9 +1756,10 @@ class TestFunction:
         fn6 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
         u.select(fn6(22, 'starfruit', in4=u.b)).collect()
 
-    def test_required_parameter_missing(self, uses_db: None) -> None:
+    def test_required_parameter_missing(self, uses_env: Callable[[str], str]) -> None:
         """Tests scenarios in which a required input parameter for a UDF or UDA is missing."""
-        t = pxt.create_table('test', {'col_0': pxt.Int, 'col_1': pxt.Int, 'col_2': pxt.String})
+        p = uses_env
+        t = pxt.create_table(p('test'), {'col_0': pxt.Int, 'col_1': pxt.Int, 'col_2': pxt.String})
         t.insert(
             [
                 {'col_0': 1, 'col_1': 1, 'col_2': 'abc'},
@@ -1800,43 +1803,47 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match='not in the resolved function signature'):
             t_vid.insert([{'video': v} for v in videos])
 
-    def test_resource_estimator_non_polymorphic(self, uses_db: None) -> None:
+    def test_resource_estimator_non_polymorphic(self, uses_env: Callable[[str], str]) -> None:
         """resource_estimator works for a plain (non-polymorphic) UDF."""
-        t = pxt.create_table('test_est_plain', {'content': pxt.String})
+        p = uses_env
+        t = pxt.create_table(p('test_est_plain'), {'content': pxt.String})
         t.add_computed_column(emb=mock_embed_plain(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
-    def test_resource_estimator_batch(self, uses_db: None) -> None:
+    def test_resource_estimator_batch(self, uses_env: Callable[[str], str]) -> None:
         """resource_estimator works for a batched UDF."""
-        t = pxt.create_table('test_est_batch', {'content': pxt.String})
+        p = uses_env
+        t = pxt.create_table(p('test_est_batch'), {'content': pxt.String})
         t.add_computed_column(emb=mock_embed_batch(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz qux'}]))
 
-    def test_sync_udf_with_resource_pool(self, uses_db: None) -> None:
+    def test_sync_udf_with_resource_pool(self, uses_env: Callable[[str], str]) -> None:
         """A sync UDF with a resource_pool must raise an error (scalar, batched, and polymorphic)."""
+        p = uses_env
         # scalar
-        t1 = pxt.create_table('test_sync_rp', {'text': pxt.String})
+        t1 = pxt.create_table(p('test_sync_rp'), {'text': pxt.String})
         t1.add_computed_column(result=sync_udf_with_rp(t1.text))
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t1.insert([{'text': 'hello'}])
 
         # batched
-        t2 = pxt.create_table('test_sync_batch_rp', {'text': pxt.String})
+        t2 = pxt.create_table(p('test_sync_batch_rp'), {'text': pxt.String})
         t2.add_computed_column(result=sync_batched_udf_with_rp(t2.text))
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t2.insert([{'text': f'hello {i}'} for i in range(8)])
 
         # polymorphic resolved to a sync overload
-        t3 = pxt.create_table('test_sync_poly_rp', {'num': pxt.Int})
+        t3 = pxt.create_table(p('test_sync_poly_rp'), {'num': pxt.Int})
         t3.add_computed_column(result=sync_poly_udf_with_rp(t3.num))
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t3.insert([{'num': 1}])
 
-    def test_future_annotations_udf(self, uses_db: None) -> None:
+    def test_future_annotations_udf(self, uses_env: Callable[[str], str]) -> None:
         """Tests that UDFs can be defined in modules with `from __future__ import annotations`."""
+        p = uses_env
         from .module_with_future_annotations import future_annotations_udf
 
-        t = pxt.create_table('test_future_annotations', {'a': pxt.Int})
+        t = pxt.create_table(p('test_future_annotations'), {'a': pxt.Int})
         t.add_computed_column(col=future_annotations_udf(t.a))
         t.insert(a=1)
         res = t.select(t.col).collect()

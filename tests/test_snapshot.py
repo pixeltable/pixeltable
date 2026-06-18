@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pytest
@@ -184,14 +184,15 @@ class TestSnapshot:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='different base table'):
             _ = pxt.create_snapshot('snap_with_base', other_base, if_exists='ignore')
 
-    def test_mixed_version_join(self, uses_db: None) -> None:
+    def test_mixed_version_join(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         # A single query plan can reference the same physical column at two different versions: a table joined
         # with a snapshot of itself. Each version must resolve to its own value; if the two versions of a column
         # collapse into one, the snapshot columns return the live values and the join predicate t.id == snap.id
         # degenerates into a cross product.
-        t = pxt.create_table('mixed_version', {'id': pxt.Int, 'v': pxt.Int})
+        t = pxt.create_table(p('mixed_version'), {'id': pxt.Int, 'v': pxt.Int})
         validate_update_status(t.insert([{'id': i, 'v': i} for i in range(5)]), expected_rows=5)
-        snap = pxt.create_snapshot('mixed_version_snap', t)
+        snap = pxt.create_snapshot(p('mixed_version_snap'), t)
         # diverge the live table from the snapshot so the two versions of `v` hold different values
         validate_update_status(t.update({'v': t.v + 100}), expected_rows=5)
 
@@ -290,13 +291,14 @@ class TestSnapshot:
         v2 = pxt.get_table('v2')
         verify(s1, s2, v1, v2)
 
-    def test_snapshot_of_view_chain(self, uses_db: None) -> None:
-        t = pxt.create_table('tbl', {'a': pxt.Int})
+    def test_snapshot_of_view_chain(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = pxt.create_table(p('tbl'), {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
-        v1 = pxt.create_view('v1', t)
-        v2 = pxt.create_view('v2', v1)
-        s = pxt.create_snapshot('s', v2)
+        v1 = pxt.create_view(p('v1'), t)
+        v2 = pxt.create_view(p('v2'), v1)
+        s = pxt.create_snapshot(p('s'), v2)
 
         def verify(v1: pxt.Table, v2: pxt.Table, s: pxt.Table) -> None:
             assert v1.count() == t.count()
@@ -309,9 +311,9 @@ class TestSnapshot:
         verify(v1, v2, s)
 
         reload_catalog()
-        v1 = pxt.get_table('v1')
-        v2 = pxt.get_table('v2')
-        s = pxt.get_table('s')
+        v1 = pxt.get_table(p('v1'))
+        v2 = pxt.get_table(p('v2'))
+        s = pxt.get_table(p('s'))
         verify(v1, v2, s)
 
     def test_multiple_snapshot_paths(self, uses_db: None) -> None:
@@ -373,19 +375,20 @@ class TestSnapshot:
         s1, s2, s3, s4 = pxt.get_table('s1'), pxt.get_table('s2'), pxt.get_table('s3'), pxt.get_table('s4')
         validate(t, v, s1, s2, s3, s4)
 
-    def test_drop_column_in_view_predicate(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
-        _ = pxt.create_snapshot('base_snap', t, additional_columns={'s1': pxt.Int})
-        v1 = pxt.create_view('view1', t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})  # uses c1
-        v1s = pxt.create_snapshot('v1_snap', v1, additional_columns={'v1s1': v1.c2 + v1.vc1})  # snapshot uses c2
+    def test_drop_column_in_view_predicate(self, uses_env: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = uses_env
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.Int})
+        _ = pxt.create_snapshot(p('base_snap'), t, additional_columns={'s1': pxt.Int})
+        v1 = pxt.create_view(p('view1'), t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})  # uses c1
+        v1s = pxt.create_snapshot(p('v1_snap'), v1, additional_columns={'v1s1': v1.c2 + v1.vc1})  # snapshot uses c2
         v2 = pxt.create_view(
-            'view2', v1.where((v1.c2 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int}
+            p('view2'), v1.where((v1.c2 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int}
         )  # uses c2
-        v2s = pxt.create_snapshot('v2_snap', v2, additional_columns={'v2s1': v2.c1 + v2.vc2})  # snapshot uses c1
+        v2s = pxt.create_snapshot(p('v2_snap'), v2, additional_columns={'v2s1': v2.c1 + v2.vc2})  # snapshot uses c1
 
         # Create view on snapshot
-        _ = pxt.create_view('view_snap1', v1s.where(v1s.c1 % 4 == 0))
-        _ = pxt.create_view('view_snap2', v2s.where(v2s.c2 % 4 == 0))
+        _ = pxt.create_view(p('view_snap1'), v1s.where(v1s.c1 % 4 == 0))
+        _ = pxt.create_view(p('view_snap2'), v2s.where(v2s.c2 % 4 == 0))
 
         # Delete first column, only mutable tables will show up in error
         with pxt_raises(
@@ -418,12 +421,13 @@ class TestSnapshot:
         assert 'view_snap1' not in str(e.value).lower()
         assert 'view_snap2' not in str(e.value).lower()
 
-    def test_unstored_snapshot(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_unstored_snapshot(self, uses_env: Callable[[str], str], reload_tester: ReloadTester) -> None:
         """Tests that a snapshot of a table with unstored columns is queryable."""
-        t = pxt.create_table('tbl', {'c1': pxt.Int})
+        p = uses_env
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int})
         t.add_computed_column(c2=(t.c1 + 1), stored=False)
         t.insert({'c1': i} for i in range(100))
-        snap = pxt.create_snapshot('snap', t)
+        snap = pxt.create_snapshot(p('snap'), t)
         reload_tester.run_query(snap.order_by(t.c1))
         reload_tester.run_reload_test()
 
@@ -458,41 +462,45 @@ class TestSnapshot:
     # TODO: Currently, comments and custom_metadata are not persisted for pure snapshots.
     # Should we consider snapshots as non-pure when these are provided?
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
-        t = pxt.create_table('tbl', {'c': pxt.Int})
+    def test_snapshot_comment(self, uses_env: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = uses_env
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int})
         s1 = pxt.create_snapshot(
-            'tbl_snapshot', t, additional_columns={'d': pxt.Int}, comment='This is a test snapshot.'
+            p('tbl_snapshot'), t, additional_columns={'d': pxt.Int}, comment='This is a test snapshot.'
         )
         assert s1.get_metadata()['comment'] == 'This is a test snapshot.'
 
         reload_catalog(do_reload_catalog)
-        s1 = pxt.get_table('tbl_snapshot')
+        s1 = pxt.get_table(p('tbl_snapshot'))
         assert s1.get_metadata()['comment'] == 'This is a test snapshot.'
 
         # check that raw object JSON comments are rejected
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`comment` must be a string'):
             pxt.create_snapshot(
-                'tbl_snapshot_invalid',
+                p('tbl_snapshot_invalid'),
                 t,
                 additional_columns={'d': pxt.Int},
                 comment={'comment': 'This is a test snapshot.'},  # type: ignore[arg-type]
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+    def test_snapshot_custom_metadata(self, uses_env: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = uses_env
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
-        t = pxt.create_table('tbl', {'c': pxt.Int})
-        s1 = pxt.create_snapshot('tbl_snapshot', t, additional_columns={'d': pxt.Int}, custom_metadata=custom_metadata)
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int})
+        s1 = pxt.create_snapshot(
+            p('tbl_snapshot'), t, additional_columns={'d': pxt.Int}, custom_metadata=custom_metadata
+        )
         assert s1.get_metadata()['custom_metadata'] == custom_metadata
 
         reload_catalog(do_reload_catalog)
-        s1 = pxt.get_table('tbl_snapshot')
+        s1 = pxt.get_table(p('tbl_snapshot'))
         assert s1.get_metadata()['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT):
             pxt.create_snapshot(
-                'tbl_snapshot_invalid', t, additional_columns={'d': pxt.Int}, custom_metadata={'key': set}
+                p('tbl_snapshot_invalid'), t, additional_columns={'d': pxt.Int}, custom_metadata={'key': set}
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
@@ -515,21 +523,22 @@ class TestSnapshot:
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
-        t = pxt.create_table('tbl', {'c': pxt.Int})
+    def test_snapshot_column_comment(self, uses_env: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = uses_env
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int})
         s = pxt.create_snapshot(
-            'tbl_snapshot', t, additional_columns={'d': {'type': pxt.Int, 'comment': 'This is a test column.'}}
+            p('tbl_snapshot'), t, additional_columns={'d': {'type': pxt.Int, 'comment': 'This is a test column.'}}
         )
         assert s.get_metadata()['columns']['d']['comment'] == 'This is a test column.'
 
         reload_catalog(do_reload_catalog)
-        s = pxt.get_table('tbl_snapshot')
+        s = pxt.get_table(p('tbl_snapshot'))
         assert s.get_metadata()['columns']['d']['comment'] == 'This is a test column.'
 
         # check that raw object JSON comments are rejected for columns
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'comment' must be a string"):
             pxt.create_snapshot(
-                'tbl_snapshot_invalid',
+                p('tbl_snapshot_invalid'),
                 t,
                 additional_columns={'d': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )

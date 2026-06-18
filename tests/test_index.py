@@ -3,7 +3,7 @@ import random
 import string
 import sys
 from pathlib import Path
-from typing import Any, Literal, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Callable, Literal, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image
@@ -843,8 +843,8 @@ class TestIndex:
         ):
             test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=0), precision='fp16')
 
-    def run_btree_test(self, data: list, data_type: type | _GenericAlias) -> pxt.Table:
-        t = pxt.create_table('btree_test', {'data': data_type})
+    def run_btree_test(self, p: Callable[[str], str], data: list, data_type: type | _GenericAlias) -> pxt.Table:
+        t = pxt.create_table(p('btree_test'), {'data': data_type})
         num_rows = len(data)
         rows = [{'data': value} for value in data]
         validate_update_status(t.insert(rows), expected_rows=num_rows)
@@ -860,15 +860,17 @@ class TestIndex:
 
     BTREE_TEST_NUM_ROWS = 10001  # ~10k rows: incentivize Postgres to use the index
 
-    def test_int_btree(self, uses_db: None) -> None:
+    def test_int_btree(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         random.seed(1)
         data = [random.randint(0, 2**63 - 1) for _ in range(self.BTREE_TEST_NUM_ROWS)]
-        self.run_btree_test(data, pxt.Int)
+        self.run_btree_test(p, data, pxt.Int)
 
-    def test_float_btree(self, uses_db: None) -> None:
+    def test_float_btree(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         random.seed(1)
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
-        self.run_btree_test(data, pxt.Float)
+        self.run_btree_test(p, data, pxt.Float)
 
     def test_string_btree(self, uses_db: None) -> None:
         def create_random_str(n: int) -> str:
@@ -878,7 +880,7 @@ class TestIndex:
         random.seed(1)
         # create random strings of length 200-300 characters
         data = [create_random_str(200 + i % 100) for i in range(self.BTREE_TEST_NUM_ROWS)]
-        t = self.run_btree_test(data, pxt.String)
+        t = self.run_btree_test(lambda name: name, data, pxt.String)
 
         # edge cases: strings that are at and above the max length
         sorted_data = sorted(data)
@@ -903,7 +905,8 @@ class TestIndex:
         assert t.where(t.data >= s).count() == 2
         assert t.where(t.data > s).count() == 1
 
-    def test_timestamp_btree(self, uses_db: None) -> None:
+    def test_timestamp_btree(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         random.seed(1)
         start = datetime.datetime(2000, 1, 1)
         end = datetime.datetime(2020, 1, 1)
@@ -913,9 +916,10 @@ class TestIndex:
             start + datetime.timedelta(seconds=random.randint(0, int(delta_secs)))
             for _ in range(self.BTREE_TEST_NUM_ROWS)
         ]
-        self.run_btree_test(data, pxt.Timestamp)
+        self.run_btree_test(p, data, pxt.Timestamp)
 
-    def test_date_btree(self, uses_db: None) -> None:
+    def test_date_btree(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         random.seed(1)
         start = datetime.date(2000, 1, 1)
         end = datetime.date(2100, 1, 1)
@@ -925,7 +929,7 @@ class TestIndex:
         data = [
             start + datetime.timedelta(days=random.randint(0, int(delta_days))) for _ in range(self.BTREE_TEST_NUM_ROWS)
         ]
-        self.run_btree_test(data, pxt.Date)
+        self.run_btree_test(p, data, pxt.Date)
 
     @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
