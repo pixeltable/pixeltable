@@ -75,8 +75,8 @@ class TestQuery:
 
         return t1, t2, t3
 
-    def test_select_where(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_select_where(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         res1 = t.collect()
         res2 = t.select().collect()
         assert len(res1) > 0

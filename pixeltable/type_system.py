@@ -616,6 +616,10 @@ class ColumnType:
     def create_literal(self, val: Any) -> Any:
         """Create a literal of this type from val or raise TypeError if not possible"""
         if val is not None:
+            if isinstance(val, Path):
+                # normalize a filesystem path to its string form, so a pathlib.Path (e.g. from a pydantic field
+                # typed Path) is treated like the equivalent str path
+                val = str(val)
             val = self._create_literal(val)
 
         self.validate_literal(val)
@@ -913,7 +917,7 @@ class TimestampType(ColumnType):
         from pixeltable.env import Env  # local import to avoid circular imports
 
         if isinstance(val, str):
-            return datetime.datetime.fromisoformat(val)
+            val = datetime.datetime.fromisoformat(val)
         # Place naive timestamps in the default time zone
         if isinstance(val, datetime.datetime) and val.tzinfo is None:
             return val.replace(tzinfo=Env.get().default_time_zone)

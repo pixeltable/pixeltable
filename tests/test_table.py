@@ -1072,8 +1072,7 @@ class TestTable:
         t = pxt.create_table(p('test_pydantic_basic'), schema)
         t.add_computed_column(c1=t.i + 1)
 
-        # pydantic model matches schema exactly
-        class E1(enum.Enum):
+        class E1(enum.IntEnum):
             A = 1
             B = 2
 
@@ -1084,10 +1083,12 @@ class TestTable:
             b: bool
             t: datetime.datetime
             r: Literal['abc', 'def']
-            en: E1
+            en: E1  # an IntEnum is converted to an int
             opt_s: str | None = None
 
-        now = datetime.datetime.now()
+        # tz-aware timestamps: a tz-aware value is stored as-is, so compute()/insert() return exactly the input
+        # (a naive value would come back localized to the session time zone, which complicates comparisons)
+        now = datetime.datetime.now(datetime.timezone.utc)
         rows1: list[pydantic.BaseModel] = [
             TestModel1(
                 s=f'str_{i}',
@@ -1119,17 +1120,22 @@ class TestTable:
         return t, TestModel1, rows1, TestModel2, rows2
 
     def test_insert_pydantic_scalars(self, uses_env: Callable[[str], str]) -> None:
-        t, _, rows1, TestModel2, rows2 = self._setup_pydantic_scalars(uses_env)  # noqa: N806
+        t, TestModel1, rows1, TestModel2, rows2 = self._setup_pydantic_scalars(uses_env)  # noqa: N806
 
-        status = t.insert(rows1)
+        # return_rows reports the stored rows; they reconstruct exactly to the input models (same as compute())
+        status = t.insert(rows1, return_rows=True)
         assert status.num_rows == 100
         assert status.num_excs == 0
         assert t.where(t.i < 50).count() == 50
+        assert status.rows is not None
+        assert all(TestModel1(**r) == row for r, row in zip(status.rows, rows1))
 
-        status = t.insert(rows2)
+        status = t.insert(rows2, return_rows=True)
         assert status.num_rows == 100
         assert status.num_excs == 0
         assert t.where(t.i < 50).count() == 100
+        assert status.rows is not None
+        assert all(TestModel2(**r) == row for r, row in zip(status.rows, rows2))
 
         # missing required keys in input
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="Missing required column 'en'"):
@@ -1226,32 +1232,31 @@ class TestTable:
 
     def test_insert_return_rows_with_idx(self, uses_env: Callable[[str], str]) -> None:
         p = uses_env
-        t = pxt.create_table(p('test_insert_return_rows_with_idx'), {'id': pxt.Int, 'name': pxt.String})
-        status = t.insert([{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}], return_rows=True)
+        t = pxt.create_table(
+            p('test_insert_return_rows_with_idx'), {'id': pxt.Int, 'name': pxt.String, 'ts': pxt.Timestamp}
+        )
+        now = datetime.datetime.now()
+        status = t.insert([{'id': 1, 'name': 'a', 'ts': now}, {'id': 2, 'name': 'b', 'ts': now}], return_rows=True)
         rows = status.rows or []
         assert all(None not in row for row in rows)
-        assert all({'id', 'name'} <= row.keys() for row in rows)
+        assert all({'id', 'name', 'ts'} <= row.keys() for row in rows)
         assert [{'id': r['id'], 'name': r['name']} for r in rows] == [{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}]
+        # return_rows reports exactly what was stored: a naive Timestamp comes back as the localized datetime a
+        # subsequent read returns
+        assert all(isinstance(r['ts'], datetime.datetime) for r in rows)
+        stored = {row['id']: row['ts'] for row in t.select(t.id, t.ts).collect()}
+        assert all(r['ts'] == stored[r['id']] for r in rows)
 
     def test_compute_pydantic_scalars(self, uses_env: Callable[[str], str]) -> None:
         t, TestModel1, rows1, TestModel2, rows2 = self._setup_pydantic_scalars(uses_env)  # noqa: N806
 
-        # compute() localizes naive Timestamp inputs to the session timezone (the canonical pixeltable
-        # behavior, matching insert()); over a hosted catalog that localized value round-trips, while the
-        # in-process pydantic path returns the input unchanged. Compare wall-clock values, tzinfo aside.
-        def normalized(m: pydantic.BaseModel) -> dict[str, Any]:
-            d = m.model_dump()
-            if d.get('t') is not None:
-                d['t'] = d['t'].replace(tzinfo=None)
-            return d
-
         output = t.compute(rows1)
         assert all(out['c1'] == out['i'] + 1 for out in output)
-        assert all(normalized(TestModel1(**out)) == normalized(row) for out, row in zip(output, rows1))
+        assert all(TestModel1(**out) == row for out, row in zip(output, rows1))
 
         output = t.compute(rows2)
         assert all(out['c1'] == out['i'] + 1 for out in output)
-        assert all(normalized(TestModel2(**out)) == normalized(row) for out, row in zip(output, rows2))
+        assert all(TestModel2(**out) == row for out, row in zip(output, rows2))
 
         # missing required keys in input
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="Missing required column 'en'"):
@@ -1353,6 +1358,20 @@ class TestTable:
                 t: str
 
             _ = t.insert([BadModel8(t='0')])
+
+        # a plain enum.Enum
+        t = pxt.create_table(p('bad_enum'), {'en': pxt.Int})
+
+        class PlainEnum(enum.Enum):
+            A = 1
+
+        class EnumModel(pydantic.BaseModel):
+            en: PlainEnum
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected int'):
+            _ = t.insert([EnumModel(en=PlainEnum.A)])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected int'):
+            _ = t.compute([EnumModel(en=PlainEnum.A)])
 
     def test_insert_nested_pydantic(self, uses_env: Callable[[str], str]) -> None:
         p = uses_env
