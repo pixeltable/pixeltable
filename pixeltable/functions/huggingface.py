@@ -835,6 +835,19 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
                 excs.ErrorCode.INVALID_ARGUMENT, '`text` must be a non-empty list of non-empty concept prompts'
             )
 
+        max_frame_num_to_track = bound_args.get('max_frame_num_to_track')
+        if max_frame_num_to_track is not None and (
+            not isinstance(max_frame_num_to_track, int) or max_frame_num_to_track < 0
+        ):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                '`max_frame_num_to_track` must be a non-negative integer (frame index) or None',
+            )
+
+        image_size = bound_args.get('image_size', 1008)
+        if not isinstance(image_size, int) or image_size <= 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`image_size` must be a positive integer')
+
 
 @pxt.udf(batch_size=4)
 def vit_for_image_classification(
