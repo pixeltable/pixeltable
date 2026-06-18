@@ -337,16 +337,22 @@ class ColumnType:
         origin = typing.get_origin(t)
         type_args = typing.get_args(t)
         if origin in (typing.Union, types.UnionType):
-            # Check if `t` has the form T | None.
-            if len(type_args) == 2 and type(None) in type_args:
-                # `t` is a type of the form T | None (equivalently, T | None or None | T).
-                # We treat it as the underlying type but with nullable=True.
-                underlying_py_type = type_args[0] if type_args[1] is type(None) else type_args[1]
-                underlying = cls.from_python_type(
-                    underlying_py_type, allow_builtin_types=allow_builtin_types, infer_pydantic_json=infer_pydantic_json
+            # `None` in the union just makes the result nullable; resolve the other arms to column types and take
+            # their common supertype
+            nullable = type(None) in type_args or nullable_default
+            arms = [
+                cls.from_python_type(
+                    arg, allow_builtin_types=allow_builtin_types, infer_pydantic_json=infer_pydantic_json
                 )
-                if underlying is not None:
-                    return underlying.copy(nullable=True)
+                for arg in type_args
+                if arg is not type(None)
+            ]
+            # an arm isn't itself inferable, so the union isn't either
+            if any(arm is None for arm in arms):
+                return None
+            common = cls.common_supertype(arms)
+            if common is not None:
+                return common.copy(nullable=nullable)
         elif origin is Required:
             assert len(type_args) == 1
             return cls.from_python_type(

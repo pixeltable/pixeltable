@@ -305,6 +305,32 @@ class TestTypes:
             assert non_nullable_pxt_type._to_str(as_schema=True) == f'Required[{string}]'
             assert nullable_pxt_type._to_str(as_schema=True) == string
 
+    def test_union_inference(self, init_env: None) -> None:
+        class NonInferable:
+            pass
+
+        test_cases: tuple[tuple[Any, Any], ...] = (
+            # A union of distinct types infers to the common supertype that can represent all arms.
+            (str | list[str], JsonType(nullable=False)),
+            (int | str, JsonType(nullable=False)),
+            (dict[str, int] | list[str], JsonType(nullable=False)),
+            # Numeric arms use the scalar supertype rules, not JSON.
+            (int | float, FloatType(nullable=False)),
+            # `None` in the union makes the result nullable.
+            (str | list[str] | None, JsonType(nullable=True)),
+            # No common supertype, or a non-inferable arm: not inferable (must not crash, regardless of arm order).
+            (PIL.Image.Image | str, None),
+            (bytes | str, None),
+            (str | NonInferable, None),
+            (NonInferable | str, None),
+        )
+
+        for py_type, expected in test_cases:
+            assert ColumnType.from_python_type(py_type) == expected, py_type
+
+        # nullable_default applies to unions too.
+        assert ColumnType.from_python_type(int | str, nullable_default=True) == JsonType(nullable=True)
+
     def test_supertype(self, init_env: None) -> None:
         test_cases = [
             (IntType(), FloatType(), FloatType()),
