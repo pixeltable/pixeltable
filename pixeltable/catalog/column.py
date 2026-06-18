@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pixeltable import catalog, exceptions as excs
+from pixeltable.type_system import sa_type_as_dict
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -41,6 +42,7 @@ class Column:
         stored: determines whether a computed column is present in the stored table or recomputed on demand
         destination: An object store reference for persisting computed files
         col_id: column ID (only used internally)
+        sa_col_type: SQLAlchemy type for the store column; must be set iff stored is True.
 
     Computed columns: those have a non-None `computed_with` argument
     - when constructed by the user: `computed_with` was constructed explicitly and is passed in;
@@ -50,7 +52,6 @@ class Column:
     `stored` (only valid for computed columns):
     - if True: the column is present in the stored table
     - if False: the column is not present in the stored table and recomputed during a query
-    - if None: the system chooses for you (at present, this is always False, but this may change in the future)
     """
 
     name: str | None
@@ -67,7 +68,7 @@ class Column:
     schema_version_drop: int | None
     stores_cellmd: bool
     sa_col: sql.schema.Column | None
-    sa_col_type: sql.types.TypeEngine
+    sa_col_type: sql.types.TypeEngine | None  # set iff the column is stored
     sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
     _value_expr: exprs.Expr | None
     # TODO it is likely not required anymore, and with some additional work can be removed.
@@ -78,6 +79,8 @@ class Column:
     def __init__(
         self,
         name: str | None,
+        *,
+        sa_col_type: sql.types.TypeEngine | None,
         col_type: ts.ColumnType | None = None,
         computed_with: exprs.Expr | None = None,
         is_pk: bool = False,
@@ -87,7 +90,6 @@ class Column:
         col_id: int | None = None,
         schema_version_add: int | None = None,
         schema_version_drop: int | None = None,
-        sa_col_type: sql.types.TypeEngine | None = None,
         stores_cellmd: bool = False,
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
@@ -116,9 +118,8 @@ class Column:
                     f'Column {name!r}: `computed_with` needs to be a valid Pixeltable expression, '
                     f'but it is a {type(computed_with)}',
                 )
-            else:
-                self._value_expr = value_expr.copy()
-                self.col_type = self._value_expr.col_type
+            self._value_expr = value_expr.copy()
+            self.col_type = self._value_expr.col_type
         if self._value_expr is not None and self.value_expr_dict is None:
             self.value_expr_dict = self._value_expr.as_dict()
 
@@ -127,7 +128,6 @@ class Column:
         assert self.col_type is not None
 
         self.stored = stored
-        # self.dependent_cols = set()  # cols with value_exprs that reference us; set by TableVersion
         self.id = col_id
         self.is_pk = is_pk
         self.is_iterator_col = is_iterator_col
@@ -139,7 +139,11 @@ class Column:
 
         # column in the stored table for the values of this Column
         self.sa_col = None
-        self.sa_col_type = self.col_type.to_sa_type() if sa_col_type is None else sa_col_type
+
+        assert (sa_col_type is None) != stored, (
+            f'Column {name!r} (id={col_id!r}) stored: {stored!r}, sa_col_type: {sa_col_type!r}'
+        )
+        self.sa_col_type = sa_col_type
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
@@ -211,23 +215,32 @@ class Column:
         custom_metadata: Any = None
         comment: str | None = None
 
+        sa_col_type: sql.types.TypeEngine | None = None
         # TODO: Should we fully deprecate passing ts.ColumnType here?
         if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
             col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
+            sa_col_type = col_type.to_sa_type()
         elif isinstance(spec, exprs.Expr):
             # create copy so we can modify it
             value_expr = spec.copy()
             value_expr.bind_rel_paths()
+            sa_col_type = value_expr.col_type.to_sa_type()
         elif isinstance(spec, dict):
+            stored = spec.get('stored', True)
             cls._validate_column_spec(name, spec)
-            if 'type' in spec:
-                col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
             value_expr = spec.get('value')
             if value_expr is not None and isinstance(value_expr, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = value_expr.copy()
                 value_expr.bind_rel_paths()
-            stored = spec.get('stored', True)
+                sa_col_type = value_expr.col_type.to_sa_type() if stored else None
+            elif value_expr is not None and stored:
+                expr = exprs.Expr.from_object(value_expr)
+                assert expr is not None, type(value_expr)
+                sa_col_type = expr.col_type.to_sa_type()
+            if 'type' in spec:
+                col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
+                sa_col_type = col_type.to_sa_type() if stored else None
             primary_key = spec.get('primary_key', False)
             media_validation_str = spec.get('media_validation')
             media_validation = (
@@ -245,6 +258,7 @@ class Column:
         column = cls(
             name,
             col_type=col_type,
+            sa_col_type=sa_col_type,
             computed_with=value_expr,
             stored=stored,
             is_pk=primary_key,
@@ -330,6 +344,7 @@ class Column:
             #   parameter for computed columns. Among other things, this solution does not work for video or audio.
             #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
             computed_with=exprs.ColumnRef(col.column_version_md()).apply(lambda x: x, col_type=col.col_type),
+            sa_col_type=col.col_type.to_sa_type(),
             stored=True,
             stores_cellmd=True,
         )
@@ -346,31 +361,36 @@ class Column:
         if not is_valid_identifier(name):
             raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {name}')
 
-    def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
-        """Returns the Column and optional SchemaColumn metadata for this Column."""
+    def to_md(self, pos: int | None) -> tuple[schema.ColumnMd, schema.SchemaColumn]:
+        """
+        Returns a ColumnMd and a SchemaColumn representing this column. The former is the Table-level metadata of
+        the column, and the latter is its versioned metadata.
+
+        Args:
+            pos: index of this column within the table; None for system columns
+        """
         assert self.is_pk is not None
+        assert (pos is None) == self.is_system_col, (self.id, self.name, pos)
         col_md = schema.ColumnMd(
             id=self.id,
-            col_type=self.col_type.as_dict(),
-            is_pk=self.is_pk,
             schema_version_add=self.schema_version_add,
             schema_version_drop=self.schema_version_drop,
-            value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
             stores_cellmd=self.stores_cellmd,
             destination=self._explicit_destination,
+            sa_col_type=sa_type_as_dict(self.sa_col_type) if self.stored else None,
         )
-        if pos is None:
-            return col_md, None
-        assert self.name is not None, 'Column name must be set for user-facing columns'
-        sch_md = schema.SchemaColumn(
+        col_schema_md = schema.SchemaColumn(
             name=self.name,
             pos=pos,
+            col_type=self.col_type.as_dict(),
+            is_pk=self.is_pk,
+            value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
             custom_metadata=self._custom_metadata,
             comment=self._comment,
         )
-        return col_md, sch_md
+        return col_md, col_schema_md
 
     def column_version_md(self) -> 'catalog.ColumnVersionMd':
         """
@@ -384,18 +404,8 @@ class Column:
         """
         from .globals import ColumnVersionMd, QColumnId
 
-        col_md, _ = self.to_md()
-        schema_col = (
-            schema.SchemaColumn(
-                pos=0,  # placeholder; only matters for column ordering in column_md() output
-                name=self.name,
-                media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
-                custom_metadata=self._custom_metadata,
-                comment=self._comment,
-            )
-            if self.name is not None
-            else None
-        )
+        pos = None if self.is_system_col else 0  # placeholder; only matters for column ordering in column_md() output
+        col_md, schema_col = self.to_md(pos)
         return ColumnVersionMd(
             tbl_id=self.tbl_handle.id,
             effective_version=self.tbl_handle.effective_version,
@@ -471,6 +481,11 @@ class Column:
         assert self.tbl_handle is not None
         assert self.id is not None
         return QColumnId(self.tbl_handle.id, self.id)
+
+    @property
+    # TODO there are opportunities to use this throughout the codebase.
+    def is_system_col(self) -> bool:
+        return self.name is None
 
     @property
     def value_expr(self) -> exprs.Expr | None:
@@ -563,16 +578,18 @@ class Column:
             return
         self.value_expr.fn.source()
 
-    def create_sa_cols(self) -> None:
-        """
-        These need to be recreated for every sql.Table instance
-        """
-        assert self.is_stored
-        assert self.stores_cellmd is not None
-        # all storage columns are nullable (we deal with null errors in Pixeltable directly)
-        self.sa_col = sql.Column(self.store_name(), self.sa_col_type, nullable=True)
+    def set_sa_cols(self, sa_col: sql.Column, sa_cellmd_col: sql.Column | None) -> None:
+        # `type() is` check is weak as it ignores some SQL type parameters (e.g. vector dimensions), but anything
+        # stronger would be unnecessarily complicated (sqlalchemy types do not override __eq__).
+        assert type(sa_col.type) is type(self.sa_col_type)
+        self.sa_col = sa_col
+
         if self.stores_cellmd:
-            self.sa_cellmd_col = sql.Column(self.cellmd_store_name(), self.sa_cellmd_type(), nullable=True)
+            assert sa_cellmd_col is not None
+            assert type(sa_cellmd_col.type) is type(Column.sa_cellmd_type())
+            self.sa_cellmd_col = sa_cellmd_col
+        else:
+            assert sa_cellmd_col is None
 
     @classmethod
     def cellmd_type(cls) -> ts.ColumnType:
@@ -582,13 +599,24 @@ class Column:
     def sa_cellmd_type(cls) -> sql.types.TypeEngine:
         return cls.cellmd_type().to_sa_type()
 
+    @classmethod
+    def store_name_from_id(cls, col_id: int) -> str:
+        return f'col_{col_id}'
+
     def store_name(self) -> str:
         assert self.id is not None
         assert self.is_stored
-        return f'col_{self.id}'
+        return Column.store_name_from_id(self.id)
+
+    @classmethod
+    def cellmd_store_name_from_id(cls, col_id: int) -> str:
+        return f'col_{col_id}_cellmd'
 
     def cellmd_store_name(self) -> str:
-        return f'{self.store_name()}_cellmd'
+        assert self.id is not None
+        assert self.is_stored
+        assert self.stores_cellmd
+        return Column.cellmd_store_name_from_id(self.id)
 
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'

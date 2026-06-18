@@ -19,6 +19,17 @@ _ROWID_COLUMN_NAME = '_rowid'
 _PREDEF_SYMBOLS: set[str] | None = None
 
 
+@dataclasses.dataclass
+class DirEntry:
+    dir: schema.Dir | None
+    dir_entries: dict[str, DirEntry]
+    table: schema.Table | None
+
+    # Only populated for table entries when get_dir_contents() was called with with_error_counts=True;
+    # None otherwise (including for directory entries).
+    table_error_count: int | None = None
+
+
 @dataclasses.dataclass(frozen=True)
 class TableVersionMd:
     """
@@ -68,8 +79,8 @@ class ColumnVersionMd:
     # version-independent metadata
     col_md: schema.ColumnMd
 
-    # versioned metadata; None for system columns
-    schema_col: schema.SchemaColumn | None
+    # versioned metadata
+    schema_col: schema.SchemaColumn
 
     is_iterator_col: bool = False
 
@@ -78,20 +89,24 @@ class ColumnVersionMd:
         return self.col_md.id
 
     @property
+    def is_system_col(self) -> bool:
+        return self.schema_col.name is None
+
+    @property
     def name(self) -> str | None:
-        return self.schema_col.name if self.schema_col is not None else None
+        return self.schema_col.name
 
     @property
     def col_type(self) -> ts.ColumnType:
-        return ts.ColumnType.from_dict(self.col_md.col_type)
+        return ts.ColumnType.from_dict(self.schema_col.col_type)
 
     @property
     def is_pk(self) -> bool:
-        return self.col_md.is_pk
+        return self.schema_col.is_pk
 
     @property
     def is_computed(self) -> bool:
-        return self.col_md.value_expr is not None
+        return self.schema_col.value_expr is not None
 
     @property
     def is_stored(self) -> bool:
@@ -99,7 +114,7 @@ class ColumnVersionMd:
 
     @property
     def media_validation(self) -> MediaValidation | None:
-        if self.schema_col is None or self.schema_col.media_validation is None:
+        if self.schema_col.media_validation is None:
             return None
         return MediaValidation[self.schema_col.media_validation.upper()]
 

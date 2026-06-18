@@ -291,6 +291,16 @@ def replace(
 
 
 @pxt.udf(is_method=True)
+def strip_timezone(self: datetime) -> datetime:
+    """
+    Return a naive datetime with the same wall-clock as `self` and no `tzinfo`.
+
+    Equivalent to [`datetime.replace(tzinfo=None)`](https://docs.python.org/3/library/datetime.html#datetime.datetime.replace).
+    """
+    return self.replace(tzinfo=None)
+
+
+@pxt.udf(is_method=True)
 def toordinal(self: datetime) -> int:
     """
     Return the proleptic Gregorian ordinal of the date, where January 1 of year 1 has ordinal 1.

@@ -294,6 +294,7 @@
           <outline text="udf|pixeltable.functions.timestamp.strftime" />
           <outline text="udf|pixeltable.functions.timestamp.make_timestamp" />
           <outline text="udf|pixeltable.functions.timestamp.replace" />
+          <outline text="udf|pixeltable.functions.timestamp.strip_timezone" />
           <outline text="udf|pixeltable.functions.timestamp.toordinal" />
           <outline text="udf|pixeltable.functions.timestamp.posix_timestamp" />
         </outline>
@@ -497,6 +498,7 @@
       <!-- Import/Export group -->
       <outline text="group|Import/Export">
         <outline text="module|pixeltable.io">
+          <outline text="func|pixeltable.io.import_sql" />
           <outline text="func|pixeltable.io.import_csv" />
           <outline text="func|pixeltable.io.import_excel" />
           <outline text="func|pixeltable.io.import_json" />
