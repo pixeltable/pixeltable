@@ -8,12 +8,16 @@ new method is "register a handler + make sure its arg/return types serialize" --
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import datetime
+import io
 import pathlib
 from typing import Any
 from uuid import UUID
 
+import numpy as np
+import PIL.Image
 from pydantic import BaseModel
 
 from pixeltable import exprs, func, type_system as ts
@@ -104,6 +108,19 @@ def serialize(obj: Any) -> Any:
         return {_TAG: 'date', 'v': obj.isoformat()}
     if isinstance(obj, pathlib.Path):
         return str(obj)  # filesystem paths travel as strings
+    if isinstance(obj, bytes):
+        # a Binary cell, or an array column's stored byte form as returned by compute()
+        return {_TAG: 'bytes', 'v': base64.b64encode(obj).decode('ascii')}
+    if isinstance(obj, np.ndarray):
+        buf = io.BytesIO()
+        np.save(buf, obj, allow_pickle=False)  # .npy carries dtype + shape for a faithful round-trip
+        return {_TAG: 'ndarray', 'v': base64.b64encode(buf.getvalue()).decode('ascii')}
+    if isinstance(obj, PIL.Image.Image):
+        # an in-memory image (e.g. an unstored computed image column); file-backed media travels as a path
+        buf = io.BytesIO()
+        fmt = obj.format or 'PNG'
+        obj.save(buf, format=fmt)
+        return {_TAG: 'image', 'format': fmt, 'v': base64.b64encode(buf.getvalue()).decode('ascii')}
     if isinstance(obj, list):
         return [serialize(x) for x in obj]
     if isinstance(obj, tuple):
@@ -125,6 +142,14 @@ def deserialize(obj: Any) -> Any:
         v = obj['v']
         if tag == 'tuple':
             return tuple(deserialize(x) for x in v)
+        if tag == 'bytes':
+            return base64.b64decode(v)
+        if tag == 'ndarray':
+            return np.load(io.BytesIO(base64.b64decode(v)), allow_pickle=False)
+        if tag == 'image':
+            img = PIL.Image.open(io.BytesIO(base64.b64decode(v)))
+            img.load()  # read pixels now so the result doesn't depend on the transient buffer
+            return img
         if tag == 'IfExistsParam':
             return IfExistsParam[v]
         if tag == 'IfNotExistsParam':

@@ -169,15 +169,6 @@ def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
     # only an InsertableTableProxy dispatches 'compute', so a non-InsertableTable here is an internal error
     assert isinstance(tbl, InsertableTable), tbl
     kwargs = proxy_protocol.deserialize(request.args)
-    cat = get_runtime().catalog
-    with cat.begin_xact(for_write=False):
-        for col_md in tbl._tbl_version_path.column_md():
-            if not (col_md.col_type.is_scalar_type() or col_md.col_type.is_json_type()):
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    'compute() over a hosted catalog supports only scalar and JSON columns at the moment, '
-                    f'column {col_md.name!r} has type {col_md.col_type!s}',
-                )
     return tbl.compute(kwargs['rows'], on_error=kwargs['on_error'])
 
 
@@ -297,10 +288,6 @@ def _run_query_terminal(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
         return Query.from_dict(query_dict)
 
     rs = run(build())
-    # scalar and JSON values are JSON-native and cross the wire as-is; media/array results aren't supported yet
-    assert all(ct.is_scalar_type() or ct.is_json_type() for ct in rs.schema.values()), (
-        'only scalar and JSON result columns are supported yet'
-    )
     return {'schema': dict(rs.schema), 'rows': [list(row._data) for row in rs._rows]}
 
 

@@ -1171,11 +1171,12 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ZeroDivisionError'):
             t.compute([{'id': 0, 'data': None}], on_error='abort')
 
-    def test_compute_media_errors(self, uses_db: None) -> None:
+    def test_compute_media_errors(self, uses_env: Callable[[str], str]) -> None:
         """compute() with a computed column on a media input, exercising media validation errors."""
+        p = uses_env
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f} for f in files]
-        t = pxt.create_table('test_compute_media_errors', {'media': pxt.Video}, media_validation='on_write')
+        t = pxt.create_table(p('test_compute_media_errors'), {'media': pxt.Video}, media_validation='on_write')
         t.add_computed_column(md=t.media.get_metadata())
 
         # on_error='ignore': bad row carries error info under 'media:md' (validation) and 'md:md' (computed col)
@@ -1214,6 +1215,29 @@ class TestTable:
         # non-list sequences of dicts (eg tuples) must work
         out = t.compute(({'id': 1}, {'id': 2}))
         assert out == [{'id': 1, 'plus1': 2}, {'id': 2, 'plus1': 3}]
+
+    def test_array_and_media_columns(self, uses_env: Callable[[str], str]) -> None:
+        # arrays and in-memory images cross the wire inlined; a file-backed media path is read directly (the
+        # daemon shares this client's filesystem and media store)
+        p = uses_env
+        t = pxt.create_table(p('array_media'), {'id': pxt.Int, 'a': pxt.Array, 'img': pxt.Image})
+        t.add_computed_column(rotated=t.img.rotate(180), stored=False)
+        img_file = get_image_files()[0]
+        arr = np.arange(12, dtype=np.int64).reshape(3, 4)
+
+        # insert (array + file-backed media), then read both back
+        t.insert([{'id': 1, 'a': arr, 'img': img_file}])
+        res = t.where(t.id == 1).select(t.a, t.img, t.rotated).collect()[0]
+        assert np.array_equal(res['a'], arr)
+        # selecting an Image column returns a (loaded) PIL image, inlined over the wire
+        assert isinstance(res['img'], PIL.Image.Image)
+        assert isinstance(res['rotated'], PIL.Image.Image)
+
+        # compute() also runs over the proxy for an array/media table without persisting (it returns the array
+        # column in its stored byte form, which crosses the wire as bytes)
+        out = t.compute([{'id': 2, 'a': arr * 2, 'img': img_file}])[0]
+        assert isinstance(out['a'], bytes)
+        assert isinstance(out['rotated'], PIL.Image.Image)
 
     def test_compute_with_idx(self, uses_db: None, clip_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers')
@@ -1456,9 +1480,10 @@ class TestTable:
 
             _ = t.insert([BadModel2(s='str_0', j=N4(s='str_0', n=N3(s={1, 2, 3})))])
 
-    def test_pydantic_media(self, uses_db: None) -> None:
+    def test_pydantic_media(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         schema = {'img': pxt.Required[pxt.Image]}
-        t = pxt.create_table('test_pydantic_media', schema)
+        t = pxt.create_table(p('test_pydantic_media'), schema)
 
         class M1(pydantic.BaseModel):
             img: str

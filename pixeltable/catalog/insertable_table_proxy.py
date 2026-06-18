@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Literal
 import pydantic
 
 from pixeltable import exceptions as excs
-from pixeltable.utils import parse_local_file_path
 
 from .table_proxy import TableProxy
 
@@ -100,27 +99,21 @@ class InsertableTableProxy(TableProxy):
         )
 
     def _prepare_rows(self, source: list[Any]) -> list[dict[str, Any]]:
-        """Validate and normalize a non-empty list of dict/pydantic source rows for the hosted catalog.
-
-        pydantic models are validated and converted to dicts on the client (the model classes aren't
-        importable on the server); plain dicts are shipped as-is.
+        """
+        Validate and normalize a non-empty list of dict/pydantic source rows for the hosted catalog:
+        - pydantic models are validated and converted to dicts on the client (the model classes aren't
+          importable on the server)
+        - plain dicts are shipped as-is
+        - local media paths are shipped unchanged, for now
         """
         if isinstance(source[0], pydantic.BaseModel):
             source = self._pydantic_to_rows(source)
-        media_cols = {cvmd.name for cvmd in self._tbl_md_path.column_md() if cvmd.col_type.is_media_type()}
         rows: list[dict[str, Any]] = []
         for source_row in source:
             if not isinstance(source_row, dict):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, 'Hosted table rows must be dicts or pydantic models.'
                 )
-            for col in media_cols:
-                value = source_row.get(col)
-                if value is not None and (not isinstance(value, str) or parse_local_file_path(value) is not None):
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Local media on a hosted table is not supported yet (column {col!r}).',
-                    )
             rows.append(source_row)
         return rows
 
