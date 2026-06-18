@@ -374,6 +374,12 @@ def test_tbl(uses_db: None) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
+def test_tbl_env(uses_env: Callable[[str], str]) -> pxt.Table:
+    """Env-aware variant of test_tbl: a proxy-ready test opts into this to run against both catalogs."""
+    return create_test_tbl(uses_env('test_tbl'))
+
+
+@pytest.fixture(scope='function')
 def reload_tester(init_env: None) -> ReloadTester:
     return ReloadTester()
 

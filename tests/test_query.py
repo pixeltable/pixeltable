@@ -3,7 +3,7 @@ import itertools
 import re
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import bs4
 import numpy as np
@@ -37,26 +37,37 @@ class TestQuery:
     def is_even_py(x: int) -> bool:
         return x % 2 == 0
 
-    def create_join_tbls(self, num_rows: int) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
-        t1 = pxt.create_table(f't1_{num_rows}', {'id': pxt.Int, 'i': pxt.Int, 'a': pxt.Array})
-        validate_update_status(
-            t1.insert({'id': i, 'i': i, 'a': np.ones((100, 100), dtype=np.int64) * i} for i in range(num_rows)),
-            expected_rows=num_rows,
-        )
-        t2 = pxt.create_table(f't2_{num_rows}', {'id': pxt.Int, 'f': pxt.Float, 'a': pxt.Array})
-        # t2 has matching ids
-        validate_update_status(
-            t2.insert(
-                {'id': i, 'f': float(num_rows - i), 'a': np.ones((100, 100), dtype=np.int64) * (num_rows - i)}
-                for i in range(num_rows)
-            ),
-            expected_rows=num_rows,
-        )
+    def create_join_tbls(self, num_rows: int, p: Callable[[str], str]) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
+        # Array data can't be serialized to a hosted catalog, so the array columns are present only for the
+        # in-process catalog; the join logic under test doesn't depend on them.
+        local = p('') == ''
+        t1_schema = {'id': pxt.Int, 'i': pxt.Int, 'a': pxt.Array} if local else {'id': pxt.Int, 'i': pxt.Int}
+        t1 = pxt.create_table(p(f't1_{num_rows}'), t1_schema)
+
+        def t1_row(i: int) -> dict[str, Any]:
+            row = {'id': i, 'i': i}
+            if local:
+                row['a'] = np.ones((100, 100), dtype=np.int64) * i
+            return row
+
+        validate_update_status(t1.insert(t1_row(i) for i in range(num_rows)), expected_rows=num_rows)
+
+        t2_schema = {'id': pxt.Int, 'f': pxt.Float, 'a': pxt.Array} if local else {'id': pxt.Int, 'f': pxt.Float}
+        t2 = pxt.create_table(p(f't2_{num_rows}'), t2_schema)
+
+        def t2_row(i: int) -> dict[str, Any]:
+            # t2 has matching ids
+            row = {'id': i, 'f': float(num_rows - i)}
+            if local:
+                row['a'] = np.ones((100, 100), dtype=np.int64) * (num_rows - i)
+            return row
+
+        validate_update_status(t2.insert(t2_row(i) for i in range(num_rows)), expected_rows=num_rows)
 
         # t3:
         # - column i with a different type
         # - only 10% of the ids overlap with t1 and t2
-        t3 = pxt.create_table(f't3_{num_rows}', {'id': pxt.Int, 'i': pxt.String, 'f': pxt.Float})
+        t3 = pxt.create_table(p(f't3_{num_rows}'), {'id': pxt.Int, 'i': pxt.String, 'f': pxt.Float})
         validate_update_status(
             t3.insert({'id': i, 'i': str(i), 'f': float(num_rows - i)} for i in range(0, 10 * num_rows, 10)),
             expected_rows=num_rows,
@@ -154,9 +165,10 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    def test_join(self, uses_db: None) -> None:
+    def test_join(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         num_rows = 1000
-        t1, t2, t3 = self.create_join_tbls(num_rows)
+        t1, t2, t3 = self.create_join_tbls(num_rows, p)
         # inner join
         query = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t2.f)
         pd_df = query.collect().to_pandas()
@@ -164,10 +176,13 @@ class TestQuery:
         assert pd_df.f.is_monotonic_increasing  # correct ordering
         assert (pd_df.out == float(num_rows)).all()  # correct sum
 
-        # inner join that selects externally-stored arrays
-        res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, a1=t1.a, a2=t2.a).order_by(t2.f).collect()
-        for row in res:
-            np.array_equal(row['a1'] + row['a2'], np.ones((100, 100), dtype=np.int64) * num_rows)
+        if p('') == '':
+            # array result columns are not yet supported over a hosted catalog
+            # inner join that selects externally-stored arrays
+            res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, a1=t1.a, a2=t2.a).order_by(t2.f).collect()
+            assert all(
+                np.array_equal(row['a1'] + row['a2'], np.ones((100, 100), dtype=np.int64) * num_rows) for row in res
+            )
 
         # the same inner join, but with redundant join predicates
         query = (
@@ -208,7 +223,7 @@ class TestQuery:
         # assert (pd_df[~pd_df.f.isnull()].out == 1000.0).all()  # correct sum
 
         # cross join
-        small_t1, small_t2, _ = self.create_join_tbls(100)
+        small_t1, small_t2, _ = self.create_join_tbls(100, p)
         query = small_t1.join(small_t2, how='cross').select(small_t1.i, small_t2.f, out=small_t1.i + small_t2.f)
         res = query.collect()
         # TODO: verify result
@@ -224,8 +239,9 @@ class TestQuery:
         pd_df = res.to_pandas()
         # TODO: verify result
 
-    def test_join_errors(self, uses_db: None) -> None:
-        t1, t2, t3 = self.create_join_tbls(1000)
+    def test_join_errors(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t1, t2, t3 = self.create_join_tbls(1000, p)
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             _ = t1.join(t2, on=(t2.id, 17)).collect()  # type: ignore[arg-type]
@@ -273,8 +289,8 @@ class TestQuery:
             _ = t1.join(t2, on=t1.id, how='inner').tail()
         assert 'tail() not supported for joins' in str(exc_info.value)
 
-    def test_result_set_iterator(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_result_set_iterator(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         res = t.select(t.c1, t.c2, t.c3).collect()
         pd_df = res.to_pandas()
 
@@ -319,8 +335,8 @@ class TestQuery:
             _ = res['c2', 0]
         assert 'Bad index' in str(exc_info.value)
 
-    def test_order_by(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_order_by(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         _ = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).collect()
 
         # invalid expr in order_by()
@@ -328,15 +344,15 @@ class TestQuery:
             _ = t.order_by(datetime.datetime.now()).collect()  # type: ignore[arg-type]
         assert 'Invalid expression' in str(exc_info.value)
 
-    def test_expr_unique_id(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_expr_unique_id(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         # Multiple constants with the same string representation but different types must be unique (expr.id)
         res = t.select(t.c2, t.c1, t.c1 == '2', t.c1 < '4', t.c2 == 4).limit(4).collect()
         print(res)
         assert len(res) == 4
 
-    def test_limit_basic(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_limit_basic(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
 
         # Basic return shape: length and schema preserved
         res = t.select(t.c1, t.c2).limit(3).collect()
@@ -401,8 +417,8 @@ class TestQuery:
         res = t.where(self.is_even_py(t.c2)).select(t.c2).order_by(t.c2).limit(5, offset=60).collect()
         assert len(res) == 0
 
-    def test_limit_errors(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_limit_errors(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`'):
             _ = t.limit(5.3)  # type: ignore[arg-type]
@@ -420,9 +436,10 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with sample'):
             _ = t.sample(n=10).limit(5)
 
-    def test_limit_joins(self, uses_db: None) -> None:
+    def test_limit_joins(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         num_rows = 100
-        t1, t2, _ = self.create_join_tbls(num_rows)
+        t1, t2, _ = self.create_join_tbls(num_rows, p)
 
         # inner join + limit: only n rows returned, ordering preserved
         res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f).order_by(t1.i).limit(10).collect()
@@ -435,7 +452,7 @@ class TestQuery:
         assert [row['i'] for row in res] == list(range(10, 15))
 
         # cross join + limit: caps total output (10 * 10 = 100 → 25)
-        small1, small2, _ = self.create_join_tbls(10)
+        small1, small2, _ = self.create_join_tbls(10, p)
         res = small1.join(small2, how='cross').select(small1.i, small2.f).limit(25).collect()
         assert len(res) == 25
 
@@ -595,9 +612,9 @@ class TestQuery:
         ):
             _ = t.limit(5, offset=5).count()
 
-    def test_count_with_group_by(self, test_tbl: pxt.Table) -> None:
+    def test_count_with_group_by(self, test_tbl_env: pxt.Table) -> None:
         """Test that count() works with group_by()."""
-        t = test_tbl
+        t = test_tbl_env
         # Count with group_by should return the number of groups
         cnt = t.group_by(t.c1).count()
         # Should return the number of distinct c1 values
@@ -610,11 +627,12 @@ class TestQuery:
         distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
         assert cnt == distinct_c1_filtered
 
-    def test_count_join(self, uses_db: None) -> None:
+    def test_count_join(self, uses_env: Callable[[str], str]) -> None:
         """Tests for join...count queries"""
         # TODO(PXT-1108): when the join+where bug is fixed, add some queries with where().
+        p = uses_env
         num_rows = 100
-        t1, t2, t3 = self.create_join_tbls(num_rows)
+        t1, t2, t3 = self.create_join_tbls(num_rows, p)
 
         # Inner join + count. Note: t1 and t2 have matching ids.
         cnt = t1.join(t2, on=(t1.id == t2.id), how='inner').count()
@@ -628,8 +646,8 @@ class TestQuery:
         cnt = t1.join(t3, on=(t1.id == t3.id), how='left').count()
         assert cnt == num_rows
 
-    def test_select_literal(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_select_literal(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
@@ -960,9 +978,10 @@ class TestQuery:
             _ = view_t.select(view_t.detections).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
 
-    def test_distinct(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_distinct(self, uses_env: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = uses_env
         schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp, 'c5': pxt.Json}
-        t = pxt.create_table('test_distinct', schema)
+        t = pxt.create_table(p('test_distinct'), schema)
         results = t.distinct().collect()
         assert len(results) == 0
         rows = [
@@ -1053,7 +1072,9 @@ class TestQuery:
         assert 'c3' in results.schema
         assert 'c4' in results.schema
 
-    def test_to_pydantic(self, uses_db: None) -> None:
+    def test_to_pydantic(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+
         class TestModel(pydantic.BaseModel):
             i: int
             s: str
@@ -1072,7 +1093,7 @@ class TestQuery:
             model_config = pydantic.ConfigDict(extra='forbid')
 
         schema = {'i': pxt.Int, 's': pxt.String, 'f': pxt.Float, 'b': pxt.Bool, 'ts': pxt.Timestamp, 'd': pxt.Json}
-        t = pxt.create_table('pydantic_tbl', schema)
+        t = pxt.create_table(p('pydantic_tbl'), schema)
         t.insert(
             [
                 {'i': 1, 's': 'one', 'f': 1.0, 'b': True, 'ts': datetime.datetime(2024, 7, 2), 'd': {'k1': 'v1'}},
@@ -1173,16 +1194,18 @@ class TestQuery:
                 with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='does not exist'):
                     row['nonexistent']
 
-    def test_table_cursor(self, uses_db: None) -> None:
-        tbl = pxt.create_table('cursor_tbl', {'a': pxt.Int, 'b': pxt.String})
+    def test_table_cursor(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        tbl = pxt.create_table(p('cursor_tbl'), {'a': pxt.Int, 'b': pxt.String})
         tbl.insert([{'a': i, 'b': f'val_{i}'} for i in range(5)])
         rows = list(tbl.cursor())
         assert len(rows) == 5
         assert all('a' in row and 'b' in row for row in rows)
 
     @pytest.mark.benchmark(group='select_inexpensive')
-    def test_select_inexpensive(self, uses_db: None, benchmark: Any) -> None:
-        t = pxt.create_table('test_inexpensive', {'c1': pxt.Int, 'c2': pxt.String})
+    def test_select_inexpensive(self, uses_env: Callable[[str], str], benchmark: Any) -> None:
+        p = uses_env
+        t = pxt.create_table(p('test_inexpensive'), {'c1': pxt.Int, 'c2': pxt.String})
 
         row_count = 100000
 
@@ -1194,8 +1217,9 @@ class TestQuery:
 
         benchmark(select_inexpensive)
 
-    def test_query_after_column_drop(self, uses_db: None) -> None:
-        t = pxt.create_table('t_drop', {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
+    def test_query_after_column_drop(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = pxt.create_table(p('t_drop'), {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(10)]), expected_rows=10)
         q = t.select(t.a, t.b)
         assert len(q.collect()) == 10
@@ -1205,8 +1229,9 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_column_drop_and_add(self, uses_db: None) -> None:
-        t = pxt.create_table('t_readd', {'a': pxt.Required[pxt.Int], 'keep': pxt.Required[pxt.Int]})
+    def test_query_after_column_drop_and_add(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = pxt.create_table(p('t_readd'), {'a': pxt.Required[pxt.Int], 'keep': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'a': 1, 'keep': 0}]), expected_rows=1)
         q = t.select(t.a)
         assert len(q.collect()) == 1
@@ -1217,8 +1242,9 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_schema_change(self, uses_db: None) -> None:
-        t = pxt.create_table('t_add', {'c1': pxt.Int})
+    def test_query_after_schema_change(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = pxt.create_table(p('t_add'), {'c1': pxt.Int})
         q_c1 = t.where(t.c1 > 1).select(t.c1)
         q_where = t.where(t.c1 > 1)
         q_select = t.where(t.c1 > 1).select()
@@ -1244,9 +1270,10 @@ class TestQuery:
         assert len(res) == 1
         assert res[0] == {'c1': 2}
 
-    def test_order_by_after_schema_change(self, uses_db: None) -> None:
+    def test_order_by_after_schema_change(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
         # Confirm where/order_by/limit clauses don't capture stale select-list state.
-        t = pxt.create_table('t_add_ob', {'c1': pxt.Int, 'c2': pxt.Int})
+        t = pxt.create_table(p('t_add_ob'), {'c1': pxt.Int, 'c2': pxt.Int})
         t.insert([{'c1': i, 'c2': 5 - i} for i in range(5)])
         q = t.where(t.c1 >= 1).order_by(t.c2)
         assert list(q.schema.keys()) == ['c1', 'c2']
