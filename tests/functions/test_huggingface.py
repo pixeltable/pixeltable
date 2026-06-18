@@ -273,11 +273,11 @@ class TestHuggingface:
         video_path = next(f for f in get_video_files() if f.endswith('bangkok_half_res.mp4'))
         t = pxt.create_table('test_tbl', {'video': pxt.Video})
         v = pxt.create_view(
-            'test_view', t, iterator=sam_for_video_segmentation(t.video, text='car', max_frame_num_to_track=2)
+            'test_view', t, iterator=sam_for_video_segmentation(t.video, text=['car'], max_frame_num_to_track=2)
         )
         validate_update_status(t.insert(video=video_path), expected_rows=4)
 
-        results = v.select(v.pos, v.frame, v.object_ids, v.scores, v.boxes, v.masks).order_by(v.pos).collect()
+        results = v.select(v.pos, v.frame, v.object_ids, v.labels, v.scores, v.boxes, v.masks).order_by(v.pos).collect()
         assert len(results) == 3  # frames 0..max_frame_num_to_track
         object_ids_per_frame = []
         for row in results:
@@ -286,6 +286,8 @@ class TestHuggingface:
             n = len(row['object_ids'])
             assert n > 0, 'Expected SAM 3 to track at least one "car" in the sample video'
             assert row['object_ids'].shape == (n,)
+            assert row['labels'].shape == (n,)
+            assert all(label == 'car' for label in row['labels'].tolist())
             assert row['scores'].shape == (n,)
             assert row['boxes'].shape == (n, 4)
             assert row['masks'].shape == (n, frame.height, frame.width)

@@ -566,8 +566,8 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
 
     Args:
         video: The video to segment and track.
-        text: The concept prompt as a short noun phrase (e.g., `'person'`), or a list of prompts to track several
-            concepts at once (e.g., `['person', 'car']`). The `labels` output identifies which prompt matched
+        text: A list of one or more concept prompts, each a short noun phrase (e.g., `['person', 'car']`). Every
+            matching object instance is detected and tracked; the `labels` output identifies which prompt matched
             each object.
         model_id: The pretrained SAM 3 model to use (default `facebook/sam3`).
         fps: The frames per second to sample from the video. If not specified, uses the video's native fps.
@@ -586,7 +586,7 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         >>> v = pxt.create_view(
         ...     'tracked',
         ...     videos,
-        ...     iterator=sam_for_video_segmentation(videos.video, text='person'),
+        ...     iterator=sam_for_video_segmentation(videos.video, text=['person']),
         ... )
         >>> from pixeltable.functions.vision import overlay_segmentation
         >>> from pixeltable.functions.video import make_video
@@ -596,7 +596,7 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         >>> v.select(out=make_video(v.pos, v.overlay)).group_by(videos).collect()
     """
 
-    text: str
+    text: list[str]
     model_id: str
     max_frame_num_to_track: int | None
     image_size: int
@@ -614,7 +614,7 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         self,
         video: pxt.Video,
         *,
-        text: str,
+        text: list[str],
         model_id: str = 'facebook/sam3',
         fps: int | None = None,
         max_frame_num_to_track: int | None = None,
@@ -729,10 +729,9 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:
         text = bound_args.get('text')
-        prompts = text if isinstance(text, list) else [text]
-        if not all(isinstance(p, str) and len(p) > 0 for p in prompts):
+        if not isinstance(text, list) or len(text) == 0 or not all(isinstance(p, str) and len(p) > 0 for p in text):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, '`text` must be a non-empty concept prompt, or a list of them'
+                excs.ErrorCode.INVALID_ARGUMENT, '`text` must be a non-empty list of non-empty concept prompts'
             )
 
 
