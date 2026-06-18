@@ -323,8 +323,8 @@ def _started_status(host: str, port: int, is_ssl: bool, n_routes: int, json_outp
     if ':' in display_host:
         display_host = f'[{display_host}]'
 
-    protocol_name = 'https' if is_ssl else 'http'
-    url = f'{protocol_name}://{display_host}:{port}'
+    scheme = 'https' if is_ssl else 'http'
+    url = f'{scheme}://{display_host}:{port}'
     docs_url = f'{url}/docs'
     if json_output:
         return json.dumps(
