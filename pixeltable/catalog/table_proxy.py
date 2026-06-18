@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
-    import pandas as pd
     import pydantic
     import torch.utils.data
 
@@ -331,5 +330,3 @@ class TableProxy(Table):
 
     def get_versions(self, n: int | None = None) -> list[VersionMetadata]:
         return self._dispatch('get_versions', {'n': n})
-
-    def history(self, n: int | None = None) -> pd.DataFrame: ...

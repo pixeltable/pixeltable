@@ -1194,11 +1194,6 @@ class LocalTable(Table):
 
         return metadata_dicts
 
-    def history(self, n: int | None = None) -> pd.DataFrame:
-        versions = self.get_versions(n)
-        assert len(versions) > 0
-        return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))
-
     def __check_mutable(self, op_descr: str) -> None:
         if self._tbl_version_path.is_snapshot():
             raise excs.RequestError(

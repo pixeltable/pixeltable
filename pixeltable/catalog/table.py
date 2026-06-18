@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 
+import pandas as pd
 from typing_extensions import overload
 
 from .schema_object import SchemaObject
@@ -11,7 +12,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
-    import pandas as pd
     import pydantic
     import torch.utils.data
 
@@ -1028,7 +1028,6 @@ class Table(SchemaObject):
             >>> tbl.get_versions(n=5)
         """
 
-    @abc.abstractmethod
     def history(self, n: int | None = None) -> pd.DataFrame:
         """
         Returns a human-readable report about versions of this table.
@@ -1051,3 +1050,6 @@ class Table(SchemaObject):
 
             >>> tbl.history(n=5)
         """
+        versions = self.get_versions(n)
+        assert len(versions) > 0
+        return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))

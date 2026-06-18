@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections.abc
 from typing import TYPE_CHECKING, Any, Literal
 
 import pydantic
@@ -49,6 +50,10 @@ class InsertableTableProxy(TableProxy):
 
         if isinstance(source, Query):
             return self._insert_query(source, on_error=on_error, print_stats=print_stats, return_rows=return_rows)
+
+        # a generator / iterator of rows (e.g. t.insert(d for d in ...)) is materialized, matching local insert
+        if isinstance(source, collections.abc.Iterator):
+            source = list(source)
 
         if not isinstance(source, list) or len(source) == 0:
             raise excs.RequestError(
