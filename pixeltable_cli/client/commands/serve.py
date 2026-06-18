@@ -317,9 +317,7 @@ def _create_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
     raise AssertionError(f'unknown serve mode: {args.mode}')
 
 
-def _started_status(host: str | None, port: int, is_ssl: bool, n_routes: int, json_output: bool) -> str:
-    if host is None:
-        host = '0.0.0.0'
+def _started_status(host: str, port: int, is_ssl: bool, n_routes: int, json_output: bool) -> str:
     # wildcard bind addresses aren't navigable; show localhost for the URL hints
     display_host = 'localhost' if host in ('0.0.0.0', '::', '') else host
     if ':' in display_host:
