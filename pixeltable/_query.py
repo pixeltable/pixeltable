@@ -1200,7 +1200,7 @@ class Query:
         assert len(col_refs) > 0 and len(joined_tbls) >= 2
         for col_ref in col_refs:
             # identify the referenced column by name in 'other'
-            col_name = col_ref.col.name
+            col_name = col_ref.col_md.name
             rhs_col_md = other.get_column_md_by_name(col_name)
             if rhs_col_md is None:
                 raise excs.NotFoundError(
@@ -1209,26 +1209,26 @@ class Query:
             rhs_col_ref = exprs.ColumnRef(rhs_col_md)
 
             lhs_col_ref: exprs.ColumnRef | None = None
-            if any(tbl.has_column(col_ref.col.qid) for tbl in self._from_clause.tbls):
+            if any(tbl.has_column(col_ref.col_md.qcolid) for tbl in self._from_clause.tbls):
                 # col_ref comes from the existing from_clause, we use that directly
                 lhs_col_ref = col_ref
             else:
                 # col_ref comes from other, we need to look for a match in the existing from_clause by name
                 for tbl in self._from_clause.tbls:
-                    col_md = tbl.get_column_md_by_name(col_ref.col.name)
+                    col_md = tbl.get_column_md_by_name(col_name)
                     if col_md is None:
                         continue
                     if lhs_col_ref is not None:
                         raise excs.RequestError(
                             excs.ErrorCode.UNSUPPORTED_OPERATION,
-                            f'`on`: ambiguous column reference: {col_ref.col.name}',
+                            f'`on`: ambiguous column reference: {col_name!r}',
                         )
                     lhs_col_ref = exprs.ColumnRef(col_md)
                 if lhs_col_ref is None:
                     tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
                     raise excs.NotFoundError(
                         excs.ErrorCode.COLUMN_NOT_FOUND,
-                        f'`on`: column {col_ref.col.name!r} not found in any of: {" ".join(tbl_names)}',
+                        f'`on`: column {col_name!r} not found in any of: {" ".join(tbl_names)}',
                     )
             pred = exprs.Comparison(exprs.ComparisonOperator.EQ, lhs_col_ref, rhs_col_ref)
             predicates.append(pred)

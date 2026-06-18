@@ -38,31 +38,21 @@ class TestQuery:
         return x % 2 == 0
 
     def create_join_tbls(self, num_rows: int, p: Callable[[str], str]) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
-        # Array data can't be serialized to a hosted catalog, so the array columns are present only for the
-        # in-process catalog; the join logic under test doesn't depend on them.
-        local = p('') == ''
-        t1_schema = {'id': pxt.Int, 'i': pxt.Int, 'a': pxt.Array} if local else {'id': pxt.Int, 'i': pxt.Int}
-        t1 = pxt.create_table(p(f't1_{num_rows}'), t1_schema)
+        t1 = pxt.create_table(p(f't1_{num_rows}'), {'id': pxt.Int, 'i': pxt.Int, 'a': pxt.Array})
+        validate_update_status(
+            t1.insert({'id': i, 'i': i, 'a': np.ones((100, 100), dtype=np.int64) * i} for i in range(num_rows)),
+            expected_rows=num_rows,
+        )
 
-        def t1_row(i: int) -> dict[str, Any]:
-            row: dict[str, Any] = {'id': i, 'i': i}
-            if local:
-                row['a'] = np.ones((100, 100), dtype=np.int64) * i
-            return row
-
-        validate_update_status(t1.insert(t1_row(i) for i in range(num_rows)), expected_rows=num_rows)
-
-        t2_schema = {'id': pxt.Int, 'f': pxt.Float, 'a': pxt.Array} if local else {'id': pxt.Int, 'f': pxt.Float}
-        t2 = pxt.create_table(p(f't2_{num_rows}'), t2_schema)
-
-        def t2_row(i: int) -> dict[str, Any]:
-            # t2 has matching ids
-            row: dict[str, Any] = {'id': i, 'f': float(num_rows - i)}
-            if local:
-                row['a'] = np.ones((100, 100), dtype=np.int64) * (num_rows - i)
-            return row
-
-        validate_update_status(t2.insert(t2_row(i) for i in range(num_rows)), expected_rows=num_rows)
+        t2 = pxt.create_table(p(f't2_{num_rows}'), {'id': pxt.Int, 'f': pxt.Float, 'a': pxt.Array})
+        # t2 has matching ids
+        validate_update_status(
+            t2.insert(
+                {'id': i, 'f': float(num_rows - i), 'a': np.ones((100, 100), dtype=np.int64) * (num_rows - i)}
+                for i in range(num_rows)
+            ),
+            expected_rows=num_rows,
+        )
 
         # t3:
         # - column i with a different type
@@ -176,13 +166,9 @@ class TestQuery:
         assert pd_df.f.is_monotonic_increasing  # correct ordering
         assert (pd_df.out == float(num_rows)).all()  # correct sum
 
-        if p('') == '':
-            # array result columns are not yet supported over a hosted catalog
-            # inner join that selects externally-stored arrays
-            res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, a1=t1.a, a2=t2.a).order_by(t2.f).collect()
-            assert all(
-                np.array_equal(row['a1'] + row['a2'], np.ones((100, 100), dtype=np.int64) * num_rows) for row in res
-            )
+        # inner join that selects externally-stored arrays
+        res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, a1=t1.a, a2=t2.a).order_by(t2.f).collect()
+        assert all(np.array_equal(row['a1'] + row['a2'], np.ones((100, 100), dtype=np.int64) * num_rows) for row in res)
 
         # the same inner join, but with redundant join predicates
         query = (
@@ -275,7 +261,7 @@ class TestQuery:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()
-        assert 'ambiguous column reference: id' in str(exc_info.value)
+        assert "ambiguous column reference: 'id'" in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             _ = t1.join(t2, on=t1.i).collect()
