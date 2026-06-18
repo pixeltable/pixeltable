@@ -717,7 +717,7 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         *,
         text: list[str],
         model_id: str = 'facebook/sam3',
-        fps: int | None = None,
+        fps: float | None = None,
         max_frame_num_to_track: int | None = None,
         image_size: int = 1008,
         revision: str | None = None,
