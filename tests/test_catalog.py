@@ -67,7 +67,7 @@ class TestCatalog:
 
         # Test empty path
         empty_parsed = Path.parse('', allow_empty_path=True)
-        assert empty_parsed.components == ('',)
+        assert empty_parsed.components == ()
         assert str(empty_parsed) == ''
 
         # Test versioned paths with SLASH
@@ -82,17 +82,133 @@ class TestCatalog:
         assert versioned_dot.version == 5
         assert str(versioned_dot) == 'a/b/c:5'
 
+    def test_local_catalog_uri(self) -> None:
+        # A plain path lives in the local catalog (empty catalog_uri, no org/db).
+        local = Path.parse('a.b')
+        assert local.org is None
+        assert local.db is None
+        assert local.catalog_uri == ''
+
+    def test_hosted_path_parse(self) -> None:
+        """Path.parse() understands pxt:// URIs and Pixeltable web URLs."""
+        hosted = Path.parse('pxt://variata:main/dir/tbl')
+        assert hosted.org == 'variata'
+        assert hosted.db == 'main'
+        assert hosted.components == ('dir', 'tbl')
+        assert hosted.catalog_uri == 'pxt://variata:main'
+        assert str(hosted) == 'pxt://variata:main/dir/tbl'
+
+        # Versioned hosted path.
+        versioned = Path.parse('pxt://local:testdb/dir/tbl:7', allow_versioned_path=True)
+        assert (versioned.org, versioned.db, versioned.components, versioned.version) == (
+            'local',
+            'testdb',
+            ('dir', 'tbl'),
+            7,
+        )
+
+        # Org without a db.
+        no_db = Path.parse('pxt://variata/tbl')
+        assert no_db.org == 'variata'
+        assert no_db.db is None
+        assert no_db.catalog_uri == 'pxt://variata'
+
+        # A Pixeltable web URL normalizes to the same parse as its pxt:// form.
+        assert Path.parse('https://pixeltable.com/t/variata:main/dir/tbl') == Path.parse('pxt://variata:main/dir/tbl')
+
+        # str() round-trips for both local and hosted paths.
+        assert all(
+            Path.parse(str(p), allow_versioned_path=True) == p for p in (Path.parse('a/b'), hosted, versioned, no_db)
+        )
+
+    def test_hosted_path_errors(self) -> None:
+        # pxt:// with no org.
+        for bad in ('pxt://', 'pxt:///tbl'):
+            with pxt_raises(excs.ErrorCode.INVALID_PATH):
+                Path.parse(bad)
+        # Negative version.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.parse('pxt://variata:main/tbl:-1', allow_versioned_path=True)
+        # Bad identifier component in a hosted path.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.parse('pxt://variata:main/a..b')
+        # Org slug parses out of the netloc but isn't a valid identifier.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.parse('pxt://bad org/tbl')
+        # An extra colon lands in the db slug, which then fails identifier validation.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.parse('pxt://variata:main:extra/tbl')
+
+    def test_path_construction_invariants(self) -> None:
+        # Invariants enforced at construction, so they hold for from_components() (and direct
+        # construction), not only for parse().
+        # A db requires an org.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('tbl',), db='main')
+        # Org and db must be valid slugs.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('tbl',), org='bad org')
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('tbl',), org='variata', db='bad:db')
+        # Version must be non-negative.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('tbl',), version=-1)
+        # Components must be valid, non-empty identifiers; the empty tuple is the root.
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('a', 'bad name'))
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('a', ''))
+        with pxt_raises(excs.ErrorCode.INVALID_PATH):
+            Path.from_components(('',))  # a single empty component is not the root
+        assert Path.from_components(('a', 'b')).components == ('a', 'b')
+        assert Path.from_components(()).is_root  # the empty tuple is the root
+        # Hyphenated org/db slugs are accepted.
+        hosted = Path.parse('pxt://my-org:my-db/tbl')
+        assert (hosted.org, hosted.db) == ('my-org', 'my-db')
+        assert Path.from_components(('tbl',), org='my-org', db='my-db').catalog_uri == 'pxt://my-org:my-db'
+
+    def test_hosted_path_navigation(self) -> None:
+        # Navigation preserves the catalog (org/db) and drops the version.
+        path = Path.parse('pxt://variata:main/a/b/c:3', allow_versioned_path=True)
+        assert path.parent == Path.from_components(('a', 'b'), org='variata', db='main')
+        assert path.append('d') == Path.from_components(('a', 'b', 'c', 'd'), org='variata', db='main')
+        assert path.ancestors() == [
+            Path.from_components((), org='variata', db='main'),
+            Path.from_components(('a',), org='variata', db='main'),
+            Path.from_components(('a', 'b'), org='variata', db='main'),
+        ]
+        # Same-named local and hosted paths are distinct.
+        assert Path.parse('a/b') != Path.parse('pxt://variata:main/a/b')
+
+    def test_hosted_ops_unsupported(self) -> None:
+        # Hosted catalogs are stubbed: an operation routed to a hosted path must raise a user-facing
+        # UNSUPPORTED_OPERATION error, not a bare NotImplementedError.
+        uri = 'pxt://variata:main'
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.get_table(f'{uri}/tbl')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.create_table(f'{uri}/tbl', {'c': pxt.String})
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.drop_table(f'{uri}/tbl')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.create_dir(f'{uri}/d')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.drop_dir(f'{uri}/d')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+            pxt.move(f'{uri}/a', f'{uri}/b')
+        assert not Path.parse('a').is_ancestor(Path.parse('pxt://variata:main/a/b'))
+
     @pytest.mark.parametrize('path_str', ['a.b.c', 'a/b/c'])
     def test_path_ancestors(self, path_str: str) -> None:
         # Test with both dot and slash paths (both result in '/' representation)
         # multiple ancestors in path
         path = Path.parse(path_str)
-        expected_ancestors = [Path(('',), None), Path(('a',), None), Path(('a', 'b'), None)]
+        expected_ancestors = [Path.from_components(()), Path.from_components(('a',)), Path.from_components(('a', 'b'))]
         assert path.ancestors() == expected_ancestors
 
         # single element in path
         path = Path.parse('a')
-        assert path.ancestors() == [Path(('',), None)]
+        assert path.ancestors() == [Path.from_components(())]
 
         # root
         path = Path.parse('', allow_empty_path=True)

@@ -7,6 +7,7 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 
+from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 
 
@@ -40,9 +41,9 @@ class Dir(SchemaObject):
         with cat.begin_xact(for_write=False):
             return cat.read_dir_record(self._id).parent_id
 
-    def _path(self) -> str:
+    def _path(self) -> Path:
         """Returns the path to this schema object."""
         if self._dir_id() is None:
             # we're the root dir
-            return ''
+            return ROOT_PATH
         return super()._path()

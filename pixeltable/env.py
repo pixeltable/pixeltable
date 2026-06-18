@@ -187,7 +187,7 @@ class Env:
         return self._verbosity
 
     @property
-    def dbms(self) -> Dbms | None:
+    def dbms(self) -> Dbms:
         assert self._dbms is not None
         return self._dbms
 

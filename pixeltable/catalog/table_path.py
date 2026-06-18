@@ -188,7 +188,7 @@ class TableVersionPath(TablePath):
         # own columns (all, incl. system) first, so they shadow same-named base columns in iteration order
         for col in tv.cols_by_id.values():
             col_md_obj = tv.tbl_md.column_md[col.id]
-            schema_col = tv._schema_version_md.columns.get(col.id)
+            schema_col = tv._schema_version_md.columns[col.id]
             qcolid = QColumnId(self.tbl_id, col.id)
             column_version_md[qcolid] = ColumnVersionMd(
                 tbl_id=self.tbl_id,
@@ -292,11 +292,7 @@ class TableVersionPath(TablePath):
     def get_column_by_id(self, qcol_id: QColumnId) -> Column | None:
         tv = self._cached_tv()
         if qcol_id.tbl_id == self.tbl_version.id:
-            # cols_by_id contains visible columns; tv.cols includes dropped ones too
-            col = tv.cols_by_id.get(qcol_id.col_id)
-            if col is not None:
-                return col
-            return next((c for c in tv.cols if c.id == qcol_id.col_id), None)
+            return tv.cols_by_id.get(qcol_id.col_id)
         if self.base is not None:
             return self.base.get_column_by_id(qcol_id)
         return None
@@ -326,7 +322,7 @@ class TableVersionPath(TablePath):
         result = [
             cvmd
             for cvmd in self._cached_column_version_md().values()
-            if cvmd.qcolid.tbl_id == self.tbl_version.id and cvmd.schema_col is not None
+            if cvmd.qcolid.tbl_id == self.tbl_version.id and not cvmd.is_system_col
         ]
         if self.base is not None and tv.include_base_columns:
             own_names = {cvmd.name for cvmd in result}
@@ -416,7 +412,7 @@ class TableMdPath(TablePath):
         # own columns (all, incl. system) first, so they shadow same-named base columns in iteration order
         for col_id, col_md in self.md.tbl_md.column_md.items():
             qcolid = QColumnId(tbl_id, col_id)
-            schema_col = self.md.schema_version_md.columns.get(col_id)
+            schema_col = self.md.schema_version_md.columns[col_id]
             cvmd = ColumnVersionMd(
                 tbl_id=tbl_id,
                 effective_version=effective_version,
@@ -482,9 +478,7 @@ class TableMdPath(TablePath):
         tbl_id = self.tbl_id
         # own user columns
         result = [
-            cvmd
-            for cvmd in self._column_version_md.values()
-            if cvmd.qcolid.tbl_id == tbl_id and cvmd.schema_col is not None
+            cvmd for cvmd in self._column_version_md.values() if cvmd.qcolid.tbl_id == tbl_id and not cvmd.is_system_col
         ]
         include_base = (
             self.base is not None and self.md.tbl_md.view_md is not None and self.md.tbl_md.view_md.include_base_columns
