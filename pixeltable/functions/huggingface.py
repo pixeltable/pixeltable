@@ -7,6 +7,7 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
+import itertools
 from collections.abc import Iterator
 from typing import Any, Callable, Literal, TypedDict, TypeVar
 
@@ -520,6 +521,7 @@ class Sam3VideoSegmentationFrame(TypedDict):
     frame: pxt.Image
     frame_attrs: pxt.Json
     object_ids: pxt.Array[(None,), pxt.Int]
+    labels: pxt.Array[(None,), pxt.String]
     scores: pxt.Array[(None,), pxt.Float]
     boxes: pxt.Array[(None, 4), pxt.Float]
     masks: pxt.Array[(None, None, None), pxt.Bool]
@@ -553,6 +555,9 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         `frame` on demand.
     - `object_ids` (`pxt.Array`): The persistent id of each tracked object present in the frame, shape
         `(num_objects,)`. The same id refers to the same object across frames.
+    - `labels` (`pxt.Array`): The concept prompt that detected each object, shape `(num_objects,)`, aligned with
+        `object_ids`. With a single prompt this is that prompt repeated; with multiple prompts it identifies which
+        concept matched each object.
     - `scores` (`pxt.Array`): The detection score of each object, shape `(num_objects,)`, aligned with
         `object_ids`.
     - `boxes` (`pxt.Array`): The bounding box `[x1, y1, x2, y2]` of each object in absolute pixel coordinates,
@@ -561,10 +566,14 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
 
     Args:
         video: The video to segment and track.
-        text: The concept prompt as a short noun phrase (e.g., `'person'`).
+        text: The concept prompt as a short noun phrase (e.g., `'person'`), or a list of prompts to track several
+            concepts at once (e.g., `['person', 'car']`). The `labels` output identifies which prompt matched
+            each object.
         model_id: The pretrained SAM 3 model to use (default `facebook/sam3`).
         fps: The frames per second to sample from the video. If not specified, uses the video's native fps.
-        max_frame_num_to_track: The maximum number of frames to track. If not specified, all frames are tracked.
+        max_frame_num_to_track: The maximum number of frames to track, counting from the first frame. If not
+            specified, all frames are tracked. When set, the view contains only the tracked frames (fewer rows
+            than the video has frames).
         image_size: The square input resolution (in pixels) the model runs at (default 1008). Lowering it (e.g.
             `560`) is substantially faster but reduces accuracy, since SAM 3 is tuned for 1008px.
         revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not specified,
@@ -647,9 +656,15 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
             self.model_id, Sam3VideoProcessor.from_pretrained, revision=self.revision, size=self.image_size
         )
 
-        # The tracker needs the whole clip up front, so drain the wrapped `frame_iterator`; `frame_idx` then
-        # indexes directly into `extracted`.
-        extracted = list(self.frames)
+        # The tracker needs its clip up front, so drain the wrapped `frame_iterator`; `frame_idx` then indexes
+        # directly into `extracted`. Propagation starts at frame 0, so with a `max_frame_num_to_track` limit only
+        # frames `0..max_frame_num_to_track` are ever tracked; draining just those avoids decoding and storing the
+        # rest of the video. (Correct only because we propagate forward from frame 0.)
+        extracted = (
+            list(itertools.islice(self.frames, self.max_frame_num_to_track + 1))
+            if self.max_frame_num_to_track is not None
+            else list(self.frames)
+        )
         session = processor.init_video_session(
             video=[item['frame'] for item in extracted],
             inference_device=device,
@@ -667,11 +682,19 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
             masks_np = result['masks'].cpu().numpy()
             if masks_np.dtype != np.bool_:
                 masks_np = masks_np.astype(bool)
+            object_ids_np = result['object_ids'].cpu().numpy()
+            # Reverse `prompt_to_obj_ids` to map each object_id to its prompt, so the text labels align with the
+            # tracked objects.
+            prompt_by_obj = {
+                obj_id: prompt for prompt, obj_ids in result['prompt_to_obj_ids'].items() for obj_id in obj_ids
+            }
+            labels_np = np.array([prompt_by_obj[int(obj_id)] for obj_id in object_ids_np], dtype=np.str_)
             item = extracted[model_outputs.frame_idx]
             yield Sam3VideoSegmentationFrame(
                 frame=item['frame'],
                 frame_attrs=item['frame_attrs'],
-                object_ids=result['object_ids'].cpu().numpy(),
+                object_ids=object_ids_np,
+                labels=labels_np,
                 scores=result['scores'].cpu().numpy(),
                 boxes=result['boxes'].cpu().numpy(),
                 masks=masks_np,
@@ -694,6 +717,7 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
                 frame=item['frame'],
                 frame_attrs=item['frame_attrs'],
                 object_ids=np.empty(0, dtype=np.int64),
+                labels=np.empty(0, dtype=np.str_),
                 scores=np.empty(0, dtype=np.float32),
                 boxes=np.empty((0, 4), dtype=np.float32),
                 masks=np.empty((0, 0, 0), dtype=bool),
@@ -705,8 +729,11 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:
         text = bound_args.get('text')
-        if not isinstance(text, str) or len(text) == 0:
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`text` must be a non-empty concept prompt')
+        prompts = text if isinstance(text, list) else [text]
+        if not all(isinstance(p, str) and len(p) > 0 for p in prompts):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, '`text` must be a non-empty concept prompt, or a list of them'
+            )
 
 
 @pxt.udf(batch_size=4)
