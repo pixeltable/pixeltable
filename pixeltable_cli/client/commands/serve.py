@@ -319,7 +319,7 @@ def _create_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
 
 def _started_status(host: str, port: int, is_ssl: bool, n_routes: int, json_output: bool) -> str:
     # wildcard bind addresses aren't navigable; show localhost for the URL hints
-    display_host = 'localhost' if host in ('0.0.0.0', '::', '') else host
+    display_host = 'localhost' if host in ('0.0.0.0', '::') else host
     if ':' in display_host:
         display_host = f'[{display_host}]'
 
