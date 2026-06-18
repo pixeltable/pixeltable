@@ -367,7 +367,7 @@ def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None
     try:
         server.run()
     except KeyboardInterrupt:
-        print('KeyboardInterrupt', file=sys.stderr)
+        print('Keyboard interrupt received, shutting down', file=sys.stderr)
         sys.exit(130)
     except OSError as e:
         if e.errno == errno.EADDRINUSE:
