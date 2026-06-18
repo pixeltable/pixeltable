@@ -8,9 +8,11 @@ from typing_extensions import overload
 from .schema_object import SchemaObject
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
     import pandas as pd
+    import pydantic
     import torch.utils.data
 
     from pixeltable import exprs, type_system as ts
@@ -717,7 +719,7 @@ class Table(SchemaObject):
                 - The table is a view or snapshot.
                 - The table has been dropped.
                 - One of the rows being inserted does not conform to the table schema.
-                - An error occurs during processing of computed columns, and `on_error='ignore'`.
+                - An error occurs during processing of computed columns, and `on_error='abort'`.
                 - An error occurs while importing data from a source, and `on_error='abort'`.
 
         Examples:
@@ -744,6 +746,73 @@ class Table(SchemaObject):
             ...
             ... models = [MyModel(a=1, b=2), MyModel(a=3, b=4)]
             ... tbl.insert(models)
+        """
+
+    @abc.abstractmethod
+    def compute(
+        self,
+        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+    ) -> list[dict[str, Any]]:
+        """
+        Materialize the computed columns of this table for the given input rows and return the resulting rows
+        without persisting them.
+
+        Args:
+            source: Rows to compute, as a sequence of dictionaries or Pydantic model instances.
+                Each row must supply values for every required (non-nullable, non-computed)
+                column; the same rules as [`insert()`][pixeltable.Table.insert] apply.
+
+            on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
+                invalid media file (such as a corrupt image) for one of the input rows.
+
+                - If `on_error='abort'`, an exception will be raised.
+                - If `on_error='ignore'`, execution will continue and the (possibly partially) completed rows will be
+                    returned. Any cells with errors will have a `None` value for that cell, with information about the
+                    error stored in the corresponding `<col>:md` entry of the output row.
+
+        Returns:
+            A list of output rows, in the same order as `source`. Each row dict contains:
+
+            - `<col>` -> the column value, for each column in the table.
+            - `<col>:<idx>` -> the value of index `<idx>` defined on `<col>` (embedding indexes
+              only; b-tree indexes are omitted).
+            - `<col>:md` -> `{'errortype': ..., 'errormsg': ...}`, present only when
+              `on_error='ignore'` and the cell raised.
+
+        Raises:
+            Error: If one of the following conditions occurs:
+
+                - The table is a view or snapshot.
+                - The table has been dropped.
+                - One of the input rows does not conform to the table schema.
+                - An error occurs during processing of computed columns, and `on_error='abort'`.
+
+        Examples:
+            Compute output rows for a table with int columns `a`, `b` and a computed column `c = a + b`:
+
+            >>> tbl = pxt.get_table('my_table')
+            ... rows = tbl.compute([{'a': 1, 'b': 1}, {'a': 2, 'b': 2}])
+            ... # rows == [{'a': 1, 'b': 1, 'c': 2}, {'a': 2, 'b': 2, 'c': 4}]
+
+            Same with Pydantic model inputs:
+
+            >>> class MyModel(pydantic.BaseModel):
+            ...     a: int
+            ...     b: int
+            ...
+            ...
+            ... rows = tbl.compute([MyModel(a=1, b=2), MyModel(a=3, b=4)])
+
+            Continue past per-row failures and inspect the per-cell error info:
+
+            >>> rows = tbl.compute(
+            ...     [{'a': 0, 'b': 1}, {'a': 2, 'b': 2}], on_error='ignore'
+            ... )
+            ... # If `c` raised on row 0, rows[0]['c'] is None and rows[0]['c:md']
+            ... # contains {'errortype': ..., 'errormsg': ...}.
         """
 
     @abc.abstractmethod

@@ -6,9 +6,11 @@ from uuid import UUID, uuid4
 from .table import Table
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
     import pandas as pd
+    import pydantic
     import torch.utils.data
 
     from pixeltable import exprs, type_system as ts
@@ -202,6 +204,15 @@ class TableProxy(Table):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
+        raise NotImplementedError
+
+    def compute(
+        self,
+        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+    ) -> list[dict[str, Any]]:
         raise NotImplementedError
 
     def update(
