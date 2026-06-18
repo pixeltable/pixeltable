@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog.table_path import TableVersionPath
-from pixeltable.query_clauses import SampleClause
+from pixeltable.query_clauses import FromClause, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
@@ -173,7 +173,7 @@ class _PlaceholderQuery:
     that is not yet defined at the time of class body execution.
     """
 
-    from_clause: str | Table
+    from_clause: type[TableModelMetaclass]
     select_list: list[tuple[exprs.Expr, str | None]] | None
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
@@ -184,7 +184,7 @@ class _PlaceholderQuery:
 
     def __init__(
         self,
-        from_clause: str | Table,
+        from_clause: type[TableModelMetaclass],
         select_list: list[tuple[exprs.Expr, str | None]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
@@ -262,6 +262,54 @@ class _PlaceholderQuery:
             stratify_exprs = list(stratify_by)
         sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
         return dataclasses.replace(self, sample_clause=sample_clause)
+
+    def bind(self) -> 'pxt.Query':
+        import pixeltable as pxt
+
+        tbl = self.from_clause.bind()
+        subst_dict = exprs.ExprDict[exprs.ColumnRef]()
+        for col_name in tbl.columns():
+            placeholder = _PlaceholderColumnRef(col_name, {'type': ts.InvalidType()})
+            subst_dict[placeholder] = getattr(tbl, col_name)
+
+        select_list = (
+            [(expr.substitute(subst_dict), alias) for (expr, alias) in self.select_list] if self.select_list is not None else None
+        )
+        where_clause = self.where_clause.substitute(subst_dict) if self.where_clause is not None else None
+        group_by_clause = (
+            [expr.substitute(subst_dict) for expr in self.group_by_clause] if self.group_by_clause is not None else None
+        )
+        order_by_clause = (
+            [(expr.substitute(subst_dict), asc) for (expr, asc) in self.order_by_clause]
+            if self.order_by_clause is not None
+            else None
+        )
+        limit_val = self.limit_val.substitute(subst_dict) if self.limit_val is not None else None
+        offset_val = self.offset_val.substitute(subst_dict) if self.offset_val is not None else None
+        sample_clause = (
+            SampleClause(
+                None,
+                self.sample_clause.n,
+                self.sample_clause.n_per_stratum,
+                self.sample_clause.fraction,
+                self.sample_clause.seed,
+                [expr.substitute(subst_dict) for expr in self.sample_clause.stratify_by],
+            )
+            if self.sample_clause is not None
+            else None
+        )
+
+        return pxt.Query(
+            FromClause([tbl._tbl_version_path]),
+            select_list,
+            where_clause,
+            group_by_clause,
+            None,
+            order_by_clause,
+            limit_val,
+            offset_val,
+            sample_clause,
+        )
 
 
 class _ColumnCtx:
@@ -348,6 +396,7 @@ class _ModelNamespace(dict):
         # our recorder rather than a plain dict it would otherwise create.
         super().__setitem__('__annotations__', _AnnotationRecorder(self))
         super().__setitem__(name, self.column_ctx)
+        super().__setitem__('_is_bound', False)
         Column.set_column_ctx(self.column_ctx)
         self._finalizer = weakref.finalize(self, lambda: self.cleanup_column_ctx())
 
@@ -356,9 +405,21 @@ class _ModelNamespace(dict):
             Column.set_column_ctx(None)
 
     def __setitem__(self, key: str, value: Any) -> None:
+        import pixeltable as pxt
+
         if not key.startswith('_'):
             # Replace the value with a _PlaceholderColumnRef or EmbeddingIndex
             value = self.column_ctx.set_col_value(key, value)
+
+        elif key == '__base_table__':
+            if isinstance(value, (TableModelMetaclass, pxt.Table)):
+                value = value.select()
+            if value is not None and not isinstance(value, (_PlaceholderQuery, pxt.Query)):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'__base_table__ must be set to a valid base table reference, but got {value!r}',
+                )
+
         super().__setitem__(key, value)
 
     def set_col_type(self, key: str, type_: Any) -> None:
@@ -387,8 +448,10 @@ class TableModelMetaclass(type):
     __columns__: dict[str, _PlaceholderColumnRef]
     __indexes__: dict[str, EmbeddingIndex]
     __table_name__: str
-    __base_table__: str | Table | 'pxt.Query' | None
+    __base_table__: _PlaceholderQuery | 'pxt.Query' | None
     __iterator__: func.GeneratingFunctionCall | None
+
+    _is_bound: bool
 
     @classmethod
     def __prepare__(mcs, name: str, bases: tuple[type, ...], **kwargs: Any) -> dict[str, Any]:
@@ -427,8 +490,6 @@ class TableModelMetaclass(type):
         namespace['__columns__'] = column_ctx.known_cols
         namespace['__indexes__'] = column_ctx.known_idxs
 
-        for col_name in column_ctx.known_cols:
-            namespace.pop(col_name)
         for idx_name in column_ctx.known_idxs:
             namespace.pop(idx_name)
 
@@ -455,15 +516,7 @@ class TableModelMetaclass(type):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA, f'ViewModel `{name}` does not define a __base_table__.'
                 )
-            if isinstance(base_table, TableModelMetaclass) and issubclass(base_table, (TableModel, ViewModel)):
-                # Base table is specified as a model; replace with the string name of that table
-                namespace['__base_table__'] = base_table.__table_name__
-            elif not isinstance(base_table, (str, Table, pxt.Query)):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'Invalid __base_table__ for ViewModel `{name}`: must be a valid base table name, an existing '
-                    'table or query, or another TableModel/ViewModel class.',
-                )
+            assert isinstance(base_table, (_PlaceholderQuery, pxt.Query))
 
             if '__iterator__' in namespace:
                 iterator = namespace['__iterator__']
@@ -506,8 +559,6 @@ class TableModelMetaclass(type):
             catalog_col.tbl_handle = tbl_handle
             catalog_col.id = len(subst_dict)
             catalog_columns.append(catalog_col)
-            # Explicitly set perform_validation in order to avoid prematurely deferencing table properties.
-            # It defaults to the table-level media_validation if not set in the ColumnSpec.
             subst_dict[placeholder] = exprs.ColumnRef(
                 catalog_col.column_version_md(),
                 perform_validation=subst_spec.get('media_validation', tbl_media_validation) == 'on_read',
@@ -540,30 +591,18 @@ class TableModelMetaclass(type):
             base = cls.__base_table__
             iterator = cls.__iterator__
 
-            base_tvp: TableVersionPath
-            if isinstance(base, str):
-                base = pxt.get_table(base)
-                assert base is not None
-                base_tvp = base._tbl_version_path
-            elif isinstance(base, pxt.Query):
-                # TODO: Validate query
-                select_list = base.select_list
-                where = base.where_clause
-                sample_clause = base.sample_clause
-                base_tvp = base._first_tbl
-            else:
-                assert isinstance(base, pxt.Table), type(base)
-                base_tvp = base._tbl_version_path
+            if isinstance(base, _PlaceholderQuery):
+                base = base.bind()
 
             assert iterator is None or isinstance(iterator, func.GeneratingFunctionCall)
 
             create_fn = retry_loop(for_write=True)(
                 lambda: cat._create_view(
                     path=tbl_path,
-                    base=base_tvp,
-                    select_list=select_list,
-                    where=where,
-                    sample_clause=sample_clause,
+                    base=base._first_tbl,
+                    select_list=base.select_list,
+                    where=base.where_clause,
+                    sample_clause=base.sample_clause,
                     additional_columns=catalog_columns,
                     is_snapshot=False,
                     create_default_idxs=True,
@@ -596,13 +635,26 @@ class TableModelMetaclass(type):
             kwargs['idx_name'] = idx_name
             tbl.add_embedding_index(**kwargs)
 
-        return tbl
+        return cls.bind()
+
+    def bind(cls) -> pxt.Table:
+        if cls.is_bound:
+            return cls._resolve_tbl()
+        else:
+            tbl = cls._resolve_tbl()
+            # TODO: Validation
+            for col_name in tbl.columns():
+                setattr(cls, col_name, getattr(tbl, col_name))
+            cls._is_bound = True
+            return tbl
+
+    @property
+    def is_bound(cls) -> bool:
+        return cls._is_bound
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
             return getattr(cls._resolve_tbl(), item)
-        if is_valid_identifier(item):
-            return cls._resolve_column(item)
         return super().__getattribute__(item)
 
     @property
@@ -613,6 +665,18 @@ class TableModelMetaclass(type):
         `MyModel.table.where(...).order_by(...).collect()`.
         """
         return cls._resolve_tbl()
+
+    def select(cls, *items: Any, **named_items: Any) -> _PlaceholderQuery | pxt.Query:
+        if cls._is_bound:
+            return cls.table.select(*items, **named_items)
+        else:
+            return _PlaceholderQuery(cls).select(*items, **named_items)
+
+    def where(cls, pred: exprs.Expr) -> _PlaceholderQuery | pxt.Query:
+        if cls._is_bound:
+            return cls.table.where(pred)
+        else:
+            return _PlaceholderQuery(cls).where(pred)
 
 
 class TableModel(metaclass=TableModelMetaclass):

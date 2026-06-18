@@ -382,7 +382,7 @@ def create_view(
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
 
-    return get_runtime().catalog.create_view(
+    view, _ = get_runtime().catalog.create_view(
         path_obj,
         tbl_version_path,
         select_list=select_list,
@@ -397,6 +397,8 @@ def create_view(
         media_validation=media_validation_,
         if_exists=if_exists_,
     )
+
+    return view
 
 
 def create_snapshot(

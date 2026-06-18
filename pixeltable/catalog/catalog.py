@@ -1543,7 +1543,8 @@ class Catalog:
         custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
-    ) -> Table:
+    ) -> tuple[Table, bool]:
+        additional_columns_ = [Column.create(name, spec) for name, spec in additional_columns.items()]
         create_fn = retry_loop(for_write=True)(
             lambda: self._create_view(
                 path,
@@ -1551,7 +1552,7 @@ class Catalog:
                 select_list,
                 where,
                 sample_clause,
-                additional_columns,
+                additional_columns_,
                 is_snapshot,
                 create_default_idxs,
                 iterator,
@@ -1563,7 +1564,7 @@ class Catalog:
         )
 
         self._roll_forward_ids.clear()
-        view_id = create_fn()
+        view_id, is_created = create_fn()
         if not is_snapshot and base.is_mutable():
             # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
             self._clear_tv_cache(base.tbl_version.key)
@@ -1571,8 +1572,8 @@ class Catalog:
         self._roll_forward()
 
         @retry_loop(read_tbl_ids=[view_id])
-        def _get_tbl() -> Table:
-            return self.get_table_by_id(view_id)
+        def _get_tbl() -> tuple[Table, bool]:
+            return self.get_table_by_id(view_id), is_created
 
         return _get_tbl()
 
@@ -1583,7 +1584,7 @@ class Catalog:
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,
-        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
+        additional_columns: list[Column],
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
@@ -1592,7 +1593,7 @@ class Catalog:
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
         tbl_id: UUID | None = None,
-    ) -> UUID:
+    ) -> tuple[UUID, bool]:
         if not is_snapshot and base.is_mutable():
             # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
             # the view
@@ -1635,7 +1636,7 @@ class Catalog:
         md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
         self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
         fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
-        return tbl_id
+        return tbl_id, True
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)

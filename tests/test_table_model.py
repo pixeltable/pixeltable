@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pytest
@@ -20,10 +20,10 @@ class TestTableModel:
             name: pxt.String
             value: pxt.Float
             img: pxt.Image
-            incr = ExampleTableModel.value + 1
-            descr = pxtf.string.format('Name: {name}', name=ExampleTableModel.name)
+            incr = value + 1
+            descr = pxtf.string.format('Name: {name}', name=name)
 
-            clip_idx = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
+            clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
         tbl = ExampleTableModel.create()
         metadata: dict[str, Any] = dict(tbl.get_metadata())
@@ -191,8 +191,8 @@ class TestTableModel:
             name: pxt.String
             value: pxt.Float
             img: pxt.Image
-            incr = ExampleTableModel.value + 1
-            descr = pxtf.string.format('Name: {name}', name=ExampleTableModel.name)
+            incr = value + 1
+            descr = pxtf.string.format('Name: {name}', name=name)
 
         with pxt_raises(excs.ErrorCode.PATH_NOT_FOUND, match="Path 'test_table' does not exist"):
             _ = ExampleTableModel.id
@@ -283,8 +283,8 @@ class TestTableModel:
             'value': 'Float',
         }
 
-    @pytest.mark.parametrize('spec_type', ['model', 'name', 'query', 'table'])
-    def test_view_model(self, spec_type: str, uses_db: None) -> None:
+    @pytest.mark.parametrize('spec_type', ['model', 'query'])
+    def test_view_model(self, spec_type: Literal['model', 'query'], uses_db: None) -> None:
         class ExampleTableModel(pxt.TableModel):
             __table_name__ = 'test_table'
 
@@ -292,55 +292,46 @@ class TestTableModel:
             name: pxt.String
             value: pxt.Float
             img: pxt.Image
-            incr = Column.value + 1
-            descr = pxtf.string.format('Name: {name}', name=Column.name)
+            incr = value + 1
+            descr = pxtf.string.format('Name: {name}', name=name)
 
-            clip_idx = EmbeddingIndex(Column.img, embedding=dummy_embedding.using(n=768))
-
-        _ = ExampleTableModel.create()
+            clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
         spec: Any
         match spec_type:
             case 'model':
                 spec = ExampleTableModel
-            case 'name':
-                spec = 'test_table'
             case 'query':
                 spec = ExampleTableModel.select(ExampleTableModel.value, ExampleTableModel.img).where(
                     ExampleTableModel.value > 0.5  # type: ignore[arg-type]
                 )
-            case 'table':
-                spec = ExampleTableModel.table
 
         class ExampleViewModel(pxt.ViewModel):
             __table_name__ = 'test_view'
             __base_table__ = spec
 
             view_col_1: pxt.Image
-            view_col_2 = Column.view_col_1.rotate(90)
-            view_col_3 = Column.img.rotate(90)  # Also try dereferencing a base table column
+            view_col_2 = view_col_1.rotate(90)
+            view_col_3 = ExampleTableModel.img.rotate(90)  # Also try dereferencing a base table column
 
-            view_idx = EmbeddingIndex(Column.view_col_2, embedding=dummy_embedding.using(n=768))
-
-        _ = ExampleViewModel.create()
+            view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
 
         match spec_type:
             case 'model':
                 spec = ExampleViewModel
-            case 'name':
-                spec = 'test_view'
             case 'query':
-                spec = ExampleViewModel.where(ExampleViewModel.value > 1.0)
-            case 'table':
-                spec = ExampleViewModel.table
+                spec = ExampleViewModel.where(ExampleTableModel.value > 1.0)
 
         class ExampleViewModel2(pxt.ViewModel):
             __table_name__ = 'test_view_2'
             __base_table__ = spec
 
-            subview_col_1 = Column.img.rotate(180)
-            subview_col_2 = Column.view_col_1.rotate(270)
+            subview_col_1 = ExampleTableModel.img.rotate(180)
+            subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
+            subview_col_3 = subview_col_2.rotate(30)
 
+        _ = ExampleTableModel.create()
+        _ = ExampleViewModel.create()
         _ = ExampleViewModel2.create()
 
     def test_table_model_errors(self, uses_db: None) -> None:

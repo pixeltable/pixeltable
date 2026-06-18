@@ -74,7 +74,7 @@ class View(Table):
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
-        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr],
+        additional_columns: list[Column],
         predicate: 'exprs.Expr' | None,
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,
@@ -94,7 +94,7 @@ class View(Table):
             r = cls.select_list_to_additional_columns(select_list)
             select_list_columns = [Column.create(name, spec) for name, spec in r.items()]
 
-        columns = select_list_columns + [Column.create(name, spec) for name, spec in additional_columns.items()]
+        columns = select_list_columns + additional_columns
         cls._verify_schema(columns)
 
         # verify that filters can be evaluated in the context of the base
@@ -119,17 +119,19 @@ class View(Table):
             # create a copy that we can modify and store
             sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
 
-        # same for value exprs
-        for col in columns:
-            if not col.is_computed:
-                continue
-            # make sure that the value can be computed in the context of the base
-            if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Column {col.name!r}: Value expression cannot be computed in the context of the '
-                    f'base table {base.tbl_name()!r}',
-                )
+        # same for value exprs; but we can skip this check if an explicit tbl_id is provided, as in the case of
+        # ViewModel.create()
+        if tbl_id is None:
+            for col in columns:
+                if not col.is_computed:
+                    continue
+                # make sure that the value can be computed in the context of the base
+                if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Column {col.name!r}: Value expression cannot be computed in the context of the '
+                        f'base table {base.tbl_name()!r}',
+                    )
 
         if iterator_call is not None:
             assert _POS_COLUMN_NAME in iterator_call.outputs
