@@ -125,7 +125,14 @@ def _await_health(timeout: float) -> bool:
     return False
 
 
-def wait_for_health(timeout: float = 15.0) -> None:
+# A freshly-spawned daemon doesn't serve /api/health until it finishes importing pixeltable, which on a
+# cold, loaded machine (no warm filesystem cache, e.g. the first spawn on a CI runner) can take far longer
+# than a warm import. This bounds how long the client waits for that first response; it returns as soon as
+# /api/health answers, so a generous value only adds headroom for the cold case and never slows the warm one.
+_STARTUP_HEALTH_TIMEOUT_SECS = 45.0
+
+
+def wait_for_health(timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS) -> None:
     if _await_health(timeout):
         return
     tail = _tail_daemon_log()
