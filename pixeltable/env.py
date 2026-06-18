@@ -629,8 +629,7 @@ class Env:
             return
         # probe the sdk and exporter, not opentelemetry-api: the api is a common transitive dependency
         # and its presence alone doesn't indicate the extra is installed. The probe stays behind the
-        # opt-out gates above: find_spec on a dotted name imports the parent package, and these (esp.
-        # `phoenix`, when the full arize-phoenix server is installed) are not free.
+        # opt-out gates above: find_spec on a dotted name imports the parent package, which is not free.
         try:
             if (
                 importlib.util.find_spec('opentelemetry.sdk') is None

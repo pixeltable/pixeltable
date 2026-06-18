@@ -28,11 +28,11 @@ class TestOtelInit:
     """Subprocess-based tests: global OTEL providers are set-once per process."""
 
     def test_import_isolation(self) -> None:
-        # the headline guarantee: importing pixeltable never imports opentelemetry/phoenix
+        # the headline guarantee: importing pixeltable never imports opentelemetry
         _run_py(
             'import pixeltable, sys\n'
-            "assert not any(m == 'opentelemetry' or m.startswith(('opentelemetry.', 'phoenix')) "
-            'for m in sys.modules), [m for m in sys.modules if m.startswith(("opentelemetry", "phoenix"))]\n',
+            "assert not any(m == 'opentelemetry' or m.startswith('opentelemetry.') for m in sys.modules), "
+            "[m for m in sys.modules if m.startswith('opentelemetry')]\n",
             {'PIXELTABLE_OTEL': '1'},
         )
 
@@ -59,6 +59,8 @@ class TestOtelInit:
             "assert tp.resource.attributes['service.name'] == 'pixeltable'\n"
             'import pixeltable.otel._sdk as sdk\n'
             'assert sdk._state.initialized and sdk._state.owns_tracer_provider\n'
+            # an endpoint is configured, so metrics export and the meter provider is owned too
+            'assert sdk._state.owns_meter_provider\n'
             'from pixeltable.otel import PixeltableInstrumentor\n'
             'assert PixeltableInstrumentor().is_instrumented\n',
             {
@@ -69,18 +71,24 @@ class TestOtelInit:
             },
         )
 
-    @pytest.mark.skipif(find_spec('phoenix') is None, reason='arize-phoenix-otel not installed')
-    def test_phoenix_default(self, init_env: None) -> None:
+    @pytest.mark.skipif(not _OTEL_INSTALLED, reason='otel extra not installed')
+    def test_inert_without_endpoint(self, init_env: None) -> None:
+        # default-on with no endpoint configured: the bridge attaches but nothing is exported
         _run_py(
+            'import os\n'
+            "for _k in [k for k in os.environ if k.startswith('OTEL_EXPORTER_OTLP') or k == 'OTEL_ENDPOINT']:\n"
+            '    del os.environ[_k]\n'
             'import pixeltable as pxt\n'
             'pxt.init()\n'
             'from opentelemetry import trace\n'
-            'from opentelemetry.sdk.trace import TracerProvider\n'
-            'tp = trace.get_tracer_provider()\n'
-            'assert isinstance(tp, TracerProvider), type(tp)\n'
+            'from opentelemetry.trace import ProxyTracerProvider\n'
+            'assert isinstance(trace.get_tracer_provider(), ProxyTracerProvider)\n'
             'import pixeltable.otel._sdk as sdk\n'
-            'assert sdk._state.initialized and sdk._state.owns_tracer_provider\n',
-            {'PIXELTABLE_OTEL': '1', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
+            'assert sdk._state.initialized\n'
+            'assert not sdk._state.owns_tracer_provider and sdk._state.tracer_provider is None\n'
+            'from pixeltable.otel import PixeltableInstrumentor\n'
+            'assert PixeltableInstrumentor().is_instrumented\n',
+            {'PIXELTABLE_OTEL': '1'},
         )
 
     @pytest.mark.skipif(not _OTEL_INSTALLED, reason='otel extra not installed')
@@ -90,14 +98,14 @@ class TestOtelInit:
         ids=['pixeltable_otel', 'otel_sdk_disabled'],
     )
     def test_opt_out(self, init_env: None, env_overrides: dict[str, str]) -> None:
-        # the opt-out gates precede the installed-ness probe, so nothing otel/phoenix gets imported at all
+        # the opt-out gates precede the installed-ness probe, so nothing opentelemetry gets imported at all
         _run_py(
             'import pixeltable as pxt\n'
             'pxt.init()\n'
             'import sys\n'
             "assert 'pixeltable.otel' not in sys.modules\n"
-            "assert not any(m == 'opentelemetry' or m.startswith(('opentelemetry.', 'phoenix')) "
-            'for m in sys.modules), [m for m in sys.modules if m.startswith(("opentelemetry", "phoenix"))]\n',
+            "assert not any(m == 'opentelemetry' or m.startswith('opentelemetry.') for m in sys.modules), "
+            "[m for m in sys.modules if m.startswith('opentelemetry')]\n",
             env_overrides,
         )
 
@@ -124,7 +132,7 @@ class TestOtelInit:
             'import importlib.util\n'
             'real_find_spec = importlib.util.find_spec\n'
             'def fake_find_spec(name, *args, **kwargs):\n'
-            "    if name.startswith(('opentelemetry', 'phoenix')):\n"
+            "    if name.startswith('opentelemetry'):\n"
             '        return None\n'
             '    return real_find_spec(name, *args, **kwargs)\n'
             'importlib.util.find_spec = fake_find_spec\n'
@@ -186,108 +194,51 @@ class TestOtelInit:
         )
 
     @pytest.mark.skipif(not _OTEL_INSTALLED, reason='otel extra not installed')
-    def test_provider_grafana(self, init_env: None) -> None:
-        # grafana forces the plain-OTLP path (even with phoenix installed) and exports metrics
+    def test_protocol_grpc(self, init_env: None) -> None:
+        # grpc transport: the span exporter resolves from the grpc OTLP exporter package
         _run_py(
             'import pixeltable as pxt\n'
             'pxt.init()\n'
             'from opentelemetry import trace\n'
+            'from opentelemetry.sdk.trace import TracerProvider\n'
             'tp = trace.get_tracer_provider()\n'
-            "assert type(tp).__module__ == 'opentelemetry.sdk.trace', type(tp)\n"
+            'assert isinstance(tp, TracerProvider), type(tp)\n'
             'import pixeltable.otel._sdk as sdk\n'
-            'assert sdk._state.owns_tracer_provider and sdk._state.owns_meter_provider\n',
-            {'PIXELTABLE_OTEL': '1', 'OTEL_PROVIDER': 'grafana', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
-        )
-
-    @pytest.mark.skipif(not _OTEL_INSTALLED, reason='otel extra not installed')
-    def test_invalid_provider(self, init_env: None) -> None:
-        _run_py(
-            'import pixeltable as pxt\n'
-            'import pixeltable.otel\n'
-            'try:\n'
-            "    pixeltable.otel.init(provider='bogus')\n"
-            "    raise AssertionError('expected init() to raise')\n"
-            'except pxt.exceptions.RequestError:\n'
-            '    pass\n',
-            {'PIXELTABLE_OTEL': '1', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
+            'assert sdk._state.owns_tracer_provider\n'
+            'exporter = tp._active_span_processor._span_processors[0].span_exporter\n'
+            "assert type(exporter).__module__.startswith('opentelemetry.exporter.otlp.proto.grpc'), "
+            'type(exporter).__module__\n',
+            {
+                'PIXELTABLE_OTEL': '1',
+                'OTEL_EXPORTER_OTLP_PROTOCOL': 'grpc',
+                'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:4317',
+                'OTEL_EXPORTER_OTLP_TIMEOUT': '1',
+            },
         )
 
 
 @pytest.mark.skipif(not _OTEL_INSTALLED, reason='otel extra not installed')
-class TestProviderResolution:
-    """Unit tests for the otel.provider preset (pure function, no providers touched)."""
+class TestProtocolSelection:
+    """Unit tests for the OTLP transport selection (pure function, no providers touched)."""
 
-    @pytest.fixture(autouse=True)
-    def _clear_provider_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        for var in ('LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGFUSE_HOST', 'LOGFIRE_TOKEN'):
-            monkeypatch.delenv(var, raising=False)
+    def test_default_is_http(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pixeltable.otel._sdk import _use_grpc
 
-    def test_auto_and_otlp_passthrough(self) -> None:
-        from pixeltable.otel._sdk import _resolve_provider
+        monkeypatch.delenv('OTEL_EXPORTER_OTLP_PROTOCOL', raising=False)
+        assert _use_grpc(None) is False
+        assert _use_grpc('http/protobuf') is False
 
-        assert _resolve_provider('auto', 'http://x', 'k=v', False) == (None, 'http://x', 'k=v', False)
-        assert _resolve_provider('otlp', 'http://x', 'k=v', False) == (False, 'http://x', 'k=v', False)
+    def test_grpc_selected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pixeltable.otel._sdk import _use_grpc
 
-    def test_phoenix_is_traces_only(self) -> None:
-        from pixeltable.otel._sdk import _resolve_provider
+        monkeypatch.delenv('OTEL_EXPORTER_OTLP_PROTOCOL', raising=False)
+        assert _use_grpc('grpc') is True
 
-        assert _resolve_provider('phoenix', None, None, False) == (True, None, None, True)
+    def test_env_overrides_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pixeltable.otel._sdk import _use_grpc
 
-    def test_grafana_endpoint_default(self) -> None:
-        from pixeltable.otel._sdk import _resolve_provider
-
-        assert _resolve_provider('grafana', None, None, False) == (False, 'http://localhost:4318', None, False)
-        assert _resolve_provider('grafana', 'http://gw:4318', None, False) == (False, 'http://gw:4318', None, False)
-
-    def test_langfuse_builds_auth_header(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pixeltable.otel._sdk import _resolve_provider
-
-        monkeypatch.setenv('LANGFUSE_PUBLIC_KEY', 'pk-test')
-        monkeypatch.setenv('LANGFUSE_SECRET_KEY', 'sk-test')
-        force_phoenix, endpoint, headers, traces_only = _resolve_provider('langfuse', None, None, False)
-        assert force_phoenix is False and traces_only is True
-        assert endpoint == 'https://cloud.langfuse.com/api/public/otel'
-        assert headers == 'Authorization=Basic cGstdGVzdDpzay10ZXN0'
-
-    def test_langfuse_host_keeps_existing_suffix(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pixeltable.otel._sdk import _resolve_provider
-
-        monkeypatch.setenv('LANGFUSE_HOST', 'http://localhost:3000/api/public/otel/')
-        _, endpoint, _, _ = _resolve_provider('langfuse', None, None, False)
-        assert endpoint == 'http://localhost:3000/api/public/otel/'  # not doubled
-
-    def test_langfuse_user_headers_win(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pixeltable.otel._sdk import _resolve_provider
-
-        monkeypatch.setenv('LANGFUSE_PUBLIC_KEY', 'pk-test')
-        monkeypatch.setenv('LANGFUSE_SECRET_KEY', 'sk-test')
-        _, _, headers, _ = _resolve_provider('langfuse', None, 'X-Custom=1', False)
-        assert headers == 'X-Custom=1'
-
-    def test_langfuse_std_env_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pixeltable.otel._sdk import _resolve_provider
-
-        monkeypatch.setenv('LANGFUSE_PUBLIC_KEY', 'pk-test')
-        monkeypatch.setenv('LANGFUSE_SECRET_KEY', 'sk-test')
-        # standard OTLP env vars take precedence: no langfuse endpoint/header injection
-        assert _resolve_provider('langfuse', None, None, True) == (False, None, None, True)
-
-    def test_logfire_token_header_and_all_signals(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pixeltable.otel._sdk import _resolve_provider
-
-        monkeypatch.setenv('LOGFIRE_TOKEN', 'pylf_v1_us_secret')
-        force_phoenix, endpoint, headers, traces_only = _resolve_provider('logfire', None, None, False)
-        # all signals on (traces_only False); raw token, no Bearer prefix
-        assert force_phoenix is False and traces_only is False
-        assert endpoint == 'https://logfire-us.pydantic.dev'
-        assert headers == 'Authorization=pylf_v1_us_secret'
-
-    def test_logfire_endpoint_override_for_eu(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pixeltable.otel._sdk import _resolve_provider
-
-        monkeypatch.setenv('LOGFIRE_TOKEN', 'pylf_v1_eu_secret')
-        _, endpoint, _, _ = _resolve_provider('logfire', 'https://logfire-eu.pydantic.dev', None, False)
-        assert endpoint == 'https://logfire-eu.pydantic.dev'
+        monkeypatch.setenv('OTEL_EXPORTER_OTLP_PROTOCOL', 'grpc')
+        assert _use_grpc('http/protobuf') is True
 
 
 @pytest.mark.skipif(not _OTEL_INSTALLED, reason='otel extra not installed')

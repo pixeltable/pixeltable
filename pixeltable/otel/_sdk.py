@@ -4,16 +4,17 @@
 `pixeltable[otel]` extra is installed) or from `pixeltable.otel.init()` (manual). Global providers are
 created at most once and survive Env re-initialization (OTEL providers are set-once per process); Env
 teardown only flushes them and detaches the bridge.
+
+Telemetry is exported to an OpenTelemetry Collector (or any OTLP endpoint) configured through the
+standard `OTEL_EXPORTER_OTLP_*` environment variables; no vendor-specific behavior is baked in.
 """
 
 from __future__ import annotations
 
-import base64
 import dataclasses
 import logging
 import os
 import threading
-from importlib.util import find_spec
 from typing import Any
 
 from opentelemetry import metrics as otel_metrics, trace
@@ -28,10 +29,6 @@ _logger = logging.getLogger('pixeltable.otel')
 
 _SPAN_LEVELS = {'info': hooks.INFO, 'debug': hooks.DEBUG, 'trace': hooks.TRACE}
 _DEFAULT_SERVICE_NAME = 'pixeltable'
-_PROVIDERS = frozenset({'auto', 'phoenix', 'langfuse', 'logfire', 'grafana', 'otlp'})
-_LANGFUSE_DEFAULT_HOST = 'https://cloud.langfuse.com'
-_LOGFIRE_DEFAULT_ENDPOINT = 'https://logfire-us.pydantic.dev'
-_GRAFANA_DEFAULT_ENDPOINT = 'http://localhost:4318'
 
 
 @dataclasses.dataclass
@@ -52,8 +49,8 @@ _setup_lock = threading.Lock()
 
 def init(
     *,
-    provider: str | None = None,
     endpoint: str | None = None,
+    protocol: str | None = None,
     service_name: str | None = None,
     headers: str | None = None,
     metrics: bool | None = None,
@@ -64,18 +61,23 @@ def init(
     """Manually configure pixeltable's OpenTelemetry instrumentation.
 
     Call before the first Pixeltable operation; the automatic default-on initialization then becomes a
-    no-op. Arguments override the `otel` config section. Pass `tracer_provider`/`meter_provider` to
-    instrument against an SDK your application owns.
+    no-op. Arguments override the `otel` config section. Telemetry is exported to an OpenTelemetry
+    Collector (or any OTLP endpoint) configured through the standard `OTEL_EXPORTER_OTLP_*` environment
+    variables; pass `tracer_provider`/`meter_provider` to instrument against an SDK your application
+    owns instead.
 
     Args:
-        provider: telemetry backend: 'auto' (default; Phoenix if installed, else OTLP), 'phoenix',
-            'langfuse', 'logfire', 'grafana', or 'otlp'. 'langfuse' reads LANGFUSE_PUBLIC_KEY /
-            LANGFUSE_SECRET_KEY / LANGFUSE_HOST and 'logfire' reads LOGFIRE_TOKEN from the environment.
-        endpoint: OTLP collector endpoint; the default depends on `provider`.
-        service_name: `service.name` resource attribute and Phoenix project name.
-        headers: OTLP headers as comma-separated 'key=value' pairs.
-        metrics: force metric export on/off (by default metrics are exported only when the backend
-            ingests them, eg grafana).
+        endpoint: OTLP collector endpoint (eg `http://localhost:4318`). `OTEL_EXPORTER_OTLP_ENDPOINT`
+            takes precedence. With no endpoint configured and no application-owned provider,
+            instrumentation stays inert and exports nothing.
+        protocol: OTLP transport, `http/protobuf` (default) or `grpc`. `OTEL_EXPORTER_OTLP_PROTOCOL`
+            takes precedence.
+        service_name: `service.name` resource attribute (default `pixeltable`). `OTEL_SERVICE_NAME`
+            takes precedence.
+        headers: OTLP headers as comma-separated `key=value` pairs. `OTEL_EXPORTER_OTLP_HEADERS` takes
+            precedence.
+        metrics: force metric export on/off (by default metrics are exported only when an OTLP endpoint
+            is configured).
         logs: force log export on/off (same default as `metrics`).
         tracer_provider: an existing TracerProvider to instrument against.
         meter_provider: an existing MeterProvider to instrument against.
@@ -84,15 +86,15 @@ def init(
 
         >>> import pixeltable.otel
         ...
-        ... pixeltable.otel.init(provider='grafana')
+        ... pixeltable.otel.init(endpoint='http://localhost:4318')
     """
     if _state.initialized:
         raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'pixeltable.otel is already initialized for this session')
     setup(
         Config.get(),
         user_call=True,
-        provider=provider,
         endpoint=endpoint,
+        protocol=protocol,
         service_name=service_name,
         headers=headers,
         metrics=metrics,
@@ -106,8 +108,8 @@ def setup(
     config: Config,
     *,
     user_call: bool = False,
-    provider: str | None = None,
     endpoint: str | None = None,
+    protocol: str | None = None,
     service_name: str | None = None,
     headers: str | None = None,
     metrics: bool | None = None,
@@ -130,8 +132,8 @@ def setup(
         _setup(
             config,
             user_call=user_call,
-            provider=provider,
             endpoint=endpoint,
+            protocol=protocol,
             service_name=service_name,
             headers=headers,
             metrics=metrics,
@@ -145,8 +147,8 @@ def _setup(
     config: Config,
     *,
     user_call: bool,
-    provider: str | None,
     endpoint: str | None,
+    protocol: str | None,
     service_name: str | None,
     headers: str | None,
     metrics: bool | None,
@@ -163,16 +165,8 @@ def _setup(
         )
     hooks.set_span_level(_SPAN_LEVELS[level_name])
 
-    provider_name = (
-        provider if provider is not None else (config.get_string_value('provider', section='otel') or 'auto')
-    ).lower()
-    if provider_name not in _PROVIDERS:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f"Invalid value for 'otel.provider': {provider_name!r} (expected one of {', '.join(sorted(_PROVIDERS))})",
-        )
-
     cfg_endpoint = endpoint if endpoint is not None else config.get_string_value('endpoint', section='otel')
+    cfg_protocol = protocol if protocol is not None else config.get_string_value('protocol', section='otel')
     cfg_service = (
         service_name
         if service_name is not None
@@ -184,25 +178,10 @@ def _setup(
     if logs is None:
         logs = config.get_bool_value('logs', section='otel')
 
+    use_grpc = _use_grpc(cfg_protocol)
+
     # standard env vars beat pixeltable config: operators reconfigure deployed apps through them
     std_traces_env = 'OTEL_EXPORTER_OTLP_ENDPOINT' in os.environ or 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT' in os.environ
-    phoenix_env = 'PHOENIX_COLLECTOR_ENDPOINT' in os.environ
-
-    # the provider preset supplies backend-specific endpoint/auth defaults and whether the backend
-    # ingests metrics/logs; the standard env vars above still take precedence over the preset
-    force_phoenix, cfg_endpoint, cfg_headers, traces_only = _resolve_provider(
-        provider_name, cfg_endpoint, cfg_headers, std_traces_env
-    )
-    try:
-        phoenix_available = find_spec('phoenix.otel') is not None
-    except ModuleNotFoundError:
-        # find_spec on a dotted name imports the parent; an absent `phoenix` raises instead of None
-        phoenix_available = False
-    if force_phoenix and not phoenix_available:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            "otel.provider is 'phoenix' but arize-phoenix-otel is not installed (install pixeltable[otel])",
-        )
 
     tp = tracer_provider
     if tp is not None:
@@ -213,54 +192,25 @@ def _setup(
             # the embedding application already configured a tracer provider; never clobber it
             tp = existing
             _state.owns_tracer_provider = False
-        elif force_phoenix is not False and phoenix_available and not std_traces_env:
-            # default path: Phoenix register semantics (endpoint falls back to PHOENIX_COLLECTOR_ENDPOINT
-            # or the local Phoenix collector); auto_instrument activates any installed OpenInference
-            # provider instrumentors (openai, anthropic, ...)
-            from phoenix.otel import register
-
-            tp = register(
-                endpoint=cfg_endpoint if not phoenix_env else None,
-                project_name=cfg_service if 'PHOENIX_PROJECT_NAME' not in os.environ else None,
-                headers=(
-                    _parse_headers(cfg_headers)
-                    if cfg_headers is not None and 'PHOENIX_CLIENT_HEADERS' not in os.environ
-                    else None
-                ),
-                batch=True,
-                set_global_tracer_provider=True,
-                verbose=False,
-                auto_instrument=True,
-            )
-            _state.owns_tracer_provider = True
-        else:
-            # plain SDK with an OTLP/HTTP exporter; config-derived kwargs are withheld whenever the
-            # standard env vars are set, so the exporter's native env resolution wins
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        elif std_traces_env or cfg_endpoint is not None:
+            # plain SDK with an OTLP exporter; config-derived kwargs are withheld whenever the standard
+            # env vars are set, so the exporter's native env resolution wins
             from opentelemetry.sdk.trace import TracerProvider
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-            exporter = OTLPSpanExporter(
-                endpoint=(
-                    _join_endpoint(cfg_endpoint, 'v1/traces')
-                    if cfg_endpoint is not None and not std_traces_env
-                    else None
-                ),
-                headers=_parse_headers(cfg_headers) if cfg_headers is not None and not std_traces_env else None,
-            )
+            exporter = _span_exporter(use_grpc, cfg_endpoint, cfg_headers, withhold=std_traces_env)
             tp = TracerProvider(resource=_create_resource(cfg_service))
             tp.add_span_processor(BatchSpanProcessor(exporter))
             trace.set_tracer_provider(tp)
             _state.owns_tracer_provider = True
+        # else: no endpoint configured and no app-owned provider -> stay inert; the bridge instruments
+        # against the global no-op tracer and nothing is exported
     _state.tracer_provider = tp
 
-    # traces-only backends (Phoenix, Langfuse) reject metrics/logs: an exporter pointed at their
-    # endpoint would error on every export interval, so metrics/logs only flow when the backend
-    # ingests them (eg grafana/otlp) or on an explicit otel.metrics/otel.logs = true
+    # metrics/logs flow only when an OTLP endpoint is configured (standard env var or otel.endpoint),
+    # or on an explicit otel.metrics/otel.logs = true
     metrics_env = std_traces_env or 'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT' in os.environ
-    export_metrics = metrics is True or (
-        metrics is not False and not traces_only and (metrics_env or cfg_endpoint is not None)
-    )
+    export_metrics = metrics is True or (metrics is not False and (metrics_env or cfg_endpoint is not None))
     mp = meter_provider
     if mp is not None:
         _state.owns_meter_provider = False
@@ -270,16 +220,10 @@ def _setup(
             mp = existing_mp
             _state.owns_meter_provider = False
         else:
-            from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
             from opentelemetry.sdk.metrics import MeterProvider
             from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
-            metric_exporter = OTLPMetricExporter(
-                endpoint=(
-                    _join_endpoint(cfg_endpoint, 'v1/metrics') if cfg_endpoint is not None and not metrics_env else None
-                ),
-                headers=_parse_headers(cfg_headers) if cfg_headers is not None and not metrics_env else None,
-            )
+            metric_exporter = _metric_exporter(use_grpc, cfg_endpoint, cfg_headers, withhold=metrics_env)
             mp = MeterProvider(
                 resource=_create_resource(cfg_service), metric_readers=[PeriodicExportingMetricReader(metric_exporter)]
             )
@@ -288,9 +232,9 @@ def _setup(
     _state.meter_provider = mp
 
     logs_env = std_traces_env or 'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT' in os.environ
-    export_logs = logs is True or (logs is not False and not traces_only and (logs_env or cfg_endpoint is not None))
+    export_logs = logs is True or (logs is not False and (logs_env or cfg_endpoint is not None))
     if export_logs:
-        _set_up_log_export(cfg_endpoint, cfg_headers, cfg_service, logs_env)
+        _set_up_log_export(use_grpc, cfg_endpoint, cfg_headers, cfg_service, logs_env)
 
     PixeltableInstrumentor().instrument(tracer_provider=tp, meter_provider=mp)
     _state.initialized = True
@@ -298,56 +242,60 @@ def _setup(
     _logger.info('OpenTelemetry instrumentation enabled')
 
 
-def _resolve_provider(
-    provider: str, cfg_endpoint: str | None, cfg_headers: str | None, std_traces_env: bool
-) -> tuple[bool | None, str | None, str | None, bool]:
-    """Apply a provider preset, returning (force_phoenix, endpoint, headers, traces_only).
+def _use_grpc(cfg_protocol: str | None) -> bool:
+    """Whether to use the OTLP/gRPC exporter rather than OTLP/HTTP.
 
-    force_phoenix is True to require the Phoenix register path, False to force plain OTLP, or None for
-    auto (Phoenix if importable). The preset never overrides standard OTEL_* env vars: when those are
-    set, setup() withholds the returned endpoint/headers so the exporter's native resolution wins.
+    The standard OTEL_EXPORTER_OTLP_PROTOCOL env var wins over the otel.protocol config value; the
+    default is http/protobuf.
     """
-    if provider == 'phoenix':
-        return True, cfg_endpoint, cfg_headers, True
-    if provider == 'grafana':
-        return False, cfg_endpoint or _GRAFANA_DEFAULT_ENDPOINT, cfg_headers, False
-    if provider == 'otlp':
-        return False, cfg_endpoint, cfg_headers, False
-    if provider == 'langfuse':
-        if std_traces_env:
-            # operator pointed OTLP env vars elsewhere; honor them, just force OTLP + traces-only
-            return False, cfg_endpoint, cfg_headers, True
-        host = os.environ.get('LANGFUSE_HOST') or cfg_endpoint or _LANGFUSE_DEFAULT_HOST
-        endpoint = host if host.rstrip('/').endswith('/api/public/otel') else f'{host.rstrip("/")}/api/public/otel'
-        headers = cfg_headers
-        public_key, secret_key = os.environ.get('LANGFUSE_PUBLIC_KEY'), os.environ.get('LANGFUSE_SECRET_KEY')
-        if headers is None and public_key and secret_key:
-            token = base64.b64encode(f'{public_key}:{secret_key}'.encode()).decode()
-            headers = f'Authorization=Basic {token}'
-        return False, endpoint, headers, True
-    if provider == 'logfire':
-        # Logfire ingests all three signals; region defaults to US (override via otel.endpoint for EU)
-        if std_traces_env:
-            return False, cfg_endpoint, cfg_headers, False
-        endpoint = cfg_endpoint or _LOGFIRE_DEFAULT_ENDPOINT
-        headers = cfg_headers
-        token = os.environ.get('LOGFIRE_TOKEN')
-        if headers is None and token:
-            headers = f'Authorization={token}'  # Logfire takes the raw write token, no Bearer prefix
-        return False, endpoint, headers, False
-    return None, cfg_endpoint, cfg_headers, False  # auto
+    protocol = (os.environ.get('OTEL_EXPORTER_OTLP_PROTOCOL') or cfg_protocol or 'http/protobuf').strip().lower()
+    return protocol == 'grpc'
 
 
-def _set_up_log_export(cfg_endpoint: str | None, cfg_headers: str | None, cfg_service: str, logs_env: bool) -> None:
+def _span_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
+    ep = None if withhold else endpoint
+    hdrs = _parse_headers(headers) if headers is not None and not withhold else None
+    if use_grpc:
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as GrpcSpanExporter
+
+        return GrpcSpanExporter(endpoint=ep, headers=hdrs)
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as HttpSpanExporter
+
+    return HttpSpanExporter(endpoint=_join_endpoint(ep, 'v1/traces') if ep is not None else None, headers=hdrs)
+
+
+def _metric_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
+    ep = None if withhold else endpoint
+    hdrs = _parse_headers(headers) if headers is not None and not withhold else None
+    if use_grpc:
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter as GrpcMetricExporter
+
+        return GrpcMetricExporter(endpoint=ep, headers=hdrs)
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter as HttpMetricExporter
+
+    return HttpMetricExporter(endpoint=_join_endpoint(ep, 'v1/metrics') if ep is not None else None, headers=hdrs)
+
+
+def _log_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
+    ep = None if withhold else endpoint
+    hdrs = _parse_headers(headers) if headers is not None and not withhold else None
+    if use_grpc:
+        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter as GrpcLogExporter
+
+        return GrpcLogExporter(endpoint=ep, headers=hdrs)
+    from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter as HttpLogExporter
+
+    return HttpLogExporter(endpoint=_join_endpoint(ep, 'v1/logs') if ep is not None else None, headers=hdrs)
+
+
+def _set_up_log_export(
+    use_grpc: bool, cfg_endpoint: str | None, cfg_headers: str | None, cfg_service: str, logs_env: bool
+) -> None:
     from opentelemetry._logs import set_logger_provider
-    from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
     from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 
-    log_exporter = OTLPLogExporter(
-        endpoint=_join_endpoint(cfg_endpoint, 'v1/logs') if cfg_endpoint is not None and not logs_env else None,
-        headers=_parse_headers(cfg_headers) if cfg_headers is not None and not logs_env else None,
-    )
+    log_exporter = _log_exporter(use_grpc, cfg_endpoint, cfg_headers, withhold=logs_env)
     logger_provider = LoggerProvider(resource=_create_resource(cfg_service))
     logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
     set_logger_provider(logger_provider)
@@ -376,7 +324,7 @@ def _parse_headers(headers: str) -> dict[str, str]:
 
 
 def _join_endpoint(endpoint: str, path: str) -> str:
-    """Append a signal path to a base OTLP endpoint unless it already carries one."""
+    """Append a signal path to a base OTLP/HTTP endpoint unless it already carries one."""
     if endpoint.rstrip('/').endswith(('/v1/traces', '/v1/metrics', '/v1/logs')):
         return endpoint
     return f'{endpoint.rstrip("/")}/{path}'

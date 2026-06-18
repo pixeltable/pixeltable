@@ -84,8 +84,7 @@ otel = [
     "opentelemetry-api>=1.39.0",
     "opentelemetry-sdk>=1.39.0",
     "opentelemetry-exporter-otlp-proto-http>=1.39.0",
-    # lightweight phoenix.otel.register() helper (NOT the full arize-phoenix server)
-    "arize-phoenix-otel>=0.16.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.39.0",
 ]
 
 [project.urls]
@@ -124,7 +123,7 @@ dev = [
     "opentelemetry-api>=1.39.0",
     "opentelemetry-sdk>=1.39.0",
     "opentelemetry-exporter-otlp-proto-http>=1.39.0",
-    "arize-phoenix-otel>=0.16.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.39.0",
     "pandas-stubs>=2.0",
     "pyarrow-stubs>=19",
     "types-beautifulsoup4>=4.2",
