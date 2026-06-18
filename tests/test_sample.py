@@ -1,15 +1,21 @@
 import datetime
+from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
 
-from .utils import SAMPLE_IMAGE_URL, ReloadTester, pxt_raises
+from .utils import SAMPLE_IMAGE_URL, ReloadTester, create_test_tbl, pxt_raises
+
+
+def _local_path(name: str) -> str:
+    """Path-builder for local-only tests: paths are used as-is."""
+    return name
 
 
 class TestSample:
     @classmethod
-    def create_sample_data(cls, row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
+    def create_sample_data(cls, p: Callable[[str], str], row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
         schema = {
             'id': pxt.Required[pxt.Int],
             'cat1': pxt.Int if with_null else pxt.Required[pxt.Int],
@@ -24,10 +30,12 @@ class TestSample:
                 for _ in range(row_mult * (cat1 + 1) * (cat2 + 1)):
                     rows.append({'id': rowid, 'cat1': cat1v, 'cat2': cat2v})
                     rowid += 1
-        return pxt.create_table('scm_t', source=rows, schema_overrides=schema)
+        return pxt.create_table(p('scm_t'), source=rows, schema_overrides=schema)
 
-    def test_sample_errors(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_sample_errors(self, uses_db: None) -> None:
+        # local-only: exercises a self-join with a ColumnRef `on` (t.join(t, on=t.c1)), which the proxy
+        # doesn't resolve yet
+        t = create_test_tbl('test_tbl')
 
         # ------- Test that sample is not preceded by anything unexpected
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Multiple sample\(\) clauses not allowed'):
@@ -115,8 +123,9 @@ class TestSample:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible in SQL'):
             t.select().where(t.c2.apply(str) == '11').sample(n=10).collect()
 
-    def test_sample_display(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_sample_display(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = create_test_tbl(p('test_tbl'))
 
         query = t.select(t.c1).sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c4])
         s = repr(query)
@@ -137,8 +146,9 @@ class TestSample:
         print(r)
         cls._check_sample_count(expected, len(r))
 
-    def test_sample_basic_n(self, uses_db: None) -> None:
-        t = self.create_sample_data(4, 6, False)
+    def test_sample_basic_n(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = self.create_sample_data(p, 4, 6, False)
 
         query = t.select().sample(n=20)
         self._check_sample(query, 20)
@@ -146,8 +156,9 @@ class TestSample:
         query = t.select().where(t.id < 200).sample(n=20)
         self._check_sample(query, 20)
 
-    def test_sample_basic_f(self, uses_db: None) -> None:
-        t = self.create_sample_data(4, 6, False)
+    def test_sample_basic_f(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = self.create_sample_data(p, 4, 6, False)
         t_rows = t.count()
 
         query = t.select(t.id).sample(fraction=0.10, seed=12345)
@@ -159,18 +170,20 @@ class TestSample:
         query = t.select().where(t.id < 200).sample(fraction=0.5, seed=876)
         self._check_sample(query, 200 * 0.5)
 
-    def test_sample_snapshot_reload(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        t = self.create_sample_data(4, 6, False)
+    def test_sample_snapshot_reload(self, uses_env: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = uses_env
+        t = self.create_sample_data(p, 4, 6, False)
 
         query = t.select(t.cat1).sample(fraction=0.3, seed=51, stratify_by=[t.cat1])
-        v = pxt.create_snapshot('sn_1', query)
+        v = pxt.create_snapshot(p('sn_1'), query)
 
         results = reload_tester.run_query(v.select())
         print(results)
         reload_tester.run_reload_test()
 
-    def test_sample_stratified_n(self, uses_db: None) -> None:
-        t = self.create_sample_data(4, 6, True)
+    def test_sample_stratified_n(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = self.create_sample_data(p, 4, 6, True)
 
         query = (
             t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n_per_stratum=2, stratify_by=[t.cat1, t.cat2])
@@ -184,8 +197,9 @@ class TestSample:
         print(p)
         assert len(r) == 10
 
-    def test_sample_stratified_f(self, uses_db: None) -> None:
-        t = self.create_sample_data(4, 6, True)
+    def test_sample_stratified_f(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = self.create_sample_data(p, 4, 6, True)
         t_rows = t.count()
 
         query = t.select(t.cat1, t.cat2, t.id).sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
@@ -194,9 +208,14 @@ class TestSample:
         print(r)
 
     def validate_snapshot(
-        self, query: pxt.Query, t_rows: int, allow_mutable_view: bool = False, seeded: bool = False
+        self,
+        p: Callable[[str], str],
+        query: pxt.Query,
+        t_rows: int,
+        allow_mutable_view: bool = False,
+        seeded: bool = False,
     ) -> None:
-        snap = pxt.create_snapshot('sampled_snap', query, if_exists='replace')
+        snap = pxt.create_snapshot(p('sampled_snap'), query, if_exists='replace')
 
         # Subsequent calls to the same snapshot should return the same results.
         snap_results_1 = snap.collect().to_pandas().sort_values(by=['id']).reset_index(drop=True)
@@ -210,7 +229,7 @@ class TestSample:
 
         if allow_mutable_view:
             # Try with a mutable view too.
-            view = pxt.create_view('sampled_view', query, if_exists='replace')
+            view = pxt.create_view(p('sampled_view'), query, if_exists='replace')
             view_results_1 = view.collect().to_pandas().sort_values(by=['id']).reset_index(drop=True)
             view_results_2 = view.collect().to_pandas().sort_values(by=['id']).reset_index(drop=True)
             assert view_results_1.equals(view_results_2)
@@ -218,35 +237,42 @@ class TestSample:
                 assert view_results_1.equals(snap_results_1)
 
     @pytest.mark.parametrize('seed', [None, 4171780])
-    def test_sample_snapshot(self, uses_db: None, seed: int) -> None:
-        t = self.create_sample_data(4, 6, True)
+    def test_sample_snapshot(self, uses_env: Callable[[str], str], seed: int) -> None:
+        p = uses_env
+        t = self.create_sample_data(p, 4, 6, True)
         t_rows = t.count()
         query = t.select().sample(n=10, seed=seed)
-        self.validate_snapshot(query, t_rows, seeded=(seed is not None))
+        self.validate_snapshot(p, query, t_rows, seeded=(seed is not None))
 
         query = t.select().sample(fraction=0.1, seed=seed)
-        self.validate_snapshot(query, t_rows, allow_mutable_view=True, seeded=(seed is not None))
+        self.validate_snapshot(p, query, t_rows, allow_mutable_view=True, seeded=(seed is not None))
 
     @pytest.mark.parametrize('seed', [None, 4171780])
-    def test_sample_snapshot_stratified(self, uses_db: None, seed: int) -> None:
-        t = self.create_sample_data(4, 6, True)
+    def test_sample_snapshot_stratified(self, uses_env: Callable[[str], str], seed: int) -> None:
+        p = uses_env
+        t = self.create_sample_data(p, 4, 6, True)
         t_rows = t.count()
         query = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=seed)
-        self.validate_snapshot(query, t_rows, seeded=(seed is not None))
+        self.validate_snapshot(p, query, t_rows, seeded=(seed is not None))
 
         query = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=seed)
-        self.validate_snapshot(query, t_rows, seeded=(seed is not None))
+        self.validate_snapshot(p, query, t_rows, seeded=(seed is not None))
 
-    def check_create_insert(self, t: pxt.Table, query: pxt.Query, n_sample: int, sort_key: str) -> None:
+    def check_create_insert(
+        self, p: Callable[[str], str], t: pxt.Table, query: pxt.Query, n_sample: int, sort_key: str
+    ) -> None:
         r = query.collect()
         print(r)
         assert len(r) == n_sample
 
         # Create a new table from the sample
-        new_table = pxt.create_table('new_table', source=query, if_exists='replace_force')
+        new_table = pxt.create_table(p('new_table'), source=query, if_exists='replace_force')
         assert new_table.count() == n_sample
-        assert new_table._get_schema() == t._get_schema()
-        assert new_table._get_schema() == query.schema
+        # the new table's column types match the source table, and its columns match the query result
+        new_md = new_table.get_metadata()['columns']
+        t_md = t.get_metadata()['columns']
+        assert {name: c['type_'] for name, c in new_md.items()} == {name: c['type_'] for name, c in t_md.items()}
+        assert set(new_md) == set(query.schema.keys())
         r2 = new_table.collect()
         r_df = r.to_pandas().sort_values(sort_key).reset_index(drop=True)
         r2_df = r2.to_pandas().sort_values(sort_key).reset_index(drop=True)
@@ -256,27 +282,30 @@ class TestSample:
         assert new_table.count() == 2 * n_sample
 
     def test_sample_create_insert_table(self, test_tbl: pxt.Table) -> None:
-        t = self.create_sample_data(4, 6, False)
+        # local-only: the test_tbl portion samples an Array column (c8); array result columns aren't
+        # supported over the proxy yet
+        t = self.create_sample_data(_local_path, 4, 6, False)
 
         query = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=4171780)
-        self.check_create_insert(t, query, 6 * 6, sort_key='id')
+        self.check_create_insert(_local_path, t, query, 6 * 6, sort_key='id')
 
         query = t.select().sample(n=20, seed=4171780)
-        self.check_create_insert(t, query, 20, sort_key='id')
+        self.check_create_insert(_local_path, t, query, 20, sort_key='id')
 
         query = t.select().sample(fraction=0.1, seed=4171780)
         n_sample = len(query.collect())
-        self.check_create_insert(t, query, n_sample, sort_key='id')
+        self.check_create_insert(_local_path, t, query, n_sample, sort_key='id')
 
         t = test_tbl
         query = t.sample(n=20)
         _ = query.collect()
         query = t.sample(n=20, seed=4171780)
-        self.check_create_insert(t, query, 20, sort_key='c2')
+        self.check_create_insert(_local_path, t, query, 20, sort_key='c2')
 
-    def test_randomized_sample(self, uses_db: None) -> None:
+    def test_randomized_sample(self, uses_env: Callable[[str], str]) -> None:
         """Test that subsequent calls to a non-seeded sample return different results."""
-        t = self.create_sample_data(4, 6, False)
+        p = uses_env
+        t = self.create_sample_data(p, 4, 6, False)
 
         query = t.select().sample(n=10)
         r0 = query.collect().to_pandas().sort_values(by=['id'])
@@ -285,8 +314,9 @@ class TestSample:
         # potential causes of test failure.
         assert not r0.equals(r1)
 
-    def test_reproducible_sample(self, uses_db: None) -> None:
-        t = self.create_sample_data(4, 6, False)
+    def test_reproducible_sample(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = self.create_sample_data(p, 4, 6, False)
 
         query = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=4141480)
         r0_df = query.collect().to_pandas().sort_values('id').reset_index(drop=True)
@@ -294,20 +324,21 @@ class TestSample:
             r_df = query.collect().to_pandas().sort_values('id').reset_index(drop=True)
             assert r0_df.equals(r_df)
 
-    def test_sample_view(self, uses_db: None) -> None:
-        t = self.create_sample_data(4, 6, False)
+    def test_sample_view(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = self.create_sample_data(p, 4, 6, False)
 
         query = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=0)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be created with'):
-            _ = pxt.create_view('v1', query)
+            _ = pxt.create_view(p('v1'), query)
 
         query = t.select().sample(n=20, seed=0)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be created with'):
-            _ = pxt.create_view('v1', query)
+            _ = pxt.create_view(p('v1'), query)
 
         query = t.select().sample(fraction=0.01, seed=0)
         n = len(query.collect())
-        v = pxt.create_view('v1', query)
+        v = pxt.create_view(p('v1'), query)
         assert v.count() == n
 
         t.insert(t.select())
@@ -315,6 +346,7 @@ class TestSample:
         assert v.count() == n
 
     def test_sample_iterator(self, uses_db: None) -> None:
+        # local-only: exercises media (Image) and an iterator view, neither supported over the proxy yet
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
         t = pxt.create_table('test_tile_tbl', {'image': pxt.Image})
 
@@ -364,9 +396,10 @@ class TestSample:
         v_rows = v.count()
         print(f'total rows: {v_rows}')
 
-    def test_count(self, test_tbl: pxt.Table) -> None:
+    def test_count(self, uses_env: Callable[[str], str]) -> None:
         """Test that count() correctly returns the number of sampled rows."""
-        t = test_tbl
+        p = uses_env
+        t = create_test_tbl(p('test_tbl'))
         # Add duplicate c1 values for stratified sampling tests
         existing_c1_values = [row['c1'] for row in t.select(t.c1).distinct().collect()]
 

@@ -48,11 +48,21 @@ class FromClause:
     join_clauses: list[JoinClause] = dataclasses.field(default_factory=list)
 
     def __post_init__(self) -> None:
+        from pixeltable.catalog import TableVersionPath
+
         assert len(self.tbls) > 0
         first_type = type(self.tbls[0])
         assert all(type(t) is first_type for t in self.tbls), (
             'cannot mix TableMdPath and TableVersionPath in a FromClause'
         )
+        if not isinstance(self.tbls[0], TableVersionPath):
+            # all hosted: every table must resolve to the same catalog (no cross-catalog joins)
+            uris = {cast('catalog.TableMdPath', t).catalog_uri for t in self.tbls}
+            if len(uris) > 1:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'all tables in a query must be in the same catalog; got {sorted(uris)}',
+                )
 
     @property
     def tvps(self) -> list[catalog.TableVersionPath]:
@@ -65,6 +75,13 @@ class FromClause:
         from pixeltable.catalog import TableVersionPath
 
         return isinstance(self.tbls[0], TableVersionPath)
+
+    @property
+    def catalog_uri(self) -> str:
+        """The catalog all tables resolve to ('' for the in-process catalog)."""
+        if self.is_local:
+            return ''
+        return cast('catalog.TableMdPath', self.tbls[0]).catalog_uri
 
     @property
     def _first_tbl(self) -> catalog.TablePath:

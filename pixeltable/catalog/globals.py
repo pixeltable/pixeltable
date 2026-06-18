@@ -3,12 +3,17 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
-from typing import Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.metadata import schema
+
+if TYPE_CHECKING:
+    from pixeltable import exprs
+    from pixeltable.types import ColumnSpec
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
@@ -217,3 +222,21 @@ def is_system_column_name(name: str) -> bool:
     if _PREDEF_SYMBOLS is None:
         _PREDEF_SYMBOLS = set(itertools.chain(dir(InsertableTable), dir(View)))
     return name in _PREDEF_SYMBOLS
+
+
+def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> dict[str, ColumnSpec]:
+    """Canonicalize a create_table schema to a {name: ColumnSpec} mapping with resolved ColumnTypes."""
+    from pixeltable import exprs
+
+    result: dict[str, ColumnSpec] = {}
+    for name, spec in schema.items():
+        if isinstance(spec, exprs.Expr):
+            result[name] = {'value': spec}
+            continue
+        col_spec: dict[str, Any] = dict(spec) if isinstance(spec, dict) else {'type': spec}
+        if col_spec.get('type') is not None:
+            col_spec['type'] = ts.ColumnType.normalize_type(
+                col_spec['type'], nullable_default=True, allow_builtin_types=False
+            )
+        result[name] = cast('ColumnSpec', col_spec)
+    return result

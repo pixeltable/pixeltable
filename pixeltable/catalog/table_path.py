@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import copy
+import dataclasses
 import threading
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -19,6 +20,29 @@ from .table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
     from .catalog import Catalog
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class TablePathKey:
+    """A table path's version identity: a sequence of TableVersionKey, leaf first then bases."""
+
+    keys: tuple[TableVersionKey, ...]
+
+    @property
+    def leaf(self) -> TableVersionKey:
+        return self.keys[0]
+
+    def as_dict(self) -> dict:
+        # recursive {tbl_version, base} shape, byte-identical to TableVersionPath.as_dict()
+        base = TablePathKey(self.keys[1:]).as_dict() if len(self.keys) > 1 else None
+        return {'tbl_version': self.keys[0].as_dict(), 'base': base}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> TablePathKey:
+        keys = [TableVersionKey.from_dict(d['tbl_version'])]
+        if d['base'] is not None:
+            keys.extend(cls.from_dict(d['base']).keys)
+        return cls(tuple(keys))
 
 
 class TablePath(abc.ABC):
@@ -89,9 +113,23 @@ class TablePath(abc.ABC):
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
         """Return the index metadata for an index on the given column."""
 
-    @abc.abstractmethod
-    def as_md(self) -> schema.TableVersionPath:
-        """Serialize this path as a list of (tbl_id_hex, effective_version) pairs."""
+    def key(self) -> TablePathKey:
+        """The path's effective-version identity (None for live elements, version for snapshots)."""
+        keys = [TableVersionKey(self.tbl_id, self.effective_version())]
+        if self.base is not None:
+            keys.extend(self.base.key().keys)
+        return TablePathKey(tuple(keys))
+
+    def snapshot_key(self) -> TablePathKey:
+        """The path's snapshot-version identity: the concrete version of each element."""
+        keys = [TableVersionKey(self.tbl_id, self.version())]
+        if self.base is not None:
+            keys.extend(self.base.snapshot_key().keys)
+        return TablePathKey(tuple(keys))
+
+    def as_schema_path(self) -> schema.TableVersionPath:
+        """Serialize to the persisted base_versions form: a flat (tbl_id_hex, effective_version) list."""
+        return [(k.tbl_id.hex, k.effective_version) for k in self.key().keys]
 
 
 class TableVersionPath(TablePath):
@@ -142,20 +180,17 @@ class TableVersionPath(TablePath):
         return self
 
     @classmethod
-    def from_md(cls, path: schema.TableVersionPath) -> TableVersionPath:
-        assert len(path) > 0
+    def from_key(cls, key: TablePathKey) -> TableVersionPath:
         result: TableVersionPath | None = None
-        for tbl_id_str, effective_version in path[::-1]:
-            tbl_id = UUID(tbl_id_str)
-            key = TableVersionKey(tbl_id, effective_version)
-            result = TableVersionPath(TableVersionHandle(key), base=result)
+        for k in key.keys[::-1]:  # base first, so each new node wraps the previous as its base
+            result = TableVersionPath(TableVersionHandle(k), base=result)
+        assert result is not None
         return result
 
-    def as_md(self) -> schema.TableVersionPath:
-        result = [(self.tbl_version.id.hex, self.tbl_version.effective_version)]
-        if self.base is not None:
-            result.extend(self.base.as_md())
-        return result
+    @classmethod
+    def from_schema_path(cls, path: schema.TableVersionPath) -> TableVersionPath:
+        """Reconstruct from the persisted base_versions form (a flat (tbl_id_hex, effective_version) list)."""
+        return cls.from_key(TablePathKey(tuple(TableVersionKey(UUID(s), v) for s, v in path)))
 
     def _cached_tv(self) -> TableVersion:
         """Return the validated cached TableVersion for the calling thread."""
@@ -389,16 +424,23 @@ class TableMdPath(TablePath):
 
     md: TableVersionMd
     base: TableMdPath | None
+    catalog_uri: str  # the hosted catalog this path belongs to ('' if not proxied); used to route proxy queries
 
     # All physically reachable columns, keyed by qcolid: own columns (incl. system) plus every base column,
     # regardless of include_base_columns or name shadowing. Name-based visibility is applied by column_md()/
     # get_column_md_by_name(); has_column()/get_column_md() resolve against this dict.
     _column_version_md: dict[QColumnId, ColumnVersionMd]
 
-    def __init__(self, path: list[TableVersionMd]):
+    def __init__(self, path: list[TableVersionMd], effective_versions: list[int | None], catalog_uri: str = ''):
+        # effective_versions carries the version each element is pinned at (None = live), supplied by the
+        # caller alongside the metadata; this mirrors TableVersionPath, where each node's TableVersionHandle
+        # carries its own effective version. Use from_md() to derive it from an exported metadata list.
         assert len(path) > 0
+        assert len(effective_versions) == len(path), (len(effective_versions), len(path))
         self.md = path[0]
-        self.base = TableMdPath(path[1:]) if len(path) > 1 else None
+        self.catalog_uri = catalog_uri
+        self._effective_version = effective_versions[0]
+        self.base = TableMdPath(path[1:], effective_versions[1:], catalog_uri) if len(path) > 1 else None
         self._column_version_md = {}
 
         num_iter_cols = (
@@ -407,12 +449,13 @@ class TableMdPath(TablePath):
             else 0
         )
         tbl_id = UUID(self.md.tbl_md.tbl_id)
-        effective_version = self.md.version_md.version if self.md.tbl_md.is_snapshot else None
+        effective_version = self._effective_version
 
-        # own columns (all, incl. system) first, so they shadow same-named base columns in iteration order
-        for col_id, col_md in self.md.tbl_md.column_md.items():
+        # live columns at this schema version (incl. system) first, so they shadow same-named base columns
+        # in iteration order; dropped columns are absent from schema_version_md.columns, hence excluded
+        for col_id, schema_col in self.md.schema_version_md.columns.items():
             qcolid = QColumnId(tbl_id, col_id)
-            schema_col = self.md.schema_version_md.columns[col_id]
+            col_md = self.md.tbl_md.column_md[col_id]
             cvmd = ColumnVersionMd(
                 tbl_id=tbl_id,
                 effective_version=effective_version,
@@ -432,14 +475,23 @@ class TableMdPath(TablePath):
                 }
             )
 
+    @classmethod
+    def from_md(cls, md: list[TableVersionMd], catalog_uri: str = '') -> TableMdPath:
+        """Build from an exported metadata list (leaf first).
+
+        Per-element effective versions are read from the leaf's base_versions (the persisted ancestor
+        pinning), mirroring Catalog._get_table: a snapshot is pinned at version 0, a live table/view is
+        unpinned (None), and each ancestor takes the version recorded in base_versions.
+        """
+        leaf_view_md = md[0].tbl_md.view_md
+        leaf_version = 0 if leaf_view_md is not None and leaf_view_md.is_snapshot else None
+        effective_versions: list[int | None] = [leaf_version]
+        if leaf_view_md is not None:
+            effective_versions.extend(version for _, version in leaf_view_md.base_versions)
+        return cls(md, effective_versions, catalog_uri)
+
     def __deepcopy__(self, memo: dict[int, object]) -> TableMdPath:
         return self
-
-    def as_md(self) -> schema.TableVersionPath:
-        result = [(self.tbl_id.hex, self.effective_version())]
-        if self.base is not None:
-            result.extend(self.base.as_md())
-        return result
 
     @property
     def tbl_id(self) -> UUID:
@@ -452,10 +504,13 @@ class TableMdPath(TablePath):
         return self.md.version_md.version if self.md.tbl_md.is_versioned else None
 
     def effective_version(self) -> int | None:
-        return self.md.version_md.version if self.md.tbl_md.is_snapshot else None
+        return self._effective_version
 
     def is_snapshot(self) -> bool:
         return self.md.tbl_md.is_snapshot
+
+    def is_pure_snapshot(self) -> bool:
+        return self.md.tbl_md.is_pure_snapshot
 
     def is_view(self) -> bool:
         return self.md.tbl_md.view_md is not None

@@ -12,6 +12,7 @@ import sqlalchemy as sql
 from rich.progress import Progress
 from sqlalchemy import orm
 
+from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils import fault_injection
 
@@ -102,18 +103,38 @@ class Runtime:
         assert isinstance(cat, Catalog)
         return cat
 
-    def get_catalog(self, path: Path) -> CatalogBase:
-        """Return the catalog that the given path lives in, creating it on first use."""
-        if path.is_local:
+    def get_catalog(self, *, path: Path | None = None, catalog_uri: str | None = None) -> CatalogBase:
+        """Return the catalog identified by a path or a catalog URI, creating it on first use."""
+        if catalog_uri is None:
+            assert path is not None, 'Pass either path or catalog_uri'
+            catalog_uri = path.catalog_uri
+        if catalog_uri == '':  # the in-process catalog
             return self.catalog
-        key = path.catalog_uri
-        cat = self._catalogs.get(key)
+        cat = self._catalogs.get(catalog_uri)
         if cat is None:
-            from pixeltable.catalog.catalog_proxy import CatalogProxy
-
-            cat = CatalogProxy(key)
-            self._catalogs[key] = cat
+            cat = self._make_proxy_catalog(catalog_uri)
+            self._catalogs[catalog_uri] = cat
         return cat
+
+    def _make_proxy_catalog(self, catalog_uri: str) -> CatalogBase:
+        from pixeltable.catalog.catalog_proxy import CatalogProxy
+        from pixeltable.catalog.path import Path
+
+        path = Path.parse(catalog_uri, allow_empty_path=True)
+        if path.org != 'local':
+            raise NotImplementedError(f'Hosted catalog {catalog_uri!r} is not supported yet')
+
+        from pixeltable.service import proxy_daemon
+        from pixeltable.service.proxy_client import ProxyHttpClient
+
+        assert path.db is not None
+        info = proxy_daemon.read_port_lock(path.db)
+        if info is None:
+            raise excs.NotFoundError(
+                excs.ErrorCode.SERVICE_NOT_FOUND,
+                f'No local proxy is running for {path.db!r}. Start it with: pxt localproxy start {path.db}',
+            )
+        return CatalogProxy(catalog_uri, ProxyHttpClient(f'http://127.0.0.1:{info["port"]}'))
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop:

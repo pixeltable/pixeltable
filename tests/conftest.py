@@ -217,6 +217,59 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     get_runtime().catalog.validate_store()
 
 
+@pytest.fixture(scope='session')
+def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
+    """A per-worker local proxy daemon, started once for the session and reused across tests.
+
+    The db name is worker-scoped so parallel xdist workers don't share a catalog. start() is idempotent,
+    so the per-test uses_env fixture only resets the daemon's catalog rather than restarting the process.
+    """
+    from pixeltable.service import proxy_daemon
+
+    db = f'testdb_{worker_id}'
+    proxy_daemon.start(db)
+    try:
+        yield db
+    finally:
+        proxy_daemon.delete(db)
+
+
+@pytest.fixture(scope='function', params=['local', 'proxy'])
+def uses_env(init_env: None, request: pytest.FixtureRequest) -> Iterator[Callable[[str], str]]:
+    """Parameterized variant of uses_db: runs a test against both the in-process catalog and a delegated
+    (proxied) catalog served by a local daemon.
+
+    Yields a path-builder mapping a bare path to the active catalog: the identity for local, and the bare
+    path prefixed with the daemon's pxt:// uri for proxy (with an empty path mapping to the catalog root).
+    """
+    clean_db()
+    Config.init({}, reinit=True)
+    Env.get().default_time_zone = None
+    Env.get().user = None
+    reload_catalog()
+    FileCache.get().validate()
+    FileCache.get().set_capacity(10 << 30)  # 10 GiB
+
+    if request.param == 'proxy':
+        from pixeltable.service import proxy_daemon
+
+        db = request.getfixturevalue('proxy_daemon_db')
+        proxy_daemon.reset(db)
+        prefix = f'pxt://local:{db}'
+
+        def p(path: str) -> str:
+            return f'{prefix}/{path}' if path else prefix
+    else:
+
+        def p(path: str) -> str:
+            return path
+
+    yield p
+
+    Env.get().user = None
+    get_runtime().catalog.validate_store()
+
+
 def _free_disk_space() -> None:
     assert IN_CI
 

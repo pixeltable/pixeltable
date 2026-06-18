@@ -2098,6 +2098,9 @@ class Catalog(CatalogBase):
             return None
         tbl_record, version_record = _unpack_row(row, [schema.Table, schema.TableVersion])
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+        if tbl_md.is_pure_snapshot:
+            # a pure snapshot has no physical table to load at a version; resolve it via its base_versions
+            return self._load_tbl(tbl_id)
         version_md = schema.md_from_dict(schema.VersionMd, version_record.md)
         tvp = self.construct_tvp(tbl_id, version, tbl_md.ancestors, version_md.created_at)
 
@@ -2461,7 +2464,7 @@ class Catalog(CatalogBase):
         status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
         assert status.rowcount == 1, status.rowcount
 
-    def load_md_for_export(self, tbl: LocalTable) -> list[TableVersionMd]:
+    def read_md_for_export(self, tbl: LocalTable) -> list[TableVersionMd]:
         """
         Load metadata for the given table along with all its ancestors. The values of TableMd.current_version and
         TableMd.current_schema_version will be adjusted to ensure that the metadata represent a valid (internally
@@ -2550,7 +2553,7 @@ class Catalog(CatalogBase):
                     TableVersionKey(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1])
                 )
             else:
-                base_path = TableVersionPath.from_md(tbl_md.view_md.base_versions)
+                base_path = TableVersionPath.from_schema_path(tbl_md.view_md.base_versions)
                 base = base_path.tbl_version
 
             tbl_version = TableVersion(

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import builtins
 import copy
-import dataclasses
 import hashlib
 import itertools
 import json
@@ -728,6 +727,9 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with sample()')
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with group_by()')
+        if not self._from_clause.is_local:
+            # the rowid order_by needs the table's local store; run head() on the hosting catalog instead
+            return self._run_proxy('head', n=n)
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
@@ -755,6 +757,9 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with sample()')
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with group_by()')
+        if not self._from_clause.is_local:
+            # the rowid order_by needs the table's local store; run tail() on the hosting catalog instead
+            return self._run_proxy('tail', n=n)
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
@@ -837,10 +842,25 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        assert self._from_clause.is_local
+        if not self._from_clause.is_local:
+            return self._collect_proxy()
         tvps = self._from_clause.tvps
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
             return self._collect()
+
+    def _collect_proxy(self) -> ResultSet:
+        return self._run_proxy('collect')
+
+    def _run_proxy(self, method: str, **extra: Any) -> ResultSet:
+        # the from_clause resolves to a hosted catalog: run the terminal op there and rebuild the ResultSet
+        from pixeltable.catalog.catalog_proxy import CatalogProxy
+
+        cat = get_runtime().get_catalog(catalog_uri=self._from_clause.catalog_uri)
+        assert isinstance(cat, CatalogProxy)
+        result = cat.run_query(method, self.as_dict(), **extra)
+        schema: dict[str, ColumnType] = result['schema']
+        columns = {name: i for i, name in enumerate(schema)}
+        return ResultSet([Row(data, columns, schema) for data in result['rows']], schema)
 
     def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
         assert get_runtime().in_xact
@@ -893,6 +913,13 @@ class Query:
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'count() cannot be used with limit() or offset(). Use `select(pxtf.count())` instead.',
             )
+
+        if not self._from_clause.is_local:
+            from pixeltable.catalog.catalog_proxy import CatalogProxy
+
+            cat = get_runtime().get_catalog(catalog_uri=self._from_clause.catalog_uri)
+            assert isinstance(cat, CatalogProxy)
+            return cat.run_query('count', self.as_dict())
 
         count_query = Query(
             from_clause=self._from_clause,
@@ -1265,11 +1292,7 @@ class Query:
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         assert len(self._from_clause.tbls) > 0
-        # joining against a hosted table is not supported yet; tbl_path is a LocalTable impl detail
-        if not isinstance(other, catalog.LocalTable):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'join() is not supported against a hosted table.'
-            )
+        # a join mixing catalogs (e.g. local + hosted) is rejected by FromClause's same-catalog check below
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and unversioned tables'
@@ -1762,8 +1785,16 @@ class Query:
         d = {
             '_classname': 'Query',
             'from_clause': {
-                'tbls': [tbl.as_dict() for tbl in self._from_clause.tvps],
-                'join_clauses': [dataclasses.asdict(clause) for clause in self._from_clause.join_clauses],
+                'tbls': [tbl.key().as_dict() for tbl in self._from_clause.tbls],
+                'join_clauses': [
+                    {
+                        'join_type': clause.join_type.name,
+                        'join_predicate': clause.join_predicate.as_dict()
+                        if clause.join_predicate is not None
+                        else None,
+                    }
+                    for clause in self._from_clause.join_clauses
+                ],
             },
             'select_list': [(e.as_dict(), name) for (e, name) in self.select_list]
             if self.select_list is not None
@@ -1786,9 +1817,18 @@ class Query:
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
         assert get_runtime().in_xact, 'Run Query.from_dict() in a transaction because it may involve metadata loading'
         tbls: list[catalog.TablePath] = [
-            catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']
+            catalog.TableVersionPath.from_key(catalog.TablePathKey.from_dict(tbl_dict))
+            for tbl_dict in d['from_clause']['tbls']
         ]
-        join_clauses = [JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
+        join_clauses = [
+            JoinClause(
+                join_type=JoinType[clause_dict['join_type']],
+                join_predicate=exprs.Expr.from_dict(clause_dict['join_predicate'])
+                if clause_dict['join_predicate'] is not None
+                else None,
+            )
+            for clause_dict in d['from_clause']['join_clauses']
+        ]
         from_clause = FromClause(tbls=tbls, join_clauses=join_clauses)
         select_list = (
             [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] if d['select_list'] is not None else None

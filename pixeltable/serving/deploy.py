@@ -181,7 +181,7 @@ def _export_tables_md(table_paths: set[str]) -> dict[str, Any]:
     # Get the md for all ancestors of all such tables.
     catalog = get_runtime().catalog
     with catalog.begin_xact(for_write=False):
-        tables_md = [catalog.load_md_for_export(tbl) for tbl in tables]
+        tables_md = [catalog.read_md_for_export(tbl) for tbl in tables]
 
     # The ancestor md is returned as: primary table first, followed by ancestors in descending order.
     # Reverse so that ancestors come first, then flatten and de-duplicate (since some tables might have common

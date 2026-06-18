@@ -1,12 +1,14 @@
 from textwrap import dedent
+from typing import Any
 
 import psycopg
+import pydantic
 import pytest
 import sqlalchemy.exc as sql_exc
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.catalog import Path, is_valid_identifier
+from pixeltable.catalog import Dir, InsertableTableProxy, Path, ViewProxy, is_valid_identifier
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 from tests.coordinator import MultiThreadedScenario
@@ -179,24 +181,360 @@ class TestCatalog:
         ]
         # Same-named local and hosted paths are distinct.
         assert Path.parse('a/b') != Path.parse('pxt://variata:main/a/b')
-
-    def test_hosted_ops_unsupported(self) -> None:
-        # Hosted catalogs are stubbed: an operation routed to a hosted path must raise a user-facing
-        # UNSUPPORTED_OPERATION error, not a bare NotImplementedError.
-        uri = 'pxt://variata:main'
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.get_table(f'{uri}/tbl')
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.create_table(f'{uri}/tbl', {'c': pxt.String})
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.drop_table(f'{uri}/tbl')
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.create_dir(f'{uri}/d')
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.drop_dir(f'{uri}/d')
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.move(f'{uri}/a', f'{uri}/b')
+        # is_ancestor is false across catalogs
         assert not Path.parse('a').is_ancestor(Path.parse('pxt://variata:main/a/b'))
+
+    def test_local_proxy(self, init_env: None) -> None:
+        # End-to-end against a real local-proxy daemon over HTTP: pxt.create_table('pxt://local:<db>/...')
+        # routes through CatalogProxy -> HTTP -> the daemon's own catalog, and returns a metadata-backed
+        # proxy handle. A server-side error is re-raised as the identical exception type on the client.
+        from pixeltable.service import proxy_daemon
+
+        def column_signature(tbl: pxt.Table) -> dict:
+            # schema-intrinsic column properties, comparable across two distinct tables
+            return {
+                name: (col['type_'], col['is_primary_key'], col['media_validation'])
+                for name, col in tbl.get_metadata()['columns'].items()
+            }
+
+        db = 'proxytest'
+        proxy_daemon.start(db)
+        try:
+            t = pxt.create_table(f'pxt://local:{db}/proxy_foo', {'a': pxt.Int, 's': pxt.String})
+            assert isinstance(t, InsertableTableProxy)
+            assert t.get_metadata()['name'] == 'proxy_foo'
+            assert set(t.get_metadata()['columns']) == {'a', 's'}
+
+            # A full schema -- scalars, every media type, and ColumnSpecs (primary key + media validation) --
+            # created over the proxy must yield the same column metadata as creating it locally.
+            schema: dict[str, Any] = {
+                'id': pxt.Required[pxt.Int],
+                's': pxt.String,
+                'img': pxt.Image,
+                'vid': pxt.Video,
+                'aud': pxt.Audio,
+                'doc': pxt.Document,
+                'img_validated': {'type': pxt.Image, 'media_validation': 'on_read'},
+            }
+            local = pxt.create_table('proxy_local_ref', schema, primary_key='id')
+            remote = pxt.create_table(f'pxt://local:{db}/proxy_full', schema, primary_key='id')
+            assert isinstance(remote, InsertableTableProxy)
+            assert column_signature(remote) == column_signature(local)
+            assert remote.get_metadata()['primary_key'] == local.get_metadata()['primary_key'] == ['id']
+
+            # get_table returns a metadata-equivalent handle; the same columns as the created table.
+            fetched = pxt.get_table(f'pxt://local:{db}/proxy_full')
+            assert isinstance(fetched, InsertableTableProxy)
+            assert column_signature(fetched) == column_signature(remote)
+            assert pxt.get_table(f'pxt://local:{db}/missing', if_not_exists='ignore') is None
+            with pytest.raises(excs.NotFoundError):
+                pxt.get_table(f'pxt://local:{db}/missing')
+
+            # drop_table removes it; a subsequent lookup yields None (or raises with the default).
+            pxt.drop_table(f'pxt://local:{db}/proxy_full')
+            assert pxt.get_table(f'pxt://local:{db}/proxy_full', if_not_exists='ignore') is None
+            pxt.drop_table(f'pxt://local:{db}/proxy_full', if_not_exists='ignore')  # no-op, no error
+            with pytest.raises(excs.NotFoundError):
+                pxt.drop_table(f'pxt://local:{db}/proxy_full')
+
+            with pytest.raises(excs.NotFoundError):
+                pxt.create_table(f'pxt://local:{db}/no_such_dir/foo', {'a': pxt.Int})
+        finally:
+            proxy_daemon.delete(db)
+
+    def test_table_path_key(self, init_env: None) -> None:
+        from uuid import uuid4
+
+        from pixeltable.catalog import TablePathKey, TableVersionPath
+        from pixeltable.catalog.table_version import TableVersionKey
+
+        # recursive {tbl_version, base} as_dict/from_dict round-trips, including a base element
+        key = TablePathKey((TableVersionKey(uuid4(), None), TableVersionKey(uuid4(), 3)))
+        assert TablePathKey.from_dict(key.as_dict()) == key
+        assert key.as_dict()['base'] is not None
+
+        # against a real path, key() reproduces the legacy nested as_dict() byte-for-byte (no migration)
+        t = pxt.create_table('tpk', {'a': pxt.Int})
+        tvp = t._tbl_path
+        assert isinstance(tvp, TableVersionPath)
+        assert tvp.key().as_dict() == tvp.as_dict()
+        # a live table's effective key has version None; its snapshot key has the concrete version
+        assert tvp.key().leaf.effective_version is None
+        assert tvp.snapshot_key().leaf.effective_version == tvp.version()
+
+    def test_local_proxy_cross_thread(self, init_env: None) -> None:
+        # A thread that didn't construct the proxy has an empty thread-local md path; _tbl_md_path must
+        # lazily fetch it via the catalog so schema introspection works from any thread.
+        import threading
+
+        from pixeltable.service import proxy_daemon
+
+        db = 'proxy_xthread'
+        proxy_daemon.start(db)
+        try:
+            t = pxt.create_table(f'pxt://local:{db}/xt', {'a': pxt.Int, 's': pxt.String})
+            captured: dict[str, Any] = {}
+
+            def worker() -> None:
+                captured['columns'] = set(t.columns())
+                captured['name'] = t.get_metadata()['name']
+
+            th = threading.Thread(target=worker)
+            th.start()
+            th.join()
+            assert captured['columns'] == {'a', 's'}
+            assert captured['name'] == 'xt'
+        finally:
+            proxy_daemon.delete(db)
+
+    def test_local_proxy_query(self, init_env: None) -> None:
+        # A query built against a hosted table routes collect()/count() to the daemon, runs there, and
+        # returns the (scalar) result set synchronously.
+        from pixeltable.service import proxy_daemon
+
+        db = 'proxy_query'
+        proxy_daemon.start(db)
+        try:
+            t = pxt.create_table(f'pxt://local:{db}/q', {'a': pxt.Int, 's': pxt.String})
+            t.insert([{'a': 1, 's': 'x'}, {'a': 2, 's': 'y'}, {'a': 3, 's': 'z'}])
+
+            assert t.count() == 3
+            res = t.where(t.a >= 2).order_by(t.a).select(t.a, t.s).collect()
+            assert res['a'] == [2, 3]
+            assert res['s'] == ['y', 'z']
+            assert t.where(t.a >= 2).count() == 2
+            assert len(t.limit(1).collect()) == 1
+        finally:
+            proxy_daemon.delete(db)
+
+    def test_local_proxy_mutations(self, init_env: None) -> None:
+        # update/batch_update/delete/revert/list_views/get_versions dispatch to the daemon; delete is rejected
+        # on a view (mirroring View.delete).
+        from pixeltable.service import proxy_daemon
+
+        db = 'proxy_mut'
+        proxy_daemon.start(db)
+        try:
+            t = pxt.create_table(f'pxt://local:{db}/m', {'a': pxt.Required[pxt.Int], 's': pxt.String}, primary_key='a')
+            t.insert([{'a': 1, 's': 'x'}, {'a': 2, 's': 'y'}, {'a': 3, 's': 'z'}])
+            assert t.count() == 3
+
+            t.update({'s': 'U'}, where=t.a == 1)
+            assert t.where(t.a == 1).select(t.s).collect()['s'] == ['U']
+
+            t.batch_update([{'a': 2, 's': 'B'}])
+            assert t.where(t.a == 2).select(t.s).collect()['s'] == ['B']
+
+            t.delete(where=t.a == 3)
+            assert t.count() == 2
+
+            assert len(t.get_versions()) >= 1
+
+            t.revert()  # undo the delete
+            assert t.count() == 3
+
+            v = pxt.create_view(f'pxt://local:{db}/m_view', t)
+            assert isinstance(v, ViewProxy)
+            assert any('m_view' in path for path in t.list_views())
+            with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+                v.delete()  # delete is unsupported on a view
+        finally:
+            proxy_daemon.delete(db)
+
+    def test_function_serialization(self) -> None:
+        # Functions (e.g. embedding UDFs passed to add_embedding_index) cross the wire via proxy_protocol.
+        import pixeltable.func as func
+        from pixeltable.functions import string as pxt_str
+        from pixeltable.service import proxy_protocol
+
+        f = pxt_str.contains
+        assert isinstance(f, func.Function)
+        round_tripped = proxy_protocol.deserialize(proxy_protocol.serialize(f))
+        assert round_tripped.self_path == f.self_path
+
+    def test_local_proxy_schema_changes(self, init_env: None) -> None:
+        # add_columns / add_column / add_computed_column / rename_column / drop_column / recompute_columns
+        # dispatch to the daemon as gated mutations; the client's md refreshes after each so the next op sees
+        # the new schema.
+        from pixeltable.service import proxy_daemon
+
+        db = 'proxy_ddl'
+        proxy_daemon.start(db)
+        try:
+            t = pxt.create_table(f'pxt://local:{db}/d', {'a': pxt.Int, 's': pxt.String})
+            t.insert([{'a': 1, 's': 'x'}, {'a': 2, 's': 'yy'}])
+
+            t.add_columns({'b': pxt.Float, 'c': pxt.String})
+            assert {'a', 's', 'b', 'c'} <= set(t.columns())
+
+            t.add_column(e=pxt.Int)
+            assert 'e' in t.columns()
+
+            t.add_computed_column(a1=t.a + 1)
+            assert t.where(t.a == 2).select(t.a1).collect()['a1'] == [3]
+
+            t.rename_column('c', 'c2')
+            cols = set(t.columns())
+            assert 'c2' in cols and 'c' not in cols
+
+            t.drop_column('b')
+            assert 'b' not in t.columns()
+
+            t.recompute_columns('a1')
+            assert t.where(t.a == 1).select(t.a1).collect()['a1'] == [2]
+        finally:
+            proxy_daemon.delete(db)
+
+    def test_local_proxy_view(self, init_env: None) -> None:
+        # A view created over the proxy (a Table base plus a computed column referencing the base) must
+        # yield the same column metadata as creating the equivalent view locally.
+        from pixeltable.service import proxy_daemon
+
+        def column_signature(tbl: pxt.Table) -> dict:
+            return {
+                name: (col['type_'], col['is_primary_key'], col['media_validation'], col['is_computed'])
+                for name, col in tbl.get_metadata()['columns'].items()
+            }
+
+        db = 'proxyviewtest'
+        proxy_daemon.start(db)
+        try:
+            base = pxt.create_table(f'pxt://local:{db}/base', {'n': pxt.Int, 's': pxt.String})
+            remote_view = pxt.create_view(f'pxt://local:{db}/v', base, additional_columns={'doubled': base.n * 2})
+            assert isinstance(remote_view, ViewProxy)
+            assert remote_view.get_metadata()['kind'] == 'view'
+
+            # get_table on a view returns a ViewProxy
+            fetched_view = pxt.get_table(f'pxt://local:{db}/v')
+            assert isinstance(fetched_view, ViewProxy)
+
+            local_base = pxt.create_table('local_base', {'n': pxt.Int, 's': pxt.String})
+            local_view = pxt.create_view('local_view', local_base, additional_columns={'doubled': local_base.n * 2})
+            assert column_signature(remote_view) == column_signature(local_view)
+        finally:
+            proxy_daemon.delete(db)
+
+    def test_local_proxy_describe(self, init_env: None) -> None:
+        # _path() and describe()/repr render the table's full pxt:// path: the server returns its in-db
+        # path and rendered description, and the client rebases the title onto this proxy's catalog.
+        from pixeltable.service import proxy_daemon
+
+        db = 'proxydescribe'
+        proxy_daemon.start(db)
+        try:
+            pxt.create_dir(f'pxt://local:{db}/sub')
+            t = pxt.create_table(f'pxt://local:{db}/sub/d', {'a': pxt.Int, 's': pxt.String})
+
+            # _path() carries the proxy's org/db together with the in-db components
+            path = t._path()
+            assert path.org == 'local'
+            assert path.db == db
+            assert str(path) == f'pxt://local:{db}/sub/d'
+
+            # the rendered description titles the table with its full pxt:// path and lists its columns
+            r = repr(t)
+            assert f"table 'pxt://local:{db}/sub/d'" in r
+            assert 'a' in r and 's' in r
+            assert "'sub/d'" not in r  # the bare in-db path never leaks into the title
+            assert t._repr_html_() != ''
+
+            # a view's title shows its own full pxt:// path
+            v = pxt.create_view(f'pxt://local:{db}/sub/v', t, additional_columns={'a1': t.a + 1})
+            assert isinstance(v, ViewProxy)
+            assert str(v._path()) == f'pxt://local:{db}/sub/v'
+            assert f"view 'pxt://local:{db}/sub/v'" in repr(v)
+        finally:
+            proxy_daemon.delete(db)
+
+    def test_local_proxy_dirs(self, init_env: None) -> None:
+        # create_dir / get_dir_contents / drop_dir over the proxy.
+        from pixeltable.service import proxy_daemon
+
+        db = 'proxydirtest'
+        proxy_daemon.start(db)
+        try:
+            d = pxt.create_dir(f'pxt://local:{db}/d')
+            assert isinstance(d, Dir)
+            pxt.create_table(f'pxt://local:{db}/d/t', {'a': pxt.Int})
+            pxt.create_dir(f'pxt://local:{db}/d/sub')
+
+            contents = pxt.get_dir_contents(f'pxt://local:{db}/d', recursive=False)
+            assert contents['tables'] == [f'pxt://local:{db}/d/t']
+            assert contents['dirs'] == [f'pxt://local:{db}/d/sub']
+
+            # drop_dir removes the subtree; lookups then miss
+            pxt.drop_dir(f'pxt://local:{db}/d', force=True)
+            assert pxt.get_table(f'pxt://local:{db}/d/t', if_not_exists='ignore') is None
+            pxt.drop_dir(f'pxt://local:{db}/d', if_not_exists='ignore')  # no-op, no error
+            with pytest.raises(excs.NotFoundError):
+                pxt.drop_dir(f'pxt://local:{db}/d')
+        finally:
+            proxy_daemon.delete(db)
+
+    def test_local_proxy_move(self, init_env: None) -> None:
+        # move over the proxy (rename + relocate); pxt.ls exercises the proxy's get_table_by_id.
+        from pixeltable.service import proxy_daemon
+
+        db = 'proxymovetest'
+        proxy_daemon.start(db)
+        try:
+            pxt.create_table(f'pxt://local:{db}/foo', {'a': pxt.Int})
+            pxt.move(f'pxt://local:{db}/foo', f'pxt://local:{db}/bar')
+            assert pxt.get_table(f'pxt://local:{db}/foo', if_not_exists='ignore') is None
+            assert pxt.get_table(f'pxt://local:{db}/bar') is not None
+
+            pxt.create_dir(f'pxt://local:{db}/d')
+            pxt.move(f'pxt://local:{db}/bar', f'pxt://local:{db}/d/bar')
+            assert pxt.get_table(f'pxt://local:{db}/d/bar') is not None
+
+            # pxt.ls() resolves each entry via get_table_by_id over the proxy
+            listing = pxt.ls(f'pxt://local:{db}/d')
+            bar_rows = listing[listing['Name'] == 'bar']
+            assert len(bar_rows) == 1
+            assert bar_rows.iloc[0]['Kind'] == 'table'
+
+            with pytest.raises(excs.NotFoundError):
+                pxt.move(f'pxt://local:{db}/missing', f'pxt://local:{db}/x')
+            pxt.move(f'pxt://local:{db}/missing', f'pxt://local:{db}/x', if_not_exists='ignore')  # no-op
+        finally:
+            proxy_daemon.delete(db)
+
+    def test_local_proxy_insert(self, init_env: None) -> None:
+        # insert over the proxy: list[dict] and list[BaseModel] of scalars
+        from pixeltable.service import proxy_daemon
+
+        class Row(pydantic.BaseModel):
+            a: int
+            s: str
+
+        db = 'proxyinserttest'
+        proxy_daemon.start(db)
+        try:
+            t = pxt.create_table(f'pxt://local:{db}/t', {'a': pxt.Int, 's': pxt.String})
+
+            v0 = t.get_metadata()['version']
+            status = t.insert([{'a': 1, 's': 'x'}, {'a': 2, 's': 'y'}])
+            assert status.row_count_stats.ins_rows == 2
+            # the insert advanced the version; the proxy refreshed its md from the response
+            assert t.get_metadata()['version'] > v0
+
+            # return_rows round-trips the inserted rows back to the caller
+            status = t.insert([{'a': 3, 's': 'z'}], return_rows=True)
+            assert status.row_count_stats.ins_rows == 1
+            assert status.rows is not None and status.rows[0]['a'] == 3 and status.rows[0]['s'] == 'z'
+
+            # list[pydantic.BaseModel]
+            status = t.insert([Row(a=4, s='w')])
+            assert status.row_count_stats.ins_rows == 1
+        finally:
+            proxy_daemon.delete(db)
+
+    def test_proxy_move_cross_db(self, init_env: None) -> None:
+        # cross-catalog moves are rejected before any RPC (no daemon needed)
+        with pytest.raises(excs.Error, match='same catalog'):
+            pxt.move('pxt://local:db1/t', 'pxt://local:db2/t')
+        with pytest.raises(excs.Error, match='same catalog'):
+            pxt.move('pxt://local:db/t', 'local_t')  # hosted -> local
 
     @pytest.mark.parametrize('path_str', ['a.b.c', 'a/b/c'])
     def test_path_ancestors(self, path_str: str) -> None:

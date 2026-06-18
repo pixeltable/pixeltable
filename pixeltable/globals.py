@@ -183,23 +183,15 @@ def create_table(
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
 
-    if not path_obj.is_local and source is not None:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'Importing data into a hosted table is not supported yet.'
-        )
     data_source: TableDataConduit | None = None
     if source is not None:
         data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
         src_schema_overrides: dict[str, ts.ColumnType] = {}
         if schema_overrides is not None:
             for col_name, py_type in schema_overrides.items():
-                col_type = ts.ColumnType.normalize_type(py_type, nullable_default=True, allow_builtin_types=False)
-                if col_type is None:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Invalid type for column {col_name!r} in `schema_overrides`: {py_type}',
-                    )
-                src_schema_overrides[col_name] = col_type
+                src_schema_overrides[col_name] = ts.ColumnType.normalize_type(
+                    py_type, nullable_default=True, allow_builtin_types=False
+                )
         data_source.src_schema_overrides = src_schema_overrides
         data_source.src_pk = primary_key
         data_source.infer_schema()
@@ -227,7 +219,7 @@ def create_table(
 
     tbl, was_created = (
         get_runtime()
-        .get_catalog(path_obj)
+        .get_catalog(path=path_obj)
         .create_table(
             path_obj,
             schema,
@@ -242,17 +234,19 @@ def create_table(
     )
 
     # TODO: combine data loading with table creation into a single transaction
-    if was_created:
-        assert isinstance(tbl, catalog.InsertableTable)
+    if was_created and data_source is not None:
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-        if isinstance(data_source, QueryTableDataConduit):
-            query = data_source.pxt_query
-            with get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
-            ):
-                tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
-        elif data_source is not None and not is_direct_query:
-            tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+        if isinstance(tbl, catalog.InsertableTable):
+            if isinstance(data_source, QueryTableDataConduit):
+                query = data_source.pxt_query
+                with get_runtime().catalog.begin_xact(
+                    for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
+                ):
+                    tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
+            elif not is_direct_query:
+                tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+        else:
+            tbl.insert(source, on_error=on_error)
 
     return tbl
 
@@ -340,10 +334,6 @@ def create_view(
     tbl_path: TablePath
     select_list: list[tuple[exprs.Expr, str | None]] | None = None
     where: exprs.Expr | None = None
-    if isinstance(base, catalog.TableProxy):
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'create_view() is not supported on a hosted table yet.'
-        )
     if isinstance(base, catalog.Table):
         tbl_path = base._tbl_path
         sample_clause = None
@@ -397,7 +387,7 @@ def create_view(
 
     return (
         get_runtime()
-        .get_catalog(path_obj)
+        .get_catalog(path=path_obj)
         .create_view(
             path_obj,
             tbl_path,
@@ -538,7 +528,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     """
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     path_obj = catalog.Path.parse(path, allow_versioned_path=True)
-    tbl = get_runtime().get_catalog(path_obj).get_table(path_obj, if_not_exists_)
+    tbl = get_runtime().get_catalog(path=path_obj).get_table(path_obj, if_not_exists_)
     return tbl
 
 
@@ -586,13 +576,16 @@ def move(
             excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
         )
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
-    if not path_obj.is_local or not new_path_obj.is_local:
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): Hosted paths are not yet supported')
+    if path_obj.catalog_uri != new_path_obj.catalog_uri:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'move(): source and destination must be in the same catalog ({path!r} -> {new_path!r})',
+        )
     if path_obj.is_ancestor(new_path_obj):
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'move(): cannot move {path!r} into its own subdirectory'
         )
-    get_runtime().get_catalog(path_obj).move(path_obj, new_path_obj, if_exists_, if_not_exists_)
+    get_runtime().get_catalog(path=path_obj).move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
 def drop_table(
@@ -641,7 +634,7 @@ def drop_table(
         path_obj = catalog.Path.parse(table)
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    get_runtime().get_catalog(path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+    get_runtime().get_catalog(path=path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
@@ -669,7 +662,7 @@ def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents
         >>> pxt.get_dir_contents('dir1')
     """
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
-    catalog_entries = get_runtime().get_catalog(path_obj).get_dir_contents(path_obj, recursive=recursive)
+    catalog_entries = get_runtime().get_catalog(path=path_obj).get_dir_contents(path_obj, recursive=recursive)
     dirs: list[str] = []
     tables: list[str] = []
     _assemble_dir_contents(dir_path, catalog_entries, dirs, tables)
@@ -695,15 +688,18 @@ def _assemble_dir_contents(
             tables.append(path)
 
 
-def get_dir_tree() -> list['TreeNode']:
+def get_dir_tree(path: str = '') -> list['TreeNode']:
     """Get a tree representation of the Pixeltable directory structure.
+
+    Args:
+        path: Path to the directory to start from. Defaults to the root directory.
 
     Returns:
         A list of [`TreeNode`][pixeltable.TreeNode] dicts. Each node is either a `DirectoryNode` or a `TableNode`.
     """
-    path_obj = catalog.Path.parse('', allow_empty_path=True)
+    path_obj = catalog.Path.parse(path, allow_empty_path=True)
     catalog_entries = (
-        get_runtime().get_catalog(path_obj).get_dir_contents(path_obj, recursive=True, with_error_counts=True)
+        get_runtime().get_catalog(path=path_obj).get_dir_contents(path_obj, recursive=True, with_error_counts=True)
     )
     path_by_id: dict[UUID, str] = {}
     _create_path_map('', catalog_entries, path_by_id)
@@ -801,7 +797,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
         >>> pxt.list_tables('dir1')
     """
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
-    contents = get_runtime().get_catalog(path_obj).get_dir_contents(path_obj, recursive=recursive)
+    contents = get_runtime().get_catalog(path=path_obj).get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
 
@@ -854,7 +850,7 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    return get_runtime().get_catalog(path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
+    return get_runtime().get_catalog(path=path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
@@ -896,7 +892,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    get_runtime().get_catalog(path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
+    get_runtime().get_catalog(path=path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
 def ls(path: str = '') -> pd.DataFrame:
@@ -913,7 +909,7 @@ def ls(path: str = '') -> pd.DataFrame:
     from pixeltable.metadata import schema
 
     path_obj = catalog.Path.parse(path, allow_empty_path=True)
-    cat = get_runtime().get_catalog(path_obj)
+    cat = get_runtime().get_catalog(path=path_obj)
     dir_entries = cat.get_dir_contents(path_obj)
 
     @retry_loop(for_write=False)
@@ -995,7 +991,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
         ['my_dir', 'my_dir/sub_dir1']
     """
     path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
-    cat = get_runtime().get_catalog(path_obj)
+    cat = get_runtime().get_catalog(path=path_obj)
     contents = cat.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Dir)]
 

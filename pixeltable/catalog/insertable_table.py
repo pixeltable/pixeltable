@@ -302,5 +302,5 @@ class InsertableTable(LocalTable):
     def _effective_base_versions(self) -> list[int | None]:
         return []
 
-    def _table_descriptor(self) -> str:
-        return self._display_str()
+    def _table_descriptor(self, path: 'pxt.catalog.Path | None' = None) -> str:
+        return self._display_str(path)

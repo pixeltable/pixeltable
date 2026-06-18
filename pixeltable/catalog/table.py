@@ -39,7 +39,7 @@ class Table(SchemaObject):
     @property
     @abc.abstractmethod
     def _tbl_path(self) -> 'TablePath':
-        """The metadata path backing this handle. Implemented by LocalTable and TableProxy."""
+        """The metadata path backing this handle."""
 
     @abc.abstractmethod
     def get_metadata(self) -> 'TableMetadata':
@@ -71,43 +71,48 @@ class Table(SchemaObject):
             A list of view paths.
         """
 
-    @abc.abstractmethod
     def select(self, *items: Any, **named_items: Any) -> 'Query':
         """Select columns or expressions from this table.
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
+        from pixeltable._query import Query
+        from pixeltable.query_clauses import FromClause
 
-    @abc.abstractmethod
+        query = Query(FromClause(tbls=[self._tbl_path]))
+        if len(items) == 0 and len(named_items) == 0:
+            return query
+        return query.select(*items, **named_items)
+
     def where(self, pred: 'exprs.Expr') -> 'Query':
         """Filter rows from this table based on the expression.
 
         See [`Query.where`][pixeltable.Query.where] for more details.
         """
+        return self.select().where(pred)
 
-    @abc.abstractmethod
     def join(self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'JoinType.LiteralType' = 'inner') -> 'Query':
         """Join this table with another table."""
+        return self.select().join(other, on=on, how=how)
 
-    @abc.abstractmethod
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'Query':
         """Order the rows of this table based on the expression.
 
         See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
+        return self.select().order_by(*items, asc=asc)
 
-    @abc.abstractmethod
     def group_by(self, *items: 'exprs.Expr') -> 'Query':
         """Group the rows of this table based on the expression.
 
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
+        return self.select().group_by(*items)
 
-    @abc.abstractmethod
     def distinct(self) -> 'Query':
         """Remove duplicate rows from table."""
+        return self.select().distinct()
 
-    @abc.abstractmethod
     def limit(self, n: int, offset: int | None = None) -> 'Query':
         """Select a limited number of rows from the Table, optionally skipping rows for pagination.
 
@@ -127,8 +132,8 @@ class Table(SchemaObject):
 
             >>> t.limit(10, offset=20).collect()
         """
+        return self.select().limit(n, offset=offset)
 
-    @abc.abstractmethod
     def sample(
         self,
         n: int | None = None,
@@ -141,33 +146,36 @@ class Table(SchemaObject):
 
         See [`Query.sample`][pixeltable.Query.sample] for more details.
         """
+        return self.select().sample(
+            n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
+        )
 
-    @abc.abstractmethod
     def collect(self) -> 'ResultSet':
         """Return rows from this table."""
+        return self.select().collect()
 
-    @abc.abstractmethod
     def cursor(self) -> 'ResultCursor':
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over this table's rows.
 
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
+        return self.select().cursor()
 
-    @abc.abstractmethod
     def show(self, n: int = 20) -> 'ResultSet':
         """Return the first n rows from this table."""
+        return self.select().show(n)
 
-    @abc.abstractmethod
     def head(self, n: int = 10) -> 'ResultSet':
         """Return the first n rows inserted into this table."""
+        return self.select().head(n)
 
-    @abc.abstractmethod
     def tail(self, n: int = 10) -> 'ResultSet':
         """Return the last n rows inserted into this table."""
+        return self.select().tail(n)
 
-    @abc.abstractmethod
     def count(self) -> int:
         """Return the number of rows in this table."""
+        return self.select().count()
 
     @abc.abstractmethod
     def columns(self) -> list[str]:

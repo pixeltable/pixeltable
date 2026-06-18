@@ -232,77 +232,6 @@ class LocalTable(Table):
             views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
         return views
 
-    def select(self, *items: Any, **named_items: Any) -> 'pxt.Query':
-        from pixeltable.query_clauses import FromClause
-
-        query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
-        if len(items) == 0 and len(named_items) == 0:
-            return query  # Select(*); no further processing is necessary
-
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return query.select(*items, **named_items)
-
-    def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().where(pred)
-
-    def join(
-        self,
-        other: 'Table',
-        *,
-        on: 'exprs.Expr' | None = None,
-        how: 'pixeltable.query_clauses.JoinType.LiteralType' = 'inner',
-    ) -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().join(other, on=on, how=how)
-
-    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().order_by(*items, asc=asc)
-
-    def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().group_by(*items)
-
-    def distinct(self) -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().distinct()
-
-    def limit(self, n: int, offset: int | None = None) -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().limit(n, offset=offset)
-
-    def sample(
-        self,
-        n: int | None = None,
-        n_per_stratum: int | None = None,
-        fraction: float | None = None,
-        seed: int | None = None,
-        stratify_by: Any = None,
-    ) -> pxt.Query:
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().sample(
-                n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
-            )
-
-    def collect(self) -> 'pxt._query.ResultSet':
-        return self.select().collect()
-
-    def cursor(self) -> 'pxt._query.ResultCursor':
-        return self.select().cursor()
-
-    def show(self, n: int = 20) -> 'pxt._query.ResultSet':
-        return self.select().show(n)
-
-    def head(self, n: int = 10) -> 'pxt._query.ResultSet':
-        return self.select().head(n)
-
-    def tail(self, n: int = 10) -> 'pxt._query.ResultSet':
-        return self.select().tail(n)
-
-    def count(self) -> int:
-        return self.select().count()
-
     def columns(self) -> list[str]:
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
@@ -343,14 +272,17 @@ class LocalTable(Table):
     def _repr_html_(self) -> str:
         return self._descriptors().to_html()
 
-    def _descriptors(self) -> DescriptionHelper:
+    def _descriptors(self, path: 'pxt.catalog.Path | None' = None) -> DescriptionHelper:
         """
         Constructs a list of descriptors for this table that can be pretty-printed.
+
+        path overrides the displayed path in the title (used by delegated execution to show the full
+        pxt:// path of a hosted table); when None the local in-catalog path is shown.
         """
 
         with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
             helper = DescriptionHelper()
-            helper.append(self._table_descriptor())
+            helper.append(self._table_descriptor(path))
             col_df, separator_idxs = self._col_descriptor()
             helper.append(col_df, separator_idxs=separator_idxs)
             idxs = self._index_descriptor()

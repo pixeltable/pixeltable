@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 import traceback
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
+from typing import TYPE_CHECKING, Any, ClassVar, Iterator, NoReturn
 
 from typing_extensions import Self
 
@@ -131,6 +131,21 @@ class Error(Exception):
             d['retry_after'] = self.retry_after
         return d
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> 'Error':
+        """Reconstruct an Error from to_dict() output."""
+        code = ErrorCode[d['error_code']]
+        subclass = _error_subclasses_by_group().get(code.value // 1000, Error)
+        return subclass._reconstruct(code, d)
+
+    @classmethod
+    def _reconstruct(cls, error_code: ErrorCode, d: dict[str, Any]) -> 'Error':
+        """Build an instance of this class from to_dict() output. Subclasses with extra serialized state
+        override this to restore it. Bypasses __init__ (which may require args not on the wire)."""
+        err = cls.__new__(cls)
+        Error.__init__(err, error_code, d.get('message', ''), retry_after=d.get('retry_after'))
+        return err
+
 
 class NotFoundError(Error):
     """Resource not found."""
@@ -190,6 +205,14 @@ class ExternalServiceError(Error):
         if self.provider_http_status_code is not None:
             d['provider_http_status_code'] = self.provider_http_status_code
         return d
+
+    @classmethod
+    def _reconstruct(cls, error_code: ErrorCode, d: dict[str, Any]) -> 'Error':
+        err = super()._reconstruct(error_code, d)
+        assert isinstance(err, ExternalServiceError)
+        err.provider = d.get('provider')
+        err.provider_http_status_code = d.get('provider_http_status_code')
+        return err
 
 
 class ServiceUnavailableError(Error):
@@ -280,3 +303,14 @@ def table_was_dropped(identifier: Any = None) -> NotFoundError:
 def is_table_not_found_error(e: BaseException) -> bool:
     """Returns True if the exception signals that a table was not found."""
     return isinstance(e, Error) and e.error_code == ErrorCode.TABLE_NOT_FOUND
+
+
+def _error_subclasses_by_group() -> dict[int, type[Error]]:
+    """Map each error-code group (thousands digit) to its Error subclass.from_dict."""
+
+    def subclasses(c: type[Error]) -> Iterator[type[Error]]:
+        yield c
+        for sub in c.__subclasses__():
+            yield from subclasses(sub)
+
+    return {c._code_group: c for c in subclasses(Error)}
