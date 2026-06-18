@@ -517,6 +517,107 @@ def sam_for_segmentation(
     )
 
 
+class Sam3AutomaticMaskGenerationResponse(TypedDict):
+    scores: pxt.Array[(None,), pxt.Float]
+    boxes: pxt.Array[(None, 4), pxt.Float]
+    masks: pxt.Array[(None, None, None), pxt.Bool]
+
+
+@pxt.udf
+def sam_automatic_mask_generation(
+    image: PIL.Image.Image,
+    *,
+    model_id: str = 'facebook/sam3',
+    points_per_batch: int = 64,
+    points_per_crop: int = 32,
+    pred_iou_thresh: float = 0.70,
+    stability_score_thresh: float = 0.95,
+    crops_n_layers: int = 0,
+    revision: str | None = None,
+) -> Sam3AutomaticMaskGenerationResponse:
+    """
+    Segments every object in an image with SAM 3 (Segment Anything Model 3), with no prompt. `model_id` should
+    be a reference to a pretrained
+    [SAM 3 Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3`.
+
+    Unlike `sam_for_segmentation`, which requires a concept prompt, this samples a grid of points across the
+    image and returns a binary mask for every distinct object it finds (the "segment everything" mode of
+    SAM 1 and SAM 2). Masks are filtered by predicted quality and de-duplicated. The masks are class-agnostic:
+    no labels or persistent object ids are produced, since the model is not told what to look for.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+    - `facebook/sam3` is a gated repository. Request access on its
+        [model page](https://huggingface.co/facebook/sam3), then authenticate with
+        `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before calling this UDF.
+
+    Args:
+        image: The image to segment.
+        model_id: The pretrained SAM 3 model to use (default `facebook/sam3`).
+        points_per_batch: Number of grid points run through the model at once. Higher values are faster but
+            use more memory.
+        points_per_crop: Number of grid points sampled along each side of the image. Higher values find more
+            (and smaller) objects at the cost of speed.
+        pred_iou_thresh: Quality threshold on the model's predicted mask IoU; masks scoring below it are
+            discarded.
+        stability_score_thresh: Quality threshold on mask stability under mask-logit threshold changes; masks
+            scoring below it are discarded.
+        crops_n_layers: Number of additional image-crop layers to run. Values above `0` improve recall on
+            small objects at the cost of speed.
+        revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not
+            specified, uses the default revision for the model.
+
+    Returns:
+        A `Sam3AutomaticMaskGenerationResponse` containing:
+
+        - `scores`: predicted quality score per mask, shape `(num_masks,)`.
+        - `boxes`: bounding box `[x1, y1, x2, y2]` per mask in absolute pixel coordinates, shape
+            `(num_masks, 4)`.
+        - `masks`: binary mask per detected object, shape `(num_masks, H, W)`.
+
+    Examples:
+        Add a computed column that segments every object in an existing Pixeltable column `image` of the
+        table `tbl`:
+
+        >>> tbl.add_computed_column(seg=sam_automatic_mask_generation(tbl.image))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    from transformers import pipeline
+
+    generator = _lookup_model(
+        model_id,
+        lambda mid: pipeline('mask-generation', model=mid, device=device, revision=revision),
+        cache_key=(model_id, 'mask-generation', device, ('revision', revision)),
+    )
+    output = generator(
+        image,
+        points_per_batch=points_per_batch,
+        points_per_crop=points_per_crop,
+        pred_iou_thresh=pred_iou_thresh,
+        stability_score_thresh=stability_score_thresh,
+        crops_n_layers=crops_n_layers,
+        output_bboxes_mask=True,
+    )
+
+    masks = output['masks']
+    if len(masks) == 0:
+        return Sam3AutomaticMaskGenerationResponse(
+            scores=np.zeros((0,), dtype=np.float32),
+            boxes=np.zeros((0, 4), dtype=np.float32),
+            masks=np.zeros((0, image.height, image.width), dtype=bool),
+        )
+    masks_np = np.stack([mask.cpu().numpy() for mask in masks])
+    if masks_np.dtype != np.bool_:
+        masks_np = masks_np.astype(bool)
+    return Sam3AutomaticMaskGenerationResponse(
+        scores=output['scores'].cpu().numpy().reshape(-1),
+        boxes=output['bounding_boxes'].cpu().numpy().astype(np.float32),
+        masks=masks_np,
+    )
+
+
 class Sam3VideoSegmentationFrame(TypedDict):
     frame: pxt.Image
     frame_attrs: pxt.Json

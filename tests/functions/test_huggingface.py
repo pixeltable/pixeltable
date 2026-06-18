@@ -247,6 +247,42 @@ class TestHuggingface:
         for score in result['scores']:
             assert 0.0 <= score <= 1.0
 
+    def test_sam_automatic_mask_generation(self, uses_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from huggingface_hub import get_token
+
+        if get_token() is None:
+            pytest.skip('Skipping SAM 3 test: facebook/sam3 is gated and no Hugging Face token is configured')
+        from pixeltable.functions.huggingface import sam_automatic_mask_generation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(seg=sam_automatic_mask_generation(t.img, points_per_crop=16))
+        status = t.insert(img=SAMPLE_IMAGE_URL)
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+
+        res = t.select(height=t.img.height, width=t.img.width).collect()[0]
+        height, width = res['height'], res['width']
+        result = t.select(t.seg).collect()[0]['seg']
+        assert 'scores' in result
+        assert 'boxes' in result
+        assert 'masks' in result
+        assert isinstance(result['scores'], np.ndarray)
+        assert isinstance(result['boxes'], np.ndarray)
+        assert isinstance(result['masks'], np.ndarray)
+        n = len(result['scores'])
+        assert n > 0, 'Expected SAM 3 to segment at least one object in the sample image'
+        assert result['scores'].shape == (n,)
+        assert result['boxes'].shape == (n, 4)
+        assert result['masks'].shape == (n, height, width)
+        assert result['masks'].dtype == np.bool_
+        for box in result['boxes']:
+            x1, y1, x2, y2 = box
+            assert x1 <= x2
+            assert y1 <= y2
+        for score in result['scores']:
+            assert 0.0 <= score <= 1.0
+
     def test_sam_for_segmentation_invalid_args(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import sam_for_segmentation
