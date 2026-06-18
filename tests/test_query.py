@@ -45,7 +45,7 @@ class TestQuery:
         t1 = pxt.create_table(p(f't1_{num_rows}'), t1_schema)
 
         def t1_row(i: int) -> dict[str, Any]:
-            row = {'id': i, 'i': i}
+            row: dict[str, Any] = {'id': i, 'i': i}
             if local:
                 row['a'] = np.ones((100, 100), dtype=np.int64) * i
             return row
@@ -57,7 +57,7 @@ class TestQuery:
 
         def t2_row(i: int) -> dict[str, Any]:
             # t2 has matching ids
-            row = {'id': i, 'f': float(num_rows - i)}
+            row: dict[str, Any] = {'id': i, 'f': float(num_rows - i)}
             if local:
                 row['a'] = np.ones((100, 100), dtype=np.int64) * (num_rows - i)
             return row

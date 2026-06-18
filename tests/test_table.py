@@ -1141,8 +1141,9 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='Expected an instance of `TestModel1`; got `TestModel2`'):
             _ = t.insert(cast(list[pydantic.BaseModel], rows1 + rows2))
 
-    def test_compute_with_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('test_null_handling', {'id': pxt.Int, 'data': pxt.Json})
+    def test_compute_with_errors(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = pxt.create_table(p('test_null_handling'), {'id': pxt.Int, 'data': pxt.Json})
         t.add_computed_column(inv=1 / t.id)
         # unstored computed col: no persisted cellmd slot, but compute() must still emit :md on error
         t.add_computed_column(inv2=2 / t.id, stored=False)
@@ -1185,8 +1186,9 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match='bad_video'):
             t.compute(rows, on_error='abort')
 
-    def test_compute_input_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('test_compute_input_errors', {'id': pxt.Int})
+    def test_compute_input_errors(self, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = pxt.create_table(p('test_compute_input_errors'), {'id': pxt.Int})
         t.add_computed_column(plus1=t.id + 1)
 
         # empty sequence
@@ -1231,16 +1233,25 @@ class TestTable:
         assert all({'id', 'name'} <= row.keys() for row in rows)
         assert [{'id': r['id'], 'name': r['name']} for r in rows] == [{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}]
 
-    def test_compute_pydantic_scalars(self, uses_db: None) -> None:
-        t, TestModel1, rows1, TestModel2, rows2 = self._setup_pydantic_scalars(lambda name: name)  # noqa: N806
+    def test_compute_pydantic_scalars(self, uses_env: Callable[[str], str]) -> None:
+        t, TestModel1, rows1, TestModel2, rows2 = self._setup_pydantic_scalars(uses_env)  # noqa: N806
+
+        # compute() localizes naive Timestamp inputs to the session timezone (the canonical pixeltable
+        # behavior, matching insert()); over a hosted catalog that localized value round-trips, while the
+        # in-process pydantic path returns the input unchanged. Compare wall-clock values, tzinfo aside.
+        def normalized(m: pydantic.BaseModel) -> dict[str, Any]:
+            d = m.model_dump()
+            if d.get('t') is not None:
+                d['t'] = d['t'].replace(tzinfo=None)
+            return d
 
         output = t.compute(rows1)
         assert all(out['c1'] == out['i'] + 1 for out in output)
-        assert all(TestModel1(**out) == row for out, row in zip(output, rows1))
+        assert all(normalized(TestModel1(**out)) == normalized(row) for out, row in zip(output, rows1))
 
         output = t.compute(rows2)
         assert all(out['c1'] == out['i'] + 1 for out in output)
-        assert all(TestModel2(**out) == row for out, row in zip(output, rows2))
+        assert all(normalized(TestModel2(**out)) == normalized(row) for out, row in zip(output, rows2))
 
         # missing required keys in input
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="Missing required column 'en'"):

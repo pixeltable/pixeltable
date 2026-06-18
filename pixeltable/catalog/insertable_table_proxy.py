@@ -61,32 +61,31 @@ class InsertableTableProxy(TableProxy):
                 'Hosted insert supports only a non-empty list of dicts or pydantic models.',
             )
 
-        # pydantic models are validated and converted to dicts on the client (the model classes aren't
-        # importable on the server); plain dicts are shipped as-is
-        if isinstance(source[0], pydantic.BaseModel):
-            source = self._pydantic_to_rows(source)
-
-        rows: list[dict[str, Any]] = []
-        media_cols = {cvmd.name for cvmd in self._tbl_md_path.column_md() if cvmd.col_type.is_media_type()}
-        for source_row in source:
-            if not isinstance(source_row, dict):
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'Hosted insert rows must be dicts or pydantic models.'
-                )
-            # for now: reject local media
-            for col in media_cols:
-                value = source_row.get(col)
-                # a media value may only cross the wire as a URL; local files require binary upload (TODO)
-                if value is not None and (not isinstance(value, str) or parse_local_file_path(value) is not None):
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Inserting local media into a hosted table is not supported yet (column {col!r}).',
-                    )
-            rows.append(source_row)
-
+        rows = self._prepare_rows(source)
         return self._dispatch(
             'insert', {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows}
         )
+
+    def compute(
+        self,
+        source: collections.abc.Sequence[dict[str, Any]] | collections.abc.Sequence[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+    ) -> list[dict[str, Any]]:
+        # str/bytes are technically Sequences; reject them explicitly rather than treating them as paths/URLs.
+        if isinstance(source, (str, bytes)) or not isinstance(source, collections.abc.Sequence) or len(source) == 0:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',
+            )
+        if not all(isinstance(row, (dict, pydantic.BaseModel)) for row in source):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'compute() requires a sequence of dicts or pydantic models; got {type(source).__name__}',
+            )
+        rows = self._prepare_rows(list(source))
+        return self._dispatch('compute', {'rows': rows, 'on_error': on_error})
 
     def _insert_query(
         self, query: 'Query', *, on_error: Literal['abort', 'ignore'], print_stats: bool, return_rows: bool
@@ -100,11 +99,35 @@ class InsertableTableProxy(TableProxy):
             {'query': query.as_dict(), 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows},
         )
 
+    def _prepare_rows(self, source: list[Any]) -> list[dict[str, Any]]:
+        """Validate and normalize a non-empty list of dict/pydantic source rows for the hosted catalog.
+
+        pydantic models are validated and converted to dicts on the client (the model classes aren't
+        importable on the server); plain dicts are shipped as-is.
+        """
+        if isinstance(source[0], pydantic.BaseModel):
+            source = self._pydantic_to_rows(source)
+        media_cols = {cvmd.name for cvmd in self._tbl_md_path.column_md() if cvmd.col_type.is_media_type()}
+        rows: list[dict[str, Any]] = []
+        for source_row in source:
+            if not isinstance(source_row, dict):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'Hosted table rows must be dicts or pydantic models.'
+                )
+            for col in media_cols:
+                value = source_row.get(col)
+                if value is not None and (not isinstance(value, str) or parse_local_file_path(value) is not None):
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Local media on a hosted table is not supported yet (column {col!r}).',
+                    )
+            rows.append(source_row)
+        return rows
+
     def _pydantic_to_rows(self, models: list[Any]) -> list[dict[str, Any]]:
         """Validate pydantic models against this table's schema and convert them to insertable dicts.
 
-        Mirrors the local insert path's pydantic handling, run on the client so the same validation and
-        error messages apply.
+        Mirrors the local insert path's pydantic handling.
         """
         from pixeltable.io.table_data_conduit import PydanticTableDataConduit
 

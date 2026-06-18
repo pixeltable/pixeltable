@@ -235,13 +235,13 @@ class TableVersionPath(TablePath):
                 is_iterator_col=col.is_iterator_col,
             )
         if self.base is not None:
-            for base_cvmd in self.base._cached_column_version_md().values():
-                column_version_md[base_cvmd.qcolid] = base_cvmd.with_context(self.tbl_version.id, effective_version)
+            for base_col_md in self.base._cached_column_version_md().values():
+                column_version_md[base_col_md.qcolid] = base_col_md.with_context(self.tbl_version.id, effective_version)
         return column_version_md
 
     def _cached_column_version_md(self) -> dict[QColumnId, ColumnVersionMd]:
-        cvmd: dict[QColumnId, ColumnVersionMd] | None = getattr(self._local, 'column_version_md', None)
-        if cvmd is None:
+        col_md: dict[QColumnId, ColumnVersionMd] | None = getattr(self._local, 'column_version_md', None)
+        if col_md is None:
             self._local.column_version_md = self._create_column_version_md(self._cached_tv())
         return self._local.column_version_md
 
@@ -355,30 +355,30 @@ class TableVersionPath(TablePath):
         tv = self._cached_tv()
         # own user columns
         result = [
-            cvmd
-            for cvmd in self._cached_column_version_md().values()
-            if cvmd.qcolid.tbl_id == self.tbl_version.id and not cvmd.is_system_col
+            col_md
+            for col_md in self._cached_column_version_md().values()
+            if col_md.qcolid.tbl_id == self.tbl_version.id and not col_md.is_system_col
         ]
         if self.base is not None and tv.include_base_columns:
-            own_names = {cvmd.name for cvmd in result}
+            own_names = {col_md.name for col_md in result}
             ev = self.tbl_version.effective_version
             result.extend(
-                base_cvmd.with_context(self.tbl_version.id, ev)
-                for base_cvmd in self.base.column_md()
-                if base_cvmd.name not in own_names
+                base_col_md.with_context(self.tbl_version.id, ev)
+                for base_col_md in self.base.column_md()
+                if base_col_md.name not in own_names
             )
         return result
 
     def get_column_md(self, qcolid: QColumnId) -> ColumnVersionMd:
         """Return metadata for the column with the given qualified id (any physically reachable column)."""
-        cvmd = self._cached_column_version_md().get(qcolid)
-        if cvmd is None:
+        col_md = self._cached_column_version_md().get(qcolid)
+        if col_md is None:
             raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Column {qcolid!r} not found')
-        return cvmd
+        return col_md
 
     def get_column_md_by_name(self, name: str) -> ColumnVersionMd | None:
         """Return metadata for the user column visible under the given name, or None if not found."""
-        return next((cvmd for cvmd in self.column_md() if cvmd.name == name), None)
+        return next((col_md for col_md in self.column_md() if col_md.name == name), None)
 
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
         tv = self._cached_tv()
@@ -470,8 +470,8 @@ class TableMdPath(TablePath):
         if self.base is not None:
             self._column_version_md.update(
                 {
-                    base_cvmd.qcolid: base_cvmd.with_context(tbl_id, effective_version)
-                    for base_cvmd in self.base._column_version_md.values()
+                    base_col_md.qcolid: base_col_md.with_context(tbl_id, effective_version)
+                    for base_col_md in self.base._column_version_md.values()
                 }
             )
 
@@ -533,18 +533,20 @@ class TableMdPath(TablePath):
         tbl_id = self.tbl_id
         # own user columns
         result = [
-            cvmd for cvmd in self._column_version_md.values() if cvmd.qcolid.tbl_id == tbl_id and not cvmd.is_system_col
+            col_md
+            for col_md in self._column_version_md.values()
+            if col_md.qcolid.tbl_id == tbl_id and not col_md.is_system_col
         ]
         include_base = (
             self.base is not None and self.md.tbl_md.view_md is not None and self.md.tbl_md.view_md.include_base_columns
         )
         if include_base:
-            own_names = {cvmd.name for cvmd in result}
+            own_names = {col_md.name for col_md in result}
             effective_version = self.effective_version()
             result.extend(
-                base_cvmd.with_context(tbl_id, effective_version)
-                for base_cvmd in self.base.column_md()
-                if base_cvmd.name not in own_names
+                base_col_md.with_context(tbl_id, effective_version)
+                for base_col_md in self.base.column_md()
+                if base_col_md.name not in own_names
             )
         return result
 
@@ -557,7 +559,7 @@ class TableMdPath(TablePath):
 
     def get_column_md_by_name(self, name: str) -> ColumnVersionMd | None:
         """Return metadata for the user column visible under the given name, or None if not found."""
-        return next((cvmd for cvmd in self.column_md() if cvmd.name == name), None)
+        return next((col_md for col_md in self.column_md() if col_md.name == name), None)
 
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
         schema_version = self.md.schema_version_md.schema_version

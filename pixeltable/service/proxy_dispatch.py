@@ -165,6 +165,22 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
     )
 
 
+def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
+    # only an InsertableTableProxy dispatches 'compute', so a non-InsertableTable here is an internal error
+    assert isinstance(tbl, InsertableTable), tbl
+    kwargs = proxy_protocol.deserialize(request.args)
+    cat = get_runtime().catalog
+    with cat.begin_xact(for_write=False):
+        for col_md in tbl._tbl_version_path.column_md():
+            if not (col_md.col_type.is_scalar_type() or col_md.col_type.is_json_type()):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    'compute() over a hosted catalog supports only scalar and JSON columns at the moment, '
+                    f'column {col_md.name!r} has type {col_md.col_type!s}',
+                )
+    return tbl.compute(kwargs['rows'], on_error=kwargs['on_error'])
+
+
 def _update(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = proxy_protocol.deserialize(request.args)
     return tbl.update(
@@ -364,6 +380,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'get_versions'): _get_versions,
     ('Table', 'insert'): _insert,
     ('Table', 'insert_query'): _insert_query,
+    ('Table', 'compute'): _compute,
     ('Table', 'update'): _update,
     ('Table', 'delete'): _delete,
     ('Table', 'batch_update'): _batch_update,
