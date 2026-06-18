@@ -18,7 +18,7 @@ from pixeltable.types import ColumnSpec
 
 from .column import Column
 from .globals import MediaValidation
-from .table import Table
+from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
@@ -26,12 +26,14 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, T
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
-    from pixeltable.catalog.table import TableMetadata
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
+    from .table import Table
+    from .table_metadata import TableMetadata
 
-class View(Table):
+
+class View(LocalTable):
     """A `Table` that presents a virtual view of another table (or view).
 
     A view is typically backed by a store table, which records the view's columns and is joined back to the bases
@@ -280,7 +282,7 @@ class View(Table):
             # base_tbl_id is set, so this view has a base schema object, which must still exist
             base_tbl = self._get_base_table()
             assert base_tbl is not None
-            base_path = base_tbl._path()
+            base_path = str(base_tbl._path())
             base_version = self._effective_base_versions[0]
             md['base'] = base_path if base_version is None else f'{base_path}:{base_version}'
 

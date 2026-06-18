@@ -19,6 +19,17 @@ _ROWID_COLUMN_NAME = '_rowid'
 _PREDEF_SYMBOLS: set[str] | None = None
 
 
+@dataclasses.dataclass
+class DirEntry:
+    dir: schema.Dir | None
+    dir_entries: dict[str, DirEntry]
+    table: schema.Table | None
+
+    # Only populated for table entries when get_dir_contents() was called with with_error_counts=True;
+    # None otherwise (including for directory entries).
+    table_error_count: int | None = None
+
+
 @dataclasses.dataclass(frozen=True)
 class TableVersionMd:
     """

@@ -15,7 +15,7 @@ from pixeltable.utils.filecache import FileCache
 
 from .column import Column
 from .globals import MediaValidation
-from .table import Table
+from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
     from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
+
+    from .table import Table
 
 
 class OnErrorParameter(enum.Enum):
@@ -50,7 +52,7 @@ class OnErrorParameter(enum.Enum):
         return True
 
 
-class InsertableTable(Table):
+class InsertableTable(LocalTable):
     """A `Table` that allows inserting and deleting rows."""
 
     def __init__(self, tbl_version: TableVersionHandle):

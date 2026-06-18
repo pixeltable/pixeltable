@@ -25,7 +25,7 @@ class TestSnapshot:
         extra_items: dict[str, Any],
         reload_md: bool,
     ) -> None:
-        tbl_path, snap_path = tbl._path(), snap._path()
+        tbl_path, snap_path = str(tbl._path()), str(snap._path())
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
         tbl_select_list = [tbl[col_name] for col_name in tbl._get_schema()]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])

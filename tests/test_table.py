@@ -293,9 +293,9 @@ class TestTable:
                 media_validation=media_val,  # type: ignore[arg-type]
                 additional_columns={'col2': tbl.col + 'x'},
             )
-            assert tbl._path() == tbl_path
+            assert str(tbl._path()) == tbl_path
             assert tbl._name() == tbl_path.split('/')[-1]
-            assert tbl._parent()._path() == '/'.join(tbl_path.split('/')[:-1])
+            assert str(tbl._parent()._path()) == '/'.join(tbl_path.split('/')[:-1])
 
             assert_table_metadata_eq(
                 {
