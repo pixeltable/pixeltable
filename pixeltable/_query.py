@@ -862,7 +862,7 @@ class Query:
         # the from_clause resolves to a hosted catalog: run the terminal op there and rebuild the ResultSet
         from pixeltable.catalog.catalog_proxy import CatalogProxy
 
-        cat = get_runtime().get_catalog(catalog_uri=self._from_clause.catalog_uri)
+        cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
         assert isinstance(cat, CatalogProxy)
         result = cat.run_query(method, self.as_dict(), **extra)
         schema: dict[str, ColumnType] = result['schema']
@@ -924,7 +924,7 @@ class Query:
         if not self._from_clause.is_local:
             from pixeltable.catalog.catalog_proxy import CatalogProxy
 
-            cat = get_runtime().get_catalog(catalog_uri=self._from_clause.catalog_uri)
+            cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
             assert isinstance(cat, CatalogProxy)
             return cat.run_query('count', self.as_dict())
 

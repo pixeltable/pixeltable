@@ -85,11 +85,12 @@ class TestCatalog:
         assert str(versioned_dot) == 'a/b/c:5'
 
     def test_local_catalog_uri(self) -> None:
-        # A plain path lives in the local catalog (empty catalog_uri, no org/db).
+        # A plain path lives in the local catalog (empty uri, no org/db).
         local = Path.parse('a.b')
         assert local.org is None
         assert local.db is None
-        assert local.catalog_uri == ''
+        assert local.uri == ''
+        assert local.catalog_uri == Path()
 
     def test_hosted_path_parse(self) -> None:
         """Path.parse() understands pxt:// URIs and Pixeltable web URLs."""
@@ -97,7 +98,8 @@ class TestCatalog:
         assert hosted.org == 'variata'
         assert hosted.db == 'main'
         assert hosted.components == ('dir', 'tbl')
-        assert hosted.catalog_uri == 'pxt://variata:main'
+        assert hosted.uri == 'pxt://variata:main'
+        assert hosted.catalog_uri == Path(org='variata', db='main')
         assert str(hosted) == 'pxt://variata:main/dir/tbl'
 
         # Versioned hosted path.
@@ -113,7 +115,7 @@ class TestCatalog:
         no_db = Path.parse('pxt://variata/tbl')
         assert no_db.org == 'variata'
         assert no_db.db is None
-        assert no_db.catalog_uri == 'pxt://variata'
+        assert no_db.uri == 'pxt://variata'
 
         # A Pixeltable web URL normalizes to the same parse as its pxt:// form.
         assert Path.parse('https://pixeltable.com/t/variata:main/dir/tbl') == Path.parse('pxt://variata:main/dir/tbl')
@@ -167,7 +169,7 @@ class TestCatalog:
         # Hyphenated org/db slugs are accepted.
         hosted = Path.parse('pxt://my-org:my-db/tbl')
         assert (hosted.org, hosted.db) == ('my-org', 'my-db')
-        assert Path.from_components(('tbl',), org='my-org', db='my-db').catalog_uri == 'pxt://my-org:my-db'
+        assert Path.from_components(('tbl',), org='my-org', db='my-db').uri == 'pxt://my-org:my-db'
 
     def test_hosted_path_navigation(self) -> None:
         # Navigation preserves the catalog (org/db) and drops the version.

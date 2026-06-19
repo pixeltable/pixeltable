@@ -284,9 +284,8 @@ def _get_path(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
     # rebase the title onto the client's catalog so it shows the table's full pxt:// path
-    catalog_uri = proxy_protocol.deserialize(request.args)['catalog_uri']
-    cat_path = Path.parse(catalog_uri, allow_empty_path=True)
-    display_path = dataclasses.replace(tbl._path(), org=cat_path.org, db=cat_path.db)
+    catalog_uri = Path.parse(proxy_protocol.deserialize(request.args)['catalog_uri'], allow_empty_path=True)
+    display_path = dataclasses.replace(tbl._path(), org=catalog_uri.org, db=catalog_uri.db)
     helper = tbl._descriptors(path=display_path)
     return {'str': helper.to_string(), 'html': helper.to_html()}
 

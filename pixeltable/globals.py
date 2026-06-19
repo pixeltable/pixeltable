@@ -219,7 +219,7 @@ def create_table(
 
     tbl, was_created = (
         get_runtime()
-        .get_catalog(path=path_obj)
+        .get_catalog(path_obj)
         .create_table(
             path_obj,
             schema,
@@ -392,7 +392,7 @@ def create_view(
 
     return (
         get_runtime()
-        .get_catalog(path=path_obj)
+        .get_catalog(path_obj)
         .create_view(
             path_obj,
             tbl_path,
@@ -533,7 +533,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     """
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     path_obj = catalog.Path.parse(path, allow_versioned_path=True)
-    tbl = get_runtime().get_catalog(path=path_obj).get_table(path_obj, if_not_exists_)
+    tbl = get_runtime().get_catalog(path_obj).get_table(path_obj, if_not_exists_)
     return tbl
 
 
@@ -590,7 +590,7 @@ def move(
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'move(): cannot move {path!r} into its own subdirectory'
         )
-    get_runtime().get_catalog(path=path_obj).move(path_obj, new_path_obj, if_exists_, if_not_exists_)
+    get_runtime().get_catalog(path_obj).move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
 def drop_table(
@@ -639,7 +639,7 @@ def drop_table(
         path_obj = catalog.Path.parse(table)
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    get_runtime().get_catalog(path=path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+    get_runtime().get_catalog(path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
@@ -667,7 +667,7 @@ def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents
         >>> pxt.get_dir_contents('dir1')
     """
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
-    catalog_entries = get_runtime().get_catalog(path=path_obj).get_dir_contents(path_obj, recursive=recursive)
+    catalog_entries = get_runtime().get_catalog(path_obj).get_dir_contents(path_obj, recursive=recursive)
     dirs: list[str] = []
     tables: list[str] = []
     _assemble_dir_contents(dir_path, catalog_entries, dirs, tables)
@@ -704,7 +704,7 @@ def get_dir_tree(path: str = '') -> list['TreeNode']:
     """
     path_obj = catalog.Path.parse(path, allow_empty_path=True)
     catalog_entries = (
-        get_runtime().get_catalog(path=path_obj).get_dir_contents(path_obj, recursive=True, with_error_counts=True)
+        get_runtime().get_catalog(path_obj).get_dir_contents(path_obj, recursive=True, with_error_counts=True)
     )
     path_by_id: dict[UUID, str] = {}
     _create_path_map('', catalog_entries, path_by_id)
@@ -802,7 +802,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
         >>> pxt.list_tables('dir1')
     """
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
-    contents = get_runtime().get_catalog(path=path_obj).get_dir_contents(path_obj, recursive=recursive)
+    contents = get_runtime().get_catalog(path_obj).get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
 
@@ -855,7 +855,7 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    return get_runtime().get_catalog(path=path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
+    return get_runtime().get_catalog(path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
@@ -897,7 +897,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    get_runtime().get_catalog(path=path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
+    get_runtime().get_catalog(path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
 def ls(path: str = '') -> pd.DataFrame:
@@ -914,7 +914,7 @@ def ls(path: str = '') -> pd.DataFrame:
     from pixeltable.metadata import schema
 
     path_obj = catalog.Path.parse(path, allow_empty_path=True)
-    cat = get_runtime().get_catalog(path=path_obj)
+    cat = get_runtime().get_catalog(path_obj)
     dir_entries = cat.get_dir_contents(path_obj)
 
     @retry_loop(for_write=False)
@@ -996,7 +996,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
         ['my_dir', 'my_dir/sub_dir1']
     """
     path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
-    cat = get_runtime().get_catalog(path=path_obj)
+    cat = get_runtime().get_catalog(path_obj)
     contents = cat.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Dir)]
 

@@ -31,7 +31,7 @@ class CatalogProxy(CatalogBase):
     An implementation of CatalogBase that delegates to a hosted catalog .
     """
 
-    def __init__(self, catalog_uri: str, client: ProxyClient):
+    def __init__(self, catalog_uri: Path, client: ProxyClient):
         self._catalog_uri = catalog_uri
         self._client = client
 

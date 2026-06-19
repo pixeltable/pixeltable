@@ -1434,7 +1434,7 @@ class Catalog(CatalogBase):
         else:
             tbl = self._tbls.get((tbl_id, version))
         if tbl is not None:
-            Env.get().record_tbl_catalog_uri(tbl._id, '')
+            Env.get().record_tbl_catalog_uri(tbl._id, ROOT_PATH)
         return tbl
 
     def create_table(

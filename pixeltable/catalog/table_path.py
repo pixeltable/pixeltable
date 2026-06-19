@@ -15,6 +15,7 @@ from pixeltable.runtime import get_runtime
 
 from .column import Column
 from .globals import ColumnVersionMd, MediaValidation, QColumnId, TableVersionMd
+from .path import ROOT_PATH, Path
 from .table_version import TableVersion, TableVersionKey
 from .table_version_handle import TableVersionHandle
 
@@ -94,8 +95,8 @@ class TablePath(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def catalog_uri(self) -> str:
-        """The uri of the db to which this table belogns."""
+    def catalog_uri(self) -> Path:
+        """The catalog this table belongs to."""
         ...
 
     def find_tbl_version(self, id: UUID) -> TableVersionKey | None:
@@ -264,8 +265,8 @@ class TableVersionPath(TablePath):
         return self.tbl_version.id
 
     @property
-    def catalog_uri(self) -> str:
-        return ''
+    def catalog_uri(self) -> Path:
+        return ROOT_PATH
 
     def version(self) -> int | None:
         if not self.is_versioned():
@@ -437,14 +438,14 @@ class TableMdPath(TablePath):
 
     md: TableVersionMd
     base: TableMdPath | None
-    _catalog_uri: str  # the hosted catalog this path belongs to ('' if not proxied); used to route proxy queries
+    _catalog_uri: Path  # the hosted catalog this path belongs to (ROOT_PATH if not proxied); routes proxy queries
 
     # All physically reachable columns, keyed by qcolid: own columns (incl. system) plus every base column,
     # regardless of include_base_columns or name shadowing. Name-based visibility is applied by column_md()/
     # get_column_md_by_name(); has_column()/get_column_md() resolve against this dict.
     _column_version_md: dict[QColumnId, ColumnVersionMd]
 
-    def __init__(self, path: list[TableVersionMd], effective_versions: list[int | None], catalog_uri: str = ''):
+    def __init__(self, path: list[TableVersionMd], effective_versions: list[int | None], catalog_uri: Path = ROOT_PATH):
         # effective_versions carries the version each element is pinned at (None = live), supplied by the
         # caller alongside the metadata; this mirrors TableVersionPath, where each node's TableVersionHandle
         # carries its own effective version. Use from_md() to derive it from an exported metadata list.
@@ -489,7 +490,9 @@ class TableMdPath(TablePath):
             )
 
     @classmethod
-    def from_md(cls, md: list[TableVersionMd], catalog_uri: str = '', version: int | None = None) -> TableMdPath:
+    def from_md(
+        cls, md: list[TableVersionMd], catalog_uri: Path = ROOT_PATH, version: int | None = None
+    ) -> TableMdPath:
         """Build from an exported metadata list (leaf first).
 
         Per-element effective versions are read from the leaf's base_versions (the persisted ancestor
@@ -540,7 +543,7 @@ class TableMdPath(TablePath):
         return self.md.tbl_md.is_versioned
 
     @property
-    def catalog_uri(self) -> str:
+    def catalog_uri(self) -> Path:
         return self._catalog_uri
 
     def has_column(self, qcolid: QColumnId) -> bool:

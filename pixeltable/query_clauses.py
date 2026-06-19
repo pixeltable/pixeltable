@@ -61,7 +61,7 @@ class FromClause:
             if len(uris) > 1:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'all tables in a query must be in the same catalog; got {sorted(uris)}',
+                    f'all tables in a query must be in the same catalog; got {sorted(str(u) for u in uris)}',
                 )
 
     @property
@@ -77,10 +77,12 @@ class FromClause:
         return isinstance(self.tbls[0], TableVersionPath)
 
     @property
-    def catalog_uri(self) -> str:
-        """The catalog all tables resolve to ('' for the in-process catalog)."""
+    def catalog_uri(self) -> catalog.Path:
+        """The catalog all tables resolve to."""
+        from pixeltable.catalog import ROOT_PATH
+
         if self.is_local:
-            return ''
+            return ROOT_PATH
         return cast('catalog.TableMdPath', self.tbls[0]).catalog_uri
 
     @property

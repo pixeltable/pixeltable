@@ -528,7 +528,7 @@ class ColumnRef(Expr):
         # at its effective_version so a column accessed via a snapshot/view resolves against the pinned version
         # rather than the live table. get_table_by_id() manages its own transaction, so no begin_xact is needed
         # here (and a proxy catalog has none).
-        cat = get_runtime().get_catalog(catalog_uri=Env.get().tbl_catalog_uri(self.col_md.tbl_id))
+        cat = get_runtime().get_catalog(Env.get().tbl_catalog_uri(self.col_md.tbl_id))
         tbl = cat.get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
         return Query(FromClause([tbl._tbl_path])).select(self)
 

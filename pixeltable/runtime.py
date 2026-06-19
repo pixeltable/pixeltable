@@ -40,8 +40,8 @@ class Runtime:
     All state that cannot be shared process-wide (and would therefore be located in Env) is stored here.
     """
 
-    # catalogs keyed by Path.catalog_uri
-    _catalogs: dict[str, CatalogBase]
+    # catalogs keyed by their catalog_uri Path (ROOT_PATH = the in-process catalog)
+    _catalogs: dict[Path, CatalogBase]
 
     conn: sql.Connection | None
     session: orm.Session | None
@@ -97,20 +97,21 @@ class Runtime:
     def catalog(self) -> Catalog:
         """The local Catalog instance."""
         from pixeltable.catalog.catalog import Catalog
+        from pixeltable.catalog.path import ROOT_PATH
 
-        cat = self._catalogs.get('')
+        cat = self._catalogs.get(ROOT_PATH)
         if cat is None:
             cat = Catalog()
-            self._catalogs[''] = cat
+            self._catalogs[ROOT_PATH] = cat
         assert isinstance(cat, Catalog)
         return cat
 
-    def get_catalog(self, *, path: Path | None = None, catalog_uri: str | None = None) -> CatalogBase:
-        """Return the catalog identified by a path or a catalog URI, creating it on first use."""
-        if catalog_uri is None:
-            assert path is not None, 'Pass either path or catalog_uri'
-            catalog_uri = path.catalog_uri
-        if catalog_uri == '':  # the in-process catalog
+    def get_catalog(self, path: Path) -> CatalogBase:
+        """Return the catalog the given path lives in, creating it on first use."""
+        from pixeltable.catalog.path import ROOT_PATH
+
+        catalog_uri = path.catalog_uri
+        if catalog_uri == ROOT_PATH:  # the in-process catalog
             return self.catalog
         cat = self._catalogs.get(catalog_uri)
         if cat is None:
@@ -126,27 +127,25 @@ class Runtime:
         The owning catalog is determined from the URI Env records when a table is first loaded; tables that
         haven't been seen yet resolve to the local catalog.
         """
-        catalog_uri = Env.get().tbl_catalog_uri(tbl_id)
-        cat = self.get_catalog(catalog_uri=catalog_uri)
+        cat = self.get_catalog(Env.get().tbl_catalog_uri(tbl_id))
         return cat.get_table_by_id(tbl_id, version=version, ignore_if_dropped=ignore_if_dropped)
 
-    def _make_proxy_catalog(self, catalog_uri: str) -> CatalogBase:
+    def _make_proxy_catalog(self, catalog_uri: Path) -> CatalogBase:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
-        from pixeltable.catalog.path import Path
 
-        path = Path.parse(catalog_uri, allow_empty_path=True)
-        if path.org != 'local':
+        if catalog_uri.org != 'local':
             raise NotImplementedError(f'Hosted catalog {catalog_uri!r} is not supported yet')
 
         from pixeltable.service import proxy_daemon
         from pixeltable.service.proxy_client import ProxyHttpClient
 
-        assert path.db is not None
-        info = proxy_daemon.read_port_lock(path.db)
+        assert catalog_uri.db is not None
+        info = proxy_daemon.read_port_lock(catalog_uri.db)
         if info is None:
+            db = catalog_uri.db
             raise excs.NotFoundError(
                 excs.ErrorCode.SERVICE_NOT_FOUND,
-                f'No local proxy is running for {path.db!r}. Start it with: pxt localproxy start {path.db}',
+                f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
             )
         return CatalogProxy(catalog_uri, ProxyHttpClient(f'http://127.0.0.1:{info["port"]}'))
 

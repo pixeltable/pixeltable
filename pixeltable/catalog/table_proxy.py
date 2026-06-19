@@ -43,7 +43,7 @@ class TableProxy(Table):
     _key: TablePathKey  # immutable version identity; shared read-only across threads
     _local: threading.local  # per-thread tbl_md_path; seeded by the constructing thread, else lazily fetched
     _client: 'ProxyClient'
-    _catalog_uri: str  # the hosted catalog this proxy lives in; stamped onto md paths for query routing
+    _catalog_uri: CatalogPath  # the hosted catalog this proxy lives in; stamped onto md paths for query routing
 
     def __init__(self, tbl_md_path: TableMdPath, client: 'ProxyClient'):
         super().__init__(tbl_md_path.tbl_id)
@@ -106,8 +106,7 @@ class TableProxy(Table):
     def _path(self) -> CatalogPath:
         # the server returns the in-db path (org/db dropped on the wire); rebase onto this proxy's catalog
         server_path = self._dispatch('_path', {})
-        cat_path = CatalogPath.parse(self._catalog_uri, allow_empty_path=True)
-        return dataclasses.replace(server_path, org=cat_path.org, db=cat_path.db)
+        return dataclasses.replace(server_path, org=self._catalog_uri.org, db=self._catalog_uri.db)
 
     @property
     def _query_path(self) -> TableMdPath:
@@ -158,10 +157,11 @@ class TableProxy(Table):
             print(repr(self))
 
     def __repr__(self) -> str:
-        return self._dispatch('describe', {'catalog_uri': self._catalog_uri})['str']
+        # send the uri as a string: proxy_protocol drops org/db from wire Paths, which is exactly what describe needs
+        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri})['str']
 
     def _repr_html_(self) -> str:
-        return self._dispatch('describe', {'catalog_uri': self._catalog_uri})['html']
+        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri})['html']
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset': ...
 
