@@ -65,8 +65,8 @@ class TestQuery:
 
         return t1, t2, t3
 
-    def test_select_where(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_select_where(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         res1 = t.collect()
         res2 = t.select().collect()
         assert len(res1) > 0
@@ -275,8 +275,8 @@ class TestQuery:
             _ = t1.join(t2, on=t1.id, how='inner').tail()
         assert 'tail() not supported for joins' in str(exc_info.value)
 
-    def test_result_set_iterator(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_result_set_iterator(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         res = t.select(t.c1, t.c2, t.c3).collect()
         pd_df = res.to_pandas()
 
@@ -321,8 +321,8 @@ class TestQuery:
             _ = res['c2', 0]
         assert 'Bad index' in str(exc_info.value)
 
-    def test_order_by(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_order_by(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         _ = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).collect()
 
         # invalid expr in order_by()
@@ -330,15 +330,15 @@ class TestQuery:
             _ = t.order_by(datetime.datetime.now()).collect()  # type: ignore[arg-type]
         assert 'Invalid expression' in str(exc_info.value)
 
-    def test_expr_unique_id(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_expr_unique_id(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         # Multiple constants with the same string representation but different types must be unique (expr.id)
         res = t.select(t.c2, t.c1, t.c1 == '2', t.c1 < '4', t.c2 == 4).limit(4).collect()
         print(res)
         assert len(res) == 4
 
-    def test_limit_basic(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_limit_basic(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         # Basic return shape: length and schema preserved
         res = t.select(t.c1, t.c2).limit(3).collect()
@@ -403,8 +403,8 @@ class TestQuery:
         res = t.where(self.is_even_py(t.c2)).select(t.c2).order_by(t.c2).limit(5, offset=60).collect()
         assert len(res) == 0
 
-    def test_limit_errors(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_limit_errors(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`'):
             _ = t.limit(5.3)  # type: ignore[arg-type]
@@ -479,8 +479,8 @@ class TestQuery:
         def value(self) -> int:
             return 0
 
-    def test_limit_0(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_limit_0(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         def check(query: pxt.Query, expected_cols: list[str]) -> None:
             assert list(query.schema.keys()) == expected_cols
@@ -519,9 +519,9 @@ class TestQuery:
         assert rows == []
         assert list(cur._schema.keys()) == ['c1', 'c2']
 
-    def test_head_tail(self, test_tbl_env: pxt.Table, uses_env: Callable[[str], str]) -> None:
+    def test_head_tail(self, test_tbl_dual: pxt.Table, uses_env: Callable[[str], str]) -> None:
         p = uses_env
-        t = test_tbl_env
+        t = test_tbl_dual
         res = t.head(10).to_pandas()
         assert np.all(res.c2 == list(range(10)))
         reload_catalog()
@@ -552,8 +552,8 @@ class TestQuery:
             _ = t.group_by(t.c2).tail(10)
         assert 'cannot be used with group_by' in str(exc_info.value)
 
-    def test_repr(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_repr(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         query = t.select(t.c1, t.c1.upper(), t.c2 + 5).where(t.c2 < 10).group_by(t.c1).order_by(t.c3).limit(10)
         query.describe()
 
@@ -599,9 +599,9 @@ class TestQuery:
         ):
             _ = t.limit(5, offset=5).count()
 
-    def test_count_with_group_by(self, test_tbl_env: pxt.Table) -> None:
+    def test_count_with_group_by(self, test_tbl_dual: pxt.Table) -> None:
         """Test that count() works with group_by()."""
-        t = test_tbl_env
+        t = test_tbl_dual
         # Count with group_by should return the number of groups
         cnt = t.group_by(t.c1).count()
         # Should return the number of distinct c1 values
@@ -633,8 +633,8 @@ class TestQuery:
         cnt = t1.join(t3, on=(t1.id == t3.id), how='left').count()
         assert cnt == num_rows
 
-    def test_select_literal(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_select_literal(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
@@ -674,8 +674,8 @@ class TestQuery:
         opurl_img = urllib.request.urlopen(url=thumb)
         PIL.Image.open(opurl_img)
 
-    def test_update_delete_where(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_update_delete_where(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         # Update with where
         validate_update_status(t.where(t.c2 >= 50).update({'c3': 4171780.0}), expected_rows=50)
@@ -694,8 +694,8 @@ class TestQuery:
         validate_update_status(t.select().delete())
         assert t.count() == 0
 
-    def test_mutation_op_restrictions(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_mutation_op_restrictions(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         # select_list
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
@@ -1122,8 +1122,8 @@ class TestQuery:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
 
-    def test_cursor_lifecycle(self, test_tbl_env: pxt.Table) -> None:
-        query = test_tbl_env.select(test_tbl_env.c1, test_tbl_env.c2, test_tbl_env.c3).order_by(test_tbl_env.c2)
+    def test_cursor_lifecycle(self, test_tbl_dual: pxt.Table) -> None:
+        query = test_tbl_dual.select(test_tbl_dual.c1, test_tbl_dual.c2, test_tbl_dual.c3).order_by(test_tbl_dual.c2)
 
         # repr reflects state transitions
         cur = query.cursor()
@@ -1159,8 +1159,8 @@ class TestQuery:
         cur = query.cursor()
         assert list(cur._schema.keys()) == ['c1', 'c2', 'c3']
 
-    def test_cursor_row(self, test_tbl_env: pxt.Table) -> None:
-        query = test_tbl_env.select(test_tbl_env.c1, test_tbl_env.c2, test_tbl_env.c3).order_by(test_tbl_env.c2)
+    def test_cursor_row(self, test_tbl_dual: pxt.Table) -> None:
+        query = test_tbl_dual.select(test_tbl_dual.c1, test_tbl_dual.c2, test_tbl_dual.c3).order_by(test_tbl_dual.c2)
         collected = query.collect()
 
         with query.cursor() as cur:

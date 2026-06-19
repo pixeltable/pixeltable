@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from uuid import UUID
 
 from pixeltable import exceptions as excs
-from pixeltable.catalog import InsertableTable, Path, TablePathKey
+from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.runtime import get_runtime
 
@@ -68,8 +68,23 @@ def handle(request_json: str) -> str:
         return ProxyResponse(error=err.to_dict()).model_dump_json()
 
 
+def _deserialize_args(request: ProxyRequest) -> dict:
+    """Deserialize the request's args inside a read transaction.
+
+    Rebuilding Expr/Query/Function values from the wire loads table-version metadata, which needs a retry loop.
+    Handlers that carry such values must deserialize through here rather than calling proxy_protocol.deserialize()
+    directly.
+    """
+
+    @retry_loop(for_write=False)
+    def  deserialize() -> dict:
+        return proxy_protocol.deserialize(request.args)
+
+    return  deserialize()
+
+
 def _create_table(request: ProxyRequest) -> tuple[list, bool]:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
     tbl, was_created = cat.create_table(**kwargs)
     with cat.begin_xact(for_write=False):
@@ -78,7 +93,7 @@ def _create_table(request: ProxyRequest) -> tuple[list, bool]:
 
 
 def _create_view(request: ProxyRequest) -> list:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
     tbl = cat.create_view(**kwargs)
     with cat.begin_xact(for_write=False):
@@ -86,7 +101,7 @@ def _create_view(request: ProxyRequest) -> list:
 
 
 def _get_table(request: ProxyRequest) -> list | None:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
     tbl = cat.get_table(**kwargs)
     if tbl is None:
@@ -96,7 +111,7 @@ def _get_table(request: ProxyRequest) -> list | None:
 
 
 def _get_table_by_id(request: ProxyRequest) -> list | None:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
     with cat.begin_xact(for_write=False):  # get_table_by_id must run inside a transaction
         tbl = cat.get_table_by_id(**kwargs)
@@ -138,7 +153,7 @@ def _get_versions(request: ProxyRequest, tbl: LocalTable) -> Any:
 def _insert(request: ProxyRequest, tbl: LocalTable) -> Any:
     # only an InsertableTableProxy dispatches 'insert', so a non-InsertableTable here is an internal error
     assert isinstance(tbl, InsertableTable), tbl
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     return tbl.insert(
         kwargs['rows'],
         on_error=kwargs['on_error'],
@@ -149,11 +164,10 @@ def _insert(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
     from pixeltable._query import Query
-    from pixeltable.catalog import retry_loop
 
     # only an InsertableTableProxy dispatches 'insert_query', so a non-InsertableTable here is an internal error
     assert isinstance(tbl, InsertableTable), tbl
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
 
     # from_dict() loads the query's table metadata, which is disallowed inside a plain transaction
     @retry_loop(for_write=False)
@@ -168,19 +182,19 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
     # only an InsertableTableProxy dispatches 'compute', so a non-InsertableTable here is an internal error
     assert isinstance(tbl, InsertableTable), tbl
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     return tbl.compute(kwargs['rows'], on_error=kwargs['on_error'])
 
 
 def _update(request: ProxyRequest, tbl: LocalTable) -> Any:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     return tbl.update(
         kwargs['value_spec'], where=kwargs['where'], cascade=kwargs['cascade'], return_rows=kwargs['return_rows']
     )
 
 
 def _batch_update(request: ProxyRequest, tbl: LocalTable) -> Any:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     return tbl.batch_update(
         kwargs['rows'],
         cascade=kwargs['cascade'],
@@ -190,7 +204,7 @@ def _batch_update(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _delete(request: ProxyRequest, tbl: LocalTable) -> Any:
-    return tbl.delete(where=proxy_protocol.deserialize(request.args)['where'])
+    return tbl.delete(where=_deserialize_args(request)['where'])
 
 
 def _revert(request: ProxyRequest, tbl: LocalTable) -> None:
@@ -198,17 +212,17 @@ def _revert(request: ProxyRequest, tbl: LocalTable) -> None:
 
 
 def _add_columns(request: ProxyRequest, tbl: LocalTable) -> Any:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     return tbl.add_columns(kwargs['schema'], if_exists=kwargs['if_exists'])
 
 
 def _add_column(request: ProxyRequest, tbl: LocalTable) -> Any:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     return tbl.add_column(if_exists=kwargs['if_exists'], **kwargs['columns'])
 
 
 def _add_computed_column(request: ProxyRequest, tbl: LocalTable) -> Any:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     return tbl.add_computed_column(
         stored=kwargs['stored'],
         destination=kwargs['destination'],
@@ -222,17 +236,17 @@ def _add_computed_column(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _drop_column(request: ProxyRequest, tbl: LocalTable) -> None:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     tbl.drop_column(kwargs['column'], if_not_exists=kwargs['if_not_exists'])
 
 
 def _rename_column(request: ProxyRequest, tbl: LocalTable) -> None:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     tbl.rename_column(kwargs['old_name'], kwargs['new_name'])
 
 
 def _add_embedding_index(request: ProxyRequest, tbl: LocalTable) -> None:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     tbl.add_embedding_index(
         kwargs['column'],
         idx_name=kwargs['idx_name'],
@@ -246,19 +260,19 @@ def _add_embedding_index(request: ProxyRequest, tbl: LocalTable) -> None:
 
 
 def _drop_embedding_index(request: ProxyRequest, tbl: LocalTable) -> None:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     tbl.drop_embedding_index(
         column=kwargs['column'], idx_name=kwargs['idx_name'], if_not_exists=kwargs['if_not_exists']
     )
 
 
 def _drop_index(request: ProxyRequest, tbl: LocalTable) -> None:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     tbl.drop_index(column=kwargs['column'], idx_name=kwargs['idx_name'], if_not_exists=kwargs['if_not_exists'])
 
 
 def _recompute_columns(request: ProxyRequest, tbl: LocalTable) -> Any:
-    kwargs = proxy_protocol.deserialize(request.args)
+    kwargs = _deserialize_args(request)
     return tbl.recompute_columns(
         *kwargs['columns'], where=kwargs['where'], errors_only=kwargs['errors_only'], cascade=kwargs['cascade']
     )
@@ -279,7 +293,6 @@ def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 def _run_query_terminal(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
     from pixeltable._query import Query  # lazy: _query pulls in plan/exec, only needed when a query runs
-    from pixeltable.catalog import retry_loop
 
     # from_dict() resolves ColumnRefs by loading table-version metadata, which is disallowed inside a plain
     # transaction; retry_loop() permits the load and retries if a concurrent writer bumps the version
@@ -308,7 +321,6 @@ def _query_tail(request: ProxyRequest) -> dict:
 
 def _query_count(request: ProxyRequest) -> int:
     from pixeltable._query import Query
-    from pixeltable.catalog import retry_loop
 
     query_dict = proxy_protocol.deserialize(request.args)['query']
 

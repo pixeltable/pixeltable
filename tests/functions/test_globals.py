@@ -5,8 +5,8 @@ import pixeltable.functions as pxtf
 
 
 class TestGlobals:
-    def test_aggregators(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_aggregators(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         # count() over various datatypes
         res = t.select(

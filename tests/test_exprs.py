@@ -108,8 +108,8 @@ class TestExprs:
     def is_int(cls, object: Any) -> bool:
         return isinstance(object, int) or (isinstance(object, Expr) and object.col_type.is_int_type())
 
-    def test_basic(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_basic(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         assert t['c1'].equals(t.c1)
         assert t['c7']['*'].f5.equals(t.c7['*'].f5)
 
@@ -127,8 +127,8 @@ class TestExprs:
             _ = t.does_not_exist
         assert 'unknown' in str(excinfo.value).lower()
 
-    def test_compound_predicates(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_compound_predicates(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         # compound predicates that can be fully evaluated in SQL: verify they run and filter correctly
         and2 = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
         assert all(r['c1'] == 'test string' and r['c2'] > 50 for r in and2)
@@ -178,8 +178,8 @@ class TestExprs:
         # assert sql_pred is None
         # assert isinstance(other_pred, CompoundPredicate)
 
-    def test_filters(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_filters(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         _ = t.where(t.c1 == 'test string').show()
         print(_)
         _ = t.where(t.c2 > 50).show()
@@ -189,8 +189,8 @@ class TestExprs:
         _ = t.where(t.c1n != None).collect()
         print(_)
 
-    def test_exception_handling(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_exception_handling(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         # TODO(aaron-siegel): I had to comment this out. We can't let division by zero errors
         #     be handled in SQL; this will fail if we have a query whose where clause is a Python
@@ -302,8 +302,8 @@ class TestExprs:
         assert result['c4'] == [2.0, 1.0, None, None]
         assert result['c5'] == [2.0, 1.0, 1.0, None]
 
-    def test_arithmetic_exprs(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_arithmetic_exprs(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         # Add nullable int and float columns
         t.add_column(c2n=pxt.Int)
@@ -455,8 +455,8 @@ class TestExprs:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric types, but c6 has type dict' in str(exc_info.value)
 
-    def test_comparison(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_comparison(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         # Test that comparison operations give the right answers. As with arithmetic operations, we do this two ways:
         # (i) with primitive operators only, to ensure that the comparison operations are done in SQL when possible;
         # (ii) with a Python function call interposed, to ensure that the comparison operations are always done in
@@ -490,14 +490,14 @@ class TestExprs:
                 assert results['gt'] == [a > b for a, b in zip(a_results, b_results)], f'{a_expr} > {b_expr}'
                 assert results['ge'] == [a >= b for a, b in zip(a_results, b_results)], f'{a_expr} >= {b_expr}'
 
-    def test_inline_dict(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_inline_dict(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         query = t.select({'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}})
         result = query.show()
         print(result)
 
-    def test_constant_literals(self, test_tbl_env: pxt.Table, reload_tester: ReloadTester) -> None:
-        t = test_tbl_env
+    def test_constant_literals(self, test_tbl_dual: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl_dual
 
         class LiteralCase(NamedTuple):
             input: Any
@@ -551,8 +551,8 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_inline_constants(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_inline_constants(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         result = t.select([1, 2, 3])
         print(result.show(5))
         assert isinstance(result.select_list[0][0], Literal)
@@ -631,8 +631,8 @@ class TestExprs:
         assert col_type.is_array_type()
         assert isinstance(col_type, ts.ArrayType)
 
-    def test_inline_array(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_inline_array(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         result = t.select(pxt.array([[t.c2, 1], [t.c2, 2]])).show()
         col_type = next(iter(result.schema.values()))
         assert col_type.is_array_type()
@@ -651,8 +651,8 @@ class TestExprs:
         ):
             _ = t.select(pxt.array([datetime.datetime(2025, 12, 5), t.c2])).collect()
 
-    def test_json_path(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_json_path(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         t.add_computed_column(attr=t.c6.f5)
         t.add_computed_column(item=t['c6']['f5'])
         t.add_computed_column(index=t['c6'].f5[2])
@@ -750,8 +750,8 @@ class TestExprs:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=regex):
                 _ = expr[el]
 
-    def test_json_mapper(self, test_tbl_env: pxt.Table, reload_tester: ReloadTester) -> None:
-        t = test_tbl_env
+    def test_json_mapper(self, test_tbl_dual: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl_dual
 
         # top-level is dict
         res1 = reload_tester.run_query(
@@ -825,8 +825,8 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_dicts(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_dicts(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         # top-level is dict
         _ = t.select(t.c6.f1)
         _ = _.show()
@@ -849,8 +849,8 @@ class TestExprs:
         _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()
         print(_)
 
-    def test_arrays(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_arrays(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         t.add_computed_column(array_col=pxt.array([[t.c2, 1], [5, t.c2]]))
 
         def selection_equals(expr: Expr, expected: list[np.ndarray]) -> bool:
@@ -865,9 +865,9 @@ class TestExprs:
             t.array_col[1, 'string']
         assert 'Invalid array indices' in str(excinfo.value)
 
-    def test_in(self, test_tbl_env: pxt.Table, uses_env: Callable[[str], str]) -> None:
+    def test_in(self, test_tbl_dual: pxt.Table, uses_env: Callable[[str], str]) -> None:
         p = uses_env
-        t = test_tbl_env
+        t = test_tbl_dual
         user_cols = [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]
         # list of literals
         rows = list(t.where(t.c2.isin([1, 2, 3])).select(*user_cols).collect())
@@ -925,8 +925,8 @@ class TestExprs:
         inc_pk(rows, 1000)
         validate_update_status(t.insert(rows), len(rows))
 
-    def test_astype(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_astype(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         # Convert int to float
         validate_update_status(t.add_computed_column(c2_as_float=t.c2.astype(pxt.Float)))
@@ -1031,8 +1031,8 @@ class TestExprs:
             'data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
         )
 
-    def test_apply(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_apply(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         # For each column c1, ..., c5, we create a new column ci_as_str that converts it to
         # a string, then check that each row is correctly converted
@@ -1307,8 +1307,8 @@ class TestExprs:
         new_t.insert(rows)
         _ = new_t.collect()
 
-    def test_make_list(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_make_list(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
 
         # create a json column with an InlineDict; the type will have a type spec
         t.add_computed_column(json_col={'a': t.c1, 'b': t.c2})
@@ -1320,8 +1320,8 @@ class TestExprs:
         # need to use frozensets because dicts are not hashable
         assert {frozenset(d.items()) for d in val} == {frozenset(d.items()) for d in res2}
 
-    def test_json_dumps(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_json_dumps(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         t.add_computed_column(json_col={'a': t.c1, 'b': t.c2})
 
         # Test normal execution (should use SQL translation via to_sql())
@@ -1420,8 +1420,8 @@ class TestExprs:
         pd_result = df.groupby('c_int', dropna=True).agg(out=('c_int', 'sum')).reset_index().sort_values('c_int')
         assert pxt_sql_result['out'] == series_to_list(pd_result['out'])
 
-    def test_agg_errors(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_agg_errors(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         from pixeltable.functions import count, sum
 
         # check that aggregates don't show up in the wrong places
@@ -1438,8 +1438,8 @@ class TestExprs:
             # nested aggregates
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
 
-    def test_function_call_errors(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_function_call_errors(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         with pxt_raises(
             pxt.ErrorCode.INVALID_EXPRESSION,
             match=r"Argument 2 in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression",
@@ -1484,8 +1484,8 @@ class TestExprs:
         def value(self) -> int:
             return self.val
 
-    def test_udas(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_udas(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         # init arg is passed along
         assert t.select(out=self.window_agg(t.c2, order_by=t.c2)).collect()[0]['out'] == 0
         assert t.select(out=self.window_agg(t.c2, val=1, order_by=t.c2)).collect()[0]['out'] == 1
@@ -1636,7 +1636,7 @@ class TestExprs:
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
 
-    def test_string_operations(self, test_tbl_env: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_string_operations(self, test_tbl_dual: pxt.Table, reload_tester: ReloadTester) -> None:
         # create table with two columns
         schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
         t = pxt.create_table('test_str_concat', schema)
@@ -1675,8 +1675,8 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_base_table_col_refs(self, test_tbl_env: pxt.Table) -> None:
-        t = test_tbl_env
+    def test_base_table_col_refs(self, test_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         # Filter down to just 5 rows of the table.
         v = pxt.create_view('test_view', t.where(t.c2 < 5))
 

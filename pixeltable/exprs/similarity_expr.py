@@ -48,13 +48,19 @@ class SimilarityExpr(Expr):
 
     def __repr__(self) -> str:
         idx_str = f'{self.idx_name!r}' if self.idx_name is not None else '<no index>'
-        assert self.qcol_id is not None
-
-        tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.path.get_column_by_id(self.qcol_id) if tbl_version.path is not None else None
-        if col is None:
+        try:
+            col_md = self._tbl_path().get_column_md(self.qcol_id)
+        except excs.Error:
             return f'<invalid>.similarity({self.components[0]}, {idx_str})'
-        return f'{col.name}.similarity({self.components[0]}, {idx_str})'
+        return f'{col_md.name}.similarity({self.components[0]}, {idx_str})'
+
+    def _tbl_path(self) -> catalog.TablePath:
+        """The path for the indexed table"""
+        tbl = get_runtime().get_table_by_id(
+            self.table_version_key.tbl_id, version=self.table_version_key.effective_version
+        )
+        assert tbl is not None
+        return tbl._tbl_path
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [
@@ -85,22 +91,20 @@ class SimilarityExpr(Expr):
 
     @property
     def validation_error(self) -> str | None:
-        tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=False)
-        if not tbl_version.supports_idxs:
-            # nothing to validate
+        from pixeltable.index import EmbeddingIndex
+
+        if self.table_version_key.effective_version is not None:
+            # a snapshot/pinned version doesn't support indices, so there is nothing to validate
             return None
         try:
-            self._resolve_idx(validate_initialized=False)
+            self._tbl_path().get_idx_md(self.qcol_id, self.idx_name, EmbeddingIndex)
             return None
         except excs.Error as e:
             return str(e)
 
     def is_bound_by(self, tbls: list[catalog.TablePath]) -> bool:
-        tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.lookup_column(self.qcol_id)
-        if col is None:
-            return False
-        return any(tbl.has_column(col.qid) for tbl in tbls)
+        # qcol_id identifies the indexed column; a column dropped from every path resolves to no match.
+        return any(tbl.has_column(self.qcol_id) for tbl in tbls)
 
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
         super()._retarget(tbl_versions)
