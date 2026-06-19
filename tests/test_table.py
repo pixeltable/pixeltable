@@ -2467,7 +2467,10 @@ class TestTable:
         assert res[0].items() >= {'id': 1, 'val_upper': 'UPDATED', 'num_x2': 20.0}.items()
         assert res[1].items() >= {'id': 2, 'val_upper': 'CHANGED', 'num_x2': 40.0}.items()
 
-    def test_update(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
+    # TODO: fix (proxy): get_table(t._name()) after reload_catalog() uses the unqualified name
+    def test_update(self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table) -> None:
+        test_tbl = test_tbl_dual
+        small_img_tbl = small_img_tbl_dual
         t = test_tbl
         # update every type with a literal
         test_cases = [
@@ -2718,7 +2721,10 @@ class TestTable:
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).collect()
         assert_resultset_eq(r1, r2)
 
-    def test_delete(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
+    # TODO: fix (proxy): get_table(t._name()) after reload_catalog() uses the unqualified name
+    def test_delete(self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table) -> None:
+        test_tbl = test_tbl_dual
+        small_img_tbl = small_img_tbl_dual
         t = test_tbl
 
         cnt = t.where(t.c3 < 10.0).count()

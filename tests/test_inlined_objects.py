@@ -39,13 +39,15 @@ class TestInlinedObjects:
         assert all(row['data'] is not None for row in res)
         assert all(row['i'] % 2 == 0 for row in res)
 
-    def test_insert_arrays(self, uses_db: None) -> None:
+    # TODO: fix (proxy): LocalStore(media_dir) inspection is meaningless over proxy
+    def test_insert_arrays(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test storing arrays of various sizes and dtypes."""
+        p = make_catalog_path
         reload_tester = ReloadTester()
 
         # 5 columns: cycle through different shapes and sizes in each row
         t = pxt.create_table(
-            'test',
+            p('test'),
             {'id': pxt.Int, 'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array, 'ar4': pxt.Array, 'ar5': pxt.Array},
         )
 
@@ -83,13 +85,15 @@ class TestInlinedObjects:
 
         reload_tester.run_reload_test()
 
-        pxt.drop_table('test')
+        pxt.drop_table(p('test'))
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_insert_binary(self, uses_db: None) -> None:
+    # TODO: fix (proxy): LocalStore(media_dir) inspection is meaningless over proxy
+    def test_insert_binary(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test storing binary data of various sizes."""
+        p = make_catalog_path
         reload_tester = ReloadTester()
-        t = pxt.create_table('test', {'id': pxt.Int, 'data': pxt.Binary})
+        t = pxt.create_table(p('test'), {'id': pxt.Int, 'data': pxt.Binary})
 
         rnd = random.Random(4171780)
         data = [rnd.randbytes(size) for size in (0, 2**10, 2**5, 2**20, 2**8)]
@@ -102,11 +106,13 @@ class TestInlinedObjects:
 
         reload_tester.run_reload_test()
 
-        pxt.drop_table('test')
+        pxt.drop_table(p('test'))
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_insert_inlined_objects(self, uses_db: None) -> None:
+    # TODO: fix (proxy): LocalStore(media_dir) inspection is meaningless over proxy
+    def test_insert_inlined_objects(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
+        p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
         rnd = random.Random(4171780)
@@ -123,7 +129,7 @@ class TestInlinedObjects:
             'bytes_list': pxt.Json,
             'bytes_dict': pxt.Json,
         }
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
 
         array_vals = inf_array_iterator(
             shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
@@ -175,10 +181,12 @@ class TestInlinedObjects:
 
         reload_tester.run_reload_test()
 
-        pxt.drop_table('test')
+        pxt.drop_table(p('test'))
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_nonstandard_json_construction(self, uses_db: None) -> None:
+    # TODO: fix (proxy): LocalStore(media_dir) inspection is meaningless over proxy
+    def test_nonstandard_json_construction(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
@@ -196,7 +204,7 @@ class TestInlinedObjects:
             'img3': pxt.Image,
             'img4': pxt.Image,
         }
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
         array_vals = inf_array_iterator(
             shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
         )
@@ -274,7 +282,7 @@ class TestInlinedObjects:
 
         reload_tester.run_reload_test()
 
-        pxt.drop_table('test')
+        pxt.drop_table(p('test'))
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     def test_samples(self, make_catalog_path: Callable[[str], str]) -> None:

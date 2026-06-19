@@ -1275,8 +1275,10 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, uses_db: None, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    # TODO: fix (proxy): NotFoundError: Table was dropped over proxy
+    def test_window_fns(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = test_tbl_dual
         _ = t.select(pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 
         # conflicting ordering requirements
@@ -1294,8 +1296,8 @@ class TestExprs:
         _ = t.c9.col.has_window_fn_call()
 
         # ordering conflict between frame extraction and window fn
-        base_t = pxt.create_table('videos', {'video': pxt.Video, 'c2': pxt.Int})
-        v = pxt.create_view('frame_view', base_t, iterator=legacy_frame_iterator(base_t.video))
+        base_t = pxt.create_table(p('videos'), {'video': pxt.Video, 'c2': pxt.Int})
+        v = pxt.create_view(p('frame_view'), base_t, iterator=legacy_frame_iterator(base_t.video))
         # compatible ordering
         _ = v.select(v.frame, pxtf.sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
@@ -1303,7 +1305,7 @@ class TestExprs:
             _ = v.select(v.frame, pxtf.sum(v.c2, order_by=base_t, group_by=v.pos)).show(100)
 
         schema = {'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Bool}
-        new_t = pxt.create_table('insert_test', schema)
+        new_t = pxt.create_table(p('insert_test'), schema)
         new_t.add_computed_column(c2_sum=pxtf.sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)

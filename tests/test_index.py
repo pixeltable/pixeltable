@@ -42,10 +42,11 @@ class TestIndex:
     def bad_embed2(x: str) -> pxt.Array[(None,), pxt.Float]:
         return np.zeros(10)
 
+    # TODO: fix (proxy): reload + dropped-index detection over proxy
     def test_similarity_multiple_index(
-        self, multi_idx_img_tbl: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
+        self, multi_idx_img_tbl_dual: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        t = multi_idx_img_tbl
+        t = multi_idx_img_tbl_dual
         sample_img = t.select(t.img).head(1)[0, 'img']
 
         # similarity query should fail because there are multiple indices
@@ -270,10 +271,16 @@ class TestIndex:
 
         _ = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))
 
+    # TODO: fix (proxy): pure-snapshot is_snapshot not detected over proxy
     def test_similarity_errors(
-        self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table, local_embed: pxt.Function
+        self,
+        indexed_img_tbl_dual: pxt.Table,
+        small_img_tbl_dual: pxt.Table,
+        make_catalog_path: Callable[[str], str],
+        local_embed: pxt.Function,
     ) -> None:
-        t = indexed_img_tbl
+        p = make_catalog_path
+        t = indexed_img_tbl_dual
 
         type_failures = (
             ('item', '`str` or `PIL.Image.Image`', pxt.ErrorCode.TYPE_MISMATCH),
@@ -300,7 +307,7 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match="No embedding index found for column 'split'"):
             _ = t.order_by(t.split.similarity(string='red truck')).limit(1).collect()
 
-        t = small_img_tbl
+        t = small_img_tbl_dual
         t.add_embedding_index('img', image_embed=local_embed)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.order_by(t.img.similarity(string='red truck')).limit(1).collect()
@@ -311,7 +318,7 @@ class TestIndex:
             _ = t.order_by(t.img.similarity(string='red truck')).limit(1).collect()
 
         # Similarity fails when attempted on a snapshot
-        t_s = pxt.create_snapshot('t_s', t)
+        t_s = pxt.create_snapshot(p('t_s'), t)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
             _ = t_s.order_by(t_s.img.similarity(string='red truck')).limit(1).collect()
 
@@ -386,10 +393,11 @@ class TestIndex:
         )
         assert_resultset_eq(orig_res, res, True)
 
+    # TODO: fix (proxy): _list_index_info_for_test not exposed on TableProxy
     def test_add_embedding_index_if_exists(
-        self, small_img_tbl: pxt.Table, reload_tester: ReloadTester, local_embed: pxt.Function
+        self, small_img_tbl_dual: pxt.Table, reload_tester: ReloadTester, local_embed: pxt.Function
     ) -> None:
-        t = small_img_tbl
+        t = small_img_tbl_dual
         sample_img = t.select(t.img).head(1)[0, 'img']
         initial_indexes = len(t._list_index_info_for_test())
 
@@ -514,12 +522,16 @@ class TestIndex:
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
-    def test_embedding_access(self, img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
-        img_t = img_tbl
+    # TODO: fix (proxy): NotFoundError: Table was dropped over proxy
+    def test_embedding_access(
+        self, img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+    ) -> None:
+        p = make_catalog_path
+        img_t = img_tbl_dual
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
         schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
-        tbl_name = 'access_test'
+        tbl_name = p('access_test')
         img_t = pxt.create_table(tbl_name, schema)
         img_t.insert(rows[:5])
 
@@ -544,17 +556,25 @@ class TestIndex:
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
-    def test_embedding_basic(self, img_tbl: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester) -> None:
+    # TODO: fix (proxy): NotFoundError: Table was dropped over proxy
+    def test_embedding_basic(
+        self,
+        img_tbl_dual: pxt.Table,
+        make_catalog_path: Callable[[str], str],
+        local_embed: pxt.Function,
+        reload_tester: ReloadTester,
+    ) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('imagehash')
 
-        img_t = img_tbl
+        img_t = img_tbl_dual
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
         schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
-        tbl_name = 'index_test'
+        tbl_name = p('index_test')
         img_t = pxt.create_table(tbl_name, schema)
         img_t.insert(rows[:30])
-        dummy_img_t = pxt.create_table('dummy', schema)
+        dummy_img_t = pxt.create_table(p('dummy'), schema)
         dummy_img_t.insert(rows[:10])
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
@@ -956,13 +976,19 @@ class TestIndex:
         ]
         self.run_btree_test(p, data, pxt.Date)
 
+    # TODO: fix (proxy): Table was dropped after reload_catalog (handle reuse) over proxy
     @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
     @pytest.mark.parametrize('precision', ['fp16', 'fp32'])
     def test_embedding_index_precision(
-        self, uses_db: None, reload_cat: bool, metric: Literal['cosine', 'ip', 'l2'], precision: Literal['fp16', 'fp32']
+        self,
+        make_catalog_path: Callable[[str], str],
+        reload_cat: bool,
+        metric: Literal['cosine', 'ip', 'l2'],
+        precision: Literal['fp16', 'fp32'],
     ) -> None:
-        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String}, if_exists='replace')
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'rowid': pxt.Int, 'text': pxt.String}, if_exists='replace')
         n = 123
         t.add_embedding_index(
             t.text, embedding=local_embedding.using(dim=n), metric=metric, precision=precision, idx_name='test_idx'
@@ -1103,11 +1129,15 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='1-dimensional'):
             t.add_embedding_index('vec2d')
 
+    # TODO: fix (proxy): _tbl_version not exposed on TableProxy
     @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
-    def test_drop_index(self, index_type: str, uses_db: None, request: pytest.FixtureRequest) -> None:
+    def test_drop_index(
+        self, index_type: str, make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest
+    ) -> None:
         """Test that indices (B-tree and embedding) are properly dropped from the store"""
+        p = make_catalog_path
         # Create table and insert data
-        t = pxt.create_table('index_drop_test', {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
+        t = pxt.create_table(p('index_drop_test'), {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
         t.insert([{'id': 1, 'text': 'hello world'}, {'id': 2, 'text': 'goodbye'}])
 
         # Find or create an index to drop
@@ -1137,7 +1167,7 @@ class TestIndex:
         # Or the metadata
         assert idx_info.id not in t._tbl_version.get().idxs
         reload_catalog()
-        t = pxt.get_table('index_drop_test')
+        t = pxt.get_table(p('index_drop_test'))
         assert idx_info.id not in t._tbl_version.get().idxs
 
     def test_similarity_index_lifecycle(

@@ -627,24 +627,26 @@ class TestCatalog:
             '''
         ).strip('\n').replace('|', '')  # fmt: skip
 
-    def test_cross_type_replacement(self, uses_db: None) -> None:
+    # TODO: fix (proxy): AssertionError: 'target' in pxt.list_tables (no-path list_tables lists local catalog)
+    def test_cross_type_replacement(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
 
         This tests the path collision handling logic: dirs can only collide with dirs,
         but all table subtypes (table, view, snapshot) can collide with each other.
         """
-        base_table = pxt.create_table('base', {'c1': pxt.Int})
+        p = make_catalog_path
+        base_table = pxt.create_table(p('base'), {'c1': pxt.Int})
 
         # One lambda per create_x with expected columns
         creators = {
-            'table': (lambda: pxt.create_table('target', {'c2': pxt.String}, if_exists='replace'), ['c2']),
+            'table': (lambda: pxt.create_table(p('target'), {'c2': pxt.String}, if_exists='replace'), ['c2']),
             'view': (
                 lambda: pxt.create_view(
-                    'target', base_table, additional_columns={'c3': pxt.String}, if_exists='replace'
+                    p('target'), base_table, additional_columns={'c3': pxt.String}, if_exists='replace'
                 ),
                 ['c3', 'c1'],
             ),
-            'snapshot': (lambda: pxt.create_snapshot('target', base_table, if_exists='replace'), ['c1']),
+            'snapshot': (lambda: pxt.create_snapshot(p('target'), base_table, if_exists='replace'), ['c1']),
         }
 
         # Test all permutations: each table subtype can replace any table subtype
@@ -657,19 +659,19 @@ class TestCatalog:
                 assert result.columns() == expected_cols
 
         # Verify cross-type replacement is blocked in both directions for every table subtype
-        pxt.drop_table('target')
-        pxt.create_dir('target')
+        pxt.drop_table(p('target'))
+        pxt.create_dir(p('target'))
         for creator, _ in creators.values():
             # dirs cannot be replaced by table subtypes
             with pxt_raises(excs.ErrorCode.PATH_ALREADY_EXISTS, match='expected a table, view or snapshot'):
                 creator()
             # table subtypes cannot be replaced by dirs
-            pxt.drop_dir('target')
+            pxt.drop_dir(p('target'))
             creator()
             with pxt_raises(excs.ErrorCode.PATH_ALREADY_EXISTS, match='expected a directory'):
-                pxt.create_dir('target', if_exists='replace')
-            pxt.drop_table('target')
-            pxt.create_dir('target')
+                pxt.create_dir(p('target'), if_exists='replace')
+            pxt.drop_table(p('target'))
+            pxt.create_dir(p('target'))
 
     def test_table_op_from_dict_needs_xact(self) -> None:
         """Verifies that a TableOp can be correctly deserialized from a dict that includes the legacy 'needs_xact'

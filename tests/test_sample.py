@@ -345,10 +345,11 @@ class TestSample:
         n = len(t.select().sample(fraction=0.01, seed=0).collect())
         assert v.count() == n
 
-    def test_sample_iterator(self, uses_db: None) -> None:
-        # local-only: exercises media (Image) and an iterator view, neither supported over the proxy yet
+    # TODO: fix (proxy): Hosted iterator views are not supported yet
+    def test_sample_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
-        t = pxt.create_table('test_tile_tbl', {'image': pxt.Image})
+        t = pxt.create_table(p('test_tile_tbl'), {'image': pxt.Image})
 
         print('\n\nINSERT ONE IMAGE\n')
         t.insert(image=SAMPLE_IMAGE_URL)
@@ -361,7 +362,9 @@ class TestSample:
 
         print('\n\nCREATE ITERATOR VIEW\n')
         v = pxt.create_view(
-            'test_view', t, iterator=pxt.functions.image.tile_iterator(t.image, tile_size=(100, 100), overlap=(10, 10))
+            p('test_view'),
+            t,
+            iterator=pxt.functions.image.tile_iterator(t.image, tile_size=(100, 100), overlap=(10, 10)),
         )
         v_rows = v.count()
         print(f'total rows: {v_rows}')
@@ -377,7 +380,7 @@ class TestSample:
         print('\n\nCREATE VIEW OF FRACTIONAL SAMPLE OF ITERATOR VIEW\n')
         query = v.select().sample(fraction=0.1, seed=4171780)
         r = query.collect()
-        vs = pxt.create_view('test_view_sample', query)
+        vs = pxt.create_view(p('test_view_sample'), query)
         vs_rows = vs.count()
         print(f'total rows: {vs_rows}, sample rows: {len(r)}')
         print(r)
