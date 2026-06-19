@@ -444,7 +444,31 @@ class ColumnRef(Expr):
                 col_type = ts.ColumnType.infer_literal_type(vector)
                 expr = Literal(vector, col_type=col_type)
 
-        return SimilarityExpr(expr, col_ref=self, idx_name=idx)
+        from pixeltable.index import EmbeddingIndex
+
+        # Resolve the table through its owning catalog (which may be a proxy) so the index lookup works
+        # uniformly for local and hosted tables. get_table_by_id() manages its own transaction.
+        tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
+        assert tbl is not None
+        # get_idx_md() resolves the concrete index, raising if idx is ambiguous or doesn't exist.
+        idx_md = tbl._tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
+
+        # init_args carries one '<modality>_embed' entry per supported modality (see EmbeddingIndex.as_dict()).
+        # Array columns are exempt: similarity search uses the raw vector directly.
+        if not expr.col_type.is_array_type():
+            type_str = expr.col_type._type.name.lower()
+            if f'{type_str}_embed' not in idx_md.init_args:
+                article = 'an' if type_str[0] in 'aeiou' else 'a'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Embedding index {idx_md.name!r} on column {self.col_md.name!r} does not have {article} '
+                    f'{type_str} embedding and does not support {type_str} queries',
+                )
+
+        table_version_key = TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
+        return SimilarityExpr(
+            expr, idx_name=idx_md.name, qcol_id=self.col_md.qcolid, table_version_key=table_version_key
+        )
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
         """

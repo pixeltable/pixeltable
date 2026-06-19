@@ -186,15 +186,17 @@ class TestIndex:
 
         t.drop_embedding_index(column='img')
 
-    def test_query(self, uses_db: None, local_embed: pxt.Function) -> None:
-        queries = pxt.create_table('queries', {'query_text': pxt.String})
+    def test_query(self, uses_env: Callable[[str], str], local_embed: pxt.Function) -> None:
+        # def test_query(self, uses_db: None, local_embed: pxt.Function) -> None:
+        p = uses_env
+        queries = pxt.create_table(p('queries'), {'query_text': pxt.String})
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?'},
             {'query_text': 'what happened to the term machine learning?'},
         ]
         validate_update_status(queries.insert(query_rows))
 
-        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.String})
+        chunks = pxt.create_table(p('test_doc_chunks'), {'text': pxt.String})
         chunks.insert(
             [
                 {'text': 'the stock of artificial intelligence companies is up 1000%'},
@@ -249,7 +251,7 @@ class TestIndex:
 
         # make sure we can instantiate the query function from the metadata
         reload_catalog()
-        queries = pxt.get_table('queries')
+        queries = pxt.get_table(p('queries'))
         _ = queries.collect()
         # insert more rows in order to run the query function
         validate_update_status(queries.insert(query_rows))

@@ -382,7 +382,10 @@ class TableVersionPath(TablePath):
 
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
         tv = self._cached_tv()
-        col = tv.cols_by_id.get(qcolid.col_id) if qcolid.tbl_id == self.tbl_version.id else None
+        # lookup_column() searches the whole path, so the index always resolves on this (path-context) tv:
+        # an index on a base column accessed through a view is registered on the view's tv keyed by the base
+        # column's qcolid. get_idx() raises the appropriate error (snapshot, no index, ambiguous index).
+        col = tv.lookup_column(qcolid)
         if col is None:
             if self.base is not None:
                 return self.base.get_idx_md(qcolid, name, idx_class)

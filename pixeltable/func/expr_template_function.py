@@ -153,12 +153,23 @@ class ExprTemplateFunction(Function):
     def _as_dict(self) -> dict:
         if self.self_path is not None:
             return super()._as_dict()
-        assert not self.is_polymorphic
-        assert len(self.templates) == 1
-        return {'expr': self.template.expr.as_dict(), 'signature': self.signature.as_dict(), 'name': self.name}
+        if not self.is_polymorphic:
+            return {'expr': self.template.expr.as_dict(), 'signature': self.signature.as_dict(), 'name': self.name}
+        return {
+            'templates': [{'expr': t.expr.as_dict(), 'signature': t.signature.as_dict()} for t in self.templates],
+            'name': self.name,
+        }
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
+        if 'templates' in d:
+            # polymorphic variant
+            templates = [
+                ExprTemplate(exprs.Expr.from_dict(t['expr']), Signature.from_dict(t['signature']))
+                for t in d['templates']
+            ]
+            return cls(templates, name=d['name'])
+
         if 'expr' not in d:
             return super()._from_dict(d)
         assert 'signature' in d and 'name' in d

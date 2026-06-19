@@ -6,6 +6,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, Literal, TypeVar
+from uuid import UUID
 from weakref import WeakKeyDictionary
 
 import sqlalchemy as sql
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from pixeltable.catalog.catalog import Catalog
     from pixeltable.catalog.catalog_base import CatalogBase
     from pixeltable.catalog.path import Path
+    from pixeltable.catalog.table import Table
     from pixeltable.exec import ExecPlan
 
 _logger = logging.getLogger(__name__)
@@ -115,6 +117,18 @@ class Runtime:
             cat = self._make_proxy_catalog(catalog_uri)
             self._catalogs[catalog_uri] = cat
         return cat
+
+    def get_table_by_id(
+        self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
+    ) -> Table | None:
+        """Load the table with the given id, routing to whichever catalog owns it.
+
+        The owning catalog is determined from the URI Env records when a table is first loaded; tables that
+        haven't been seen yet resolve to the local catalog.
+        """
+        catalog_uri = Env.get().tbl_catalog_uri(tbl_id)
+        cat = self.get_catalog(catalog_uri=catalog_uri)
+        return cat.get_table_by_id(tbl_id, version=version, ignore_if_dropped=ignore_if_dropped)
 
     def _make_proxy_catalog(self, catalog_uri: str) -> CatalogBase:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
