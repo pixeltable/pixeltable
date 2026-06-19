@@ -308,7 +308,9 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     return tbl
 
 
-def create_all_datatypes_tbl(non_serializable_json: bool = False, arrow_compatible_json: bool = False) -> pxt.Table:
+def create_all_datatypes_tbl(
+    name: str = 'all_datatype_tbl', non_serializable_json: bool = False, arrow_compatible_json: bool = False
+) -> pxt.Table:
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
@@ -327,7 +329,7 @@ def create_all_datatypes_tbl(non_serializable_json: bool = False, arrow_compatib
         'c_video': pxt.Video,
         'c_document': pxt.Document,
     }
-    tbl = pxt.create_table('all_datatype_tbl', schema)
+    tbl = pxt.create_table(name, schema)
     example_rows = create_table_data(
         tbl, num_rows=11, non_serializable_json=non_serializable_json, arrow_compatible_json=arrow_compatible_json
     )

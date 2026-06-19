@@ -745,8 +745,8 @@ class TestFunction:
     def binding_test_udf(p1: str, p2: str, p3: str, p4: str = 'default') -> str:
         return f'{p1} {p2} {p3} {p4}'
 
-    def test_partial_binding(self, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_partial_binding(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = self.binding_test_udf.using(p1='x', p3='z')
         pb3 = self.binding_test_udf.using(p1='x', p2='y', p3='z')
@@ -781,8 +781,8 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='missing a required argument'):
             _ = pb1(p1='a')
 
-    def test_nested_partial_binding(self, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_nested_partial_binding(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = pb1.using(p1='x')
         pb3 = pb2.using(p3='z')
@@ -1756,9 +1756,9 @@ class TestFunction:
         fn6 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
         u.select(fn6(22, 'starfruit', in4=u.b)).collect()
 
-    def test_required_parameter_missing(self, uses_env: Callable[[str], str]) -> None:
+    def test_required_parameter_missing(self, make_catalog_path: Callable[[str], str]) -> None:
         """Tests scenarios in which a required input parameter for a UDF or UDA is missing."""
-        p = uses_env
+        p = make_catalog_path
         t = pxt.create_table(p('test'), {'col_0': pxt.Int, 'col_1': pxt.Int, 'col_2': pxt.String})
         t.insert(
             [
@@ -1803,23 +1803,23 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match='not in the resolved function signature'):
             t_vid.insert([{'video': v} for v in videos])
 
-    def test_resource_estimator_non_polymorphic(self, uses_env: Callable[[str], str]) -> None:
+    def test_resource_estimator_non_polymorphic(self, make_catalog_path: Callable[[str], str]) -> None:
         """resource_estimator works for a plain (non-polymorphic) UDF."""
-        p = uses_env
+        p = make_catalog_path
         t = pxt.create_table(p('test_est_plain'), {'content': pxt.String})
         t.add_computed_column(emb=mock_embed_plain(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
-    def test_resource_estimator_batch(self, uses_env: Callable[[str], str]) -> None:
+    def test_resource_estimator_batch(self, make_catalog_path: Callable[[str], str]) -> None:
         """resource_estimator works for a batched UDF."""
-        p = uses_env
+        p = make_catalog_path
         t = pxt.create_table(p('test_est_batch'), {'content': pxt.String})
         t.add_computed_column(emb=mock_embed_batch(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz qux'}]))
 
-    def test_sync_udf_with_resource_pool(self, uses_env: Callable[[str], str]) -> None:
+    def test_sync_udf_with_resource_pool(self, make_catalog_path: Callable[[str], str]) -> None:
         """A sync UDF with a resource_pool must raise an error (scalar, batched, and polymorphic)."""
-        p = uses_env
+        p = make_catalog_path
         # scalar
         t1 = pxt.create_table(p('test_sync_rp'), {'text': pxt.String})
         t1.add_computed_column(result=sync_udf_with_rp(t1.text))
@@ -1838,9 +1838,9 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t3.insert([{'num': 1}])
 
-    def test_future_annotations_udf(self, uses_env: Callable[[str], str]) -> None:
+    def test_future_annotations_udf(self, make_catalog_path: Callable[[str], str]) -> None:
         """Tests that UDFs can be defined in modules with `from __future__ import annotations`."""
-        p = uses_env
+        p = make_catalog_path
         from .module_with_future_annotations import future_annotations_udf
 
         t = pxt.create_table(p('test_future_annotations'), {'a': pxt.Int})

@@ -865,8 +865,8 @@ class TestExprs:
             t.array_col[1, 'string']
         assert 'Invalid array indices' in str(excinfo.value)
 
-    def test_in(self, test_tbl_dual: pxt.Table, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_in(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl_dual
         user_cols = [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]
         # list of literals
@@ -1675,8 +1675,8 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_base_table_col_refs(self, test_tbl_dual: pxt.Table, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_base_table_col_refs(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl_dual
         # Filter down to just 5 rows of the table.
         v = pxt.create_view(p('test_view'), t.where(t.c2 < 5))

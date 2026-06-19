@@ -8,9 +8,9 @@ from tests.utils import pxt_raises, reload_catalog, validate_update_status
 
 
 class TestPrimaryKeyIndex:
-    def test_single_pk(self, uses_env: Callable[[str], str]) -> None:
+    def test_single_pk(self, make_catalog_path: Callable[[str], str]) -> None:
         """Single-column PK: rejects duplicates, allows re-insert after delete, survives reload."""
-        p = uses_env
+        p = make_catalog_path
         t = pxt.create_table(p('test_pk'), {'id': pxt.Required[pxt.Int], 'name': pxt.String}, primary_key='id')
         validate_update_status(t.insert([{'id': 1, 'name': 'alice'}, {'id': 2, 'name': 'bob'}]), expected_rows=2)
 
@@ -36,9 +36,9 @@ class TestPrimaryKeyIndex:
         validate_update_status(t.insert([{'id': 3, 'name': 'dave'}]), expected_rows=1)
         assert t.count() == 3
 
-    def test_composite_pk(self, uses_env: Callable[[str], str]) -> None:
+    def test_composite_pk(self, make_catalog_path: Callable[[str], str]) -> None:
         """Composite PK: partial matches are fine, exact matches are rejected, delete-reinsert works."""
-        p = uses_env
+        p = make_catalog_path
         t = pxt.create_table(
             p('test_pk'),
             {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.String], 'val': pxt.Int},
@@ -59,9 +59,9 @@ class TestPrimaryKeyIndex:
         validate_update_status(t.insert([{'a': 1, 'b': 'x', 'val': 99}]), expected_rows=1)
         assert t.where((t.a == 1) & (t.b == 'x')).collect()['val'] == [99]
 
-    def test_string_pk_truncation(self, uses_env: Callable[[str], str]) -> None:
+    def test_string_pk_truncation(self, make_catalog_path: Callable[[str], str]) -> None:
         """String PK index uses left(col, MAX_STRING_LEN). Strings identical in first MAX_STRING_LEN chars collide."""
-        p = uses_env
+        p = make_catalog_path
         t = pxt.create_table(p('test_pk'), {'key': pxt.Required[pxt.String], 'val': pxt.Int}, primary_key='key')
         base = 'a' * BtreeIndex.MAX_STRING_LEN
 
@@ -76,9 +76,9 @@ class TestPrimaryKeyIndex:
         validate_update_status(t.insert([{'key': different_prefix + '_suffix1', 'val': 3}]), expected_rows=1)
         assert t.count() == 2
 
-    def test_batch_with_duplicate_fails_atomically(self, uses_env: Callable[[str], str]) -> None:
+    def test_batch_with_duplicate_fails_atomically(self, make_catalog_path: Callable[[str], str]) -> None:
         """A batch containing a duplicate fails and does not persist any rows from the batch."""
-        p = uses_env
+        p = make_catalog_path
         t = pxt.create_table(p('test_pk'), {'id': pxt.Required[pxt.Int], 'v': pxt.String}, primary_key='id')
         validate_update_status(t.insert([{'id': 1, 'v': 'a'}]), expected_rows=1)
 
@@ -90,9 +90,9 @@ class TestPrimaryKeyIndex:
         assert t.collect()['id'] == [1]
         assert t.collect()['v'] == ['a']
 
-    def test_pk_index_row_too_large(self, uses_env: Callable[[str], str]) -> None:
+    def test_pk_index_row_too_large(self, make_catalog_path: Callable[[str], str]) -> None:
         """Many PK columns can exceed the btree max row size; error message should be user-friendly."""
-        p = uses_env
+        p = make_catalog_path
         schema = {f'k{i}': pxt.Required[pxt.String] for i in range(11)}
         pk_cols = [f'k{i}' for i in range(11)]
         t = pxt.create_table(p('test_pk'), schema, primary_key=pk_cols)
@@ -101,9 +101,9 @@ class TestPrimaryKeyIndex:
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Primary key value too large for index'):
             t.insert([row])
 
-    def test_batch_update_with_pk_index(self, uses_env: Callable[[str], str]) -> None:
+    def test_batch_update_with_pk_index(self, make_catalog_path: Callable[[str], str]) -> None:
         """batch_update works correctly with the PK index: updates expire the old version."""
-        p = uses_env
+        p = make_catalog_path
         t = pxt.create_table(p('test_pk'), {'id': pxt.Required[pxt.Int], 'val': pxt.Int}, primary_key='id')
         validate_update_status(t.insert([{'id': 1, 'val': 10}, {'id': 2, 'val': 20}]), expected_rows=2)
 
@@ -116,8 +116,8 @@ class TestPrimaryKeyIndex:
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t.insert([{'id': 1, 'val': 50}])
 
-    def test_prohibited_pk_col_ops(self, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_prohibited_pk_col_ops(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = pxt.create_table(
             p('test'), {'id0': pxt.Required[pxt.Int], 'id1': pxt.Required[pxt.Int]}, primary_key=['id0', 'id1']
         )

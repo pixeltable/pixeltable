@@ -21,8 +21,10 @@ class TestHistory:
         print('============================================================')
 
     @pytest.mark.parametrize('variant', ['get_versions', 'history'])
-    def test_history(self, variant: Literal['get_versions', 'history'], uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_history(
+        self, variant: Literal['get_versions', 'history'], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
 
         def fn(tbl: pxt.Table, n: int | None = None) -> Any:
             return tbl.get_versions(n) if variant == 'get_versions' else tbl.history(n)

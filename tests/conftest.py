@@ -222,7 +222,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     """A per-worker local proxy daemon, started once for the session and reused across tests.
 
     The db name is worker-scoped so parallel xdist workers don't share a catalog. start() is idempotent,
-    so the per-test uses_env fixture only resets the daemon's catalog rather than restarting the process.
+    so the per-test make_catalog_path fixture only resets the daemon's catalog rather than restarting the process.
     """
     from pixeltable.service import proxy_daemon
 
@@ -235,7 +235,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
 
 
 @pytest.fixture(scope='function', params=['local', 'proxy'])
-def uses_env(init_env: None, request: pytest.FixtureRequest) -> Iterator[Callable[[str], str]]:
+def make_catalog_path(init_env: None, request: pytest.FixtureRequest) -> Iterator[Callable[[str], str]]:
     """Parameterized variant of uses_db: runs a test against both the in-process catalog and a delegated
     (proxied) catalog served by a local daemon.
 
@@ -374,8 +374,8 @@ def test_tbl(uses_db: None) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
-def test_tbl_dual(uses_env: Callable[[str], str]) -> pxt.Table:
-    return create_test_tbl(uses_env('test_tbl'))
+def test_tbl_dual(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+    return create_test_tbl(make_catalog_path('test_tbl'))
 
 
 @pytest.fixture(scope='function')
@@ -424,8 +424,18 @@ def all_datatypes_tbl(uses_db: None) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
+def all_datatypes_tbl_dual(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+    return create_all_datatypes_tbl(name=make_catalog_path('all_datatype_tbl'))
+
+
+@pytest.fixture(scope='function')
 def img_tbl(uses_db: None) -> pxt.Table:
     return create_img_tbl('test_img_tbl')
+
+
+@pytest.fixture(scope='function')
+def img_tbl_dual(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+    return create_img_tbl(make_catalog_path('test_img_tbl'))
 
 
 @pytest.fixture(scope='function')
@@ -454,6 +464,11 @@ def small_img_tbl(uses_db: None) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
+def small_img_tbl_dual(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+    return create_img_tbl(make_catalog_path('small_img_tbl'), num_rows=40)
+
+
+@pytest.fixture(scope='function')
 def indexed_img_tbl(uses_db: None, local_embed: pxt.Function) -> pxt.Table:
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
     t.add_embedding_index(
@@ -463,8 +478,29 @@ def indexed_img_tbl(uses_db: None, local_embed: pxt.Function) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
+def indexed_img_tbl_dual(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
+    t = create_img_tbl(make_catalog_path('indexed_img_tbl'), num_rows=40)
+    t.add_embedding_index(
+        'img', idx_name='img_idx0', metric='cosine', image_embed=local_embed, string_embed=local_embed
+    )
+    return t
+
+
+@pytest.fixture(scope='function')
 def multi_idx_img_tbl(uses_db: None, local_embed: pxt.Function) -> pxt.Table:
     t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
+    t.add_embedding_index(
+        'img', idx_name='img_idx1', metric='cosine', image_embed=local_embed, string_embed=local_embed
+    )
+    t.add_embedding_index(
+        'img', idx_name='img_idx2', metric='cosine', image_embed=local_embed, string_embed=local_embed
+    )
+    return t
+
+
+@pytest.fixture(scope='function')
+def multi_idx_img_tbl_dual(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
+    t = create_img_tbl(make_catalog_path('multi_idx_img_tbl'), num_rows=4)
     t.add_embedding_index(
         'img', idx_name='img_idx1', metric='cosine', image_embed=local_embed, string_embed=local_embed
     )

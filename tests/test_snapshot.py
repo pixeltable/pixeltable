@@ -184,8 +184,8 @@ class TestSnapshot:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='different base table'):
             _ = pxt.create_snapshot('snap_with_base', other_base, if_exists='ignore')
 
-    def test_mixed_version_join(self, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_mixed_version_join(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         # A single query plan can reference the same physical column at two different versions: a table joined
         # with a snapshot of itself. Each version must resolve to its own value; if the two versions of a column
         # collapse into one, the snapshot columns return the live values and the join predicate t.id == snap.id
@@ -291,8 +291,8 @@ class TestSnapshot:
         v2 = pxt.get_table('v2')
         verify(s1, s2, v1, v2)
 
-    def test_snapshot_of_view_chain(self, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_snapshot_of_view_chain(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
@@ -375,8 +375,10 @@ class TestSnapshot:
         s1, s2, s3, s4 = pxt.get_table('s1'), pxt.get_table('s2'), pxt.get_table('s3'), pxt.get_table('s4')
         validate(t, v, s1, s2, s3, s4)
 
-    def test_drop_column_in_view_predicate(self, uses_env: Callable[[str], str], reload_tester: ReloadTester) -> None:
-        p = uses_env
+    def test_drop_column_in_view_predicate(
+        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
+    ) -> None:
+        p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.Int})
         _ = pxt.create_snapshot(p('base_snap'), t, additional_columns={'s1': pxt.Int})
         v1 = pxt.create_view(p('view1'), t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})  # uses c1
@@ -421,9 +423,9 @@ class TestSnapshot:
         assert 'view_snap1' not in str(e.value).lower()
         assert 'view_snap2' not in str(e.value).lower()
 
-    def test_unstored_snapshot(self, uses_env: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_unstored_snapshot(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         """Tests that a snapshot of a table with unstored columns is queryable."""
-        p = uses_env
+        p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int})
         t.add_computed_column(c2=(t.c1 + 1), stored=False)
         t.insert({'c1': i} for i in range(100))
@@ -462,8 +464,8 @@ class TestSnapshot:
     # TODO: Currently, comments and custom_metadata are not persisted for pure snapshots.
     # Should we consider snapshots as non-pure when these are provided?
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_comment(self, uses_env: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = uses_env
+    def test_snapshot_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c': pxt.Int})
         s1 = pxt.create_snapshot(
             p('tbl_snapshot'), t, additional_columns={'d': pxt.Int}, comment='This is a test snapshot.'
@@ -484,8 +486,8 @@ class TestSnapshot:
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_custom_metadata(self, uses_env: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = uses_env
+    def test_snapshot_custom_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table(p('tbl'), {'c': pxt.Int})
         s1 = pxt.create_snapshot(
@@ -523,8 +525,8 @@ class TestSnapshot:
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_column_comment(self, uses_env: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = uses_env
+    def test_snapshot_column_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c': pxt.Int})
         s = pxt.create_snapshot(
             p('tbl_snapshot'), t, additional_columns={'d': {'type': pxt.Int, 'comment': 'This is a test column.'}}

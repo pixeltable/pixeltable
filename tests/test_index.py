@@ -186,9 +186,9 @@ class TestIndex:
 
         t.drop_embedding_index(column='img')
 
-    def test_query(self, uses_env: Callable[[str], str], local_embed: pxt.Function) -> None:
+    def test_query(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
         # def test_query(self, uses_db: None, local_embed: pxt.Function) -> None:
-        p = uses_env
+        p = make_catalog_path
         queries = pxt.create_table(p('queries'), {'query_text': pxt.String})
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?'},
@@ -862,14 +862,14 @@ class TestIndex:
 
     BTREE_TEST_NUM_ROWS = 10001  # ~10k rows: incentivize Postgres to use the index
 
-    def test_int_btree(self, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_int_btree(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         random.seed(1)
         data = [random.randint(0, 2**63 - 1) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(p, data, pxt.Int)
 
-    def test_float_btree(self, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_float_btree(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         random.seed(1)
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(p, data, pxt.Float)
@@ -907,8 +907,8 @@ class TestIndex:
         assert t.where(t.data >= s).count() == 2
         assert t.where(t.data > s).count() == 1
 
-    def test_timestamp_btree(self, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_timestamp_btree(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         random.seed(1)
         start = datetime.datetime(2000, 1, 1)
         end = datetime.datetime(2020, 1, 1)
@@ -920,8 +920,8 @@ class TestIndex:
         ]
         self.run_btree_test(p, data, pxt.Timestamp)
 
-    def test_date_btree(self, uses_env: Callable[[str], str]) -> None:
-        p = uses_env
+    def test_date_btree(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         random.seed(1)
         start = datetime.date(2000, 1, 1)
         end = datetime.date(2100, 1, 1)
