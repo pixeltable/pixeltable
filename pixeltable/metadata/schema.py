@@ -433,6 +433,15 @@ class Function(Base):
     against version mismatches.
     """
 
+    # TODO: deprecate this table. Anonymous CallableFunctions now serialize their pickled body by value, inline
+    # in the expr dict, instead of as a row here; the only remaining use is the legacy read path in
+    # CallableFunction._from_dict() for the id-based form. To finish removal:
+    #   1. add a metadata converter that reads each referenced row here and rewrites the embedded id-based
+    #      function ref in persisted metadata to the inline by-value form;
+    #   2. delete the id-based branch in CallableFunction._from_dict();
+    #   3. delete FunctionRegistry.create_stored_function(), get_stored_function(), and stored_fns_by_id;
+    #   4. drop this table.
+
     __tablename__ = 'functions'
 
     id: orm.Mapped[uuid.UUID] = orm.mapped_column(
