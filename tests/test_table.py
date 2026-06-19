@@ -1014,8 +1014,8 @@ class TestTable:
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
 
-    def test_create_from_query(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_create_from_query(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', source=query1)
         assert t1._get_schema() == query1.schema
@@ -1035,8 +1035,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a non-empty dictionary'):
             _ = pxt.create_table('test3', ['I am a string.'])  # type: ignore[arg-type]
 
-    def test_insert_query(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_insert_query(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', source=query1)
         assert t1._get_schema() == query1.schema
@@ -1641,7 +1641,7 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a non-empty dictionary'):
             pxt.create_table(p('empty_table'), {})
 
-    def test_drop_table(self, test_tbl: pxt.Table) -> None:
+    def test_drop_table(self, test_tbl_env: pxt.Table) -> None:
         t = pxt.create_table('test1', {'c1': pxt.String})
         pxt.drop_table('test1')
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
@@ -1676,7 +1676,7 @@ class TestTable:
         _ = pxt.get_table('test3')
         pxt.drop_table('test3')
 
-    def test_drop_table_via_handle(self, test_tbl: pxt.Table) -> None:
+    def test_drop_table_via_handle(self, test_tbl_env: pxt.Table) -> None:
         t = pxt.create_table('test1', {'c1': pxt.String})
         pxt.drop_table(t)
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
@@ -2363,8 +2363,8 @@ class TestTable:
         t2 = pxt.get_table(p('test'))
         _ = t2.show(n=0)
 
-    def test_batch_update(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_batch_update(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         num_rows = t.count()
         # update existing rows
         validate_update_status(t.batch_update([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]), expected_rows=2)
@@ -2701,8 +2701,8 @@ class TestTable:
         assert status.rows is None  # default return_rows=False
         assert status.num_rows == 1
 
-    def test_cascading_update(self, test_tbl: pxt.InsertableTable) -> None:
-        t = test_tbl
+    def test_cascading_update(self, test_tbl_env: pxt.InsertableTable) -> None:
+        t = test_tbl_env
         t.add_computed_column(d1=t.c3 - 1)
         # add column that can be updated
         t.add_column(c10=pxt.Float)
@@ -2873,13 +2873,13 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(self, uses_db: None, test_tbl: pxt.Table) -> None:
+    def test_computed_col_exceptions(self, test_tbl_env: pxt.Table) -> None:
         if Env.get().is_using_cockroachdb:
             # TODO Fix this on CockroachDB; it's a problem!
             pytest.skip('Skipped on CockroachDB due to columns still being created when add_computed_column() fails.')
         # exception during insert()
         schema = {'c2': pxt.Int}
-        rows = list(test_tbl.select(test_tbl.c2).collect())
+        rows = list(test_tbl_env.select(test_tbl_env.c2).collect())
         t = pxt.create_table('test_insert', schema)
         status = t.add_computed_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
@@ -2983,8 +2983,8 @@ class TestTable:
         t.insert(rows, on_error='ignore')
         _ = t.select(t.c3.errortype).collect()
 
-    def test_computed_window_fn(self, uses_db: None, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_computed_window_fn(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         # backfill
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
@@ -3022,8 +3022,9 @@ class TestTable:
             t1.revert()
         assert 'version 0' in str(excinfo.value)
 
-    def test_add_column(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_add_column(self, test_tbl_env: pxt.Table, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = test_tbl_env
         orig_cols = set(t.columns())
         t.add_column(add1=pxt.Int)
         assert set(t.columns()) == orig_cols | {'add1'}
@@ -3074,7 +3075,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t._name())
+        t = pxt.get_table(p(t._name()))
         assert set(t.columns()) == orig_cols | {'add1', 'name', 'id'}
 
         # revert() works
@@ -3085,7 +3086,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t._name())
+        t = pxt.get_table(p(t._name()))
         assert set(t.columns()) == orig_cols
 
     def test_bool_column(self, uses_env: Callable[[str], str], reload_tester: ReloadTester) -> None:
@@ -3184,9 +3185,9 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    def test_add_column_if_exists(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_add_column_if_exists(self, test_tbl_env: pxt.Table, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter of add_column."""
-        t = test_tbl
+        t = test_tbl_env
         orig_cnames = t.columns()
         orig_res = t.select(t.c1).order_by(t.c1).collect()
 
@@ -3565,8 +3566,8 @@ class TestTable:
         t = pxt.get_table(p('test_tbl'))
         check_rename(t, 'c1', 'c1_renamed')
 
-    def test_add_computed_column(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
-        t = test_tbl
+    def test_add_computed_column(self, test_tbl_env: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl_env
         status = t.add_computed_column(add1=t.c2 + 10)
         assert status.num_excs == 0
         _ = t.show()

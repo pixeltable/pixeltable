@@ -112,8 +112,8 @@ class TestFunction:
     def f2(a: int | None, b: float = 0.0, c: float | None = 1.0) -> float:
         return (0.0 if a is None else a) + b + (0.0 if c is None else c)
 
-    def test_call(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_call(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
 
         r0 = t.select(t.c2, t.c3).order_by(t.c2).collect().to_pandas()
         # positional params with default args
@@ -185,8 +185,8 @@ class TestFunction:
     def udf_variadic_kw(**kwargs: Any) -> int:
         raise AssertionError()
 
-    def test_invalid_call(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_invalid_call(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         # Note: the wording is different across Python versions
         missing_a = r"missing.+'a'"
         missing_b = r"missing.+'b'"
@@ -561,9 +561,9 @@ class TestFunction:
         # reload_catalog()
         pxt.drop_dir('test', force=True)
 
-    def test_query_with_limit(self, test_tbl: pxt.Table) -> None:
+    def test_query_with_limit(self, test_tbl_env: pxt.Table) -> None:
         """@pxt.query bodies that use limit() with differently-shaped limit arguments."""
-        t = test_tbl
+        t = test_tbl_env
 
         # limit(n) where n is a plain int parameter, return_scalar=True
         @pxt.query(return_scalar=True)
@@ -581,9 +581,9 @@ class TestFunction:
         res = t.select(t.c4, result=q4(4)).limit(2).collect()
         assert res[0]['result'][0] == [2, 3, 4]
 
-    def test_query_with_limit_errors(self, test_tbl: pxt.Table) -> None:
+    def test_query_with_limit_errors(self, test_tbl_env: pxt.Table) -> None:
         """limit()/offset() reject non-(int constant | query parameter) arguments."""
-        t = test_tbl
+        t = test_tbl_env
 
         # arithmetic on a query parameter is not allowed for limit
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
@@ -842,8 +842,8 @@ class TestFunction:
     def add2_with_default(x: int, y: int = 1) -> int:
         return x + y
 
-    def test_expr_udf(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_expr_udf(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         t.add_computed_column(other_int=t.c2 + 5)
 
         res1 = t.select(out=self.add1(t.c2)).order_by(t.c2).collect()
@@ -891,8 +891,8 @@ class TestFunction:
         res2 = t.select(out=self.add2(t.c2, 1)).order_by(t.c2).collect()
         assert_resultset_eq(res1, res2)
 
-    def test_expr_udf_method_property(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_expr_udf_method_property(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
 
         # is_method: receiver-form `t.c2._expr_method_plus5()` matches function-form
         res_recv = t.select(out=t.c2._expr_method_plus5()).order_by(t.c2).collect()
@@ -1045,8 +1045,8 @@ class TestFunction:
     def typevar_udf(x: T, y: T, z: str = 'a') -> T:
         return x + y  # type: ignore[operator]
 
-    def test_overloaded_udf(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
-        t = test_tbl
+    def test_overloaded_udf(self, test_tbl_env: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl_env
         fc_str = self.overloaded_udf(t.c1, t.c1)
         fc_int = self.overloaded_udf(t.c2, t.c2)
         fc_float = self.overloaded_udf(t.c3, t.c3)
@@ -1168,8 +1168,8 @@ class TestFunction:
         def value(self) -> T:
             return self.max
 
-    def test_overloaded_uda(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_overloaded_uda(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         fc_str = self.overloaded_uda(t.c1)
         fc_int = self.overloaded_uda(t.c2)
         fc_float = self.overloaded_uda(t.c3)

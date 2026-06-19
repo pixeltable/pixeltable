@@ -479,8 +479,8 @@ class TestQuery:
         def value(self) -> int:
             return 0
 
-    def test_limit_0(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_limit_0(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
 
         def check(query: pxt.Query, expected_cols: list[str]) -> None:
             assert list(query.schema.keys()) == expected_cols
@@ -519,12 +519,13 @@ class TestQuery:
         assert rows == []
         assert list(cur._schema.keys()) == ['c1', 'c2']
 
-    def test_head_tail(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_head_tail(self, test_tbl_env: pxt.Table, uses_env: Callable[[str], str]) -> None:
+        p = uses_env
+        t = test_tbl_env
         res = t.head(10).to_pandas()
         assert np.all(res.c2 == list(range(10)))
         reload_catalog()
-        t = pxt.get_table('test_tbl')
+        t = pxt.get_table(p('test_tbl'))
         res = t.head(10).to_pandas()
         # Where is applied
         res = t.where(t.c2 > 9).head(10).to_pandas()
@@ -551,8 +552,8 @@ class TestQuery:
             _ = t.group_by(t.c2).tail(10)
         assert 'cannot be used with group_by' in str(exc_info.value)
 
-    def test_repr(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_repr(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
         query = t.select(t.c1, t.c1.upper(), t.c2 + 5).where(t.c2 < 10).group_by(t.c1).order_by(t.c3).limit(10)
         query.describe()
 
@@ -673,8 +674,8 @@ class TestQuery:
         opurl_img = urllib.request.urlopen(url=thumb)
         PIL.Image.open(opurl_img)
 
-    def test_update_delete_where(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_update_delete_where(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
 
         # Update with where
         validate_update_status(t.where(t.c2 >= 50).update({'c3': 4171780.0}), expected_rows=50)
@@ -693,8 +694,8 @@ class TestQuery:
         validate_update_status(t.select().delete())
         assert t.count() == 0
 
-    def test_mutation_op_restrictions(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_mutation_op_restrictions(self, test_tbl_env: pxt.Table) -> None:
+        t = test_tbl_env
 
         # select_list
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
@@ -1121,8 +1122,8 @@ class TestQuery:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
 
-    def test_cursor_lifecycle(self, test_tbl: pxt.Table) -> None:
-        query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
+    def test_cursor_lifecycle(self, test_tbl_env: pxt.Table) -> None:
+        query = test_tbl_env.select(test_tbl_env.c1, test_tbl_env.c2, test_tbl_env.c3).order_by(test_tbl_env.c2)
 
         # repr reflects state transitions
         cur = query.cursor()
@@ -1158,8 +1159,8 @@ class TestQuery:
         cur = query.cursor()
         assert list(cur._schema.keys()) == ['c1', 'c2', 'c3']
 
-    def test_cursor_row(self, test_tbl: pxt.Table) -> None:
-        query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
+    def test_cursor_row(self, test_tbl_env: pxt.Table) -> None:
+        query = test_tbl_env.select(test_tbl_env.c1, test_tbl_env.c2, test_tbl_env.c3).order_by(test_tbl_env.c2)
         collected = query.collect()
 
         with query.cursor() as cur:

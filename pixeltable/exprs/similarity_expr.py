@@ -12,6 +12,8 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.catalog.globals import QColumnId
 from pixeltable.catalog.table_version import TableVersionKey
+from pixeltable.env import Env
+from ..catalog import ColumnVersionMd
 
 from ..runtime import get_runtime
 from .column_ref import ColumnRef
@@ -54,17 +56,19 @@ class SimilarityExpr(Expr):
         # `self.components`. ColumnRef gets evaluated and materialized during query execution, which
         # is unnecessary here — we only need the column to resolve the embedding index at plan time,
         # not at eval time. Storing column and table version identifiers avoids that overhead.
+        col_md: ColumnVersionMd
         if col_ref is not None:
-            tv = col_ref.tbl_version.get()
-            column = col_ref.col
-            self.qcol_id = col_ref.col_md.qcolid
-            self.table_version_key = tv.key
+            #tv = col_ref.tbl_version.get()
+            col_md = col_ref.col_md
+            self.qcol_id = col_md.qcolid
+            self.table_version_key = TableVersionKey(col_md.tbl_id, col_md.effective_version)
         else:
             # During deserialization
             assert table_version_key is not None
             assert qcol_id is not None
             self.qcol_id = qcol_id
             self.table_version_key = table_version_key
+            tbl_uri = Env.get().tbl_catalog_uri(table_version_key.tbl_id)
             tv = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=False)
             # Find column in the table hierarchy (tv could be a snapshot)
             column = tv.lookup_column(self.qcol_id)
@@ -73,6 +77,7 @@ class SimilarityExpr(Expr):
                     excs.ErrorCode.COLUMN_NOT_FOUND,
                     f'Column {self.qcol_id!r} not found in table version {self.table_version_key!r} or its bases',
                 )
+
         # Get embedding index for given column
         if tv.supports_idxs:
             idx_info = tv.get_idx(column, self.idx_name, EmbeddingIndex)
