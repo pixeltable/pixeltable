@@ -82,7 +82,7 @@ class TestIndex:
         self,
         use_index_name: bool,
         use_separate_embeddings: bool,
-        small_img_tbl: pxt.Table,
+        small_img_tbl_dual: pxt.Table,
         clip_or_local: tuple[pxt.Function, bool],
         reload_tester: ReloadTester,
     ) -> None:
@@ -90,7 +90,7 @@ class TestIndex:
         skip_test_if_not_installed('imagehash')
         if not is_dummy_model:
             skip_test_if_not_installed('transformers')
-        t = small_img_tbl
+        t = small_img_tbl_dual
         res = t.select(t.img, t.img.localpath, t.img.fileurl).head(1)
         sample_img = res[0, 'img']
         sample_img_localpath = res[0, 'img_localpath']
@@ -141,7 +141,7 @@ class TestIndex:
             t.drop_embedding_index(column='img')
 
     def test_deprecated_similarity(
-        self, small_img_tbl: pxt.Table, clip_or_local: tuple[pxt.Function, bool], reload_tester: ReloadTester
+        self, small_img_tbl_dual: pxt.Table, clip_or_local: tuple[pxt.Function, bool], reload_tester: ReloadTester
     ) -> None:
         """
         Test that the deprecated pattern still works, with a warning.
@@ -151,7 +151,7 @@ class TestIndex:
         skip_test_if_not_installed('imagehash')
         if not is_dummy_model:
             skip_test_if_not_installed('transformers')
-        t = small_img_tbl
+        t = small_img_tbl_dual
         sample_img = t.select(t.img).head(1)[0, 'img']
         _ = t.select(t.img.localpath).collect()
 
@@ -256,8 +256,8 @@ class TestIndex:
         # insert more rows in order to run the query function
         validate_update_status(queries.insert(query_rows))
 
-    def test_search_fn(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
-        t = small_img_tbl
+    def test_search_fn(self, small_img_tbl_dual: pxt.Table, local_embed: pxt.Function) -> None:
+        t = small_img_tbl_dual
         sample_img = t.select(t.img).head(1)[0, 'img']
         _ = t.select(t.img.localpath).collect()
 
@@ -327,9 +327,12 @@ class TestIndex:
             _ = t.order_by(t.split.similarity(image=sample_img)).limit(1).collect()
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
-    def test_add_index_after_drop(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
+    def test_add_index_after_drop(
+        self, small_img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+    ) -> None:
         """Test that an index with the same name can be added after the previous one is dropped"""
-        t = small_img_tbl
+        p = make_catalog_path
+        t = small_img_tbl_dual
         sample_img = t.select(t.img).head(1)[0, 'img']
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
         orig_res = (
@@ -351,7 +354,7 @@ class TestIndex:
         t.revert()
         # should be true even after reloading from persistence
         reload_catalog()
-        t = pxt.get_table('small_img_tbl')
+        t = pxt.get_table(p('small_img_tbl'))
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
         res = (
             t.select(t.img.localpath)
@@ -373,7 +376,7 @@ class TestIndex:
         assert_resultset_eq(orig_res, res, True)
         t.drop_embedding_index(idx_name='clip_idx')
         reload_catalog()
-        t = pxt.get_table('small_img_tbl')
+        t = pxt.get_table(p('small_img_tbl'))
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
         res = (
             t.select(t.img.localpath)
@@ -457,8 +460,15 @@ class TestIndex:
         # sanity check persistence
         reload_tester.run_reload_test()
 
-    def test_update_img(self, img_tbl: pxt.Table, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
-        img_t = img_tbl
+    def test_update_img(
+        self,
+        img_tbl_dual: pxt.Table,
+        test_tbl_dual: pxt.Table,
+        make_catalog_path: Callable[[str], str],
+        reload_tester: ReloadTester,
+    ) -> None:
+        p = make_catalog_path
+        img_t = img_tbl_dual
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         short_rows = rows[:5]
         new_rows: list[dict[str, Any]] = []
@@ -468,7 +478,7 @@ class TestIndex:
 
         # create table with fewer rows to speed up testing
         schema = {'pkey': pxt.Required[pxt.Int], 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
-        tbl_name = 'update_test'
+        tbl_name = p('update_test')
         img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
         img_t.insert(new_rows)
         print(img_t.head())
@@ -676,15 +686,18 @@ class TestIndex:
 
         _ = reload_tester.run_query(img_t.select())
 
-    def test_view_indices(self, uses_db: None, local_embed: pxt.Function, reload_tester: ReloadTester) -> None:
+    def test_view_indices(
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, reload_tester: ReloadTester
+    ) -> None:
+        p = make_catalog_path
         # Create a base table
-        t = pxt.create_table('t1', {'n': pxt.Int, 's': pxt.String})
+        t = pxt.create_table(p('t1'), {'n': pxt.Int, 's': pxt.String})
         sentences = get_sentences(20)
         status = t.insert({'n': i, 's': s} for i, s in enumerate(sentences))
         validate_update_status(status, 20)
 
         # Create a view that indexes the base table column
-        v = pxt.create_view('v', t.where(t.n % 2 == 0))
+        v = pxt.create_view(p('v'), t.where(t.n % 2 == 0))
         v.add_embedding_index('s', string_embed=local_embed)
 
         query1 = v.select(sim1=v.s.similarity(string=sentences[1])).order_by(v.n)
@@ -874,7 +887,9 @@ class TestIndex:
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(p, data, pxt.Float)
 
-    def test_string_btree(self, uses_db: None) -> None:
+    def test_string_btree(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+
         def create_random_str(n: int) -> str:
             chars = string.ascii_letters + string.digits
             return ''.join(random.choice(chars) for _ in range(n))
@@ -882,7 +897,7 @@ class TestIndex:
         random.seed(1)
         # create random strings of length 200-300 characters
         data = [create_random_str(200 + i % 100) for i in range(self.BTREE_TEST_NUM_ROWS)]
-        t = self.run_btree_test(lambda name: name, data, pxt.String)
+        t = self.run_btree_test(p, data, pxt.String)
 
         # edge cases: strings that are at and above the max length
         sorted_data = sorted(data)
@@ -901,7 +916,7 @@ class TestIndex:
         assert 'String literal too long' in str(exc_info.value)
 
         # test that Comparison uses BtreeIndex.MAX_STRING_LEN
-        t = pxt.create_table('test_max_str_len', {'data': pxt.String})
+        t = pxt.create_table(p('test_max_str_len'), {'data': pxt.String})
         rows = [{'data': s}, {'data': s + 'a'}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         assert t.where(t.data >= s).count() == 2
@@ -969,11 +984,12 @@ class TestIndex:
         assert res[0]['rowid'] == 1
 
     def test_array_column_embedding_index(
-        self, uses_db: None, local_embed: pxt.Function, reload_tester: ReloadTester
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
+        p = make_catalog_path
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
 
-        t = pxt.create_table('array_embedding_test', {'id': pxt.Int, 'text': pxt.String})
+        t = pxt.create_table(p('array_embedding_test'), {'id': pxt.Int, 'text': pxt.String})
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
 
         precomputed_embeddings = t.order_by(t.id).select(emb=local_embed(t.text)).collect()['emb']
@@ -1059,9 +1075,10 @@ class TestIndex:
     def _embed_wrong_shape(x: str) -> pxt.Array[(256,), np.float32]:
         return np.zeros(256, dtype=np.float32)
 
-    def test_array_embedding_index_validation_errors(self, uses_db: None) -> None:
+    def test_array_embedding_index_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = pxt.create_table(
-            'arr_val_test',
+            p('arr_val_test'),
             {
                 'id': pxt.Int,
                 'vec': pxt.Array[(384,), np.float32],  # type: ignore[misc]
@@ -1115,9 +1132,12 @@ class TestIndex:
         t = pxt.get_table('index_drop_test')
         assert idx_info.id not in t._tbl_version.get().idxs
 
-    def test_similarity_index_lifecycle(self, uses_db: None, local_embed: pxt.Function) -> None:
+    def test_similarity_index_lifecycle(
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+    ) -> None:
         """Test similarity when index is dropped, recreated, and column is dropped."""
-        t = pxt.create_table('lifecycle_test', {'id': pxt.Int, 'text': pxt.String})
+        p = make_catalog_path
+        t = pxt.create_table(p('lifecycle_test'), {'id': pxt.Int, 'text': pxt.String})
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
         t.add_embedding_index('text', idx_name='emb_idx', string_embed=local_embed)
@@ -1129,7 +1149,7 @@ class TestIndex:
 
         # verify query works after catalog reload
         reload_catalog()
-        t = pxt.get_table('lifecycle_test')
+        t = pxt.get_table(p('lifecycle_test'))
         res = query.collect()
         assert res[0]['text'] == 'a cat sitting on a mat'
 
@@ -1145,7 +1165,7 @@ class TestIndex:
 
         # verify it still works after reload with recreated index
         reload_catalog()
-        t = pxt.get_table('lifecycle_test')
+        t = pxt.get_table(p('lifecycle_test'))
         res = query.collect()
         assert res[0]['text'] == 'a cat sitting on a mat'
 
@@ -1156,7 +1176,7 @@ class TestIndex:
 
     @pytest.mark.parametrize('reload', [True, False], ids=['reload', 'noreload'])
     def test_similarity_column_snapshot(
-        self, uses_db: None, mpnet_or_local: tuple[pxt.Function, bool], reload: bool
+        self, make_catalog_path: Callable[[str], str], mpnet_or_local: tuple[pxt.Function, bool], reload: bool
     ) -> None:
         """Tests various edge cases that involve similarity columns and snapshots"""
 
@@ -1169,7 +1189,8 @@ class TestIndex:
             if not is_dummy_model:
                 assert cond
 
-        tbl = pxt.create_table('test', {'text': pxt.String, 'text2': pxt.String})
+        p = make_catalog_path
+        tbl = pxt.create_table(p('test'), {'text': pxt.String, 'text2': pxt.String})
         tbl.insert([{'text': s, 'text2': s} for s in get_sentences(10)])
 
         # add a stored similarity column
@@ -1191,7 +1212,7 @@ class TestIndex:
         res = tbl.select(tbl.text).order_by(tbl.sim_unstored, asc=False).collect()
         check('sunshine' in res[0]['text'])
 
-        snap = pxt.create_snapshot('snap', tbl)
+        snap = pxt.create_snapshot(p('snap'), tbl)
 
         # check the stored sim column in the snapshot
         res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
@@ -1217,7 +1238,7 @@ class TestIndex:
 
         reload_catalog(reload)
 
-        snap = pxt.get_table('snap')
+        snap = pxt.get_table(p('snap'))
         res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
         check('sunshine' in res[0]['text'])
         check('winter' in res[1]['text'])

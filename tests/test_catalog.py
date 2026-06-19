@@ -1,5 +1,5 @@
 from textwrap import dedent
-from typing import Any
+from typing import Any, Callable
 
 import psycopg
 import pydantic
@@ -599,21 +599,22 @@ class TestCatalog:
         assert str(unix_appended) == 'a/b/c/d'
         assert dotted_appended.components == unix_appended.components == ('a', 'b', 'c', 'd')
 
-    def test_ls(self, uses_db: None) -> None:
-        pxt.create_dir('test_dir')
-        pxt.create_dir('test_dir/subdir')
+    def test_ls(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('test_dir'))
+        pxt.create_dir(p('test_dir/subdir'))
 
-        t = pxt.create_table('test_dir/tbl', {'a': pxt.Int})
+        t = pxt.create_table(p('test_dir/tbl'), {'a': pxt.Int})
         t.insert(a=3)
-        v1 = pxt.create_view('view1', t)
+        v1 = pxt.create_view(p('view1'), t)
         t.insert(a=5)
         v1.add_column(b=pxt.Int)
-        _s1 = pxt.create_snapshot('test_dir/snapshot1', v1)
+        _s1 = pxt.create_snapshot(p('test_dir/snapshot1'), v1)
         t.insert(a=22)
-        v2 = pxt.create_view('test_dir/view2', t)
-        _s2 = pxt.create_snapshot('test_dir/snapshot2', v2, additional_columns={'c': pxt.String})
+        v2 = pxt.create_view(p('test_dir/view2'), t)
+        _s2 = pxt.create_snapshot(p('test_dir/snapshot2'), v2, additional_columns={'c': pxt.String})
         t.insert(a=4171780)
-        df = pxt.ls('test_dir')
+        df = pxt.ls(p('test_dir'))
         print(repr(df))
         assert dedent(repr(df)) == dedent(
             '''

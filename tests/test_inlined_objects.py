@@ -1,6 +1,6 @@
 import random
 import time
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import PIL.Image
@@ -22,8 +22,9 @@ from .utils import (
 
 @pytest.mark.expensive  # Large data volumes involved; must run on larger instances
 class TestInlinedObjects:
-    def test_null_arrays(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'i': pxt.Int, 'data': pxt.Array})
+    def test_null_arrays(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test_tbl'), {'i': pxt.Int, 'data': pxt.Array})
         validate_update_status(
             t.insert(
                 {'i': i, 'data': np.random.rand(256, 256, 3).astype(np.float32) if i % 2 == 0 else None}
@@ -276,12 +277,13 @@ class TestInlinedObjects:
         pxt.drop_table('test')
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_samples(self, uses_db: None) -> None:
+    def test_samples(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
         schema = {'id': pxt.Int, 'c': pxt.Int, 'a': pxt.Array, 'd': pxt.Json}
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
 
         rows = [
             {

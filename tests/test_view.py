@@ -594,11 +594,12 @@ class TestView:
         for row in v3_res:
             assert row['wc2a'] + 1000 == row['wc2b']
 
-    def test_unstored_columns(self, uses_db: None) -> None:
+    def test_unstored_columns(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test chained views with unstored columns"""
+        p = make_catalog_path
         # create table with image column and two updateable int columns
         schema = {'img': pxt.Image, 'int1': pxt.Int, 'int2': pxt.Int}
-        t = pxt.create_table('test_tbl', schema)
+        t = pxt.create_table(p('test_tbl'), schema)
         # populate table with images of a defined size
         width, height = 100, 100
         rows = [
@@ -614,7 +615,7 @@ class TestView:
             'int4': pxt.Int,  # TODO: add default
         }
         logger.debug('******************* CREATE V1')
-        v1 = pxt.create_view('v1', t, additional_columns=v1_schema)
+        v1 = pxt.create_view(p('v1'), t, additional_columns=v1_schema)
         v1.update({'int4': 1})
         _ = v1.select(v1.img2.width, v1.img2.height).collect()
 
@@ -627,7 +628,7 @@ class TestView:
             }
         }
         logger.debug('******************* CREATE V2')
-        v2 = pxt.create_view('v2', v1.where(v1.int1 < 10), additional_columns=v2_schema)
+        v2 = pxt.create_view(p('v2'), v1.where(v1.int1 < 10), additional_columns=v2_schema)
 
         def check_views() -> None:
             assert_resultset_eq(
@@ -771,17 +772,18 @@ class TestView:
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_filter(self, do_reload_catalog: bool, uses_db: None) -> None:
-        t = create_test_tbl()
+    def test_filter(self, do_reload_catalog: bool, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = create_test_tbl(p('test_tbl'))
 
         # create view with filter
-        v = pxt.create_view('test_view', t.where(t.c2 < 10))
+        v = pxt.create_view(p('test_view'), t.where(t.c2 < 10))
         assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # use view md after reload
         reload_catalog(do_reload_catalog)
-        t = pxt.get_table('test_tbl')
-        v = pxt.get_table('test_view')
+        t = pxt.get_table(p('test_tbl'))
+        v = pxt.get_table(p('test_view'))
 
         # insert data: new rows with unique c2 values (none match view filter c2 < 10)
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7).where(t.c2 < 20).collect())
@@ -802,7 +804,7 @@ class TestView:
         assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # create view with filter containing datetime
-        _ = pxt.create_view('test_view_2', t.where(t.c5 < datetime.datetime.now()))
+        _ = pxt.create_view(p('test_view_2'), t.where(t.c5 < datetime.datetime.now()))
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
     def test_view_of_snapshot(self, do_reload_catalog: bool, make_catalog_path: Callable[[str], str]) -> None:

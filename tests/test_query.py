@@ -572,16 +572,16 @@ class TestQuery:
                Limit           10""",
         )
 
-    def test_count(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_count(self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         cnt = t.count()
         assert cnt == 100
 
         cnt = t.where(t.c2 < 10).count()
         assert cnt == 10
 
-    def test_count_errors(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
-        t = small_img_tbl
+    def test_count_errors(self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table) -> None:
+        t = small_img_tbl_dual
         # Python-only filter forces a non-SQL plan
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
@@ -589,7 +589,7 @@ class TestQuery:
         ):
             _ = t.where(t.img.width > 100).count()
 
-        t = test_tbl
+        t = test_tbl_dual
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape('count() cannot be used with limit() or offset()')
         ):
@@ -795,8 +795,8 @@ class TestQuery:
         r = query.limit(5).collect()
         assert all(r[i, 0] == v for i in range(len(r)))
 
-    def test_select_constant(self, all_datatypes_tbl: pxt.Table) -> None:
-        t = all_datatypes_tbl
+    def test_select_constant(self, all_datatypes_tbl_dual: pxt.Table) -> None:
+        t = all_datatypes_tbl_dual
         self.__check_constant_query(t.select(5), 5)
         self.__check_constant_query(t.select(None), None)
         self.__check_constant_query(t.select(foo=5), 5)

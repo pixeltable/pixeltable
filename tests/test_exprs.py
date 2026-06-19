@@ -221,15 +221,15 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
-    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table) -> None:
-        t = test_tbl
+    def test_props(self, test_tbl_dual: pxt.Table, img_tbl_dual: pxt.Table) -> None:
+        t = test_tbl_dual
         # errortype/-msg for computed column
         res = t.select(error=t.c8.errortype).collect()
         assert res.to_pandas()['error'].isna().all()
         res = t.select(error=t.c8.errormsg).collect()
         assert res.to_pandas()['error'].isna().all()
 
-        img_t = img_tbl
+        img_t = img_tbl_dual
         # fileurl
         res = img_t.select(img_t.img.fileurl).collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
@@ -1126,8 +1126,8 @@ class TestExprs:
 
         t.c2.apply(f8)
 
-    def test_select_list(self, img_tbl: pxt.Table) -> None:
-        t = img_tbl
+    def test_select_list(self, img_tbl_dual: pxt.Table) -> None:
+        t = img_tbl_dual
         result = t.select(t.img).show(n=100)
         _ = result._repr_html_()
         query = t.select(t.img, t.img.rotate(60))
@@ -1136,8 +1136,8 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.select(t.img.rotate)
 
-    def test_img_members(self, img_tbl: pxt.Table) -> None:
-        t = img_tbl
+    def test_img_members(self, img_tbl_dual: pxt.Table) -> None:
+        t = img_tbl_dual
         # make sure the limit is applied in Python, not in the SELECT
         result = t.where(t.img.height > 200).select(t.img).show(n=3)
         assert len(result) == 3
@@ -1167,8 +1167,8 @@ class TestExprs:
         # TODO: fix it
         # res = t.where(t.img.width < 600).collect()
 
-    def test_img_exprs(self, img_tbl: pxt.Table) -> None:
-        t = img_tbl
+    def test_img_exprs(self, img_tbl_dual: pxt.Table) -> None:
+        t = img_tbl_dual
         _ = t.where(t.img.width < 600).collect()
         _ = (t.img.entropy() > 1) & (t.split == 'train')
         _ = (t.img.entropy() > 1) & (t.split == 'train') & (t.split == 'val')
@@ -1186,8 +1186,10 @@ class TestExprs:
         )
         print(result)
 
-    def test_similarity(self, img_tbl: pxt.Table, indexed_img_tbl: pxt.Table, multi_idx_img_tbl: pxt.Table) -> None:
-        t = img_tbl
+    def test_similarity(
+        self, img_tbl_dual: pxt.Table, indexed_img_tbl_dual: pxt.Table, multi_idx_img_tbl_dual: pxt.Table
+    ) -> None:
+        t = img_tbl_dual
         probe = t.select(t.img).show(1)
         img = probe[0, 0]
 
@@ -1196,7 +1198,7 @@ class TestExprs:
         with pytest.raises(AttributeError):
             _ = t.select(t.img.nearest('musical instrument')).show(10)
 
-        t1 = indexed_img_tbl
+        t1 = indexed_img_tbl_dual
         # for a table with a single embedding index, whether we
         # specify the index or not, the similarity expression
         # would use that index. So these exressions should be equivalent.
@@ -1218,7 +1220,7 @@ class TestExprs:
             assert sim1.id == sim2.id
             assert sim1.serialize() == sim2.serialize()
 
-        t2 = multi_idx_img_tbl
+        t2 = multi_idx_img_tbl_dual
         # for a table with multiple embedding indexes, the index
         # to use must be specified to the similarity expression.
         # So similarity expressions using different indexes should differ.
@@ -1261,8 +1263,8 @@ class TestExprs:
             _ = str(e)
             print(_)
 
-    def test_subexprs(self, img_tbl: pxt.Table) -> None:
-        t = img_tbl
+    def test_subexprs(self, img_tbl_dual: pxt.Table) -> None:
+        t = img_tbl_dual
         e = t.img
         subexprs = list(e.subexprs())
         assert len(subexprs) == 1

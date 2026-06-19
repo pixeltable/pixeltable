@@ -1712,33 +1712,37 @@ class TestTable:
         _ = pxt.get_table('test3')
         pxt.drop_table(t)
 
-    def test_drop_table_force(self, test_tbl: pxt.Table) -> None:
-        t = pxt.get_table('test_tbl')
-        v1 = pxt.create_view('v1', t)
-        v2 = pxt.create_view('v2', t)
-        _v3 = pxt.create_view('v3', v1)
-        _v4 = pxt.create_view('v4', v2)
-        _v5 = pxt.create_view('v5', t)
-        assert len(pxt.list_tables()) == 6
-        pxt.drop_table('v2', force=True)  # Drops v2 and v4, but not the others
-        assert len(pxt.list_tables()) == 4
-        pxt.drop_table('test_tbl', force=True)  # Drops everything else
-        assert len(pxt.list_tables()) == 0
+    def test_drop_table_force(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.get_table(p('test_tbl'))
+        v1 = pxt.create_view(p('v1'), t)
+        v2 = pxt.create_view(p('v2'), t)
+        _v3 = pxt.create_view(p('v3'), v1)
+        _v4 = pxt.create_view(p('v4'), v2)
+        _v5 = pxt.create_view(p('v5'), t)
+        assert len(pxt.list_tables(p(''))) == 6
+        pxt.drop_table(p('v2'), force=True)  # Drops v2 and v4, but not the others
+        assert len(pxt.list_tables(p(''))) == 4
+        pxt.drop_table(p('test_tbl'), force=True)  # Drops everything else
+        assert len(pxt.list_tables(p(''))) == 0
 
-    def test_drop_table_force_via_handle(self, test_tbl: pxt.Table) -> None:
-        t = pxt.get_table('test_tbl')
-        v1 = pxt.create_view('v1', t)
-        v2 = pxt.create_view('v2', t)
-        _v3 = pxt.create_view('v3', v1)
-        _v4 = pxt.create_view('v4', v2)
-        _v5 = pxt.create_view('v5', t)
-        assert len(pxt.list_tables()) == 6
+    def test_drop_table_force_via_handle(
+        self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
+        t = pxt.get_table(p('test_tbl'))
+        v1 = pxt.create_view(p('v1'), t)
+        v2 = pxt.create_view(p('v2'), t)
+        _v3 = pxt.create_view(p('v3'), v1)
+        _v4 = pxt.create_view(p('v4'), v2)
+        _v5 = pxt.create_view(p('v5'), t)
+        assert len(pxt.list_tables(p(''))) == 6
         pxt.drop_table(v2, force=True)  # Drops v2 and v4, but not the others
-        assert len(pxt.list_tables()) == 4
-        assert 'v2' not in pxt.list_tables()
-        assert 'v4' not in pxt.list_tables()
+        assert len(pxt.list_tables(p(''))) == 4
+        assert p('v2') not in pxt.list_tables(p(''))
+        assert p('v4') not in pxt.list_tables(p(''))
         pxt.drop_table(t, force=True)  # Drops everything else
-        assert len(pxt.list_tables()) == 0
+        assert len(pxt.list_tables(p(''))) == 0
 
     def test_drop_table_if_not_exists(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test the if_not_exists parameter of drop_table API"""

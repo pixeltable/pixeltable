@@ -32,10 +32,9 @@ class TestSample:
                     rowid += 1
         return pxt.create_table(p('scm_t'), source=rows, schema_overrides=schema)
 
-    def test_sample_errors(self, uses_db: None) -> None:
-        # local-only: exercises a self-join with a ColumnRef `on` (t.join(t, on=t.c1)), which the proxy
-        # doesn't resolve yet
-        t = create_test_tbl('test_tbl')
+    def test_sample_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = create_test_tbl(p('test_tbl'))
 
         # ------- Test that sample is not preceded by anything unexpected
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Multiple sample\(\) clauses not allowed'):
@@ -281,26 +280,27 @@ class TestSample:
         new_table.insert(query)
         assert new_table.count() == 2 * n_sample
 
-    def test_sample_create_insert_table(self, test_tbl: pxt.Table) -> None:
-        # local-only: the test_tbl portion samples an Array column (c8); array result columns aren't
-        # supported over the proxy yet
-        t = self.create_sample_data(_local_path, 4, 6, False)
+    def test_sample_create_insert_table(
+        self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
+        t = self.create_sample_data(p, 4, 6, False)
 
         query = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=4171780)
-        self.check_create_insert(_local_path, t, query, 6 * 6, sort_key='id')
+        self.check_create_insert(p, t, query, 6 * 6, sort_key='id')
 
         query = t.select().sample(n=20, seed=4171780)
-        self.check_create_insert(_local_path, t, query, 20, sort_key='id')
+        self.check_create_insert(p, t, query, 20, sort_key='id')
 
         query = t.select().sample(fraction=0.1, seed=4171780)
         n_sample = len(query.collect())
-        self.check_create_insert(_local_path, t, query, n_sample, sort_key='id')
+        self.check_create_insert(p, t, query, n_sample, sort_key='id')
 
-        t = test_tbl
+        t = test_tbl_dual
         query = t.sample(n=20)
         _ = query.collect()
         query = t.sample(n=20, seed=4171780)
-        self.check_create_insert(_local_path, t, query, 20, sort_key='c2')
+        self.check_create_insert(p, t, query, 20, sort_key='c2')
 
     def test_randomized_sample(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test that subsequent calls to a non-seeded sample return different results."""

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import ClassVar
+from typing import Callable, ClassVar
 
 import pytest
 import requests
@@ -66,8 +66,9 @@ class TestDestination:
                 pytest.skip(f'Destination {str(dest_id)!r} not reachable or not configured properly: {exc}')
             return None
 
-    def test_dest_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('test_dest_errors', schema={'img': pxt.Image})
+    def test_dest_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image})
         valid_dest = 'tests/data/'
 
         # Basic tests of the destination parameter: types and store / computed
@@ -78,7 +79,9 @@ class TestDestination:
             t.add_computed_column(img_rot=t.img.rotate(90), stored=False, destination=valid_dest)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only applies to stored computed columns'):
-            _ = pxt.create_table('test_dest_bad', schema={'img': {'type': pxt.Image, 'destination': f'{valid_dest}'}})
+            _ = pxt.create_table(
+                p('test_dest_bad'), schema={'img': {'type': pxt.Image, 'destination': f'{valid_dest}'}}
+            )
 
         # Test destination with a non-existent directory
         with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match='does not exist'):
@@ -94,9 +97,10 @@ class TestDestination:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
-    def test_invalid_bucket(self, uses_db: None) -> None:
+    def test_invalid_bucket(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('boto3')
-        t = pxt.create_table('test_invalid_dest', schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_invalid_dest'), schema={'img': pxt.Image})
 
         with pxt_raises(
             pxt.ErrorCode.STORAGE_NOT_FOUND,
@@ -127,7 +131,7 @@ class TestDestination:
             )
             assert re.search(f'{msg1}|{msg2}', str(e)), f'Unexpected message: {e}'
 
-    def test_dest_parser(self, uses_db: None) -> None:
+    def test_dest_parser(self, make_catalog_path: Callable[[str], str]) -> None:
         a_name = 'acct-name'
         o_name = 'obj-name'
         p_name1 = 'path-name'
