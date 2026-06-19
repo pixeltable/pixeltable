@@ -35,9 +35,9 @@ class CatalogProxy(CatalogBase):
         self._catalog_uri = catalog_uri
         self._client = client
 
-    def _make_table(self, md: list[TableVersionMd]) -> Table:
-        tbl_md_path = TableMdPath.from_md(md, self._catalog_uri)
-        # record which catalog this table belongs to, so a ColumnRef into it can resolve against this proxy
+    def _make_table(self, md: list[TableVersionMd], version: int | None = None) -> Table:
+        # TODO: this signature doesn't make sense, why pass in version?
+        tbl_md_path = TableMdPath.from_md(md, self._catalog_uri, version=version)
         Env.get().record_tbl_catalog_uri(tbl_md_path.tbl_id, self._catalog_uri)
         if tbl_md_path.is_view():
             return ViewProxy(tbl_md_path, self._client)
@@ -123,7 +123,7 @@ class CatalogProxy(CatalogBase):
             'get_table_by_id',
             {'tbl_id': tbl_id, 'version': version, 'ignore_if_dropped': ignore_if_dropped},
         )
-        return None if md is None else self._make_table(md)
+        return None if md is None else self._make_table(md, version=version)
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         self._client.send_request(

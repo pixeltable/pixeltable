@@ -383,7 +383,7 @@ class Query:
 
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
-    grouping_tbl: catalog.TableVersionHandle | None
+    grouping_tbl_key: catalog.TableVersionKey | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
     offset_val: exprs.Expr | None
@@ -399,7 +399,7 @@ class Query:
         select_list: list[tuple[exprs.Expr, str | None]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
-        grouping_tbl: catalog.TableVersionHandle | None = None,
+        grouping_tbl_key: catalog.TableVersionKey | None = None,
         order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,  # list[(expr, asc)]
         limit: exprs.Expr | None = None,
         offset: exprs.Expr | None = None,
@@ -424,9 +424,9 @@ class Query:
             self._schema = {column_names[i]: select_list_exprs[i].col_type for i in range(len(column_names))}
 
         self.where_clause = copy.deepcopy(where_clause)
-        assert group_by_clause is None or grouping_tbl is None
+        assert group_by_clause is None or grouping_tbl_key is None
         self.group_by_clause = copy.deepcopy(group_by_clause)
-        self.grouping_tbl = grouping_tbl
+        self.grouping_tbl_key = grouping_tbl_key
         self.order_by_clause = copy.deepcopy(order_by_clause)
         self.limit_val = limit
         self.offset_val = offset
@@ -493,6 +493,12 @@ class Query:
     def _first_tbl(self) -> catalog.TableVersionPath:
         assert self._from_clause.is_local
         return self._from_clause.tvps[0]
+
+    def _mutation_target(self) -> catalog.Table:
+        from_path = self._from_clause.tbls[0]
+        tbl = get_runtime().get_table_by_id(from_path.tbl_id, version=from_path.effective_version())
+        assert tbl is not None
+        return tbl
 
     @property
     def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
@@ -655,15 +661,16 @@ class Query:
             # For now, we only support queries of the simplest form on unversioned tables
             assert len(self._from_clause.tbls) == 1, 'TODO: implement for unversioned tables [PXT-1101]'
             assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.grouping_tbl is None, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert self.grouping_tbl_key is None, 'TODO: implement for unversioned tables [PXT-1101]'
             assert self.group_by_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
             assert self.sample_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # construct a group-by clause if we're grouping by a table
         group_by_clause = self.group_by_clause
-        if self.grouping_tbl is not None:
+        if self.grouping_tbl_key is not None:
             assert group_by_clause is None
-            num_rowid_cols = len(self.grouping_tbl.get().store_tbl.rowid_columns())
+            grouping_tv = get_runtime().catalog.get_tbl_version(self.grouping_tbl_key)
+            num_rowid_cols = len(grouping_tv.store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
             first_tbl = tvps[0]
             assert num_rowid_cols <= len(first_tbl.tbl_version.get().store_tbl.rowid_columns())
@@ -788,7 +795,7 @@ class Query:
             select_list=select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=copy.deepcopy(self.limit_val),
             offset=copy.deepcopy(self.offset_val),
@@ -926,10 +933,10 @@ class Query:
             select_list=[(pxt_count(1), 'count')],
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             sample_clause=copy.deepcopy(self.sample_clause),
         )
-        is_grouped = self.group_by_clause is not None or self.grouping_tbl is not None
+        is_grouped = self.group_by_clause is not None or self.grouping_tbl_key is not None
 
         assert self._from_clause.is_local
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tvps):
@@ -1101,7 +1108,7 @@ class Query:
             select_list=select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
@@ -1149,7 +1156,7 @@ class Query:
             select_list=self.select_list,
             where_clause=pred,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
@@ -1318,13 +1325,13 @@ class Query:
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
         )
 
-    def group_by(self, *grouping_items: Any) -> Query:
+    def group_by(self, *grouping_items: exprs.Expr | catalog.Table) -> Query:
         """Add a group-by clause to this Query.
 
         Variants:
@@ -1372,10 +1379,10 @@ class Query:
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by() cannot be used with sample()')
 
-        grouping_tbl: catalog.TableVersionHandle | None = None
+        grouping_tbl_key: catalog.TableVersionKey | None = None
         group_by_clause: list[exprs.Expr] | None = None
         for item in grouping_items:
-            if isinstance(item, (catalog.Table, catalog.TableVersion)):
+            if isinstance(item, catalog.Table):
                 if len(grouping_items) > 1:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by(): only one Table can be specified'
@@ -1384,28 +1391,27 @@ class Query:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by() with Table not supported for joins'
                     )
-                # Take a handle (identity), not a TV instance: the Query may be invoked from a
-                # different thread/xact than the one that built it.
-                grouping_tv = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
-                grouping_tbl = grouping_tv.handle
-                # we need to make sure that the grouping table is a base of self.tbl
-                base = self._first_tbl.find_tbl_version(grouping_tbl.id)
-                if base is None or base.id == self._first_tbl.tbl_id:
+                # the grouping table must be a base of this query's table (and not the table itself)
+                from_path = self._from_clause.tbls[0]
+                grouping_path = item._tbl_path
+                grouping_tbl_key = from_path.find_tbl_version(grouping_path.tbl_id)
+                if grouping_tbl_key is None or grouping_tbl_key.tbl_id == from_path.tbl_id:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'group_by(): {grouping_tv.name!r} is not a base table of {self._first_tbl.tbl_name()!r}',
+                        f'group_by(): {grouping_path.tbl_name()!r} is not a base table of {from_path.tbl_name()!r}',
                     )
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in group_by(): {item}')
-        if grouping_tbl is None:
-            group_by_clause = list(grouping_items)
+        if grouping_tbl_key is None:
+            # no Table item was found, so every item passed the Expr check above
+            group_by_clause = cast('list[exprs.Expr]', list(grouping_items))
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
-            grouping_tbl=grouping_tbl,
+            grouping_tbl_key=grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
@@ -1480,7 +1486,7 @@ class Query:
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
@@ -1538,7 +1544,7 @@ class Query:
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=limit_expr,
             offset=offset_expr,
@@ -1665,7 +1671,7 @@ class Query:
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
@@ -1701,8 +1707,7 @@ class Query:
             >>> person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._first_tbl], lock_mutable_tree=True):
-            return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
+        return self._mutation_target().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def recompute_columns(
         self, *columns: str | exprs.ColumnRef, errors_only: bool = False, cascade: bool = True
@@ -1725,10 +1730,9 @@ class Query:
             >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
         self._validate_mutable('recompute_columns', False)
-        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._first_tbl], lock_mutable_tree=True):
-            tbl = get_runtime().catalog.get_table_by_id(self._first_tbl.tbl_id)
-
-        return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
+        return self._mutation_target().recompute_columns(
+            *columns, where=self.where_clause, errors_only=errors_only, cascade=cascade
+        )
 
     def delete(self) -> UpdateStatus:
         """Delete rows form the underlying table of the Query.
@@ -1744,10 +1748,9 @@ class Query:
             >>> person.where(t.age < 18).delete()
         """
         self._validate_mutable('delete', False)
-        if not self._first_tbl.is_insertable():
+        if self._from_clause.tbls[0].is_view():
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `delete` on a view.')
-        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._first_tbl], lock_mutable_tree=True):
-            return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
+        return self._mutation_target().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
         """Tests whether this Query can be mutated (such as by an update operation).
@@ -1760,12 +1763,12 @@ class Query:
 
         # TODO: Reconcile these with Table.__check_mutable()
         assert len(self._from_clause.tbls) == 1
-        if self._first_tbl.is_snapshot():
+        if self._from_clause.tbls[0].is_snapshot():
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` on a snapshot.')
 
     def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:
         """Tests whether the sequence of operations on this Query is valid for a mutation operation."""
-        if self.group_by_clause is not None or self.grouping_tbl is not None:
+        if self.group_by_clause is not None or self.grouping_tbl_key is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `group_by`.')
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `order_by`.')
@@ -1802,7 +1805,7 @@ class Query:
             'group_by_clause': [e.as_dict() for e in self.group_by_clause]
             if self.group_by_clause is not None
             else None,
-            'grouping_tbl': self.grouping_tbl.as_dict() if self.grouping_tbl is not None else None,
+            'grouping_tbl': self.grouping_tbl_key.as_dict() if self.grouping_tbl_key is not None else None,
             'order_by_clause': [(e.as_dict(), asc) for (e, asc) in self.order_by_clause]
             if self.order_by_clause is not None
             else None,
@@ -1836,8 +1839,8 @@ class Query:
         group_by_clause = (
             [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
         )
-        grouping_tbl = (
-            catalog.TableVersionHandle.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+        grouping_tbl_key = (
+            catalog.TableVersionKey.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
         )
         order_by_clause = (
             [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
@@ -1853,7 +1856,7 @@ class Query:
             select_list=select_list,
             where_clause=where_clause,
             group_by_clause=group_by_clause,
-            grouping_tbl=grouping_tbl,
+            grouping_tbl_key=grouping_tbl_key,
             order_by_clause=order_by_clause,
             limit=limit_val,
             offset=offset_val,

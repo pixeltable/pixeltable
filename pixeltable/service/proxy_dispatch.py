@@ -77,10 +77,10 @@ def _deserialize_args(request: ProxyRequest) -> dict:
     """
 
     @retry_loop(for_write=False)
-    def  deserialize() -> dict:
+    def deserialize() -> dict:
         return proxy_protocol.deserialize(request.args)
 
-    return  deserialize()
+    return deserialize()
 
 
 def _create_table(request: ProxyRequest) -> tuple[list, bool]:

@@ -355,6 +355,11 @@ def create_view(
     # assert tbl_version_path.is_versioned(), 'TODO: implement for unversioned tables [PXT-1101]'
 
     path_obj = catalog.Path.parse(path)
+    if tbl_path.catalog_uri != path_obj.catalog_uri:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'A view must be created in the same database as its base table {tbl_path.tbl_name()!r}.',
+        )
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
 

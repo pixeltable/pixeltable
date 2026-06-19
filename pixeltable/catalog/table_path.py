@@ -93,6 +93,20 @@ class TablePath(abc.ABC):
     def is_versioned(self) -> bool: ...
 
     @property
+    @abc.abstractmethod
+    def catalog_uri(self) -> str:
+        """The uri of the db to which this table belogns."""
+        ...
+
+    def find_tbl_version(self, id: UUID) -> TableVersionKey | None:
+        """Return the version key of the table with the given id in this path's chain, or None."""
+        if self.tbl_id == id:
+            return TableVersionKey(self.tbl_id, self.effective_version())
+        if self.base is None:
+            return None
+        return self.base.find_tbl_version(id)
+
+    @property
     def path_len(self) -> int:
         return 1 if self.base is None else 1 + self.base.path_len
 
@@ -249,6 +263,10 @@ class TableVersionPath(TablePath):
     def tbl_id(self) -> UUID:
         return self.tbl_version.id
 
+    @property
+    def catalog_uri(self) -> str:
+        return ''
+
     def version(self) -> int | None:
         if not self.is_versioned():
             return None
@@ -305,14 +323,6 @@ class TableVersionPath(TablePath):
         if self.base is None:
             return []
         return self.base.get_tbl_versions()
-
-    def find_tbl_version(self, id: UUID) -> TableVersionHandle | None:
-        """Return the matching TableVersion in the chain of TableVersions, starting with this one"""
-        if self.tbl_version.id == id:
-            return self.tbl_version
-        if self.base is None:
-            return None
-        return self.base.find_tbl_version(id)
 
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
@@ -427,7 +437,7 @@ class TableMdPath(TablePath):
 
     md: TableVersionMd
     base: TableMdPath | None
-    catalog_uri: str  # the hosted catalog this path belongs to ('' if not proxied); used to route proxy queries
+    _catalog_uri: str  # the hosted catalog this path belongs to ('' if not proxied); used to route proxy queries
 
     # All physically reachable columns, keyed by qcolid: own columns (incl. system) plus every base column,
     # regardless of include_base_columns or name shadowing. Name-based visibility is applied by column_md()/
@@ -441,7 +451,7 @@ class TableMdPath(TablePath):
         assert len(path) > 0
         assert len(effective_versions) == len(path), (len(effective_versions), len(path))
         self.md = path[0]
-        self.catalog_uri = catalog_uri
+        self._catalog_uri = catalog_uri
         self._effective_version = effective_versions[0]
         self.base = TableMdPath(path[1:], effective_versions[1:], catalog_uri) if len(path) > 1 else None
         self._column_version_md = {}
@@ -479,15 +489,20 @@ class TableMdPath(TablePath):
             )
 
     @classmethod
-    def from_md(cls, md: list[TableVersionMd], catalog_uri: str = '') -> TableMdPath:
+    def from_md(cls, md: list[TableVersionMd], catalog_uri: str = '', version: int | None = None) -> TableMdPath:
         """Build from an exported metadata list (leaf first).
 
         Per-element effective versions are read from the leaf's base_versions (the persisted ancestor
         pinning), mirroring Catalog._get_table: a snapshot is pinned at version 0, a live table/view is
-        unpinned (None), and each ancestor takes the version recorded in base_versions.
+        unpinned (None), and each ancestor takes the version recorded in base_versions. When version is
+        given (a get_table_by_id() at a specific version), it pins the leaf at that version instead, so a
+        base table loaded at a historical version round-trips with the right effective version.
         """
         leaf_view_md = md[0].tbl_md.view_md
-        leaf_version = 0 if leaf_view_md is not None and leaf_view_md.is_snapshot else None
+        if version is not None:
+            leaf_version: int | None = version
+        else:
+            leaf_version = 0 if leaf_view_md is not None and leaf_view_md.is_snapshot else None
         effective_versions: list[int | None] = [leaf_version]
         if leaf_view_md is not None:
             effective_versions.extend(version for _, version in leaf_view_md.base_versions)
@@ -523,6 +538,10 @@ class TableMdPath(TablePath):
 
     def is_versioned(self) -> bool:
         return self.md.tbl_md.is_versioned
+
+    @property
+    def catalog_uri(self) -> str:
+        return self._catalog_uri
 
     def has_column(self, qcolid: QColumnId) -> bool:
         return qcolid in self._column_version_md

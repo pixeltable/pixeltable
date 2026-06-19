@@ -102,7 +102,7 @@ class Table(SchemaObject):
         """
         return self.select().order_by(*items, asc=asc)
 
-    def group_by(self, *items: 'exprs.Expr') -> 'Query':
+    def group_by(self, *items: 'exprs.Expr | Table') -> 'Query':
         """Group the rows of this table based on the expression.
 
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.

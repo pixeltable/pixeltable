@@ -25,7 +25,7 @@ from .table import Table
 from .table_metadata import ColumnMetadata, IndexMetadata, TableMetadata, VersionMetadata
 from .table_path import TableMdPath, TablePath, TablePathKey, TableVersionPath
 from .table_proxy import TableProxy
-from .table_version import TableVersion
+from .table_version import TableVersion, TableVersionKey
 from .table_version_handle import ColumnHandle, TableVersionHandle
 from .update_status import RowCountStats, UpdateStatus
 from .view import View
