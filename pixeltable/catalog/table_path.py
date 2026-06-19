@@ -587,29 +587,32 @@ class TableMdPath(TablePath):
         return next((col_md for col_md in self.column_md() if col_md.name == name), None)
 
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
-        schema_version = self.md.schema_version_md.schema_version
-        candidates = [
-            idx_md
-            for idx_md in self.md.tbl_md.index_md.values()
-            if (
-                idx_md.indexed_col_id == qcolid.col_id
-                and UUID(idx_md.indexed_col_tbl_id) == qcolid.tbl_id
-                and idx_md.schema_version_add <= schema_version
-                and (idx_md.schema_version_drop is None or idx_md.schema_version_drop > schema_version)
-                and issubclass(resolve_symbol(idx_md.class_fqn), idx_class)  # type: ignore[arg-type]
-            )
-        ]
-        if name is not None:
-            candidates = [idx_md for idx_md in candidates if idx_md.name == name]
-        if len(candidates) == 1 or (len(candidates) > 1 and name is not None):
-            return candidates[0]
-        if len(candidates) > 1:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Column {qcolid!r} has multiple {idx_class.display_name()} indices; specify idx_name instead',
-            )
-        if self.base is not None:
-            return self.base.get_idx_md(qcolid, name, idx_class)
+        col_name = self.get_column_md(qcolid).name
+        # an index on a base column is recorded in that base's index_md, so walk the path's levels
+        level: TableMdPath | None = self
+        while level is not None:
+            schema_version = level.md.schema_version_md.schema_version
+            candidates = [
+                idx_md
+                for idx_md in level.md.tbl_md.index_md.values()
+                if (
+                    idx_md.indexed_col_id == qcolid.col_id
+                    and UUID(idx_md.indexed_col_tbl_id) == qcolid.tbl_id
+                    and idx_md.schema_version_add <= schema_version
+                    and (idx_md.schema_version_drop is None or idx_md.schema_version_drop > schema_version)
+                    and issubclass(resolve_symbol(idx_md.class_fqn), idx_class)  # type: ignore[arg-type]
+                )
+            ]
+            if name is not None:
+                candidates = [idx_md for idx_md in candidates if idx_md.name == name]
+            if len(candidates) == 1 or (len(candidates) > 1 and name is not None):
+                return candidates[0]
+            if len(candidates) > 1:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col_name!r} has multiple {idx_class.display_name()} indices; specify `idx_name` instead',
+                )
+            level = level.base
         raise excs.NotFoundError(
-            excs.ErrorCode.INDEX_NOT_FOUND, f'No {idx_class.display_name()} index found for column {qcolid!r}'
+            excs.ErrorCode.INDEX_NOT_FOUND, f'No {idx_class.display_name()} index found for column {col_name!r}'
         )

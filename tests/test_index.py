@@ -720,8 +720,10 @@ class TestIndex:
 
         reload_tester.run_reload_test()
 
-    def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
-        img_t = small_img_tbl
+    def test_embedding_errors(
+        self, small_img_tbl_dual: pxt.Table, test_tbl_dual: pxt.Table, local_embed: pxt.Function
+    ) -> None:
+        img_t = small_img_tbl_dual
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             img_t.add_embedding_index('img', metric='badmetric', image_embed=local_embed)  # type: ignore[arg-type]
@@ -744,7 +746,7 @@ class TestIndex:
             pxt.ErrorCode.TYPE_MISMATCH, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."
         ):
             # wrong column type
-            test_tbl.add_embedding_index('c2', image_embed=local_embed)
+            test_tbl_dual.add_embedding_index('c2', image_embed=local_embed)
 
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
@@ -839,16 +841,20 @@ class TestIndex:
                 pxt.ErrorCode.INVALID_ARGUMENT,
                 match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision",
             ):
-                test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=4001), precision='fp16')
+                test_tbl_dual.add_embedding_index(
+                    test_tbl_dual.c1, embedding=local_embedding.using(dim=4001), precision='fp16'
+                )
             with pxt_raises(
                 pxt.ErrorCode.INVALID_ARGUMENT,
                 match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for fp32 precision",
             ):
-                test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=2001), precision='fp32')
+                test_tbl_dual.add_embedding_index(
+                    test_tbl_dual.c1, embedding=local_embedding.using(dim=2001), precision='fp32'
+                )
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid precision.+Must be one of: \['fp16', 'fp32'\]"):
-            test_tbl.add_embedding_index(
-                test_tbl.c1,
+            test_tbl_dual.add_embedding_index(
+                test_tbl_dual.c1,
                 embedding=local_embedding.using(dim=2001),
                 precision='invalid',  # type: ignore[arg-type]
             )
@@ -856,7 +862,9 @@ class TestIndex:
             pxt.ErrorCode.INVALID_CONFIGURATION,
             match='is not a valid embedding: it returns an array of invalid length 0',
         ):
-            test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=0), precision='fp16')
+            test_tbl_dual.add_embedding_index(
+                test_tbl_dual.c1, embedding=local_embedding.using(dim=0), precision='fp16'
+            )
 
     def run_btree_test(self, p: Callable[[str], str], data: list, data_type: type | _GenericAlias) -> pxt.Table:
         t = pxt.create_table(p('btree_test'), {'data': data_type})
