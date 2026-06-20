@@ -88,6 +88,9 @@ class TablePath(abc.ABC):
     def is_view(self) -> bool: ...
 
     @abc.abstractmethod
+    def is_component_view(self) -> bool: ...
+
+    @abc.abstractmethod
     def is_mutable(self) -> bool: ...
 
     @abc.abstractmethod
@@ -110,6 +113,24 @@ class TablePath(abc.ABC):
     @property
     def path_len(self) -> int:
         return 1 if self.base is None else 1 + self.base.path_len
+
+    def num_rowid_columns(self) -> int:
+        """Number of rowid components."""
+        if self.is_component_view():
+            assert self.base is not None
+            return 1 + self.base.num_rowid_columns()
+        return 1
+
+    def rowid_normalized_base_id(self, idx: int) -> UUID:
+        """The id of the lowest base in this chain that carries rowid component idx.
+
+        All descendants of that base share the component's values, so this is the canonical owner used to
+        identify a RowidRef.
+        """
+        level: TablePath = self
+        while level.base is not None and level.base.num_rowid_columns() > idx:
+            level = level.base
+        return level.tbl_id
 
     @abc.abstractmethod
     def get_column_md(self, qcolid: QColumnId) -> ColumnVersionMd: ...
@@ -535,6 +556,9 @@ class TableMdPath(TablePath):
 
     def is_view(self) -> bool:
         return self.md.tbl_md.view_md is not None
+
+    def is_component_view(self) -> bool:
+        return self.md.tbl_md.view_md is not None and self.md.tbl_md.view_md.iterator_call is not None
 
     def is_mutable(self) -> bool:
         return self.md.tbl_md.is_mutable

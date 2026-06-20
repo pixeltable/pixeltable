@@ -1148,8 +1148,9 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
-    def test_ext_imgs(self, uses_db: None) -> None:
-        t = pxt.create_table('img_test', {'img': pxt.Image})
+    def test_ext_imgs(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('img_test'), {'img': pxt.Image})
         img_urls = [
             'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
             'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',
@@ -1293,7 +1294,6 @@ class TestExprs:
 
         # backfill works
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
-        _ = t.c9.col.has_window_fn_call()
 
         # ordering conflict between frame extraction and window fn
         base_t = pxt.create_table(p('videos'), {'video': pxt.Video, 'c2': pxt.Int})
