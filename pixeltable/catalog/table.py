@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 import pandas as pd
 from typing_extensions import overload
 
+from pixeltable import exceptions as excs
+
 from .schema_object import SchemaObject
 
 if TYPE_CHECKING:
@@ -822,6 +824,42 @@ class Table(SchemaObject):
             ... # If `c` raised on row 0, rows[0]['c'] is None and rows[0]['c:md']
             ... # contains {'errortype': ..., 'errormsg': ...}.
         """
+
+    def _validate_update_value_spec(self, value_spec: dict[str, Any]) -> None:
+        """Check that an update spec is keyed by column-name strings and that each value is a literal or expression.
+
+        These are structural checks that need no schema, so they run client-side: a non-string key would otherwise
+        be silently coerced (e.g. to a string by JSON encoding), and an unrecognized value (e.g. a lambda) would
+        fail opaquely, before the spec reaches the catalog. Compatibility of a value with its target column's type
+        is checked later, against the schema.
+        """
+        from pixeltable import exprs
+
+        for col_name, val in value_spec.items():
+            if not isinstance(col_name, str):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'Update specification: dict key must be column name; got {col_name!r}',
+                )
+            if exprs.Expr.from_object(val) is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
+                )
+
+    def _validate_where(self, where: 'exprs.Expr' | None) -> None:
+        """Check that a where predicate is a Pixeltable expression (or None).
+
+        Runs client-side so that a non-expression (e.g. a lambda) is rejected with a clear error rather than
+        failing to serialize on its way to the catalog.
+        """
+        from pixeltable import exprs
+
+        if where is not None and not isinstance(where, exprs.Expr):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
+            )
 
     @abc.abstractmethod
     def update(

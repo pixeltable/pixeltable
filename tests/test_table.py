@@ -2467,8 +2467,10 @@ class TestTable:
         assert res[0].items() >= {'id': 1, 'val_upper': 'UPDATED', 'num_x2': 20.0}.items()
         assert res[1].items() >= {'id': 2, 'val_upper': 'CHANGED', 'num_x2': 40.0}.items()
 
-    # TODO: fix (proxy): get_table(t._name()) after reload_catalog() uses the unqualified name
-    def test_update(self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table) -> None:
+    def test_update(
+        self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
         test_tbl = test_tbl_dual
         small_img_tbl = small_img_tbl_dual
         t = test_tbl
@@ -2524,7 +2526,7 @@ class TestTable:
 
         # revert, then verify that we're back to where we started
         reload_catalog()
-        t = pxt.get_table(t._name())
+        t = pxt.get_table(p(t.get_metadata()['path']))
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
@@ -2721,8 +2723,10 @@ class TestTable:
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).collect()
         assert_resultset_eq(r1, r2)
 
-    # TODO: fix (proxy): get_table(t._name()) after reload_catalog() uses the unqualified name
-    def test_delete(self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table) -> None:
+    def test_delete(
+        self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
         test_tbl = test_tbl_dual
         small_img_tbl = small_img_tbl_dual
         t = test_tbl
@@ -2740,7 +2744,7 @@ class TestTable:
 
         # revert, then verify that we're back where we started
         reload_catalog()
-        t = pxt.get_table(t._name())
+        t = pxt.get_table(p(t.get_metadata()['path']))
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
         assert cnt == 10
@@ -2945,7 +2949,7 @@ class TestTable:
 
         # test loading from store
         reload_catalog()
-        t2 = pxt.get_table(t._name())
+        t2 = pxt.get_table(t.get_metadata()['path'])
         assert len(t.columns()) == len(t2.columns())
         t_columns = t._tbl_version_path.columns()
         t2_columns = t2._tbl_version_path.columns()
@@ -3085,7 +3089,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(p(t._name()))
+        t = pxt.get_table(p(t.get_metadata()['path']))
         assert set(t.columns()) == orig_cols | {'add1', 'name', 'id'}
 
         # revert() works
@@ -3096,7 +3100,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(p(t._name()))
+        t = pxt.get_table(p(t.get_metadata()['path']))
         assert set(t.columns()) == orig_cols
 
     def test_bool_column(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
@@ -3463,7 +3467,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(t._name())
+        t = pxt.get_table(t.get_metadata()['path'])
         assert len(t.columns()) == num_orig_cols - 1
 
         # revert() works
@@ -3474,7 +3478,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(t._name())
+        t = pxt.get_table(t.get_metadata()['path'])
         assert len(t.columns()) == num_orig_cols
         assert 'c1' in t.columns()
         _ = t.c1

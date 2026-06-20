@@ -293,6 +293,8 @@ class TableProxy(Table):
         cascade: bool = True,
         return_rows: bool = False,
     ) -> UpdateStatus:
+        self._validate_update_value_spec(value_spec)
+        self._validate_where(where)
         return self._dispatch(
             'update', {'value_spec': value_spec, 'where': where, 'cascade': cascade, 'return_rows': return_rows}
         )

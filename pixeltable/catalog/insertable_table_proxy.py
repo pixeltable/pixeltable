@@ -140,4 +140,5 @@ class InsertableTableProxy(TableProxy):
         return converter.pxt_rows
 
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
+        self._validate_where(where)
         return self._dispatch('delete', {'where': where})

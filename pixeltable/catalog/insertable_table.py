@@ -290,6 +290,7 @@ class InsertableTable(LocalTable):
 
             >>> tbl.delete(tbl.a > 5)
         """
+        self._validate_where(where)
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):

@@ -921,6 +921,8 @@ class LocalTable(Table):
         cascade: bool = True,
         return_rows: bool = False,
     ) -> UpdateStatus:
+        self._validate_update_value_spec(value_spec)
+        self._validate_where(where)
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
