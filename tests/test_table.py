@@ -2453,7 +2453,7 @@ class TestTable:
         assert t2.count() == len(rows)
         assert t2.where(t2.c2 == 1).collect()[0]['c1'] == 'one'
         assert t2.where(t2.c2 == 2).collect()[0]['c1'] == 'two'
-        with pytest.raises(AssertionError):
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='Malformed batch update'):
             # some rows are missing rowids
             _ = t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two'}])
 

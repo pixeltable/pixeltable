@@ -393,28 +393,30 @@ class TestIndex:
         )
         assert_resultset_eq(orig_res, res, True)
 
-    # TODO: fix (proxy): _list_index_info_for_test not exposed on TableProxy
     def test_add_embedding_index_if_exists(
         self, small_img_tbl_dual: pxt.Table, reload_tester: ReloadTester, local_embed: pxt.Function
     ) -> None:
         t = small_img_tbl_dual
         sample_img = t.select(t.img).head(1)[0, 'img']
-        initial_indexes = len(t._list_index_info_for_test())
+
+        def index_names() -> list[str]:
+            return list(t.get_metadata()['indices'].keys())
+
+        initial_indexes = len(index_names())
 
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
-        indexes = t._list_index_info_for_test()
-        assert len(indexes) == initial_indexes + 1
-        assert indexes[initial_indexes]['_name'] == 'clip_idx'
-        clip_idx_id_before = indexes[initial_indexes]['_id']
+        names = index_names()
+        assert len(names) == initial_indexes + 1
+        assert names[initial_indexes] == 'clip_idx'
 
         # when index name is not provided, the index is created with
         # a newly generated name. And if_exists parameter does not apply
         # and will be ignored.
         t.add_embedding_index('img', embedding=local_embed, if_exists='error')
-        assert len(t._list_index_info_for_test()) == initial_indexes + 2
+        assert len(index_names()) == initial_indexes + 2
 
         t.add_embedding_index('img', embedding=local_embed, if_exists='invalid')  # type: ignore[arg-type]
-        assert len(t._list_index_info_for_test()) == initial_indexes + 3
+        assert len(index_names()) == initial_indexes + 3
 
         # when index name is provided, if_exists parameter is applied.
         # invalid value is rejected.
@@ -423,7 +425,7 @@ class TestIndex:
         assert (
             "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
         )
-        assert len(t._list_index_info_for_test()) == initial_indexes + 3
+        assert len(index_names()) == initial_indexes + 3
 
         # if_exists='error' raises an error if the index name already exists.
         # by default, if_exists='error'.
@@ -431,33 +433,31 @@ class TestIndex:
             t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
             t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, if_exists='error')
-        assert len(t._list_index_info_for_test()) == initial_indexes + 3
+        assert len(index_names()) == initial_indexes + 3
 
-        # if_exists='ignore' does nothing if the index name already exists.
+        # if_exists='ignore' does nothing if the index name already exists: clip_idx keeps its position.
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, if_exists='ignore')
-        indexes = t._list_index_info_for_test()
-        assert len(indexes) == initial_indexes + 3
-        assert indexes[initial_indexes]['_name'] == 'clip_idx'
-        assert clip_idx_id_before == indexes[initial_indexes]['_id']
+        names = index_names()
+        assert len(names) == initial_indexes + 3
+        assert names[initial_indexes] == 'clip_idx'
 
         # cannot use if_exists to ignore or replace an existing index
         # that is not an embedding (like, default btree indexes).
-        assert indexes[0]['_name'] == 'idx0'
+        assert names[0] == 'idx0'
         for ie in ('ignore', 'replace', 'replace_force'):
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not an embedding index'):
                 t.add_embedding_index('img', idx_name='idx0', embedding=local_embed, if_exists=ie)
-        indexes = t._list_index_info_for_test()
-        assert len(indexes) == initial_indexes + 3
-        assert indexes[0]['_name'] == 'idx0'
-        assert indexes[initial_indexes]['_name'] == 'clip_idx'
+        names = index_names()
+        assert len(names) == initial_indexes + 3
+        assert names[0] == 'idx0'
+        assert names[initial_indexes] == 'clip_idx'
 
-        # if_exists='replace' replaces the existing index with the new one.
+        # if_exists='replace' drops and re-adds the index, so clip_idx moves to the end of the index list.
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, if_exists='replace')
-        indexes = t._list_index_info_for_test()
-        assert len(indexes) == initial_indexes + 3
-        assert indexes[initial_indexes]['_name'] != 'clip_idx'
-        assert indexes[initial_indexes + 2]['_name'] == 'clip_idx'
-        assert clip_idx_id_before != indexes[initial_indexes + 2]['_id']
+        names = index_names()
+        assert len(names) == initial_indexes + 3
+        assert names[initial_indexes] != 'clip_idx'
+        assert names[initial_indexes + 2] == 'clip_idx'
 
         # sanity check: use the replaced index to run a query.
         # use the index hint in similarity function to ensure clip_idx is used.
@@ -1129,15 +1129,12 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='1-dimensional'):
             t.add_embedding_index('vec2d')
 
-    # TODO: fix (proxy): _tbl_version not exposed on TableProxy
+    # Local-only: verifies index creation/removal in the local Postgres store (store_tbl / list_store_indexes)
     @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
-    def test_drop_index(
-        self, index_type: str, make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest
-    ) -> None:
+    def test_drop_index(self, index_type: str, uses_db: None, request: pytest.FixtureRequest) -> None:
         """Test that indices (B-tree and embedding) are properly dropped from the store"""
-        p = make_catalog_path
         # Create table and insert data
-        t = pxt.create_table(p('index_drop_test'), {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
+        t = pxt.create_table('index_drop_test', {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
         t.insert([{'id': 1, 'text': 'hello world'}, {'id': 2, 'text': 'goodbye'}])
 
         # Find or create an index to drop
@@ -1167,7 +1164,7 @@ class TestIndex:
         # Or the metadata
         assert idx_info.id not in t._tbl_version.get().idxs
         reload_catalog()
-        t = pxt.get_table(p('index_drop_test'))
+        t = pxt.get_table('index_drop_test')
         assert idx_info.id not in t._tbl_version.get().idxs
 
     def test_similarity_index_lifecycle(

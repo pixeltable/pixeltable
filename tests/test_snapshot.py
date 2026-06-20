@@ -27,7 +27,7 @@ class TestSnapshot:
     ) -> None:
         tbl_path, snap_path = str(tbl._path()), str(snap._path())
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
-        tbl_select_list = [tbl[col_name] for col_name in tbl._get_schema()]
+        tbl_select_list = [tbl[col_name] for col_name in tbl.columns()]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])
         orig_resultset = orig_query.select(*tbl_select_list).order_by(tbl.c2).collect()
 
@@ -38,7 +38,7 @@ class TestSnapshot:
             snap = pxt.get_table(snap_path)
 
         # view select list: base cols followed by view cols
-        column_names = list(snap._get_schema().keys())
+        column_names = snap.columns()
         snap_select_list = [snap[col_name] for col_name in column_names[len(extra_items) :]]
         snap_select_list.extend(snap[col_name] for col_name in extra_items)
         snap_query = snap.select(*snap_select_list).order_by(snap.c2)
@@ -81,7 +81,6 @@ class TestSnapshot:
         pxt.drop_table(snap_path)
         pxt.drop_table(tbl_path)
 
-    # TODO: fix (proxy): _get_schema not available on proxy table (run_basic_test helper)
     def test_basic(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('main'))

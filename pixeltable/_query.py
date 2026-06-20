@@ -1763,7 +1763,10 @@ class Query:
 
         # TODO: Reconcile these with Table.__check_mutable()
         assert len(self._from_clause.tbls) == 1
-        if self._from_clause.tbls[0].is_snapshot():
+        # A pinned version is immutable. For a delegated catalog the from table of a pure-snapshot query is the base
+        # pinned at the snapshot version, which reports is_snapshot() == False but a non-None effective_version().
+        from_tbl = self._from_clause.tbls[0]
+        if from_tbl.is_snapshot() or from_tbl.effective_version() is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` on a snapshot.')
 
     def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:

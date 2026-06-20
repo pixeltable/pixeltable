@@ -683,19 +683,6 @@ class LocalTable(Table):
         ):
             self._tbl_version.get().rename_column(old_name, new_name)
 
-    def _list_index_info_for_test(self) -> list[dict[str, Any]]:
-        """
-        Returns list of all the indexes on this table. Used for testing.
-
-        Returns:
-            A list of index information, each containing the index's
-            id, name, and the name of the column it indexes.
-        """
-        index_info = []
-        for idx_name, idx in self._tbl_version.get().idxs_by_name.items():
-            index_info.append({'_id': idx.id, '_name': idx_name, '_column': idx.col.name})
-        return index_info
-
     def add_embedding_index(
         self,
         column: str | ColumnRef,
@@ -958,8 +945,12 @@ class LocalTable(Table):
                     row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=False
                 )
                 if has_rowid:
-                    # we expect the _rowid column to be present for each row
-                    assert _ROWID_COLUMN_NAME in row_spec
+                    # every row must specify _rowid if any does
+                    if _ROWID_COLUMN_NAME not in row_spec:
+                        raise excs.Error(
+                            excs.ErrorCode.INTERNAL_ERROR,
+                            f'Malformed batch update: row is missing {_ROWID_COLUMN_NAME}',
+                        )
                     rowids.append(row_spec[_ROWID_COLUMN_NAME])
                 else:
                     col_names = {col.name for col in col_vals}

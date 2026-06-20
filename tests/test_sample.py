@@ -368,7 +368,6 @@ class TestSample:
         )
         v_rows = v.count()
         print(f'total rows: {v_rows}')
-        print(v._get_schema)
 
         print('\n\nSELECT SAMPLE OF ITERATOR VIEW\n')
         query = v.select().sample(fraction=0.1, seed=4171780)
