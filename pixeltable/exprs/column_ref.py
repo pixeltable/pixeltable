@@ -37,10 +37,14 @@ class ColumnRef(Expr):
     Not thread-safe.
     """
 
+    # Invariant:
+    # - only execution-related methods (eg, eval()) access TableVersion/Column instances
+    # - all others are restricted to metadata structures: TablePath (not TVP), ColumnVersionMd
+    #
     # When this reference is created in the context of a view, it can also refer to a column of the view base.
     # For that reason, a ColumnRef needs to be serialized with the qualifying table id (column ids are only
     # unique in the context of a particular table).
-
+    #
     # Media validation:
     # - media validation is potentially cpu-intensive, and it's desirable to schedule and parallelize it during
     #   general expr evaluation
@@ -48,7 +52,7 @@ class ColumnRef(Expr):
     # - a validating ColumnRef cannot be translated to SQL (because the validation is done in Python)
     # - in that case, the ColumnRef also instantiates a second non-validating ColumnRef as a component (= dependency)
     # - the non-validating ColumnRef is used for SQL translation
-
+    #
     # TODO:
     # separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
     # insert them into the EvalCtxs as needed
@@ -513,9 +517,11 @@ class ColumnRef(Expr):
 
         from pixeltable.index import EmbeddingIndex
 
-        idx_info = self.tbl_version.get().get_idx(self.col, idx, EmbeddingIndex)
-        val_col = idx_info.val_col
-        return ColumnRef(val_col.column_version_md())
+        tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
+        assert tbl is not None
+        idx_md = tbl._tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
+        val_qcolid = catalog.QColumnId(UUID(idx_md.indexed_col_tbl_id), idx_md.index_val_col_id)
+        return ColumnRef(tbl._tbl_path.get_column_md(val_qcolid))
 
     def default_column_name(self) -> str | None:
         return self.column_md.name

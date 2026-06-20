@@ -611,8 +611,12 @@ class TableMdPath(TablePath):
         return next((col_md for col_md in self.column_md() if col_md.name == name), None)
 
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
+        # a pinned version (snapshot or historical version) does not support indices
+        if self.effective_version() is not None:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Snapshot does not support indices')
         col_name = self.get_column_md(qcolid).name
-        # an index on a base column is recorded in that base's index_md, so walk the path's levels
+        # an index on a base column is recorded in that base's index_md (and replicated into the view's md keyed
+        # by the base column's qcolid), so resolve at the first level that has a matching index
         level: TableMdPath | None = self
         while level is not None:
             schema_version = level.md.schema_version_md.schema_version
@@ -627,15 +631,21 @@ class TableMdPath(TablePath):
                     and issubclass(resolve_symbol(idx_md.class_fqn), idx_class)  # type: ignore[arg-type]
                 )
             ]
-            if name is not None:
-                candidates = [idx_md for idx_md in candidates if idx_md.name == name]
-            if len(candidates) == 1 or (len(candidates) > 1 and name is not None):
+            if len(candidates) > 0:
+                if len(candidates) > 1 and name is None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Column {col_name!r} has multiple {idx_class.display_name()} indices; '
+                        'specify `idx_name` instead',
+                    )
+                if name is not None:
+                    named = [idx_md for idx_md in candidates if idx_md.name == name]
+                    if len(named) == 0:
+                        raise excs.NotFoundError(
+                            excs.ErrorCode.COLUMN_NOT_FOUND, f'Index {name!r} not found for column {col_name!r}'
+                        )
+                    return named[0]
                 return candidates[0]
-            if len(candidates) > 1:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Column {col_name!r} has multiple {idx_class.display_name()} indices; specify `idx_name` instead',
-                )
             level = level.base
         raise excs.NotFoundError(
             excs.ErrorCode.INDEX_NOT_FOUND, f'No {idx_class.display_name()} index found for column {col_name!r}'
