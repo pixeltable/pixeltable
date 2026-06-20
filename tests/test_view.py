@@ -161,12 +161,8 @@ class TestView:
         status = t.insert(rows2)
         assert status.num_rows == 20  # 20 in the base table, 0 match test_view_alt (c2 < 10)
 
-        # a lambda column spec is rejected during client-side schema normalization, which raises before the
-        # request is sent; over the proxy that surfaces as a different error, so only check it locally
-        if p('') == '':
-            with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
-                _ = pxt.create_view(p('lambda_view'), t, additional_columns={'v1': lambda c3: c3 * 2.0})  # type: ignore[dict-item]
-            assert "invalid spec for column 'v1'" in str(exc_info.value).lower()
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="Invalid spec for column 'v1'"):
+            _ = pxt.create_view(p('lambda_view'), t, additional_columns={'v1': lambda c3: c3 * 2.0})  # type: ignore[dict-item]
 
     def test_create_if_exists(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         """Test if_exists parameter of create_view API"""
@@ -428,11 +424,15 @@ class TestView:
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
-    # TODO: fix (proxy): _get_version not incremented on cascade over proxy
     def test_chained_views(self, make_catalog_path: Callable[[str], str]) -> None:
         """Two views, the second one is a view over the first one"""
         p = make_catalog_path
         t = self.create_tbl(p)
+
+        def version(tbl: pxt.Table) -> int:
+            v = tbl.get_metadata()['version']
+            assert v is not None  # these tables are all versioned
+            return v
 
         # create view with filter and computed columns
         v1 = pxt.create_view(p('v1'), t.where(t.c2 < 10), additional_columns={'col1': t.c3 * 2})
@@ -470,7 +470,7 @@ class TestView:
         check_views()
 
         # insert data: new rows with unique c2 values (none match either view filter)
-        base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
+        base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
         for row in rows:
             row['c2'] += 100
@@ -480,60 +480,59 @@ class TestView:
         assert v1.count() == 10
         assert v2.count() == 5
         # all versions were incremented
-        assert t._get_version() == base_version + 1
-        assert v1._get_version() == v1_version + 1
-        assert v2._get_version() == v2_version + 1
+        assert version(t) == base_version + 1
+        assert version(v1) == v1_version + 1
+        assert version(v2) == v2_version + 1
         check_views()
 
         # update data: cascade to both views
-        base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
+        base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.update({'c4': True, 'c3': t.c3 + 1}, where=t.c2 < 15, cascade=True)
         assert status.num_rows == 15 + 10 + 5
         assert t.count() == 120
         # all versions were incremented
-        assert t._get_version() == base_version + 1
-        assert v1._get_version() == v1_version + 1
-        assert v2._get_version() == v2_version + 1
+        assert version(t) == base_version + 1
+        assert version(v1) == v1_version + 1
+        assert version(v2) == v2_version + 1
         check_views()
 
         # update data: cascade only to v2
-        base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
+        base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.update({'c10': t.c10 - 1.0}, where=t.c2 < 15, cascade=True)
         assert status.num_rows == 15 + 5
         assert t.count() == 120
         # v1 did not get updated
-        assert t._get_version() == base_version + 1
-        assert v1._get_version() == v1_version
-        assert v2._get_version() == v2_version + 1
+        assert version(t) == base_version + 1
+        assert version(v1) == v1_version
+        assert version(v2) == v2_version + 1
         check_views()
 
         # base table delete is reflected in both views
-        base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
+        base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.delete(where=t.c2 == 0)
         assert status.num_rows == 1 + 1 + 1
         assert t.count() == 119
         assert v1.count() == 9
         assert v2.count() == 4
         # all versions were incremented
-        assert t._get_version() == base_version + 1
-        assert v1._get_version() == v1_version + 1
-        assert v2._get_version() == v2_version + 1
+        assert version(t) == base_version + 1
+        assert version(v1) == v1_version + 1
+        assert version(v2) == v2_version + 1
         check_views()
 
         # base table delete is reflected only in v1
-        base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
+        base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.delete(where=t.c2 == 5)
         assert status.num_rows == 1 + 1
         assert t.count() == 118
         assert v1.count() == 8
         assert v2.count() == 4
         # v2 was not updated
-        assert t._get_version() == base_version + 1
-        assert v1._get_version() == v1_version + 1
-        assert v2._get_version() == v2_version
+        assert version(t) == base_version + 1
+        assert version(v1) == v1_version + 1
+        assert version(v2) == v2_version
         check_views()
 
-    # TODO: fix (proxy): module-global mutation not seen by daemon-side UDF (separate process)
     def test_unstored_columns_non_image(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = self.create_tbl(p)
@@ -586,6 +585,11 @@ class TestView:
         ).head(5)
         print(v2_res)
         assert_resultset_eq(v2_res, t_res, compare_col_names=False)
+
+        # the next test scenario uses in-process state, which doesn't work for TableProxy
+        # TODO: test this differently
+        if p('').startswith('pxt:'):
+            return
 
         add_schema3: dict[str, ColumnSpec] = {
             'wc2a': {'value': add_unstored_base_val(v2.vc2), 'stored': True},

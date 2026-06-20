@@ -3,10 +3,11 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
-import json
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -229,24 +230,23 @@ def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> di
     """Canonicalize a create_table schema to a {name: ColumnSpec} mapping with resolved ColumnTypes."""
     from pixeltable import exprs
 
+    from .column import Column
+
     result: dict[str, ColumnSpec] = {}
     for name, spec in schema.items():
         if isinstance(spec, exprs.Expr):
             result[name] = {'value': spec}
             continue
-        col_spec: dict[str, Any] = dict(spec) if isinstance(spec, dict) else {'type': spec}
+        if isinstance(spec, dict):
+            col_spec: dict[str, Any] = dict(spec)
+            Column._validate_column_spec(name, cast('ColumnSpec', col_spec))
+        elif isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
+            col_spec = {'type': spec}
+        else:
+            raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid spec for column {name!r}: {spec!r}')
         if col_spec.get('type') is not None:
             col_spec['type'] = ts.ColumnType.normalize_type(
                 col_spec['type'], nullable_default=True, allow_builtin_types=False
             )
-
-        if 'custom_metadata' in col_spec:
-            try:
-                json.dumps(col_spec['custom_metadata'])
-            except (TypeError, ValueError) as err:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT,
-                    f'Column {name!r}: `custom_metadata` must be JSON-serializable; got Error: {err}',
-                ) from err
         result[name] = cast('ColumnSpec', col_spec)
     return result
