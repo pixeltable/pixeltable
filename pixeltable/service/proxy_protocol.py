@@ -81,6 +81,8 @@ def serialize(obj: Any) -> Any:
         return {_TAG: 'SampleClause', 'v': obj.as_dict()}
     if isinstance(obj, func.Function):
         return {_TAG: 'Function', 'v': obj.as_dict()}
+    if isinstance(obj, func.GeneratingFunctionCall):
+        return {_TAG: 'GeneratingFunctionCall', 'v': obj.as_dict()}
     if isinstance(obj, DirEntry):
         # only the fields any get_dir_contents() consumer reads: dir presence, table id/md, error count
         return {
@@ -170,6 +172,8 @@ def deserialize(obj: Any) -> Any:
             return SampleClause.from_dict(v)
         if tag == 'Function':
             return func.Function.from_dict(v)
+        if tag == 'GeneratingFunctionCall':
+            return func.GeneratingFunctionCall.from_dict(v)
         if tag == 'DirEntry':
             table = v['table']
             return DirEntry(

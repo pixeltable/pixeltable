@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping
 
-from pixeltable import exceptions as excs
 from pixeltable.env import Env
 
 from .catalog_base import CatalogBase
@@ -89,10 +88,6 @@ class CatalogProxy(CatalogBase):
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
     ) -> Table:
-        if iterator is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Hosted iterator views are not supported yet.'
-            )
         args = {
             'path': path,
             'base': base,
