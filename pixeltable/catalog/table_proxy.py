@@ -172,6 +172,7 @@ class TableProxy(Table):
         schema: Mapping[str, type | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
+        self._validate_column_schema(schema)
         return self._dispatch('add_columns', {'schema': normalize_schema(schema), 'if_exists': if_exists})
 
     def add_column(
@@ -186,6 +187,7 @@ class TableProxy(Table):
                 f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
             )
+        self._validate_column_schema(kwargs)
         return self._dispatch('add_column', {'columns': normalize_schema(kwargs), 'if_exists': if_exists})
 
     def add_computed_column(

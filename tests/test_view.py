@@ -168,7 +168,6 @@ class TestView:
                 _ = pxt.create_view(p('lambda_view'), t, additional_columns={'v1': lambda c3: c3 * 2.0})  # type: ignore[dict-item]
             assert "invalid spec for column 'v1'" in str(exc_info.value).lower()
 
-    # TODO: fix (proxy): pxt.list_tables empty over proxy (no-path list_tables lists local catalog)
     def test_create_if_exists(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         """Test if_exists parameter of create_view API"""
         p = make_catalog_path
@@ -204,18 +203,18 @@ class TestView:
         v3 = pxt.create_view(p('test_view'), t, if_exists='ignore')
         assert v3 == v2
         assert v3._id == id_before
-        assert 'test_view_on_view' in pxt.list_tables()
+        assert p('test_view_on_view') in pxt.list_tables(p(''))
         # if_exists='replace' cannot drop a view with a dependent view.
         # it should raise an error and recommend using 'replace_force'
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='has dependents'):
             v3 = pxt.create_view(p('test_view'), t, if_exists='replace')
-        assert 'test_view_on_view' in pxt.list_tables()
+        assert p('test_view_on_view') in pxt.list_tables(p(''))
         # if_exists='replace_force' should drop the existing view and
         # its dependent views and create a new one
         v3 = pxt.create_view(p('test_view'), t, if_exists='replace_force')
         assert v3 != v2
         assert v3._id != id_before
-        assert 'test_view_on_view' not in pxt.list_tables()
+        assert p('test_view_on_view') not in pxt.list_tables(p(''))
 
         # scenario 3: path exists but is not a view
         _ = pxt.create_table(p('not_view'), {'c1': pxt.String})
@@ -224,11 +223,11 @@ class TestView:
         # if_exists='ignore' should fail because existing object is not a view
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             _ = pxt.create_view(p('not_view'), t, if_exists='ignore')
-        assert 'not_view' in pxt.list_tables()
+        assert p('not_view') in pxt.list_tables(p(''))
         # if_exists='replace' and 'replace_force' should drop the existing table and create a view
         for if_exists in ('replace', 'replace_force'):
             _ = pxt.create_view(p('not_view'), t, if_exists=if_exists)
-            assert 'not_view' in pxt.list_tables()
+            assert p('not_view') in pxt.list_tables(p(''))
             # setup for next iteration: drop view and recreate table
             pxt.drop_table(p('not_view'))
             _ = pxt.create_table(p('not_view'), {'c1': pxt.String})
@@ -1418,7 +1417,6 @@ class TestView:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT):
             pxt.create_view(p('tbl_view_invalid'), t, custom_metadata={'key': set})
 
-    # TODO: fix (proxy): cannot serialize a set value for the proxy protocol
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_view_column_custom_metadata(
         self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool

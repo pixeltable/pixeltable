@@ -1440,7 +1440,7 @@ class Catalog(CatalogBase):
     def create_table(
         self,
         path: Path,
-        schema: dict[str, type | ColumnSpec | exprs.Expr],
+        schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
         primary_key: list[str] | None,
         comment: str | None,
@@ -1504,7 +1504,7 @@ class Catalog(CatalogBase):
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,
-        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
+        additional_columns: Mapping[str, ColumnSpec] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,

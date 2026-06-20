@@ -79,7 +79,7 @@ class View(LocalTable):
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
-        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr],
+        additional_columns: Mapping[str, ColumnSpec],
         predicate: 'exprs.Expr' | None,
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,

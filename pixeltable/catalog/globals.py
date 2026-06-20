@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
+import json
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
@@ -238,5 +239,14 @@ def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> di
             col_spec['type'] = ts.ColumnType.normalize_type(
                 col_spec['type'], nullable_default=True, allow_builtin_types=False
             )
+
+        if 'custom_metadata' in col_spec:
+            try:
+                json.dumps(col_spec['custom_metadata'])
+            except (TypeError, ValueError) as err:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'Column {name!r}: `custom_metadata` must be JSON-serializable; got Error: {err}',
+                ) from err
         result[name] = cast('ColumnSpec', col_spec)
     return result

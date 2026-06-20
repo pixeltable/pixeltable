@@ -826,13 +826,6 @@ class Table(SchemaObject):
         """
 
     def _validate_update_value_spec(self, value_spec: dict[str, Any]) -> None:
-        """Check that an update spec is keyed by column-name strings and that each value is a literal or expression.
-
-        These are structural checks that need no schema, so they run client-side: a non-string key would otherwise
-        be silently coerced (e.g. to a string by JSON encoding), and an unrecognized value (e.g. a lambda) would
-        fail opaquely, before the spec reaches the catalog. Compatibility of a value with its target column's type
-        is checked later, against the schema.
-        """
         from pixeltable import exprs
 
         for col_name, val in value_spec.items():
@@ -848,11 +841,6 @@ class Table(SchemaObject):
                 )
 
     def _validate_where(self, where: 'exprs.Expr' | None) -> None:
-        """Check that a where predicate is a Pixeltable expression (or None).
-
-        Runs client-side so that a non-expression (e.g. a lambda) is rejected with a clear error rather than
-        failing to serialize on its way to the catalog.
-        """
         from pixeltable import exprs
 
         if where is not None and not isinstance(where, exprs.Expr):
@@ -860,6 +848,13 @@ class Table(SchemaObject):
                 excs.ErrorCode.INVALID_EXPRESSION,
                 f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
             )
+
+    def _validate_column_schema(self, schema: Mapping[str, type | ColumnSpec]) -> None:
+        from .column import Column
+
+        for name, spec in schema.items():
+            if isinstance(spec, dict):
+                Column._validate_column_spec(name, spec)
 
     @abc.abstractmethod
     def update(

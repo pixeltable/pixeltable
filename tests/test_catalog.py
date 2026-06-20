@@ -627,7 +627,6 @@ class TestCatalog:
             '''
         ).strip('\n').replace('|', '')  # fmt: skip
 
-    # TODO: fix (proxy): AssertionError: 'target' in pxt.list_tables (no-path list_tables lists local catalog)
     def test_cross_type_replacement(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
 
@@ -653,9 +652,9 @@ class TestCatalog:
         for existing_creator, _ in creators.values():
             for replacing_creator, expected_cols in creators.values():
                 existing_creator()
-                assert 'target' in pxt.list_tables()
+                assert p('target') in pxt.list_tables(p(''))
                 result = replacing_creator()
-                assert 'target' in pxt.list_tables()
+                assert p('target') in pxt.list_tables(p(''))
                 assert result.columns() == expected_cols
 
         # Verify cross-type replacement is blocked in both directions for every table subtype

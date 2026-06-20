@@ -442,6 +442,8 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         from pixeltable.catalog import retry_loop
 
+        self._validate_column_schema(schema)
+
         # a retry loop is necessary because drop column needs it
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)

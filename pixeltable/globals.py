@@ -217,6 +217,10 @@ def create_table(
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
 
+    # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
+    # mapping and report the same errors
+    schema = catalog.normalize_schema(schema)
+
     tbl, was_created = (
         get_runtime()
         .get_catalog(path_obj)
@@ -389,6 +393,10 @@ def create_view(
         json.dumps(custom_metadata)
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
+
+    # canonicalize/validate the additional columns once here, so both local and delegated catalogs receive the same
+    # mapping and report the same errors
+    additional_columns = catalog.normalize_schema(additional_columns)
 
     return (
         get_runtime()

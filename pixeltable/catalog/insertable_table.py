@@ -67,7 +67,7 @@ class InsertableTable(LocalTable):
     def _create(
         cls,
         name: str,
-        schema: dict[str, type | ColumnSpec | exprs.Expr],
+        schema: dict[str, ColumnSpec],
         primary_key: list[str],
         comment: str | None,
         custom_metadata: Any,

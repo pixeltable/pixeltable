@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, Mapping
 from pixeltable.env import Env
 
 from .catalog_base import CatalogBase
-from .globals import normalize_schema
 from .insertable_table_proxy import InsertableTableProxy
 from .table_path import TableMdPath
 from .view_proxy import ViewProxy
@@ -49,7 +48,7 @@ class CatalogProxy(CatalogBase):
     def create_table(
         self,
         path: Path,
-        schema: dict[str, type | ColumnSpec | exprs.Expr],
+        schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
         primary_key: list[str] | None,
         comment: str | None,
@@ -60,7 +59,7 @@ class CatalogProxy(CatalogBase):
     ) -> tuple[Table, bool]:
         args = {
             'path': path,
-            'schema': normalize_schema(schema),
+            'schema': schema,
             'if_exists': if_exists,
             'primary_key': primary_key,
             'comment': comment,
@@ -79,7 +78,7 @@ class CatalogProxy(CatalogBase):
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: SampleClause | None,
-        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
+        additional_columns: Mapping[str, ColumnSpec] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
@@ -94,7 +93,7 @@ class CatalogProxy(CatalogBase):
             'select_list': select_list,
             'where': where,
             'sample_clause': sample_clause,
-            'additional_columns': normalize_schema(additional_columns) if additional_columns is not None else {},
+            'additional_columns': additional_columns if additional_columns is not None else {},
             'is_snapshot': is_snapshot,
             'create_default_idxs': create_default_idxs,
             'iterator': iterator,
