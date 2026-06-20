@@ -1276,7 +1276,6 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    # TODO: fix (proxy): NotFoundError: Table was dropped over proxy
     def test_window_fns(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = test_tbl_dual

@@ -447,7 +447,6 @@ class TestQuery:
         res = small1.join(small2, on=small1.id, how='inner').select(small1.i).limit(1000).collect()
         assert len(res) == 10
 
-    # TODO: fix (proxy): Hosted iterator views are not supported yet
     def test_limit_iterator_views(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         base_t = pxt.create_table(p('lim_base'), {'video': pxt.Video})
@@ -806,13 +805,12 @@ class TestQuery:
         self.__check_constant_query(t.select(foo=5), 5)
         self.__check_constant_query(t.select(foo=None), None)
 
-    # TODO: fix (proxy): to_pytorch_dataset asserts is_local (no proxy routing)
-    def test_to_pytorch_dataset(self, all_datatypes_tbl_dual: pxt.Table) -> None:
+    def test_to_pytorch_dataset(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests all types are handled correctly in this conversion"""
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         import torch
 
-        t = all_datatypes_tbl_dual
+        t = all_datatypes_tbl
         query = t.where(t.row_id < 1)
         assert query.count() > 0
         ds = query.to_pytorch_dataset()
@@ -837,15 +835,14 @@ class TestQuery:
             assert isinstance(tup['c_video'], str)
             assert isinstance(tup['c_json'], dict)
 
-    # TODO: fix (proxy): to_pytorch_dataset asserts is_local (no proxy routing)
-    def test_to_pytorch_image_format(self, all_datatypes_tbl_dual: pxt.Table) -> None:
+    def test_to_pytorch_image_format(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests the image_format parameter is honored"""
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         import torch
         import torchvision.transforms  # type: ignore[import-untyped]
 
         w, h = 220, 224  # make different from each other
-        t = all_datatypes_tbl_dual
+        t = all_datatypes_tbl
         query = t.select(t.row_id, t.c_image, c_image_xformed=t.c_image.resize([w, h]).convert('RGB')).where(
             t.row_id < 1
         )
@@ -892,19 +889,17 @@ class TestQuery:
             elt_count += 1
         assert elt_count == 1
 
-    # TODO: fix (proxy): to_pytorch_dataset asserts is_local (no proxy routing)
-    def test_pytorch_dataset_caching(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_pytorch_dataset_caching(self, uses_db: None) -> None:
         """Tests that dataset caching works
         1. using the same dataset twice in a row uses the cache
         2. adding a row to the table invalidates the cached version
         3. changing the select list invalidates the cached version
         """
-        p = make_catalog_path
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
         # to_pytorch_dataset goes through arrow codepath via export_parquet
-        t = create_all_datatypes_tbl(name=p('all_datatype_tbl'), arrow_compatible_json=True)
+        t = create_all_datatypes_tbl(name='all_datatype_tbl', arrow_compatible_json=True)
 
         t.drop_column('c_video')  # null value video column triggers internal assertions in DataRow
         # see https://github.com/pixeltable/pixeltable/issues/38
@@ -937,16 +932,14 @@ class TestQuery:
         assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
-    # TODO: fix (proxy): Hosted iterator views are not supported yet
-    def test_to_coco(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_to_coco(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO
 
         from pixeltable.functions.yolox import yolo_to_coco, yolox
 
-        base_t = pxt.create_table(p('videos'), {'video': pxt.Video})
-        view_t = pxt.create_view(p('frames'), base_t, iterator=frame_iterator(base_t.video, fps=1))
+        base_t = pxt.create_table('videos', {'video': pxt.Video})
+        view_t = pxt.create_view('frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
         view_t.add_computed_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])
 
