@@ -96,6 +96,24 @@ def _health_ok(ep: str) -> bool:
         return False
 
 
+_LOG_TAIL_BYTES = 64 * 1024  # bound memory on a large log while leaving headroom for _LOG_TAIL_LINES
+_LOG_TAIL_LINES = 40
+
+
+def _tail_log(path: Path, n_lines: int = _LOG_TAIL_LINES) -> str:
+    """Return the last n_lines of the log at path, or '' if it is absent or unreadable."""
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - _LOG_TAIL_BYTES))
+            data = f.read()
+    except OSError:
+        return ''
+    lines = data.decode('utf-8', errors='replace').splitlines()
+    return '\n'.join(lines[-n_lines:])
+
+
 def create(db: str) -> None:
     """Create the daemon's home directory. The database itself is created on first start()."""
     proxy_home(db).mkdir(parents=True, exist_ok=True)
@@ -122,8 +140,9 @@ def start(db: str) -> str:
     # the launching process don't reach the daemon.
     log_dir = proxy_home(db) / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
-    with open(log_dir / 'daemon.log', 'a', encoding='utf-8') as log_file:
-        subprocess.Popen(
+    log_path = log_dir / 'daemon.log'
+    with open(log_path, 'a', encoding='utf-8') as log_file:
+        proc = subprocess.Popen(
             [sys.executable, '-m', 'pixeltable.service.proxy_daemon'],
             env=env,
             stdin=subprocess.DEVNULL,
@@ -138,9 +157,19 @@ def start(db: str) -> str:
         if ep is not None and _health_ok(ep):
             return ep
         time.sleep(0.25)
-    raise excs.Error(
-        excs.ErrorCode.INTERNAL_ERROR, f'Local proxy daemon for {db!r} failed to start within {_STARTUP_TIMEOUT:.0f}s'
-    )
+
+    # The daemon never became healthy. Surface whether the process crashed (exit code) or is hung (still
+    # running), plus the tail of its log, so the failure is diagnosable without access to the daemon's home.
+    msg = f'Local proxy daemon for {db!r} failed to start within {_STARTUP_TIMEOUT:.0f}s'
+    returncode = proc.poll()
+    if returncode is None:
+        msg += '; the daemon process is still running but never reported healthy'
+    else:
+        msg += f'; the daemon process exited with code {returncode}'
+    tail = _tail_log(log_path)
+    if tail != '':
+        msg += f'\n--- daemon log tail ({log_path}) ---\n{tail}'
+    raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, msg)
 
 
 def stop(db: str) -> None:
