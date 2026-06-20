@@ -1014,39 +1014,41 @@ class TestTable:
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
 
-    def test_create_from_query(self, test_tbl_dual: pxt.Table) -> None:
+    def test_create_from_query(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl_dual
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
-        t1 = pxt.create_table('test1', source=query1)
-        assert t1._get_schema() == query1.schema
+        t1 = pxt.create_table(p('test1'), source=query1)
+        assert list(t1.columns()) == list(query1.schema.keys())
         assert_resultset_eq(t1.order_by(t1.c2, asc=False).collect(), query1.collect())
 
         t.add_computed_column(c2mod=t.c2 % 5)
         query2 = t.group_by(t.c2mod).select(t.c2mod, pxtf.sum(t.c2))
-        t2 = pxt.create_table('test2', source=query2)
-        assert t2._get_schema() == query2.schema
+        t2 = pxt.create_table(p('test2'), source=query2)
+        assert list(t2.columns()) == list(query2.schema.keys())
         assert_resultset_eq(t2.order_by(t2.c2mod).collect(), query2.order_by(t.c2mod).collect())
 
         # Create from table directly
-        t3 = pxt.create_table('test3', source=t)
-        assert t3._get_schema() == t._get_schema()
+        t3 = pxt.create_table(p('test3'), source=t)
+        assert list(t3.columns()) == list(t.columns())
         assert_resultset_eq(t3.order_by(t3.c2).collect(), t.order_by(t.c2).collect())
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a non-empty dictionary'):
-            _ = pxt.create_table('test3', ['I am a string.'])  # type: ignore[arg-type]
+            _ = pxt.create_table(p('test3'), ['I am a string.'])  # type: ignore[arg-type]
 
-    def test_insert_query(self, test_tbl_dual: pxt.Table) -> None:
+    def test_insert_query(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl_dual
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
-        t1 = pxt.create_table('test1', source=query1)
-        assert t1._get_schema() == query1.schema
+        t1 = pxt.create_table(p('test1'), source=query1)
+        assert list(t1.columns()) == list(query1.schema.keys())
         assert_resultset_eq(t1.order_by(t1.c2, asc=False).collect(), query1.collect())
 
         t1.insert(query1)
         assert len(t1.collect()) == 2 * len(query1.collect())
 
         # Insert from table directly
-        t2 = pxt.create_table('test2', source=t)
+        t2 = pxt.create_table(p('test2'), source=t)
         t2.insert(t)
         assert len(t2.collect()) == 2 * len(t.collect())
 
@@ -1641,75 +1643,77 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a non-empty dictionary'):
             pxt.create_table(p('empty_table'), {})
 
-    def test_drop_table(self, test_tbl_dual: pxt.Table) -> None:
-        t = pxt.create_table('test1', {'c1': pxt.String})
-        pxt.drop_table('test1')
+    def test_drop_table(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test1'), {'c1': pxt.String})
+        pxt.drop_table(p('test1'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
-            _ = pxt.get_table('test1')
+            _ = pxt.get_table(p('test1'))
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
         # assert 'table test1 has been dropped' in str(exc_info.value).lower()
-        t = pxt.create_table('test2', {'c1': pxt.String})
-        t = pxt.get_table('test2')
-        pxt.drop_table('test2')
+        t = pxt.create_table(p('test2'), {'c1': pxt.String})
+        t = pxt.get_table(p('test2'))
+        pxt.drop_table(p('test2'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
-            _ = pxt.get_table('test2')
+            _ = pxt.get_table(p('test2'))
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
         # assert 'table test2 has been dropped' in str(exc_info.value).lower()
-        t = pxt.create_table('test3', {'c1': pxt.String})
-        _ = pxt.create_view('view3', t)
-        pxt.drop_table('view3')
+        t = pxt.create_table(p('test3'), {'c1': pxt.String})
+        _ = pxt.create_view(p('view3'), t)
+        pxt.drop_table(p('view3'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
-            _ = pxt.get_table('view3')
+            _ = pxt.get_table(p('view3'))
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = v.show(1)
         # assert 'view view3 has been dropped' in str(exc_info.value).lower()
-        _ = pxt.get_table('test3')
-        _ = pxt.create_view('view4', t)
-        pxt.drop_table('view4')
+        _ = pxt.get_table(p('test3'))
+        _ = pxt.create_view(p('view4'), t)
+        pxt.drop_table(p('view4'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
-            _ = pxt.get_table('view4')
+            _ = pxt.get_table(p('view4'))
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = v.show(1)
         # assert 'view view4 has been dropped' in str(exc_info.value).lower()
-        _ = pxt.get_table('test3')
-        pxt.drop_table('test3')
+        _ = pxt.get_table(p('test3'))
+        pxt.drop_table(p('test3'))
 
-    def test_drop_table_via_handle(self, test_tbl_dual: pxt.Table) -> None:
-        t = pxt.create_table('test1', {'c1': pxt.String})
+    def test_drop_table_via_handle(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test1'), {'c1': pxt.String})
         pxt.drop_table(t)
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
-            _ = pxt.get_table('test1')
+            _ = pxt.get_table(p('test1'))
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
         # assert 'table test1 has been dropped' in str(exc_info.value).lower()
-        t = pxt.create_table('test2', {'c1': pxt.String})
-        t = pxt.get_table('test2')
+        t = pxt.create_table(p('test2'), {'c1': pxt.String})
+        t = pxt.get_table(p('test2'))
         pxt.drop_table(t)
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
-            _ = pxt.get_table('test2')
+            _ = pxt.get_table(p('test2'))
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
         # assert 'table test2 has been dropped' in str(exc_info.value).lower()
-        t = pxt.create_table('test3', {'c1': pxt.String})
-        v = pxt.create_view('view3', t)
+        t = pxt.create_table(p('test3'), {'c1': pxt.String})
+        v = pxt.create_view(p('view3'), t)
         pxt.drop_table(v)
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
-            _ = pxt.get_table('view3')
+            _ = pxt.get_table(p('view3'))
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = v.show(1)
         # assert 'view view3 has been dropped' in str(exc_info.value).lower()
-        _ = pxt.get_table('test3')
-        _ = pxt.create_view('view4', t)
-        v = pxt.get_table('view4')
+        _ = pxt.get_table(p('test3'))
+        _ = pxt.create_view(p('view4'), t)
+        v = pxt.get_table(p('view4'))
         pxt.drop_table(v)
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
-            _ = pxt.get_table('view4')
+            _ = pxt.get_table(p('view4'))
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = v.show(1)
         # assert 'view view4 has been dropped' in str(exc_info.value).lower()
-        _ = pxt.get_table('test3')
+        _ = pxt.get_table(p('test3'))
         pxt.drop_table(t)
 
     def test_drop_table_force(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
@@ -2367,7 +2371,8 @@ class TestTable:
         t2 = pxt.get_table(p('test'))
         _ = t2.show(n=0)
 
-    def test_batch_update(self, test_tbl_dual: pxt.Table) -> None:
+    def test_batch_update(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl_dual
         num_rows = t.count()
         # update existing rows
@@ -2408,7 +2413,7 @@ class TestTable:
 
         # test composite primary key
         schema = {'c1': pxt.Required[pxt.String], 'c2': pxt.Required[pxt.Int], 'c3': pxt.Float}
-        t = pxt.create_table('composite', schema, primary_key=['c1', 'c2'])
+        t = pxt.create_table(p('composite'), schema, primary_key=['c1', 'c2'])
         rows = [{'c1': str(i), 'c2': i, 'c3': float(i)} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
 
@@ -2435,7 +2440,7 @@ class TestTable:
         assert "primary key column(s) 'c2' missing" in str(exc_info.value).lower()
 
         # table without primary key
-        t2 = pxt.create_table('no_pk', schema)
+        t2 = pxt.create_table(p('no_pk'), schema)
         validate_update_status(t2.insert(rows), expected_rows=10)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             _ = t2.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}])
@@ -2454,7 +2459,7 @@ class TestTable:
 
         # update with SQL-expressible computed columns
         t = pxt.create_table(
-            'cascade_test', {'id': pxt.Required[pxt.Int], 'val': pxt.String, 'num': pxt.Float}, primary_key='id'
+            p('cascade_test'), {'id': pxt.Required[pxt.Int], 'val': pxt.String, 'num': pxt.Float}, primary_key='id'
         )
         t.add_computed_column(val_upper=t.val.upper())
         t.add_computed_column(num_x2=t.num * 2)
@@ -2887,14 +2892,15 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(self, test_tbl_dual: pxt.Table) -> None:
+    def test_computed_col_exceptions(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         if Env.get().is_using_cockroachdb:
             # TODO Fix this on CockroachDB; it's a problem!
             pytest.skip('Skipped on CockroachDB due to columns still being created when add_computed_column() fails.')
         # exception during insert()
         schema = {'c2': pxt.Int}
         rows = list(test_tbl_dual.select(test_tbl_dual.c2).collect())
-        t = pxt.create_table('test_insert', schema)
+        t = pxt.create_table(p('test_insert'), schema)
         status = t.add_computed_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
         status = t.insert(rows, on_error='ignore')
@@ -2903,7 +2909,7 @@ class TestTable:
         assert t.where(t.add1.errortype != None).count() == 10
 
         # exception during add_computed_column()
-        t = pxt.create_table('test_add_column', schema)
+        t = pxt.create_table(p('test_add_column'), schema)
         status = t.insert(rows)
         assert status.num_rows == 100
         assert status.num_excs == 0
@@ -2997,13 +3003,14 @@ class TestTable:
         t.insert(rows, on_error='ignore')
         _ = t.select(t.c3.errortype).collect()
 
-    def test_computed_window_fn(self, test_tbl_dual: pxt.Table) -> None:
+    def test_computed_window_fn(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl_dual
         # backfill
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
         schema = {'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Bool}
-        new_t = pxt.create_table('insert_test', schema)
+        new_t = pxt.create_table(p('insert_test'), schema)
         new_t.add_computed_column(c5=t.c2.apply(lambda x: x * x, col_type=pxt.Int))
         new_t.add_computed_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
@@ -3580,7 +3587,10 @@ class TestTable:
         t = pxt.get_table(p('test_tbl'))
         check_rename(t, 'c1', 'c1_renamed')
 
-    def test_add_computed_column(self, test_tbl_dual: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_add_computed_column(
+        self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
+    ) -> None:
+        p = make_catalog_path
         t = test_tbl_dual
         status = t.add_computed_column(add1=t.c2 + 10)
         assert status.num_excs == 0
@@ -3603,7 +3613,7 @@ class TestTable:
         assert len(result) == 10
 
         # test case: add computed column on a view that refers to a base table column
-        v = pxt.create_view('test_view', t)
+        v = pxt.create_view(p('test_view'), t)
         v.add_computed_column(add4=v.c2 + 10)
         v.add_computed_column(add5=t.c2 + 10)
         _ = v.show()

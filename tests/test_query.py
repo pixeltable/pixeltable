@@ -65,7 +65,8 @@ class TestQuery:
 
         return t1, t2, t3
 
-    def test_select_where(self, test_tbl_dual: pxt.Table) -> None:
+    def test_select_where(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl_dual
         res1 = t.collect()
         res2 = t.select().collect()
@@ -148,7 +149,7 @@ class TestQuery:
 
         # select list contains invalid references
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            t2 = pxt.create_table('t2', {'c1': pxt.Int})
+            t2 = pxt.create_table(p('t2'), {'c1': pxt.Int})
             _ = t.select(t.c1, t2.c1 + t.c2).collect()
         assert 'cannot be evaluated in the context' in str(exc_info.value)
 
@@ -696,7 +697,8 @@ class TestQuery:
         validate_update_status(t.select().delete())
         assert t.count() == 0
 
-    def test_mutation_op_restrictions(self, test_tbl_dual: pxt.Table) -> None:
+    def test_mutation_op_restrictions(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl_dual
 
         # select_list
@@ -740,8 +742,8 @@ class TestQuery:
 
         # grouping_tbl
 
-        t2 = pxt.create_table('test_tbl_2', {'name': pxt.String, 'video': pxt.Video})
-        v2 = pxt.create_view('test_view_2', t2, iterator=frame_iterator(t2.video, fps=1))
+        t2 = pxt.create_table(p('test_tbl_2'), {'name': pxt.String, 'video': pxt.Video})
+        v2 = pxt.create_view(p('test_view_2'), t2, iterator=frame_iterator(t2.video, fps=1))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
         assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
@@ -756,7 +758,7 @@ class TestQuery:
         assert 'Cannot use `delete` on a view.' in str(exc_info.value)
 
         # update snapshot
-        snap = pxt.create_snapshot('test_snapshot', t)
+        snap = pxt.create_snapshot(p('test_snapshot'), t)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             snap.where(t.c2 < 10).update({'c3': 0.0})
         assert 'Cannot use `update` on a snapshot.' in str(exc_info.value)

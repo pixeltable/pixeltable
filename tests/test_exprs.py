@@ -1640,10 +1640,11 @@ class TestExprs:
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
 
-    def test_string_operations(self, test_tbl_dual: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_string_operations(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         # create table with two columns
+        p = make_catalog_path
         schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
-        t = pxt.create_table('test_str_concat', schema)
+        t = pxt.create_table(p('test_str_concat'), schema)
         t.add_computed_column(s3=t.s1 + '-' + t.s2)
         t.add_computed_column(s4=t.s1 * 3)
         t.add_computed_column(s5=(t.s1 + t.s2) * 2)

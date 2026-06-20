@@ -245,18 +245,21 @@ class TestView:
         _ = reload_tester.run_query(v3.select().order_by(v3.c2))
         reload_tester.run_reload_test()
 
-    def test_add_column_to_view(self, test_tbl_dual: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_add_column_to_view(
+        self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
+    ) -> None:
         """Test add_column* methods for views"""
+        p = make_catalog_path
         t = test_tbl_dual
         t_c1_val0 = t.order_by(t.c1).collect()[0]['c1']
 
         # adding column with same name as a base table column at
         # the time of creating a view will raise an error now.
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'c1' already exists in the base table"):
-            pxt.create_view('test_view', t, additional_columns={'c1': pxt.Int})
+            pxt.create_view(p('test_view'), t, additional_columns={'c1': pxt.Int})
 
         # create a view and add a column with default value
-        v = pxt.create_view('test_view', t, additional_columns={'v1': pxt.Int})
+        v = pxt.create_view(p('test_view'), t, additional_columns={'v1': pxt.Int})
         v.add_computed_column(vcol='xxx')
         assert 'vcol' in v.columns()
         assert v.order_by(v.c1).collect()[0]['vcol'] == 'xxx'
@@ -1342,9 +1345,10 @@ class TestView:
         v1.update({'v1': 101})
         v2.update({'v2': 102})
 
-    def test_recompute_column(self, test_tbl_dual: pxt.Table) -> None:
+    def test_recompute_column(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl_dual
-        v = pxt.create_view('test_view', t, additional_columns={'v1': t.c2 + 1})
+        v = pxt.create_view(p('test_view'), t, additional_columns={'v1': t.c2 + 1})
         validate_update_status(v.recompute_columns(v.v1, cascade=True, where=v.c2 < 10), expected_rows=10)
 
     def test_circular_view_def(self, make_catalog_path: Callable[[str], str]) -> None:
