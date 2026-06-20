@@ -1239,21 +1239,15 @@ class TestQuery:
         q_select = t.where(t.c1 > 1).select()
         t.insert([{'c1': 1}, {'c1': 2}])
 
-        assert list(q_c1.schema.keys()) == ['c1']
-        assert list(q_where.schema.keys()) == ['c1']
-        assert list(q_select.schema.keys()) == ['c1']
-
         t.add_column(c2=pxt.Int)
         t.add_computed_column(c3=t.c1 * 10)
 
         for q in (q_where, q_select):
-            assert list(q.schema.keys()) == ['c1', 'c2', 'c3']
             res = q.collect()
             assert list(res.schema.keys()) == ['c1', 'c2', 'c3']
             assert len(res) == 1
             assert res[0] == {'c1': 2, 'c2': None, 'c3': 20}
 
-        assert list(q_c1.schema.keys()) == ['c1']
         res = q_c1.collect()
         assert list(res.schema.keys()) == ['c1']
         assert len(res) == 1

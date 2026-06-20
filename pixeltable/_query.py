@@ -373,6 +373,30 @@ class ResultCursor(Iterable[Row]):
         return f'ResultCursor({state}, columns=[{cols}])'
 
 
+class ProxyResultCursor(ResultCursor):
+    """A ResultCursor over a result already materialized from a proxy catalog.
+
+    TODO: implement a streaming protocol
+    """
+
+    _result_set: ResultSet
+
+    def __init__(self, query: Query, result_set: ResultSet):
+        super().__init__(query)
+        self._result_set = result_set
+        # use the fetched result's schema/columns as authoritative (avoids any client-side schema staleness)
+        self._schema = result_set._schema
+        self._columns = {name: i for i, name in enumerate(result_set._schema)}
+
+    def open(self) -> None:
+        if self._row_iterator is not None:
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is already open.')
+        if self._closed:
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is closed and cannot be reopened.')
+        # a generator (not a plain iterator) so the inherited close() can call _row_iterator.close()
+        self._row_iterator = (list(row._data) for row in self._result_set._rows)
+
+
 class Query:
     """
     Represents a query for retrieving and transforming data from Pixeltable tables.
@@ -744,7 +768,7 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with group_by()')
         if not self._from_clause.is_local:
             # the rowid order_by needs the table's local store; run head() on the hosting catalog instead
-            return self._run_proxy('head', n=n)
+            return self._exec_proxy('head', n=n)
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
@@ -774,7 +798,7 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with group_by()')
         if not self._from_clause.is_local:
             # the rowid order_by needs the table's local store; run tail() on the hosting catalog instead
-            return self._run_proxy('tail', n=n)
+            return self._exec_proxy('tail', n=n)
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
@@ -864,10 +888,9 @@ class Query:
             return self._collect()
 
     def _collect_proxy(self) -> ResultSet:
-        return self._run_proxy('collect')
+        return self._exec_proxy('collect')
 
-    def _run_proxy(self, method: str, **extra: Any) -> ResultSet:
-        # the from_clause resolves to a hosted catalog: run the terminal op there and rebuild the ResultSet
+    def _exec_proxy(self, method: str, **extra: Any) -> ResultSet:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
 
         cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
@@ -891,6 +914,8 @@ class Query:
 
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
+        if not self._from_clause.is_local:
+            return ProxyResultCursor(self, self._collect_proxy())
         return ResultCursor(self)
 
     async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:

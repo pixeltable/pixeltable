@@ -293,14 +293,13 @@ def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
 def _run_query_terminal(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
     from pixeltable._query import Query  # lazy: _query pulls in plan/exec, only needed when a query runs
 
-    # from_dict() resolves ColumnRefs by loading table-version metadata, which is disallowed inside a plain
-    # transaction; retry_loop() permits the load and retries if a concurrent writer bumps the version
+    # from_dict() might load metadata
     @retry_loop(for_write=False)
     def build() -> Query:
         return Query.from_dict(query_dict)
 
     rs = run(build())
-    return {'schema': dict(rs.schema), 'rows': [list(row._data) for row in rs._rows]}
+    return {'schema': dict(rs._schema), 'rows': [list(row._data) for row in rs._rows]}
 
 
 def _query_collect(request: ProxyRequest) -> dict:
