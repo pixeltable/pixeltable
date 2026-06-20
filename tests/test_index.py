@@ -1005,7 +1005,7 @@ class TestIndex:
 
         res = t.select(t.text.embedding()).collect()
         assert len(res.schema) == 1
-        assert ts.ArrayType((n,), np.dtype('float32')).matches(res.schema['col_0']), res.schema
+        assert ts.ArrayType((n,), np.dtype('float32')).matches(res._schema['col_0']), res._schema
         assert len(res) == 3
         assert all(isinstance(row['col_0'], np.ndarray) and row['col_0'].dtype == np.float32 for row in res)
 

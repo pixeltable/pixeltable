@@ -580,11 +580,11 @@ def assert_resultset_eq(
     assert len(r1) == len(r2)
     assert len(r1.schema) == len(r2.schema)
     if compare_col_types:
-        assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
+        assert all(type1.matches(type2) for type1, type2 in zip(r1._schema.values(), r2._schema.values()))
     if compare_col_names:
         assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
-        assert_columns_eq(r1_col, r1.schema[r1_col], r1[r1_col], r2[r2_col])
+        assert_columns_eq(r1_col, r1._schema[r1_col], r1[r1_col], r2[r2_col])
 
 
 def assert_columns_eq(col_name: str, col_type: ts.ColumnType, c1: list[Any], c2: list[Any]) -> None:

@@ -13,7 +13,6 @@ import pydantic
 import pytest
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
@@ -516,10 +515,10 @@ class TestQuery:
         query = t.select(t.c1, t.c2).order_by(t.c2).limit(0)
         cur = query.cursor()
         # TODO: add ResultCursor.keys(), analogously to Sqlalchemy's CursorResult.keys()?
-        assert list(cur._schema.keys()) == ['c1', 'c2']
+        assert list(cur.schema.keys()) == ['c1', 'c2']
         rows = list(cur)
         assert rows == []
-        assert list(cur._schema.keys()) == ['c1', 'c2']
+        assert list(cur.schema.keys()) == ['c1', 'c2']
 
     def test_head_tail(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -820,10 +819,9 @@ class TestQuery:
 
             arrval = tup['c_array']
             assert isinstance(arrval, np.ndarray)
-            col_type = query.schema['c_array']
-            assert isinstance(col_type, ts.ArrayType)
-            assert arrval.dtype == col_type.dtype
-            assert arrval.shape == col_type.shape
+            # c_array is declared pxt.Array[(10,), pxt.Float]
+            assert arrval.shape == (10,)
+            assert arrval.dtype == np.float32
             assert arrval.dtype == np.float32
             assert arrval.flags['WRITEABLE'], 'required by pytorch collate function'
 
@@ -1160,7 +1158,7 @@ class TestQuery:
 
         # schema
         cur = query.cursor()
-        assert list(cur._schema.keys()) == ['c1', 'c2', 'c3']
+        assert list(cur.schema.keys()) == ['c1', 'c2', 'c3']
 
     def test_cursor_row(self, test_tbl_dual: pxt.Table) -> None:
         query = test_tbl_dual.select(test_tbl_dual.c1, test_tbl_dual.c2, test_tbl_dual.c3).order_by(test_tbl_dual.c2)

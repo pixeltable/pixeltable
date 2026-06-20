@@ -75,7 +75,7 @@ class TestInlinedObjects:
 
         res = reload_tester.run_query(t.order_by(t.id))
         for col in ('ar1', 'ar2', 'ar3', 'ar4', 'ar5'):
-            assert_columns_eq(col, res.schema[col], [row[col] for row in rows], res[col])
+            assert_columns_eq(col, res._schema[col], [row[col] for row in rows], res[col])
 
         # Reference the same array column multiple times in one query
         res = reload_tester.run_query(t.select(t.ar1[0], t.ar1, t.ar1[-1]).order_by(t.id))
@@ -102,7 +102,7 @@ class TestInlinedObjects:
         assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
-        assert_columns_eq('data', res.schema['data'], data, res['data'])
+        assert_columns_eq('data', res._schema['data'], data, res['data'])
 
         reload_tester.run_reload_test()
 
@@ -163,18 +163,18 @@ class TestInlinedObjects:
 
         res = reload_tester.run_query(t.order_by(t.id))
         for col in ('array_list', 'array_dict', 'bytes_list', 'bytes_dict'):
-            assert_columns_eq(col, res.schema[col], [row[col] for row in rows], res[col])
+            assert_columns_eq(col, res._schema[col], [row[col] for row in rows], res[col])
 
         # For img_list and img_dict, we need to compare the images as they appear in the DB, on both sides.
         assert_columns_eq(
             'img_list',
-            res.schema['img_list'],
+            res._schema['img_list'],
             [[row['img1'], row['img2'], row['img3']] for row in res],
             res['img_list'],
         )
         assert_columns_eq(
             'img_dict',
-            res.schema['img_dict'],
+            res._schema['img_dict'],
             [{'img1': row['img1'], 'img2': row['img2'], 'img3': row['img3']} for row in res],
             res['img_dict'],
         )
@@ -248,7 +248,7 @@ class TestInlinedObjects:
         res = reload_tester.run_query(
             t.select(t.l1, l2=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5]).order_by(t.id)
         )
-        assert_columns_eq('l1', res.schema['l1'], res['l1'], res['l2'])
+        assert_columns_eq('l1', res._schema['l1'], res['l1'], res['l2'])
 
         # dict construction
         res = reload_tester.run_query(
@@ -267,18 +267,18 @@ class TestInlinedObjects:
                 },
             ).order_by(t.id)
         )
-        assert_columns_eq('d1', res.schema['d1'], res['d1'], res['d2'])
+        assert_columns_eq('d1', res._schema['d1'], res['d1'], res['d2'])
 
         # test json path materialization (instead of full reconstruction of l1/d1)
         # TODO: collect runtime information to verify that we're only reconstructing l1[0], not the entire cell
         res = reload_tester.run_query(t.select(t.a1, l_a1=t.l1[0]).order_by(t.id))
-        assert_columns_eq('a1', res.schema['a1'], res['a1'], res['l_a1'])
+        assert_columns_eq('a1', res._schema['a1'], res['a1'], res['l_a1'])
         res = reload_tester.run_query(t.select(t.img1, l_img1=t.l1[1]).order_by(t.id))
-        assert_columns_eq('img1', res.schema['img1'], res['img1'], res['l_img1'])
+        assert_columns_eq('img1', res._schema['img1'], res['img1'], res['l_img1'])
         res = reload_tester.run_query(t.select(t.a2, d_a2=t.d1['b']).order_by(t.id))
-        assert_columns_eq('a2', res.schema['a2'], res['a2'], res['d_a2'])
+        assert_columns_eq('a2', res._schema['a2'], res['a2'], res['d_a2'])
         res = reload_tester.run_query(t.select(t.img2, d_img2=t.d1['y']).order_by(t.id))
-        assert_columns_eq('img2', res.schema['img2'], res['img2'], res['d_img2'])
+        assert_columns_eq('img2', res._schema['img2'], res['img2'], res['d_img2'])
 
         reload_tester.run_reload_test()
 

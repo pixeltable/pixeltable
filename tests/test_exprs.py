@@ -547,7 +547,7 @@ class TestExprs:
             col_name = f'literal_{i}'
             expected_output = lit.expected_output if isinstance(lit, LiteralCase) else lit
             assert type(expected_output) is type(results[col_name][0]), f'Column {col_name} has wrong type'
-            assert_columns_eq(col_name, results.schema[col_name], [expected_output] * len(results), results[col_name])
+            assert_columns_eq(col_name, results._schema[col_name], [expected_output] * len(results), results[col_name])
 
         reload_tester.run_reload_test()
 
@@ -627,14 +627,14 @@ class TestExprs:
         print(result.show(5))
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)
-        col_type = next(iter(result.schema.values()))
+        col_type = next(iter(result._schema.values()))
         assert col_type.is_array_type()
         assert isinstance(col_type, ts.ArrayType)
 
     def test_inline_array(self, test_tbl_dual: pxt.Table) -> None:
         t = test_tbl_dual
         result = t.select(pxt.array([[t.c2, 1], [t.c2, 2]])).show()
-        col_type = next(iter(result.schema.values()))
+        col_type = next(iter(result._schema.values()))
         assert col_type.is_array_type()
         assert isinstance(col_type, ts.ArrayType)
         assert col_type.shape == (2, 2)

@@ -70,18 +70,20 @@ class ResultSet:
 
     _rows: list[Row]
     _col_names: list[str]
-    __schema: dict[str, ColumnType]
+    _schema: dict[str, ColumnType]  # internal column types
     __formatter: Formatter
 
     def __init__(self, rows: list[Row], schema: dict[str, ColumnType]):
         self._rows = rows
         self._col_names = list(schema.keys())
-        self.__schema = schema
+        self._schema = schema
         self.__formatter = Formatter(len(self._rows), len(self._col_names), Env.get().http_address)
 
     @property
-    def schema(self) -> dict[str, ColumnType]:
-        return self.__schema
+    def schema(self) -> dict[str, str]:
+        """The result columns as a mapping from name to its type string."""
+        # matches Table.get_metadata()
+        return {name: col_type._to_str(as_schema=True) for name, col_type in self._schema.items()}
 
     def __len__(self) -> int:
         return len(self._rows)
@@ -91,7 +93,7 @@ class ResultSet:
 
     def _repr_html_(self) -> str:
         formatters: dict[Hashable, Callable[[object], str]] = {}
-        for col_name, col_type in self.schema.items():
+        for col_name, col_type in self._schema.items():
             formatter = self.__formatter.get_pandas_formatter(col_type)
             if formatter is not None:
                 formatters[col_name] = formatter
@@ -303,6 +305,12 @@ class ResultCursor(Iterable[Row]):
         self._schema = query.schema
         self._columns = {name: i for i, name in enumerate(self._schema)}
         self._closed = False
+
+    @property
+    def schema(self) -> dict[str, str]:
+        """The result columns as a mapping from name to its type string."""
+        # matches Table.get_metadata()
+        return {name: col_type._to_str(as_schema=True) for name, col_type in self._schema.items()}
 
     def open(self) -> None:
         """Start the underlying query and prepare the cursor for iteration.
