@@ -452,11 +452,8 @@ class TestSnapshot:
         reload_tester.run_query(snap.order_by(t.c1))
         reload_tester.run_reload_test()
 
-    # TODO: fix (proxy): NoneType.get crash in proxy_dispatch._rename_column on a snapshot
-    # def test_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
-    def test_rename_column(self, make_local_path: Callable[[str], str]) -> None:
-        # p = make_catalog_path
-        p = make_local_path
+    def test_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.Int})
 
         s1 = pxt.create_snapshot(p('base_snap'), t, additional_columns={'s1': pxt.Int})
@@ -465,14 +462,10 @@ class TestSnapshot:
         v2 = pxt.create_view(p('view'), t, additional_columns={'v2': pxt.Int})
         s2 = pxt.create_snapshot(p('snap_view'), v2, additional_columns={'s2': pxt.Int})
 
-        with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot rename column for immutable table 'base_snap'"
-        ):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot rename columns of a snapshot\.'):
             s1.rename_column('s1', 'new_s1')
 
-        with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot rename column for immutable table 'snap_view'"
-        ):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot rename columns of a snapshot\.'):
             s2.rename_column('v2', 'new_v2')
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Cannot rename base table column 'c1'"):

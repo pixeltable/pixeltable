@@ -224,6 +224,7 @@ class TableProxy(Table):
         self._dispatch('drop_column', {'column': column, 'if_not_exists': if_not_exists})
 
     def rename_column(self, old_name: str, new_name: str) -> None:
+        self._check_mutable('rename columns of')
         self._dispatch('rename_column', {'old_name': old_name, 'new_name': new_name})
 
     def add_embedding_index(

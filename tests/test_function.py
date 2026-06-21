@@ -1230,7 +1230,7 @@ class TestFunction:
         def udf_with_timestamp_constants(ts1: datetime, ts2: datetime = epoch) -> float:
             return (ts1 - ts2).seconds
 
-        t = pxt.create_table('test1', {'ts1': pxt.Timestamp})
+        t = pxt.create_table(p('test1'), {'ts1': pxt.Timestamp})
         t.add_computed_column(seconds_since_epoch=udf_with_timestamp_constants(t.ts1))
         t.add_computed_column(seconds_since_2000=udf_with_timestamp_constants(t.ts1, ts2=datetime(2000, 1, 1)))
 
@@ -1242,7 +1242,7 @@ class TestFunction:
         ) -> pxt.Array[pxt.Float, (6,)]:
             return a + b
 
-        t = pxt.create_table('test2', {'a': pxt.Array[pxt.Float, (6,)]})  # type: ignore[misc]
+        t = pxt.create_table(p('test2'), {'a': pxt.Array[pxt.Float, (6,)]})  # type: ignore[misc]
         t.add_computed_column(add_one=udf_with_array_constants(t.a))
         t.add_computed_column(add_zeros=udf_with_array_constants(t.a, b=np.zeros(6, dtype=np.float32)))
 

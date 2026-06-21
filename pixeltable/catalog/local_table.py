@@ -683,6 +683,7 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
         ):
+            self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
 
     def add_embedding_index(
