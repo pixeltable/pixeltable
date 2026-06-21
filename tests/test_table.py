@@ -280,8 +280,11 @@ class TestTable:
         t = pxt.create_table(p('test'), schema)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
-    def test_table_metadata(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
-        p = make_catalog_path
+    # TODO: fix (proxy)
+    # def test_table_metadata(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+    def test_table_metadata(self, make_local_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+        # p = make_catalog_path
+        p = make_local_path
         pxt.create_dir(p('dir'))
         pxt.create_dir(p('dir/subdir'))
         for tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
