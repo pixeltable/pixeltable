@@ -82,8 +82,9 @@ class TestFunction:
         _ = pxt.list_functions()
         print(_)
 
-    def test_stored_udf(self, uses_db: None) -> None:
-        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
+    def test_stored_udf(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -97,7 +98,7 @@ class TestFunction:
 
         FunctionRegistry.get().clear_cache()
         reload_catalog()
-        t = pxt.get_table('test')
+        t = pxt.get_table(p('test'))
         status = t.insert(rows)
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
@@ -297,8 +298,9 @@ class TestFunction:
     def append(s: str, suffix: str) -> str:
         return s + suffix
 
-    def test_member_access_udf(self, uses_db: None) -> None:
-        t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.Int})
+    def test_member_access_udf(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.String, 'c2': pxt.Int})
         rows = [{'c1': 'a', 'c2': 1}, {'c1': 'b', 'c2': 2}]
         validate_update_status(t.insert(rows))
         result = t.select(t.c2.increment(), t.c2.successor, t.c1.append('x')).collect()
@@ -338,10 +340,11 @@ class TestFunction:
 
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
-    def test_query(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_query(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('imagehash')
 
-        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
         name = t._name()
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(rows))
@@ -395,7 +398,7 @@ class TestFunction:
         reload_tester.run_query(t.select(t.query1, t.query2, t.query3).order_by(t.c1))
 
         # query parameter applies to a Python-side expr in the inner select list
-        img_tbl = pxt.create_table('img_test', {'id': pxt.Int, 'img': pxt.Image})
+        img_tbl = pxt.create_table(p('img_test'), {'id': pxt.Int, 'img': pxt.Image})
         img_paths = get_image_files()[:5]
         img_tbl.insert([{'id': i, 'img': p} for i, p in enumerate(img_paths)])
 
@@ -413,8 +416,9 @@ class TestFunction:
         t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
 
-    def test_query_bound_limit_offset(self, uses_db: None) -> None:
-        t = pxt.create_table('test', {'c1': pxt.Int})
+    def test_query_bound_limit_offset(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int})
         t.insert([{'c1': i} for i in range(10)])
 
         @pxt.query(return_scalar=True)
@@ -458,23 +462,24 @@ class TestFunction:
         assert all("'offset'" in m for m in msgs if m is not None)
 
         # negative limit/offset coming from a column at runtime (Variable bound per-row from a row value)
-        neg = pxt.create_table('test_neg', {'c1': pxt.Int, 'n': pxt.Int})
+        neg = pxt.create_table(p('test_neg'), {'c1': pxt.Int, 'n': pxt.Int})
         neg.insert([{'c1': i, 'n': -1 if i % 2 == 0 else 1} for i in range(10)])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'limit'"):
             neg.add_computed_column(c=head(neg.n), on_error='abort')
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'offset'"):
             neg.add_computed_column(c=skipped(neg.n), on_error='abort')
 
-    def test_query2(self, uses_db: None) -> None:
+    def test_query2(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         schema = {'query_text': pxt.String, 'i': pxt.Int}
-        queries = pxt.create_table('queries', schema)
+        queries = pxt.create_table(p('queries'), schema)
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?', 'i': 1},
             {'query_text': 'what happened to the term machine learning?', 'i': 2},
         ]
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
 
-        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.String})
+        chunks = pxt.create_table(p('test_doc_chunks'), {'text': pxt.String})
         chunks.insert(
             [
                 {'text': 'the stock of artificial intelligence companies is up 1000%'},
@@ -508,7 +513,7 @@ class TestFunction:
         assert all(len(c) == 2 and all(isinstance(x, dict) for x in c) for c in res['chunks'])
 
         reload_catalog()
-        queries = pxt.get_table('queries')
+        queries = pxt.get_table(p('queries'))
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 and all(isinstance(x, dict) for x in c) for c in res['chunks'])
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
@@ -524,10 +529,11 @@ class TestFunction:
         res = queries.select(queries.i, out=retrieval_scalar(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 and all(isinstance(x, str) for x in out) for out in res['out'])
 
-    def test_query_over_view(self, uses_db: None) -> None:
-        pxt.create_dir('test')
-        t = pxt.create_table('test/tbl', {'a': pxt.String})
-        v = pxt.create_view('test/view', t, additional_columns={'text': pxt.String})
+    def test_query_over_view(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('test'))
+        t = pxt.create_table(p('test/tbl'), {'a': pxt.String})
+        v = pxt.create_view(p('test/view'), t, additional_columns={'text': pxt.String})
 
         @pxt.query
         def retrieve() -> pxt.Query:
@@ -538,7 +544,7 @@ class TestFunction:
             pxt.Json[[{'text': pxt.String | None}]],  # type: ignore[misc]
         )
 
-        retrieval = pxt.create_table('test/retrieval', {'n': pxt.Int})
+        retrieval = pxt.create_table(p('test/retrieval'), {'n': pxt.Int})
         retrieval.add_computed_column(result=retrieve())
         assert retrieval.result.col_type == retrieve.signature.return_type
 
@@ -559,7 +565,7 @@ class TestFunction:
         # references 'view', which no longer exists).
         # TODO: find a general solution
         # reload_catalog()
-        pxt.drop_dir('test', force=True)
+        pxt.drop_dir(p('test'), force=True)
 
     def test_query_with_limit(self, test_tbl_dual: pxt.Table) -> None:
         """@pxt.query bodies that use limit() with differently-shaped limit arguments."""
@@ -639,8 +645,9 @@ class TestFunction:
             def q_str_offset(n: str) -> pxt.Query:
                 return t.select(t.c4).limit(10, offset=n)  # type: ignore[arg-type]
 
-    def test_query_json_mapper(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
+    def test_query_json_mapper(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
         t_rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(t_rows), 100)
 
@@ -653,15 +660,16 @@ class TestFunction:
             pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
         )
 
-        u = pxt.create_table('test2', {'c': pxt.Json})
+        u = pxt.create_table(p('test2'), {'c': pxt.Json})
         u.add_computed_column(out=pxtf.map(u.c['*'], lambda x: lt_x(x)))
         u_rows = [{'c': [i, i + 1, i + 2]} for i in range(10)]
         validate_update_status(u.insert(u_rows), len(u_rows))
         _ = u.select(u.out).collect()
 
-    def test_query_errors(self, uses_db: None) -> None:
+    def test_query_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         schema = {'a': pxt.Int, 'b': pxt.Int}
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
         rows = [{'a': i, 'b': i + 1} for i in range(100)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
@@ -674,12 +682,13 @@ class TestFunction:
             pxt.Json[[{'c': pxt.Int | None}]],  # type: ignore[misc]
         )
 
-    def test_query_udf_after_drop(self, uses_db: None) -> None:
+    def test_query_udf_after_drop(self, make_catalog_path: Callable[[str], str]) -> None:
         """Stored computed columns whose value_expr contains a @pxt.query UDF must remain loadable
         after the UDF's referenced column or table is dropped. The reload path must deserialize the
         stored Query without raising; affected columns become invalid, but the host table and views over it must still
         load."""
-        src = pxt.create_table('src', {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'extra': pxt.Int})
+        p = make_catalog_path
+        src = pxt.create_table(p('src'), {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'extra': pxt.Int})
         validate_update_status(src.insert([{'id': i, 'val': i * 10, 'extra': i} for i in range(5)]), expected_rows=5)
 
         # Three query UDFs over src, each with a different stored Query shape:
@@ -698,13 +707,13 @@ class TestFunction:
         def q_select_star(n: int) -> pxt.Query:
             return src.select().limit(n)
 
-        host = pxt.create_table('host', {'threshold': pxt.Required[pxt.Int]})
+        host = pxt.create_table(p('host'), {'threshold': pxt.Required[pxt.Int]})
         host.add_computed_column(rows_col=q_col(host.threshold))
         host.add_computed_column(rows_tbl=q_tbl(host.threshold))
         host.add_computed_column(rows_star=q_select_star(5))
         validate_update_status(host.insert([{'threshold': 20}]), expected_rows=1)
 
-        host_view = pxt.create_view('host_view', host)
+        host_view = pxt.create_view(p('host_view'), host)
         host_view.add_computed_column(rows_view=q_tbl(host_view.threshold))
 
         expected_rows_col = [{'extra': 2}, {'extra': 3}, {'extra': 4}]
@@ -721,8 +730,8 @@ class TestFunction:
         def assert_loads_and_is_invalid() -> None:
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore', pxt.PixeltableWarning)
-                host = pxt.get_table('host')
-                host_view = pxt.get_table('host_view')
+                host = pxt.get_table(p('host'))
+                host_view = pxt.get_table(p('host_view'))
             # materialized values were stored on host/host_view at insert time and survive drops of src
             assert list(host.head()) == [expected_host_row]
             assert list(host_view.head()) == [expected_view_row]
@@ -736,7 +745,7 @@ class TestFunction:
         assert_loads_and_is_invalid()
 
         # phase 2: drop the entire table referenced by all three UDFs
-        pxt.drop_table('src', force=True)
+        pxt.drop_table(p('src'), force=True)
         reload_catalog()
         assert_loads_and_is_invalid()
 
@@ -1209,10 +1218,11 @@ class TestFunction:
         assert len(res) == 1
         assert res[0] == {'c1': max(res_direct['c1']), 'c2': max(res_direct['c2']), 'c3': max(res_direct['c3'])}
 
-    def test_constants(self, uses_db: None) -> None:
+    def test_constants(self, make_catalog_path: Callable[[str], str]) -> None:
         """
         Test UDFs with default values and/or constant arguments that are not JSON serializable.
         """
+        p = make_catalog_path
 
         epoch = datetime.fromtimestamp(0)
 

@@ -345,7 +345,6 @@ class TestSample:
         n = len(t.select().sample(fraction=0.01, seed=0).collect())
         assert v.count() == n
 
-    # TODO: fix (proxy): Hosted iterator views are not supported yet
     def test_sample_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
