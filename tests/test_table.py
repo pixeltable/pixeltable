@@ -280,7 +280,6 @@ class TestTable:
         t = pxt.create_table(p('test'), schema)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
-    # TODO: fix (proxy): snapshot base/path version metadata differs over proxy
     def test_table_metadata(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
         p = make_catalog_path
         pxt.create_dir(p('dir'))
@@ -299,6 +298,7 @@ class TestTable:
                 media_validation=media_val,  # type: ignore[arg-type]
                 additional_columns={'col2': tbl.col + 'x'},
             )
+            _ = snap.get_metadata()
             assert_table_metadata_eq(
                 {
                     'base': None,
@@ -940,7 +940,6 @@ class TestTable:
             _ = pxt.create_table(p('validation_error'), {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})  # type: ignore[dict-item]
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
-    # TODO: fix (proxy): on_read vs on_write media validation diverges over proxy
     def test_validate_on_read(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)

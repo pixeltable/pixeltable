@@ -2112,7 +2112,7 @@ class Catalog(CatalogBase):
         version_md = schema.md_from_dict(schema.VersionMd, version_record.md)
         tvp = self.construct_tvp(tbl_id, version, tbl_md.ancestors, version_md.created_at)
 
-        view = View(tbl_id, tvp, snapshot_only=True)
+        view = View(tbl_id, tvp, snapshot_only=tbl_md.is_pure_snapshot)
         self._tbls[tbl_id, version] = view
         return view
 

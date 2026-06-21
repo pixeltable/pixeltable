@@ -128,7 +128,7 @@ class TableProxy(Table):
         col_md = self._query_path.get_column_md_by_name(name)
         if col_md is None:
             raise AttributeError(f'Unknown column: {name}')
-        return ColumnRef(col_md)
+        return ColumnRef(col_md, self._query_path.is_validate_on_read(col_md))
 
     def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         return getattr(self, name)

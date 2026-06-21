@@ -149,6 +149,22 @@ class TablePath(abc.ABC):
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
         """Return the index metadata for an index on the given column."""
 
+    @abc.abstractmethod
+    def media_validation(self) -> MediaValidation:
+        """The table-level media validation default."""
+
+    def is_validate_on_read(self, col_md: ColumnVersionMd) -> bool:
+        """Return whether validation for this column should be on read.
+
+        Uses the column-level setting when present; falls back to this path's table-level default.
+        """
+        if not col_md.col_type.is_media_type():
+            return False
+        effective_mv = col_md.media_validation
+        if effective_mv is None:
+            effective_mv = self.media_validation()
+        return effective_mv == MediaValidation.ON_READ
+
     def key(self) -> TablePathKey:
         """The path's effective-version identity (None for live elements, version for snapshots)."""
         keys = [TableVersionKey(self.tbl_id, self.effective_version())]
@@ -425,18 +441,6 @@ class TableVersionPath(TablePath):
         idx_info = tv.get_idx(col, name, idx_class)
         return tv._tbl_md.index_md[idx_info.id]
 
-    def is_validate_on_read(self, col_md: ColumnVersionMd) -> bool:
-        """Return whether a ColumnRef for this column should perform ON_READ media validation.
-
-        Uses the column-level setting when present; falls back to this path's table-level default.
-        """
-        if not col_md.col_type.is_media_type():
-            return False
-        effective_mv = col_md.media_validation
-        if effective_mv is None:
-            effective_mv = self._cached_tv().media_validation
-        return effective_mv == MediaValidation.ON_READ
-
     def as_dict(self) -> dict:
         return {
             'tbl_version': self.tbl_version.as_dict(),
@@ -541,6 +545,9 @@ class TableMdPath(TablePath):
 
     def tbl_name(self) -> str:
         return self.md.tbl_md.name
+
+    def media_validation(self) -> MediaValidation:
+        return MediaValidation[self.md.schema_version_md.media_validation.upper()]
 
     def version(self) -> int | None:
         return self.md.version_md.version if self.md.tbl_md.is_versioned else None

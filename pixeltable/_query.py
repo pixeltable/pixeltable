@@ -476,15 +476,7 @@ class Query:
         """
         if select_list is None:
             select_list = [
-                (
-                    exprs.ColumnRef(
-                        col_md,
-                        cast(catalog.TableVersionPath, tbl).is_validate_on_read(col_md)
-                        if isinstance(tbl, catalog.TableVersionPath)
-                        else False,
-                    ),
-                    None,
-                )
+                (exprs.ColumnRef(col_md, tbl.is_validate_on_read(col_md)), None)
                 for tbl in tbls
                 for col_md in tbl.column_md()
             ]
