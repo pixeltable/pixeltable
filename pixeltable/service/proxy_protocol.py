@@ -20,7 +20,7 @@ import numpy as np
 import PIL.Image
 from pydantic import BaseModel
 
-from pixeltable import exprs, func, type_system as ts
+from pixeltable import exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog.dir import Dir
 from pixeltable.catalog.globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
 from pixeltable.catalog.path import Path
@@ -128,7 +128,10 @@ def serialize(obj: Any) -> Any:
     if isinstance(obj, tuple):
         return {_TAG: 'tuple', 'v': [serialize(x) for x in obj]}
     if isinstance(obj, dict):
-        assert _TAG not in obj, f'dict key {_TAG!r} is reserved by the proxy protocol'
+        if _TAG in obj:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'dict key {_TAG!r} is reserved by the proxy protocol'
+            )
         return {k: serialize(v) for k, v in obj.items()}
     raise AssertionError(f'cannot serialize {type(obj).__name__} for the proxy protocol')
 

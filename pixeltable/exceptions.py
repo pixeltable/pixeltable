@@ -98,6 +98,10 @@ class Error(Exception):
     error_code: ErrorCode
     retry_after: float | None
 
+    # Diagnostic text (e.g. an evaluation-environment stack trace) shown when the error is rendered locally,
+    # but withheld from to_dict() so it never travels to a remote client.
+    detail: str | None
+
     # Thousands digit of the ErrorCode values this class is allowed to carry.
     # The base Error class carries the 0xxx generic codes; each subclass narrows to its own group.
     _code_group: ClassVar[int] = 0
@@ -109,6 +113,15 @@ class Error(Exception):
         super().__init__(message)
         self.error_code = error_code
         self.retry_after = retry_after
+        self.detail = None
+
+    @property
+    def message(self) -> str:
+        """The human-facing message, without any attached diagnostic detail."""
+        return self.args[0] if len(self.args) > 0 else ''
+
+    def __str__(self) -> str:
+        return self.message if self.detail is None else f'{self.message}\n{self.detail}'
 
     @property
     def http_status(self) -> int:
@@ -124,7 +137,11 @@ class Error(Exception):
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation for REST error responses."""
-        d: dict[str, Any] = {'error_code': self.error_code.name, 'message': str(self), 'retryable': self.is_retryable}
+        d: dict[str, Any] = {
+            'error_code': self.error_code.name,
+            'message': self.message,
+            'retryable': self.is_retryable,
+        }
         if self.__cause__ is not None:
             d['cause'] = str(self.__cause__)
         if self.retry_after is not None:
@@ -270,16 +287,20 @@ def raise_from_expr_eval_err(e: ExprEvalError) -> NoReturn:
         msg += f'\nwith {", ".join(input_msgs)}'
     assert e.exc_tb is not None
     stack_trace = traceback.format_tb(e.exc_tb)
+    # The stack frames belong to the (possibly non-local) evaluation environment, so they are carried as the
+    # error's detail rather than folded into the message
+    detail: str | None = None
     if len(stack_trace) > 2:
-        # append a stack trace if the exception happened in user code
-        # (frame 0 is ExprEvaluator and frame 1 is some expr's eval()
+        # the exception happened in user code; frame 0 is ExprEvaluator and frame 1 is some expr's eval(),
+        # so [-1:1:-1] drops those two and reverses the rest to put the most recent frame on top
         nl = '\n'
-        # [-1:1:-1]: leave out entries 0 and 1 (the ExprEvaluator and the expr's eval() frame), reversed
-        # so that the most recent frame is at the top
-        msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
+        detail = f'Stack:\n{nl.join(stack_trace[-1:1:-1])}'
     if isinstance(e.exc, Error):
-        raise type(e.exc)(e.exc.error_code, msg) from e
-    raise RequestError(ErrorCode.UNSUPPORTED_OPERATION, msg) from e
+        err: Error = type(e.exc)(e.exc.error_code, msg)
+    else:
+        err = RequestError(ErrorCode.UNSUPPORTED_OPERATION, msg)
+    err.detail = detail
+    raise err from e
 
 
 class PixeltableWarning(Warning):

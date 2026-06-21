@@ -29,9 +29,16 @@ class CatalogProxy(CatalogBase):
     An implementation of CatalogBase that delegates to a hosted catalog .
     """
 
+    _catalog_uri: Path
+    _client: ProxyClient
+
     def __init__(self, catalog_uri: Path, client: ProxyClient):
         self._catalog_uri = catalog_uri
         self._client = client
+
+    def close(self) -> None:
+        """Release the client transport for this proxied catalog."""
+        self._client.close()
 
     def _make_table(self, md: list[TableVersionMd], version: int | None = None) -> Table:
         # TODO: this signature doesn't make sense, why pass in version?

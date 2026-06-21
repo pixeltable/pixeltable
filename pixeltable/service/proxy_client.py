@@ -11,6 +11,7 @@ import abc
 from typing import TYPE_CHECKING, Any, Callable
 
 import httpx
+from typing_extensions import Self
 
 from pixeltable import exceptions as excs
 
@@ -25,6 +26,9 @@ class ProxyClient(abc.ABC):
     @abc.abstractmethod
     def _send(self, request_json: str) -> str:
         """Transport: send the request JSON to the server and return the response JSON."""
+
+    def close(self) -> None:
+        """Release any transport resources. No-op for transports that hold none."""
 
     def send(
         self,
@@ -83,6 +87,9 @@ class InProcessProxyClient(ProxyClient):
 class ProxyHttpClient(ProxyClient):
     """HTTP transport: POSTs requests to a proxy /rpc endpoint."""
 
+    _endpoint: str
+    _http: httpx.Client
+
     def __init__(self, endpoint: str):
         self._endpoint = endpoint
         self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
@@ -91,3 +98,12 @@ class ProxyHttpClient(ProxyClient):
         response = self._http.post('/rpc', content=request_json, headers={'Content-Type': 'application/json'})
         response.raise_for_status()
         return response.text
+
+    def close(self) -> None:
+        self._http.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()

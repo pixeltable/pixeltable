@@ -187,8 +187,9 @@ def stop(db: str) -> None:
                 # Reap promptly if the daemon is our own child, so its zombie isn't mistaken for a live
                 # process and we don't wait out the full timeout; a no-op when it was launched by a
                 # different process (e.g. a prior `pxt localproxy start`), in which case init reaps it.
-                # os.waitpid/os.WNOHANG are POSIX-only; Windows has no zombies, so there is nothing to reap.
-                if hasattr(os, 'waitpid'):
+                # os.WNOHANG is POSIX-only (Windows defines os.waitpid but not WNOHANG); Windows has no
+                # zombies, so there is nothing to reap.
+                if hasattr(os, 'WNOHANG'):
                     try:
                         os.waitpid(pid, os.WNOHANG)
                     except (ChildProcessError, OSError):

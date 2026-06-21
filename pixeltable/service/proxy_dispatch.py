@@ -7,9 +7,10 @@ returns a serializable result; errors are returned as excs.Error.to_dict().
 from __future__ import annotations
 
 import dataclasses
+import logging
 import traceback
 from typing import TYPE_CHECKING, Any, Callable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
@@ -18,6 +19,8 @@ from pixeltable.runtime import get_runtime
 
 from . import proxy_protocol
 from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest, ProxyResponse
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pixeltable.catalog import LocalTable
@@ -61,10 +64,23 @@ def handle(request_json: str) -> str:
             )
         return ProxyResponse(result=proxy_protocol.serialize(handler(request))).model_dump_json()
     except excs.Error as e:
+        if e.detail is not None:
+            # the client only gets the message; keep the diagnostic detail (e.g. an evaluation stack trace)
+            # for whoever reads the server logs
+            _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
         return ProxyResponse(error=e.to_dict()).model_dump_json()
-    except Exception as e:
-        # surface unexpected server-side failures as a proper error rather than an opaque HTTP 500
-        err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'{type(e).__name__}: {e}\n{traceback.format_exc()}')
+    except Exception:
+        # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
+        # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire.
+        ref = uuid4().hex
+        _logger.error(
+            'Internal error (ref %s) handling %s.%s:\n%s',
+            ref,
+            request.class_name,
+            request.method,
+            traceback.format_exc(),
+        )
+        err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
         return ProxyResponse(error=err.to_dict()).model_dump_json()
 
 

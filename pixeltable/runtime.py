@@ -303,6 +303,8 @@ def reset_runtime() -> None:
             except Exception:
                 pass
         runtime._clients.clear()
+        for cat in runtime._catalogs.values():
+            cat.close()
         if runtime._run_coro_executor is not None:
             runtime._run_coro_executor.shutdown(wait=False)
     _thread_local.runtime = Runtime()
