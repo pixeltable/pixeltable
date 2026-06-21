@@ -19,6 +19,13 @@ from tests.utils import pxt_raises
 class TestCatalog:
     """Tests for miscellanous catalog functions."""
 
+    @pytest.fixture(autouse=True)
+    def _skip_local_proxy_without_serve_deps(self, request: pytest.FixtureRequest) -> None:
+        # the standalone local-proxy tests spawn the daemon, which needs fastapi/uvicorn (the serve extra)
+        if request.node.name.startswith('test_local_proxy'):
+            pytest.importorskip('fastapi')
+            pytest.importorskip('uvicorn')
+
     def test_valid_identifier(self) -> None:
         valid_ids = ['a', 'a1', 'a_1', 'a_']
         invalid_ids = ['', '_', '__', '_a', '1a', 'a.b', '.a', 'a-b']

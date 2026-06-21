@@ -297,7 +297,14 @@ def _build_app() -> 'FastAPI':
 
 def _serve() -> None:
     """Daemon entrypoint. Env (PIXELTABLE_HOME/PGDATA/DB) is set by the launching start()."""
-    import uvicorn
+    try:
+        import uvicorn
+    except ModuleNotFoundError as e:
+        raise excs.Error(
+            excs.ErrorCode.INTERNAL_ERROR,
+            'The local proxy daemon requires the serve dependencies (fastapi, uvicorn). '
+            'Install them with: pip install pixeltable[serve]',
+        ) from e
 
     app = _build_app()
 

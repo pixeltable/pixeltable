@@ -224,6 +224,9 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     The db name is worker-scoped so parallel xdist workers don't share a catalog. start() is idempotent,
     so the per-test make_catalog_path fixture only resets the daemon's catalog rather than restarting the process.
     """
+    # the proxy daemon serves over HTTP via fastapi/uvicorn (the serve extra); a minimal install omits them
+    pytest.importorskip('fastapi')
+    pytest.importorskip('uvicorn')
     from pixeltable.service import proxy_daemon
 
     db = f'testdb_{worker_id}'
