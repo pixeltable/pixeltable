@@ -53,31 +53,32 @@ for _, modname, _ in pkgutil.iter_modules([os.path.dirname(__file__) + '/convert
 
 
 def upgrade_md(engine: sql.engine.Engine) -> None:
-    """Upgrade the metadata schema to the current version"""
-    with orm.Session(engine) as session:
-        # Get exclusive lock on SystemInfo row
-        system_info = session.query(SystemInfo).with_for_update().one().md
-        md_version = system_info['schema_version']
-        assert isinstance(md_version, int)
-        _logger.info(f'Current database version: {md_version}, installed version: {VERSION}')
-        if md_version > VERSION:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                'This Pixeltable database was created with a newer Pixeltable version '
-                f'than the one currently installed ({pxt.__version__}).\n'
-                'Please update to the latest Pixeltable version by running: pip install --upgrade pixeltable',
-            )
-        if md_version == VERSION:
-            return
-        while md_version < VERSION:
+    """Upgrade the metadata schema to the current version.
+
+    Each converter and its version bump commit together as one step, so an interrupted or failing upgrade
+    leaves the database at the last fully-applied version rather than ahead of its recorded version. A
+    crash in the small window between a converter's own commit and the version bump is mitigated by
+    re-running the converter (which must be idempotent).
+    """
+    while True:
+        with orm.Session(engine) as session:
+            # exclusive lock on the SystemInfo row, held for the duration of this single step
+            md_version = session.query(SystemInfo).with_for_update().one().md['schema_version']
+            assert isinstance(md_version, int)
+            if md_version > VERSION:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    'This Pixeltable database was created with a newer Pixeltable version '
+                    f'than the one currently installed ({pxt.__version__}).\n'
+                    'Please update to the latest Pixeltable version by running: pip install --upgrade pixeltable',
+                )
+            if md_version == VERSION:
+                return
             if md_version not in converter_cbs:
                 raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No metadata converter for version {md_version}')
             # We can't use the console logger in Env, because Env might not have been initialized yet.
             _console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')
             converter_cbs[md_version](engine)
-            md_version += 1
-        # update system info
-        conn = session.connection()
-        system_info_md = SystemInfoMd(schema_version=VERSION)
-        conn.execute(SystemInfo.__table__.update().values(md=dataclasses.asdict(system_info_md)))
-        session.commit()
+            system_info_md = SystemInfoMd(schema_version=md_version + 1)
+            session.connection().execute(SystemInfo.__table__.update().values(md=dataclasses.asdict(system_info_md)))
+            session.commit()

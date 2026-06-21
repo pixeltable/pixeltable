@@ -20,6 +20,9 @@ def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     #   (col_tbl_id/col_tbl_effective_version), both stored directly; reference_tbl is gone.
     if not (isinstance(v, dict) and v.get('_classname') == 'ColumnRef'):
         return None
+    if 'tbl_version' not in v:
+        # already in the v52 format
+        return None
 
     owner_tbl_id = v['tbl_id']
     owner_effective_version = v['tbl_version']
