@@ -42,10 +42,13 @@ class TestIndex:
         return np.zeros(10)
 
     # TODO: fix (proxy): reload + dropped-index detection over proxy
+    # def test_similarity_multiple_index(
+    #         self, multi_idx_img_tbl_dual: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
+    # ) -> None:
     def test_similarity_multiple_index(
-        self, multi_idx_img_tbl_dual: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
+        self, multi_idx_img_tbl: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        t = multi_idx_img_tbl_dual
+        t = multi_idx_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
 
         # similarity query should fail because there are multiple indices

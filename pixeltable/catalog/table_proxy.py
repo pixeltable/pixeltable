@@ -172,6 +172,7 @@ class TableProxy(Table):
         schema: Mapping[str, type | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
+        self._check_mutable('add columns to')
         self._validate_column_schema(schema)
         return self._dispatch('add_columns', {'schema': normalize_schema(schema), 'if_exists': if_exists})
 
@@ -187,6 +188,7 @@ class TableProxy(Table):
                 f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
             )
+        self._check_mutable('add columns to')
         self._validate_column_schema(kwargs)
         return self._dispatch('add_column', {'columns': normalize_schema(kwargs), 'if_exists': if_exists})
 
@@ -202,6 +204,7 @@ class TableProxy(Table):
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
         **kwargs: exprs.Expr,
     ) -> UpdateStatus:
+        self._check_mutable('add columns to')
         return self._dispatch(
             'add_computed_column',
             {
@@ -217,6 +220,7 @@ class TableProxy(Table):
         )
 
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
+        self._check_mutable('drop columns from')
         self._dispatch('drop_column', {'column': column, 'if_not_exists': if_not_exists})
 
     def rename_column(self, old_name: str, new_name: str) -> None:
@@ -234,6 +238,7 @@ class TableProxy(Table):
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
+        self._check_mutable('add an index to')
         self._validate_embedding_args(embedding, string_embed, image_embed)
         self._dispatch(
             'add_embedding_index',
@@ -256,6 +261,7 @@ class TableProxy(Table):
         idx_name: str | None = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
+        self._check_mutable('drop an index from')
         self._dispatch('drop_embedding_index', {'column': column, 'idx_name': idx_name, 'if_not_exists': if_not_exists})
 
     def drop_index(
@@ -265,6 +271,7 @@ class TableProxy(Table):
         idx_name: str | None = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
+        self._check_mutable('drop an index from')
         self._dispatch('drop_index', {'column': column, 'idx_name': idx_name, 'if_not_exists': if_not_exists})
 
     def insert(
@@ -296,6 +303,7 @@ class TableProxy(Table):
         cascade: bool = True,
         return_rows: bool = False,
     ) -> UpdateStatus:
+        self._check_mutable('update')
         self._validate_update_value_spec(value_spec)
         self._validate_where(where)
         return self._dispatch(
@@ -309,6 +317,7 @@ class TableProxy(Table):
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
     ) -> UpdateStatus:
+        self._check_mutable('update')
         return self._dispatch(
             'batch_update',
             {'rows': list(rows), 'cascade': cascade, 'if_not_exists': if_not_exists, 'return_rows': return_rows},
@@ -321,12 +330,14 @@ class TableProxy(Table):
         errors_only: bool = False,
         cascade: bool = True,
     ) -> UpdateStatus:
+        self._check_mutable('recompute columns of')
         return self._dispatch(
             'recompute_columns',
             {'columns': list(columns), 'where': where, 'errors_only': errors_only, 'cascade': cascade},
         )
 
     def revert(self) -> None:
+        self._check_mutable('revert')
         self._dispatch('revert', {})
 
     def external_stores(self) -> list[str]: ...

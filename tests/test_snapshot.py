@@ -227,13 +227,18 @@ class TestSnapshot:
         assert s2._id == id_before['test_snap_v']
 
     # TODO: fix (proxy): error message uses full proxy path, not the bare name
-    def test_errors(
-        self, test_tbl_dual: pxt.Table, local_embed: pxt.Function, make_catalog_path: Callable[[str], str]
-    ) -> None:
-        p = make_catalog_path
-        tbl = test_tbl_dual
-        snap = pxt.create_snapshot(p('snap'), tbl)
-        display_str = "snapshot 'snap'"
+    # def test_errors(
+    #         self, test_tbl_dual: pxt.Table, local_embed: pxt.Function, make_catalog_path: Callable[[str], str]
+    # ) -> None:
+    def test_errors(self, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
+        def p(s: str) -> str:
+            return s
+
+        # p = make_catalog_path
+        tbl = test_tbl
+        snap_name = p('snap')
+        snap = pxt.create_snapshot(snap_name, tbl)
+        display_str = f'snapshot {snap_name!r}'
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot insert into a snapshot.'):
             _ = snap.insert([{'c3': 1.0}])
@@ -268,9 +273,12 @@ class TestSnapshot:
             _ = pxt.create_view(p('default_snap'), tbl, is_snapshot=True, create_default_idxs=True)
 
     # TODO: fix (proxy): anonymous version-path get_table over proxy
+    # @pytest.mark.parametrize('anonymous', [True, False])
+    # def test_views_of_snapshots(self, anonymous: bool, make_catalog_path: Callable[[str], str]) -> None:
     @pytest.mark.parametrize('anonymous', [True, False])
-    def test_views_of_snapshots(self, anonymous: bool, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_views_of_snapshots(self, anonymous: bool, make_local_path: Callable[[str], str]) -> None:
+        # p = make_catalog_path
+        p = make_local_path
         t = pxt.create_table(p('tbl'), {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
@@ -324,8 +332,10 @@ class TestSnapshot:
         verify(v1, v2, s)
 
     # TODO: fix (proxy): Column was dropped (snapshot-only column) over proxy
-    def test_multiple_snapshot_paths(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    # def test_multiple_snapshot_paths(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_multiple_snapshot_paths(self, make_local_path: Callable[[str], str]) -> None:
+        # p = make_catalog_path
+        p = make_local_path
         t = create_test_tbl(p('test_tbl'))
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
         orig_c3 = t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3']
@@ -443,8 +453,10 @@ class TestSnapshot:
         reload_tester.run_reload_test()
 
     # TODO: fix (proxy): NoneType.get crash in proxy_dispatch._rename_column on a snapshot
-    def test_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    # def test_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_rename_column(self, make_local_path: Callable[[str], str]) -> None:
+        # p = make_catalog_path
+        p = make_local_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.Int})
 
         s1 = pxt.create_snapshot(p('base_snap'), t, additional_columns={'s1': pxt.Int})

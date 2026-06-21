@@ -42,6 +42,7 @@ class View(LocalTable):
     The exception is a snapshot view without a predicate and without additional columns: in that case, the view
     is simply a reference to a specific set of base versions.
     """
+
     _snapshot_only: bool
 
     def __init__(self, id: UUID, tbl_version_path: TableVersionPath, snapshot_only: bool):

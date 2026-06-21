@@ -872,6 +872,13 @@ class Table(SchemaObject):
                     f'`{name}` must be a Pixeltable function; got `{type(fn).__name__}`',
                 )
 
+    def _check_mutable(self, op_descr: str) -> None:
+        if self._tbl_path.is_snapshot():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.',
+            )
+
     @abc.abstractmethod
     def update(
         self,

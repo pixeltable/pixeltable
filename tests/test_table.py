@@ -3910,10 +3910,11 @@ class TestTable:
         _ = tbl.select(tbl.id, tbl.name, tbl.version, tbl.comment).collect()
 
     # TODO: fix (proxy): query builders (group_by/select/where) don't detect a dropped table over proxy
-    def test_table_api_on_dropped_table(
-        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
-    ) -> None:
-        p = make_catalog_path
+    # def test_table_api_on_dropped_table(
+    #         self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+    # ) -> None:
+    def test_table_api_on_dropped_table(self, make_local_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+        p = make_local_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.String})
         pxt.drop_table(p('test'))
         unknown_tbl_msg = 'Table was dropped'

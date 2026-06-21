@@ -448,7 +448,7 @@ class LocalTable(Table):
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_columns() -> list[Column] | None:
-            self.__check_mutable('add columns to')
+            self._check_mutable('add columns to')
 
             # make a copy of schema so del operations below don't modify the caller's dict
             schema_copy = dict(schema)
@@ -517,7 +517,7 @@ class LocalTable(Table):
         # a retry loop is necessary because drop column needs it.
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_computed_column() -> UpdateStatus:
-            self.__check_mutable('add columns to')
+            self._check_mutable('add columns to')
             if len(kwargs) != 1:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -588,7 +588,7 @@ class LocalTable(Table):
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_drop_column() -> None:
-            self.__check_mutable('drop columns from')
+            self._check_mutable('drop columns from')
             col: Column = None
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
@@ -705,7 +705,7 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            self.__check_mutable('add an index to')
+            self._check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
 
             if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
@@ -816,7 +816,7 @@ class LocalTable(Table):
         _idx_class: type[index.IndexBase] | None = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
-        self.__check_mutable('drop an index from')
+        self._check_mutable('drop an index from')
         assert (col is None) != (idx_name is None)
 
         if idx_name is not None:
@@ -916,7 +916,7 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            self.__check_mutable('update')
+            self._check_mutable('update')
             result = self._tbl_version.get().update(value_spec, where, cascade, return_rows=return_rows)
             FileCache.get().emit_eviction_warnings()
             return result
@@ -931,7 +931,7 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            self.__check_mutable('update')
+            self._check_mutable('update')
             rows = list(rows)
 
             row_updates: list[dict[Column, exprs.Expr]] = []
@@ -986,7 +986,7 @@ class LocalTable(Table):
         cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True):
-            self.__check_mutable('recompute columns of')
+            self._check_mutable('recompute columns of')
             if len(columns) == 0:
                 raise excs.RequestError(
                     excs.ErrorCode.MISSING_REQUIRED, 'At least one column must be specified to recompute'
@@ -1040,7 +1040,7 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            self.__check_mutable('revert')
+            self._check_mutable('revert')
             tv = self._tbl_version.get()
             if not tv.is_versioned:
                 raise excs.RequestError(
@@ -1059,7 +1059,7 @@ class LocalTable(Table):
         """
 
         with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._tbl_version_path]):
-            self.__check_mutable('link an external store to')
+            self._check_mutable('link an external store to')
             if store.name in self.external_stores():
                 raise excs.AlreadyExistsError(
                     excs.ErrorCode.PATH_ALREADY_EXISTS,
@@ -1189,9 +1189,3 @@ class LocalTable(Table):
             )
 
         return metadata_dicts
-
-    def __check_mutable(self, op_descr: str) -> None:
-        if self._tbl_version_path.is_snapshot():
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot {op_descr} a snapshot.'
-            )
