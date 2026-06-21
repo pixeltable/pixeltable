@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 
 import pandas as pd
@@ -11,7 +12,6 @@ from pixeltable import exceptions as excs
 from .schema_object import SchemaObject
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from pathlib import Path
 
     import pydantic
@@ -855,6 +855,10 @@ class Table(SchemaObject):
         for name, spec in schema.items():
             if isinstance(spec, dict):
                 Column._validate_column_spec(name, spec)
+
+    def _validate_insert_source(self, source: Any) -> None:
+        if source is not None and isinstance(source, Sequence) and len(source) == 0:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
 
     @abc.abstractmethod
     def update(

@@ -40,6 +40,7 @@ class InsertableTableProxy(TableProxy):
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'Hosted insert does not support `source_format` or `schema_overrides` yet.',
             )
+        self._validate_insert_source(source)
         if source is None:
             # the kwargs form (t.insert(col=val, ...)) is a single row
             source = [kwargs]

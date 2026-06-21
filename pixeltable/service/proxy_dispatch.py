@@ -130,7 +130,7 @@ def _resolve_tbl(path_key: TablePathKey) -> LocalTable:
     with cat.begin_xact(for_write=False):
         tbl = cat.get_table_by_id(leaf.tbl_id, leaf.effective_version)  # version pins a snapshot proxy
     if tbl is None:
-        raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, f'Table not found: {leaf.tbl_id}')
+        raise excs.table_was_dropped(leaf.tbl_id)
     return tbl
 
 

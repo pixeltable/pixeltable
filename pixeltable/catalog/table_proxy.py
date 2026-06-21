@@ -68,7 +68,7 @@ class TableProxy(Table):
             'CatalogBase', 'get_table_by_id', {'tbl_id': leaf.tbl_id, 'version': leaf.effective_version}
         )
         if md is None:
-            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, f'Table not found: {leaf.tbl_id}')
+            raise excs.table_was_dropped(leaf.tbl_id)
         return TableMdPath.from_md(md, self._catalog_uri)
 
     def _refresh_md_path(self, md: list[TableVersionMd]) -> None:

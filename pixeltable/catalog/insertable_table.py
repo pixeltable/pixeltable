@@ -150,8 +150,7 @@ class InsertableTable(LocalTable):
     ) -> UpdateStatus:
         from pixeltable.io.table_data_conduit import TableDataConduit
 
-        if source is not None and isinstance(source, Sequence) and len(source) == 0:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
+        self._validate_insert_source(source)
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
         if source is None:
