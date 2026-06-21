@@ -856,9 +856,21 @@ class Table(SchemaObject):
             if isinstance(spec, dict):
                 Column._validate_column_spec(name, spec)
 
-    def _validate_insert_source(self, source: Any) -> None:
+    def _validate_insert_source(self, source: TableDataSource | None) -> None:
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
+
+    def _validate_embedding_args(
+        self, embedding: Function | None, string_embed: Function | None, image_embed: Function | None
+    ) -> None:
+        from pixeltable.func.function import Function
+
+        for name, fn in (('embedding', embedding), ('string_embed', string_embed), ('image_embed', image_embed)):
+            if fn is not None and not isinstance(fn, Function):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'`{name}` must be a Pixeltable function; got `{type(fn).__name__}`',
+                )
 
     @abc.abstractmethod
     def update(

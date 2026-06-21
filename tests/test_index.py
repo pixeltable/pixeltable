@@ -1127,6 +1127,10 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='1-dimensional'):
             t.add_embedding_index('vec2d')
 
+        # a non-Function embedding argument is rejected
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`string_embed` must be a Pixeltable function'):
+            t.add_embedding_index('vec', string_embed=str.split)  # type: ignore[arg-type]
+
     # Local-only: verifies index creation/removal in the local Postgres store (store_tbl / list_store_indexes)
     @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
     def test_drop_index(self, index_type: str, uses_db: None, request: pytest.FixtureRequest) -> None:

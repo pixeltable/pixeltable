@@ -273,6 +273,26 @@ def make_catalog_path(init_env: None, request: pytest.FixtureRequest) -> Iterato
     get_runtime().catalog.validate_store()
 
 
+@pytest.fixture(scope='function')
+def make_local_path(init_env: None) -> Iterator[Callable[[str], str]]:
+    """Stand-in for make_catalog_path() for tests that fail in proxy mode."""
+    clean_db()
+    Config.init({}, reinit=True)
+    Env.get().default_time_zone = None
+    Env.get().user = None
+    reload_catalog()
+    FileCache.get().validate()
+    FileCache.get().set_capacity(10 << 30)  # 10 GiB
+
+    def p(path: str) -> str:
+        return path
+
+    yield p
+
+    Env.get().user = None
+    get_runtime().catalog.validate_store()
+
+
 def _free_disk_space() -> None:
     assert IN_CI
 

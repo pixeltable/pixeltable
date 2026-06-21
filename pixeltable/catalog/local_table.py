@@ -697,6 +697,7 @@ class LocalTable(Table):
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
+        self._validate_embedding_args(embedding, string_embed, image_embed)
         assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
             'TODO: implement for unversioned tables [PXT-1101]'
         )

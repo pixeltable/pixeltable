@@ -234,6 +234,7 @@ class TableProxy(Table):
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
+        self._validate_embedding_args(embedding, string_embed, image_embed)
         self._dispatch(
             'add_embedding_index',
             {

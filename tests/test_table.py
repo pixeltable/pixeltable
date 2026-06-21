@@ -2262,7 +2262,6 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    # TODO: fix (proxy): empty-input insert raises a different error than the local path
     def test_insert(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         schema: dict[str, type] = {
@@ -3911,8 +3910,10 @@ class TestTable:
         # we can create references to those column via __getattr__
         _ = tbl.select(tbl.id, tbl.name, tbl.version, tbl.comment).collect()
 
-    # TODO: fix (proxy): dropped-table error message differs from the local path
-    def test_table_api_on_dropped_table(self, make_catalog_path: Callable[[str], str]) -> None:
+    # TODO: fix (proxy): query builders (group_by/select/where) don't detect a dropped table over proxy
+    def test_table_api_on_dropped_table(
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+    ) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.String})
         pxt.drop_table(p('test'))
@@ -3935,7 +3936,7 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             _ = t.add_computed_column(c3=t.c1 + 10)
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            t.add_embedding_index('c2', string_embed=str.split)  # type: ignore[arg-type]
+            t.add_embedding_index('c2', string_embed=local_embed)
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             t.drop_embedding_index(column='c2', if_not_exists='ignore')
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):

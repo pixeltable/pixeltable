@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import collections.abc
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pydantic
 
@@ -35,6 +35,13 @@ class InsertableTableProxy(TableProxy):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
+        from pixeltable.io.table_data_conduit import (
+            PydanticTableDataConduit,
+            QueryTableDataConduit,
+            RowDataTableDataConduit,
+            TableDataConduit,
+        )
+
         if source_format is not None or schema_overrides is not None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -44,24 +51,30 @@ class InsertableTableProxy(TableProxy):
         if source is None:
             # the kwargs form (t.insert(col=val, ...)) is a single row
             source = [kwargs]
-
-        # a Query source runs on the server (same hosted catalog) and its result rows are inserted there
-        from pixeltable._query import Query
-
-        if isinstance(source, Query):
-            return self._insert_query(source, on_error=on_error, print_stats=print_stats, return_rows=return_rows)
-
-        # a generator / iterator of rows (e.g. t.insert(d for d in ...)) is materialized, matching local insert
+            kwargs = None
         if isinstance(source, collections.abc.Iterator):
+            # materialize a generator/iterator of rows, matching the local insert path
             source = list(source)
 
-        if not isinstance(source, list) or len(source) == 0:
+        # source classification (and its 'unsupported data source type' error) is shared with the local insert path
+        data_source = TableDataConduit.create(source, extra_fields=kwargs)
+
+        # a Table or Query source runs on the server against the same hosted catalog
+        if isinstance(data_source, QueryTableDataConduit):
+            return self._insert_query(
+                data_source.pxt_query, on_error=on_error, print_stats=print_stats, return_rows=return_rows
+            )
+        # dict/pydantic rows are shipped to the daemon, which validates and inserts them through the same conduit
+        if isinstance(data_source, PydanticTableDataConduit):
+            rows = self._pydantic_to_rows(cast('list[Any]', source))
+        elif isinstance(data_source, RowDataTableDataConduit):
+            assert data_source.raw_rows is not None
+            rows = data_source.raw_rows
+        else:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'Hosted insert supports only a non-empty list of dicts or pydantic models.',
+                f'Hosted insert does not support a {type(source).__name__} source yet.',
             )
-
-        rows = self._prepare_rows(source)
         return self._dispatch(
             'insert', {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows}
         )
