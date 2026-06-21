@@ -225,22 +225,27 @@ class InsertableTable(LocalTable):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            if isinstance(data_source, QueryTableDataConduit):
-                status += self._tbl_version.get().insert(
-                    source=None,
-                    query=data_source.pxt_query,
-                    print_stats=print_stats,
-                    fail_on_exception=fail_on_exception,
-                )
-            else:
-                for row_batch in data_source.valid_row_batch():
+            # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
+            # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
+            try:
+                if isinstance(data_source, QueryTableDataConduit):
                     status += self._tbl_version.get().insert(
-                        source=row_batch,
-                        query=None,
+                        source=None,
+                        query=data_source.pxt_query,
                         print_stats=print_stats,
                         fail_on_exception=fail_on_exception,
-                        return_rows=return_rows,
                     )
+                else:
+                    for row_batch in data_source.valid_row_batch():
+                        status += self._tbl_version.get().insert(
+                            source=row_batch,
+                            query=None,
+                            print_stats=print_stats,
+                            fail_on_exception=fail_on_exception,
+                            return_rows=return_rows,
+                        )
+            except excs.ExprEvalError as e:
+                excs.raise_from_expr_eval_err(e)
 
         Env.get().console_logger.info(status.insert_msg(start_ts))
         FileCache.get().emit_eviction_warnings()

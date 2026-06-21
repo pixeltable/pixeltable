@@ -19,7 +19,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exceptions as excs, exprs, functions as pxtf
+from pixeltable import exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
@@ -996,8 +996,9 @@ class TestExprs:
         for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs, strict=True):
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
-    def test_astype_str_to_img_data_url(self, uses_db: None) -> None:
-        t = pxt.create_table('astype_test', {'url': pxt.String})
+    def test_astype_str_to_img_data_url(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('astype_test'), {'url': pxt.String})
         t.add_computed_column(img=t.url.astype(pxt.Image))
         images = get_image_files(include_bad_image=True)[:5]  # bad image is at idx 0
         url_encoded_images = []
@@ -1016,20 +1017,18 @@ class TestExprs:
             assert orig_img.size == retrieved_img.size
 
         # Try inserting a non-image
-        with pytest.raises(excs.ExprEvalError) as exc_info:
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_DATA_FORMAT,
+            match='data URL could not be decoded into a valid image: data:text/plain,Hello there.',
+        ):
             t.insert(url='data:text/plain,Hello there.')
-        assert (
-            str(exc_info.value.__cause__)
-            == 'data URL could not be decoded into a valid image: data:text/plain,Hello there.'
-        )
 
         # Try inserting a bad image
-        with pytest.raises(excs.ExprEvalError) as exc_info:
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_DATA_FORMAT,
+            match='data URL could not be decoded into a valid image: data:image/jpeg;base64',
+        ):
             t.insert(url=url_encoded_images[0])
-        assert (
-            str(exc_info.value.__cause__) == 'data URL could not be decoded into a valid image: '
-            'data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
-        )
 
     def test_apply(self, test_tbl_dual: pxt.Table) -> None:
         t = test_tbl_dual

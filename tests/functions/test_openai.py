@@ -149,9 +149,9 @@ class TestOpenai:
         # contain the string "json", it refuses the request.
         # TODO This should probably not be throwing an exception, but rather logging the error in
         # `t.chat_output_4.errormsg` etc.
-        with pytest.raises(excs.ExprEvalError) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             t.insert(input='Say something interesting.')
-        assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
+        assert "'messages' must contain the word 'json'" in str(exc_info.value)
 
     def test_responses(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')

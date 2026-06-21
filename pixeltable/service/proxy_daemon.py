@@ -187,15 +187,18 @@ def stop(db: str) -> None:
                 # Reap promptly if the daemon is our own child, so its zombie isn't mistaken for a live
                 # process and we don't wait out the full timeout; a no-op when it was launched by a
                 # different process (e.g. a prior `pxt localproxy start`), in which case init reaps it.
-                try:
-                    os.waitpid(pid, os.WNOHANG)
-                except (ChildProcessError, OSError):
-                    pass
+                # os.waitpid/os.WNOHANG are POSIX-only; Windows has no zombies, so there is nothing to reap.
+                if hasattr(os, 'waitpid'):
+                    try:
+                        os.waitpid(pid, os.WNOHANG)
+                    except (ChildProcessError, OSError):
+                        pass
                 time.sleep(0.05)
             if _pid_alive(pid):
                 # Graceful shutdown overran the timeout; force termination so we never leak the daemon.
+                # SIGKILL is absent on Windows, where os.kill() already terminates unconditionally.
                 try:
-                    os.kill(pid, signal.SIGKILL)
+                    os.kill(pid, getattr(signal, 'SIGKILL', signal.SIGTERM))
                 except ProcessLookupError:
                     pass
     _port_lock(db).unlink(missing_ok=True)

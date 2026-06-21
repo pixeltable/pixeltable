@@ -31,7 +31,7 @@ class TestSchedulers:
         fault = ExceptionFault(DummyError('Non-retriable error'))
         get_runtime().fault_manager.inject_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC, fault)
 
-        with pytest.raises(excs.ExprEvalError, match='DummyError'):
+        with pytest.raises(excs.Error, match='DummyError'):
             t.insert([{'x': 1}])
 
         fault.assert_count(1)
