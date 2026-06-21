@@ -380,6 +380,14 @@ class Env:
         self._managed_logging_handlers.append((_http_server_logger, http_fh))
         _http_server_logger.propagate = False
 
+        # Route uvicorn's loggers to the main pxt log file
+        uvicorn_logger = logging.getLogger('uvicorn')
+        if uvicorn_logger.level == logging.NOTSET:
+            uvicorn_logger.setLevel(logging.INFO)
+        uvicorn_logger.addHandler(fh)
+        uvicorn_logger.propagate = False
+        self._managed_logging_handlers.append((uvicorn_logger, fh))
+
         self.clear_tmp_dir()
         tz_name = self._get_tz_name()
 
