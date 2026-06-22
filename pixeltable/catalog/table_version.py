@@ -1769,7 +1769,7 @@ class TableVersion:
             )
         if idx_name is not None and idx_name not in [info.name for info in candidates]:
             raise excs.NotFoundError(
-                excs.ErrorCode.COLUMN_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
+                excs.ErrorCode.INDEX_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
             )
         return candidates[0] if idx_name is None else next(info for info in candidates if info.name == idx_name)
 

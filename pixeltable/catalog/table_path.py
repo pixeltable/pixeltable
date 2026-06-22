@@ -649,7 +649,7 @@ class TableMdPath(TablePath):
                     named = [idx_md for idx_md in candidates if idx_md.name == name]
                     if len(named) == 0:
                         raise excs.NotFoundError(
-                            excs.ErrorCode.COLUMN_NOT_FOUND, f'Index {name!r} not found for column {col_name!r}'
+                            excs.ErrorCode.INDEX_NOT_FOUND, f'Index {name!r} not found for column {col_name!r}'
                         )
                     return named[0]
                 return candidates[0]

@@ -29,6 +29,7 @@ from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     TESTS_DIR,
+    CatalogMode,
     DummyIterator,
     DummyIterator2,
     ReloadTester,
@@ -2026,19 +2027,19 @@ class TestTable:
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
         self.check_bad_media(p, rows, pxt.Image, validate_local_path=False)
 
-    def test_validate_video(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_validate_video(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
-        self.check_bad_media(p, rows, pxt.Video)
+        self.check_bad_media(p, rows, pxt.Video, validate_local_path=catalog_mode == 'local')
 
-    def test_validate_audio(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_validate_audio(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         files = get_audio_files(include_bad_audio=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
-        self.check_bad_media(p, rows, pxt.Audio)
+        self.check_bad_media(p, rows, pxt.Audio, validate_local_path=catalog_mode == 'local')
 
-    def test_validate_docs(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_validate_docs(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('markitdown', 'mistune')
 
@@ -2047,9 +2048,9 @@ class TestTable:
         doc_paths = valid_doc_paths + invalid_doc_paths
         is_valid = [True] * len(valid_doc_paths) + [False] * len(invalid_doc_paths)
         rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(doc_paths, is_valid)]
-        self.check_bad_media(p, rows, pxt.Document)
+        self.check_bad_media(p, rows, pxt.Document, validate_local_path=catalog_mode == 'local')
 
-    def test_validate_external_url(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_validate_external_url(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
         rows = [
@@ -2067,7 +2068,7 @@ class TestTable:
                 'is_bad_media': False,
             },
         ]
-        self.check_bad_media(p, rows, pxt.Video)
+        self.check_bad_media(p, rows, pxt.Video, validate_local_path=catalog_mode == 'local')
 
     def test_file_paths(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path

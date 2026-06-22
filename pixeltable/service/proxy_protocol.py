@@ -20,7 +20,7 @@ import numpy as np
 import PIL.Image
 from pydantic import BaseModel
 
-from pixeltable import exceptions as excs, exprs, func, type_system as ts
+from pixeltable import exprs, func, type_system as ts
 from pixeltable.catalog.dir import Dir
 from pixeltable.catalog.globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
 from pixeltable.catalog.path import Path
@@ -129,9 +129,9 @@ def serialize(obj: Any) -> Any:
         return {_TAG: 'tuple', 'v': [serialize(x) for x in obj]}
     if isinstance(obj, dict):
         if _TAG in obj:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, f'dict key {_TAG!r} is reserved by the proxy protocol'
-            )
+            # a user dict whose own key collides with the reserved tag: store it as ordered key/value pairs so
+            # the tag no longer sits at the top level and the dict round-trips
+            return {_TAG: 'rawdict', 'v': [[k, serialize(val)] for k, val in obj.items()]}
         return {k: serialize(v) for k, v in obj.items()}
     raise AssertionError(f'cannot serialize {type(obj).__name__} for the proxy protocol')
 
@@ -145,6 +145,9 @@ def deserialize(obj: Any) -> Any:
         if tag is None:
             return {k: deserialize(v) for k, v in obj.items()}
         v = obj['v']
+        if tag == 'rawdict':
+            # a user dict whose own key collided with the reserved tag; stored as ordered key/value pairs
+            return {k: deserialize(val) for k, val in v}
         if tag == 'tuple':
             return tuple(deserialize(x) for x in v)
         if tag == 'bytes':

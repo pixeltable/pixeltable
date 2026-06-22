@@ -16,7 +16,7 @@ import uuid
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypedDict
 from unittest import TestCase
 from uuid import uuid4
 
@@ -43,6 +43,9 @@ if TYPE_CHECKING:
     from pyiceberg.catalog.sql import SqlCatalog
 
 TESTS_DIR = Path(os.path.dirname(__file__))
+
+# The catalog backend a test runs against: 'local' (in-process) or 'proxy' (delegated to a local daemon).
+CatalogMode = Literal['local', 'proxy']
 
 
 _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {

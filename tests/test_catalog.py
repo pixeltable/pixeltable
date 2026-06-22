@@ -216,6 +216,21 @@ class TestCatalog:
         round_tripped = proxy_protocol.deserialize(proxy_protocol.serialize(f))
         assert round_tripped.self_path == f.self_path
 
+    def test_json_reserved_key(self, make_catalog_path: Callable[[str], str]) -> None:
+        # JSON cell values are user data and may contain a key that collides with the proxy protocol's reserved
+        # tag; inserting and reading such values back must round-trip rather than be rejected.
+        p = make_catalog_path
+        t = pxt.create_table(p('json_tbl'), {'id': pxt.Int, 'data': pxt.Json})
+        rows = [
+            {'id': 0, 'data': {'$pxt': 1}},  # collides at the top level
+            {'id': 1, 'data': {'a': {'$pxt': [1, 2]}, 'b': 3}},  # collides while nested
+            {'id': 2, 'data': {'$pxt': 'UUID', 'v': 'not-a-uuid'}},  # mimics a real type tag
+            {'id': 3, 'data': {'ok': 1, 'nested': {'plain': True}}},  # no collision, unaffected
+        ]
+        t.insert(rows)
+        result = t.order_by(t.id).select(t.data).collect()['data']
+        assert result == [row['data'] for row in rows]
+
     def test_proxy_move_cross_db(self, init_env: None) -> None:
         # cross-catalog moves are rejected before any RPC (no daemon needed)
         with pytest.raises(excs.Error, match='same catalog'):

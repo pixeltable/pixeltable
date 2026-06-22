@@ -1,12 +1,10 @@
 # type: ignore
 
-import pytest
-
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 from tests.fault_injection import ExceptionFault
+from tests.utils import pxt_raises
 
 
 class DummyError(Exception):
@@ -31,7 +29,7 @@ class TestSchedulers:
         fault = ExceptionFault(DummyError('Non-retriable error'))
         get_runtime().fault_manager.inject_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC, fault)
 
-        with pytest.raises(excs.Error, match='DummyError'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='DummyError'):
             t.insert([{'x': 1}])
 
         fault.assert_count(1)

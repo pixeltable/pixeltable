@@ -31,6 +31,7 @@ from pixeltable.utils.sql import add_option_to_db_url
 
 from .utils import (
     IN_CI,
+    CatalogMode,
     ReloadTester,
     create_all_datatypes_tbl,
     create_img_tbl,
@@ -238,7 +239,19 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
 
 
 @pytest.fixture(scope='function', params=['local', 'proxy'])
-def make_catalog_path(init_env: None, request: pytest.FixtureRequest) -> Iterator[Callable[[str], str]]:
+def catalog_mode(request: pytest.FixtureRequest) -> CatalogMode:
+    """The catalog backend under test: 'local' (in-process) or 'proxy' (delegated to a local daemon).
+
+    Request this alongside make_catalog_path() to gate assertions that only make sense in one mode (e.g.
+    inspecting the client-side LocalStore, which is empty over proxy) without excluding the test from the other.
+    """
+    return request.param
+
+
+@pytest.fixture(scope='function')
+def make_catalog_path(
+    init_env: None, catalog_mode: CatalogMode, request: pytest.FixtureRequest
+) -> Iterator[Callable[[str], str]]:
     """Parameterized variant of uses_db: runs a test against both the in-process catalog and a delegated
     (proxied) catalog served by a local daemon.
 
@@ -253,7 +266,7 @@ def make_catalog_path(init_env: None, request: pytest.FixtureRequest) -> Iterato
     FileCache.get().validate()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
-    if request.param == 'proxy':
+    if catalog_mode == 'proxy':
         from pixeltable.service import proxy_daemon
 
         db = request.getfixturevalue('proxy_daemon_db')

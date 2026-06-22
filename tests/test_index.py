@@ -71,7 +71,7 @@ class TestIndex:
         # After the query is serialized, dropping the index should raise an error
         # on reload, because the index is no longer available
         t.drop_embedding_index(idx_name='img_idx1')
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=r'(?i).*img_idx1.*not found.*'):
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match=r'(?i).*img_idx1.*not found.*'):
             reload_tester.run_reload_test(clear=False)
 
         # After the query is serialized, dropping and recreating the index should work

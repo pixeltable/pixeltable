@@ -11,6 +11,7 @@ from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore
 
 from .utils import (
+    CatalogMode,
     ReloadTester,
     assert_columns_eq,
     inf_array_iterator,
@@ -39,8 +40,7 @@ class TestInlinedObjects:
         assert all(row['data'] is not None for row in res)
         assert all(row['i'] % 2 == 0 for row in res)
 
-    # TODO: fix (proxy): LocalStore(media_dir) inspection is meaningless over proxy
-    def test_insert_arrays(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_arrays(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Test storing arrays of various sizes and dtypes."""
         p = make_catalog_path
         reload_tester = ReloadTester()
@@ -71,7 +71,8 @@ class TestInlinedObjects:
         )
         validate_update_status(status, expected_rows=len(rows))
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
         for col in ('ar1', 'ar2', 'ar3', 'ar4', 'ar5'):
@@ -86,10 +87,10 @@ class TestInlinedObjects:
         reload_tester.run_reload_test()
 
         pxt.drop_table(p('test'))
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    # TODO: fix (proxy): LocalStore(media_dir) inspection is meaningless over proxy
-    def test_insert_binary(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_binary(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Test storing binary data of various sizes."""
         p = make_catalog_path
         reload_tester = ReloadTester()
@@ -99,7 +100,8 @@ class TestInlinedObjects:
         data = [rnd.randbytes(size) for size in (0, 2**10, 2**5, 2**20, 2**8)]
         validate_update_status(t.insert({'id': i, 'data': d} for i, d in enumerate(data)), expected_rows=len(data))
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
         assert_columns_eq('data', res._schema['data'], data, res['data'])
@@ -107,10 +109,10 @@ class TestInlinedObjects:
         reload_tester.run_reload_test()
 
         pxt.drop_table(p('test'))
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    # TODO: fix (proxy): LocalStore(media_dir) inspection is meaningless over proxy
-    def test_insert_inlined_objects(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_inlined_objects(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
@@ -159,7 +161,8 @@ class TestInlinedObjects:
             )
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
         for col in ('array_list', 'array_dict', 'bytes_list', 'bytes_dict'):
@@ -182,10 +185,12 @@ class TestInlinedObjects:
         reload_tester.run_reload_test()
 
         pxt.drop_table(p('test'))
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    # TODO: fix (proxy): LocalStore(media_dir) inspection is meaningless over proxy
-    def test_nonstandard_json_construction(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_nonstandard_json_construction(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
+    ) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
@@ -242,7 +247,8 @@ class TestInlinedObjects:
         )
 
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         # list construction
         res = reload_tester.run_query(
@@ -283,7 +289,8 @@ class TestInlinedObjects:
         reload_tester.run_reload_test()
 
         pxt.drop_table(p('test'))
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     def test_samples(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
