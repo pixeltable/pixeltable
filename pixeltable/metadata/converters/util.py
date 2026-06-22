@@ -53,9 +53,10 @@ def convert_table_md(
         if table_modifier is not None:
             table_modifier(conn, tbl_id, table_md, updated_table_md)
 
-    for row in conn.execute(sql.select(Function)):
+    # select explicit columns (not SELECT *) so a future column addition/reorder can't shift md's position
+    for row in conn.execute(sql.select(Function.id, Function.md)):
         fn_id = row[0]
-        function_md = row[2]
+        function_md = row[1]
         assert isinstance(function_md, dict)
         updated_function_md = copy.deepcopy(function_md)
         if substitution_fn is not None:
@@ -148,7 +149,7 @@ def __update_schema_column(table_schema_version_md: dict, schema_column_updater:
 T = TypeVar('T')
 
 
-def convert_sql_table_record(schema: type[T], conn: sql.Connection, record_updater: Callable[[T], None] | None) -> None:
+def convert_sql_table_record(schema: type[T], conn: sql.Connection, record_updater: Callable[[T], None]) -> None:
     # Run the ORM updates within the caller's transaction: a savepoint-bound session flushes onto conn and
     # commit() releases the savepoint, leaving the enclosing transaction to commit the changes.
     with sql.orm.Session(bind=conn, join_transaction_mode='create_savepoint') as session:
