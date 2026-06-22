@@ -7,11 +7,11 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 
 @register_converter(version=47)
-def _(engine: sql.engine.Engine) -> None:
+def _(conn: sql.Connection) -> None:
     """
     Materializes the `stores_cellmd` property on ColumnMd based on the existing logic around column and index types.
     """
-    convert_table_md(engine, table_md_updater=_update_table_md)
+    convert_table_md(conn, table_md_updater=_update_table_md)
 
 
 _MEDIA_TYPE_CLASSES = {'ImageType', 'VideoType', 'AudioType', 'DocumentType'}

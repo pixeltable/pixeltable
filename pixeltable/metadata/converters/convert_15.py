@@ -12,13 +12,12 @@ _logger = logging.getLogger(__name__)
 
 
 @register_converter(version=15)
-def _(engine: sql.engine.Engine) -> None:
-    with engine.begin() as conn:
-        for row in conn.execute(sql.select(Function)):
-            id, _, md, binary_obj = row
-            md['md'] = __update_md(md['md'], binary_obj)
-            _logger.info(f'Updating function: {id}')
-            conn.execute(sql.update(Function).where(Function.id == id).values(md=md))
+def _(conn: sql.Connection) -> None:
+    for row in conn.execute(sql.select(Function)):
+        id, _, md, binary_obj = row
+        md['md'] = __update_md(md['md'], binary_obj)
+        _logger.info(f'Updating function: {id}')
+        conn.execute(sql.update(Function).where(Function.id == id).values(md=md))
 
 
 def __update_md(orig_d: dict, binary_obj: bytes) -> Any:

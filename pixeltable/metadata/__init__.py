@@ -36,11 +36,11 @@ def create_system_info(engine: sql.engine.Engine) -> None:
 
 # conversion functions for upgrading the metadata schema from one version to the following
 # key: old schema version
-converter_cbs: dict[int, Callable[[sql.engine.Engine], None]] = {}
+converter_cbs: dict[int, Callable[[sql.Connection], None]] = {}
 
 
-def register_converter(version: int) -> Callable[[Callable[[sql.engine.Engine], None]], None]:
-    def decorator(fn: Callable[[sql.engine.Engine], None]) -> None:
+def register_converter(version: int) -> Callable[[Callable[[sql.Connection], None]], None]:
+    def decorator(fn: Callable[[sql.Connection], None]) -> None:
         assert version not in converter_cbs
         converter_cbs[version] = fn
 
@@ -55,10 +55,10 @@ for _, modname, _ in pkgutil.iter_modules([os.path.dirname(__file__) + '/convert
 def upgrade_md(engine: sql.engine.Engine) -> None:
     """Upgrade the metadata schema to the current version.
 
-    Each converter and its version bump commit together as one step, so an interrupted or failing upgrade
-    leaves the database at the last fully-applied version rather than ahead of its recorded version. A
-    crash in the small window between a converter's own commit and the version bump is mitigated by
-    re-running the converter (which must be idempotent).
+    Each step runs its converter and the matching schema_version bump in a single transaction on one
+    connection, so an interrupted or failing upgrade leaves the database at the last fully-applied version
+    with no partially converted data; converters therefore need not be idempotent. An exclusive lock on the
+    SystemInfo row serializes concurrent upgraders.
     """
     while True:
         with orm.Session(engine) as session:
@@ -78,7 +78,9 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
                 raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No metadata converter for version {md_version}')
             # We can't use the console logger in Env, because Env might not have been initialized yet.
             _console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')
-            converter_cbs[md_version](engine)
+            # Run the converter and the version bump on the session's connection so they commit atomically.
+            conn = session.connection()
+            converter_cbs[md_version](conn)
             system_info_md = SystemInfoMd(schema_version=md_version + 1)
-            session.connection().execute(SystemInfo.__table__.update().values(md=dataclasses.asdict(system_info_md)))
+            conn.execute(SystemInfo.__table__.update().values(md=dataclasses.asdict(system_info_md)))
             session.commit()

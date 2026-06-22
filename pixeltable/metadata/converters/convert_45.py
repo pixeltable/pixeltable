@@ -9,7 +9,7 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 
 @register_converter(version=45)
-def _(engine: sql.engine.Engine) -> None:
+def _(conn: sql.Connection) -> None:
     """
     Renames val_t to col_type in Literals, and updates how Literal types are serialized so that col_type is always
     present and always a full ColumnType dict (never a bare type-name string).
@@ -18,7 +18,7 @@ def _(engine: sql.engine.Engine) -> None:
     After: {'val': [[...], [...]], 'col_type': {'_classname': 'ArrayType', 'nullable': False, 'shape': [2, 3],
            'numpy_dtype': 'int64'}, '_classname': 'Literal'}
     """
-    convert_table_md(engine, substitution_fn=_substitution_fn)
+    convert_table_md(conn, substitution_fn=_substitution_fn)
 
 
 def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | None:
