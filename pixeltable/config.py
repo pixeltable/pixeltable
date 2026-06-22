@@ -584,7 +584,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'rate_limit': 'Rate limit for OpenRouter API requests',
     },
     'otel': {
-        'enabled': 'Enable OpenTelemetry instrumentation when pixeltable[otel] is installed (default: true)',
         'endpoint': 'OTLP collector endpoint (eg http://localhost:4318); overridden by OTEL_EXPORTER_OTLP_ENDPOINT',
         'protocol': "OTLP transport: 'http/protobuf' (default) or 'grpc'; overridden by OTEL_EXPORTER_OTLP_PROTOCOL",
         'service_name': 'service.name resource attribute (default: pixeltable); overridden by OTEL_SERVICE_NAME',

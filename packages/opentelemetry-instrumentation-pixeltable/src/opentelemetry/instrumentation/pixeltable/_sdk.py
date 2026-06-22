@@ -1,11 +1,7 @@
-"""SDK provider setup for default-on instrumentation.
+"""Provider setup behind init().
 
-`setup()` runs once per process, either from Env initialization (auto, default-on when the
-`pixeltable[otel]` extra is installed) or from `pixeltable.otel.init()` (manual). Global providers are
-created at most once and survive Env re-initialization (OTEL providers are set-once per process); Env
-teardown only flushes them and detaches the bridge.
-
-Telemetry is exported to an OpenTelemetry Collector (or any OTLP endpoint) configured through the
+init() runs once per process. Global providers are created at most once (OTEL providers are set-once per
+process). Telemetry is exported to an OpenTelemetry Collector (or any OTLP endpoint) configured through the
 standard `OTEL_EXPORTER_OTLP_*` environment variables; no vendor-specific behavior is baked in.
 """
 
@@ -23,8 +19,6 @@ from opentelemetry.trace import ProxyTracerProvider
 from pixeltable import exceptions as excs, hooks
 from pixeltable.config import Config
 
-from ._bridge import PixeltableInstrumentor
-
 _logger = logging.getLogger('pixeltable.otel')
 
 _SPAN_LEVELS = {'info': hooks.INFO, 'debug': hooks.DEBUG, 'trace': hooks.TRACE}
@@ -34,13 +28,11 @@ _DEFAULT_SERVICE_NAME = 'pixeltable'
 @dataclasses.dataclass
 class _State:
     initialized: bool = False
-    user_initialized: bool = False
     owns_tracer_provider: bool = False
     owns_meter_provider: bool = False
     tracer_provider: Any = None
     meter_provider: Any = None
     logger_provider: Any = None
-    log_handlers: list[tuple[logging.Logger, logging.Handler]] = dataclasses.field(default_factory=list)
 
 
 _state = _State()
@@ -58,13 +50,12 @@ def init(
     tracer_provider: Any = None,
     meter_provider: Any = None,
 ) -> None:
-    """Manually configure pixeltable's OpenTelemetry instrumentation.
+    """Configure pixeltable's OpenTelemetry instrumentation and start emitting telemetry.
 
-    Call before the first Pixeltable operation; the automatic default-on initialization then becomes a
-    no-op. Arguments override the `otel` config section. Telemetry is exported to an OpenTelemetry
-    Collector (or any OTLP endpoint) configured through the standard `OTEL_EXPORTER_OTLP_*` environment
-    variables; pass `tracer_provider`/`meter_provider` to instrument against an SDK your application
-    owns instead.
+    Call once, before the first Pixeltable operation. Arguments override the `otel` config section.
+    Telemetry is exported to an OpenTelemetry Collector (or any OTLP endpoint) configured through the
+    standard `OTEL_EXPORTER_OTLP_*` environment variables; pass `tracer_provider`/`meter_provider` to
+    instrument against an SDK your application owns instead.
 
     Args:
         endpoint: OTLP collector endpoint (eg `http://localhost:4318`). `OTEL_EXPORTER_OTLP_ENDPOINT`
@@ -84,54 +75,17 @@ def init(
 
     Example:
 
-        >>> import pixeltable.otel
+        >>> import opentelemetry.instrumentation.pixeltable as pxt_otel
         ...
-        ... pixeltable.otel.init(endpoint='http://localhost:4318')
+        ... pxt_otel.init(endpoint='http://localhost:4318')
     """
-    if _state.initialized:
-        raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'pixeltable.otel is already initialized for this session')
-    setup(
-        Config.get(),
-        user_call=True,
-        endpoint=endpoint,
-        protocol=protocol,
-        service_name=service_name,
-        headers=headers,
-        metrics=metrics,
-        logs=logs,
-        tracer_provider=tracer_provider,
-        meter_provider=meter_provider,
-    )
-
-
-def setup(
-    config: Config,
-    *,
-    user_call: bool = False,
-    endpoint: str | None = None,
-    protocol: str | None = None,
-    service_name: str | None = None,
-    headers: str | None = None,
-    metrics: bool | None = None,
-    logs: bool | None = None,
-    tracer_provider: Any = None,
-    meter_provider: Any = None,
-) -> None:
-    """Set up providers (once per process) and attach the hook bridge.
-
-    Must not call Env.get(): this runs inside Env setup, while the Env singleton is still initializing.
-    """
-    # serialize concurrent setup: the auto path holds Env's init lock, but a user init() call does not
     with _setup_lock:
         if _state.initialized:
-            # Env re-init: re-attach the bridge to the standing providers
-            PixeltableInstrumentor().instrument(
-                tracer_provider=_state.tracer_provider, meter_provider=_state.meter_provider
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE, 'pixeltable OpenTelemetry instrumentation is already initialized'
             )
-            return
         _setup(
-            config,
-            user_call=user_call,
+            Config.get(),
             endpoint=endpoint,
             protocol=protocol,
             service_name=service_name,
@@ -146,7 +100,6 @@ def setup(
 def _setup(
     config: Config,
     *,
-    user_call: bool,
     endpoint: str | None,
     protocol: str | None,
     service_name: str | None,
@@ -156,7 +109,7 @@ def _setup(
     tracer_provider: Any,
     meter_provider: Any,
 ) -> None:
-    """Provider setup proper; runs once, under _setup_lock held by setup()."""
+    """Provider setup proper; runs once, under _setup_lock held by init()."""
     level_name = (config.get_string_value('span_level', section='otel') or 'info').lower()
     if level_name not in _SPAN_LEVELS:
         raise excs.RequestError(
@@ -236,9 +189,10 @@ def _setup(
     if export_logs:
         _set_up_log_export(use_grpc, cfg_endpoint, cfg_headers, cfg_service, logs_env)
 
+    from . import PixeltableInstrumentor
+
     PixeltableInstrumentor().instrument(tracer_provider=tp, meter_provider=mp)
     _state.initialized = True
-    _state.user_initialized = user_call
     _logger.info('OpenTelemetry instrumentation enabled')
 
 
@@ -300,10 +254,7 @@ def _set_up_log_export(
     logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
     set_logger_provider(logger_provider)
     _state.logger_provider = logger_provider
-    handler = LoggingHandler(logger_provider=logger_provider)
-    pxt_logger = logging.getLogger('pixeltable')
-    pxt_logger.addHandler(handler)
-    _state.log_handlers.append((pxt_logger, handler))
+    logging.getLogger('pixeltable').addHandler(LoggingHandler(logger_provider=logger_provider))
 
 
 def _create_resource(service_name: str) -> Any:
@@ -328,26 +279,3 @@ def _join_endpoint(endpoint: str, path: str) -> str:
     if endpoint.rstrip('/').endswith(('/v1/traces', '/v1/metrics', '/v1/logs')):
         return endpoint
     return f'{endpoint.rstrip("/")}/{path}'
-
-
-def managed_log_handlers() -> list[tuple[logging.Logger, logging.Handler]]:
-    """Log handlers created by setup(), handed to Env for lifecycle management. Cleared on handoff."""
-    handlers = list(_state.log_handlers)
-    _state.log_handlers.clear()
-    return handlers
-
-
-def on_env_teardown() -> None:
-    """Flush owned providers and detach the bridge; providers survive Env re-initialization."""
-    PixeltableInstrumentor().uninstrument()
-    for provider, owned in (
-        (_state.tracer_provider, _state.owns_tracer_provider),
-        (_state.meter_provider, _state.owns_meter_provider),
-        # the log export path always creates its own LoggerProvider, so we always own it
-        (_state.logger_provider, _state.logger_provider is not None),
-    ):
-        if owned and provider is not None:
-            try:
-                provider.force_flush()
-            except Exception as e:
-                _logger.debug(f'error flushing OpenTelemetry provider: {e!r}')

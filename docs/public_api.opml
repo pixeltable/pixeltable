@@ -493,17 +493,6 @@
         </outline>
       </outline>
 
-      <!-- Observability group -->
-      <outline text="group|Observability">
-        <outline text="module|pixeltable.otel">
-          <outline text="func|pixeltable.otel.init" />
-          <outline text="class|pixeltable.otel.PixeltableInstrumentor">
-            <outline text="method|pixeltable.otel.PixeltableInstrumentor.instrument" />
-            <outline text="method|pixeltable.otel.PixeltableInstrumentor.uninstrument" />
-          </outline>
-        </outline>
-      </outline>
-
       <!-- Import/Export group -->
       <outline text="group|Import/Export">
         <outline text="module|pixeltable.io">
@@ -522,6 +511,17 @@
           <outline text="func|pixeltable.io.export_lancedb" />
           <outline text="func|pixeltable.io.export_images_as_fo_dataset" />
           <outline text="func|pixeltable.io.create_label_studio_project" />
+        </outline>
+      </outline>
+
+      <!-- Observability group -->
+      <outline text="group|Observability">
+        <outline text="module|opentelemetry.instrumentation.pixeltable">
+          <outline text="func|opentelemetry.instrumentation.pixeltable.init" />
+          <outline text="class|opentelemetry.instrumentation.pixeltable.PixeltableInstrumentor">
+            <outline text="method|opentelemetry.instrumentation.pixeltable.PixeltableInstrumentor.instrument" />
+            <outline text="method|opentelemetry.instrumentation.pixeltable.PixeltableInstrumentor.uninstrument" />
+          </outline>
         </outline>
       </outline>
 

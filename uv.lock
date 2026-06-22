@@ -47,6 +47,10 @@ resolution-markers = [
 ]
 
 [manifest]
+members = [
+    "opentelemetry-instrumentation-pixeltable",
+    "pixeltable",
+]
 overrides = [
     { name = "protobuf", specifier = ">=5.29.6" },
     { name = "ruff", specifier = ">=0.14" },
@@ -5763,6 +5767,43 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-instrumentation"
+version = "0.60b1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "packaging" },
+    { name = "wrapt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/0f/7e6b713ac117c1f5e4e3300748af699b9902a2e5e34c9cf443dde25a01fa/opentelemetry_instrumentation-0.60b1.tar.gz", hash = "sha256:57ddc7974c6eb35865af0426d1a17132b88b2ed8586897fee187fd5b8944bd6a", size = 31706, upload-time = "2025-12-11T13:36:42.515Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/d2/6788e83c5c86a2690101681aeef27eeb2a6bf22df52d3f263a22cee20915/opentelemetry_instrumentation-0.60b1-py3-none-any.whl", hash = "sha256:04480db952b48fb1ed0073f822f0ee26012b7be7c3eac1a3793122737c78632d", size = 33096, upload-time = "2025-12-11T13:35:33.067Z" },
+]
+
+[[package]]
+name = "opentelemetry-instrumentation-pixeltable"
+source = { editable = "packages/opentelemetry-instrumentation-pixeltable" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-sdk" },
+    { name = "pixeltable" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "opentelemetry-api", specifier = ">=1.39.0" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.39.0" },
+    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.39.0" },
+    { name = "opentelemetry-instrumentation", specifier = ">=0.60b0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.39.0" },
+    { name = "pixeltable", editable = "." },
+]
+
+[[package]]
 name = "opentelemetry-proto"
 version = "1.39.1"
 source = { registry = "https://pypi.org/simple" }
@@ -6293,10 +6334,7 @@ dependencies = [
 
 [package.optional-dependencies]
 otel = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-sdk" },
+    { name = "opentelemetry-instrumentation-pixeltable" },
 ]
 serve = [
     { name = "fastapi", extra = ["standard"] },
@@ -6343,10 +6381,7 @@ dev = [
     { name = "openai" },
     { name = "openai-whisper", marker = "python_full_version < '3.14'" },
     { name = "openpyxl" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-sdk" },
+    { name = "opentelemetry-instrumentation-pixeltable" },
     { name = "pandas-stubs" },
     { name = "pixeltable-doctools" },
     { name = "pixeltable-yolox", marker = "python_full_version < '3.13' or sys_platform != 'win32'" },
@@ -6424,10 +6459,7 @@ requires-dist = [
     { name = "lxml", specifier = ">=5.1" },
     { name = "more-itertools", specifier = ">=10.2" },
     { name = "numpy", specifier = ">=1.25" },
-    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.39.0" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'otel'", specifier = ">=1.39.0" },
-    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.39.0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.39.0" },
+    { name = "opentelemetry-instrumentation-pixeltable", marker = "extra == 'otel'", editable = "packages/opentelemetry-instrumentation-pixeltable" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pathspec", specifier = ">=0.10.2" },
     { name = "pgvector", specifier = ">=0.4.0" },
@@ -6488,10 +6520,7 @@ dev = [
     { name = "openai", specifier = ">=2.33" },
     { name = "openai-whisper", marker = "python_full_version < '3.14'", specifier = ">=20250625" },
     { name = "openpyxl", specifier = ">=3.1" },
-    { name = "opentelemetry-api", specifier = ">=1.39.0" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.39.0" },
-    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.39.0" },
-    { name = "opentelemetry-sdk", specifier = ">=1.39.0" },
+    { name = "opentelemetry-instrumentation-pixeltable", editable = "packages/opentelemetry-instrumentation-pixeltable" },
     { name = "pandas-stubs", specifier = ">=2.0" },
     { name = "pixeltable-doctools", git = "https://github.com/pixeltable/pixeltable-doctools" },
     { name = "pixeltable-yolox", marker = "python_full_version < '3.13' or sys_platform != 'win32'", specifier = "==0.4.2" },

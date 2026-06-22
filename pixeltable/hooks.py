@@ -1,9 +1,9 @@
 """Dependency-free instrumentation hooks.
 
 Core pixeltable reports spans (timed, nested units of work) and discrete events through this module;
-subscribers (e.g. the OTEL bridge in `pixeltable.otel`) translate them into a telemetry backend. With no
-subscribers registered every call is a near-free no-op, but hot loops should still guard with
-`if hooks.active():` before building attribute dicts (or pass `attrs` as a callable).
+subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`) translate them into a
+telemetry backend. With no subscribers registered every call is a near-free no-op, but hot loops should
+still guard with `if hooks.active():` before building attribute dicts (or pass `attrs` as a callable).
 
 Span levels mirror logging levels: spans declared below the configured threshold (default INFO) are not
 emitted; their descendants are parented to the nearest emitted ancestor. Only operation spans

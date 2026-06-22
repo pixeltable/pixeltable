@@ -78,14 +78,9 @@ dependencies = [
 # `pxt serve` hosts a user-defined FastAPI app and shells out to uvicorn; the daemon
 # behind `pxt ls`/`pxt describe`/etc. is stdlib-only and does not need this extra.
 serve = ["fastapi[standard]>=0.120.0"]
-# OpenTelemetry instrumentation (pixeltable.otel); when installed, telemetry is on by default
-# (opt out with PIXELTABLE_OTEL=0). Core pixeltable carries no OTEL dependency.
-otel = [
-    "opentelemetry-api>=1.39.0",
-    "opentelemetry-sdk>=1.39.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.39.0",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.39.0",
-]
+# OpenTelemetry instrumentation. Core pixeltable carries no OTEL dependency; the instrumentation is a
+# separate distribution, opt-in via opentelemetry.instrumentation.pixeltable.
+otel = ["opentelemetry-instrumentation-pixeltable"]
 
 [project.urls]
 homepage = "https://pixeltable.com/"
@@ -111,6 +106,12 @@ override-dependencies = [
     # "huggingface-hub>=1",  # Required due to 'whisperx'
 ]
 
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+opentelemetry-instrumentation-pixeltable = { workspace = true }
+
 [tool.uv-dynamic-versioning]
 vcs = "git"
 style = "pep440"
@@ -120,10 +121,7 @@ bump = true
 dev = [
     "mypy>=1.19",
     "boto3-stubs==1.36.23",
-    "opentelemetry-api>=1.39.0",
-    "opentelemetry-sdk>=1.39.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.39.0",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.39.0",
+    "opentelemetry-instrumentation-pixeltable",
     "pandas-stubs>=2.0",
     "pyarrow-stubs>=19",
     "types-beautifulsoup4>=4.2",

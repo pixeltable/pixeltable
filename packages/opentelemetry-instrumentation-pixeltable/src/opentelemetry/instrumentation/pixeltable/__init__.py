@@ -1,20 +1,47 @@
-"""The hooks -> OpenTelemetry bridge: translates pixeltable instrumentation hooks into spans and metrics."""
+"""OpenTelemetry instrumentation for Pixeltable.
+
+Translates Pixeltable's instrumentation hooks into OpenTelemetry spans and metrics. Instrumentation is
+opt-in: either attach to an existing OpenTelemetry SDK with
+[PixeltableInstrumentor][opentelemetry.instrumentation.pixeltable.PixeltableInstrumentor], or let
+[init][opentelemetry.instrumentation.pixeltable.init] build providers from Pixeltable's `[otel]` config.
+"""
 
 from __future__ import annotations
 
 import dataclasses
 import logging
+from collections.abc import Collection
 from typing import Any
 
 from opentelemetry import context as otel_context, metrics as otel_metrics, trace
+
+# opentelemetry-instrumentation marks instrumentor.py with a module-level `# type: ignore`, so mypy
+# can't see BaseInstrumentor despite the package shipping py.typed
+from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type: ignore[attr-defined]
 from opentelemetry.trace import StatusCode, set_span_in_context
 
 from pixeltable import __version__, hooks
 
-from .logs import TRACE_CONTEXT_FILTER
-from .usage import extract_usage
+from ._sdk import init
+from .package import _instruments
+
+__all__ = ['PixeltableInstrumentor', 'init']
 
 _ATTR_TYPES = (str, bool, int, float)
+
+
+class _TraceContextFilter(logging.Filter):
+    """Adds otelTraceID/otelSpanID attributes to records so logs are filterable by trace."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        span_context = trace.get_current_span().get_span_context()
+        if span_context.is_valid:
+            record.otelTraceID = trace.format_trace_id(span_context.trace_id)
+            record.otelSpanID = trace.format_span_id(span_context.span_id)
+        return True
+
+
+_trace_context_filter = _TraceContextFilter()
 
 
 def _clean_attrs(attrs: dict[str, Any] | None) -> dict[str, Any]:
@@ -48,7 +75,6 @@ class _OtelSubscriber(hooks.Subscriber):
         self._cells_computed = meter.create_counter('pixeltable.cells.computed', unit='{cell}')
         self._cell_errors = meter.create_counter('pixeltable.cell.errors', unit='{error}')
         self._udf_calls = meter.create_counter('pixeltable.udf.calls', unit='{call}')
-        self._udf_tokens = meter.create_counter('pixeltable.udf.tokens', unit='{token}')
         self._udf_duration = meter.create_histogram('pixeltable.udf.duration', unit='s')
         self._xact_retries = meter.create_counter('pixeltable.xact.retries', unit='{retry}')
 
@@ -91,16 +117,10 @@ class _OtelSubscriber(hooks.Subscriber):
                 attrs.get('count', 0), _clean_attrs({k: attrs.get(k) for k in ('pxt.udf', 'pxt.column', 'pxt.table')})
             )
         elif name == 'udf.call':
-            metric_attrs = _clean_attrs(
-                {k: attrs.get(k) for k in ('pxt.udf', 'pxt.column', 'pxt.resource_pool', 'model')}
+            self._udf_duration.record(
+                attrs.get('duration_s', 0.0),
+                _clean_attrs({k: attrs.get(k) for k in ('pxt.udf', 'pxt.column', 'pxt.resource_pool', 'model')}),
             )
-            # extract the model from the response before recording, so duration and tokens share attributes
-            model, tokens = extract_usage(attrs.get('_result'))
-            if model is not None and 'model' not in metric_attrs:
-                metric_attrs['model'] = model
-            self._udf_duration.record(attrs.get('duration_s', 0.0), metric_attrs)
-            for token_type, count in tokens.items():
-                self._udf_tokens.add(count, {**metric_attrs, 'type': token_type})
         elif name == 'xact.retry':
             self._xact_retries.add(1, _clean_attrs(attrs))
 
@@ -115,37 +135,30 @@ class _OtelSubscriber(hooks.Subscriber):
             otel_context.detach(token)
 
 
-_active_subscriber: _OtelSubscriber | None = None
-
-
-class PixeltableInstrumentor:
+class PixeltableInstrumentor(BaseInstrumentor):
     """Enables OpenTelemetry instrumentation of pixeltable against the given (or global) providers.
-
-    Mirrors the `opentelemetry-instrumentation` BaseInstrumentor interface without depending on it.
 
     Example:
 
-        >>> from pixeltable.otel import PixeltableInstrumentor
+        >>> from opentelemetry.instrumentation.pixeltable import (
+        ...     PixeltableInstrumentor,
+        ... )
         ...
         ... PixeltableInstrumentor().instrument()
     """
 
-    def instrument(self, *, tracer_provider: Any | None = None, meter_provider: Any | None = None) -> None:
-        global _active_subscriber  # noqa: PLW0603
-        if _active_subscriber is not None:
-            return
-        _active_subscriber = _OtelSubscriber(tracer_provider, meter_provider)
-        hooks.subscribe(_active_subscriber)
-        logging.getLogger('pixeltable').addFilter(TRACE_CONTEXT_FILTER)
+    _subscriber: _OtelSubscriber | None = None
 
-    def uninstrument(self) -> None:
-        global _active_subscriber  # noqa: PLW0603
-        if _active_subscriber is None:
-            return
-        hooks.unsubscribe(_active_subscriber)
-        logging.getLogger('pixeltable').removeFilter(TRACE_CONTEXT_FILTER)
-        _active_subscriber = None
+    def instrumentation_dependencies(self) -> Collection[str]:
+        return _instruments
 
-    @property
-    def is_instrumented(self) -> bool:
-        return _active_subscriber is not None
+    def _instrument(self, **kwargs: Any) -> None:
+        self._subscriber = _OtelSubscriber(kwargs.get('tracer_provider'), kwargs.get('meter_provider'))
+        hooks.subscribe(self._subscriber)
+        logging.getLogger('pixeltable').addFilter(_trace_context_filter)
+
+    def _uninstrument(self, **kwargs: Any) -> None:
+        if self._subscriber is not None:
+            hooks.unsubscribe(self._subscriber)
+            self._subscriber = None
+        logging.getLogger('pixeltable').removeFilter(_trace_context_filter)

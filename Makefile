@@ -25,6 +25,7 @@ CMAKE_POLICY_VERSION_MINIMUM := 3.5
 UV_VERSION := 0.9.3
 FFMPEG_VERSION := 6.1.1=gpl*
 MINTLIFY_VERSION := 4.2.506
+OTEL_PKG := packages/opentelemetry-instrumentation-pixeltable
 
 .DEFAULT_GOAL := help
 
@@ -176,18 +177,21 @@ stresstest: install
 typecheck: install
 	@echo 'Running `mypy` ...'
 	@mypy pixeltable pixeltable_cli tests tool
+	@echo 'Running `mypy` on $(OTEL_PKG) ...'
+	@MYPYPATH=$(OTEL_PKG)/src mypy --explicit-package-bases --namespace-packages \
+		$(OTEL_PKG)/src/opentelemetry/instrumentation/pixeltable $(OTEL_PKG)/tests
 
 .PHONY: lint
 lint: install
 	@echo 'Running `ruff check` ...'
-	@ruff check pixeltable pixeltable_cli tests tool
+	@ruff check pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
 
 .PHONY: formatcheck
 formatcheck: install
 	@echo 'Running `ruff format --check` ...'
-	@ruff format --check pixeltable pixeltable_cli tests tool
+	@ruff format --check pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `ruff check --select I` ...'
-	@ruff check --select I pixeltable pixeltable_cli tests tool
+	@ruff check --select I pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
 
 .PHONY: nbcheck
 nbcheck: install
@@ -197,9 +201,9 @@ nbcheck: install
 .PHONY: format
 format: install
 	@echo 'Running `ruff format` ...'
-	@ruff format pixeltable pixeltable_cli tests tool
+	@ruff format pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `ruff check --select I --fix` ...'
-	@ruff check --select I --fix pixeltable pixeltable_cli tests tool
+	@ruff check --select I --fix pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `./scripts/format-notebooks.sh` ...'
 	@./scripts/format-notebooks.sh
 
