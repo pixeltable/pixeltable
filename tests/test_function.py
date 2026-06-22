@@ -344,8 +344,8 @@ class TestFunction:
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
 
-        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
-        name = t._name()
+        name = p('test')
+        t = pxt.create_table(name, {'c1': pxt.Int, 'c2': pxt.Float})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(rows))
 

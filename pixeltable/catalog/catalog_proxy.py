@@ -36,10 +36,6 @@ class CatalogProxy(CatalogBase):
         self._catalog_uri = catalog_uri
         self._client = client
 
-    def close(self) -> None:
-        """Release the client transport for this proxied catalog."""
-        self._client.close()
-
     def _make_table(self, md: list[TableVersionMd], version: int | None = None) -> Table:
         # TODO: this signature doesn't make sense, why pass in version?
         tbl_md_path = TableMdPath.from_md(md, self._catalog_uri, version=version)

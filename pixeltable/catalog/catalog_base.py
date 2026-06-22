@@ -22,9 +22,6 @@ class CatalogBase(abc.ABC):
     The public catalog API.
     """
 
-    def close(self) -> None:
-        """Release any resources held by this catalog."""
-
     @abc.abstractmethod
     def create_table(
         self,
