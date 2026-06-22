@@ -278,6 +278,9 @@ strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
 
+[tool.pyright]
+extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
+
 [tool.pytest.ini_options]
 addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark" --strict-markers'
 markers = [
