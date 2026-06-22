@@ -5,7 +5,7 @@ import time
 from typing import TYPE_CHECKING, Any, Literal, Sequence, overload
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, hooks, type_system as ts
+from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
@@ -181,11 +181,8 @@ class InsertableTable(Table):
 
         start_ts = time.perf_counter()
         status = pxt.UpdateStatus()
-        with (
-            hooks.span('pixeltable.insert', set_current=True) as sp,
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
             if isinstance(data_source, QueryTableDataConduit):
                 status += self._tbl_version.get().insert(
@@ -200,14 +197,6 @@ class InsertableTable(Table):
                         fail_on_exception=fail_on_exception,
                         return_rows=return_rows,
                     )
-            if sp is not None:
-                hooks.add_attrs(
-                    sp,
-                    table=self._path(),
-                    rows=status.num_rows,
-                    excs=status.num_excs,
-                    cols_with_excs=status.cols_with_excs or None,
-                )
 
         Env.get().console_logger.info(status.insert_msg(start_ts))
         FileCache.get().emit_eviction_warnings()
@@ -228,16 +217,10 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        with (
-            hooks.span('pixeltable.delete', set_current=True) as sp,
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            status = self._tbl_version.get().delete(where=where)
-            if sp is not None:
-                hooks.add_attrs(sp, table=self._path(), rows=status.num_rows)
-            return status
+            return self._tbl_version.get().delete(where=where)
 
     def _get_base_table(self) -> 'Table' | None:
         return None

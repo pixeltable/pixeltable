@@ -11,7 +11,7 @@ from typing_extensions import Self
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable import exprs, hooks
+from pixeltable import exprs
 from pixeltable.runtime import get_runtime
 
 from .data_row_batch import DataRowBatch
@@ -47,9 +47,6 @@ class ExecNode(abc.ABC):
     # values bound for this node's parameters (typically Variables); populated by bind_params()
     bound_args: dict[str, Any]
 
-    # per-execution instrumentation span (open/close lifetime); set in _open_aux()
-    _span: hooks.AnySpanHandle | None
-
     def __init__(
         self,
         row_builder: exprs.RowBuilder,
@@ -71,7 +68,6 @@ class ExecNode(abc.ABC):
         self.bind_sources = []
         self.vars = []
         self.bound_args = {}
-        self._span = None
 
     def set_ctx(self, ctx: ExecContext) -> None:
         self.ctx = ctx
@@ -145,13 +141,11 @@ class ExecNode(abc.ABC):
         # benefits)
         result_queue: queue.Queue = queue.Queue(maxsize=2)
         caller_runtime = get_runtime()
-        hooks_ctx = hooks.capture_context()
 
         def run() -> None:
             thread_runtime = get_runtime()
             # the execution needs to happen in the same db context as the caller, but on a new event loop
             thread_runtime.copy_db_context(caller_runtime)
-            hooks_token = hooks.restore_context(hooks_ctx)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
@@ -165,7 +159,6 @@ class ExecNode(abc.ABC):
             except BaseException as e:
                 result_queue.put(e)
             finally:
-                hooks.exit_context(hooks_token)
                 loop.close()
 
         thread = threading.Thread(target=run, daemon=True)
@@ -187,21 +180,10 @@ class ExecNode(abc.ABC):
         self._open_aux()
         return self
 
-    def _open_aux(self, consumer_span: hooks.AnySpanHandle | None = None) -> None:
-        """Call _open() bottom-up; node spans are created top-down so each node nests under its consumer.
-
-        The plan head parents on the ambient operation span; spans are only emitted under an enclosing
-        operation span (a bare query would produce orphan roots).
-        """
-        self._span = None
-        if consumer_span is not None or hooks.current_span() is not None:
-            self._span = hooks.span_start(
-                f'exec.{type(self).__name__}',
-                parent=consumer_span,
-                attrs={f'pxt.{k}': v for k, v in self.span_attributes().items() if v is not None} or None,
-            )
+    def _open_aux(self) -> None:
+        """Call _open() bottom-up"""
         if self.input is not None:
-            self.input._open_aux(self._span)
+            self.input._open_aux()
         self._open()
 
     def __exit__(
@@ -209,37 +191,19 @@ class ExecNode(abc.ABC):
     ) -> None:
         # Ensure progress stops on exit (including empty results, errors, interrupts)
         get_runtime().stop_progress()
-        self._close_aux(exc_val)
+        self._close_aux()
 
-    def _close_aux(self, exc: BaseException | None = None) -> None:
-        """Call _close() top-down; node spans end bottom-up so children end before their consumer's span.
-
-        A plan-terminating exception is recorded on every open node span so failed queries surface as errored.
-        """
+    def _close_aux(self) -> None:
+        """Call _close() top-down"""
         self._close()
         if self.input is not None:
-            self.input._close_aux(exc)
-        if self._span is not None:
-            hooks.span_end(
-                self._span,
-                exc=exc,
-                attrs=lambda: {f'pxt.{k}': v for k, v in self.span_end_attributes().items() if v is not None},
-            )
-            self._span = None
+            self.input._close_aux()
 
     def _open(self) -> None:
         pass
 
     def _close(self) -> None:
         pass
-
-    def span_attributes(self) -> dict[str, Any]:
-        """Attributes for this node's span, captured at _open(); keys get a 'pxt.' prefix."""
-        return {}
-
-    def span_end_attributes(self) -> dict[str, Any]:
-        """Attributes for this node's span, captured at _close() (eg, per-execution stats)."""
-        return {}
 
     T = TypeVar('T', bound='ExecNode')
 

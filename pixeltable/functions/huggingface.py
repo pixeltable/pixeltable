@@ -16,7 +16,7 @@ import PIL.Image
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable import env, hooks
+from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
 from pixeltable.utils.code import local_public_names
@@ -1670,24 +1670,22 @@ def _lookup_model(
     # Callers that must pass a lambda can supply an explicit `cache_key` to avoid per-call misses.
     key = cache_key if cache_key is not None else (model_id, create, device, tuple(sorted(kwargs.items())))
     if key not in _model_cache:
-        with hooks.span('model.load', model_id=model_id):
-            if pass_device_to_create:
-                model = create(model_id, device=device, **kwargs)
-            else:
-                model = create(model_id, **kwargs)
-            if isinstance(model, nn.Module):
-                if not pass_device_to_create and device is not None:
-                    model.to(device)
-                model.eval()
-            _model_cache[key] = model
+        if pass_device_to_create:
+            model = create(model_id, device=device, **kwargs)
+        else:
+            model = create(model_id, **kwargs)
+        if isinstance(model, nn.Module):
+            if not pass_device_to_create and device is not None:
+                model.to(device)
+            model.eval()
+        _model_cache[key] = model
     return _model_cache[key]
 
 
 def _lookup_processor(model_id: str, create: Callable[[str], T], **kwargs: Any) -> T:
     key = (model_id, create, tuple(sorted(kwargs.items())))
     if key not in _processor_cache:
-        with hooks.span('processor.load', model_id=model_id):
-            _processor_cache[key] = create(model_id, **kwargs)
+        _processor_cache[key] = create(model_id, **kwargs)
     return _processor_cache[key]
 
 

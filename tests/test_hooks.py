@@ -4,20 +4,7 @@ from typing import Any, Iterator
 
 import pytest
 
-import pixeltable as pxt
 from pixeltable import hooks
-
-
-@pxt.udf
-def _double(x: int) -> int:
-    return x * 2
-
-
-@pxt.udf
-def _fail_on_neg(x: int) -> int:
-    if x < 0:
-        raise ValueError('negative input')
-    return x
 
 
 class RecordingSubscriber(hooks.Subscriber):
@@ -295,87 +282,3 @@ class TestHooks:
 
         asyncio.run(main())
         assert sub.find('child')['parent_id'] == sub.find('op')['id']
-
-
-class TestHooksIntegration:
-    """End-to-end checks that table operations produce the expected spans/events."""
-
-    def test_insert_span_tree(self, uses_db: None, sub: RecordingSubscriber) -> None:
-        t = pxt.create_table('hooks_test', {'a': pxt.Int})
-        t.add_computed_column(b=_double(t.a))
-        sub.spans.clear()
-        sub.events.clear()
-
-        status = t.insert([{'a': i} for i in range(5)])
-        assert status.num_rows == 5
-
-        insert_span = sub.find('pixeltable.insert')
-        assert insert_span['ended'] and insert_span['exc'] is None
-        assert insert_span['end_attrs']['pxt.table'] == 'hooks_test'
-        assert insert_span['end_attrs']['pxt.rows'] == 5
-
-        # begin_xact, store spans, and the plan head are children of the insert span; the rest of the
-        # exec chain nests under its consumer node
-        names_under_insert = {s['name'] for s in sub.spans if s['parent_id'] == insert_span['id']}
-        assert 'catalog.begin_xact' in names_under_insert
-        assert 'exec.ExprEvalNode' in names_under_insert
-        assert 'store.sql_insert' in names_under_insert
-        eval_span = sub.find('exec.ExprEvalNode')
-        assert sub.find('exec.InMemoryDataNode')['parent_id'] == eval_span['id']
-        assert all(s['ended'] for s in sub.spans)
-
-        # the ExprEvalNode span carries aggregated per-udf stats, keyed by column name
-        end_attrs = eval_span['end_attrs']
-        assert end_attrs['pxt.udf.b.count'] == 5
-        assert end_attrs['pxt.udf.b.total_s'] >= 0
-        assert end_attrs['pxt.udf.b.avg_s'] >= 0
-        assert 'pxt.udf.b.fn' in end_attrs
-        # at the default INFO level there are no per-call udf spans
-        assert not any(s['name'].startswith('udf.') for s in sub.spans)
-
-        event_names = [name for name, _ in sub.events]
-        assert 'rows.written' in event_names
-        assert 'cells.computed' in event_names
-        udf_stats = [attrs for name, attrs in sub.events if name == 'udf.stats']
-        assert len(udf_stats) == 1
-        assert udf_stats[0]['pxt.column'] == 'b'
-        assert udf_stats[0]['count'] == 5
-
-    def test_cell_errors(self, uses_db: None, sub: RecordingSubscriber) -> None:
-        t = pxt.create_table('hooks_test', {'a': pxt.Int})
-        t.add_computed_column(b=_fail_on_neg(t.a))
-        sub.spans.clear()
-        sub.events.clear()
-
-        status = t.insert([{'a': 1}, {'a': -1}, {'a': -2}], on_error='ignore')
-        assert status.num_excs > 0
-
-        cell_errors = [attrs for name, attrs in sub.events if name == 'cell.error']
-        assert sum(e['count'] for e in cell_errors) == 2
-        assert all(e['pxt.column'] == 'b' and e['error_type'] == 'ValueError' for e in cell_errors)
-        eval_span = sub.find('exec.ExprEvalNode')
-        assert eval_span['end_attrs']['pxt.udf.b.errors'] == 2
-        assert sub.find('pixeltable.insert')['exc'] is None
-
-    def test_insert_abort_records_exc(self, uses_db: None, sub: RecordingSubscriber) -> None:
-        t = pxt.create_table('hooks_test', {'a': pxt.Int})
-        t.add_computed_column(b=_fail_on_neg(t.a))
-        sub.spans.clear()
-
-        with pytest.raises(pxt.exceptions.ExprEvalError):
-            t.insert([{'a': -1}], on_error='abort')
-        insert_span = sub.find('pixeltable.insert')
-        assert insert_span['ended'] and insert_span['exc'] is not None
-
-    def test_trace_level_udf_spans(self, uses_db: None, sub: RecordingSubscriber) -> None:
-        t = pxt.create_table('hooks_test', {'a': pxt.Int})
-        t.add_computed_column(b=_double(t.a))
-        sub.spans.clear()
-        hooks.set_span_level(hooks.TRACE)
-
-        t.insert([{'a': 1}, {'a': 2}])
-        udf_spans = [s for s in sub.spans if s['name'].startswith('udf.')]
-        assert len(udf_spans) == 2  # one per row at TRACE
-        eval_span = sub.find('exec.ExprEvalNode')
-        assert all(s['parent_id'] == eval_span['id'] for s in udf_spans)
-        assert sub.find('store.build_rows')['ended']  # DEBUG span now visible

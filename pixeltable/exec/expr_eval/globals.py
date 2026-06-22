@@ -2,37 +2,13 @@ from __future__ import annotations
 
 import abc
 import asyncio
-from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Iterable, Protocol
 
 import numpy as np
 
-from pixeltable import exprs, func, hooks
-
-
-class SlotStats:
-    """Aggregated per-slot execution stats; reported on the owning ExprEvalNode's span at close.
-
-    min_s/max_s are per-call observations; for batched calls one observation covers the whole batch.
-    """
-
-    __slots__ = ('count', 'errors', 'max_s', 'min_s', 'retries', 'total_s')
-
-    def __init__(self) -> None:
-        self.count = 0
-        self.errors = 0
-        self.retries = 0
-        self.total_s = 0.0
-        self.min_s = float('inf')
-        self.max_s = 0.0
-
-    def record(self, duration_s: float, count: int = 1) -> None:
-        self.count += count
-        self.total_s += duration_s
-        self.min_s = min(self.min_s, duration_s)
-        self.max_s = max(self.max_s, duration_s)
+from pixeltable import exprs, func
 
 
 @dataclass
@@ -104,40 +80,6 @@ class Scheduler(abc.ABC):
         """Returns True if the scheduler can handle the given resource pool"""
         pass
 
-    def _record_call(
-        self, request: FnCallArgs, exec_ctx: ExprEvalCtx, duration_s: float, num_retries: int, result: Any
-    ) -> None:
-        """Record stats and emit a udf.call event for a successful provider call; no-op when hooks are inactive.
-
-        The raw result rides along as '_result' so subscribers can extract provider usage (tokens etc.);
-        it is a list of results for batched calls.
-        """
-        if not self.dispatcher.hooks_active:
-            return
-        evaluator = exec_ctx.slot_evaluators.get(request.fn_call.slot_idx)
-        if evaluator is not None:
-            evaluator.stats.record(duration_s, len(request.rows))
-        hooks.emit(
-            'udf.call',
-            attrs={
-                'pxt.udf': request.fn_call.fn.display_name,
-                'pxt.column': self.dispatcher.col_names.get(request.fn_call.slot_idx),
-                'pxt.resource_pool': self.resource_pool,
-                'model': request.kwargs.get('model') if request.kwargs is not None else None,
-                'duration_s': round(duration_s, 6),
-                'count': len(request.rows),
-                'retries': num_retries,
-                '_result': result,
-            },
-        )
-
-    def _record_retry(self, request: FnCallArgs, exec_ctx: ExprEvalCtx) -> None:
-        if not self.dispatcher.hooks_active:
-            return
-        evaluator = exec_ctx.slot_evaluators.get(request.fn_call.slot_idx)
-        if evaluator is not None:
-            evaluator.stats.retries += 1
-
 
 class Dispatcher(Protocol):
     """
@@ -152,11 +94,6 @@ class Dispatcher(Protocol):
     exc_event: asyncio.Event
     schedulers: dict[str, Scheduler]  # key: resource pool id
 
-    # instrumentation state, set per execution
-    hooks_active: bool  # hooks.active() snapshot
-    col_names: dict[int, str]  # slot idx -> table column name, when known; populated when hooks are active
-    span_handle: hooks.AnySpanHandle | None  # span of the owning node; parent for evaluator work spans
-
     def dispatch(self, rows: list[exprs.DataRow], exec_ctx: Any) -> None:
         """Dispatches row slots to the appropriate schedulers; does not block"""
         ...
@@ -168,24 +105,6 @@ class Dispatcher(Protocol):
     def register_task(self, f: asyncio.Task) -> None:
         """Register task with dispatcher for subsequent cleanup; does not block"""
         ...
-
-
-def udf_span(
-    dispatcher: Dispatcher, fn_call: exprs.FunctionCall, *, level: int, **attrs: Any
-) -> AbstractContextManager[hooks.AnySpanHandle | None]:
-    """Open a 'udf.<name>' work span for `fn_call`, parented on the owning node's span.
-
-    set_current=True so work inside the call (eg, model.load) nests under this span. Extra keyword
-    attrs (batch_size, resource_pool, retries) pass through to the span; None values are dropped.
-    """
-    return hooks.span(
-        f'udf.{fn_call.fn.display_name}',
-        level=level,
-        parent=dispatcher.span_handle,
-        set_current=True,
-        column=dispatcher.col_names.get(fn_call.slot_idx),
-        **attrs,
-    )
 
 
 class Evaluator(abc.ABC):
@@ -202,13 +121,11 @@ class Evaluator(abc.ABC):
     dispatcher: Dispatcher
     is_closed: bool
     eval_ctx: 'ExprEvalCtx'
-    stats: SlotStats
 
     def __init__(self, dispatcher: Dispatcher, exec_ctx: 'ExprEvalCtx') -> None:
         self.dispatcher = dispatcher
         self.is_closed = False
         self.eval_ctx = exec_ctx
-        self.stats = SlotStats()
 
     @abc.abstractmethod
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
@@ -222,7 +139,6 @@ class Evaluator(abc.ABC):
         override to clear their own state.
         """
         self.is_closed = False
-        self.stats = SlotStats()
 
     def _close(self) -> None:
         """Close the evaluator; must not block"""

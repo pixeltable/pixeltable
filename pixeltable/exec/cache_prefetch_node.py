@@ -6,7 +6,7 @@ import logging
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterator
+from typing import AsyncIterator, Iterator
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
@@ -79,17 +79,10 @@ class CachePrefetchNode(ExecNode):
         self.input_finished = False
         self.row_idx = itertools.count() if self.retain_input_order else itertools.repeat(None)
         self.progress_reporter = None
-        self._total_objects = 0
-        self._total_bytes = 0
 
     def _open(self) -> None:
         self._init_exec_state()
         self.progress_reporter = self.ctx.add_progress_reporter('Downloads', 'objects', 'B')
-
-    def span_end_attributes(self) -> dict[str, Any]:
-        if self._total_objects == 0:
-            return {}
-        return {'files': self._total_objects, 'bytes': self._total_bytes}
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""
@@ -184,8 +177,6 @@ class CachePrefetchNode(ExecNode):
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
-        self._total_objects += num_objects
-        self._total_bytes += num_bytes
         if self.ctx.show_progress:
             self.progress_reporter.update(num_objects, num_bytes)
 

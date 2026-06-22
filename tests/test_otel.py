@@ -276,48 +276,6 @@ class TestOtelBridge:
                         points.extend(metric.data.data_points)
         return points
 
-    def test_insert_trace(self, uses_db: None, instrumented: tuple[Any, Any]) -> None:
-        from tests.test_hooks import _double
-
-        span_exporter, metric_reader = instrumented
-        t = pxt.create_table('otel_test', {'a': pxt.Int})
-        t.add_computed_column(b=_double(t.a))
-        span_exporter.clear()
-
-        t.insert([{'a': i} for i in range(5)])
-
-        spans = {s.name: s for s in span_exporter.get_finished_spans()}
-        insert_span = spans['pixeltable.insert']
-        assert insert_span.parent is None
-        assert insert_span.attributes['pxt.table'] == 'otel_test'
-        assert insert_span.attributes['pxt.rows'] == 5
-        for name in ('catalog.begin_xact', 'exec.ExprEvalNode', 'store.sql_insert'):
-            assert spans[name].parent.span_id == insert_span.context.span_id, name
-        eval_span = spans['exec.ExprEvalNode']
-        # the exec chain nests under its consumer: InMemoryDataNode feeds ExprEvalNode
-        assert spans['exec.InMemoryDataNode'].parent.span_id == eval_span.context.span_id
-        assert eval_span.attributes['pxt.udf.b.count'] == 5
-
-        rows_written = self._metric_points(metric_reader, 'pixeltable.rows.written')
-        assert sum(p.value for p in rows_written) == 5
-        udf_calls = self._metric_points(metric_reader, 'pixeltable.udf.calls')
-        assert sum(p.value for p in udf_calls) == 5
-
-    def test_error_metrics(self, uses_db: None, instrumented: tuple[Any, Any]) -> None:
-        from tests.test_hooks import _fail_on_neg
-
-        _, metric_reader = instrumented
-        t = pxt.create_table('otel_test', {'a': pxt.Int})
-        t.add_computed_column(b=_fail_on_neg(t.a))
-
-        t.insert([{'a': 1}, {'a': -1}], on_error='ignore')
-
-        points = self._metric_points(metric_reader, 'pixeltable.cell.errors')
-        assert sum(p.value for p in points) == 1
-        (point,) = points
-        assert point.attributes['pxt.column'] == 'b'
-        assert point.attributes['error_type'] == 'ValueError'
-
     def test_log_correlation(self, instrumented: tuple[Any, Any]) -> None:
         from opentelemetry import trace
 
