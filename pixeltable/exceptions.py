@@ -142,8 +142,10 @@ class Error(Exception):
             'message': self.message,
             'retryable': self.is_retryable,
         }
-        if self.__cause__ is not None:
-            d['cause'] = str(self.__cause__)
+        # Only surface a cause that is itself a Pixeltable Error, and only its user-facing message: str() on an
+        # arbitrary __cause__ (or an Error's detail) can leak internal types, stack traces, or filesystem paths.
+        if isinstance(self.__cause__, Error):
+            d['cause'] = self.__cause__.message
         if self.retry_after is not None:
             d['retry_after'] = self.retry_after
         return d
