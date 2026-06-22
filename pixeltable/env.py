@@ -389,6 +389,12 @@ class Env:
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
 
+        # External Postgres (e.g. PlanetScale) may point at a pre-existing database that _create_store_db never
+        # touched, so ensure pgvector is present before any embedding index is created.
+        if not self.is_local and self._dbms.name == 'postgresql':
+            with self._sa_engine.begin() as conn:
+                conn.execute(sql.text('CREATE EXTENSION IF NOT EXISTS vector'))
+
         # Create catalog tables and system metadata
         self._init_metadata()
 
@@ -414,6 +420,8 @@ class Env:
             dialect = db_url.get_dialect().name
             if dialect == 'cockroachdb':
                 self._dbms = CockroachDbms(db_url)
+            elif dialect == 'postgresql':
+                self._dbms = PostgresqlDbms(db_url)
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
             # Check if database exists
