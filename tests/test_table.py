@@ -1045,6 +1045,23 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a non-empty dictionary'):
             _ = pxt.create_table(p('test3'), ['I am a string.'])  # type: ignore[arg-type]
 
+    def test_create_from_rows(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        rows = [{'c1': i, 'c2': i * 1.5} for i in range(10)]
+
+        # list source: schema is inferred from the rows and the same rows are then inserted
+        t1 = pxt.create_table(p('from_list'), source=rows)
+        res1 = t1.order_by(t1.c1).collect()
+        assert res1['c1'] == [r['c1'] for r in rows]
+        assert res1['c2'] == [r['c2'] for r in rows]
+
+        # generator source: schema inference consumes the one-shot iterator, so table creation must insert the
+        # rows the conduit already materialized rather than re-reading the (now exhausted) generator
+        t2 = pxt.create_table(p('from_gen'), source=(dict(r) for r in rows))
+        res2 = t2.order_by(t2.c1).collect()
+        assert res2['c1'] == [r['c1'] for r in rows]
+        assert res2['c2'] == [r['c2'] for r in rows]
+
     def test_insert_query(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = test_tbl_dual

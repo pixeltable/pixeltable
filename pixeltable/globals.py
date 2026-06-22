@@ -14,7 +14,7 @@ from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_sys
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
-from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
+from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, TableKind, TableNode, TreeNode
 
@@ -255,8 +255,12 @@ def create_table(
             elif not is_direct_query:
                 tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
         else:
+            # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
+            # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
+            # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
+            insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
             tbl.insert(
-                source,
+                insert_source,
                 source_format=source_format,
                 schema_overrides=schema_overrides,
                 on_error=on_error,

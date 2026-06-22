@@ -683,7 +683,7 @@ class TestFunction:
         )
 
     # TODO: fix (proxy)
-    #def test_query_udf_after_drop(self, make_catalog_path: Callable[[str], str]) -> None:
+    # def test_query_udf_after_drop(self, make_catalog_path: Callable[[str], str]) -> None:
     def test_query_udf_after_drop(self, make_local_path: Callable[[str], str]) -> None:
         """Stored computed columns whose value_expr contains a @pxt.query UDF must remain loadable
         after the UDF's referenced column or table is dropped. The reload path must deserialize the
