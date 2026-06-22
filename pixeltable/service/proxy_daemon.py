@@ -53,8 +53,42 @@ def _port_lock(db: str) -> Path:
     return proxy_home(db) / _LOCK_NAME
 
 
+def _win_pid_alive(pid: int) -> bool:
+    """Windows liveness check via the Win32 API.
+
+    os.kill(pid, 0) cannot probe liveness on Windows: CPython maps os.kill() to
+    OpenProcess(PROCESS_ALL_ACCESS) + TerminateProcess(handle, sig), so signal 0 would terminate a live
+    process, and OpenProcess raises Access-denied (WinError 5) for an already-exited process, which would
+    read as alive. Instead, open the process with only SYNCHRONIZE rights and check whether its handle is
+    signaled: a running process's handle is unsignaled (WAIT_TIMEOUT); an exited one is signaled.
+    """
+    # ctypes.wintypes exists only on Windows, so import it inside this platform-guarded path.
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    synchronize = 0x00100000  # SYNCHRONIZE access right, the minimum needed to wait on the process handle
+    handle = kernel32.OpenProcess(synchronize, False, pid)
+    if not handle:
+        return False  # no such process
+    try:
+        # WaitForSingleObject returns WAIT_TIMEOUT (0x102) while the process runs; it returns WAIT_OBJECT_0
+        # (0) once the process has exited and its handle becomes signaled.
+        return kernel32.WaitForSingleObject(handle, 0) == 0x102
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _pid_alive(pid: int) -> bool:
     """True if pid is a live process. An already-exited but unreaped child (zombie) counts as dead."""
+    if sys.platform == 'win32':
+        return _win_pid_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -62,8 +96,6 @@ def _pid_alive(pid: int) -> bool:
     except PermissionError:
         return True  # exists, owned by another user
     except (OSError, SystemError):
-        # On Windows os.kill(pid, 0) raises OSError (WinError 87) for a PID that no longer exists, and can raise
-        # SystemError on an internal result-handling edge case; either way, treat the process as gone.
         return False
     # os.kill(pid, 0) also succeeds for a zombie (exited but not yet reaped). A zombie has terminated, so
     # treat it as dead; otherwise a daemon that we launched and that has already exited reads as running.
@@ -183,7 +215,10 @@ def stop(db: str) -> None:
         pid = info['pid']
         try:
             os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError, OSError):
+            # POSIX raises ProcessLookupError once the process is gone. Windows os.kill() maps to
+            # TerminateProcess via OpenProcess(PROCESS_ALL_ACCESS) and raises PermissionError (WinError 5) or
+            # OSError (WinError 87) for an already-exited process. In every case there is nothing left to wait on.
             pid = None
         if pid is not None:
             deadline = time.monotonic() + _STOP_TIMEOUT
@@ -204,7 +239,9 @@ def stop(db: str) -> None:
                 # SIGKILL is absent on Windows, where os.kill() already terminates unconditionally.
                 try:
                     os.kill(pid, getattr(signal, 'SIGKILL', signal.SIGTERM))
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError, OSError):
+                    # The process exited between the liveness check and here; on Windows os.kill() raises
+                    # PermissionError/OSError rather than ProcessLookupError once the target is gone.
                     pass
     _port_lock(db).unlink(missing_ok=True)
 
