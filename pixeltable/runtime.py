@@ -134,7 +134,9 @@ class Runtime:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
 
         if catalog_uri.org != 'local':
-            raise NotImplementedError(f'Hosted catalog {catalog_uri!r} is not supported yet')
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Hosted catalog {catalog_uri!r} is not supported yet'
+            )
 
         from pixeltable.service import proxy_daemon
         from pixeltable.service.proxy_client import ProxyHttpClient
@@ -286,7 +288,9 @@ def reset_runtime() -> None:
     """Reset the current thread's Runtime instance. Used for testing."""
     runtime = getattr(_thread_local, 'runtime', None)
     if runtime is not None:
-        local_catalog = runtime._catalogs.get('')
+        from pixeltable.catalog.path import ROOT_PATH
+
+        local_catalog = runtime._catalogs.get(ROOT_PATH)
         if local_catalog is not None:
             from pixeltable.catalog.catalog import Catalog
 

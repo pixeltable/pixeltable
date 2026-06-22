@@ -189,9 +189,14 @@ def create_table(
         src_schema_overrides: dict[str, ts.ColumnType] = {}
         if schema_overrides is not None:
             for col_name, py_type in schema_overrides.items():
-                src_schema_overrides[col_name] = ts.ColumnType.normalize_type(
-                    py_type, nullable_default=True, allow_builtin_types=False
-                )
+                try:
+                    src_schema_overrides[col_name] = ts.ColumnType.normalize_type(
+                        py_type, nullable_default=True, allow_builtin_types=False
+                    )
+                except excs.Error as e:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_TYPE, f'Invalid type for schema_overrides[{col_name!r}]: {e.message}'
+                    ) from e
         data_source.src_schema_overrides = src_schema_overrides
         data_source.src_pk = primary_key
         data_source.infer_schema()
