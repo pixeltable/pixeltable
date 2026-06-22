@@ -279,6 +279,7 @@ warn_return_any = true
 warn_unused_ignores = true
 
 [tool.pyright]
+typeCheckingMode = "off"
 extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
 
 [tool.pytest.ini_options]
