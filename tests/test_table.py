@@ -3644,6 +3644,9 @@ class TestTable:
         assert status.num_excs == 0
         _ = t.show()
 
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires exactly one keyword argument'):
+            _ = t.add_computed_column(add_a=t.c2 + 1, add_b=t.c2 + 2)
+
         # TODO(aaron-siegel): This has to be commented out. See explanation in test_exprs.py.
         # with pytest.raises(pxt.RequestError):
         #     t.add_computed_column(add2=(t.c2 - 10) / (t.c3 - 10))

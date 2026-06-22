@@ -879,6 +879,15 @@ class Table(SchemaObject):
                 f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.',
             )
 
+    def _check_single_column_kwarg(self, method: str, value_form: str, kwargs: Mapping[str, Any]) -> None:
+        """Enforce that a single-column method (add_column/add_computed_column) got exactly one col_name= kwarg."""
+        if len(kwargs) != 1:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{method}() requires exactly one keyword argument of the form {value_form}; '
+                f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
+            )
+
     @abc.abstractmethod
     def update(
         self,

@@ -182,12 +182,7 @@ class TableProxy(Table):
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
-        if len(kwargs) != 1:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
-                f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
-            )
+        self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         self._check_mutable('add columns to')
         self._validate_column_schema(kwargs)
         return self._dispatch('add_column', {'columns': normalize_schema(kwargs), 'if_exists': if_exists})
@@ -204,6 +199,7 @@ class TableProxy(Table):
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
         **kwargs: exprs.Expr,
     ) -> UpdateStatus:
+        self._check_single_column_kwarg('add_computed_column', '`col_name=col_type` or `col_name=expression`', kwargs)
         self._check_mutable('add columns to')
         return self._dispatch(
             'add_computed_column',

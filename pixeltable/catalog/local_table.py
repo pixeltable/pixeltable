@@ -486,12 +486,7 @@ class LocalTable(Table):
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
         # verify kwargs and construct column schema dict
-        if len(kwargs) != 1:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
-                f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
-            )
+        self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         col_type = next(iter(kwargs.values()))
         if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
             raise excs.RequestError(
@@ -518,13 +513,9 @@ class LocalTable(Table):
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_computed_column() -> UpdateStatus:
             self._check_mutable('add columns to')
-            if len(kwargs) != 1:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'add_computed_column() requires exactly one keyword argument of the form '
-                    '`col_name=col_type` or `col_name=expression`; '
-                    f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
-                )
+            self._check_single_column_kwarg(
+                'add_computed_column', '`col_name=col_type` or `col_name=expression`', kwargs
+            )
             col_name, spec = next(iter(kwargs.items()))
             if not is_valid_identifier(col_name):
                 raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {col_name}')
