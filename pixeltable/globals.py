@@ -255,7 +255,13 @@ def create_table(
             elif not is_direct_query:
                 tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
         else:
-            tbl.insert(source, on_error=on_error)
+            tbl.insert(
+                source,
+                source_format=source_format,
+                schema_overrides=schema_overrides,
+                on_error=on_error,
+                **(extra_args or {}),
+            )
 
     return tbl
 

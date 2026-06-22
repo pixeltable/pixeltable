@@ -42,11 +42,6 @@ class InsertableTableProxy(TableProxy):
             TableDataConduit,
         )
 
-        if source_format is not None or schema_overrides is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'Hosted insert does not support `source_format` or `schema_overrides` yet.',
-            )
         self._validate_insert_source(source)
         if source is None:
             # the kwargs form (t.insert(col=val, ...)) is a single row
@@ -57,7 +52,9 @@ class InsertableTableProxy(TableProxy):
             source = list(source)
 
         # source classification (and its 'unsupported data source type' error) is shared with the local insert path
-        data_source = TableDataConduit.create(source, extra_fields=kwargs)
+        data_source = TableDataConduit.create(
+            source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
+        )
 
         # a Table or Query source runs on the server against the same hosted catalog
         if isinstance(data_source, QueryTableDataConduit):

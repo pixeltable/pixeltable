@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 class CatalogProxy(CatalogBase):
     """
-    An implementation of CatalogBase that delegates to a hosted catalog .
+    An implementation of CatalogBase that delegates to a hosted catalog.
     """
 
     _catalog_uri: Path

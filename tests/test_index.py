@@ -671,7 +671,7 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='Invalid column name'):
             img_t.add_embedding_index(img_t.img, idx_name='BOGUS COL NAME', embedding=local_embed)
 
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
             _ = img_t.img.similarity(string='red truck', idx='doesnotexist')
         assert "index 'doesnotexist' not found" in str(exc_info.value).lower()
 
@@ -683,7 +683,7 @@ class TestIndex:
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
         img_t.drop_embedding_index(idx_name='other_idx')
 
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
             sim = img_t.img.similarity(string='red truck', idx='other_idx')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
         assert "index 'other_idx' not found" in str(exc_info.value).lower()
