@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import enum
+import traceback
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 
 from typing_extensions import Self
 
@@ -236,6 +237,26 @@ class ExprEvalError(Exception):
         self.exc_tb = exc_tb
         self.input_vals = input_vals
         self.row_num = row_num
+
+
+def raise_from_expr_eval_err(e: ExprEvalError) -> NoReturn:
+    """Convert an ExprEvalError (internal) into a user-facing Error."""
+    msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{e.exc}'
+    if len(e.input_vals) > 0:
+        input_msgs = [f"'{d}' = {d.col_type.print_value(e.input_vals[i])}" for i, d in enumerate(e.expr.dependencies())]
+        msg += f'\nwith {", ".join(input_msgs)}'
+    assert e.exc_tb is not None
+    stack_trace = traceback.format_tb(e.exc_tb)
+    if len(stack_trace) > 2:
+        # append a stack trace if the exception happened in user code
+        # (frame 0 is ExprEvaluator and frame 1 is some expr's eval()
+        nl = '\n'
+        # [-1:1:-1]: leave out entries 0 and 1 (the ExprEvaluator and the expr's eval() frame), reversed
+        # so that the most recent frame is at the top
+        msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
+    if isinstance(e.exc, Error):
+        raise type(e.exc)(e.exc.error_code, msg) from e
+    raise RequestError(ErrorCode.UNSUPPORTED_OPERATION, msg) from e
 
 
 class PixeltableWarning(Warning):

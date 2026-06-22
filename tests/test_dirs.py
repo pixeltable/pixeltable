@@ -17,7 +17,7 @@ class TestDirs:
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
         for name in dirs:
             dir = pxt.create_dir(name)
-            assert dir._path() == name
+            assert str(dir._path()) == name
             assert dir._name() == name.split('/')[-1]
 
         # invalid names
@@ -115,7 +115,7 @@ class TestDirs:
         id_before = {}
         for name in dirs:
             dir = pxt.create_dir(name)
-            assert dir._path() == name
+            assert str(dir._path()) == name
             id_before[name] = dir._id
 
         # invalid if_exists value is rejected
@@ -276,7 +276,7 @@ class TestDirs:
     def test_create_with_parents(self, uses_db: None) -> None:
         all_dirs = ['dir1', 'dir1/dir2', 'dir1/dir2/dir3']
         dir3 = pxt.create_dir('dir1/dir2/dir3', parents=True)
-        assert dir3._path() == 'dir1/dir2/dir3'
+        assert str(dir3._path()) == 'dir1/dir2/dir3'
 
         assert dir3._name() == 'dir3'
         listing = pxt.list_dirs(recursive=True)
@@ -286,7 +286,7 @@ class TestDirs:
         pxt.drop_dir('dir1/dir2/dir3')
         pxt.drop_dir('dir1/dir2')
         dir4 = pxt.create_dir('dir1/dir2/dir3/dir4', parents=True)
-        assert dir4._path() == 'dir1/dir2/dir3/dir4'
+        assert str(dir4._path()) == 'dir1/dir2/dir3/dir4'
         assert dir4._name() == 'dir4'
         listing = pxt.list_dirs(recursive=True)
         all_dirs.append('dir1/dir2/dir3/dir4')
