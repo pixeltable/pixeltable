@@ -61,6 +61,10 @@ def _pid_alive(pid: int) -> bool:
         return False
     except PermissionError:
         return True  # exists, owned by another user
+    except (OSError, SystemError):
+        # On Windows os.kill(pid, 0) raises OSError (WinError 87) for a PID that no longer exists, and can raise
+        # SystemError on an internal result-handling edge case; either way, treat the process as gone.
+        return False
     # os.kill(pid, 0) also succeeds for a zombie (exited but not yet reaped). A zombie has terminated, so
     # treat it as dead; otherwise a daemon that we launched and that has already exited reads as running.
     try:
