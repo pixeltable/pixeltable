@@ -252,6 +252,11 @@ artifacts = [
     "pixeltable_cli/server/static/**",
 ]
 
+# Rebuild the dashboard SPA (into pixeltable_cli/server/static, picked up by `artifacts` above)
+# before packaging the wheel, so a release can never ship a stale prebuilt bundle. See hatch_build.py.
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
 [tool.isort]
 force_single_line = false
 line_length = 120
