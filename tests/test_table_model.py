@@ -295,9 +295,7 @@ class TestTableModel:
                     ExampleTableModel.value > 0.5  # type: ignore[arg-type]
                 )
 
-        class ExampleViewModel(pxt.ViewModel, name='test_view'):
-            __base_table__ = spec
-
+        class ExampleViewModel(pxt.ViewModel, name='test_view', base=spec):
             view_col_1: pxt.Image
             view_col_2 = view_col_1.rotate(90)
             view_col_3 = ExampleTableModel.img.rotate(90)  # Also try dereferencing a base table column
@@ -310,12 +308,11 @@ class TestTableModel:
             case 'query':
                 spec = ExampleViewModel.where(ExampleTableModel.value > 1.0)
 
-        class ExampleViewModel2(pxt.ViewModel, name='test_view_2'):
-            __base_table__ = spec
-
+        class ExampleViewModel2(pxt.ViewModel, name='test_view_2', base=ExampleViewModel):
             # subview_col_1 = ExampleTableModel.img.rotate(180)
             # subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
             # subview_col_3 = subview_col_2.rotate(30)
+            pass
 
         _ = ExampleTableModel.create()
         _ = ExampleViewModel.create()

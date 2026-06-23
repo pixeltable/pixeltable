@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import uuid
 import weakref
 from dataclasses import dataclass
@@ -397,10 +398,12 @@ class _ModelNamespace(dict):
     including bare annotations (which never write to the namespace itself)."""
 
     column_ctx: _ColumnCtx
+    base: _PlaceholderQuery
 
-    def __init__(self, cls_name: str, tbl_name: str) -> None:
+    def __init__(self, cls_name: str, tbl_name: str, base: _PlaceholderQuery) -> None:
         super().__init__()
         self.column_ctx = _ColumnCtx(tbl_name)
+        self.base = base
         # Pre-seed __annotations__ so the compiler routes bare annotations through
         # our recorder rather than a plain dict it would otherwise create.
         super().__setitem__('__annotations__', _AnnotationRecorder(self))
@@ -469,25 +472,57 @@ class TableModelMetaclass(type):
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
             return super().__prepare__(cls_name, bases, **kwargs)
+        elif len(bases) > 1 or bases[0] not in (TableModel, ViewModel):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Pixeltable schemas must subclass exactly one of `TableModel`, `ViewModel`.',
+            )
         else:
+            display_name = f'{bases[0].__name__} `{cls_name}`'
+
+            # Validate table name
             if 'name' not in kwargs:
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA, f'{bases[0].__name__} `{cls_name}` must specify a `name`.'
+                    excs.ErrorCode.INVALID_SCHEMA, f'{display_name} must specify a `name`.'
                 )
             tbl_name = kwargs['name']
             if not isinstance(tbl_name, str) or not is_valid_identifier(
                 tbl_name, allow_hyphens=True
             ):
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA, f'{bases[0].__name__} `{cls_name}`: `name` must be a string.'
+                    excs.ErrorCode.INVALID_SCHEMA, f'{display_name}: `name` must be a string.'
                 )
             if tbl_name in mcs._registered_models:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'{bases[0].__name__} `{cls_name}` has __table_name__ {tbl_name!r}, but that __table_name__ was '
-                    f'previously defined by `{mcs._registered_models[tbl_name].__name__}`.'
+                    f'{display_name} has name {tbl_name!r}, but that name was '
+                    f'previously used by `{mcs._registered_models[tbl_name].__name__}`.'
                 )
-            return _ModelNamespace(cls_name=cls_name, tbl_name=tbl_name)
+
+            # Validate base
+            base: _PlaceholderQuery | None = None
+            if 'base' in kwargs:
+                if bases[0] is TableModel:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_SCHEMA,
+                        f'`{cls_name}` must subclass `ViewModel` to specify a `base`.',
+                    )
+                if isinstance(kwargs['base'], _PlaceholderQuery):
+                    base = kwargs['base']
+                elif isinstance(kwargs['base'], TableModelMetaclass):
+                    base = kwargs['base'].select()
+                else:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_SCHEMA,
+                        f'{display_name}: `base` must be a valid base table reference '
+                        f'(another `TableModel` or `ViewModel`, or a query over a model).',
+                    )
+            elif bases[0] is ViewModel:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'`{cls_name}` must specify a `base` when subclassing `ViewModel`.',
+                )
+            return _ModelNamespace(cls_name=cls_name, tbl_name=tbl_name, base=base)
 
     def __new__(
         mcs, cls_name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
@@ -498,6 +533,8 @@ class TableModelMetaclass(type):
             # This is the TableModel or ViewModel base class itself; no additional processing.
             return super().__new__(mcs, cls_name, bases, namespace)
 
+        assert isinstance(namespace, _ModelNamespace)
+
         # Remove the _ColumnCtx object; it's no longer needed, and we need to "normalize" the namespace
         column_ctx = namespace.pop(cls_name)
         assert isinstance(column_ctx, _ColumnCtx)
@@ -506,6 +543,7 @@ class TableModelMetaclass(type):
         #    values (such as `col2 = Column.col1 + 1` or `idx0 = EmbeddingIndex(...)`).
 
         namespace['__table_name__'] = column_ctx.tbl_name
+        namespace['__base_table__'] = namespace.base
         namespace['__columns__'] = column_ctx.known_cols
         namespace['__indexes__'] = column_ctx.known_idxs
 
@@ -515,28 +553,14 @@ class TableModelMetaclass(type):
         # 3. Validate __base_table__ and __iterator__ declarations.
 
         if bases[0].__name__ == 'TableModel':
-            if '__base_table__' in namespace:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'__base_table__ not allowed for a TableModel; `{cls_name}` must subclass ViewModel instead.',
-                )
             if '__iterator__' in namespace:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'__iterator__ not allowed for a TableModel; `{cls_name}` must subclass ViewModel instead.',
                 )
-            namespace['__base_table__'] = None
             namespace['__iterator__'] = None
 
         else:
-            assert bases[0].__name__ == 'ViewModel'  # The only other possibility
-            base_table = namespace.get('__base_table__')
-            if base_table is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA, f'ViewModel `{cls_name}` does not define a __base_table__.'
-                )
-            assert isinstance(base_table, (_PlaceholderQuery, pxt.Query))
-
             if '__iterator__' in namespace:
                 iterator = namespace['__iterator__']
                 if not (iterator is None or isinstance(iterator, func.GeneratingFunctionCall)):
@@ -584,7 +608,7 @@ class TableModelMetaclass(type):
 
         tbl_id = uuid.uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
-        for name, placeholder in columns.items():
+        for col_id, (name, placeholder) in enumerate(columns.items()):
             subst_spec: ColumnSpec = placeholder.column_spec.copy()
             if 'value' in subst_spec:
                 subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
@@ -597,7 +621,7 @@ class TableModelMetaclass(type):
                     )
             catalog_col = catalog.Column.create(name, subst_spec)
             catalog_col.tbl_handle = tbl_handle
-            catalog_col.id = len(subst_dict)
+            catalog_col.id = col_id
             catalog_columns.append(catalog_col)
             subst_dict[placeholder] = exprs.ColumnRef(
                 catalog_col.column_version_md(),
@@ -609,6 +633,7 @@ class TableModelMetaclass(type):
 
         cat = get_runtime().catalog
         tbl_path = catalog.Path.parse(cls.__table_name__)
+        base_tvp: TableVersionPath | None = None
 
         if issubclass(cls, TableModel):
             create_fn = retry_loop(for_write=True)(
@@ -634,12 +659,14 @@ class TableModelMetaclass(type):
             if isinstance(base, _PlaceholderQuery):
                 base = base.bind()
 
+            base_tvp = base._first_tbl
+
             assert iterator is None or isinstance(iterator, func.GeneratingFunctionCall)
 
             create_fn = retry_loop(for_write=True)(
                 lambda: cat._create_view(
                     path=tbl_path,
-                    base=base._first_tbl,
+                    base=base_tvp,
                     select_list=base.select_list,
                     where=base.where_clause,
                     sample_clause=base.sample_clause,
@@ -658,6 +685,9 @@ class TableModelMetaclass(type):
         cat._roll_forward_ids.clear()
         tbl_id_, _ = create_fn()
         assert tbl_id == tbl_id_
+        if base_tvp is not None and base_tvp.is_mutable():
+            # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
+            cat._clear_tv_cache(base_tvp.tbl_version.key)
         cat._roll_forward()
 
         get_fn = retry_loop(read_tbl_ids=[tbl_id])(lambda: cat.get_table_by_id(tbl_id))
