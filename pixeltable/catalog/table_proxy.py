@@ -118,14 +118,17 @@ class TableProxy(Table):
     def _tbl_path(self) -> TableMdPath:
         return self._tbl_md_path
 
+    def _rebase_path(self, path_str: str) -> str:
+        # the server emits in-db paths (org/db dropped on the wire); stamp this proxy's catalog back on
+        local_path = CatalogPath.parse(path_str, allow_versioned_path=True)
+        return str(dataclasses.replace(local_path, org=self._catalog_uri.org, db=self._catalog_uri.db))
+
     def get_metadata(self) -> 'TableMetadata':
         output = self._dispatch('get_metadata', {})
-        # patch up the path
-        local_path = CatalogPath.parse(output['path'])
-        tbl_path = CatalogPath.from_components(
-            local_path.components, org=self._catalog_uri.org, db=self._catalog_uri.db
-        )
-        output['path'] = str(tbl_path)
+        # every path-valued field comes back as an in-db path; rebase each onto this proxy's catalog
+        output['path'] = self._rebase_path(output['path'])
+        if output['base'] is not None:
+            output['base'] = self._rebase_path(output['base'])
         return output
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':

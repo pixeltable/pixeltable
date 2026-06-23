@@ -281,11 +281,8 @@ class TestTable:
         t = pxt.create_table(p('test'), schema)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
-    # TODO: fix (proxy)
     def test_table_metadata(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
-        # def test_table_metadata(self, make_local_path: Callable[[str], str], local_embed: pxt.Function) -> None:
         p = make_catalog_path
-        # p = make_local_path
         pxt.create_dir(p('dir'))
         pxt.create_dir(p('dir/subdir'))
         for rel_tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
@@ -303,8 +300,6 @@ class TestTable:
                 media_validation=media_val,  # type: ignore[arg-type]
                 additional_columns={'col2': tbl.col + 'x'},
             )
-            md1 = puresnap.get_metadata()
-            md2 = snap.get_metadata()
             assert_table_metadata_eq(
                 {
                     'base': None,
