@@ -63,7 +63,8 @@ class ProxyClient(abc.ABC):
     ) -> Any:
         """Run a Table method, refreshing the caller's local md from any current_md the server returns."""
         while True:
-            response = self.send('Table', method, args, path_key=path_key, snapshot_key=get_snapshot_key())
+            snapshot_key = get_snapshot_key()
+            response = self.send('Table', method, args, path_key=path_key, snapshot_key=snapshot_key)
             if response.current_md is not None:
                 refresh(proxy_protocol.deserialize(response.current_md))
             if response.error is not None:

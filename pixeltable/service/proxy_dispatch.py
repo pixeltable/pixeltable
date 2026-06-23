@@ -141,12 +141,12 @@ def _catalog_method(request: ProxyRequest) -> Any:
 
 
 def _resolve_tbl(path_key: TablePathKey) -> LocalTable:
-    leaf = path_key.leaf
+    tbl_id, effective_version = path_key.keys[0].tbl_id, path_key.keys[0].effective_version
     cat = get_runtime().catalog
     with cat.begin_xact(for_write=False):
-        tbl = cat.get_table_by_id(leaf.tbl_id, leaf.effective_version)  # version pins a snapshot proxy
+        tbl = cat.get_table_by_id(tbl_id, effective_version)
     if tbl is None:
-        raise excs.table_was_dropped(leaf.tbl_id)
+        raise excs.table_was_dropped(tbl_id)
     return tbl
 
 

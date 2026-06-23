@@ -202,8 +202,8 @@ class TestCatalog:
         assert isinstance(tvp, TableVersionPath)
         assert tvp.key().as_dict() == tvp.as_dict()
         # a live table's effective key has version None; its snapshot key has the concrete version
-        assert tvp.key().leaf.effective_version is None
-        assert tvp.snapshot_key().leaf.effective_version == tvp.version()
+        assert tvp.key().keys[0].effective_version is None
+        assert tvp.snapshot_key().keys[0].effective_version == tvp.version()
 
     def test_function_serialization(self) -> None:
         # Functions (e.g. embedding UDFs passed to add_embedding_index) cross the wire via proxy_protocol.

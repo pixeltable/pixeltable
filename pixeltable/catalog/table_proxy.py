@@ -12,7 +12,7 @@ from ..exprs import ColumnRef
 from .globals import normalize_schema
 from .path import Path as CatalogPath
 from .table import Table
-from .table_path import TableMdPath, TablePathKey
+from .table_path import TableMdPath, TablePathKey, TableVersionKey
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -33,23 +33,27 @@ if TYPE_CHECKING:
 
 
 class TableProxy(Table):
-    """A handle to a hosted table, reached over RPC (delegated execution).
+    """A handle to a hosted table.
 
     Backed by a TableMdPath obtained from the dispatch server, so schema introspection works locally.
 
     Thread-safe.
     """
 
-    _key: TablePathKey  # immutable version identity; shared read-only across threads
+    # self._id + self._effective_version uniquely identify the schema entity
+    _effective_version: int | None
+
+    _path_key: TablePathKey  # reflects tbl_md_path; immutable; shared read-only across threads
     _local: threading.local  # per-thread tbl_md_path; seeded by the constructing thread, else lazily fetched
     _client: 'ProxyClient'
     _catalog_uri: CatalogPath  # the hosted catalog this proxy lives in; stamped onto md paths for query routing
 
-    def __init__(self, tbl_md_path: TableMdPath, client: 'ProxyClient'):
-        super().__init__(tbl_md_path.tbl_id)
-        self._key = tbl_md_path.key()
+    def __init__(self, id: UUID, effective_version: int | None, tbl_md_path: TableMdPath, client: 'ProxyClient'):
+        super().__init__(id)
+        self._effective_version = effective_version
+        self._path_key = tbl_md_path.key()
         self._local = threading.local()
-        self._local.tbl_md_path = tbl_md_path  # seed the constructing thread
+        self._local.tbl_md_path = tbl_md_path
         self._client = client
         self._catalog_uri = tbl_md_path.catalog_uri
 
@@ -57,29 +61,31 @@ class TableProxy(Table):
     def _tbl_md_path(self) -> TableMdPath:
         md_path = getattr(self._local, 'tbl_md_path', None)
         if md_path is None:
-            md_path = self._fetch_md_path()  # a thread other than the one that constructed the proxy
+            md_path = self._fetch_md_path()
             self._local.tbl_md_path = md_path
         return md_path
 
     def _fetch_md_path(self) -> TableMdPath:
         # reach the table by id; the leaf's effective version pins the right version for a snapshot proxy
-        leaf = self._key.leaf
         md = self._client.send_request(
-            'CatalogBase', 'get_table_by_id', {'tbl_id': leaf.tbl_id, 'version': leaf.effective_version}
+            'CatalogBase', 'get_table_by_id', {'tbl_id': self._id, 'version': self._effective_version}
         )
         if md is None:
-            raise excs.table_was_dropped(leaf.tbl_id)
-        return TableMdPath.from_md(md, self._catalog_uri)
+            raise excs.table_was_dropped(self._id)
+        return TableMdPath.from_md(md, self._effective_version, self._catalog_uri)
 
     def _refresh_md_path(self, md: list[TableVersionMd]) -> None:
-        self._local.tbl_md_path = TableMdPath.from_md(md, self._catalog_uri)
+        self._local.tbl_md_path = TableMdPath.from_md(
+            md, effective_version=self._effective_version, catalog_uri=self._catalog_uri
+        )
 
     def _dispatch(self, method: str, args: dict[str, Any]) -> Any:
+        tbl_key = TableVersionKey(self._id, self._effective_version)
         return self._client.dispatch_table_method(
             method,
             args,
-            path_key=self._key,
-            get_snapshot_key=lambda: self._tbl_md_path.snapshot_key(),
+            path_key=TablePathKey((tbl_key,)),
+            get_snapshot_key=self._tbl_md_path.snapshot_key,
             refresh=self._refresh_md_path,
         )
 
@@ -109,26 +115,27 @@ class TableProxy(Table):
         return dataclasses.replace(server_path, org=self._catalog_uri.org, db=self._catalog_uri.db)
 
     @property
-    def _query_path(self) -> TableMdPath:
-        # the path that supplies queryable rows/columns; same as the identity path except for a pure
-        # snapshot, which has no physical table and is queried via its base (see ViewProxy)
+    def _tbl_path(self) -> TableMdPath:
         return self._tbl_md_path
 
-    @property
-    def _tbl_path(self) -> TableMdPath:
-        return self._query_path
-
     def get_metadata(self) -> 'TableMetadata':
-        return self._dispatch('get_metadata', {})
+        output = self._dispatch('get_metadata', {})
+        # patch up the path
+        local_path = CatalogPath.parse(output['path'])
+        tbl_path = CatalogPath.from_components(
+            local_path.components, org=self._catalog_uri.org, db=self._catalog_uri.db
+        )
+        output['path'] = str(tbl_path)
+        return output
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':
         if name.startswith('_'):
             # an internal/dunder attribute miss is never a column; raise now to avoid recursing via _tbl_md_path
             raise AttributeError(name)
-        col_md = self._query_path.get_column_md_by_name(name)
+        col_md = self._tbl_path.get_column_md_by_name(name)
         if col_md is None:
             raise AttributeError(f'Unknown column: {name}')
-        return ColumnRef(col_md, self._query_path.is_validate_on_read(col_md))
+        return ColumnRef(col_md, self._tbl_path.is_validate_on_read(col_md))
 
     def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         return getattr(self, name)
@@ -137,16 +144,7 @@ class TableProxy(Table):
         return self._dispatch('list_views', {'recursive': recursive})
 
     def columns(self) -> list[str]:
-        return [cvmd.name for cvmd in self._query_path.column_md() if cvmd.name is not None]
-
-    def _get_base_table(self) -> 'Table' | None:
-        from .insertable_table_proxy import InsertableTableProxy
-        from .view_proxy import ViewProxy
-
-        base = self._tbl_md_path.base
-        if base is None:
-            return None
-        return (ViewProxy if base.is_view() else InsertableTableProxy)(base, self._client)
+        return [col_md.name for col_md in self._tbl_path.column_md() if col_md.name is not None]
 
     def describe(self) -> None:
         if getattr(builtins, '__IPYTHON__', False):

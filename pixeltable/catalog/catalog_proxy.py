@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping
+from uuid import UUID
 
 from pixeltable.env import Env
 
@@ -10,8 +11,6 @@ from .table_path import TableMdPath
 from .view_proxy import ViewProxy
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from pixeltable import exprs, func
     from pixeltable.plan import SampleClause
     from pixeltable.service.proxy_client import ProxyClient
@@ -36,13 +35,32 @@ class CatalogProxy(CatalogBase):
         self._catalog_uri = catalog_uri
         self._client = client
 
-    def _make_table(self, md: list[TableVersionMd], version: int | None = None) -> Table:
-        # TODO: this signature doesn't make sense, why pass in version?
-        tbl_md_path = TableMdPath.from_md(md, self._catalog_uri, version=version)
-        Env.get().record_tbl_catalog_uri(tbl_md_path.tbl_id, self._catalog_uri)
-        if tbl_md_path.is_view():
-            return ViewProxy(tbl_md_path, self._client)
-        return InsertableTableProxy(tbl_md_path, self._client)
+    def _make_table(self, md: list[TableVersionMd], is_snapshot: bool) -> Table:
+        tbl_id = UUID(md[0].tbl_md.tbl_id)
+        Env.get().record_tbl_catalog_uri(tbl_id, self._catalog_uri)
+
+        tbl_md_path: TableMdPath
+        effective_version: int | None
+        if md[0].tbl_md.is_pure_snapshot:
+            assert len(md) > 1
+            effective_version = None
+            # md[0] is only the snapshot metadata; there is no physical table to back it
+            tbl_md_path = TableMdPath.from_md(
+                md[1:], effective_version=md[1].version_md.version, catalog_uri=self._catalog_uri
+            )
+        elif md[0].tbl_md.is_snapshot:
+            effective_version = None
+            tbl_md_path = TableMdPath.from_md(
+                md, effective_version=md[0].version_md.version, catalog_uri=self._catalog_uri
+            )
+        else:
+            effective_version = md[0].version_md.version if is_snapshot else None
+            tbl_md_path = TableMdPath.from_md(md, effective_version=effective_version, catalog_uri=self._catalog_uri)
+
+        if md[0].tbl_md.view_md is not None:
+            return ViewProxy(tbl_id, effective_version, tbl_md_path, self._client)
+        else:
+            return InsertableTableProxy(tbl_id, tbl_md_path, self._client)
 
     def run_query(self, method: str, query_dict: dict, **extra: Any) -> Any:
         """Execute a Query method against the hosted catalog."""
@@ -72,7 +90,8 @@ class CatalogProxy(CatalogBase):
             'is_versioned': is_versioned,
         }
         md, was_created = self._client.send_request('CatalogBase', 'create_table', args)
-        return self._make_table(md), was_created
+        # effective_version=None: this is a live table
+        return self._make_table(md, is_snapshot=False), was_created
 
     def create_view(
         self,
@@ -106,11 +125,14 @@ class CatalogProxy(CatalogBase):
             'if_exists': if_exists,
         }
         md = self._client.send_request('CatalogBase', 'create_view', args)
-        return self._make_table(md)
+        return self._make_table(md, is_snapshot=False)
 
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
         md = self._client.send_request('CatalogBase', 'get_table', {'path': path, 'if_not_exists': if_not_exists})
-        return None if md is None else self._make_table(md)
+        if path.version is not None:
+            # we requested an anonymous snapshot
+            assert path.version == md.version_md.version
+        return None if md is None else self._make_table(md, is_snapshot=path.version is not None)
 
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
@@ -120,7 +142,7 @@ class CatalogProxy(CatalogBase):
             'get_table_by_id',
             {'tbl_id': tbl_id, 'version': version, 'ignore_if_dropped': ignore_if_dropped},
         )
-        return None if md is None else self._make_table(md, version=version)
+        return None if md is None else self._make_table(md, is_snapshot=version is not None)
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         self._client.send_request(

@@ -282,27 +282,29 @@ class TestTable:
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
     # TODO: fix (proxy)
-    # def test_table_metadata(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
-    def test_table_metadata(self, make_local_path: Callable[[str], str], local_embed: pxt.Function) -> None:
-        # p = make_catalog_path
-        p = make_local_path
+    def test_table_metadata(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+        # def test_table_metadata(self, make_local_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+        p = make_catalog_path
+        # p = make_local_path
         pxt.create_dir(p('dir'))
         pxt.create_dir(p('dir/subdir'))
-        for tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
-            tbl = pxt.create_table(p(tbl_path), {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
+        for rel_tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
+            tbl_path = p(rel_tbl_path)
+            tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view_path = f'{tbl_path}_view'
-            view = pxt.create_view(p(view_path), tbl, media_validation=media_val)  # type: ignore[arg-type]
+            view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             view.add_embedding_index('col', embedding=local_embed)
             puresnap_path = f'{tbl_path}_puresnap'
-            puresnap = pxt.create_snapshot(p(puresnap_path), tbl, media_validation=media_val)  # type: ignore[arg-type]
+            puresnap = pxt.create_snapshot(puresnap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap_path = f'{tbl_path}_snap'
             snap = pxt.create_snapshot(
-                p(snap_path),
+                snap_path,
                 tbl,
                 media_validation=media_val,  # type: ignore[arg-type]
                 additional_columns={'col2': tbl.col + 'x'},
             )
-            _ = snap.get_metadata()
+            md1 = puresnap.get_metadata()
+            md2 = snap.get_metadata()
             assert_table_metadata_eq(
                 {
                     'base': None,

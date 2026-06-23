@@ -2,26 +2,36 @@ from __future__ import annotations
 
 import collections.abc
 from typing import TYPE_CHECKING, Any, Literal, cast
+from uuid import UUID
 
 import pydantic
 
 from pixeltable import exceptions as excs
 
+from .table_path import TableMdPath
 from .table_proxy import TableProxy
 
 if TYPE_CHECKING:
     from pixeltable import exprs, type_system as ts
     from pixeltable._query import Query
+    from pixeltable.service.proxy_client import ProxyClient
 
     from ..globals import TableDataSource
+    from .table import Table
     from .update_status import UpdateStatus
 
 
 class InsertableTableProxy(TableProxy):
     """A proxy for a hosted InsertableTable handle."""
 
+    def __init__(self, id: UUID, tbl_md_path: TableMdPath, client: 'ProxyClient'):
+        super().__init__(id, None, tbl_md_path, client)
+
     def _display_name(self) -> str:
         return 'table'
+
+    def _get_base_table(self) -> 'Table' | None:
+        return None
 
     def insert(
         self,
