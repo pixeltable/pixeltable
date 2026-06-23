@@ -37,6 +37,17 @@ class TableNode(TypedDict):
 TreeNode = Union[DirectoryNode, TableNode]
 
 
+class DirContents(TypedDict):
+    """
+    Represents the contents of a Pixeltable directory.
+    """
+
+    dirs: list[str]
+    """List of directory paths contained in this directory."""
+    tables: list[str]
+    """List of table paths contained in this directory."""
+
+
 class ColumnSpec(TypedDict, total=False):
     """
     Column specification, a dictionary representation of a column's schema.

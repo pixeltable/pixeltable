@@ -666,7 +666,7 @@ class TableModelMetaclass(type):
             create_fn = retry_loop(for_write=True)(
                 lambda: cat._create_view(
                     path=tbl_path,
-                    base=base_tvp,
+                    base_path=base_tvp,
                     select_list=base.select_list,
                     where=base.where_clause,
                     sample_clause=base.sample_clause,

@@ -30,7 +30,6 @@ from .utils import (
 )
 
 
-@pytest.mark.cockroachdb
 class TestIndex:
     # returns string
     @staticmethod

@@ -17,8 +17,17 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json();
 }
 
+// GET /api/dirs returns an LsResponse object (see LsResponse in pixeltable_cli/models.py), not a
+// bare array. With tree=true the recursive DirectoryNode/TableNode list the UI renders lives under
+// tree.entries; the flat entries field is empty in that mode.
+interface LsResponse {
+  entries: unknown[];
+  tree: { path: string; entries: TreeNode[] } | null;
+}
+
 export async function getDirectoryTree(): Promise<TreeNode[]> {
-  return fetchJson<TreeNode[]>(`${API_BASE}/dirs`);
+  const res = await fetchJson<LsResponse>(`${API_BASE}/dirs?tree=true`);
+  return res.tree?.entries ?? [];
 }
 
 export async function getTableMetadata(path: string): Promise<TableMetadata> {
@@ -63,18 +72,39 @@ interface SystemConfig {
   db_url: string;
   media_dir: string;
   file_cache_dir: string;
-  is_local: boolean;
 }
 
 export interface SystemStatus {
   version: string;
-  environment: 'local' | 'cloud';
   total_tables: number;
   total_errors: number;
   config?: SystemConfig;
 }
 
+// Flat shape returned by GET /api/status (see StatusResponse in pixeltable_cli/models.py). The UI
+// consumes the nested {version, config} shape below, so map the response rather than asserting it.
+interface StatusResponse {
+  pxt_version: string;
+  home: string | null;
+  db_url: string | null;
+  media_dir: string | null;
+  file_cache_dir: string | null;
+  total_tables: number;
+  total_errors: number;
+}
+
 export async function getStatus(): Promise<SystemStatus> {
-  return fetchJson<SystemStatus>(`${API_BASE}/status`);
+  const s = await fetchJson<StatusResponse>(`${API_BASE}/status`);
+  return {
+    version: s.pxt_version,
+    total_tables: s.total_tables,
+    total_errors: s.total_errors,
+    config: {
+      home: s.home ?? '',
+      db_url: s.db_url ?? '',
+      media_dir: s.media_dir ?? '',
+      file_cache_dir: s.file_cache_dir ?? '',
+    },
+  };
 }
 

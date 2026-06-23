@@ -6,7 +6,6 @@ import dataclasses
 import hashlib
 import itertools
 import json
-import traceback
 from pathlib import Path
 from types import TracebackType
 from typing import (
@@ -792,23 +791,7 @@ class Query:
         )
 
     def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
-        msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{e.exc}'
-        if len(e.input_vals) > 0:
-            input_msgs = [
-                f"'{d}' = {d.col_type.print_value(e.input_vals[i])}" for i, d in enumerate(e.expr.dependencies())
-            ]
-            msg += f'\nwith {", ".join(input_msgs)}'
-        assert e.exc_tb is not None
-        stack_trace = traceback.format_tb(e.exc_tb)
-        if len(stack_trace) > 2:
-            # append a stack trace if the exception happened in user code
-            # (frame 0 is ExprEvaluator and frame 1 is some expr's eval()
-            nl = '\n'
-            # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
-            msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
-        if isinstance(e.exc, excs.Error):
-            raise type(e.exc)(e.exc.error_code, msg) from e
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, msg) from e
+        excs.raise_from_expr_eval_err(e)
 
     def referenced_tbl_ids(self) -> set[UUID]:
         """Returns the IDs of all tables referenced by this query.
@@ -1282,6 +1265,11 @@ class Query:
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         assert len(self._from_clause.tbls) > 0
+        # joining against a hosted table is not supported yet; tbl_path is a LocalTable impl detail
+        if not isinstance(other, catalog.LocalTable):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'join() is not supported against a hosted table.'
+            )
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and unversioned tables'
@@ -1298,10 +1286,10 @@ class Query:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'`how={how!r}` requires `on` to be present'
                 )
-            join_pred = self._create_join_predicate(other.tbl_path, on)
+            join_pred = self._create_join_predicate(other._tbl_path, on)
         join_clause = JoinClause(join_type=JoinType.validated(how, '`how`'), join_predicate=join_pred)
         from_clause = FromClause(
-            tbls=[*self._from_clause.tbls, other.tbl_path], join_clauses=[*self._from_clause.join_clauses, join_clause]
+            tbls=[*self._from_clause.tbls, other._tbl_path], join_clauses=[*self._from_clause.join_clauses, join_clause]
         )
         return Query(
             from_clause=from_clause,

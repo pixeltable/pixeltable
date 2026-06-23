@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    53: 'Various column metadata moved from ColumnMd to SchemaColumn for versioning',
     52: 'ColumnRef serialization',
     51: 'Remove replica support (is_replica/is_fragment fields)',
     50: 'Primary key index enforcement via migration',

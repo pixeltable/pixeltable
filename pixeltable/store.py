@@ -16,9 +16,8 @@ from pixeltable.exec import ExecNode
 from pixeltable.index.btree import BtreeIndex
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
-from pixeltable.utils import fault_injection
+from pixeltable.type_system import sa_type_from_dict
 from pixeltable.utils.exception_handler import run_cleanup
-from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.sql import log_explain, log_stmt
 from pixeltable.utils.uuid import uuid7
 
@@ -125,7 +124,6 @@ class StoreBase:
         """Create and return system columns"""
         rowid_cols: list[sql.Column]
         if self._store_tbl_exists():
-            fault_injection.process_fault(FaultLocation.STORE_CREATE_SA_TBL_AFTER_EXISTS_CHECK)
             # derive our rowid Columns from the existing table, without having to access self.base.store_tbl:
             # self.base may not exist anymore (both this table and our base got dropped in the same transaction, and
             # the base was finalized before this table)
@@ -177,13 +175,24 @@ class StoreBase:
         system_cols = self._create_system_columns()
         all_cols = system_cols.copy()
         # we captured all columns, including dropped ones: they're still part of the physical table
-        for col in [c for c in tbl_version.cols if c.is_stored]:
-            # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
+        for col_md in tbl_version.tbl_md.column_md.values():
+            if not col_md.stored:
+                continue
+            # re-create sql.Column for each stored column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
-            col.create_sa_cols()
-            all_cols.append(col.sa_col)
-            if col.stores_cellmd:
-                all_cols.append(col.sa_cellmd_col)
+            assert col_md.sa_col_type is not None
+            store_name = catalog.Column.store_name_from_id(col_md.id)
+            # all storage columns are nullable (we deal with null errors in Pixeltable directly)
+            sa_col = sql.Column(store_name, sa_type_from_dict(col_md.sa_col_type), nullable=True)
+            all_cols.append(sa_col)
+            sa_cellmd_col: sql.Column | None = None
+            if col_md.stores_cellmd:
+                sa_cellmd_col = sql.Column(
+                    catalog.Column.cellmd_store_name_from_id(col_md.id), catalog.Column.sa_cellmd_type(), nullable=True
+                )
+                all_cols.append(sa_cellmd_col)
+            if col_md.id in tbl_version.cols_by_id:
+                tbl_version.cols_by_id[col_md.id].set_sa_cols(sa_col, sa_cellmd_col)
 
         if self.sa_tbl is not None:
             # if we're called in response to a schema change, we need to remove the old table first
@@ -205,7 +214,7 @@ class StoreBase:
             idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
         # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
-        primary_index = [col for col in tbl_version.cols if col.is_pk]
+        primary_index = [col for col in tbl_version.cols_by_id.values() if col.is_pk]
         if len(primary_index) > 0:
             assert tbl_version.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
             pk_idx_exprs: list[sql.ColumnElement] = []
@@ -354,7 +363,14 @@ class StoreBase:
             # check that all columns are present
             q = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
             store_col_info = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
-            tbl_col_info = {col.store_name() for col in self.tbl_version.get().cols if col.is_stored}
+            # check all stored columns, including dropped ones: they remain part of the physical table
+            tbl_col_info: set[str] = set()
+            for col_md in self.tbl_version.get().tbl_md.column_md.values():
+                if not col_md.stored:
+                    continue
+                tbl_col_info.add(catalog.Column.store_name_from_id(col_md.id))
+                if col_md.stores_cellmd:
+                    tbl_col_info.add(catalog.Column.cellmd_store_name_from_id(col_md.id))
             assert tbl_col_info.issubset(store_col_info)
 
             # check that all visible indices are present
@@ -440,7 +456,7 @@ class StoreBase:
         row_builder = exec_plan.row_builder
 
         try:
-            table_rows: list[tuple[Any]] = []
+            table_rows: list[list[Any]] = []
             with exec_plan:
                 progress_reporter = exec_plan.ctx.add_progress_reporter(
                     f'Column values written (table {self.tbl_version.get().name!r})', 'rows'
@@ -449,7 +465,7 @@ class StoreBase:
                 # insert rows from exec_plan into temp table
                 for row_batch in exec_plan:
                     num_rows += len(row_batch)
-                    batch_table_rows: list[tuple[Any]] = []
+                    batch_table_rows: list[list[Any]] = []
 
                     for row in row_batch:
                         if abort_on_exc and row.has_exc():
@@ -460,7 +476,7 @@ class StoreBase:
                             ) from exc
                         table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
                         num_excs += num_row_exc
-                        batch_table_rows.append(tuple(table_row))
+                        batch_table_rows.append(table_row)
 
                     table_rows.extend(batch_table_rows)
 
@@ -519,9 +535,8 @@ class StoreBase:
 
         store_col_names = row_builder.store_column_names()
 
-        table_rows: list[tuple[Any]] = []
+        table_rows: list[list[Any]] = []
         inserted_rows: list[dict[str, Any]] = []  # column name -> stored value
-        output_map = row_builder.get_output_map()
 
         with exec_plan:
             progress_reporter = exec_plan.ctx.add_progress_reporter(
@@ -530,7 +545,7 @@ class StoreBase:
 
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
-                batch_table_rows: list[tuple[Any]] = []
+                batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
                 for row in row_batch:
@@ -552,7 +567,7 @@ class StoreBase:
                     table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
 
-                    batch_table_rows.append(tuple(table_row))
+                    batch_table_rows.append(table_row)
 
                 table_rows.extend(batch_table_rows)
 
@@ -562,7 +577,7 @@ class StoreBase:
                     if progress_reporter is not None:
                         progress_reporter.update(len(table_rows))
                     if return_rows:
-                        inserted_rows.extend(self.create_output_rows(table_rows, output_map))
+                        inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
                     table_rows.clear()
 
             # insert any remaining rows
@@ -571,25 +586,13 @@ class StoreBase:
                 if progress_reporter is not None:
                     progress_reporter.update(len(table_rows))
                 if return_rows:
-                    inserted_rows.extend(self.create_output_rows(table_rows, output_map))
+                    inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
 
             row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
 
             return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
 
-    def create_output_rows(self, table_rows: list[tuple[Any]], output_map: list[str | None]) -> list[dict[str, Any]]:
-        """Convert table rows to output rows (ie, UpdateStatus.rows)"""
-        return [
-            {
-                # sql.Null check: make sure to convert stored NULLs back to None
-                output_map[i]: (None if isinstance(row[i], sql.sql.elements.Null) else row[i])
-                for i in range(len(output_map))
-                if output_map[i] is not None
-            }
-            for row in table_rows
-        ]
-
-    def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
+    def sql_insert(self, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[list[Any]]) -> None:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from typing import TYPE_CHECKING, Any, List, Literal, Mapping
+from typing import TYPE_CHECKING, Any, List, Literal, Mapping, Sequence
 from uuid import UUID
+
+import pydantic
 
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
@@ -16,7 +18,7 @@ from pixeltable.types import ColumnSpec
 
 from .column import Column
 from .globals import MediaValidation
-from .table import Table
+from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
@@ -24,12 +26,14 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, T
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
-    from pixeltable.catalog.table import TableMetadata
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
+    from .table import Table
+    from .table_metadata import TableMetadata
 
-class View(Table):
+
+class View(LocalTable):
     """A `Table` that presents a virtual view of another table (or view).
 
     A view is typically backed by a store table, which records the view's columns and is joined back to the bases
@@ -158,6 +162,7 @@ class View(Table):
                     Column(
                         col_name,
                         col_type=output_info.col_type,
+                        sa_col_type=output_info.col_type.to_sa_type() if output_info.is_stored else None,
                         is_iterator_col=True,
                         stored=output_info.is_stored,
                         stores_cellmd=stores_cellmd,
@@ -281,7 +286,7 @@ class View(Table):
             # base_tbl_id is set, so this view has a base schema object, which must still exist
             base_tbl = self._get_base_table()
             assert base_tbl is not None
-            base_path = base_tbl._path()
+            base_path = str(base_tbl._path())
             base_version = self._effective_base_versions[0]
             md['base'] = base_path if base_version is None else f'{base_path}:{base_version}'
 
@@ -315,6 +320,18 @@ class View(Table):
     ) -> UpdateStatus:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot insert into a {self._display_name()}.'
+        )
+
+    def compute(
+        self,
+        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+    ) -> list[dict[str, Any]]:
+        self._validate_thread()
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: compute() is only supported for base tables.'
         )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
