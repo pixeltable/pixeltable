@@ -65,11 +65,16 @@ class _PlaceholderColumnRef(exprs.Expr):
     which gets substituted with an actual ColumnRef during Table creation.
     """
 
+    tbl_name: str
+    name: str
     column_spec: ColumnSpec
 
-    def __init__(self, name: str, column_spec: ColumnSpec | None = None) -> None:
+    def __init__(self, tbl_name: str, name: str, column_spec: ColumnSpec | None = None) -> None:
+        assert tbl_name is not None
         col_type: ts.ColumnType
-        if 'type' in column_spec:
+        if column_spec is None:
+            col_type = ts.InvalidType()
+        elif 'type' in column_spec:
             type_ = column_spec['type']
             col_type = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
         else:
@@ -78,18 +83,19 @@ class _PlaceholderColumnRef(exprs.Expr):
 
         super().__init__(col_type)
 
+        self.tbl_name = tbl_name
         self.name = name
         self.column_spec = column_spec
         self.id = self._create_id()
 
     def __repr__(self) -> str:
-        return f'Column.{self.name}'
+        return f'{self.tbl_name}:{self.name}'
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return [*super()._id_attrs(), ('name', self.name)]
+        return [*super()._id_attrs(), ('tbl_name', self.tbl_name), ('name', self.name)]
 
     def _equals(self, other: _PlaceholderColumnRef) -> bool:
-        return self.name == other.name
+        return self.tbl_name == other.tbl_name and self.name == other.name
 
     def eval(self, data_row: exprs.data_row.DataRow, row_builder: exprs.row_builder.RowBuilder) -> None:
         raise AssertionError('It should never be possible to observe a placeholder in an execution context.')
@@ -99,6 +105,9 @@ class _PlaceholderColumnRef(exprs.Expr):
             prop = exprs.ColumnPropertyRef.Property[item.upper()]
             return exprs.ColumnPropertyRef(self, prop)
         return super().__getattr__(item)
+
+    def as_dict(self) -> dict[str, Any]:
+        raise AssertionError('It should never be possible to serialize a placeholder.')
 
 
 @dataclass
@@ -269,7 +278,7 @@ class _PlaceholderQuery:
         tbl = self.from_clause.bind()
         subst_dict = exprs.ExprDict[exprs.ColumnRef]()
         for col_name in tbl.columns():
-            placeholder = _PlaceholderColumnRef(col_name, {'type': ts.InvalidType()})
+            placeholder = _PlaceholderColumnRef(tbl._path(), col_name, {'type': ts.InvalidType()})
             subst_dict[placeholder] = getattr(tbl, col_name)
 
         select_list = (
@@ -313,12 +322,12 @@ class _PlaceholderQuery:
 
 
 class _ColumnCtx:
-    new_tbl_handle: uuid.UUID
+    tbl_name: str
     known_cols: dict[str, _PlaceholderColumnRef]
     known_idxs: dict[str, EmbeddingIndex]
 
-    def __init__(self) -> None:
-        self.new_tbl_id = uuid.uuid4()
+    def __init__(self, tbl_name: str) -> None:
+        self.tbl_name = tbl_name
         self.known_cols = {}
         self.known_idxs = {}
 
@@ -348,7 +357,7 @@ class _ColumnCtx:
                 # Computed column expression.
                 expr = exprs.Expr.from_object(value)
                 spec = {'value': expr}
-            col_ref = _PlaceholderColumnRef(name, spec)
+            col_ref = _PlaceholderColumnRef(self.tbl_name, name, spec)
             self.known_cols[name] = col_ref
             return col_ref
 
@@ -365,7 +374,7 @@ class _ColumnCtx:
                 )
             return existing_col_ref
         else:
-            col_ref = _PlaceholderColumnRef(name, {'type': type_})
+            col_ref = _PlaceholderColumnRef(self.tbl_name, name, {'type': type_})
             self.known_cols[name] = col_ref
             return col_ref
 
@@ -389,13 +398,13 @@ class _ModelNamespace(dict):
 
     column_ctx: _ColumnCtx
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, cls_name: str, tbl_name: str) -> None:
         super().__init__()
-        self.column_ctx = _ColumnCtx()
+        self.column_ctx = _ColumnCtx(tbl_name)
         # Pre-seed __annotations__ so the compiler routes bare annotations through
         # our recorder rather than a plain dict it would otherwise create.
         super().__setitem__('__annotations__', _AnnotationRecorder(self))
-        super().__setitem__(name, self.column_ctx)
+        super().__setitem__(cls_name, self.column_ctx)
         super().__setitem__('_is_bound', False)
         Column.set_column_ctx(self.column_ctx)
         self._finalizer = weakref.finalize(self, lambda: self.cleanup_column_ctx())
@@ -445,6 +454,8 @@ class TableModelMetaclass(type):
     Metaclass that collects annotated column definitions and other table metadata from a class body.
     """
 
+    _registered_models: dict[str, TableModelMetaclass] = {}  # __table_name__ -> model
+
     __columns__: dict[str, _PlaceholderColumnRef]
     __indexes__: dict[str, EmbeddingIndex]
     __table_name__: str
@@ -454,39 +465,47 @@ class TableModelMetaclass(type):
     _is_bound: bool
 
     @classmethod
-    def __prepare__(mcs, name: str, bases: tuple[type, ...], **kwargs: Any) -> dict[str, Any]:
-        return _ModelNamespace(name)
+    def __prepare__(mcs, cls_name: str, bases: tuple[type, ...], **kwargs: Any) -> dict[str, Any]:
+        if len(bases) == 0:
+            # This is the TableModel or ViewModel base class itself; no additional processing.
+            return super().__prepare__(cls_name, bases, **kwargs)
+        else:
+            if 'name' not in kwargs:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA, f'{bases[0].__name__} `{cls_name}` must specify a `name`.'
+                )
+            tbl_name = kwargs['name']
+            if not isinstance(tbl_name, str) or not is_valid_identifier(
+                tbl_name, allow_hyphens=True
+            ):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA, f'{bases[0].__name__} `{cls_name}`: `name` must be a string.'
+                )
+            if tbl_name in mcs._registered_models:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'{bases[0].__name__} `{cls_name}` has __table_name__ {tbl_name!r}, but that __table_name__ was '
+                    f'previously defined by `{mcs._registered_models[tbl_name].__name__}`.'
+                )
+            return _ModelNamespace(cls_name=cls_name, tbl_name=tbl_name)
 
     def __new__(
-        mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
+        mcs, cls_name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
     ) -> TableModelMetaclass:
         import pixeltable as pxt
 
-        # Remove the _ColumnCtx object; it's no longer needed, and we need to "normalize" the namespace
-        column_ctx = namespace.pop(name)
-        assert isinstance(column_ctx, _ColumnCtx)
-
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
-            return super().__new__(mcs, name, bases, namespace)
+            return super().__new__(mcs, cls_name, bases, namespace)
 
-        # 1. Validate __table_name__
+        # Remove the _ColumnCtx object; it's no longer needed, and we need to "normalize" the namespace
+        column_ctx = namespace.pop(cls_name)
+        assert isinstance(column_ctx, _ColumnCtx)
 
-        if '__table_name__' not in namespace:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA, f'{bases[-1].__name__} `{name}` does not define a __table_name__.'
-            )
-        if not isinstance(namespace['__table_name__'], str) or not is_valid_identifier(
-            namespace['__table_name__'], allow_hyphens=True
-        ):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'__table_name__ for {bases[-1].__name__} `{name}` must be a valid Pixeltable identifier.',
-            )
-
-        # 2. Process declarations. We need to process bare annotations (such as `col1: int`) as well as
+        # Process declarations. We need to process bare annotations (such as `col1: int`) as well as
         #    values (such as `col2 = Column.col1 + 1` or `idx0 = EmbeddingIndex(...)`).
 
+        namespace['__table_name__'] = column_ctx.tbl_name
         namespace['__columns__'] = column_ctx.known_cols
         namespace['__indexes__'] = column_ctx.known_idxs
 
@@ -499,12 +518,12 @@ class TableModelMetaclass(type):
             if '__base_table__' in namespace:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'__base_table__ not allowed for a TableModel; `{name}` must subclass ViewModel instead.',
+                    f'__base_table__ not allowed for a TableModel; `{cls_name}` must subclass ViewModel instead.',
                 )
             if '__iterator__' in namespace:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'__iterator__ not allowed for a TableModel; `{name}` must subclass ViewModel instead.',
+                    f'__iterator__ not allowed for a TableModel; `{cls_name}` must subclass ViewModel instead.',
                 )
             namespace['__base_table__'] = None
             namespace['__iterator__'] = None
@@ -514,7 +533,7 @@ class TableModelMetaclass(type):
             base_table = namespace.get('__base_table__')
             if base_table is None:
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA, f'ViewModel `{name}` does not define a __base_table__.'
+                    excs.ErrorCode.INVALID_SCHEMA, f'ViewModel `{cls_name}` does not define a __base_table__.'
                 )
             assert isinstance(base_table, (_PlaceholderQuery, pxt.Query))
 
@@ -523,12 +542,14 @@ class TableModelMetaclass(type):
                 if not (iterator is None or isinstance(iterator, func.GeneratingFunctionCall)):
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_SCHEMA,
-                        f'__iterator__ for ViewModel `{name}` must be a valid iterator reference.',
+                        f'__iterator__ for ViewModel `{cls_name}` must be a valid iterator reference.',
                     )
             else:
                 namespace['__iterator__'] = None
 
-        return super().__new__(mcs, name, bases, namespace)
+        cls = super().__new__(mcs, cls_name, bases, namespace)
+        mcs._registered_models[cls.__table_name__] = cls
+        return cls
 
     def _resolve_tbl(cls) -> Table:
         import pixeltable as pxt
@@ -539,15 +560,27 @@ class TableModelMetaclass(type):
         return getattr(cls._resolve_tbl(), col_name)
 
     def create(cls, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error') -> Table:
-        import pixeltable as pxt
-
         tbl_media_validation = 'on_write'  # TODO: allow configuring this at the table level
 
+        tbl_name: str = cls.__table_name__
+        base_tbl: _PlaceholderQuery = cls.__base_table__
         columns: dict[str, _PlaceholderColumnRef] = cls.__columns__
         indexes: dict[str, EmbeddingIndex] = cls.__indexes__
 
         catalog_columns: list[catalog.Column] = []
         subst_dict = exprs.ExprDict[exprs.ColumnRef]()
+
+        if base_tbl is not None:
+            query = base_tbl.bind()
+            if query.select_list is None:
+                base_tbl_name = base_tbl.from_clause.__table_name__
+                # select(*): put all visible columns from the base table into scope
+                for col in query._first_tbl.columns():
+                    subst_dict[_PlaceholderColumnRef(base_tbl_name, col.name)] = exprs.ColumnRef(col.column_version_md())
+            else:
+                for expr, name in query.select_list:
+                    if name is not None:
+                        subst_dict[_PlaceholderColumnRef(tbl_name, name)] = expr
 
         tbl_id = uuid.uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
@@ -555,6 +588,13 @@ class TableModelMetaclass(type):
             subst_spec: ColumnSpec = placeholder.column_spec.copy()
             if 'value' in subst_spec:
                 subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
+                residual_placeholders = list(subst_spec['value'].subexprs(_PlaceholderColumnRef))
+                if len(residual_placeholders) > 0:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_SCHEMA,
+                        f'Column {name!r} in `{cls.__name__}` references columns that are not in '
+                        f"the model's scope: {residual_placeholders}"
+                    )
             catalog_col = catalog.Column.create(name, subst_spec)
             catalog_col.tbl_handle = tbl_handle
             catalog_col.id = len(subst_dict)
