@@ -18,7 +18,7 @@ class ViewProxy(TableProxy):
     """A proxy for a hosted view handle."""
 
     def _display_name(self) -> str:
-        return 'snapshot' if self._effective_version is not None else 'view'
+        return 'snapshot' if self._tbl_md_path.is_snapshot() else 'view'
 
     def _get_base_table(self) -> Table | None:
         return None

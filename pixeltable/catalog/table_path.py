@@ -525,6 +525,8 @@ class TableMdPath(TablePath):
         given (a get_table_by_id() at a specific version), it pins the leaf at that version instead, so a
         base table loaded at a historical version round-trips with the right effective version.
         """
+        if effective_version is None and md[0].tbl_md.is_snapshot:
+            effective_version = md[0].version_md.version
         effective_versions: list[int | None] = [effective_version]
         view_md = md[0].tbl_md.view_md
         if view_md is not None:

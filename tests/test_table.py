@@ -496,7 +496,8 @@ class TestTable:
     def test_column_metadata(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test all ColumnMetadata fields across tables and views with various column types."""
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image})
+        tbl_path = p('test')
+        t = pxt.create_table(tbl_path, {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image})
         # Builtin computed, single dependency
         t.add_computed_column(plus1=t.c1 + 1)
         # Builtin computed, multiple dependencies
@@ -632,7 +633,7 @@ class TestTable:
                 'iterator_call': None,
                 'name': 'test',
                 'media_validation': 'on_write',
-                'path': 'test',
+                'path': tbl_path,
                 'primary_key': None,
                 'schema_version': 3,
                 'version': 3,
@@ -641,13 +642,14 @@ class TestTable:
         )
 
         # View: inherits columns from base, adds its own computed column
-        v = pxt.create_view(p('test_view'), t)
+        view_path = p('test_view')
+        v = pxt.create_view(view_path, t)
         v.add_computed_column(derived=v.c1 * 2)
 
         vmd = v.get_metadata()
         assert_table_metadata_eq(
             {
-                'base': 'test',
+                'base': tbl_path,
                 'columns': {
                     'c1': {
                         'name': 'c1',
@@ -781,7 +783,7 @@ class TestTable:
                 'iterator_call': None,
                 'name': 'test_view',
                 'media_validation': 'on_write',
-                'path': 'test_view',
+                'path': view_path,
                 'primary_key': None,
                 'schema_version': 1,
                 'version': 1,
@@ -791,20 +793,22 @@ class TestTable:
 
     def test_iterator_view_metadata(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'n': pxt.Int})
+        tbl_path = p('test')
+        t = pxt.create_table(tbl_path, {'n': pxt.Int})
         t.insert(n=3)
-        iv = pxt.create_view(p('iter_view'), t, iterator=DummyIterator(t.n))
+        view_path = p('iter_view')
+        iv = pxt.create_view(view_path, t, iterator=DummyIterator(t.n))
         iv.add_computed_column(derived=iv.out2 + 1)
 
         assert_table_metadata_eq(
             {
                 'name': 'iter_view',
-                'path': 'iter_view',
+                'path': view_path,
                 'kind': 'view',
                 'is_view': True,
                 'is_snapshot': False,
                 'is_versioned': True,
-                'base': 'test',
+                'base': tbl_path,
                 'iterator_call': 'DummyIterator(n)',
                 'version': 1,
                 'schema_version': 1,
@@ -2573,7 +2577,7 @@ class TestTable:
 
         # revert, then verify that we're back to where we started
         reload_catalog()
-        t = pxt.get_table(p(t.get_metadata()['path']))
+        t = pxt.get_table(t.get_metadata()['path'])
         t.revert()
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
@@ -2791,7 +2795,7 @@ class TestTable:
 
         # revert, then verify that we're back where we started
         reload_catalog()
-        t = pxt.get_table(p(t.get_metadata()['path']))
+        t = pxt.get_table(t.get_metadata()['path'])
         t.revert()
         cnt = t.where(t.c3 < 10.0).count()
         assert cnt == 10
@@ -3088,7 +3092,6 @@ class TestTable:
         assert 'version 0' in str(excinfo.value)
 
     def test_add_column(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
         t = test_tbl_dual
         orig_cols = set(t.columns())
         t.add_column(add1=pxt.Int)
@@ -3140,7 +3143,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
-        t = pxt.get_table(p(t.get_metadata()['path']))
+        t = pxt.get_table(t.get_metadata()['path'])
         assert set(t.columns()) == orig_cols | {'add1', 'name', 'id'}
 
         # revert() works
@@ -3151,7 +3154,7 @@ class TestTable:
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
-        t = pxt.get_table(p(t.get_metadata()['path']))
+        t = pxt.get_table(t.get_metadata()['path'])
         assert set(t.columns()) == orig_cols
 
     def test_bool_column(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
