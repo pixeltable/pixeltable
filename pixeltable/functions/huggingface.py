@@ -718,6 +718,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         image_size: int = 1008,
         revision: str | None = None,
     ) -> None:
+        env.Env.get().require_package('transformers')
         from pixeltable.functions.video import frame_iterator
 
         self.frames = frame_iterator.decorated_callable(video=video, fps=fps)  # type: ignore[attr-defined]
@@ -729,7 +730,6 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         self.rows = None
 
     def _track(self) -> Iterator[Sam3VideoSegmentationFrame]:
-        env.Env.get().require_package('transformers')
         device = resolve_torch_device('auto')
         from transformers import Sam3VideoModel, Sam3VideoProcessor
 
