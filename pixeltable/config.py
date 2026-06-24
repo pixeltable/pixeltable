@@ -583,6 +583,15 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'app_name': 'Optional name for your application (for OpenRouter analytics)',
         'rate_limit': 'Rate limit for OpenRouter API requests',
     },
+    'otel': {
+        'endpoint': 'OTLP collector endpoint (eg http://localhost:4318); overridden by OTEL_EXPORTER_OTLP_ENDPOINT',
+        'protocol': "OTLP transport: 'http/protobuf' (default) or 'grpc'; overridden by OTEL_EXPORTER_OTLP_PROTOCOL",
+        'service_name': 'service.name resource attribute (default: pixeltable); overridden by OTEL_SERVICE_NAME',
+        'headers': "OTLP headers as comma-separated 'key=value' pairs; overridden by OTEL_EXPORTER_OTLP_HEADERS",
+        'span_level': "Span verbosity: 'info' (default), 'debug', or 'trace'",
+        'metrics': 'Export metrics via OTLP (default: only when an OTLP endpoint is configured)',
+        'logs': 'Export pixeltable logs via OTLP (default: only when an OTLP endpoint is configured)',
+    },
     'replicate': {'api_token': 'Replicate API token'},
     'runwayml': {'api_secret': 'RunwayML API secret'},
     'together': {

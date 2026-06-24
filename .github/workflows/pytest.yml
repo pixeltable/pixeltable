@@ -232,6 +232,11 @@ jobs:
           ${{ matrix.pre-test-cmd }}
           coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
           coverage report -m
+      - name: Run the OpenTelemetry instrumentation tests
+        # The opentelemetry-instrumentation-pixeltable package is a separate distribution; the core suite does not
+        # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel extra.
+        if: ${{ matrix.test-category == 'otel' }}
+        run: pytest -v --strict-markers packages/opentelemetry-instrumentation-pixeltable/tests
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
@@ -247,7 +252,12 @@ jobs:
         run: ./scripts/stress-tests.sh 12 360
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
-        run: mypy pixeltable tests tool
+        run: |
+          mypy pixeltable tests tool
+          # The instrumentation package is a src-layout PEP 420 namespace package and needs explicit base/namespace flags.
+          MYPYPATH=packages/opentelemetry-instrumentation-pixeltable/src mypy --explicit-package-bases --namespace-packages \
+            packages/opentelemetry-instrumentation-pixeltable/src/opentelemetry/instrumentation/pixeltable \
+            packages/opentelemetry-instrumentation-pixeltable/tests
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: |
@@ -258,7 +268,7 @@ jobs:
           cd target/docs && mint broken-links
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
-        run: ruff check pixeltable tests tool
+        run: ruff check pixeltable tests tool packages/opentelemetry-instrumentation-pixeltable/src packages/opentelemetry-instrumentation-pixeltable/tests
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
