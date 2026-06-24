@@ -517,7 +517,6 @@ def sam3_for_segmentation(
     )
 
 
-
 @pxt.udf
 def sam_automatic_mask_generation(
     image: PIL.Image.Image,
@@ -628,9 +627,10 @@ class Sam3VideoSegmentationFrame(TypedDict):
 class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
     """
     Tracks objects across the frames of a video using SAM 3 (Segment Anything Model 3) Promptable Concept
-    Segmentation. This is the video counterpart of `sam3_for_segmentation`: given a concept prompt, it detects
-    every matching object and follows each instance across frames, assigning a stable `object_id` that is
-    preserved as the object moves, is occluded, and reappears.
+    Segmentation. This is the video counterpart of
+    [`sam3_for_segmentation()`](pixeltable.functions.huggingface.sam3_for_segmentation): given a concept prompt,
+    it detects every matching object and follows each instance across frames, assigning a stable `object_id`
+    that is preserved as the object moves, is occluded, and reappears.
 
     Unlike a plain frame iterator, this iterator carries the tracker's memory across frames, so it both extracts
     frames and produces their tracked segmentation in a single pass.
