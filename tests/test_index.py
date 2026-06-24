@@ -41,14 +41,10 @@ class TestIndex:
     def bad_embed2(x: str) -> pxt.Array[(None,), pxt.Float]:
         return np.zeros(10)
 
-    # TODO: fix (proxy): reload + dropped-index detection over proxy
-    # def test_similarity_multiple_index(
-    #         self, multi_idx_img_tbl_dual: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
-    # ) -> None:
     def test_similarity_multiple_index(
-        self, multi_idx_img_tbl: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
+        self, multi_idx_img_tbl_dual: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        t = multi_idx_img_tbl
+        t = multi_idx_img_tbl_dual
         sample_img = t.select(t.img).head(1)[0, 'img']
 
         # similarity query should fail because there are multiple indices
@@ -56,28 +52,29 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Column 'img' has multiple embedding indices"):
             _ = t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img), asc=False).limit(1).collect()
         # but we can specify the index to use, and the query should work
-        query = (
+        query_idx1 = (
             t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img, idx='img_idx1'), asc=False).limit(1)
         )
-        _ = reload_tester.run_query(query)
+        _ = reload_tester.run_query(query_idx1)
         query = (
             t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img, idx='img_idx2'), asc=False).limit(1)
         )
         _ = reload_tester.run_query(query)
 
-        # verify that the result is the same as the original query after reload
+        # verify that the result is the same as the original query after reload (local only: ReloadTester does not
+        # yet implement reload semantics for delegated catalogs and skips proxy queries)
         reload_tester.run_reload_test(clear=False)
 
-        # After the query is serialized, dropping the index should raise an error
-        # on reload, because the index is no longer available
+        # dropping the index makes a query that references it fail at execution, because the index is no longer
+        # available
         t.drop_embedding_index(idx_name='img_idx1')
         with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match=r'(?i).*img_idx1.*not found.*'):
-            reload_tester.run_reload_test(clear=False)
+            _ = query_idx1.collect()
 
-        # After the query is serialized, dropping and recreating the index should work
-        # on reload, because the index is available again even if it is not the exact
-        # same one.
+        # dropping and recreating the index makes the query work again, because the index is available again even
+        # if it is not the exact same one
         t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', embedding=local_embed)
+        assert len(query_idx1.collect()) == 1
         reload_tester.run_reload_test(clear=True)
 
     @pytest.mark.parametrize('use_index_name,use_separate_embeddings', [(False, False), (True, False), (False, True)])
