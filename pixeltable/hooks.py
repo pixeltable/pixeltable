@@ -148,7 +148,12 @@ def _resolve_attrs(attrs: HookAttrs) -> dict[str, Any] | None:
 
 
 def span_start(
-    name: str, *, level: int = INFO, parent: AnySpanHandle | None = None, set_current: bool = False, attrs: HookAttrs = None
+    name: str,
+    *,
+    level: int = INFO,
+    parent: AnySpanHandle | None = None,
+    set_current: bool = False,
+    attrs: HookAttrs = None,
 ) -> AnySpanHandle | None:
     subs = _SUBSCRIBERS
     if not subs:

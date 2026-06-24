@@ -12,7 +12,7 @@ import pandas as pd
 from typing_extensions import overload
 
 import pixeltable as pxt
-from pixeltable import env, exceptions as excs, exprs, index, type_system as ts
+from pixeltable import env, exceptions as excs, exprs, hooks, index, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -989,11 +989,16 @@ class LocalTable(Table):
         cascade: bool = True,
         return_rows: bool = False,
     ) -> UpdateStatus:
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        with (
+            hooks.span('pixeltable.update', set_current=True) as sp,
+            get_runtime().catalog.begin_xact(
+                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            ),
         ):
             self.__check_mutable('update')
             result = self._tbl_version.get().update(value_spec, where, cascade, return_rows=return_rows)
+            if sp is not None:
+                hooks.add_attrs(sp, table=self._path(), rows=result.num_rows, excs=result.num_excs)
             FileCache.get().emit_eviction_warnings()
             return result
 
@@ -1004,8 +1009,11 @@ class LocalTable(Table):
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
     ) -> UpdateStatus:
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        with (
+            hooks.span('pixeltable.update', set_current=True) as sp,
+            get_runtime().catalog.begin_xact(
+                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            ),
         ):
             self.__check_mutable('update')
             rows = list(rows)
@@ -1045,6 +1053,8 @@ class LocalTable(Table):
                 cascade=cascade,
                 return_rows=return_rows,
             )
+            if sp is not None:
+                hooks.add_attrs(sp, table=self._path(), rows=result.num_rows, excs=result.num_excs)
             FileCache.get().emit_eviction_warnings()
             return result
 

@@ -12,6 +12,7 @@ import sqlalchemy as sql
 from rich.progress import Progress
 from sqlalchemy import orm
 
+from pixeltable import hooks
 from pixeltable.env import Env
 from pixeltable.utils import fault_injection
 
@@ -151,9 +152,16 @@ class Runtime:
         if self._run_coro_executor is None:
             self._run_coro_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
+        hooks_ctx = hooks.capture_context()
+
         def run(coro: Coroutine[Any, Any, _T]) -> _T:
             # this runs in the _run_coro_executor's thread, with its own Runtime instance
-            return get_runtime().event_loop.run_until_complete(coro)
+            hooks_token = hooks.restore_context(hooks_ctx)
+            try:
+                return get_runtime().event_loop.run_until_complete(coro)
+            finally:
+                # the executor thread is persistent; exiting avoids unbounded context-stack growth
+                hooks.exit_context(hooks_token)
 
         return self._run_coro_executor.submit(run, coro).result()
 

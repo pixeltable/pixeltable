@@ -17,7 +17,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, func
+from pixeltable import exceptions as excs, func, hooks
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -139,6 +139,7 @@ def retry_loop(
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
                             num_retries += 1
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                            hooks.emit('xact.retry', attrs={'kind': 'retry_loop', 'error_type': type(e.orig).__name__})
                             time.sleep(random.uniform(0.1, 0.5))
                         else:
                             raise excs.ConcurrencyError(
@@ -368,6 +369,12 @@ class Catalog(CatalogBase):
             yield get_runtime().conn
             return
 
+        # one span covers connection + lock acquisition across all retries, ending just before the yield;
+        # only emitted under an enclosing span (begin_xact runs on every metadata access)
+        span: hooks.AnySpanHandle | None = None
+        if hooks.current_span() is not None:
+            span = hooks.span_start('catalog.begin_xact', attrs={'pxt.for_write': for_write})
+
         num_retries = 0
         pending_ops_tbl_id: UUID | None = None
         has_exc = False  # True if we exited the 'with ...begin_xact()' block with an exception
@@ -416,6 +423,9 @@ class Catalog(CatalogBase):
                             ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
                                 _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
                                 num_retries += 1
+                                hooks.emit(
+                                    'xact.retry', attrs={'kind': 'begin_xact', 'error_type': type(e.orig).__name__}
+                                )
                                 time.sleep(random.uniform(0.1, 0.5))
                                 # attempt failed -- don't try to commit the transaction before retrying
                                 conn.rollback()
@@ -424,26 +434,34 @@ class Catalog(CatalogBase):
                             raise
 
                     assert not self._undo_actions
+                    if span is not None:
+                        hooks.span_end(span, attrs={'pxt.retries': num_retries})
+                        span = None
                     yield conn
                     return
 
-            except PendingTableOpsError:
+            # exceptions from the caller's body are thrown in at the yield and also arrive in these handlers;
+            # the span is already ended (and span_end() is a no-op) at that point
+            except PendingTableOpsError as e:
                 has_exc = True
                 if pending_ops_tbl_id is not None:
                     # the next iteration of the loop will deal with pending ops for this table id
                     continue
                 else:
                     # we got this exception after getting the initial table locks and therefore need to abort
+                    hooks.span_end(span, exc=e)
                     raise
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
+                hooks.span_end(span, exc=e)
                 single_tbl, single_tbl_id = self._get_single_tbl(write_tvps, read_tvps, write_tbl_ids, read_tbl_ids)
                 self.convert_sql_exc(e, tbl_id=single_tbl_id, tbl=single_tbl, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
             except (Exception, KeyboardInterrupt) as e:
                 has_exc = True
+                hooks.span_end(span, exc=e)
                 _logger.debug(f'Caught {e.__class__}: {e}', exc_info=True)
                 raise
 
