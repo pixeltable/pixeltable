@@ -114,11 +114,12 @@ class TestSnapshot:
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match="Column 'c1' already exists in the base table"):
             pxt.create_snapshot(p('snap2'), tbl, additional_columns={'c1': pxt.Int})
 
-    def __test_create_if_exists(self, sname: str, t: pxt.Table, s: pxt.Table) -> None:
+    def __test_create_if_exists(self, p: Callable[[str], str], sname: str, t: pxt.Table, s: pxt.Table) -> None:
         """Helper function for testing if_exists parameter while creating a snaphot.
 
         Args:
-            sname: name of an existing snapshot
+            p: catalog path-builder (identity for local, pxt:// prefix for proxy)
+            sname: path of an existing snapshot
             t: base table or view of the snapshot
             s: handle to the existing snapshot
         """
@@ -146,44 +147,44 @@ class TestSnapshot:
         # Note that when a view is created on a snapshot, the view is
         # dependent of the snapshot iff the snapshot has additional columns
         # not present in the base table/view of that snapshot.
-        _v_on_s1 = pxt.create_view('test_view_on_snapshot1', s12)
+        _v_on_s1 = pxt.create_view(p('test_view_on_snapshot1'), s12)
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing'):
             pxt.create_snapshot(sname, t)
         # if_exists='ignore' should return the existing snapshot
         s13 = pxt.create_snapshot(sname, t, if_exists='ignore')
         assert s13 == s12
         assert s13._id == id_before
-        assert 'test_view_on_snapshot1' in pxt.list_tables()
+        assert p('test_view_on_snapshot1') in pxt.list_tables(p(''))
         # if_exists='replace' cannot drop a snapshot with a dependent view.
         # it should raise an error and recommend using 'replace_force'
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='already exists'):
             pxt.create_snapshot(sname, t, if_exists='replace')
-        assert 'test_view_on_snapshot1' in pxt.list_tables()
+        assert p('test_view_on_snapshot1') in pxt.list_tables(p(''))
         # if_exists='replace_force' should drop the existing snapshot and
         # its dependent views and create a new one
         s13 = pxt.create_snapshot(sname, t, if_exists='replace_force')
         assert s13 != s12
         assert s13._id != id_before
-        assert 'test_view_on_snapshot1' not in pxt.list_tables()
+        assert p('test_view_on_snapshot1') not in pxt.list_tables(p(''))
 
         # scenario 3: path exists but is not a snapshot
-        _ = pxt.create_table('not_snapshot', {'c1': pxt.String}, if_exists='replace')
+        _ = pxt.create_table(p('not_snapshot'), {'c1': pxt.String}, if_exists='replace')
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing'):
-            pxt.create_snapshot('not_snapshot', t)
+            pxt.create_snapshot(p('not_snapshot'), t)
         # if_exists='ignore' should error when existing object is not a snapshot
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
-            pxt.create_snapshot('not_snapshot', t, if_exists='ignore')
-        assert 'not_snapshot' in pxt.list_tables()
+            pxt.create_snapshot(p('not_snapshot'), t, if_exists='ignore')
+        assert p('not_snapshot') in pxt.list_tables(p(''))
         # if_exists='replace' and 'replace_force' should replace the table with a snapshot
-        snap = pxt.create_snapshot('not_snapshot', t, if_exists='replace')
-        assert 'not_snapshot' in pxt.list_tables()
-        assert snap._tbl_version_path.is_snapshot()
+        snap = pxt.create_snapshot(p('not_snapshot'), t, if_exists='replace')
+        assert p('not_snapshot') in pxt.list_tables(p(''))
+        assert snap._tbl_path.is_snapshot()
 
         # scenario 4: snapshot exists but with a different base table
-        other_base = pxt.create_table('other_base', {'c1': pxt.String}, if_exists='replace_force')
-        _ = pxt.create_snapshot('snap_with_base', t, if_exists='replace')
+        other_base = pxt.create_table(p('other_base'), {'c1': pxt.String}, if_exists='replace_force')
+        _ = pxt.create_snapshot(p('snap_with_base'), t, if_exists='replace')
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='different base table'):
-            _ = pxt.create_snapshot('snap_with_base', other_base, if_exists='ignore')
+            _ = pxt.create_snapshot(p('snap_with_base'), other_base, if_exists='ignore')
 
     def test_mixed_version_join(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -201,41 +202,37 @@ class TestSnapshot:
         assert res['live_v'] == [100, 101, 102, 103, 104]
         assert res['snap_v'] == [0, 1, 2, 3, 4]
 
-    def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_create_if_exists(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter while creating a snapshot."""
-        t = create_test_tbl()
-        v = pxt.create_view('test_view', t)
-        s1 = pxt.create_snapshot('test_snap_t', t)
-        s2 = pxt.create_snapshot('test_snap_v', v)
+        p = make_catalog_path
+        t = create_test_tbl(p('test_tbl'))
+        v = pxt.create_view(p('test_view'), t)
+        s1 = pxt.create_snapshot(p('test_snap_t'), t)
+        s2 = pxt.create_snapshot(p('test_snap_v'), v)
         id_before = {'test_snap_t': s1._id, 'test_snap_v': s2._id}
-        self.__test_create_if_exists('test_snap_t', t, s1)
-        self.__test_create_if_exists('test_snap_v', v, s2)
+        self.__test_create_if_exists(p, p('test_snap_t'), t, s1)
+        self.__test_create_if_exists(p, p('test_snap_v'), v, s2)
         # sanity check persistence
         _ = reload_tester.run_query(t.select().order_by(t.c2))
         _ = reload_tester.run_query(v.select().order_by(v.c2))
         # get the snapshot handles again, they would be replaced at the end of __test_create_if_exists
-        s1 = pxt.get_table('test_snap_t')
-        s2 = pxt.get_table('test_snap_v')
+        s1 = pxt.get_table(p('test_snap_t'))
+        s2 = pxt.get_table(p('test_snap_v'))
         id_before = {'test_snap_t': s1._id, 'test_snap_v': s2._id}
         _ = reload_tester.run_query(s1.select().order_by(s1.c2))
         _ = reload_tester.run_query(s2.select().order_by(s2.c2))
         reload_tester.run_reload_test()
         # get the snapshot handles again after reload
-        s1 = pxt.get_table('test_snap_t')
-        s2 = pxt.get_table('test_snap_v')
+        s1 = pxt.get_table(p('test_snap_t'))
+        s2 = pxt.get_table(p('test_snap_v'))
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    # TODO: fix (proxy): error message uses full proxy path, not the bare name
-    # def test_errors(
-    #         self, test_tbl_dual: pxt.Table, local_embed: pxt.Function, make_catalog_path: Callable[[str], str]
-    # ) -> None:
-    def test_errors(self, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
-        def p(s: str) -> str:
-            return s
-
-        # p = make_catalog_path
-        tbl = test_tbl
+    def test_errors(
+        self, test_tbl_dual: pxt.Table, local_embed: pxt.Function, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
+        tbl = test_tbl_dual
         snap_name = p('snap')
         snap = pxt.create_snapshot(snap_name, tbl)
         display_str = f'snapshot {snap_name!r}'
@@ -263,7 +260,7 @@ class TestSnapshot:
             snap.revert()
 
         with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"snapshot 'img_snap': Cannot add an index to a snapshot."
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'snapshot {p("img_snap")!r}: Cannot add an index to a snapshot.'
         ):
             img_tbl = create_img_tbl(p('img_tbl'))
             snap = pxt.create_snapshot(p('img_snap'), img_tbl)
@@ -327,7 +324,7 @@ class TestSnapshot:
         s = pxt.get_table(p('s'))
         verify(v1, v2, s)
 
-    # TODO: fix (proxy): Column was dropped (snapshot-only column) over proxy
+    # TODO: fix (proxy): a base column dropped after the snapshot is still visible in the view path over proxy
     # def test_multiple_snapshot_paths(self, make_catalog_path: Callable[[str], str]) -> None:
     def test_multiple_snapshot_paths(self, make_local_path: Callable[[str], str]) -> None:
         # p = make_catalog_path
@@ -517,7 +514,6 @@ class TestSnapshot:
                 p('tbl_snapshot_invalid'), t, additional_columns={'d': pxt.Int}, custom_metadata={'key': set}
             )
 
-    # TODO: fix (proxy): cannot serialize a set value for the proxy protocol
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_snapshot_column_custom_metadata(
         self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool
