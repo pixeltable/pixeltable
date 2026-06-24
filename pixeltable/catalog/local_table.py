@@ -788,25 +788,11 @@ class LocalTable(Table):
             self.__check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
 
-            from pixeltable.index import EmbeddingIndex
-
             # idx_name must be a valid pixeltable column name
             if idx_name is not None:
                 Column.validate_name(idx_name)
-
-            # validate EmbeddingIndex args; the resulting index is also used for duplicate detection
-            idx = EmbeddingIndex(
-                metric=metric,
-                precision=precision,
-                embed=embedding,
-                string_embed=string_embed,
-                image_embed=image_embed,
-                column=col,  # Pass column for shape validation
-            )
-            _ = idx.create_value_expr(col)  # validation only; result discarded
-
-            if idx_name is not None:
-                # Named index: duplicate detection is by name.
+                # Named index: duplicate detection is by name. Handle a name collision before constructing the new
+                # index, so that if_exists='ignore' remains a true no-op and never surfaces validation errors.
                 if idx_name in self._tbl_version.get().idxs_by_name:
                     if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
                     # An index with the same name already exists. Handle it according to if_exists.
@@ -824,7 +810,21 @@ class LocalTable(Table):
                     assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
                     self.drop_index(idx_name=idx_name)
                     assert idx_name not in self._tbl_version.get().idxs_by_name
-            else:
+
+            from pixeltable.index import EmbeddingIndex
+
+            # validate EmbeddingIndex args; the resulting index is also used for duplicate detection
+            idx = EmbeddingIndex(
+                metric=metric,
+                precision=precision,
+                embed=embedding,
+                string_embed=string_embed,
+                image_embed=image_embed,
+                column=col,  # Pass column for shape validation
+            )
+            _ = idx.create_value_expr(col)  # validation only; result discarded
+
+            if idx_name is None:
                 # Unnamed index: duplicate detection is by index definition on this column.
                 matches = self._find_matching_embedding_idxs(col, idx)
                 if len(matches) > 0:

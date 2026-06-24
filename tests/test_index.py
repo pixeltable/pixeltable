@@ -405,7 +405,7 @@ class TestIndex:
         assert set(emb_idxs()) == {'clip_idx'}
 
         # if_exists is now validated on the unnamed path too.
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'if_exists must be one of'):
             t.add_embedding_index('img', embedding=local_embed, if_exists='invalid')  # type: ignore[arg-type]
         assert set(emb_idxs()) == {'clip_idx'}
 
@@ -440,6 +440,11 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, if_exists='ignore')
         assert 'clip_idx' in emb_idxs() and len(emb_idxs()) == 3
         assert emb_idxs()['clip_idx']['parameters']['metric'] == 'cosine'
+
+        # if_exists='ignore' on an existing name is a no-op even when the new embedding would fail validation:
+        # the name collision is resolved before the new index is constructed.
+        t.add_embedding_index('img', idx_name='clip_idx', embedding=self.bad_embed, if_exists='ignore')
+        assert 'clip_idx' in emb_idxs() and len(emb_idxs()) == 3
 
         # cannot use if_exists to ignore or replace an existing index
         # that is not an embedding (like, default btree indexes).
