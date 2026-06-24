@@ -279,10 +279,11 @@ class TestExprs:
             _ = img_t.select(img_t.c9.errortype).show()
         assert 'only valid for' in str(excinfo.value)
 
-    def test_null_args(self, uses_db: None) -> None:
+    def test_null_args(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         # create table with two columns
         schema = {'c1': pxt.Float, 'c2': pxt.Float}
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
 
         t.add_computed_column(c3=self.required_params_fn(t.c1, t.c2))
         t.add_computed_column(c4=self.mixed_params_fn(t.c1, t.c2))
@@ -682,7 +683,8 @@ class TestExprs:
             res['item_of_vartype_list'][i] == [res['c2'][i], res['c1'][i], res['c3'][i]] for i in range(len(res))
         )
 
-    def test_json_path_types(self, uses_db: None) -> None:
+    def test_json_path_types(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         spec = {
             'f1': str,
             'f2': {
@@ -700,7 +702,7 @@ class TestExprs:
             'f4': ({'f4a': int, 'f4b': str}, ...),
             'f5': ({'f5a': int}, {'f5a': str}, {'f5a': float}, ...),
         }
-        t = pxt.create_table('test', {'col': pxt.Json[spec]})
+        t = pxt.create_table(p('test'), {'col': pxt.Json[spec]})
         cases: tuple[tuple[Expr, type], ...] = (
             (t.col.f1, pxt.String),
             (t.col.f2.f2a, pxt.Int),
@@ -801,9 +803,10 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_multi_json_mapper(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_multi_json_mapper(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = make_catalog_path
         # Workflow with multiple JsonMapper instances
-        t = pxt.create_table('test', {'id': pxt.Int, 'jcol': pxt.Json})
+        t = pxt.create_table(p('test'), {'id': pxt.Int, 'jcol': pxt.Json})
         t.add_computed_column(outputx=pxtf.map(t.jcol.x['*'], lambda x: x + 1))
         t.add_computed_column(outputy=pxtf.map(t.jcol.y['*'], lambda x: x + 2))
         t.add_computed_column(outputz=pxtf.map(t.jcol.z['*'], lambda x: x + 3))
@@ -1336,8 +1339,9 @@ class TestExprs:
         ).collect()
         assert all(json.loads(res['dumped_py'][i]) == res['json_col'][i] for i in range(len(res)))
 
-    def test_agg(self, uses_db: None) -> None:
-        t = create_scalars_tbl(1000)
+    def test_agg(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = create_scalars_tbl(1000, path=p('scalars_tbl'))
         df = t.select().collect().to_pandas()
 
         def series_to_list(series: pd.Series) -> list[int | None]:

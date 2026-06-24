@@ -273,7 +273,6 @@ class TestIndex:
 
         _ = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))
 
-    # TODO: fix (proxy): pure-snapshot is_snapshot not detected over proxy
     def test_similarity_errors(
         self,
         indexed_img_tbl_dual: pxt.Table,
@@ -524,7 +523,6 @@ class TestIndex:
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
-    # TODO: fix (proxy): NotFoundError: Table was dropped over proxy
     def test_embedding_access(
         self, img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
     ) -> None:
@@ -557,7 +555,6 @@ class TestIndex:
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
-    # TODO: fix (proxy): NotFoundError: Table was dropped over proxy
     def test_embedding_basic(
         self,
         img_tbl_dual: pxt.Table,
@@ -977,7 +974,6 @@ class TestIndex:
         ]
         self.run_btree_test(p, data, pxt.Date)
 
-    # TODO: fix (proxy): Table was dropped after reload_catalog (handle reuse) over proxy
     @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
     @pytest.mark.parametrize('precision', ['fp16', 'fp32'])

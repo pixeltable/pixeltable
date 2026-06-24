@@ -2871,9 +2871,9 @@ class TestTable:
         # now it works
         t.drop_column('c4')
 
-    # TODO: cannot be converted because apply() wraps an id-registered Function the daemon cannot resolve
-    def test_computed_col_apply(self, uses_db: None) -> None:
-        t = pxt.create_table('test', {'c2': pxt.Float})
+    def test_computed_col_apply(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c2': pxt.Float})
         status = t.add_computed_column(c9=t.c2.apply(math.sqrt, col_type=pxt.Float))
         assert status.num_excs == 0
         t.insert([{'c2': 4.0}, {'c2': 9.0}])

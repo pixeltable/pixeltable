@@ -344,7 +344,7 @@ def create_all_datatypes_tbl(
     return tbl
 
 
-def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) -> pxt.Table:
+def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10, path: str = 'scalars_tbl') -> pxt.Table:
     """
     Creates a table with scalar columns, each of which contains randomly generated data.
     """
@@ -358,7 +358,7 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
         'c_string': ts.StringType(nullable=True),
         'c_timestamp': ts.TimestampType(nullable=True),
     }
-    tbl = pxt.create_table('scalars_tbl', schema)  # type: ignore[arg-type]
+    tbl = pxt.create_table(path, schema)  # type: ignore[arg-type]
 
     example_rows: list[dict[str, Any]] = []
     str_chars = 'abcdefghijklmnopqrstuvwxyzab'
