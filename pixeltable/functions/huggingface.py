@@ -536,9 +536,9 @@ def sam_automatic_mask_generation(
     revision: str | None = None,
 ) -> Sam3AutomaticMaskGenerationResponse:
     """
-    Segments every object in an image with SAM 3 (Segment Anything Model 3), with no prompt. `model_id` should
+    Segments every object in an image with SAM (Segment Anything Model), with no prompt. `model_id` should
     be a reference to a pretrained
-    [SAM 3 Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3`.
+    [SAM Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3`.
 
     Unlike [`sam3_for_segmentation`](pixeltable.functions.huggingface.sam3_for_segmentation), which requires a concept
     prompt, this samples a grid of points across the image and returns a binary mask for every distinct object it
