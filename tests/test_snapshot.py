@@ -25,7 +25,7 @@ class TestSnapshot:
         extra_items: dict[str, Any],
         reload_md: bool,
     ) -> None:
-        tbl_path, snap_path = tbl._path(), snap._path()
+        tbl_path, snap_path = str(tbl._path()), str(snap._path())
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
         tbl_select_list = [tbl[col_name] for col_name in tbl._get_schema()]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])
@@ -183,6 +183,21 @@ class TestSnapshot:
         _ = pxt.create_snapshot('snap_with_base', t, if_exists='replace')
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='different base table'):
             _ = pxt.create_snapshot('snap_with_base', other_base, if_exists='ignore')
+
+    def test_mixed_version_join(self, uses_db: None) -> None:
+        # A single query plan can reference the same physical column at two different versions: a table joined
+        # with a snapshot of itself. Each version must resolve to its own value; if the two versions of a column
+        # collapse into one, the snapshot columns return the live values and the join predicate t.id == snap.id
+        # degenerates into a cross product.
+        t = pxt.create_table('mixed_version', {'id': pxt.Int, 'v': pxt.Int})
+        validate_update_status(t.insert([{'id': i, 'v': i} for i in range(5)]), expected_rows=5)
+        snap = pxt.create_snapshot('mixed_version_snap', t)
+        # diverge the live table from the snapshot so the two versions of `v` hold different values
+        validate_update_status(t.update({'v': t.v + 100}), expected_rows=5)
+
+        res = t.join(snap, on=t.id == snap.id).select(live_v=t.v, snap_v=snap.v).order_by(t.id).collect()
+        assert res['live_v'] == [100, 101, 102, 103, 104]
+        assert res['snap_v'] == [0, 1, 2, 3, 4]
 
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter while creating a snapshot."""

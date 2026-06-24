@@ -294,7 +294,6 @@ markers = [
     "very_expensive: marks tests as very expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
-    "cockroachdb: tests to run against CockroachDB",
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)

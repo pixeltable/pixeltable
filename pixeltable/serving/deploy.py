@@ -133,7 +133,7 @@ def _tables_from_fastapi_app(env_cfg: config.DeploymentConfig, module_attr: str)
                     'deployment.',
                 )
             assert route.endpoint.tbl is not None  # It's always non-None for 'compute' routes
-            table_paths.add(route.endpoint.tbl._path())
+            table_paths.add(str(route.endpoint.tbl._path()))
 
     _logger.info(
         f'Validated service {module_attr!r} with {len(table_paths)} table(s) referenced by {len(app.routes)} route(s).'
@@ -168,8 +168,15 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
 
 
 def _export_tables_md(table_paths: set[str]) -> dict[str, Any]:
-    # Get all tables mentioned by any route contained in this deployment.
-    tables = [pxt.get_table(path) for path in sorted(table_paths)]
+    # Get all tables mentioned by any route contained in this deployment. These must be local tables.
+    tables: list[pxt.catalog.LocalTable] = []
+    for path in sorted(table_paths):
+        if not pxt.catalog.Path.parse(path).is_local:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot deploy a hosted table: {path!r}')
+        tbl = pxt.get_table(path)
+        if not isinstance(tbl, pxt.catalog.LocalTable):
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot deploy a hosted table: {path!r}')
+        tables.append(tbl)
 
     # Get the md for all ancestors of all such tables.
     catalog = get_runtime().catalog

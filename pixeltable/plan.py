@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import copy
-import dataclasses
-import enum
 from textwrap import dedent
-from typing import Any, ClassVar, Iterable, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -14,6 +12,11 @@ from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 from pixeltable.func.iterator import GeneratingFunctionCall
+from pixeltable.index import BtreeIndex
+from pixeltable.query_clauses import FromClause, SampleClause
+
+if TYPE_CHECKING:
+    from pixeltable.io.data_sources import SqlDataSource
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -25,7 +28,6 @@ def _get_combined_ordering(
 ) -> list[tuple[exprs.Expr, bool]]:
     """Returns an ordering that's compatible with both o1 and o2, or an empty list if no such ordering exists"""
     result: list[tuple[exprs.Expr, bool]] = []
-    # determine combined ordering
     for (e1, asc1), (e2, asc2) in zip(o1, o2):
         if e1.id != e2.id:
             return []
@@ -34,127 +36,12 @@ def _get_combined_ordering(
         asc = asc1 if asc1 is not None else asc2
         result.append((e1, asc))
 
-    # add remaining ordering of the longer list
     prefix_len = min(len(o1), len(o2))
     if len(o1) > prefix_len:
         result.extend(o1[prefix_len:])
     elif len(o2) > prefix_len:
         result.extend(o2[prefix_len:])
     return result
-
-
-class JoinType(enum.Enum):
-    INNER = 0
-    LEFT = 1
-    # TODO: implement
-    # RIGHT = 2
-    FULL_OUTER = 3
-    CROSS = 4
-
-    LiteralType = Literal['inner', 'left', 'full_outer', 'cross']
-
-    @classmethod
-    def validated(cls, name: str, error_prefix: str) -> JoinType:
-        try:
-            return cls[name.upper()]
-        except KeyError as exc:
-            val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__)
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, f'{error_prefix} must be one of: [{val_strs}]'
-            ) from exc
-
-
-@dataclasses.dataclass
-class JoinClause:
-    """Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement; excludes the joined table."""
-
-    join_type: JoinType
-    join_predicate: exprs.Expr | None  # None for join_type == CROSS
-
-
-@dataclasses.dataclass
-class FromClause:
-    """Corresponds to the From-clause ('FROM <tbl> JOIN ... ON (...) JOIN ...') of a SELECT statement"""
-
-    tbls: list[catalog.TableVersionPath]
-    join_clauses: list[JoinClause] = dataclasses.field(default_factory=list)
-
-    @property
-    def _first_tbl(self) -> catalog.TableVersionPath:
-        assert len(self.tbls) == 1
-        return self.tbls[0]
-
-
-@dataclasses.dataclass
-class SampleClause:
-    """Defines a sampling clause for a table."""
-
-    version: int | None
-    n: int | None
-    n_per_stratum: int | None
-    fraction: float | None
-    seed: int | None
-    stratify_exprs: list[exprs.Expr] | None
-
-    # The version of the hashing algorithm used for ordering and fractional sampling.
-    CURRENT_VERSION: ClassVar[int] = 1
-
-    def __post_init__(self) -> None:
-        # If no version was provided, provide the default version
-        if self.version is None:
-            self.version = self.CURRENT_VERSION
-
-    @property
-    def is_stratified(self) -> bool:
-        """Check if the sampling is stratified"""
-        return self.stratify_exprs is not None and len(self.stratify_exprs) > 0
-
-    @property
-    def is_repeatable(self) -> bool:
-        """Return true if the same rows will continue to be sampled if source rows are added or deleted."""
-        return not self.is_stratified and self.fraction is not None
-
-    def display_str(self, inline: bool = False) -> str:
-        return str(self)
-
-    def as_dict(self) -> dict:
-        """Return a dictionary representation of the object"""
-        d = dataclasses.asdict(self)
-        d['_classname'] = self.__class__.__name__
-        if self.is_stratified:
-            d['stratify_exprs'] = [e.as_dict() for e in self.stratify_exprs]
-        return d
-
-    @classmethod
-    def from_dict(cls, d: dict) -> SampleClause:
-        """Create a SampleClause from a dictionary representation"""
-        d_cleaned = {key: value for key, value in d.items() if key != '_classname'}
-        s = cls(**d_cleaned)
-        if s.is_stratified:
-            s.stratify_exprs = [exprs.Expr.from_dict(e) for e in d_cleaned.get('stratify_exprs', [])]
-        return s
-
-    def __repr__(self) -> str:
-        s = ','.join(e.display_str(inline=True) for e in self.stratify_exprs)
-        return (
-            f'sample_{self.version}(n={self.n}, n_per_stratum={self.n_per_stratum}, '
-            f'fraction={self.fraction}, seed={self.seed}, [{s}])'
-        )
-
-    @classmethod
-    def fraction_to_md5_hex(cls, fraction: float) -> str:
-        """Return the string representation of an approximation (to ~1e-9) of a fraction of the total space
-        of md5 hash values.
-        This is used for fractional sampling.
-        """
-        # Maximum count for the upper 32 bits of MD5: 2^32
-        max_md5_value = (2**32) - 1
-
-        # Calculate the fraction of this value
-        threshold_int = max_md5_value * int(1_000_000_000 * fraction) // 1_000_000_000
-
-        # Convert to hexadecimal string with padding
-        return format(threshold_int, '08x') + 'ffffffffffffffffffffffff'
 
 
 class Analyzer:
@@ -366,35 +253,82 @@ class Analyzer:
 class Planner:
     @classmethod
     def create_insert_plan(
-        cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
+        cls, tbl: catalog.TableVersion, source: list[dict[str, Any]] | SqlDataSource, ignore_errors: bool
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.insert()"""
+        """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource."""
         assert not tbl.is_view
-        # stored_cols: all cols we need to store, incl computed cols (and indices)
+        plan, batch_size = cls._create_compute_plan(tbl, source, ignore_errors=ignore_errors, for_insert=True)
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
-        assert len(stored_cols) > 0  # there needs to be something to store
+        if any(c.col_type.supports_file_offloading() for c in stored_cols):
+            plan = exec.CellMaterializationNode(plan)
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=batch_size, ignore_errors=ignore_errors))
+        plan = cls._add_save_node(plan)
+        return plan
 
-        cls.__check_valid_columns(tbl, stored_cols, 'inserted into')
+    @classmethod
+    def _create_compute_plan(
+        cls,
+        tbl: catalog.TableVersion,
+        source: list[dict[str, Any]] | SqlDataSource,
+        ignore_errors: bool,
+        for_insert: bool,
+    ) -> tuple[exec.ExecNode, int]:
+        """
+        Creates a plan for materializing new rows for 'tbl', given the input 'source' (in-memory rows or a
+        SqlDataSource, containing values for the mutable columns). Returns the plan and its exec batch size.
 
-        row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
+        If for_insert == True, materializes only stored computed columns, incl. index value columns.
+        If for_insert == False, materializes all computed columns except btree value columns and all undo columns.
+        """
+        from pixeltable.io.data_sources import SqlDataSource
 
-        # create InMemoryDataNode for 'rows'
-        plan: exec.ExecNode = exec.InMemoryDataNode(tbl.handle, rows, row_builder)
+        assert not tbl.is_view
+        output_cols: list[Column]
+        if for_insert:
+            output_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
+        else:
+            # skip btree val cols
+            skipped_col_ids = {
+                info.val_col.id for info in tbl.idxs_by_name.values() if isinstance(info.idx, BtreeIndex)
+            }
+            # skip all undo cols
+            skipped_col_ids |= {info.undo_col.id for info in tbl.idxs_by_name.values()}
+            output_cols = [c for c in tbl.cols_by_id.values() if c.id not in skipped_col_ids]
+
+        assert len(output_cols) > 0
+
+        cls.__check_valid_columns(tbl, output_cols, 'inserted into' if for_insert else 'computed for')
+
+        row_builder = exprs.RowBuilder([], output_cols, [], tbl, allow_unstored=not for_insert)
+
+        plan: exec.ExecNode
+        batch_size: int
+        if isinstance(source, SqlDataSource):
+            plan = exec.SqlDataNode(tbl.handle, source, row_builder)
+            batch_size = 1024
+        else:
+            assert isinstance(source, list)
+            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder)
+            batch_size = 0
 
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
 
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
-            # add an ExprEvalNode when there are exprs to compute
+            # maintain input order: compute() callers map input rows to output rows positionally
             plan = exec.ExprEvalNode(
-                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
+                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=not for_insert
             )
-        if any(c.col_type.supports_file_offloading() for c in stored_cols):
-            plan = exec.CellMaterializationNode(plan)
+        return plan, batch_size
 
-        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
-        plan = cls._add_save_node(plan)
-
+    @classmethod
+    def create_compute_plan(
+        cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
+    ) -> exec.ExecNode:
+        """Creates a plan for TableVersion.compute(): like create_insert_plan but without persistence."""
+        assert not tbl.is_view
+        plan, _ = cls._create_compute_plan(tbl, rows, ignore_errors=ignore_errors, for_insert=False)
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
         return plan
 
     @classmethod
@@ -473,7 +407,7 @@ class Planner:
         for info in target.idxs.values():
             if info.val_col in unmodified_val_cols:
                 evaluated_cols.append(info.val_col)
-                select_list.append(exprs.ColumnRef(info.undo_col))
+                select_list.append(exprs.ColumnRef(info.undo_col.column_version_md()))
 
         return evaluated_cols, select_list, identity_cols
 
@@ -517,7 +451,9 @@ class Planner:
         cls.__check_valid_columns(target, recomputed_cols, 'updated in')
 
         # Substitute update target exprs into recomputed exprs before building select_list
-        spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
+        spec: dict[exprs.Expr, exprs.Expr] = {
+            exprs.ColumnRef(col.column_version_md()): e for col, e in update_targets.items()
+        }
         exprs.Expr.list_substitute(eval_exprs, spec)
         evaluated_cols: list[Column] = list(update_targets.keys()) + eval_cols
         select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
@@ -550,7 +486,10 @@ class Planner:
 
     @classmethod
     def __check_valid_columns(
-        cls, tbl: catalog.TableVersion, cols: Iterable[Column], op_name: Literal['inserted into', 'updated in']
+        cls,
+        tbl: catalog.TableVersion,
+        cols: Iterable[Column],
+        op_name: Literal['inserted into', 'updated in', 'computed for'],
     ) -> None:
         for col in cols:
             if col.value_expr is not None and not col.value_expr.is_valid:
@@ -714,7 +653,9 @@ class Planner:
         updated_cols_list = list(updated_cols)
         # Prepend updated cols as ColumnRefs (RowUpdateNode modifies them in-place; no further substitution needed)
         evaluated_cols: list[Column] = updated_cols_list + eval_cols
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols_list] + eval_exprs
+        select_list: list[exprs.Expr] = [
+            exprs.ColumnRef(col.column_version_md()) for col in updated_cols_list
+        ] + eval_exprs
 
         # ExecNode tree (from bottom to top):
         # - SqlLookupNode to retrieve the existing rows
@@ -797,7 +738,7 @@ class Planner:
         # Identity columns are all other stored columns that aren't being recomputed
         # and go through select_list as ColumnRefs (no separate columns= path) unlike other update plans
         evaluated_cols: list[Column] = identity_cols + eval_cols
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(c) for c in identity_cols] + eval_exprs
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(c.column_version_md()) for c in identity_cols] + eval_exprs
 
         # Read the just-expired rows (v_max == current_version) to copy stored column values
         plan = cls.create_query_plan(
@@ -1031,8 +972,21 @@ class Planner:
         # If the from_clause has a single table, we can use it as the context table for the RowBuilder.
         # Otherwise there is no context table, but that's ok, because the context table is only needed for
         # table mutations, which can't happen during a join.
-        context_tbl = from_clause.tbls[0].tbl_version.get() if len(from_clause.tbls) == 1 else None
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl)
+        context_tbl = (
+            from_clause.tbls[0].tbl_version.get()
+            if len(from_clause.tbls) == 1 and isinstance(from_clause.tbls[0], catalog.TableVersionPath)
+            else None
+        )
+        # Component views with unstored iterator columns need their (stored, live-versioned) iterator args retargeted
+        # to the instances this query uses. Resolve each view against the from-clause path it is reached through, so
+        # a base table appearing at different versions in different join branches binds correctly per branch.
+        iter_args: dict[UUID, exprs.Expr] = {}
+        for p in from_clause.tvps:
+            for h in p.get_tbl_versions():
+                args = h.get().iterator_args_expr()
+                if args is not None:
+                    iter_args[h.id] = args.retarget_path(p)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl, iter_args=iter_args)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
@@ -1129,7 +1083,7 @@ class Planner:
         scan_target_exprs = sql_exprs | join_exprs
         tbl_scan_plans: list[exec.SqlScanNode] = []
         plan: exec.ExecNode
-        for tbl in analyzer.from_clause.tbls:
+        for tbl in analyzer.from_clause.tvps:
             # materialize all subexprs of scan_target_exprs that are bound by tbl
             tbl_scan_exprs = exprs.ExprSet(
                 exprs.Expr.list_subexprs(

@@ -54,7 +54,10 @@ def pxt_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iter
         from pixeltable_cli.client.utils import is_running
 
         os.environ['PXT_PORT'] = str(port)
-        deadline = time.time() + 15
+        # Allow for a cold pixeltable import in the daemon subprocess, which on a loaded CI runner can run
+        # well past a warm import; matches the client's own startup health timeout.
+        startup_timeout = 45
+        deadline = time.time() + startup_timeout
         while time.time() < deadline:
             if is_running():
                 break
@@ -64,7 +67,7 @@ def pxt_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iter
             time.sleep(0.1)
         else:
             tail = log_path.read_text(errors='replace')[-500:]
-            raise RuntimeError(f'daemon did not come up within 15s; log tail:\n{tail}')
+            raise RuntimeError(f'daemon did not come up within {startup_timeout}s; log tail:\n{tail}')
         yield port
     finally:
         if prior_port is None:
@@ -84,7 +87,8 @@ PxtRunner = Callable[..., PxtResult]
 @pytest.fixture
 def cli(pxt_daemon: int, uses_db: None) -> PxtRunner:
     def _run(*args: str, check: bool = True) -> PxtResult:
-        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
+        # BROWSER=true prevents an actual browser tab open on `pxt dashboard` when tests are run on a dev machine.
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
         r = subprocess.run(
             ['pxt', *args], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL
         )

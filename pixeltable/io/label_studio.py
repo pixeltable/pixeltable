@@ -273,7 +273,7 @@ class LabelStudioProject(Project):
                     # Media column that has a stored proxy; use it. We have to give it a name,
                     # since it's an anonymous column
                     stored_proxy_col = self.stored_proxies[col].get()
-                    expr_refs[f'{col_name}_proxy'] = ColumnRef(stored_proxy_col).localpath
+                    expr_refs[f'{col_name}_proxy'] = ColumnRef(stored_proxy_col.column_version_md()).localpath
                 else:
                     # Media column without a stored proxy; this means it's a stored computed column,
                     # and we can just use the localpath
@@ -423,7 +423,7 @@ class LabelStudioProject(Project):
             # batch_update on the actual ancestor table that holds the annotations column.
             # TODO(aaron-siegel): Simplify this once propagation is properly implemented in batch_update
             ancestor = t
-            while local_annotations_col not in ancestor._tbl_version.get().cols:
+            while local_annotations_col not in ancestor._tbl_version.get().cols_by_id.values():
                 assert ancestor._get_base_table is not None
                 ancestor = ancestor._get_base_table()
             update_status = ancestor.batch_update(updates)

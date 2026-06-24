@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import errno
 import json
+import socket
 import sys
 from typing import Any
 
@@ -331,6 +332,22 @@ def _create_route_from_args(args: argparse.Namespace) -> config.RouteConfig:
     raise AssertionError(f'unknown serve mode: {args.mode}')
 
 
+def _started_status(host: str, port: int, is_ssl: bool, n_routes: int, json_output: bool) -> str:
+    # wildcard bind addresses aren't navigable; show localhost for the URL hints
+    display_host = 'localhost' if host in ('0.0.0.0', '::') else host
+    if ':' in display_host:
+        display_host = f'[{display_host}]'
+
+    scheme = 'https' if is_ssl else 'http'
+    url = f'{scheme}://{display_host}:{port}'
+    docs_url = f'{url}/docs'
+    if json_output:
+        return json.dumps(
+            {'status': 'started', 'host': host, 'port': port, 'url': url, 'docs_url': docs_url, 'routes': n_routes}
+        )
+    return f'Pixeltable is running on {url}\n  Routes: {n_routes}\n  API docs at {docs_url}'
+
+
 def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None:
     try:
         import uvicorn
@@ -340,42 +357,37 @@ def _run(cfg: config.ServiceConfig, app: Any, json_output: bool = False) -> None
             "uvicorn is required for `pxt serve`; install it with `pip install 'pixeltable[serve]'`",
         ) from e
 
-    host, port = cfg.host, cfg.port
-    # wildcard bind addresses aren't navigable; print localhost for the URL hints
-    display_host = 'localhost' if host in ('0.0.0.0', '::', '') else host
-    if ':' in display_host:
-        display_host = f'[{display_host}]'
-    url = f'http://{display_host}:{port}'
-    docs_url = f'{url}/docs'
+    class PxtServer(uvicorn.Server):
+        async def startup(self, sockets: list[socket.socket] | None = None) -> None:
+            # Validate the server's configuration -- we would rather fail than print an unexpected or incorrect status.
+            assert sockets is None
+            await super().startup(sockets)
+            assert self.config.fd is None
+            assert self.config.uds is None
+            if self.started:
+                assert len(self.servers) == 1
+                server = self.servers[0]
+                assert len(server.sockets) == 1
+                port = server.sockets[0].getsockname()[1]
+                is_ssl = self.config.ssl is not None
+                print(_started_status(self.config.host, port, is_ssl, len(cfg.routes), json_output))
 
-    if json_output:
-        print(
-            json.dumps(
-                {
-                    'status': 'starting',
-                    'host': host,
-                    'port': port,
-                    'url': url,
-                    'docs_url': docs_url,
-                    'routes': len(cfg.routes),
-                }
-            )
-        )
-    else:
-        print(f'Starting Pixeltable service: {cfg.name}')
-        print(f'  Bound to {host}:{port}')
-        print(f'  Listening on {url}')
-        print(f'  API docs at {docs_url}')
-        print(f'  Routes: {len(cfg.routes)}')
-
+    if not json_output:
+        print(f'Starting Pixeltable service {cfg.name}...')
+    # log_config=None keeps uvicorn from installing its own stderr handlers, we don't want its logging in the console.
+    # Env routes uvicorn loggers to a file.
+    server = PxtServer(uvicorn.Config(app, host=cfg.host, port=cfg.port, log_config=None))
     try:
-        uvicorn.run(app, host=host, port=port)
+        server.run()
+    except KeyboardInterrupt:
+        print('Keyboard interrupt received, shutting down', file=sys.stderr)
+        sys.exit(130)
     except OSError as e:
         if e.errno == errno.EADDRINUSE:
-            message = f'port {port} is already in use'
+            message = f'port {cfg.port} is already in use'
             if json_output:
                 print(
-                    json.dumps({'status': 'error', 'code': 'EADDRINUSE', 'port': port, 'message': message}),
+                    json.dumps({'status': 'error', 'code': 'EADDRINUSE', 'port': cfg.port, 'message': message}),
                     file=sys.stderr,
                 )
             else:

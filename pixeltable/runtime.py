@@ -18,12 +18,14 @@ from pixeltable.utils import fault_injection
 if TYPE_CHECKING:
     from pixeltable._query import Query
     from pixeltable.catalog.catalog import Catalog
+    from pixeltable.catalog.catalog_base import CatalogBase
+    from pixeltable.catalog.path import Path
     from pixeltable.exec import ExecPlan
 
 _logger = logging.getLogger(__name__)
 _thread_local = threading.local()
 
-_XACT_ISOLATION_LEVEL = 'READ COMMITTED'
+_XACT_ISOLATION_LEVEL = 'REPEATABLE READ'
 
 _T = TypeVar('_T')
 
@@ -35,7 +37,9 @@ class Runtime:
     All state that cannot be shared process-wide (and would therefore be located in Env) is stored here.
     """
 
-    _catalog: Catalog | None
+    # catalogs keyed by Path.catalog_uri
+    _catalogs: dict[str, CatalogBase]
+
     conn: sql.Connection | None
     session: orm.Session | None
     isolation_level: str | None
@@ -56,9 +60,9 @@ class Runtime:
     plan_cache: WeakKeyDictionary[Query, ExecPlan]
 
     def __init__(self) -> None:
-        # Catalog is created lazily to avoid circular initialization:
+        # Catalogs are created lazily to avoid circular initialization:
         # Catalog.__init__() calls _init_store() which needs begin_xact() which calls get_runtime().
-        self._catalog = None
+        self._catalogs = {}
         self.conn = None
         self.session = None
         self.isolation_level = None
@@ -75,7 +79,9 @@ class Runtime:
         self.conn = other.conn
         self.session = other.session
         self.isolation_level = other.isolation_level
-        self._catalog = other.catalog
+        # share the same catalog instances, but with an independent map so each thread can add catalogs
+        # without racing
+        self._catalogs = dict(other._catalogs)
         self._progress = other._progress
         self.context_inherited = True
         self.fault_manager = other.fault_manager
@@ -86,11 +92,28 @@ class Runtime:
 
     @property
     def catalog(self) -> Catalog:
-        if self._catalog is None:
-            from pixeltable.catalog.catalog import Catalog
+        """The local Catalog instance."""
+        from pixeltable.catalog.catalog import Catalog
 
-            self._catalog = Catalog()
-        return self._catalog
+        cat = self._catalogs.get('')
+        if cat is None:
+            cat = Catalog()
+            self._catalogs[''] = cat
+        assert isinstance(cat, Catalog)
+        return cat
+
+    def get_catalog(self, path: Path) -> CatalogBase:
+        """Return the catalog that the given path lives in, creating it on first use."""
+        if path.is_local:
+            return self.catalog
+        key = path.catalog_uri
+        cat = self._catalogs.get(key)
+        if cat is None:
+            from pixeltable.catalog.catalog_proxy import CatalogProxy
+
+            cat = CatalogProxy(key)
+            self._catalogs[key] = cat
+        return cat
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop:
@@ -229,9 +252,13 @@ def reset_runtime() -> None:
     """Reset the current thread's Runtime instance. Used for testing."""
     runtime = getattr(_thread_local, 'runtime', None)
     if runtime is not None:
-        if runtime._catalog is not None:
+        local_catalog = runtime._catalogs.get('')
+        if local_catalog is not None:
+            from pixeltable.catalog.catalog import Catalog
+
+            assert isinstance(local_catalog, Catalog)
             # Invalidate all existing TableVersion instances to force reloading of metadata,
-            for tbl_version in runtime._catalog._tbl_versions.values():
+            for tbl_version in local_catalog._tbl_versions.values():
                 tbl_version.is_validated = False
         if runtime._event_loop is not None:
             # Don't close a loop we didn't create (e.g. Jupyter's)
