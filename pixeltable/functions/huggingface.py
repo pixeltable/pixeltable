@@ -378,7 +378,7 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
     return output_list
 
 
-class Sam3ForSegmentationResponse(TypedDict):
+class SamForSegmentationResponse(TypedDict):
     scores: pxt.Array[(None,), pxt.Float]
     boxes: pxt.Array[(None, 4), pxt.Float]
     masks: pxt.Array[(None, None, None), pxt.Bool]
@@ -395,7 +395,7 @@ def sam3_for_segmentation(
     threshold: float = 0.5,
     mask_threshold: float = 0.5,
     revision: str | None = None,
-) -> Sam3ForSegmentationResponse:
+) -> SamForSegmentationResponse:
     """
     Computes SAM 3 (Segment Anything Model 3) Promptable Concept Segmentation for the specified image.
     `model_id` should be a reference to a pretrained
@@ -427,7 +427,7 @@ def sam3_for_segmentation(
             specified, uses the default revision for the model.
 
     Returns:
-        A `Sam3ForSegmentationResponse` containing:
+        A `SamForSegmentationResponse` containing:
 
         - `scores`: confidence score per detected instance, shape `(num_instances,)`.
         - `boxes`: bounding box `[x1, y1, x2, y2]` per detected instance in absolute pixel coordinates, shape
@@ -512,15 +512,10 @@ def sam3_for_segmentation(
     if masks_np.dtype != np.bool_:
         masks_np = masks_np.astype(bool)
 
-    return Sam3ForSegmentationResponse(
+    return SamForSegmentationResponse(
         scores=result['scores'].cpu().numpy(), boxes=result['boxes'].cpu().numpy(), masks=masks_np
     )
 
-
-class Sam3AutomaticMaskGenerationResponse(TypedDict):
-    scores: pxt.Array[(None,), pxt.Float]
-    boxes: pxt.Array[(None, 4), pxt.Float]
-    masks: pxt.Array[(None, None, None), pxt.Bool]
 
 
 @pxt.udf
@@ -534,7 +529,7 @@ def sam_automatic_mask_generation(
     stability_score_thresh: float = 0.95,
     crops_n_layers: int = 0,
     revision: str | None = None,
-) -> Sam3AutomaticMaskGenerationResponse:
+) -> SamForSegmentationResponse:
     """
     Segments every object in an image with SAM (Segment Anything Model), with no prompt. `model_id` should
     be a reference to a pretrained
@@ -604,7 +599,7 @@ def sam_automatic_mask_generation(
 
     masks = output['masks']
     if len(masks) == 0:
-        return Sam3AutomaticMaskGenerationResponse(
+        return SamForSegmentationResponse(
             scores=np.zeros((0,), dtype=np.float32),
             boxes=np.zeros((0, 4), dtype=np.float32),
             masks=np.zeros((0, image.height, image.width), dtype=bool),
@@ -612,7 +607,7 @@ def sam_automatic_mask_generation(
     masks_np = np.stack([mask.cpu().numpy() for mask in masks])
     if masks_np.dtype != np.bool_:
         masks_np = masks_np.astype(bool)
-    return Sam3AutomaticMaskGenerationResponse(
+    return SamForSegmentationResponse(
         scores=output['scores'].cpu().numpy().reshape(-1),
         boxes=output['bounding_boxes'].cpu().numpy().astype(np.float32),
         masks=masks_np,
