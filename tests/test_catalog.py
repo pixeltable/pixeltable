@@ -1,4 +1,3 @@
-from textwrap import dedent
 from typing import Callable
 
 import psycopg
@@ -304,28 +303,35 @@ class TestCatalog:
         pxt.create_dir(p('test_dir'))
         pxt.create_dir(p('test_dir/subdir'))
 
-        t = pxt.create_table(p('test_dir/tbl'), {'a': pxt.Int})
+        tbl_name = p('test_dir/tbl')
+        t = pxt.create_table(tbl_name, {'a': pxt.Int})
         t.insert(a=3)
-        v1 = pxt.create_view(p('view1'), t)
+        v1_name = p('view1')
+        v1 = pxt.create_view(v1_name, t)
         t.insert(a=5)
         v1.add_column(b=pxt.Int)
         _s1 = pxt.create_snapshot(p('test_dir/snapshot1'), v1)
         t.insert(a=22)
-        v2 = pxt.create_view(p('test_dir/view2'), t)
+        v2_name = p('test_dir/view2')
+        v2 = pxt.create_view(v2_name, t)
         _s2 = pxt.create_snapshot(p('test_dir/snapshot2'), v2, additional_columns={'c': pxt.String})
         t.insert(a=4171780)
         df = pxt.ls(p('test_dir'))
-        print(repr(df))
-        assert dedent(repr(df)) == dedent(
-            '''
-                 Name      Kind Version              Base
-            snapshot1  snapshot                   view1:2
-            snapshot2  snapshot          test_dir/view2:0
-               subdir       dir                          |
-                  tbl     table       4                  |
-                view2      view       1      test_dir/tbl
-            '''
-        ).strip('\n').replace('|', '')  # fmt: skip
+        # a hosted (proxy) table's Base shows its full catalog uri, which widens the column vs local; compare row
+        # tokens so the assertion checks content (including the uris) independent of column padding.
+        expected = f"""
+            Name Kind Version Base
+            snapshot1 snapshot {v1_name}:2
+            snapshot2 snapshot {v2_name}:0
+            subdir dir
+            tbl table 4
+            view2 view 1 {tbl_name}
+        """
+
+        def tokens(s: str) -> list[list[str]]:
+            return [line.split() for line in s.splitlines() if line.split()]
+
+        assert tokens(repr(df)) == tokens(expected)
 
     def test_cross_type_replacement(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.

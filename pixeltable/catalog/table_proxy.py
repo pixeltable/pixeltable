@@ -65,6 +65,10 @@ class TableProxy(Table):
             self._local.tbl_md_path = md_path
         return md_path
 
+    @property
+    def _is_anon_snapshot(self) -> bool:
+        return self._effective_version is not None
+
     def _fetch_md_path(self) -> TableMdPath:
         # reach the table by id; the leaf's effective version pins the right version for a snapshot proxy
         md = self._client.send_request(
@@ -72,12 +76,10 @@ class TableProxy(Table):
         )
         if md is None:
             raise excs.table_was_dropped(self._id)
-        return TableMdPath.from_md(md, self._effective_version, self._catalog_uri)
+        return TableMdPath.from_md(md, self._is_anon_snapshot, self._catalog_uri)
 
     def _refresh_md_path(self, md: list[TableVersionMd]) -> None:
-        self._local.tbl_md_path = TableMdPath.from_md(
-            md, effective_version=self._effective_version, catalog_uri=self._catalog_uri
-        )
+        self._local.tbl_md_path = TableMdPath.from_md(md, self._is_anon_snapshot, catalog_uri=self._catalog_uri)
 
     def _snapshot_key(self) -> TablePathKey:
         # Bound to the proxy (stable), so it re-reads _tbl_md_path on every call. refresh() swaps in a new

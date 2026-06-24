@@ -1682,7 +1682,7 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    # TODO: fix (proxy)
+    # TODO: fix (proxy): a column ref into a base table can't be evaluated in a snapshot-of-view query over proxy
     # def test_base_table_col_refs(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
     def test_base_table_col_refs(self, test_tbl: pxt.Table) -> None:
         # p = make_catalog_path

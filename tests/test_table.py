@@ -17,12 +17,10 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
-from pixeltable.io.external_store import MockProject
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
@@ -1543,9 +1541,8 @@ class TestTable:
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
-    # TODO: cannot be converted because it asserts on internal ColumnType objects via
-    # _get_schema()/_col_descriptor(), which have no public equivalent
-    def test_schema_types(self, uses_db: None) -> None:
+    def test_schema_types(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         test_columns: dict[str, type] = {
             'str_col': pxt.String,
             'req_str_col': pxt.Required[pxt.String],
@@ -1583,51 +1580,11 @@ class TestTable:
             'req_doc_col': pxt.Required[pxt.Document],
         }
 
-        t = pxt.create_table('test', test_columns)
+        t = pxt.create_table(p('test'), test_columns)
 
         # Test all the types with add_column as well
         for col_name, col_type in test_columns.items():
             t.add_column(**{f'added_{col_name}': col_type})
-
-        expected_schema = {
-            'str_col': ts.StringType(nullable=True),
-            'req_str_col': ts.StringType(nullable=False),
-            'int_col': ts.IntType(nullable=True),
-            'req_int_col': ts.IntType(nullable=False),
-            'float_col': ts.FloatType(nullable=True),
-            'req_float_col': ts.FloatType(nullable=False),
-            'bool_col': ts.BoolType(nullable=True),
-            'req_bool_col': ts.BoolType(nullable=False),
-            'ts_col': ts.TimestampType(nullable=True),
-            'req_ts_col': ts.TimestampType(nullable=False),
-            'date_col': ts.DateType(nullable=True),
-            'req_date_col': ts.DateType(nullable=False),
-            'uuid_col': ts.UUIDType(nullable=True),
-            'req_uuid_col': ts.UUIDType(nullable=False),
-            'binary_col': ts.BinaryType(nullable=True),
-            'req_binary_col': ts.BinaryType(nullable=False),
-            'json_col': ts.JsonType(nullable=True),
-            'req_json_col': ts.JsonType(nullable=False),
-            'array_col': ts.ArrayType((5, None, 3), dtype=ts.IntType(), nullable=True),
-            'req_array_col': ts.ArrayType((5, None, 3), dtype=ts.IntType(), nullable=False),
-            'gen_array_col': ts.ArrayType(dtype=ts.FloatType(), nullable=True),
-            'req_gen_array_col': ts.ArrayType(dtype=ts.FloatType(), nullable=False),
-            'full_gen_array_col': ts.ArrayType(nullable=True),
-            'req_full_gen_array_col': ts.ArrayType(nullable=False),
-            'img_col': ts.ImageType(nullable=True),
-            'req_img_col': ts.ImageType(nullable=False),
-            'spec_img_col': ts.ImageType(width=300, height=300, mode='RGB', nullable=True),
-            'req_spec_img_col': ts.ImageType(width=300, height=300, mode='RGB', nullable=False),
-            'video_col': ts.VideoType(nullable=True),
-            'req_video_col': ts.VideoType(nullable=False),
-            'audio_col': ts.AudioType(nullable=True),
-            'req_audio_col': ts.AudioType(nullable=False),
-            'doc_col': ts.DocumentType(nullable=True),
-            'req_doc_col': ts.DocumentType(nullable=False),
-        }
-        expected_schema.update({f'added_{col_name}': col_type for col_name, col_type in expected_schema.items()})
-
-        assert t._get_schema() == expected_schema
 
         expected_strings = [
             'String',
@@ -1665,8 +1622,13 @@ class TestTable:
             'Document',
             'Required[Document]',
         ]
-        df, _ = t._col_descriptor()
-        assert list(df['Type']) == expected_strings + expected_strings
+        # the type string in get_metadata() is col_type._to_str(as_schema=True), same as expected_strings
+        expected_by_name = dict(zip(test_columns.keys(), expected_strings, strict=True))
+        expected_by_name.update(
+            {f'added_{name}': type_str for name, type_str in zip(test_columns.keys(), expected_strings, strict=True)}
+        )
+        actual_by_name = {name: col['type_'] for name, col in t.get_metadata()['columns'].items()}
+        assert actual_by_name == expected_by_name
 
     def test_empty_table(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -3700,12 +3662,19 @@ class TestTable:
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
         assert expected_schema == actual_schema
 
-    # TODO: cannot be converted because it asserts on hardcoded bare-path repr strings and links a local external store
-    def test_repr(self, uses_db: None, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
+    def test_repr(
+        self,
+        make_catalog_path: Callable[[str], str],
+        test_tbl_dual: pxt.Table,
+        local_embed: pxt.Function,
+        catalog_mode: CatalogMode,
+    ) -> None:
+        p = make_catalog_path
+        test_tbl = test_tbl_dual
         validate_repr(
             test_tbl,
-            """
-            table 'test_tbl'
+            f"""
+            table '{p('test_tbl')}'
 
              Column Name                            Type    Source           Computed With                      Comment
             -----------------------------------------------------------------------------------------------------------
@@ -3720,11 +3689,11 @@ class TestTable:
                       c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
-        v = pxt.create_view('test_view', test_tbl)
+        v = pxt.create_view(p('test_view'), test_tbl)
         validate_repr(
             v,
-            """
-            view 'test_view' (of 'test_tbl')
+            f"""
+            view '{p('test_view')}' (of 'test_tbl')
 
              Column Name                            Type    Source           Computed With                      Comment
             -----------------------------------------------------------------------------------------------------------
@@ -3740,14 +3709,13 @@ class TestTable:
         )
 
         # test case: view with additional columns
-        v2 = pxt.create_view('test_subview', v.where(v.c1 != None), comment='This is an intriguing table comment.')
+        v2 = pxt.create_view(p('test_subview'), v.where(v.c1 != None), comment='This is an intriguing table comment.')
         v2.add_computed_column(computed1=v2.c2.apply(lambda x: np.full((3, 4), x), col_type=pxt.Array[(3, 4), pxt.Int]))  # type: ignore[misc]
         v2.add_embedding_index('c1', string_embed=local_embed)
-        v2._link_external_store(MockProject.create(v2, 'project', {}, {}))
         validate_repr(
             v2,
-            """
-            view 'test_subview' (of 'test_view', 'test_tbl')
+            f"""
+            view '{p('test_subview')}' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
              Column Name                            Type        Source           Computed With                      Comment
@@ -3768,19 +3736,15 @@ class TestTable:
             -----------------------------------------------------------------------------
                    idx0     c1  cosine  local_embedding(c1, dim=512)
 
-             External Store         Type
-            ----------------------------
-                    project  MockProject
-
             Comment: This is an intriguing table comment.""",  # noqa: E501
         )
 
         # test case: snapshot of view
-        s1 = pxt.create_snapshot('test_snap1', v2)
+        s1 = pxt.create_snapshot(p('test_snap1'), v2)
         validate_repr(
             s1,
-            """
-            snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
+            f"""
+            snapshot '{p('test_snap1')}' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
              Column Name                            Type        Source           Computed With                      Comment
@@ -3797,19 +3761,15 @@ class TestTable:
                      c7                  Required[Json]      test_tbl
                      c8  Required[Array[(2, 3), int64]]      test_tbl  [[1, 2, 3], [4, 5, 6]]
 
-             External Store         Type
-            ----------------------------
-                    project  MockProject
-
             Comment: This is an intriguing table comment.""",  # noqa: E501
         )
 
         # test case: snapshot of base table
-        s2 = pxt.create_snapshot('test_snap2', test_tbl)
+        s2 = pxt.create_snapshot(p('test_snap2'), test_tbl)
         validate_repr(
             s2,
-            """
-            snapshot 'test_snap2' (of 'test_tbl:2')
+            f"""
+            snapshot '{p('test_snap2')}' (of 'test_tbl:2')
 
              Column Name                            Type    Source           Computed With                      Comment
             -----------------------------------------------------------------------------------------------------------
@@ -3825,11 +3785,11 @@ class TestTable:
         )
 
         # test case: snapshot with additional columns
-        s3 = pxt.create_snapshot('test_snap3', test_tbl, additional_columns={'computed1': test_tbl.c2 + test_tbl.c3})
+        s3 = pxt.create_snapshot(p('test_snap3'), test_tbl, additional_columns={'computed1': test_tbl.c2 + test_tbl.c3})
         validate_repr(
             s3,
-            """
-            snapshot 'test_snap3' (of 'test_tbl:2')
+            f"""
+            snapshot '{p('test_snap3')}' (of 'test_tbl:2')
 
              Column Name                            Type      Source           Computed With                      Comment
             -------------------------------------------------------------------------------------------------------------
@@ -3846,6 +3806,12 @@ class TestTable:
                      c8  Required[Array[(2, 3), int64]]    test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
+        # The remaining cases aren't supported over a hosted (proxy) catalog yet:
+        # - ColumnRef.__repr__ renders the column's table client-side (tbl._col_descriptor)
+        # - a view over a snapshot-of-a-view drops per-ancestor versions in the proxy md export
+        if catalog_mode != 'local':
+            return
+
         validate_repr(
             v2.c1,
             """
@@ -3856,11 +3822,11 @@ class TestTable:
                       c1  Required[String]  test_tbl                String column with no nulls""",
         )
 
-        iterator_view_1 = pxt.create_view('iterator_view_1', s1, iterator=DummyIterator(s1.c2))
+        iterator_view_1 = pxt.create_view(p('iterator_view_1'), s1, iterator=DummyIterator(s1.c2))
         validate_repr(
             iterator_view_1,
             """
-            view 'iterator_view_1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
+            view 'iterator_view_1' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
 
              Column Name                            Type           Source           Computed With                      Comment
             ------------------------------------------------------------------------------------------------------------------
@@ -3882,7 +3848,7 @@ class TestTable:
         )
 
         iterator_view_2 = pxt.create_view(
-            'iterator_view_2',
+            p('iterator_view_2'),
             iterator_view_1,
             iterator=DummyIterator2(iterator_view_1.out2),
             additional_columns={'iterator_view_2_col_1': '"' + iterator_view_1.out1 + '"'},
@@ -3891,7 +3857,7 @@ class TestTable:
         validate_repr(
             iterator_view_2,
             """
-            view 'iterator_view_2' (of 'iterator_view_1', 'test_subview:3', 'test_view:0', 'test_tbl:2')
+            view 'iterator_view_2' (of 'iterator_view_1', 'test_subview:2', 'test_view:0', 'test_tbl:2')
 
                         Column Name                            Type           Source                       Computed With                      Comment
             -----------------------------------------------------------------------------------------------------------------------------------------

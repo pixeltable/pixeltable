@@ -35,19 +35,14 @@ class CatalogProxy(CatalogBase):
         self._catalog_uri = catalog_uri
         self._client = client
 
-    def _make_table(self, md: list[TableVersionMd], is_snapshot: bool) -> Table:
+    def _make_table(self, md: list[TableVersionMd], is_anon_snapshot: bool) -> Table:
         tbl_id = UUID(md[0].tbl_md.tbl_id)
         Env.get().record_tbl_catalog_uri(tbl_id, self._catalog_uri)
 
-        # The external version pin applies only to an anonymous snapshot (a base/view pinned at a version via
-        # get_table('x:n')); a named snapshot carries no external pin, since from_md() resolves its own version
-        # (and drops the leaf for a pure snapshot, anchoring the path to the base).
-        is_anonymous_snapshot = is_snapshot and not md[0].tbl_md.is_snapshot
-        effective_version = md[0].version_md.version if is_anonymous_snapshot else None
-        tbl_md_path = TableMdPath.from_md(md, effective_version=effective_version, catalog_uri=self._catalog_uri)
+        tbl_md_path = TableMdPath.from_md(md, is_anon_snapshot=is_anon_snapshot, catalog_uri=self._catalog_uri)
 
-        if md[0].tbl_md.view_md is not None:
-            return ViewProxy(tbl_id, effective_version, tbl_md_path, self._client)
+        if md[0].tbl_md.view_md is not None or is_anon_snapshot:
+            return ViewProxy(tbl_id, is_anon_snapshot, tbl_md_path, self._client)
         else:
             return InsertableTableProxy(tbl_id, tbl_md_path, self._client)
 
@@ -80,7 +75,7 @@ class CatalogProxy(CatalogBase):
         }
         md, was_created = self._client.send_request('CatalogBase', 'create_table', args)
         # effective_version=None: this is a live table
-        return self._make_table(md, is_snapshot=False), was_created
+        return self._make_table(md, is_anon_snapshot=False), was_created
 
     def create_view(
         self,
@@ -114,14 +109,16 @@ class CatalogProxy(CatalogBase):
             'if_exists': if_exists,
         }
         md = self._client.send_request('CatalogBase', 'create_view', args)
-        return self._make_table(md, is_snapshot=False)
+        return self._make_table(md, is_anon_snapshot=False)
 
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
         md = self._client.send_request('CatalogBase', 'get_table', {'path': path, 'if_not_exists': if_not_exists})
+        if md is None:
+            return None
         if path.version is not None:
-            # we requested an anonymous snapshot
-            assert path.version == md.version_md.version
-        return None if md is None else self._make_table(md, is_snapshot=path.version is not None)
+            # we requested an anonymous snapshot; md is leaf-first, so the snapshot's version is md[0]'s
+            assert path.version == md[0].version_md.version
+        return self._make_table(md, is_anon_snapshot=path.version is not None)
 
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
@@ -131,7 +128,7 @@ class CatalogProxy(CatalogBase):
             'get_table_by_id',
             {'tbl_id': tbl_id, 'version': version, 'ignore_if_dropped': ignore_if_dropped},
         )
-        return None if md is None else self._make_table(md, is_snapshot=version is not None)
+        return None if md is None else self._make_table(md, is_anon_snapshot=version is not None)
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         self._client.send_request(

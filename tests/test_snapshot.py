@@ -272,13 +272,9 @@ class TestSnapshot:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot create default indexes on a snapshot'):
             _ = pxt.create_view(p('default_snap'), tbl, is_snapshot=True, create_default_idxs=True)
 
-    # TODO: fix (proxy): anonymous version-path get_table over proxy
-    # @pytest.mark.parametrize('anonymous', [True, False])
-    # def test_views_of_snapshots(self, anonymous: bool, make_catalog_path: Callable[[str], str]) -> None:
     @pytest.mark.parametrize('anonymous', [True, False])
-    def test_views_of_snapshots(self, anonymous: bool, make_local_path: Callable[[str], str]) -> None:
-        # p = make_catalog_path
-        p = make_local_path
+    def test_views_of_snapshots(self, anonymous: bool, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))

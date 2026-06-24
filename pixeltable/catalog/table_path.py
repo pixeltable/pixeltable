@@ -516,25 +516,16 @@ class TableMdPath(TablePath):
             )
 
     @classmethod
-    def from_md(cls, md: list[TableVersionMd], effective_version: int | None, catalog_uri: Path) -> TableMdPath:
-        """Build from an exported metadata list (leaf first).
-
-        Per-element effective versions are read from the leaf's base_versions (the persisted ancestor
-        pinning), mirroring Catalog._get_table: a snapshot is pinned at version 0, a live table/view is
-        unpinned (None), and each ancestor takes the version recorded in base_versions. When version is
-        given (a get_table_by_id() at a specific version), it pins the leaf at that version instead, so a
-        base table loaded at a historical version round-trips with the right effective version.
-
-        A pure snapshot has no physical table of its own; its queryable path is the base(s), so the
-        snapshot md is dropped and the base leaf is pinned at the recorded version (mirrors
-        Catalog._load_tbl). A pure snapshot is always a named schema object, never an anonymous version
-        pin, so the caller's effective_version doesn't apply.
-        """
+    def from_md(cls, md: list[TableVersionMd], is_anon_snapshot: bool, catalog_uri: Path) -> TableMdPath:
+        """Build from an exported metadata list (leaf first)."""
         if md[0].tbl_md.is_pure_snapshot:
-            md = md[1:]
-            effective_version = md[0].version_md.version
-        elif effective_version is None and md[0].tbl_md.is_snapshot:
-            effective_version = md[0].version_md.version
+            assert md[0].tbl_md.view_md is not None
+            snapshot_base_versions = md[0].tbl_md.view_md.base_versions
+            # we exclude md[0] from the path: a pure snapshot has no physical table
+            return cls(md[1:], [version for _, version in snapshot_base_versions], catalog_uri)
+
+        is_snapshot = is_anon_snapshot or md[0].tbl_md.is_snapshot
+        effective_version = md[0].version_md.version if is_snapshot else None
         effective_versions: list[int | None] = [effective_version]
         view_md = md[0].tbl_md.view_md
         if view_md is not None:

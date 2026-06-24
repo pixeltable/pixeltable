@@ -21,12 +21,7 @@ base_metadata = Base.metadata
 T = TypeVar('T')
 
 
-# Serializing/deserializing md (which can nest deeply, e.g. a chained view's metadata) is on the hot path
-# for every proxy dispatch and every catalog load. pydantic_core (compiled) is ~10x faster than a
-# hand-rolled recursion or dataclasses.asdict (which deep-copies every leaf); the TypeAdapter for a type is
-# built once and reused. dump_python(mode='json') matches dataclasses.asdict()'s output once JSON-encoded
-# (the on-the-wire and stored form), and validate_python() reads both the int-keyed (asdict) and string-keyed
-# (post-JSON) forms, so this is a drop-in for both the proxy codec and DB persistence.
+# we use pydantic TypeAdapters for fast serialization/deserialization of metadata and cache them here
 _md_adapters: dict[Any, TypeAdapter] = {}
 
 
@@ -44,6 +39,7 @@ def md_from_dict(type_: type[T], data: Any) -> T:
 
 def md_to_dict(obj: Any) -> dict:
     """Serialize an md dataclass instance (with nested dataclasses) to a JSON-able dict."""
+    # dump_python(mode='json') matches dataclasses.asdict()'s output
     return _md_adapter(type(obj)).dump_python(obj, mode='json')
 
 
