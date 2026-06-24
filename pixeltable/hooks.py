@@ -36,7 +36,7 @@ TRACE = 5
 DEBUG = 10
 INFO = 20
 
-Attrs = Union[dict[str, Any], Callable[[], dict[str, Any]], None]
+HookAttrs = dict[str, Any] | Callable[[], dict[str, Any]] | None
 
 
 class Subscriber:
@@ -137,7 +137,7 @@ def _log_subscriber_error(subscriber: Subscriber, method: str, exc: Exception) -
     _logger.log(level, f'instrumentation subscriber {type(subscriber).__name__}.{method}() failed: {exc!r}')
 
 
-def _resolve_attrs(attrs: Attrs) -> dict[str, Any] | None:
+def _resolve_attrs(attrs: HookAttrs) -> dict[str, Any] | None:
     if not callable(attrs):
         return attrs
     try:
@@ -148,7 +148,7 @@ def _resolve_attrs(attrs: Attrs) -> dict[str, Any] | None:
 
 
 def span_start(
-    name: str, *, level: int = INFO, parent: AnySpanHandle | None = None, set_current: bool = False, attrs: Attrs = None
+    name: str, *, level: int = INFO, parent: AnySpanHandle | None = None, set_current: bool = False, attrs: HookAttrs = None
 ) -> AnySpanHandle | None:
     subs = _SUBSCRIBERS
     if not subs:
@@ -179,7 +179,7 @@ def span_start(
     return handle
 
 
-def span_end(handle: AnySpanHandle | None, *, exc: BaseException | None = None, attrs: Attrs = None) -> None:
+def span_end(handle: AnySpanHandle | None, *, exc: BaseException | None = None, attrs: HookAttrs = None) -> None:
     if not isinstance(handle, SpanHandle):
         return
     if handle.cv_token is not None:
@@ -211,7 +211,7 @@ def add_attrs(handle: AnySpanHandle | None, **attrs: Any) -> None:
     handle.pending_attrs.update({f'pxt.{k}': v for k, v in attrs.items() if v is not None})
 
 
-def emit(name: str, attrs: Attrs = None) -> None:
+def emit(name: str, attrs: HookAttrs = None) -> None:
     subs = _SUBSCRIBERS
     if not subs:
         return
