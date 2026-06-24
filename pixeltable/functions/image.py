@@ -560,7 +560,7 @@ class tile_iterator(pxt.PxtIterator[Tile]):
             )
 
 
-@pxt.uda
+@pxt.uda(requires_order_by=True)
 class stitch_tiles(pxt.Aggregator):
     """
     Reconstructs a single image from the tiles produced by [`tile_iterator`](pixeltable.functions.image.tile_iterator),
