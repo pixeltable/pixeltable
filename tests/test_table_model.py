@@ -291,7 +291,12 @@ class TestTableModel:
             case 'model':
                 spec = ExampleTableModel
             case 'query':
-                spec = ExampleTableModel.select(ExampleTableModel.value, ExampleTableModel.img).where(
+                spec = ExampleTableModel.select(
+                    ExampleTableModel.value,
+                    ExampleTableModel.img,
+                    ExampleTableModel.value + 1,
+                    plusone=(ExampleTableModel.value + 1),
+                ).where(
                     ExampleTableModel.value > 0.5  # type: ignore[arg-type]
                 )
 
@@ -300,7 +305,11 @@ class TestTableModel:
             view_col_2 = view_col_1.rotate(90)
             view_col_3 = ExampleTableModel.img.rotate(90)  # Also try dereferencing a base table column
 
-            # view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
+            if spec_type == 'query':
+                view_col_4 = plusone + 5  # type: ignore[name-defined]  # Deference a column from the select list
+
+            view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
+            view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
 
         match spec_type:
             case 'model':
@@ -326,11 +335,14 @@ class TestTableModel:
             _ = Column._invalid
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='`name` must be a valid Pixeltable identifier'):
+
             class BadTableName(pxt.TableModel, name='invalid! table@name'):
                 pass
 
         # `__base_table__` is not allowed on a TableModel.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='`BadBaseTable` must subclass `ViewModel` to specify a `base`.'):
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match='`BadBaseTable` must subclass `ViewModel` to specify a `base`.'
+        ):
 
             class BadBaseTable(pxt.TableModel, name='bad_base_table', base='unused'):
                 pass
