@@ -210,16 +210,16 @@ class TestHuggingface:
         assert len(result['segments_info']) > 0
         assert 'label_text' in result['segments_info'][0]
 
-    def test_sam_for_segmentation(self, uses_db: None) -> None:
+    def test_sam3_for_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from huggingface_hub import get_token
 
         if get_token() is None:
             pytest.skip('Skipping SAM 3 test: facebook/sam3 is gated and no Hugging Face token is configured')
-        from pixeltable.functions.huggingface import sam_for_segmentation
+        from pixeltable.functions.huggingface import sam3_for_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
-        t.add_computed_column(seg=sam_for_segmentation(t.img, text='orange', threshold=0.3))
+        t.add_computed_column(seg=sam3_for_segmentation(t.img, text='orange', threshold=0.3))
         status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
         assert status.num_excs == 0
@@ -283,33 +283,33 @@ class TestHuggingface:
         for score in result['scores']:
             assert 0.0 <= score <= 1.0
 
-    def test_sam_for_segmentation_invalid_args(self, uses_db: None) -> None:
+    def test_sam3_for_segmentation_invalid_args(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
-        from pixeltable.functions.huggingface import sam_for_segmentation
+        from pixeltable.functions.huggingface import sam3_for_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
         t.insert(img=SAMPLE_IMAGE_URL)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At least one of'):
-            t.add_computed_column(seg=sam_for_segmentation(t.img))
+            t.add_computed_column(seg=sam3_for_segmentation(t.img))
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='input_boxes_labels'):
             t.add_computed_column(
-                seg=sam_for_segmentation(t.img, input_boxes=[[1.0, 2.0, 3.0, 4.0]], input_boxes_labels=[1, 0])
+                seg=sam3_for_segmentation(t.img, input_boxes=[[1.0, 2.0, 3.0, 4.0]], input_boxes_labels=[1, 0])
             )
 
-    def test_sam_for_video_segmentation(self, uses_db: None) -> None:
+    def test_sam3_for_video_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from huggingface_hub import get_token
 
         if get_token() is None:
             pytest.skip('Skipping SAM 3 test: facebook/sam3 is gated and no Hugging Face token is configured')
-        from pixeltable.functions.huggingface import sam_for_video_segmentation
+        from pixeltable.functions.huggingface import sam3_for_video_segmentation
 
         video_path = next(f for f in get_video_files() if f.endswith('bangkok_half_res.mp4'))
         t = pxt.create_table('test_tbl', {'video': pxt.Video})
         v = pxt.create_view(
-            'test_view', t, iterator=sam_for_video_segmentation(t.video, text=['car'], max_frame_num_to_track=2)
+            'test_view', t, iterator=sam3_for_video_segmentation(t.video, text=['car'], max_frame_num_to_track=2)
         )
         validate_update_status(t.insert(video=video_path), expected_rows=4)
 

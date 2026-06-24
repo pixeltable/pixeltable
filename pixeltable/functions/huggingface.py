@@ -385,7 +385,7 @@ class Sam3ForSegmentationResponse(TypedDict):
 
 
 @pxt.udf
-def sam_for_segmentation(
+def sam3_for_segmentation(
     image: PIL.Image.Image,
     *,
     model_id: str = 'facebook/sam3',
@@ -438,12 +438,12 @@ def sam_for_segmentation(
         Add a computed column that segments every "cat" in an existing Pixeltable column `image` of the
         table `tbl`:
 
-        >>> tbl.add_computed_column(seg=sam_for_segmentation(tbl.image, text='cat'))
+        >>> tbl.add_computed_column(seg=sam3_for_segmentation(tbl.image, text='cat'))
 
         Use a bounding-box prompt to segment a specific object:
 
         >>> tbl.add_computed_column(
-        ...     seg=sam_for_segmentation(
+        ...     seg=sam3_for_segmentation(
         ...         tbl.image, input_boxes=[[100, 150, 500, 450]]
         ...     )
         ... )
@@ -451,7 +451,7 @@ def sam_for_segmentation(
         Combine a text prompt with a negative box to exclude a region:
 
         >>> tbl.add_computed_column(
-        ...     seg=sam_for_segmentation(
+        ...     seg=sam3_for_segmentation(
         ...         tbl.image,
         ...         text='handle',
         ...         input_boxes=[[40, 183, 318, 204]],
@@ -467,7 +467,7 @@ def sam_for_segmentation(
     if text is None and input_boxes is None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            'At least one of `text` or `input_boxes` must be provided to sam_for_segmentation',
+            'At least one of `text` or `input_boxes` must be provided to sam3_for_segmentation',
         )
 
     if input_boxes_labels is not None:
@@ -540,7 +540,7 @@ def sam_automatic_mask_generation(
     be a reference to a pretrained
     [SAM 3 Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3`.
 
-    Unlike [`sam_for_segmentation`](pixeltable.functions.huggingface.sam_for_segmentation), which requires a concept
+    Unlike [`sam3_for_segmentation`](pixeltable.functions.huggingface.sam3_for_segmentation), which requires a concept
     prompt, this samples a grid of points across the image and returns a binary mask for every distinct object it
     finds (the "segment everything" mode of SAM 1 and SAM 2). Masks are filtered by predicted quality and
     de-duplicated. The masks are class-agnostic: no labels or persistent object ids are produced, since the model
@@ -630,10 +630,10 @@ class Sam3VideoSegmentationFrame(TypedDict):
 
 
 @pxt.iterator(unstored_cols=['frame'])
-class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
+class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
     """
     Tracks objects across the frames of a video using SAM 3 (Segment Anything Model 3) Promptable Concept
-    Segmentation. This is the video counterpart of `sam_for_segmentation`: given a concept prompt, it detects
+    Segmentation. This is the video counterpart of `sam3_for_segmentation`: given a concept prompt, it detects
     every matching object and follows each instance across frames, assigning a stable `object_id` that is
     preserved as the object moves, is occluded, and reappears.
 
@@ -688,7 +688,7 @@ class sam_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         >>> v = pxt.create_view(
         ...     'tracked',
         ...     videos,
-        ...     iterator=sam_for_video_segmentation(videos.video, text=['person']),
+        ...     iterator=sam3_for_video_segmentation(videos.video, text=['person']),
         ... )
         >>> from pixeltable.functions.vision import overlay_segmentation
         >>> from pixeltable.functions.video import make_video
