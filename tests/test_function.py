@@ -682,15 +682,12 @@ class TestFunction:
             pxt.Json[[{'c': pxt.Int | None}]],  # type: ignore[misc]
         )
 
-    # TODO: fix (proxy)
-    # def test_query_udf_after_drop(self, make_catalog_path: Callable[[str], str]) -> None:
-    def test_query_udf_after_drop(self, make_local_path: Callable[[str], str]) -> None:
+    def test_query_udf_after_drop(self, make_catalog_path: Callable[[str], str]) -> None:
         """Stored computed columns whose value_expr contains a @pxt.query UDF must remain loadable
         after the UDF's referenced column or table is dropped. The reload path must deserialize the
         stored Query without raising; affected columns become invalid, but the host table and views over it must still
         load."""
-        # p = make_catalog_path
-        p = make_local_path
+        p = make_catalog_path
         src = pxt.create_table(p('src'), {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'extra': pxt.Int})
         validate_update_status(src.insert([{'id': i, 'val': i * 10, 'extra': i} for i in range(5)]), expected_rows=5)
 
@@ -738,9 +735,14 @@ class TestFunction:
             # materialized values were stored on host/host_view at insert time and survive drops of src
             assert list(host.head()) == [expected_host_row]
             assert list(host_view.head()) == [expected_view_row]
+
             # new inserts fail because at least one computed column's UDF can no longer be evaluated
-            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='currently invalid'):
+            # - local catalog: marks the column invalid when the catalog reloads and rejects the insert
+            # - proxy: surfaces the dropped dependency at insert time
+            with pytest.raises(pxt.Error) as exc_info:
                 host.insert([{'threshold': 30}])
+            msg = str(exc_info.value)
+            assert 'currently invalid' in msg or 'was dropped' in msg, msg
 
         # phase 1: drop a column referenced by one of the UDFs; src itself remains
         src.drop_column('extra')

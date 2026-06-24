@@ -324,11 +324,48 @@ class TestSnapshot:
         s = pxt.get_table(p('s'))
         verify(v1, v2, s)
 
-    # TODO: fix (proxy): a base column dropped after the snapshot is still visible in the view path over proxy
-    # def test_multiple_snapshot_paths(self, make_catalog_path: Callable[[str], str]) -> None:
-    def test_multiple_snapshot_paths(self, make_local_path: Callable[[str], str]) -> None:
-        # p = make_catalog_path
-        p = make_local_path
+    def test_snapshot_of_live_view(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        # A snapshot of a live view of a live base table pins both the view and its base table: inserts, updates,
+        # and deletes on the base table flow through to the live view but leave the snapshot's rows and its
+        # view-computed column unchanged.
+        p = make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'v': pxt.Int})
+        validate_update_status(t.insert({'id': i, 'v': i} for i in range(5)), expected_rows=5)
+        v = pxt.create_view(p('v'), t, additional_columns={'doubled': t.v * 2})
+        snap = pxt.create_snapshot(p('snap'), v)
+
+        def verify_snap(snap: pxt.Table) -> None:
+            assert snap.count() == 5
+            res = snap.select(snap.id, snap.v, snap.doubled).order_by(snap.id).collect()
+            assert res['id'] == [0, 1, 2, 3, 4]
+            assert res['v'] == [0, 1, 2, 3, 4]
+            assert res['doubled'] == [0, 2, 4, 6, 8]
+
+        verify_snap(snap)
+
+        # insert into the base table
+        validate_update_status(t.insert({'id': i, 'v': i} for i in range(5, 8)), expected_rows=6)  # 3 base + 3 view
+        assert t.count() == 8
+        assert v.count() == 8
+        verify_snap(snap)
+
+        # update the base column the view's computed column depends on
+        validate_update_status(t.update({'v': t.v + 100}))
+        assert v.select(v.doubled).order_by(v.id).collect()['doubled'] == [(i + 100) * 2 for i in range(8)]
+        verify_snap(snap)
+
+        # delete from the base table
+        validate_update_status(t.where(t.id >= 5).delete())
+        assert v.count() == 5
+        verify_snap(snap)
+
+        # the snapshot survives a metadata reload unchanged
+        _ = reload_tester.run_query(snap.select(snap.id, snap.v, snap.doubled).order_by(snap.id))
+        reload_tester.run_reload_test()
+        verify_snap(pxt.get_table(p('snap')))
+
+    def test_multiple_snapshot_paths(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = create_test_tbl(p('test_tbl'))
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
         orig_c3 = t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3']
@@ -344,20 +381,26 @@ class TestSnapshot:
         # s4 references different versions of t and v
         s4 = pxt.create_snapshot(p('s4'), v)
 
+        def assert_c4_inaccessible(tbl: pxt.Table) -> None:
+            # c4 was dropped from the base after this snapshot/view path was created. A local catalog detects this
+            # at attribute-access time; a proxy catalog tolerates stale metadata between operations and detects it
+            # at the next operation boundary (here, collect()). Either is acceptable.
+            try:
+                query = tbl.select(tbl.c4)
+            except AttributeError:
+                return
+            with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Column was dropped'):
+                query.collect()
+
         def validate(t: pxt.Table, v: pxt.Table, s1: pxt.Table, s2: pxt.Table, s3: pxt.Table, s4: pxt.Table) -> None:
             # c4 is only visible in s1
             _ = s1.c4
             assert np.all(s1.select(s1.c4).order_by(s1.c2).collect().to_pandas()['c4'] == c4)
-            with pytest.raises(AttributeError):
-                _ = t.select(t.c4).collect()
-            with pytest.raises(AttributeError):
-                _ = v.select(v.c4).collect()
-            with pytest.raises(AttributeError):
-                _ = s2.select(s2.c4).collect()
-            with pytest.raises(AttributeError):
-                _ = s3.select(s3.c4).collect()
-            with pytest.raises(AttributeError):
-                _ = s4.select(s4.c4).collect()
+            assert_c4_inaccessible(t)
+            assert_c4_inaccessible(v)
+            assert_c4_inaccessible(s2)
+            assert_c4_inaccessible(s3)
+            assert_c4_inaccessible(s4)
 
             # c3
             assert np.all(t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3'] == orig_c3 + 1)

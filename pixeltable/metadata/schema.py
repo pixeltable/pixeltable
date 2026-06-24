@@ -1,4 +1,5 @@
 import dataclasses
+import threading
 import uuid
 from enum import Enum
 from typing import Any, TypeVar
@@ -23,12 +24,17 @@ T = TypeVar('T')
 
 # we use pydantic TypeAdapters for fast serialization/deserialization of metadata and cache them here
 _md_adapters: dict[Any, TypeAdapter] = {}
+_md_adapters_lock = threading.Lock()
 
 
 def _md_adapter(type_: Any) -> TypeAdapter:
     adapter = _md_adapters.get(type_)
     if adapter is None:
-        adapter = _md_adapters[type_] = TypeAdapter(type_)
+        with _md_adapters_lock:
+            # re-check under the lock: another thread may have built it while we waited
+            adapter = _md_adapters.get(type_)
+            if adapter is None:
+                adapter = _md_adapters[type_] = TypeAdapter(type_)
     return adapter
 
 

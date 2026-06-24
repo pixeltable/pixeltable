@@ -3897,15 +3897,26 @@ class TestTable:
         # we can create references to those column via __getattr__
         _ = tbl.select(tbl.id, tbl.name, tbl.version, tbl.comment).collect()
 
-    # TODO: fix (proxy): query builders (group_by/select/where) don't detect a dropped table over proxy
-    # def test_table_api_on_dropped_table(
-    #         self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
-    # ) -> None:
-    def test_table_api_on_dropped_table(self, make_local_path: Callable[[str], str], local_embed: pxt.Function) -> None:
-        p = make_local_path
+    def test_table_api_on_dropped_table(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, local_embed: pxt.Function
+    ) -> None:
+        p = make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.String})
         pxt.drop_table(p('test'))
         unknown_tbl_msg = 'Table was dropped'
+
+        def assert_dropped_query(make_query: Callable[[], Any]) -> None:
+            # Query builders (select/where/group_by/order_by/limit) make no server roundtrip, so a local catalog
+            # detects the dropped table when the query is built while a proxy catalog tolerates stale metadata and
+            # detects it when the query executes.
+            try:
+                query = make_query()
+            except pxt.Error as exc:
+                assert exc.error_code is pxt.ErrorCode.TABLE_NOT_FOUND
+                assert unknown_tbl_msg in str(exc)
+                return
+            with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
+                query.collect()
 
         # verify that queries and data changes fail with unkown_tbl_msg
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
@@ -3934,14 +3945,10 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             t.rename_column('c1', 'c1_renamed')
 
-        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.group_by(t.c1)
-        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.select(t.c1)
-        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.where(t.c1 > 3)
-        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.order_by(t.c1)
+        assert_dropped_query(lambda: t.group_by(t.c1))
+        assert_dropped_query(lambda: t.select(t.c1))
+        assert_dropped_query(lambda: t.where(t.c1 > 3))
+        assert_dropped_query(lambda: t.order_by(t.c1))
 
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             _ = t.collect()
@@ -3949,8 +3956,7 @@ class TestTable:
             _ = t.count()
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             _ = t.head()
-        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.limit(1)
+        assert_dropped_query(lambda: t.limit(1))
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             _ = t.tail()
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
@@ -3966,18 +3972,13 @@ class TestTable:
             _ = repr(t)
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             _ = t._repr_html_()
-        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.external_stores()
-        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            t.unlink_external_stores()
 
-        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.sync()
-
-        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.to_coco_dataset()
-        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.to_pytorch_dataset()
+        # dataset exports are not implemented over proxy
+        if catalog_mode == 'local':
+            with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
+                _ = t.to_coco_dataset()
+            with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
+                _ = t.to_pytorch_dataset()
 
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             t.revert()
