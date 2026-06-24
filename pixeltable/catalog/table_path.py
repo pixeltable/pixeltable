@@ -524,8 +524,16 @@ class TableMdPath(TablePath):
         unpinned (None), and each ancestor takes the version recorded in base_versions. When version is
         given (a get_table_by_id() at a specific version), it pins the leaf at that version instead, so a
         base table loaded at a historical version round-trips with the right effective version.
+
+        A pure snapshot has no physical table of its own; its queryable path is the base(s), so the
+        snapshot md is dropped and the base leaf is pinned at the recorded version (mirrors
+        Catalog._load_tbl). A pure snapshot is always a named schema object, never an anonymous version
+        pin, so the caller's effective_version doesn't apply.
         """
-        if effective_version is None and md[0].tbl_md.is_snapshot:
+        if md[0].tbl_md.is_pure_snapshot:
+            md = md[1:]
+            effective_version = md[0].version_md.version
+        elif effective_version is None and md[0].tbl_md.is_snapshot:
             effective_version = md[0].version_md.version
         effective_versions: list[int | None] = [effective_version]
         view_md = md[0].tbl_md.view_md
@@ -553,7 +561,10 @@ class TableMdPath(TablePath):
         return self._effective_version
 
     def is_snapshot(self) -> bool:
-        return self.md.tbl_md.is_snapshot
+        # version-pinned ⟺ snapshot, matching the server's TableVersion.is_snapshot. Covers both a named
+        # snapshot (leaf pinned by from_md()) and an anonymous version pin; a pure snapshot's leaf is its
+        # base pinned at the snapshot version, so it reads as a snapshot here too.
+        return self._effective_version is not None
 
     def is_pure_snapshot(self) -> bool:
         return self.md.tbl_md.is_pure_snapshot

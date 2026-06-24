@@ -1,11 +1,10 @@
 import dataclasses
-import types
-import typing
 import uuid
 from enum import Enum
-from typing import Any, TypeVar, Union, get_type_hints
+from typing import Any, TypeVar
 
 import sqlalchemy as sql
+from pydantic import TypeAdapter
 from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm.decl_api import DeclarativeMeta
@@ -22,34 +21,30 @@ base_metadata = Base.metadata
 T = TypeVar('T')
 
 
-def md_from_dict(type_: type[T], data: Any) -> T:
-    """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
-    if dataclasses.is_dataclass(type_):
-        fieldtypes = get_type_hints(type_)
-        return type_(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
+# Serializing/deserializing md (which can nest deeply, e.g. a chained view's metadata) is on the hot path
+# for every proxy dispatch and every catalog load. pydantic_core (compiled) is ~10x faster than a
+# hand-rolled recursion or dataclasses.asdict (which deep-copies every leaf); the TypeAdapter for a type is
+# built once and reused. dump_python(mode='json') matches dataclasses.asdict()'s output once JSON-encoded
+# (the on-the-wire and stored form), and validate_python() reads both the int-keyed (asdict) and string-keyed
+# (post-JSON) forms, so this is a drop-in for both the proxy codec and DB persistence.
+_md_adapters: dict[Any, TypeAdapter] = {}
 
-    origin = typing.get_origin(type_)
-    if origin is not None:
-        type_args = typing.get_args(type_)
-        if (origin is Union or origin is types.UnionType) and type(None) in type_args:
-            # handling T | None, T | None
-            non_none_args = [arg for arg in type_args if arg is not type(None)]
-            assert len(non_none_args) == 1
-            return md_from_dict(non_none_args[0], data) if data is not None else None
-        elif origin is list:
-            return [md_from_dict(type_args[0], elem) for elem in data]  # type: ignore[return-value]
-        elif origin is dict:
-            key_type = type_args[0]
-            val_type = type_args[1]
-            return {key_type(key): md_from_dict(val_type, val) for key, val in data.items()}  # type: ignore[return-value]
-        elif origin is tuple:
-            return tuple(md_from_dict(arg_type, elem) for arg_type, elem in zip(type_args, data))  # type: ignore[return-value]
-        else:
-            raise AssertionError(origin)
-    elif isinstance(type_, type) and issubclass(type_, Enum):
-        return type_(data)
-    else:
-        return data
+
+def _md_adapter(type_: Any) -> TypeAdapter:
+    adapter = _md_adapters.get(type_)
+    if adapter is None:
+        adapter = _md_adapters[type_] = TypeAdapter(type_)
+    return adapter
+
+
+def md_from_dict(type_: type[T], data: Any) -> T:
+    """Re-instantiate a dataclass instance that contains nested dataclasses from a JSON-able dict."""
+    return _md_adapter(type_).validate_python(data)
+
+
+def md_to_dict(obj: Any) -> dict:
+    """Serialize an md dataclass instance (with nested dataclasses) to a JSON-able dict."""
+    return _md_adapter(type(obj)).dump_python(obj, mode='json')
 
 
 def md_dict_factory(data: list[tuple[str, Any]]) -> dict:

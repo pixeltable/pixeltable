@@ -58,7 +58,7 @@ class TableVersionMd:
         )
 
     def as_dict(self) -> dict:
-        return dataclasses.asdict(self, dict_factory=schema.md_dict_factory)
+        return schema.md_to_dict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TableVersionMd:

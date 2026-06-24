@@ -39,23 +39,12 @@ class CatalogProxy(CatalogBase):
         tbl_id = UUID(md[0].tbl_md.tbl_id)
         Env.get().record_tbl_catalog_uri(tbl_id, self._catalog_uri)
 
-        tbl_md_path: TableMdPath
-        effective_version: int | None
-        if md[0].tbl_md.is_pure_snapshot:
-            assert len(md) > 1
-            effective_version = None
-            # md[0] is only the snapshot metadata; there is no physical table to back it
-            tbl_md_path = TableMdPath.from_md(
-                md[1:], effective_version=md[1].version_md.version, catalog_uri=self._catalog_uri
-            )
-        elif md[0].tbl_md.is_snapshot:
-            effective_version = None
-            tbl_md_path = TableMdPath.from_md(
-                md, effective_version=md[0].version_md.version, catalog_uri=self._catalog_uri
-            )
-        else:
-            effective_version = md[0].version_md.version if is_snapshot else None
-            tbl_md_path = TableMdPath.from_md(md, effective_version=effective_version, catalog_uri=self._catalog_uri)
+        # The external version pin applies only to an anonymous snapshot (a base/view pinned at a version via
+        # get_table('x:n')); a named snapshot carries no external pin, since from_md() resolves its own version
+        # (and drops the leaf for a pure snapshot, anchoring the path to the base).
+        is_anonymous_snapshot = is_snapshot and not md[0].tbl_md.is_snapshot
+        effective_version = md[0].version_md.version if is_anonymous_snapshot else None
+        tbl_md_path = TableMdPath.from_md(md, effective_version=effective_version, catalog_uri=self._catalog_uri)
 
         if md[0].tbl_md.view_md is not None:
             return ViewProxy(tbl_id, effective_version, tbl_md_path, self._client)

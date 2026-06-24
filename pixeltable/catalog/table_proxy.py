@@ -79,13 +79,18 @@ class TableProxy(Table):
             md, effective_version=self._effective_version, catalog_uri=self._catalog_uri
         )
 
+    def _snapshot_key(self) -> TablePathKey:
+        # Bound to the proxy (stable), so it re-reads _tbl_md_path on every call. refresh() swaps in a new
+        # tbl_md_path during a mutation CAS retry; a key bound to the pre-refresh path would never converge.
+        return self._tbl_md_path.snapshot_key()
+
     def _dispatch(self, method: str, args: dict[str, Any]) -> Any:
         tbl_key = TableVersionKey(self._id, self._effective_version)
         return self._client.dispatch_table_method(
             method,
             args,
             path_key=TablePathKey((tbl_key,)),
-            get_snapshot_key=self._tbl_md_path.snapshot_key,
+            get_snapshot_key=self._snapshot_key,
             refresh=self._refresh_md_path,
         )
 

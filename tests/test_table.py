@@ -2521,7 +2521,6 @@ class TestTable:
     def test_update(
         self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]
     ) -> None:
-        p = make_catalog_path
         test_tbl = test_tbl_dual
         small_img_tbl = small_img_tbl_dual
         t = test_tbl
@@ -2777,7 +2776,6 @@ class TestTable:
     def test_delete(
         self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]
     ) -> None:
-        p = make_catalog_path
         test_tbl = test_tbl_dual
         small_img_tbl = small_img_tbl_dual
         t = test_tbl
