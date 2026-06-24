@@ -592,6 +592,7 @@ class stitch_tiles(pxt.Aggregator):
 
         >>> tiles.group_by(tiles.image).select(
         ...     stitched=stitch_tiles(
+        ...         tiles.pos,
         ...         tiles.overlay,
         ...         tiles.tile_box,
         ...         tiles.image.width,

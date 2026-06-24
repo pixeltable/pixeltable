@@ -109,7 +109,7 @@ class TestImage:
         # tiles are unstored, so the mode of the tile expression flows straight into stitch_tiles; the
         # stitched image must preserve it
         result = (
-            v.select(stitched=stitch_tiles(v.tile.convert(mode=mode), v.tile_box, v.image.width, v.image.height))
+            v.select(stitched=stitch_tiles(v.pos, v.tile.convert(mode=mode), v.tile_box, v.image.width, v.image.height))
             .group_by(t)
             .collect()
         )
@@ -120,22 +120,32 @@ class TestImage:
         assert stitched.tobytes() == image.tobytes()
 
     def test_stitch_tiles_edge_cases(self, uses_db: None) -> None:
-        tiles = pxt.create_table('tiles', {'tile': pxt.Image, 'tile_box': pxt.Json, 'width': pxt.Int})
+        tiles = pxt.create_table('tiles', {'pos': pxt.Int, 'tile': pxt.Image, 'tile_box': pxt.Json, 'width': pxt.Int})
         tiles.insert(
             [
-                {'tile': PIL.Image.new('RGB', (100, 100), (255, 0, 0)), 'tile_box': [0, 0, 100, 100], 'width': 200},
-                {'tile': PIL.Image.new('RGB', (100, 100), (0, 255, 0)), 'tile_box': [100, 0, 200, 100], 'width': 201},
+                {
+                    'pos': 0,
+                    'tile': PIL.Image.new('RGB', (100, 100), (255, 0, 0)),
+                    'tile_box': [0, 0, 100, 100],
+                    'width': 200,
+                },
+                {
+                    'pos': 1,
+                    'tile': PIL.Image.new('RGB', (100, 100), (0, 255, 0)),
+                    'tile_box': [100, 0, 200, 100],
+                    'width': 201,
+                },
             ]
         )
 
         # width/height arguments that disagree within a group
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='does not match the size'):
-            _ = tiles.select(stitched=stitch_tiles(tiles.tile, tiles.tile_box, tiles.width, 100)).collect()
+            _ = tiles.select(stitched=stitch_tiles(tiles.pos, tiles.tile, tiles.tile_box, tiles.width, 100)).collect()
 
         # a 'P' tile stitches to a 'P' image with the tile's palette
         result = (
             tiles.where(tiles.width == 200)
-            .select(stitched=stitch_tiles(tiles.tile.quantize(), tiles.tile_box, 200, 100))
+            .select(stitched=stitch_tiles(tiles.pos, tiles.tile.quantize(), tiles.tile_box, 200, 100))
             .collect()
         )
         stitched: Image = result[0]['stitched']
@@ -144,9 +154,14 @@ class TestImage:
         assert stitched.getpalette() == expected.getpalette()
 
         # a group consisting entirely of None tiles yields None (rows with a None tile are skipped)
-        nulls = pxt.create_table('null_tiles', {'tile': pxt.Image, 'tile_box': pxt.Json})
-        nulls.insert([{'tile': None, 'tile_box': [0, 0, 100, 100]}, {'tile': None, 'tile_box': [100, 0, 200, 100]}])
-        result = nulls.select(stitched=stitch_tiles(nulls.tile, nulls.tile_box, 200, 100)).collect()
+        nulls = pxt.create_table('null_tiles', {'pos': pxt.Int, 'tile': pxt.Image, 'tile_box': pxt.Json})
+        nulls.insert(
+            [
+                {'pos': 0, 'tile': None, 'tile_box': [0, 0, 100, 100]},
+                {'pos': 1, 'tile': None, 'tile_box': [100, 0, 200, 100]},
+            ]
+        )
+        result = nulls.select(stitched=stitch_tiles(nulls.pos, nulls.tile, nulls.tile_box, 200, 100)).collect()
         assert len(result) == 1
         assert result[0]['stitched'] is None
 
