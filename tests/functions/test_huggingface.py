@@ -305,6 +305,7 @@ class TestHuggingface:
         if get_token() is None:
             pytest.skip('Skipping SAM 3 test: facebook/sam3 is gated and no Hugging Face token is configured')
         from pixeltable.functions.huggingface import sam3_for_video_segmentation
+        from pixeltable.functions.video import clip
 
         video_path = next(f for f in get_video_files() if f.endswith('bangkok_half_res.mp4'))
         t = pxt.create_table('test_tbl', {'video': pxt.Video})
@@ -331,6 +332,14 @@ class TestHuggingface:
             object_ids_per_frame.append(set(row['object_ids'].tolist()))
         # object ids are stable across frames: every frame shares at least one tracked object with the first
         assert all(len(ids & object_ids_per_frame[0]) > 0 for ids in object_ids_per_frame[1:])
+
+        # An explicit fps is forwarded to the underlying frame_iterator: a 2-second clip sampled at 2 fps
+        # yields 4 frames.
+        t.add_computed_column(short_clip=clip(t.video, start_time=0.0, duration=2.0))
+        v_fps = pxt.create_view(
+            'test_view_fps', t, iterator=sam3_for_video_segmentation(t.short_clip, text=['car'], fps=2.0)
+        )
+        assert v_fps.count() == 4
 
     def test_vit_for_image_classification(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')

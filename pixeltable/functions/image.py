@@ -567,7 +567,7 @@ class stitch_tiles(pxt.Aggregator):
     pasting each tile back at its original position. This is the inverse of
     [`tile_iterator`](pixeltable.functions.image.tile_iterator):  aggregate the tiles of an image (grouped by a column
     that identifies the source image) to obtain the full image, optionally after transforming each tile first
-    (e.g. drawing a segmentation overlay on it).
+    (e.g., drawing a segmentation overlay on it).
 
     The reconstruction is naive: tiles are pasted in the order they arrive, so where tiles overlap, later tiles
     overwrite earlier ones. It composites pixels and does not merge or deduplicate detections across tile seams.

@@ -1366,6 +1366,12 @@ def _overlay_id_map(
     draw_contours: bool,
     contour_thickness: int,
 ) -> PIL.Image.Image:
+    """
+    Paint a colored overlay onto `img` from a 2D `(H, W)` id-map, where each pixel holds the id of the segment
+    it belongs to. Pixels equal to `background` are left untouched; every other segment id is assigned a color
+    (from `segment_colors`, else auto-generated from the id) and alpha-composited over the image at opacity
+    `alpha`, optionally outlining each segment with a full-opacity contour.
+    """
     if segmentation.shape != (img.height, img.width):
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT,
