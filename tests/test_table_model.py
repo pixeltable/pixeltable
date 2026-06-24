@@ -219,28 +219,28 @@ class TestTableModel:
             value: pxt.Float
             arr: pxt.Array
             img: pxt.Image
-            arith_add = Column.value + 1
-            arith_radd = 1 + Column.value
-            arith_mul = Column.value * 2
-            arith_rmul = 2 * Column.value
-            array_slice = Column.arr[:, 1:3]
-            column_property_ref = Column.img.fileurl
-            column_ref = Column.name
-            comparison = Column.value > 0.0
-            compound_predicate = (Column.value > 0.0) & (Column.name != 'test')
-            function_call = pxtf.math.floor(Column.value)
-            in_predicate = Column.name.isin(['Alice', 'Bob', 'Charlie'])
-            inline_array = pxt.array([Column.value, Column.value + 1, Column.value + 2])
-            inline_dict = {'name': Column.name, 'img': Column.img}  # noqa: RUF012
-            inline_list = [Column.name, Column.img]  # noqa: RUF012
-            is_null = Column.name == None
-            method_ref = Column.name.upper()
-            # similarity = Column.name.similarity('similar string')
-            string_add = Column.name + ' suffix'
-            string_radd = 'prefix ' + Column.name
-            string_mul = Column.name * 3
-            string_rmul = 3 * Column.name
-            type_cast = Column.arr.astype(pxt.Array[np.float32])  # type: ignore[misc]
+            arith_add = value + 1
+            arith_radd = 1 + value
+            arith_mul = value * 2
+            arith_rmul = 2 * value
+            array_slice = arr[:, 1:3]
+            column_property_ref = img.fileurl
+            column_ref = name
+            comparison = value > 0.0
+            compound_predicate = (value > 0.0) & (name != 'test')
+            function_call = pxtf.math.floor(value)
+            in_predicate = name.isin(['Alice', 'Bob', 'Charlie'])
+            inline_array = pxt.array([value, value + 1, value + 2])
+            inline_dict = {'name': name, 'img': img}  # noqa: RUF012
+            inline_list = [name, img]  # noqa: RUF012
+            is_null = name == None
+            method_ref = name.upper()
+            # similarity = name.similarity('similar string')
+            string_add = name + ' suffix'
+            string_radd = 'prefix ' + name
+            string_mul = name * 3
+            string_rmul = 3 * name
+            type_cast = arr.astype(pxt.Array[np.float32])  # type: ignore[misc]
 
         tbl = AllExprsTableModel.create()
 
@@ -309,10 +309,9 @@ class TestTableModel:
                 spec = ExampleViewModel.where(ExampleTableModel.value > 1.0)
 
         class ExampleViewModel2(pxt.ViewModel, name='test_view_2', base=ExampleViewModel):
-            # subview_col_1 = ExampleTableModel.img.rotate(180)
-            # subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
-            # subview_col_3 = subview_col_2.rotate(30)
-            pass
+            subview_col_1 = ExampleTableModel.img.rotate(180)
+            subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
+            subview_col_3 = subview_col_2.rotate(30)
 
         _ = ExampleTableModel.create()
         _ = ExampleViewModel.create()
@@ -326,12 +325,15 @@ class TestTableModel:
         with pytest.raises(AttributeError, match='Invalid column name'):
             _ = Column._invalid
 
-        # `__base_table__` is not allowed on a TableModel.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='__base_table__ not allowed for a TableModel'):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='`name` must be a valid Pixeltable identifier'):
+            class BadTableName(pxt.TableModel, name='invalid! table@name'):
+                pass
 
-            class BadBaseTable(pxt.TableModel):
-                __table_name__ = 'bad_base_table'
-                __base_table__ = 'unused'
+        # `__base_table__` is not allowed on a TableModel.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='`BadBaseTable` must subclass `ViewModel` to specify a `base`.'):
+
+            class BadBaseTable(pxt.TableModel, name='bad_base_table', base='unused'):
+                pass
 
         # `__iterator__` is not allowed on a TableModel.
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='__iterator__ not allowed for a TableModel'):

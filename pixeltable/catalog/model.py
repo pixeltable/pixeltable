@@ -70,8 +70,7 @@ class _PlaceholderColumnRef(exprs.Expr):
     name: str
     column_spec: ColumnSpec
 
-    def __init__(self, tbl_name: str, name: str, column_spec: ColumnSpec | None = None) -> None:
-        assert tbl_name is not None
+    def __init__(self, name: str, column_spec: ColumnSpec | None = None) -> None:
         col_type: ts.ColumnType
         if column_spec is None:
             col_type = ts.InvalidType()
@@ -84,7 +83,6 @@ class _PlaceholderColumnRef(exprs.Expr):
 
         super().__init__(col_type)
 
-        self.tbl_name = tbl_name
         self.name = name
         self.column_spec = column_spec
         self.id = self._create_id()
@@ -93,10 +91,10 @@ class _PlaceholderColumnRef(exprs.Expr):
         return f'{self.tbl_name}:{self.name}'
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return [*super()._id_attrs(), ('tbl_name', self.tbl_name), ('name', self.name)]
+        return [*super()._id_attrs(), ('name', self.name)]
 
     def _equals(self, other: _PlaceholderColumnRef) -> bool:
-        return self.tbl_name == other.tbl_name and self.name == other.name
+        return self.name == other.name
 
     def eval(self, data_row: exprs.data_row.DataRow, row_builder: exprs.row_builder.RowBuilder) -> None:
         raise AssertionError('It should never be possible to observe a placeholder in an execution context.')
@@ -279,7 +277,7 @@ class _PlaceholderQuery:
         tbl = self.from_clause.bind()
         subst_dict = exprs.ExprDict[exprs.ColumnRef]()
         for col_name in tbl.columns():
-            placeholder = _PlaceholderColumnRef(tbl._path(), col_name, {'type': ts.InvalidType()})
+            placeholder = _PlaceholderColumnRef(col_name, {'type': ts.InvalidType()})
             subst_dict[placeholder] = getattr(tbl, col_name)
 
         select_list = (
@@ -358,7 +356,7 @@ class _ColumnCtx:
                 # Computed column expression.
                 expr = exprs.Expr.from_object(value)
                 spec = {'value': expr}
-            col_ref = _PlaceholderColumnRef(self.tbl_name, name, spec)
+            col_ref = _PlaceholderColumnRef(name, spec)
             self.known_cols[name] = col_ref
             return col_ref
 
@@ -375,7 +373,7 @@ class _ColumnCtx:
                 )
             return existing_col_ref
         else:
-            col_ref = _PlaceholderColumnRef(self.tbl_name, name, {'type': type_})
+            col_ref = _PlaceholderColumnRef(name, {'type': type_})
             self.known_cols[name] = col_ref
             return col_ref
 
@@ -490,7 +488,7 @@ class TableModelMetaclass(type):
                 tbl_name, allow_hyphens=True
             ):
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA, f'{display_name}: `name` must be a string.'
+                    excs.ErrorCode.INVALID_SCHEMA, f'{display_name}: `name` must be a valid Pixeltable identifier.'
                 )
             if tbl_name in mcs._registered_models:
                 raise excs.RequestError(
@@ -586,7 +584,6 @@ class TableModelMetaclass(type):
     def create(cls, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error') -> Table:
         tbl_media_validation = 'on_write'  # TODO: allow configuring this at the table level
 
-        tbl_name: str = cls.__table_name__
         base_tbl: _PlaceholderQuery = cls.__base_table__
         columns: dict[str, _PlaceholderColumnRef] = cls.__columns__
         indexes: dict[str, EmbeddingIndex] = cls.__indexes__
@@ -600,11 +597,11 @@ class TableModelMetaclass(type):
                 base_tbl_name = base_tbl.from_clause.__table_name__
                 # select(*): put all visible columns from the base table into scope
                 for col in query._first_tbl.columns():
-                    subst_dict[_PlaceholderColumnRef(base_tbl_name, col.name)] = exprs.ColumnRef(col.column_version_md())
+                    subst_dict[_PlaceholderColumnRef(col.name)] = exprs.ColumnRef(col.column_version_md())
             else:
                 for expr, name in query.select_list:
                     if name is not None:
-                        subst_dict[_PlaceholderColumnRef(tbl_name, name)] = expr
+                        subst_dict[_PlaceholderColumnRef(name)] = expr
 
         tbl_id = uuid.uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
