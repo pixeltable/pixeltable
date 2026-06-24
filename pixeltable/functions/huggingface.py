@@ -540,7 +540,7 @@ def sam_automatic_mask_generation(
     be a reference to a pretrained
     [SAM 3 Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3`.
 
-    Unlike `sam_for_segmentation`, which requires a concept prompt, this samples a grid of points across the
+    Unlike [`sam_for_segmentation`](pixeltable.functions.huggingface.sam_for_segmentation), which requires a concept prompt, this samples a grid of points across the
     image and returns a binary mask for every distinct object it finds (the "segment everything" mode of
     SAM 1 and SAM 2). Masks are filtered by predicted quality and de-duplicated. The masks are class-agnostic:
     no labels or persistent object ids are produced, since the model is not told what to look for.
