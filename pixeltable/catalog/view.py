@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from typing import TYPE_CHECKING, Any, List, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, List, Literal, Sequence
 from uuid import UUID
 
 import pydantic

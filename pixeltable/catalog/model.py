@@ -3,10 +3,9 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import uuid
-import weakref
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog.table_path import TableVersionPath
@@ -411,7 +410,7 @@ class TableModelMetaclass(type):
     Metaclass that collects annotated column definitions and other table metadata from a class body.
     """
 
-    _registered_models: dict[str, TableModelMetaclass] = {}  # table name -> model
+    _registered_models: ClassVar[dict[str, TableModelMetaclass]] = {}  # table name -> model
 
     __columns__: dict[str, _PlaceholderColumnRef]
     __indexes__: dict[str, EmbeddingIndex]
@@ -422,14 +421,14 @@ class TableModelMetaclass(type):
     _is_bound: bool
 
     @classmethod
-    def __prepare__(mcs, cls_name: str, bases: tuple[type, ...], **kwargs: Any) -> dict[str, Any]:
+    def __prepare__(mcs, cls_name: str, bases: tuple[type, ...], **kwargs: Any) -> dict[str, Any]:  # noqa: N804
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
             return super().__prepare__(cls_name, bases, **kwargs)
         elif len(bases) > 1 or bases[0] not in (TableModel, ViewModel):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                f'Pixeltable schemas must subclass exactly one of `TableModel`, `ViewModel`.',
+                'Pixeltable schemas must subclass exactly one of `TableModel`, `ViewModel`.',
             )
         else:
             display_name = f'{bases[0].__name__} `{cls_name}`'
@@ -608,9 +607,6 @@ class TableModelMetaclass(type):
                 catalog_col.column_version_md(),
                 perform_validation=subst_spec.get('media_validation', tbl_media_validation) == 'on_read',
             )
-
-        # Create the table with its non-computed columns
-        # initial_schema = {col_name: col_spec for col_name, col_spec in columns.items() if col_spec.get('value') is None}
 
         cat = get_runtime().catalog
         tbl_path = catalog.Path.parse(cls.__table_name__)

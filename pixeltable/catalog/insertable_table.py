@@ -11,7 +11,6 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
-from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column

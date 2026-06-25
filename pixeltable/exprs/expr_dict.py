@@ -1,11 +1,13 @@
 from typing import Generic, Iterable, Iterator, Mapping, TypeVar
 
+from typing_extensions import Self
+
 from .expr import Expr
 
 T = TypeVar('T')
 
 
-class ExprDict(Generic[T], Mapping[Expr, T]):
+class ExprDict(Mapping[Expr, T], Generic[T]):
     """
     A dictionary that maps Expr instances to values of type T.
 
@@ -39,7 +41,7 @@ class ExprDict(Generic[T], Mapping[Expr, T]):
     def __contains__(self, key: Expr) -> bool:
         return key.id in self._data
 
-    def __ior__(self, other: Mapping[Expr, T]) -> 'ExprDict[T]':
+    def __ior__(self, other: Mapping[Expr, T]) -> Self:
         for key, value in other.items():
             self[key] = value
         return self

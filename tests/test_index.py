@@ -19,7 +19,6 @@ from pixeltable.functions.huggingface import clip
 from .utils import (
     ReloadTester,
     assert_resultset_eq,
-    dummy_embedding,
     get_sentences,
     list_store_indexes,
     local_embedding,
