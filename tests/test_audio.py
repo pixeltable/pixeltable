@@ -16,6 +16,7 @@ from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
+    MediaStore,
     ReloadTester,
     get_audio_file,
     get_audio_files,
@@ -167,20 +168,22 @@ class TestAudio:
             self.__assert_tiling(segments, overlap=1.25)
         reload_tester.run_reload_test()
 
-    def test_audio_splitter_on_videos_revert_media_store(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_audio_splitter_on_videos_revert_media_store(
+        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
+    ) -> None:
+        p = make_catalog_path
         video_filepaths = get_video_files()
-        video_t = pxt.create_table('videos', {'video': pxt.Video})
-        video_t.insert({'video': p} for p in video_filepaths)
+        video_t = pxt.create_table(p('videos'), {'video': pxt.Video})
+        video_t.insert({'video': path} for path in video_filepaths)
 
-        pre_count = ObjectOps.count(video_t._id, default_output_dest=True)
+        pre_count = MediaStore.count(video_t, default_output_dest=True)
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-        post_count = ObjectOps.count(video_t._id, default_output_dest=True)
+        post_count = MediaStore.count(video_t, default_output_dest=True)
         assert post_count > pre_count  # Some files should have been added
 
-        print(video_t.history())
         video_t.revert()
-        final_count = ObjectOps.count(video_t._id, default_output_dest=True)
+        final_count = MediaStore.count(video_t, default_output_dest=True)
         assert final_count == pre_count  # Reverting should remove the added files
 
     def test_audio_splitter_single_file(self, uses_db: None, reload_tester: ReloadTester) -> None:

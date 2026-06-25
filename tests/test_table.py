@@ -23,13 +23,13 @@ from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     TESTS_DIR,
     CatalogMode,
     DummyIterator,
     DummyIterator2,
+    MediaStore,
     ReloadTester,
     assert_resultset_eq,
     assert_table_metadata_eq,
@@ -1766,12 +1766,12 @@ class TestTable:
         pxt.drop_table(p('not_a_parent_dir/non_existing_table'), force=True)
         assert table_list == pxt.list_tables(p(''))
 
-    # TODO: cannot be converted because it inspects the local media store via ObjectOps.count(tbl._id)
-    def test_image_table(self, uses_db: None) -> None:
+    def test_image_table(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         n_sample_rows = 20
         schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String, 'img_literal': pxt.Image}
-        tbl = pxt.create_table('test', schema)
-        assert ObjectOps.count(tbl._id, default_input_dest=True) == 0
+        tbl = pxt.create_table(p('test'), schema)
+        assert MediaStore.count(tbl, default_input_dest=True) == 0
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -1782,7 +1782,7 @@ class TestTable:
                 r['img_literal'] = f.read()
 
         tbl.insert(sample_rows)
-        assert ObjectOps.count(tbl._id, default_input_dest=True) == n_sample_rows
+        assert MediaStore.count(tbl, default_input_dest=True) == n_sample_rows
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -1794,15 +1794,15 @@ class TestTable:
         # Test adding stored image transformation
         tbl.add_computed_column(rotated=tbl.img.rotate(30), stored=True)
         if Env.get().default_input_media_dest == Env.get().default_output_media_dest:
-            assert ObjectOps.count(tbl._id, default_input_dest=True) == 2 * n_sample_rows
+            assert MediaStore.count(tbl, default_input_dest=True) == 2 * n_sample_rows
 
         # Test that version-specific images are cleared when table is reverted
         tbl.revert()
-        assert ObjectOps.count(tbl._id, default_input_dest=True) == n_sample_rows
+        assert MediaStore.count(tbl, default_input_dest=True) == n_sample_rows
 
         # Test that all stored images are cleared when table is dropped
-        pxt.drop_table('test')
-        assert ObjectOps.count(tbl._id, default_input_dest=True) == 0
+        pxt.drop_table(p('test'))
+        assert MediaStore.count(tbl, default_input_dest=True) == 0
 
     def test_schema_spec(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -2149,8 +2149,8 @@ class TestTable:
         with av.open(local_path) as container:
             assert container.streams.video[0].codec_context.name == 'h264'
 
-    # TODO: cannot be converted because it inspects the local media store via ObjectOps.count(view._id)
-    def test_create_video_table(self, uses_db: None) -> None:
+    def test_create_video_table(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         if Env.get().is_using_cockroachdb:
             # TODO(PXT-921): fix this on CockroachDB
             pytest.skip(
@@ -2158,8 +2158,8 @@ class TestTable:
                 ' encountered recently written committed value...'
             )
         skip_test_if_not_installed('boto3')
-        tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
-        view = pxt.create_view('test_view', tbl, iterator=legacy_frame_iterator(tbl.video))
+        tbl = pxt.create_table(p('test_tbl'), {'payload': pxt.Int, 'video': pxt.Video})
+        view = pxt.create_view(p('test_view'), tbl, iterator=legacy_frame_iterator(tbl.video))
         view.add_computed_column(c1=view.frame.rotate(30), stored=True)
         view.add_computed_column(c2=view.c1.rotate(40), stored=False)
         view.add_computed_column(c3=view.c2.rotate(50), stored=True)
@@ -2171,17 +2171,17 @@ class TestTable:
 
         # reload to make sure that metadata gets restored correctly
         reload_catalog()
-        tbl = pxt.get_table('test_tbl')
-        view = pxt.get_table('test_view')
+        tbl = pxt.get_table(p('test_tbl'))
+        view = pxt.get_table(p('test_view'))
         # we're inserting only a single row and the video column is not in position 0
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         status = tbl.insert(payload=1, video=url)
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
-        assert ObjectOps.count(view._id, default_output_dest=True) == view.count() * 2
+        assert MediaStore.count(view, default_output_dest=True) == view.count() * 2
         # also insert a local file
         tbl.insert(payload=1, video=get_video_files()[0])
-        assert ObjectOps.count(view._id, default_output_dest=True) == view.count() * 2
+        assert MediaStore.count(view, default_output_dest=True) == view.count() * 2
 
         # TODO: test inserting Nulls
         # status = tbl.insert(payload=1, video=None)
@@ -2190,7 +2190,7 @@ class TestTable:
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        assert ObjectOps.count(view._id, default_output_dest=True) == 0
+        assert MediaStore.count(view, default_output_dest=True) == 0
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'because the following columns depend on it:\nc1'):
             view.drop_column('frame')
@@ -2200,10 +2200,10 @@ class TestTable:
         # drop() clears stored images and the cache
         tbl.insert(payload=1, video=get_video_files()[0])
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='has dependents'):
-            pxt.drop_table('test_tbl')
-        pxt.drop_table('test_view')
-        pxt.drop_table('test_tbl')
-        assert ObjectOps.count(view._id, default_output_dest=True) == 0
+            pxt.drop_table(p('test_tbl'))
+        pxt.drop_table(p('test_view'))
+        pxt.drop_table(p('test_tbl'))
+        assert MediaStore.count(view, default_output_dest=True) == 0
 
     def test_video_urls(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -2958,44 +2958,42 @@ class TestTable:
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
-        assert ObjectOps.count(t._id, default_output_dest=True) == t.count() * stores_img_col
+        assert MediaStore.count(t, default_output_dest=True) == t.count() * stores_img_col
 
         # test loading from store
         reload_catalog()
         t2 = pxt.get_table(t.get_metadata()['path'])
         assert len(t.columns()) == len(t2.columns())
-        t_columns = t._tbl_version_path.columns()
-        t2_columns = t2._tbl_version_path.columns()
-        assert len(t_columns) == len(t2_columns)
-        for i in range(len(t_columns)):
-            if t_columns[i].value_expr is not None:
-                assert t_columns[i].value_expr.equals(t2_columns[i].value_expr)
+        # the computed-column expressions round-trip through the reload (compared via the public metadata)
+        t_computed = {name: col['computed_with'] for name, col in t.get_metadata()['columns'].items()}
+        t2_computed = {name: col['computed_with'] for name, col in t2.get_metadata()['columns'].items()}
+        assert t_computed == t2_computed
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
-        assert ObjectOps.count(t2._id, default_output_dest=True) == t2.count() * stores_img_col
+        assert MediaStore.count(t2, default_output_dest=True) == t2.count() * stores_img_col
         _ = t2.collect()
         _ = t2.collect().to_pandas()
 
         # revert also removes computed images
         t2.revert()
-        assert ObjectOps.count(t2._id, default_output_dest=True) == t2.count() * stores_img_col
+        assert MediaStore.count(t2, default_output_dest=True) == t2.count() * stores_img_col
 
     @staticmethod
     @pxt.udf
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
         raise RuntimeError
 
-    # TODO: cannot be converted because its helper inspects the local media store via ObjectOps.count(t._id)
-    def test_computed_img_cols(self, uses_db: None) -> None:
+    def test_computed_img_cols(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         schema = {'img': pxt.Image}
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
         t.add_computed_column(c2=t.img.width)
         # c3 is not stored by default
         t.add_computed_column(c3=t.img.rotate(90), stored=False)
         self._test_computed_img_cols(t, stores_img_col=False)
 
-        t = pxt.create_table('test2', schema)
+        t = pxt.create_table(p('test2'), schema)
         # c3 is now stored
         t.add_computed_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=True)
@@ -3004,7 +3002,7 @@ class TestTable:
         _ = t.select(t.c3.errortype).collect()
 
         # computed img col with exceptions
-        t = pxt.create_table('test3', schema)
+        t = pxt.create_table(p('test3'), schema)
         t.add_computed_column(c3=self.img_fn_with_exc(t.img))
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]

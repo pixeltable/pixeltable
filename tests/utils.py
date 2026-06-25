@@ -1034,6 +1034,38 @@ def list_store_indexes(t: pxt.Table) -> list[str]:
     return [row[0] for row in result]
 
 
+class MediaStore:
+    """Inspects the media store backing a table, for both in-process and hosted (proxy) catalogs.
+
+    A table created against a hosted catalog stores its media objects in the proxy daemon's own media store,
+    not in this process's. Since tests co-locate the daemon, that store is read directly off the filesystem
+    (the daemon's home is proxy_home(db)/media). This lets media-store assertions run unchanged in both
+    modes and actually validate the daemon's behavior.
+    """
+
+    @classmethod
+    def count(
+        cls,
+        tbl: pxt.Table,
+        *,
+        tbl_version: int | None = None,
+        default_input_dest: bool = False,
+        default_output_dest: bool = False,
+    ) -> int:
+        """Count the media objects stored for tbl (optionally a specific version) in its catalog's media store."""
+        catalog_uri = tbl._tbl_path.catalog_uri
+        if catalog_uri.db is None:
+            # in-process catalog: count in this process's media store
+            return ObjectOps.count(
+                tbl._id, tbl_version, default_input_dest=default_input_dest, default_output_dest=default_output_dest
+            )
+        # hosted catalog: the objects live in the daemon's media store. The tests use the default media config,
+        # where both the input and output dest are the daemon's home media dir, so count there directly.
+        from pixeltable.service import proxy_daemon
+
+        return ObjectOps.count(tbl._id, tbl_version, dest=str(proxy_daemon.proxy_home(catalog_uri.db) / 'media'))
+
+
 def validate_repr(t: Any, expected: str) -> None:
     def cleanup(r: str) -> str:
         r = re.sub(r'-{3,}', '---', r)  # normalize separator lines

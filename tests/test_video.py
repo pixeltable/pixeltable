@@ -2,7 +2,7 @@ import math
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import PIL.Image
 import pytest
@@ -12,9 +12,9 @@ import pixeltable.functions as pxtf
 from pixeltable.env import Env
 from pixeltable.functions.video import concat_videos_agg, frame_iterator, legacy_frame_iterator, video_splitter
 from pixeltable.utils import av as av_utils
-from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
+    MediaStore,
     generate_test_video,
     get_audio_files,
     get_image_files,
@@ -32,17 +32,23 @@ class TestVideo:
         validate_update_status(t.insert(({'v': v} for v in videos), on_error='abort'), expected_rows=len(videos))
 
     def create_tbls(
-        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', use_legacy_schema: bool = False
+        self,
+        base_name: str = 'video_tbl',
+        view_name: str = 'frame_view',
+        use_legacy_schema: bool = False,
+        p: Callable[[str], str] = lambda s: s,
     ) -> tuple[pxt.Table, pxt.Table]:
-        pxt.drop_table(view_name, if_not_exists='ignore')
-        pxt.drop_table(base_name, if_not_exists='ignore')
-        base_t = pxt.create_table(base_name, {'video': pxt.Video})
+        pxt.drop_table(p(view_name), if_not_exists='ignore')
+        pxt.drop_table(p(base_name), if_not_exists='ignore')
+        base_t = pxt.create_table(p(base_name), {'video': pxt.Video})
         iterator = legacy_frame_iterator if use_legacy_schema else frame_iterator
-        view_t = pxt.create_view(view_name, base_t, iterator=iterator(base_t.video, fps=1))
+        view_t = pxt.create_view(p(view_name), base_t, iterator=iterator(base_t.video, fps=1))
         return base_t, view_t
 
-    def create_and_insert(self, stored: bool | None, paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
-        base_t, view_t = self.create_tbls()
+    def create_and_insert(
+        self, stored: bool | None, paths: list[str], p: Callable[[str], str] = lambda s: s
+    ) -> tuple[pxt.Table, pxt.Table]:
+        base_t, view_t = self.create_tbls(p=p)
 
         view_t.add_computed_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
@@ -68,21 +74,22 @@ class TestVideo:
         assert len(result) == total_num_rows
         return base_t, view_t
 
-    def test_basic(self, uses_db: None) -> None:
+    def test_basic(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         video_filepaths = get_video_files()
 
         # computed images are not stored
-        _, view = self.create_and_insert(False, video_filepaths)
-        assert ObjectOps.count(view._id, default_output_dest=True) == 0
+        _, view = self.create_and_insert(False, video_filepaths, p=p)
+        assert MediaStore.count(view, default_output_dest=True) == 0
 
         # computed images are stored
-        tbl, view = self.create_and_insert(True, video_filepaths)
-        assert ObjectOps.count(view._id, default_output_dest=True) == view.count()
+        tbl, view = self.create_and_insert(True, video_filepaths, p=p)
+        assert MediaStore.count(view, default_output_dest=True) == view.count()
 
         # revert() also removes computed images
-        tbl.insert({'video': p} for p in video_filepaths)
+        tbl.insert({'video': path} for path in video_filepaths)
         tbl.revert()
-        assert ObjectOps.count(view._id, default_output_dest=True) == view.count()
+        assert MediaStore.count(view, default_output_dest=True) == view.count()
 
     def test_query(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
