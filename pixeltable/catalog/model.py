@@ -301,13 +301,66 @@ class _PlaceholderQuery:
         )
 
 
-class _ColumnCtx:
+class _AnnotationRecorder(dict):
+    namespace: _ModelNamespace
+
+    def __init__(self, namespace: _ModelNamespace) -> None:
+        super().__init__()
+        self.namespace = namespace
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if not key.startswith('_'):
+            self.namespace.set_col_type(key, value)
+        super().__setitem__(key, value)
+
+
+class _TableSpec(TypedDict):
+    name: str
+    base: _PlaceholderQuery | None
+    iterator: func.GeneratingFunctionCall | None
+    create_default_idxs: bool
+    media_validation: MediaValidation
+
+
+class _ModelNamespace(dict):
+    """Class namespace that records the source order of every name bound in the body,
+    including bare annotations (which never write to the namespace itself)."""
+
+    table_spec: _TableSpec
     known_cols: dict[str, _PlaceholderColumnRef]
     known_idxs: dict[str, EmbeddingIndex]
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        cls_name: str,
+        tbl_name: str,
+        base: _PlaceholderQuery | None,
+        iterator: func.GeneratingFunctionCall | None,
+        create_default_idxs: bool,
+        media_validation: MediaValidation,
+    ) -> None:
+        super().__init__()
+
+        self.table_spec = {
+            'name': tbl_name,
+            'base': base,
+            'iterator': iterator,
+            'create_default_idxs': create_default_idxs,
+            'media_validation': media_validation,
+        }
         self.known_cols = {}
         self.known_idxs = {}
+
+        # Pre-seed __annotations__ so the compiler routes bare annotations through
+        # our recorder rather than a plain dict it would otherwise create.
+        super().__setitem__('__annotations__', _AnnotationRecorder(self))
+        super().__setitem__('_is_bound', False)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if not key.startswith('_'):
+            # Replace the value with a _PlaceholderColumnRef or EmbeddingIndex
+            value = self.set_col_value(key, value)
+        super().__setitem__(key, value)
 
     def set_col_value(self, name: str, value: Any) -> EmbeddingIndex | _PlaceholderColumnRef:
         if isinstance(value, EmbeddingIndex):
@@ -346,72 +399,7 @@ class _ColumnCtx:
         else:
             col_ref = _PlaceholderColumnRef(name, {'type': type_})
             self.known_cols[name] = col_ref
-            return col_ref
-
-
-class _AnnotationRecorder(dict):
-    namespace: _ModelNamespace
-
-    def __init__(self, namespace: _ModelNamespace) -> None:
-        super().__init__()
-        self.namespace = namespace
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        if not key.startswith('_'):
-            self.namespace.set_col_type(key, value)
-        super().__setitem__(key, value)
-
-
-class _TableSpec(TypedDict):
-    name: str
-    base: _PlaceholderQuery | None
-    iterator: func.GeneratingFunctionCall | None
-    create_default_idxs: bool
-    media_validation: MediaValidation
-
-
-class _ModelNamespace(dict):
-    """Class namespace that records the source order of every name bound in the body,
-    including bare annotations (which never write to the namespace itself)."""
-
-    column_ctx: _ColumnCtx
-    table_spec: _TableSpec
-    base: _PlaceholderQuery | None
-    iterator: func.GeneratingFunctionCall | None
-
-    def __init__(
-        self,
-        cls_name: str,
-        tbl_name: str,
-        base: _PlaceholderQuery | None,
-        iterator: func.GeneratingFunctionCall | None,
-        create_default_idxs: bool,
-        media_validation: MediaValidation,
-    ) -> None:
-        super().__init__()
-        self.column_ctx = _ColumnCtx()
-        self.table_spec = {
-            'name': tbl_name,
-            'base': base,
-            'iterator': iterator,
-            'create_default_idxs': create_default_idxs,
-            'media_validation': media_validation,
-        }
-        # Pre-seed __annotations__ so the compiler routes bare annotations through
-        # our recorder rather than a plain dict it would otherwise create.
-        super().__setitem__('__annotations__', _AnnotationRecorder(self))
-        super().__setitem__('_is_bound', False)
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        if not key.startswith('_'):
-            # Replace the value with a _PlaceholderColumnRef or EmbeddingIndex
-            value = self.column_ctx.set_col_value(key, value)
-
-        super().__setitem__(key, value)
-
-    def set_col_type(self, key: str, type_: Any) -> None:
-        col_ref = self.column_ctx.set_col_type(key, type_)
-        super().__setitem__(key, col_ref)
+            super().__setitem__(name, col_ref)
 
 
 class TableModelMetaclass(type):
@@ -423,7 +411,7 @@ class TableModelMetaclass(type):
 
     __columns__: dict[str, _PlaceholderColumnRef]
     __indexes__: dict[str, EmbeddingIndex]
-    __table_name__: str
+    __tablename__: str
     __base_table__: _PlaceholderQuery | 'pxt.Query' | None
     __iterator__: func.GeneratingFunctionCall | None
 
@@ -530,31 +518,30 @@ class TableModelMetaclass(type):
             return super().__new__(mcs, cls_name, bases, namespace)
 
         assert isinstance(namespace, _ModelNamespace)
-        column_ctx = namespace.column_ctx
 
-        if len(column_ctx.known_cols) == 0 and bases[0] is TableModel:
+        if len(namespace.known_cols) == 0 and bases[0] is TableModel:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty `TableModel` not allowed.')
 
         # Process declarations. We need to process bare annotations (such as `col1: int`) as well as
         #    values (such as `col2 = Column.col1 + 1` or `idx0 = EmbeddingIndex(...)`).
 
-        namespace['__table_name__'] = namespace.table_spec['name']
+        namespace['__tablename__'] = namespace.table_spec['name']
         namespace['__base_table__'] = namespace.table_spec['base']
         namespace['__iterator__'] = namespace.table_spec['iterator']
-        namespace['__columns__'] = column_ctx.known_cols
-        namespace['__indexes__'] = column_ctx.known_idxs
+        namespace['__columns__'] = namespace.known_cols
+        namespace['__indexes__'] = namespace.known_idxs
 
-        for idx_name in column_ctx.known_idxs:
+        for idx_name in namespace.known_idxs:
             namespace.pop(idx_name)
 
         cls = super().__new__(mcs, cls_name, bases, namespace)
-        mcs.registered_models[cls.__table_name__] = cls
+        mcs.registered_models[namespace.table_spec['name']] = cls
         return cls
 
     def _resolve_tbl(cls) -> Table:
         import pixeltable as pxt
 
-        return pxt.get_table(cls.__table_name__)
+        return pxt.get_table(cls.__tablename__)
 
     def _resolve_column(cls, col_name: str) -> exprs.ColumnRef:
         return getattr(cls._resolve_tbl(), col_name)
@@ -627,7 +614,7 @@ class TableModelMetaclass(type):
             )
 
         cat = get_runtime().catalog
-        tbl_path = catalog.Path.parse(cls.__table_name__)
+        tbl_path = catalog.Path.parse(cls.__tablename__)
         base_tvp: TableVersionPath | None = None
 
         if issubclass(cls, TableModel):
