@@ -174,10 +174,12 @@ class Runtime:
         """
         from pixeltable.env import Env
 
+        default_isolation_level = Env.get().dbms.transaction_isolation_level
+
         if not self.in_xact:
             assert self.session is None
             try:
-                self.isolation_level = isolation_level or Env.get().dbms.transaction_isolation_level
+                self.isolation_level = isolation_level or default_isolation_level
                 with (
                     Env.get().engine.connect().execution_options(isolation_level=self.isolation_level) as conn,
                     orm.Session(conn) as session,
@@ -196,7 +198,7 @@ class Runtime:
                 f'cannot change isolation level to {isolation_level!r} for a joined transaction '
                 f'(current: {self.isolation_level!r})'
             )
-            assert self.isolation_level == Env.get().dbms.transaction_isolation_level or not for_write
+            assert self.isolation_level == default_isolation_level or not for_write
             yield self.conn
 
     def start_progress(self, create_fn: Callable[[], Progress]) -> Progress:

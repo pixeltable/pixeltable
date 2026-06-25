@@ -3,6 +3,7 @@ import platform
 
 import sqlalchemy as sql
 
+# Default for PostgreSQL; CockroachDB overrides this with SERIALIZABLE.
 _DEFAULT_ISOLATION_LEVEL = 'REPEATABLE READ'
 
 
