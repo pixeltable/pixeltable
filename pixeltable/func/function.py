@@ -517,11 +517,9 @@ class Function(ABC):
         return {'_classpath': classpath, **self._as_dict()}
 
     def _as_dict(self) -> dict:
-        """Default serialization: store the path to self (which includes the module path) and signature(s)."""
+        """Default serialization: store the path to self (which includes the module path) and its signatures."""
         assert self.self_path is not None
-        if self.is_polymorphic:
-            return {'path': self.self_path, 'signatures': [sig.as_dict() for sig in self.signatures]}
-        return {'path': self.self_path, 'signature': self.signature.as_dict()}
+        return {'path': self.self_path, 'signatures': [sig.as_dict() for sig in self.signatures]}
 
     @classmethod
     def from_dict(cls, d: dict) -> Function:

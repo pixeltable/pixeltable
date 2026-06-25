@@ -18,7 +18,7 @@ _logger = logging.getLogger(__name__)
 _console_logger = ConsoleLogger(_logger)
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
-VERSION = 53
+VERSION = 54
 
 
 def create_system_info(engine: sql.engine.Engine) -> None:

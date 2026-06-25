@@ -68,11 +68,21 @@ class TestFunction:
 
     def test_serialize_anonymous(self, init_env: None) -> None:
         d = self.func.as_dict()
+        assert 'signatures' in d and 'signature' not in d
+        assert isinstance(d['signatures'], list) and len(d['signatures']) == 1
         FunctionRegistry.get().clear_cache()
         deserialized = Function.from_dict(d)
         assert isinstance(deserialized, func.CallableFunction)
         # TODO: add Function.exec() and then use that
         assert deserialized.py_fn(1) == 2
+
+        # by-value ExprTemplateFunction (here from .using()
+        tmpl = self.f1.using(c=2.0)
+        assert isinstance(tmpl, func.ExprTemplateFunction)
+        td = tmpl.as_dict()
+        assert 'templates' in td and 'expr' not in td and 'signature' not in td
+        assert isinstance(td['templates'], list) and len(td['templates']) == 1
+        assert isinstance(Function.from_dict(td), func.ExprTemplateFunction)
 
     def test_list(self, uses_db: None) -> None:
         _ = FunctionRegistry.get().list_functions()
