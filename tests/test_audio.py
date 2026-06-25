@@ -12,12 +12,11 @@ from pixeltable import exprs
 from pixeltable.functions import util as functions_util
 from pixeltable.functions.audio import audio_splitter, encode_audio
 from pixeltable.utils import av as av_utils
-from pixeltable.utils.local_store import TempStore
-from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     MediaStore,
     ReloadTester,
+    TempStoreView,
     get_audio_file,
     get_audio_files,
     get_video_files,
@@ -56,42 +55,43 @@ class TestAudio:
         paths = audio_t.select(output=audio_t.audio_file.localpath).collect()['output']
         assert set(paths) == set(audio_filepaths)
 
-    def test_extract(self, uses_db: None) -> None:
+    def test_extract(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         video_filepaths = get_video_files()
-        video_t = pxt.create_table('videos', {'video': pxt.Video})
+        video_t = pxt.create_table(p('videos'), {'video': pxt.Video})
         video_t.add_computed_column(audio=video_t.video.extract_audio())
 
         # Directly count the number of videos with audio streams, without relying on the UDF
         videos_with_audio = 0
-        for p in video_filepaths:
-            md = functions_util.get_metadata(p)
+        for path in video_filepaths:
+            md = functions_util.get_metadata(path)
             if sum(1 for stream in md['streams'] if stream['type'] == 'audio') > 0:
                 videos_with_audio += 1
 
         validate_update_status(
-            video_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths)
+            video_t.insert({'video': path} for path in video_filepaths), expected_rows=len(video_filepaths)
         )
-        assert ObjectOps.count(video_t._id, default_output_dest=True) == videos_with_audio
+        assert MediaStore.count(video_t, default_output_dest=True) == videos_with_audio
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
-        tmp_files_before = TempStore.count()
+        tmp_files_before = TempStoreView.count(video_t)
 
-        video_t = pxt.get_table('videos')
+        video_t = pxt.get_table(p('videos'))
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
 
         # test generating different formats and codecs
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
         # media files that are created as a part of a query end up in the tmp dir
-        assert TempStore.count() == tmp_files_before + video_t.where(video_t.audio != None).count()
-        for path in [p for p in paths if p is not None]:
+        assert TempStoreView.count(video_t) == tmp_files_before + video_t.where(video_t.audio != None).count()
+        for path in [pth for pth in paths if pth is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s16le')
         # higher resolution
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s32le')).collect()['output']
-        for path in [p for p in paths if p is not None]:
+        for path in [pth for pth in paths if pth is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s32le')
 
         for format in av_utils.AUDIO_FORMATS.keys() - 'wav':
             paths = video_t.select(output=video_t.video.extract_audio(format=format)).collect()['output']
-            for path in [p for p in paths if p is not None]:
+            for path in [pth for pth in paths if pth is not None]:
                 self.check_audio_params(path, format=format)
 
     def test_get_metadata(self, uses_db: None) -> None:

@@ -37,6 +37,7 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
+from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 if TYPE_CHECKING:
@@ -1064,6 +1065,25 @@ class MediaStore:
         from pixeltable.service import proxy_daemon
 
         return ObjectOps.count(tbl._id, tbl_version, dest=str(proxy_daemon.proxy_home(catalog_uri.db) / 'media'))
+
+
+class TempStoreView:
+    """Counts the transient (temp) store backing a table's catalog, for both in-process and hosted catalogs.
+
+    Media files produced while running a query land in the temp store of whichever process runs the query: this
+    process for an in-process catalog, the proxy daemon (proxy_home(db)/tmp) for a hosted one. Tests co-locate the
+    daemon, so its temp store is read directly off the filesystem.
+    """
+
+    @classmethod
+    def count(cls, tbl: pxt.Table) -> int:
+        """Count the objects in the temp store of the catalog tbl lives in."""
+        catalog_uri = tbl._tbl_path.catalog_uri
+        if catalog_uri.db is None:
+            return TempStore.count()
+        from pixeltable.service import proxy_daemon
+
+        return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
 
 
 def validate_repr(t: Any, expected: str) -> None:
