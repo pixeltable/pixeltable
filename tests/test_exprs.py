@@ -1682,14 +1682,9 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    # TODO: fix (proxy): a column ref into a base table can't be evaluated in a snapshot-of-view query over proxy
-    # def test_base_table_col_refs(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-    def test_base_table_col_refs(self, test_tbl: pxt.Table) -> None:
-        # p = make_catalog_path
-        def p(s: str) -> str:
-            return s
-
-        t = test_tbl
+    def test_base_table_col_refs(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = test_tbl_dual
         # Filter down to just 5 rows of the table.
         v = pxt.create_view(p('test_view'), t.where(t.c2 < 5))
 
@@ -1713,6 +1708,7 @@ class TestExprs:
         assert len(t.c2.head(n=100)) == 0
         assert len(v.c2.head(n=100)) == 0
         assert len(snap1.c2.head(n=100)) == 100
+        assert len(snap2.select(snap2.c2).head(n=100)) == 5
         assert len(snap2.c2.head(n=100)) == 5
         assert len(snap3.c2.head(n=100)) == 100
         assert len(snap4.c2.head(n=100)) == 5

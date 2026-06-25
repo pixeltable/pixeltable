@@ -529,7 +529,14 @@ class TableMdPath(TablePath):
         effective_versions: list[int | None] = [effective_version]
         view_md = md[0].tbl_md.view_md
         if view_md is not None:
-            effective_versions.extend(version for _, version in view_md.base_versions)
+            if is_snapshot:
+                # a snapshot pins its entire path; the exported md list already carries each ancestor's resolved
+                # version, so pin every base to it. view_md.base_versions can't be used here: for a snapshot of a
+                # mutable view it records the view's live (None) bases, not the versions effective at this snapshot.
+                effective_versions.extend(m.version_md.version for m in md[1:])
+            else:
+                # live access: a base is pinned only where view_md.base_versions pins it (None = live)
+                effective_versions.extend(version for _, version in view_md.base_versions)
         return cls(md, effective_versions, catalog_uri)
 
     def __deepcopy__(self, memo: dict[int, object]) -> TableMdPath:

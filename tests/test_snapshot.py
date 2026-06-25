@@ -364,6 +364,22 @@ class TestSnapshot:
         reload_tester.run_reload_test()
         verify_snap(pxt.get_table(p('snap')))
 
+    def test_base_column_access_via_snapshot(self, make_catalog_path: Callable[[str], str]) -> None:
+        # A base-table column reached through a snapshot of a (mutable) view must resolve to the snapshot's base version
+        p = make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'val': pxt.Int})
+        validate_update_status(t.insert({'id': i, 'val': i} for i in range(5)), expected_rows=5)
+        v = pxt.create_view(p('v'), t)  # mutable view; `val` is inherited from the base table
+        snap = pxt.create_snapshot(p('snap'), v)
+
+        validate_update_status(t.update({'val': t.val + 100}))
+        assert sorted(v.select(v.val).collect()['val']) == [100, 101, 102, 103, 104]  # live view tracks the base
+
+        snap_result = [0, 1, 2, 3, 4]
+        assert sorted(snap.select(snap.val).collect()['val']) == snap_result
+        assert sorted(row['val'] for row in snap.val.head(n=100)) == snap_result
+        assert snap.val.count() == 5
+
     def test_multiple_snapshot_paths(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = create_test_tbl(p('test_tbl'))
