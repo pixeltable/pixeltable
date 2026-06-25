@@ -10,7 +10,7 @@ import pixeltable.functions as pxtf
 from pixeltable import exceptions as excs, exprs
 from pixeltable.catalog.model import Column, EmbeddingIndex
 
-from .utils import assert_table_metadata_eq, dummy_embedding, pxt_raises
+from .utils import assert_dicts_eq, assert_table_metadata_eq, dummy_embedding, pxt_raises, validate_update_status
 
 
 class TestTableModel:
@@ -242,7 +242,7 @@ class TestTableModel:
             string_radd = 'prefix ' + name
             string_mul = name * 3
             string_rmul = 3 * name
-            type_cast = arr.astype(pxt.Array[np.float32])  # type: ignore[misc]
+            type_cast = arr.astype(pxt.Array[(2, 3), np.float32])  # type: ignore[misc]
 
         tbl = AllExprsTableModel.create()
 
@@ -272,9 +272,48 @@ class TestTableModel:
             'string_mul': 'String',
             'string_radd': 'String',
             'string_rmul': 'String',
-            'type_cast': 'Array[float32]',
+            'type_cast': 'Array[(2, 3), float32]',
             'value': 'Float',
         }
+
+        sample_arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
+        validate_update_status(
+            tbl.insert([{'id': 1, 'name': 'Alice', 'value': 3.14, 'arr': sample_arr, 'img': None}]), expected_rows=1
+        )
+
+        res = tbl.select().collect()
+        assert_dicts_eq(
+            res[0],
+            {
+                'id': 1,
+                'name': 'Alice',
+                'value': 3.14,
+                'arr': sample_arr,
+                'img': None,
+                'arith_add': 4.14,
+                'arith_radd': 4.14,
+                'arith_mul': 6.28,
+                'arith_rmul': 6.28,
+                'array_slice': sample_arr[:, 1:3],
+                'column_property_ref': None,
+                'column_ref': 'Alice',
+                'comparison': True,
+                'compound_predicate': True,
+                'function_call': 3.0,
+                'in_predicate': True,
+                # `array_equal` is exact, so build the expected value the same way the column is computed.
+                'inline_array': np.array([3.14, 3.14 + 1, 3.14 + 2]),
+                'inline_dict': {'name': 'Alice', 'img': None},
+                'inline_list': ['Alice', None],
+                'is_null': False,
+                'method_ref': 'ALICE',
+                'string_add': 'Alice suffix',
+                'string_radd': 'prefix Alice',
+                'string_mul': 'AliceAliceAlice',
+                'string_rmul': 'AliceAliceAlice',
+                'type_cast': np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32),
+            },
+        )
 
     @pytest.mark.parametrize('create_all', [False, True])
     @pytest.mark.parametrize('spec_type', ['model', 'query'])

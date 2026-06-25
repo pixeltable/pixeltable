@@ -325,9 +325,7 @@ class _ColumnCtx:
             return value
         else:
             if name in self.known_cols:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA, f'Column {name!r}: duplicate definition.'
-                )
+                raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Column {name!r}: duplicate definition.')
             spec: ColumnSpec
             if isinstance(value, Column):
                 spec = value.to_column_spec()
@@ -352,8 +350,7 @@ class _ColumnCtx:
             existing_col_ref = self.known_cols[name]
             if existing_col_ref.col_type != type_:
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'Conflicting type annotation for column {name!r}.',
+                    excs.ErrorCode.INVALID_SCHEMA, f'Conflicting type annotation for column {name!r}.'
                 )
             return existing_col_ref
         else:

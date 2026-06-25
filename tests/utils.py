@@ -660,6 +660,11 @@ __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
 }
 
 
+def assert_dicts_eq(actual: dict[str, Any], expected: dict[str, Any]) -> None:
+    """Assert two dicts are equal, comparing arrays elementwise and floats with `np.isclose`."""
+    assert __json_comparer(actual, expected), f'{actual!r} != {expected!r}'
+
+
 def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:
     lines = [f'Column {col_name!r} does not match.']
     for i in mismatches[:5]:
