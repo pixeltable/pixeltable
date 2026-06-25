@@ -619,17 +619,26 @@ class TableModelMetaclass(type):
                     if name is None and isinstance(expr, exprs.ColumnRef):
                         subst_dict[_PlaceholderColumnRef(expr.column_md.name)] = expr
 
+        tbl_id = uuid.uuid4()
+        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
+        next_col_id = itertools.count(initial_col_id)
+
         if iterator is not None:
             subst_args = [arg.substitute(subst_dict) for arg in iterator.args]
             subst_kwargs = {k: v.substitute(subst_dict) for k, v in iterator.kwargs.items()}
             subst_bound_args = {k: v.substitute(subst_dict) for k, v in iterator.bound_args.items()}
             iterator = func.GeneratingFunctionCall(
-                iterator.func, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
+                iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
             )
+            for name, output in iterator.outputs.items():
+                catalog_col = catalog.Column.create(name, {'type': output.col_type, 'stored': output.is_stored})
+                catalog_col.tbl_handle = tbl_handle
+                catalog_col.id = next(next_col_id)
+                subst_dict[_PlaceholderColumnRef(name)] = exprs.ColumnRef(
+                    catalog_col.column_version_md(), perform_validation=(tbl_media_validation == 'on_read')
+                )
 
-        tbl_id = uuid.uuid4()
-        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
-        for col_id, (name, placeholder) in enumerate(columns.items(), initial_col_id):
+        for name, placeholder in columns.items():
             subst_spec: ColumnSpec = placeholder.column_spec.copy()
             if 'value' in subst_spec:
                 subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
@@ -642,7 +651,7 @@ class TableModelMetaclass(type):
                     )
             catalog_col = catalog.Column.create(name, subst_spec)
             catalog_col.tbl_handle = tbl_handle
-            catalog_col.id = col_id
+            catalog_col.id = next(next_col_id)
             catalog_columns.append(catalog_col)
             subst_dict[placeholder] = exprs.ColumnRef(
                 catalog_col.column_version_md(),

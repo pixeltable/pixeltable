@@ -326,6 +326,20 @@ class TestTableModel:
         _ = ExampleViewModel.create()
         _ = ExampleViewModel2.create()
 
+    def test_view_model_with_iterator(self, uses_db: None) -> None:
+        class ExampleTableModel(pxt.TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            value: pxt.Float
+            image: pxt.Image
+
+        class ExampleViewModel(pxt.ViewModel, name='test_view', base=ExampleTableModel, iterator=pxtf.image.tile_iterator(ExampleTableModel.image, (256, 256))):
+            view_col_1 = ExampleTableModel.value + 1
+            view_col_2 = tile.rotate(90)  # type: ignore[name-defined]  # `tile` is defined by the iterator
+
+        _ = ExampleTableModel.create()
+        _ = ExampleViewModel.create()
+
     def test_table_model_errors(self, uses_db: None) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
 
