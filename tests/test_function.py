@@ -1796,24 +1796,25 @@ class TestFunction:
         assert process.returncode != 0  # The script should fail with an appropriate error message
         assert "Defining the UDF 'inline_udf' directly in the global namespace of a Python script" in process.stderr
 
-    def test_resource_estimator_polymorphic(self, uses_db: None) -> None:
+    def test_resource_estimator_polymorphic(self, make_catalog_path: Callable[[str], str]) -> None:
         """resource_estimator with _param_types works for valid overloads and fails for mismatched ones."""
+        p = make_catalog_path
 
         # Text overload: estimator param 'content' matches the resolved signature
-        t_text = pxt.create_table('test_est_text', {'content': pxt.String})
+        t_text = pxt.create_table(p('test_est_text'), {'content': pxt.String})
         t_text.add_computed_column(emb=mock_embed(t_text.content))
         validate_update_status(t_text.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
         # Image overload: estimator param 'content' matches the resolved signature
         images = get_image_files()[:2]
-        t_img = pxt.create_table('test_est_img', {'content': pxt.Image})
+        t_img = pxt.create_table(p('test_est_img'), {'content': pxt.Image})
         t_img.add_computed_column(emb=mock_embed(t_img.content))
         validate_update_status(t_img.insert([{'content': img} for img in images]))
 
         # Video overload: estimator param 'content' does NOT exist in the resolved signature
         # (the video overload uses 'video', not 'content')
         videos = get_video_files()[:2]
-        t_vid = pxt.create_table('test_est_vid', {'video': pxt.Video})
+        t_vid = pxt.create_table(p('test_est_vid'), {'video': pxt.Video})
         t_vid.add_computed_column(emb=mock_embed(t_vid.video))
         with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match='not in the resolved function signature'):
             t_vid.insert([{'video': v} for v in videos])

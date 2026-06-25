@@ -16,6 +16,7 @@ from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip
 
 from .utils import (
+    CatalogMode,
     ReloadTester,
     assert_resultset_eq,
     get_sentences,
@@ -1127,29 +1128,42 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`string_embed` must be a Pixeltable function'):
             t.add_embedding_index('vec', string_embed=str.split)  # type: ignore[arg-type]
 
-    # Local-only: verifies index creation/removal in the local Postgres store (store_tbl / list_store_indexes)
     @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
-    def test_drop_index(self, index_type: str, uses_db: None, request: pytest.FixtureRequest) -> None:
-        """Test that indices (B-tree and embedding) are properly dropped from the store"""
-        # Create table and insert data
-        t = pxt.create_table('index_drop_test', {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
+    def test_drop_index(
+        self,
+        index_type: str,
+        make_catalog_path: Callable[[str], str],
+        catalog_mode: CatalogMode,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        """Test that indices (B-tree and embedding) are properly dropped, observed through get_metadata(); the
+        physical removal from the local Postgres store is additionally checked in local mode."""
+        p = make_catalog_path
+        t = pxt.create_table(p('index_drop_test'), {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
         t.insert([{'id': 1, 'text': 'hello world'}, {'id': 2, 'text': 'goodbye'}])
 
-        # Find or create an index to drop
+        # Find or create an index to drop, identified by name through the public metadata
         if index_type == 'btree':
-            idx_info_list = [info for info in t._tbl_version.get().idxs_by_name.values() if info.col.name == 'text']
-            assert len(idx_info_list) == 1, "Should have one B-tree index on 'text'"
-            idx_info = idx_info_list[0]
+            # the table auto-creates a btree index on 'text'
+            btree_names = [
+                name
+                for name, info in t.get_metadata()['indices'].items()
+                if info['index_type'] == 'btree' and 'text' in info['columns']
+            ]
+            assert len(btree_names) == 1, "Should have one B-tree index on 'text'"
+            idx_name = btree_names[0]
         else:
             local_embed = request.getfixturevalue('local_embed')
             t.add_embedding_index('text', idx_name='text_idx', string_embed=local_embed)
-            idx_info = t._tbl_version.get().idxs_by_name['text_idx']
+            idx_name = 'text_idx'
 
-        assert idx_info.id in t._tbl_version.get().idxs
-        store_idx_name = t._tbl_version.get()._store_idx_name(idx_info.id)
+        assert idx_name in t.get_metadata()['indices']
 
-        # Verify index exists in the store
-        assert store_idx_name in list_store_indexes(t), f'Index {store_idx_name} should exist before drop'
+        # the physical Postgres index lives only in the (local) store; verify it there in local mode
+        if catalog_mode == 'local':
+            idx_info = t._tbl_version.get().idxs_by_name[idx_name]
+            store_idx_name = t._tbl_version.get()._store_idx_name(idx_info.id)
+            assert store_idx_name in list_store_indexes(t), f'Index {store_idx_name} should exist before drop'
 
         # Drop it
         if index_type == 'btree':
@@ -1157,13 +1171,12 @@ class TestIndex:
         else:
             t.drop_embedding_index(idx_name='text_idx')
 
-        # Verify index no longer exists in the store
-        assert store_idx_name not in list_store_indexes(t), f'Index {store_idx_name} should not exist after drop'
-        # Or the metadata
-        assert idx_info.id not in t._tbl_version.get().idxs
+        assert idx_name not in t.get_metadata()['indices']
+        if catalog_mode == 'local':
+            assert store_idx_name not in list_store_indexes(t), f'Index {store_idx_name} should not exist after drop'
         reload_catalog()
-        t = pxt.get_table('index_drop_test')
-        assert idx_info.id not in t._tbl_version.get().idxs
+        t = pxt.get_table(p('index_drop_test'))
+        assert idx_name not in t.get_metadata()['indices']
 
     def test_similarity_index_lifecycle(
         self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function

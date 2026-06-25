@@ -3439,26 +3439,22 @@ class TestTable:
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""
         # invalid if_not_exists parameter is rejected
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r"if_not_exists must be one of: \['error', 'ignore'\]"):
             t.drop_column(non_existing_col, if_not_exists='invalid')  # type: ignore[arg-type]
-        assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
-        # if_not_exists='error' raises an error if the column does not exist
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
+        # if_not_exists='error' raises an error if the column does not exist. The error names the column; a
+        # ColumnRef of another table is reported qualified (e.g. 'dummy.dummy_col') -- match on the bare column
+        # name, which is publicly available via str(), so this also works for a hosted (proxy) column.
+        col_name = non_existing_col if isinstance(non_existing_col, str) else str(non_existing_col)
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=rf'Unknown column: (\S+\.)?{re.escape(col_name)}$'):
             t.drop_column(non_existing_col, if_not_exists='error')
-        err_msg = str(exc_info.value)
-        if isinstance(non_existing_col, str):
-            assert err_msg == f'Unknown column: {non_existing_col}'
-        else:
-            assert err_msg == f'Unknown column: {non_existing_col.col.qualified_name}'
         # if_not_exists='ignore' does nothing if the column does not exist
         t.drop_column(non_existing_col, if_not_exists='ignore')
 
-    def test_drop_column(self, test_tbl: pxt.Table) -> None:
-        # local-only: the shared drop-column helper builds its expected error from a foreign ColumnRef's
-        # .col.qualified_name, which resolves against the local catalog and doesn't work for proxy columns
-        t = test_tbl
-        dummy_t = pxt.create_table('dummy', {'dummy_col': pxt.Int})
+    def test_drop_column(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = test_tbl_dual
+        dummy_t = pxt.create_table(p('dummy'), {'dummy_col': pxt.Int})
         num_orig_cols = len(t.columns())
         t.drop_column('c1')
         assert len(t.columns()) == num_orig_cols - 1
@@ -3502,7 +3498,7 @@ class TestTable:
         t.drop_column('c1')
         assert len(t.columns()) == num_orig_cols - 1
         assert 'c1' not in t.columns()
-        v = pxt.create_view('v', base=t, additional_columns={'v1': t.c3 + 1})
+        v = pxt.create_view(p('v'), base=t, additional_columns={'v1': t.c3 + 1})
         assert 'c1' not in v.columns()
         assert 'v1' in v.columns()
         # non-existing column by name - column was already dropped, base table column
@@ -3517,16 +3513,13 @@ class TestTable:
         self.__test_drop_column_if_not_exists(v, dummy_t.dummy_col)
 
         # drop_column is not allowed on a snapshot
-        s1 = pxt.create_snapshot('s1', t, additional_columns={'s1': t.c3 + 1})
+        s1 = pxt.create_snapshot(p('s1'), t, additional_columns={'s1': t.c3 + 1})
         assert 'c1' not in s1.columns()
-        with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"snapshot 's1': Cannot drop columns from a snapshot."
-        ):
+        snap_err = f'snapshot {p("s1")!r}: Cannot drop columns from a snapshot'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=snap_err):
             s1.drop_column('c1')
         assert 's1' in s1.columns()
-        with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"snapshot 's1': Cannot drop columns from a snapshot."
-        ):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=snap_err):
             s1.drop_column('s1')
         assert 's1' in s1.columns()
 
