@@ -1425,9 +1425,9 @@ def overlay_segmentation(
     Two input formats are supported:
 
     - A 2D `(H, W)` int32 id-map where each pixel value is a segment id. This matches the panoptic
-        output of [`detr_for_segmentation()`](pixeltable.functions.huggingface.detr_for_segmentation).
+        output of [`detr_for_segmentation()`][pixeltable.functions.huggingface.detr_for_segmentation].
     - A 3D `(num_instances, H, W)` boolean stack with one binary mask per instance. This matches the
-        per-instance mask output of [`sam_for_segmentation()`](pixeltable.functions.huggingface.sam_for_segmentation).
+        per-instance mask output of [`sam_for_segmentation()`][pixeltable.functions.huggingface.sam_for_segmentation].
         Instances are assigned ids `1..num_instances` in order; where masks overlap the highest id wins.
 
     Args:

@@ -534,7 +534,7 @@ def sam_automatic_mask_generation(
     be a reference to a pretrained
     [SAM Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3`.
 
-    Unlike [`sam3_for_segmentation`](pixeltable.functions.huggingface.sam3_for_segmentation), which requires a concept
+    Unlike [`sam3_for_segmentation`][pixeltable.functions.huggingface.sam3_for_segmentation], which requires a concept
     prompt, this samples a grid of points across the image and returns a binary mask for every distinct object it
     finds (the "segment everything" mode of SAM 1 and SAM 2). Masks are filtered by predicted quality and
     de-duplicated. The masks are class-agnostic: no labels or persistent object ids are produced, since the model
@@ -628,7 +628,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
     """
     Tracks objects across the frames of a video using SAM 3 (Segment Anything Model 3) Promptable Concept
     Segmentation. This is the video counterpart of
-    [`sam3_for_segmentation()`](pixeltable.functions.huggingface.sam3_for_segmentation): given a concept prompt,
+    [`sam3_for_segmentation()`][pixeltable.functions.huggingface.sam3_for_segmentation]: given a concept prompt,
     it detects every matching object and follows each instance across frames, assigning a stable `object_id`
     that is preserved as the object moves, is occluded, and reappears.
 
