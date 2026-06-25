@@ -380,7 +380,13 @@ class _ModelNamespace(dict):
     iterator: func.GeneratingFunctionCall | None
 
     def __init__(
-        self, cls_name: str, tbl_name: str, base: _PlaceholderQuery | None, iterator: func.GeneratingFunctionCall | None, create_default_idxs: bool, media_validation: MediaValidation
+        self,
+        cls_name: str,
+        tbl_name: str,
+        base: _PlaceholderQuery | None,
+        iterator: func.GeneratingFunctionCall | None,
+        create_default_idxs: bool,
+        media_validation: MediaValidation,
     ) -> None:
         super().__init__()
         self.column_ctx = _ColumnCtx()
@@ -424,10 +430,20 @@ class TableModelMetaclass(type):
     _is_bound: bool
 
     @classmethod
-    def __prepare__(mcs, cls_name: str, bases: tuple[type, ...], /, **kwargs: Any) -> MutableMapping[str, object]:  # noqa: N804
+    def __prepare__(
+        mcs,
+        cls_name: str,
+        bases: tuple[type, ...],
+        /,
+        name: str,
+        base: 'TableModel | ViewModel | _PlaceholderQuery | None' = None,
+        iterator: func.GeneratingFunctionCall | None = None,
+        create_default_idxs: bool = True,
+        media_validation: Literal['on_read', 'on_write'] = 'on_write',
+    ) -> MutableMapping[str, object]:  # noqa: N804
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
-            return super().__prepare__(cls_name, bases, **kwargs)
+            return super().__prepare__(cls_name, bases)
         elif len(bases) > 1 or bases[0] not in (TableModel, ViewModel):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
@@ -437,12 +453,10 @@ class TableModelMetaclass(type):
             display_name = f'{bases[0].__name__} `{cls_name}`'
 
             # Validate table name
-            if 'name' not in kwargs:
-                raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'{display_name} must specify a `name`.')
-            tbl_name = kwargs['name']
+            tbl_name = name
             if not isinstance(tbl_name, str) or not is_valid_identifier(tbl_name, allow_hyphens=True):
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA, f'{display_name}: `name` must be a valid Pixeltable identifier.'
+                    excs.ErrorCode.INVALID_ARGUMENT, f'{display_name}: `name` must be a valid Pixeltable identifier.'
                 )
             if tbl_name in mcs.registered_models:
                 raise excs.RequestError(
@@ -452,51 +466,46 @@ class TableModelMetaclass(type):
                 )
 
             # Validate base
-            base: _PlaceholderQuery | None = None
-            if 'base' in kwargs:
+            if base is not None:
                 if bases[0] is TableModel:
                     raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
+                        excs.ErrorCode.INVALID_ARGUMENT,
                         f'`base` not allowed for a `TableModel`; `{cls_name}` must subclass `ViewModel` instead.',
                     )
-                if isinstance(kwargs['base'], _PlaceholderQuery):
-                    base = kwargs['base']
-                elif isinstance(kwargs['base'], TableModelMetaclass):
-                    base = kwargs['base'].select()
+                if isinstance(base, _PlaceholderQuery):
+                    pass
+                elif isinstance(base, TableModelMetaclass):
+                    base = base.select()
                 else:
                     raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
+                        excs.ErrorCode.INVALID_ARGUMENT,
                         f'{display_name}: `base` must be a valid base table reference '
                         f'(another `TableModel` or `ViewModel`, or a query over a model).',
                     )
             elif bases[0] is ViewModel:
-                raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'{display_name} must specify a `base`.')
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{display_name} must specify a `base`.')
 
             # Validate iterator
-            iterator: func.GeneratingFunctionCall | None = None
-            if 'iterator' in kwargs:
+            if iterator is not None:
                 if bases[0] is TableModel:
                     raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
+                        excs.ErrorCode.INVALID_ARGUMENT,
                         f'`iterator` not allowed for a `TableModel`; `{cls_name}` must subclass `ViewModel` instead.',
                     )
-                if isinstance(kwargs['iterator'], func.GeneratingFunctionCall):
-                    iterator = kwargs['iterator']
-                else:
+                if not isinstance(iterator, func.GeneratingFunctionCall):
                     raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA, f'{display_name}: `iterator` must be a valid iterator reference.'
+                        excs.ErrorCode.INVALID_ARGUMENT, f'{display_name}: `iterator` must be a valid iterator reference.'
                     )
 
-            create_default_idxs: bool = kwargs.get('create_default_idxs', True)
-            if not isinstance(create_default_idxs, bool):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'{display_name}: `create_default_idxs` must be a `bool`.',
-                )
-
-            media_validation = MediaValidation.validated(kwargs.get('media_validation', 'on_write'), '`media_validation`')
-
-            namespace = _ModelNamespace(cls_name=cls_name, tbl_name=tbl_name, base=base, iterator=iterator, create_default_idxs=create_default_idxs, media_validation=media_validation)
+            media_validation_ = MediaValidation.validated(media_validation, '`media_validation`')
+            namespace = _ModelNamespace(
+                cls_name=cls_name,
+                tbl_name=tbl_name,
+                base=base,
+                iterator=iterator,
+                create_default_idxs=create_default_idxs,
+                media_validation=media_validation_,
+            )
 
             if base is not None and base.select_list is not None:
                 # Pre-populate the namespace with named elements of the select list, appropriately typed.
@@ -726,13 +735,14 @@ class TableModelMetaclass(type):
         return cls._resolve_tbl()
 
 
-class TableModel(metaclass=TableModelMetaclass):
+# `name` will be ignored for the base classes, but is required to conform to the TableModelMetaclass signature
+class TableModel(metaclass=TableModelMetaclass, name=''):
     """
     Base class for declarative Pixeltable table models.
     """
 
 
-class ViewModel(metaclass=TableModelMetaclass):
+class ViewModel(metaclass=TableModelMetaclass, name=''):
     """
     Base class for declarative Pixeltable view models.
     """

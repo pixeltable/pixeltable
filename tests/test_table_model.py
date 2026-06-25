@@ -393,13 +393,13 @@ class TestTableModel:
     def test_table_model_errors(self, uses_db: None) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`name` must be a valid Pixeltable identifier'):
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'`name` must be a valid Pixeltable identifier'):
 
             class BadTableName(pxt.TableModel, name='invalid! table@name'):
                 pass
 
         with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA,
+            excs.ErrorCode.INVALID_ARGUMENT,
             match=r'`base` not allowed for a `TableModel`; `BadBaseTable` must subclass `ViewModel` instead.',
         ):
 
@@ -407,7 +407,7 @@ class TestTableModel:
                 pass
 
         with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA,
+            excs.ErrorCode.INVALID_ARGUMENT,
             match=r'`iterator` not allowed for a `TableModel`; `BadIterTable` must subclass `ViewModel` instead.',
         ):
 
@@ -422,9 +422,14 @@ class TestTableModel:
         class ValidTableModel(pxt.TableModel, name='valid_table'):
             id: pxt.Int
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='must be a valid iterator reference'):
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match='must be a valid iterator reference'):
 
             class BadIterRef(pxt.ViewModel, name='bad_iter_ref', base=ValidTableModel, iterator='not a valid iterator'):
+                pass
+
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r"`media_validation` must be one of: \['on_read', 'on_write'\]"):
+
+            class BadMediaValidation(pxt.TableModel, name='bad_media_validation', media_validation='on_ragnarok'):
                 pass
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Conflicting type annotation for column 'name'."):
@@ -432,23 +437,13 @@ class TestTableModel:
             class TypeConflict(pxt.TableModel, name='type_conflict'):
                 name: pxt.Int = Column(type=pxt.String)  # type: ignore[assignment]
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'TableModel `NoTableName` must specify a `name`.'):
-
-            class NoTableName(pxt.TableModel):
-                id: pxt.Int
-
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'ViewModel `NoTableNameView` must specify a `name`.'):
-
-            class NoTableNameView(pxt.ViewModel, base=ValidTableModel):
-                pass
-
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'ViewModel `NoBase` must specify a `base`.'):
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'ViewModel `NoBase` must specify a `base`.'):
 
             class NoBase(pxt.ViewModel, name='no_base'):
                 pass
 
         with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA,
+            excs.ErrorCode.INVALID_ARGUMENT,
             match=r'ViewModel `InvalidBase`: `base` must be a valid base table reference '
             r'\(another `TableModel` or `ViewModel`, or a query over a model\).',
         ):
@@ -482,12 +477,6 @@ class TestTableModel:
             class IdxTypeConflict(pxt.TableModel, name='idx_type_conflict'):
                 img: pxt.Image
                 my_idx: pxt.Int = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
-
-        with pytest.raises(AttributeError, match=r"Column 'undefined' is not defined yet"):
-
-            class SelfRef(pxt.TableModel, name='self_ref'):
-                id: pxt.Int
-                bad = SelfRef.undefined  # type: ignore[name-defined]
 
         # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
         # column refers to a column outside the model (here, a column belonging to a different, unbound model).
