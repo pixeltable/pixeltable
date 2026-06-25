@@ -18,9 +18,9 @@ from sqlalchemy import text
 
 import pixeltable as pxt
 import pixeltable.utils.fault_injection as prod_fault_injection
-from pixeltable.catalog.model import TableModelMetaclass
 import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
+from pixeltable.catalog.model import TableModelMetaclass
 from pixeltable.config import Config
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer

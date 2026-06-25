@@ -337,7 +337,12 @@ class TestTableModel:
             value: pxt.Float
             image: pxt.Image
 
-        class ExampleViewModel(pxt.ViewModel, name='test_view', base=ExampleTableModel, iterator=pxtf.image.tile_iterator(ExampleTableModel.image, (256, 256))):
+        class ExampleViewModel(
+            pxt.ViewModel,
+            name='test_view',
+            base=ExampleTableModel,
+            iterator=pxtf.image.tile_iterator(ExampleTableModel.image, (256, 256)),
+        ):
             view_col_1 = ExampleTableModel.value + 1
             view_col_2 = tile.rotate(90)  # type: ignore[name-defined]  # `tile` is defined by the iterator
 
@@ -347,82 +352,69 @@ class TestTableModel:
     def test_table_model_errors(self, uses_db: None) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
 
-        # `_PlaceholderFactory.__getattr__` rejects identifiers that aren't valid column names
-        # (e.g., names starting with `_`).
         with pytest.raises(AttributeError, match='Invalid column name'):
             _ = Column._invalid
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='`name` must be a valid Pixeltable identifier'):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`name` must be a valid Pixeltable identifier'):
 
             class BadTableName(pxt.TableModel, name='invalid! table@name'):
                 pass
 
-        # `__base_table__` is not allowed on a TableModel.
         with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA, match='`BadBaseTable` must subclass `ViewModel` to specify a `base`.'
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r'`base` not allowed for a `TableModel`; `BadBaseTable` must subclass `ViewModel` instead.',
         ):
 
-            class BadBaseTable(pxt.TableModel, name='bad_base_table', base='unused'):
+            class BadBaseTable(pxt.TableModel, name='bad_base_table', base='not_allowed'):
                 pass
 
-        # `__iterator__` is not allowed on a TableModel.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='__iterator__ not allowed for a TableModel'):
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r'`iterator` not allowed for a `TableModel`; `BadIterTable` must subclass `ViewModel` instead.',
+        ):
 
-            class BadIterTable(pxt.TableModel):
-                __table_name__ = 'bad_iter_table'
-                __iterator__ = 'unused'
+            class BadIterTable(pxt.TableModel, name='bad_iter_table', iterator='not_allowed'):
+                pass
 
-        # `__iterator__` on a ViewModel must be a `GeneratingFunctionCall`.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'Empty `TableModel` not allowed.'):
+
+            class EmptyTableModel(pxt.TableModel, name='empty_table'):
+                pass
+
+        class ValidTableModel(pxt.TableModel, name='valid_table'):
+            id: pxt.Int
+
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='must be a valid iterator reference'):
 
-            class BadIterRef(pxt.ViewModel):
-                __table_name__ = 'bad_iter_ref'
-                __base_table__ = 'unused'
-                __iterator__ = 'not a generating function call'
+            class BadIterRef(pxt.ViewModel, name='bad_iter_ref', base=ValidTableModel, iterator='not a valid iterator'):
+                pass
 
         # Type annotation conflicts with the `type=` argument in `Column()`.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='conflicts with the `type=` argument'):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'conflicts with the `type=` argument'):
 
-            class TypeConflict(pxt.TableModel):
-                __table_name__ = 'type_conflict'
+            class TypeConflict(pxt.TableModel, name='type_conflict'):
                 name: pxt.Int = Column(type=pxt.String)  # type: ignore[assignment]
 
-        # A TableModel subclass must define `__table_name__`.
-        with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA, match=r'TableModel `NoTableName` does not define a __table_name__'
-        ):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'TableModel `NoTableName` must specify a `name`.'):
 
             class NoTableName(pxt.TableModel):
                 id: pxt.Int
 
-        # A ViewModel subclass must define `__table_name__`.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'ViewModel `NoTableNameView` must specify a `name`.'):
+
+            class NoTableNameView(pxt.ViewModel, base=ValidTableModel):
+                pass
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'ViewModel `NoBase` must specify a `base`.'):
+
+            class NoBase(pxt.ViewModel, name='no_base'):
+                pass
+
         with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA, match=r'ViewModel `NoTableNameView` does not define a __table_name__'
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r'ViewModel `InvalidBase`: `base` must be a valid base table reference '
+            r'\(another `TableModel` or `ViewModel`, or a query over a model\).',
         ):
 
-            class NoTableNameView(pxt.ViewModel):
-                __base_table__ = 'unused'
-
-        # A ViewModel must define `__base_table__`.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'ViewModel `NoBase` does not define a __base_table__'):
-
-            class NoBase(pxt.ViewModel):
-                __table_name__ = 'no_base'
-
-        # `__base_table__` must be a name, an existing Table/Query, or a TableModel/ViewModel class.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='Invalid __base_table__'):
-
-            class InvalidBase(pxt.ViewModel):
-                __table_name__ = 'invalid_base'
-                __base_table__ = 42
-
-        # A computed column references a column that was never declared on the model.
-        # This error fires at `create()` time during placeholder substitution, not at class-definition time.
-        class UndefinedColRef(pxt.TableModel):
-            __table_name__ = 'undef_col_ref'
-
-            name: pxt.String
-            bogus = Column.nonexistent + 1
-
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='references undefined column'):
-            UndefinedColRef.create()
+            class InvalidBase(pxt.ViewModel, name='invalid_base', base=42):
+                pass

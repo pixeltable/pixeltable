@@ -151,20 +151,23 @@ class _PlaceholderFactory:
         custom_metadata: Any = None,
         comment: str | None = None,
     ) -> _PlaceholderColumnSpec:
-        """
-        Alternate usage of `Column` for defining a column with additional metadata.
-        Wraps all provided arguments in a `ColumnSpec`.
-        """
-        column_spec: ColumnSpec = {
-            'type': type,
-            'value': value,
-            'primary_key': primary_key,
-            'stored': stored,
-            'media_validation': media_validation,
-            'destination': destination,
-            'custom_metadata': custom_metadata,
-            'comment': comment,
-        }
+        column_spec: ColumnSpec = {}
+        if type is not None:
+            column_spec['type'] = type
+        if value is not None:
+            column_spec['value'] = value
+        if primary_key is not None:
+            column_spec['primary_key'] = primary_key
+        if stored is not None:
+            column_spec['stored'] = stored
+        if media_validation is not None:
+            column_spec['media_validation'] = media_validation
+        if destination is not None:
+            column_spec['destination'] = destination
+        if custom_metadata is not None:
+            column_spec['custom_metadata'] = custom_metadata
+        if comment is not None:
+            column_spec['comment'] = comment
         return _PlaceholderColumnSpec(column_spec)
 
     def set_column_ctx(self, column_ctx: _ColumnCtx | None) -> None:
@@ -352,7 +355,7 @@ class _ColumnCtx:
                 if ('type' in spec) == ('value' in spec):
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_SCHEMA,
-                        f'Column specification for {name!r} must define `type` or `value`, but not both.',
+                        f'Column specification for {name!r} must define `type` or `value`, but not both',
                     )
             else:
                 # Computed column expression.
@@ -421,20 +424,9 @@ class _ModelNamespace(dict):
             Column.set_column_ctx(None)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        import pixeltable as pxt
-
         if not key.startswith('_'):
             # Replace the value with a _PlaceholderColumnRef or EmbeddingIndex
             value = self.column_ctx.set_col_value(key, value)
-
-        elif key == '__base_table__':
-            if isinstance(value, (TableModelMetaclass, pxt.Table)):
-                value = value.select()
-            if value is not None and not isinstance(value, (_PlaceholderQuery, pxt.Query)):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'__base_table__ must be set to a valid base table reference, but got {value!r}',
-                )
 
         super().__setitem__(key, value)
 
@@ -461,7 +453,7 @@ class TableModelMetaclass(type):
     Metaclass that collects annotated column definitions and other table metadata from a class body.
     """
 
-    _registered_models: dict[str, TableModelMetaclass] = {}  # __table_name__ -> model
+    _registered_models: dict[str, TableModelMetaclass] = {}  # table name -> model
 
     __columns__: dict[str, _PlaceholderColumnRef]
     __indexes__: dict[str, EmbeddingIndex]
@@ -518,9 +510,7 @@ class TableModelMetaclass(type):
                         f'(another `TableModel` or `ViewModel`, or a query over a model).',
                     )
             elif bases[0] is ViewModel:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA, f'`{cls_name}` must specify a `base` when subclassing `ViewModel`.'
-                )
+                raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'{display_name} must specify a `base`.')
 
             # Validate iterator
             iterator: func.GeneratingFunctionCall | None = None
@@ -566,6 +556,9 @@ class TableModelMetaclass(type):
         # Remove the _ColumnCtx object; it's no longer needed, and we need to "normalize" the namespace
         column_ctx = namespace.pop(cls_name)
         assert isinstance(column_ctx, _ColumnCtx)
+
+        if len(column_ctx.known_cols) == 0 and bases[0] is TableModel:
+            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty `TableModel` not allowed.')
 
         # Process declarations. We need to process bare annotations (such as `col1: int`) as well as
         #    values (such as `col2 = Column.col1 + 1` or `idx0 = EmbeddingIndex(...)`).
