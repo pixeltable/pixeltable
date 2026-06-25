@@ -60,6 +60,51 @@ for method in FORWARDED_TABLE_METHODS:
     assert hasattr(Table, method), method
 
 
+@dataclass(frozen=True)
+class Column:
+    type: type | None = None
+    value: exprs.Expr | None = None
+    primary_key: bool | None = None
+    stored: bool | None = None
+    media_validation: Literal['on_read', 'on_write'] | None = None
+    destination: str | Path | None = None
+    custom_metadata: Any = None
+    comment: str | None = None
+
+    def to_column_spec(self) -> ColumnSpec:
+        column_spec: ColumnSpec = {}
+        if self.type is not None:
+            column_spec['type'] = self.type
+        if self.value is not None:
+            column_spec['value'] = self.value
+        if self.primary_key is not None:
+            column_spec['primary_key'] = self.primary_key
+        if self.stored is not None:
+            column_spec['stored'] = self.stored
+        if self.media_validation is not None:
+            column_spec['media_validation'] = self.media_validation
+        if self.destination is not None:
+            column_spec['destination'] = self.destination
+        if self.custom_metadata is not None:
+            column_spec['custom_metadata'] = self.custom_metadata
+        if self.comment is not None:
+            column_spec['comment'] = self.comment
+        return column_spec
+
+
+@dataclass(frozen=True)
+class EmbeddingIndex:
+    column: str | exprs.Expr
+    embedding: func.Function | None = None
+    string_embed: func.Function | None = None
+    image_embed: func.Function | None = None
+    audio_embed: func.Function | None = None
+    video_embed: func.Function | None = None
+    document_embed: func.Function | None = None
+    metric: Literal['cosine', 'ip', 'l2'] = 'cosine'
+    precision: Literal['fp16', 'fp32'] = 'fp16'
+
+
 class _PlaceholderColumnRef(exprs.Expr):
     """
     A placeholder column reference used in TableModel definitions,
@@ -107,74 +152,6 @@ class _PlaceholderColumnRef(exprs.Expr):
 
     def as_dict(self) -> dict[str, Any]:
         raise AssertionError('It should never be possible to serialize a placeholder.')
-
-
-@dataclass
-class _PlaceholderColumnSpec:
-    column_spec: ColumnSpec
-
-
-class _PlaceholderFactory:
-    """
-    Class for creating placeholder column objects that can be used in TableModel definitions.
-
-    This allows users to reference column names in computed expressions without needing to define them
-    a priori as actual columns.
-    """
-
-    _column_ctx: _ColumnCtx | None
-
-    def __init__(self) -> None:
-        self.set_column_ctx(None)
-
-    def __getattr__(self, key: str) -> _PlaceholderColumnRef:
-        if not isinstance(key, str) or not is_valid_identifier(key):
-            raise AttributeError(f'Invalid column name: {key}')
-        if self._column_ctx is None:
-            raise AttributeError(
-                f'Cannot reference abstract column {key!r} outside of a `TableModel` or `ViewModel` definition'
-            )
-        return getattr(self._column_ctx, key)
-
-    def __hasattr__(self, key: str) -> bool:
-        return isinstance(key, str) and is_valid_identifier(key)
-
-    def __call__(
-        self,
-        *,
-        type: type | None = None,
-        value: exprs.Expr | None = None,
-        primary_key: bool | None = None,
-        stored: bool | None = None,
-        media_validation: Literal['on_read', 'on_write'] | None = None,
-        destination: str | Path | None = None,
-        custom_metadata: Any = None,
-        comment: str | None = None,
-    ) -> _PlaceholderColumnSpec:
-        column_spec: ColumnSpec = {}
-        if type is not None:
-            column_spec['type'] = type
-        if value is not None:
-            column_spec['value'] = value
-        if primary_key is not None:
-            column_spec['primary_key'] = primary_key
-        if stored is not None:
-            column_spec['stored'] = stored
-        if media_validation is not None:
-            column_spec['media_validation'] = media_validation
-        if destination is not None:
-            column_spec['destination'] = destination
-        if custom_metadata is not None:
-            column_spec['custom_metadata'] = custom_metadata
-        if comment is not None:
-            column_spec['comment'] = comment
-        return _PlaceholderColumnSpec(column_spec)
-
-    def set_column_ctx(self, column_ctx: _ColumnCtx | None) -> None:
-        self._column_ctx = column_ctx
-
-
-Column: _PlaceholderFactory = _PlaceholderFactory()
 
 
 @dataclasses.dataclass
@@ -350,8 +327,8 @@ class _ColumnCtx:
         else:
             assert name not in self.known_cols  # `value` always gets set before `type` if both are defined
             spec: ColumnSpec
-            if isinstance(value, _PlaceholderColumnSpec):
-                spec = value.column_spec
+            if isinstance(value, Column):
+                spec = value.to_column_spec()
                 if ('type' in spec) == ('value' in spec):
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_SCHEMA,
@@ -416,12 +393,6 @@ class _ModelNamespace(dict):
         super().__setitem__('__annotations__', _AnnotationRecorder(self))
         super().__setitem__(cls_name, self.column_ctx)
         super().__setitem__('_is_bound', False)
-        Column.set_column_ctx(self.column_ctx)
-        self._finalizer = weakref.finalize(self, lambda: self.cleanup_column_ctx())
-
-    def cleanup_column_ctx(self) -> None:
-        if Column._column_ctx is self.column_ctx:
-            Column.set_column_ctx(None)
 
     def __setitem__(self, key: str, value: Any) -> None:
         if not key.startswith('_'):
@@ -433,19 +404,6 @@ class _ModelNamespace(dict):
     def set_col_type(self, key: str, type_: Any) -> None:
         col_ref = self.column_ctx.set_col_type(key, type_)
         super().__setitem__(key, col_ref)
-
-
-@dataclass(frozen=True)
-class EmbeddingIndex:
-    column: str | exprs.Expr
-    embedding: func.Function | None = None
-    string_embed: func.Function | None = None
-    image_embed: func.Function | None = None
-    audio_embed: func.Function | None = None
-    video_embed: func.Function | None = None
-    document_embed: func.Function | None = None
-    metric: Literal['cosine', 'ip', 'l2'] = 'cosine'
-    precision: Literal['fp16', 'fp32'] = 'fp16'
 
 
 class TableModelMetaclass(type):

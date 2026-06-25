@@ -352,9 +352,6 @@ class TestTableModel:
     def test_table_model_errors(self, uses_db: None) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
 
-        with pytest.raises(AttributeError, match='Invalid column name'):
-            _ = Column._invalid
-
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`name` must be a valid Pixeltable identifier'):
 
             class BadTableName(pxt.TableModel, name='invalid! table@name'):
