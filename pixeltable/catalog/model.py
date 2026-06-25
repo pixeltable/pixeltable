@@ -5,7 +5,7 @@ import itertools
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, MutableMapping
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, MutableMapping, TypedDict
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog.table_path import TableVersionPath
@@ -302,22 +302,12 @@ class _PlaceholderQuery:
 
 
 class _ColumnCtx:
-    tbl_name: str
     known_cols: dict[str, _PlaceholderColumnRef]
     known_idxs: dict[str, EmbeddingIndex]
 
-    def __init__(self, tbl_name: str) -> None:
-        self.tbl_name = tbl_name
+    def __init__(self) -> None:
         self.known_cols = {}
         self.known_idxs = {}
-
-    def __hasattr__(self, key: str) -> bool:
-        return key in self.known_cols
-
-    def __getattr__(self, item: str) -> _PlaceholderColumnRef:
-        if item not in self.known_cols:
-            raise AttributeError(f'Column {item!r} is not defined yet')
-        return self.known_cols[item]
 
     def set_col_value(self, name: str, value: Any) -> EmbeddingIndex | _PlaceholderColumnRef:
         if isinstance(value, EmbeddingIndex):
@@ -372,25 +362,38 @@ class _AnnotationRecorder(dict):
         super().__setitem__(key, value)
 
 
+class _TableSpec(TypedDict):
+    name: str
+    base: _PlaceholderQuery | None
+    iterator: func.GeneratingFunctionCall | None
+    create_default_idxs: bool
+    media_validation: MediaValidation
+
+
 class _ModelNamespace(dict):
     """Class namespace that records the source order of every name bound in the body,
     including bare annotations (which never write to the namespace itself)."""
 
     column_ctx: _ColumnCtx
+    table_spec: _TableSpec
     base: _PlaceholderQuery | None
     iterator: func.GeneratingFunctionCall | None
 
     def __init__(
-        self, cls_name: str, tbl_name: str, base: _PlaceholderQuery | None, iterator: func.GeneratingFunctionCall | None
+        self, cls_name: str, tbl_name: str, base: _PlaceholderQuery | None, iterator: func.GeneratingFunctionCall | None, create_default_idxs: bool, media_validation: MediaValidation
     ) -> None:
         super().__init__()
-        self.column_ctx = _ColumnCtx(tbl_name)
-        self.base = base
-        self.iterator = iterator
+        self.column_ctx = _ColumnCtx()
+        self.table_spec = {
+            'name': tbl_name,
+            'base': base,
+            'iterator': iterator,
+            'create_default_idxs': create_default_idxs,
+            'media_validation': media_validation,
+        }
         # Pre-seed __annotations__ so the compiler routes bare annotations through
         # our recorder rather than a plain dict it would otherwise create.
         super().__setitem__('__annotations__', _AnnotationRecorder(self))
-        super().__setitem__(cls_name, self.column_ctx)
         super().__setitem__('_is_bound', False)
 
     def __setitem__(self, key: str, value: Any) -> None:
@@ -484,7 +487,16 @@ class TableModelMetaclass(type):
                         excs.ErrorCode.INVALID_SCHEMA, f'{display_name}: `iterator` must be a valid iterator reference.'
                     )
 
-            namespace = _ModelNamespace(cls_name=cls_name, tbl_name=tbl_name, base=base, iterator=iterator)
+            create_default_idxs: bool = kwargs.get('create_default_idxs', True)
+            if not isinstance(create_default_idxs, bool):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'{display_name}: `create_default_idxs` must be a `bool`.',
+                )
+
+            media_validation = MediaValidation.validated(kwargs.get('media_validation', 'on_write'), '`media_validation`')
+
+            namespace = _ModelNamespace(cls_name=cls_name, tbl_name=tbl_name, base=base, iterator=iterator, create_default_idxs=create_default_idxs, media_validation=media_validation)
 
             if base is not None and base.select_list is not None:
                 # Pre-populate the namespace with named elements of the select list, appropriately typed.
@@ -509,10 +521,7 @@ class TableModelMetaclass(type):
             return super().__new__(mcs, cls_name, bases, namespace)
 
         assert isinstance(namespace, _ModelNamespace)
-
-        # Remove the _ColumnCtx object; it's no longer needed, and we need to "normalize" the namespace
-        column_ctx = namespace.pop(cls_name)
-        assert isinstance(column_ctx, _ColumnCtx)
+        column_ctx = namespace.column_ctx
 
         if len(column_ctx.known_cols) == 0 and bases[0] is TableModel:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty `TableModel` not allowed.')
@@ -520,9 +529,9 @@ class TableModelMetaclass(type):
         # Process declarations. We need to process bare annotations (such as `col1: int`) as well as
         #    values (such as `col2 = Column.col1 + 1` or `idx0 = EmbeddingIndex(...)`).
 
-        namespace['__table_name__'] = column_ctx.tbl_name
-        namespace['__base_table__'] = namespace.base
-        namespace['__iterator__'] = namespace.iterator
+        namespace['__table_name__'] = namespace.table_spec['name']
+        namespace['__base_table__'] = namespace.table_spec['base']
+        namespace['__iterator__'] = namespace.table_spec['iterator']
         namespace['__columns__'] = column_ctx.known_cols
         namespace['__indexes__'] = column_ctx.known_idxs
 
