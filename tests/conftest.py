@@ -205,7 +205,7 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
-    TableModelMetaclass._registered_models.clear()
+    TableModelMetaclass.registered_models.clear()
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None

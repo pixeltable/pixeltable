@@ -1536,6 +1536,8 @@ class Catalog(CatalogBase):
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
     ) -> tuple[LocalTable, bool]:
+        assert isinstance(base_path, TableVersionPath)
+
         additional_columns_ = [Column.create(name, spec) for name, spec in additional_columns.items()]
         create_fn = retry_loop(for_write=True)(
             lambda: self._create_view(
@@ -1572,7 +1574,7 @@ class Catalog(CatalogBase):
     def _create_view(
         self,
         path: Path,
-        base_path: TablePath,
+        base_path: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,

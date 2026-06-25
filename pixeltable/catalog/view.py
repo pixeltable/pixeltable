@@ -210,11 +210,11 @@ class View(LocalTable):
             # this is purely a snapshot: no store table to create or load
             return md, None
         else:
-            tbl_id = md.tbl_md.tbl_id
-            key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None)
+            tbl_id = UUID(md.tbl_md.tbl_id)
+            key = TableVersionKey(tbl_id, 0 if is_snapshot else None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = (
-                TableOpsBuilder(tbl_id, tbl_version=md.tbl_md.current_version)
+                TableOpsBuilder(str(tbl_id), tbl_version=md.tbl_md.current_version)
                 .add(CreateTableMdOp)
                 .add(CreateStoreTableOp)
                 .add(LoadViewOp, view_path=view_path.as_dict())

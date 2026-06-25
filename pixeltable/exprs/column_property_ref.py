@@ -46,6 +46,7 @@ class ColumnPropertyRef(Expr):
     @property
     def col_ref(self) -> ColumnRef:
         col_ref = self.components[0]
+        assert isinstance(col_ref, ColumnRef)
         return col_ref
 
     def __repr__(self) -> str:

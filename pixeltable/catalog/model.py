@@ -44,13 +44,11 @@ FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
         'order_by',
         'recompute_columns',
         'sample',
-        'select',
         'show',
         'sync',
         'tail',
         'unlink_external_stores',
         'update',
-        'where',
     )
 )
 
@@ -410,7 +408,7 @@ class TableModelMetaclass(type):
     Metaclass that collects annotated column definitions and other table metadata from a class body.
     """
 
-    _registered_models: ClassVar[dict[str, TableModelMetaclass]] = {}  # table name -> model
+    registered_models: ClassVar[dict[str, TableModelMetaclass]] = {}  # table name -> model
 
     __columns__: dict[str, _PlaceholderColumnRef]
     __indexes__: dict[str, EmbeddingIndex]
@@ -421,7 +419,7 @@ class TableModelMetaclass(type):
     _is_bound: bool
 
     @classmethod
-    def __prepare__(mcs, cls_name: str, bases: tuple[type, ...], **kwargs: Any) -> dict[str, Any]:  # noqa: N804
+    def __prepare__(mcs, cls_name: str, bases: tuple[type, ...], /, **kwargs: Any) -> dict[str, Any]:  # noqa: N804
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
             return super().__prepare__(cls_name, bases, **kwargs)
@@ -441,11 +439,11 @@ class TableModelMetaclass(type):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA, f'{display_name}: `name` must be a valid Pixeltable identifier.'
                 )
-            if tbl_name in mcs._registered_models:
+            if tbl_name in mcs.registered_models:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'{display_name} has name {tbl_name!r}, but that name was '
-                    f'previously used by `{mcs._registered_models[tbl_name].__name__}`.',
+                    f'previously used by `{mcs.registered_models[tbl_name].__name__}`.',
                 )
 
             # Validate base
@@ -530,7 +528,7 @@ class TableModelMetaclass(type):
             namespace.pop(idx_name)
 
         cls = super().__new__(mcs, cls_name, bases, namespace)
-        mcs._registered_models[cls.__table_name__] = cls
+        mcs.registered_models[cls.__table_name__] = cls
         return cls
 
     def _resolve_tbl(cls) -> Table:
@@ -732,5 +730,5 @@ class ViewModel(metaclass=TableModelMetaclass):
 
 
 def create_all() -> None:
-    for model in TableModelMetaclass._registered_models.values():
+    for model in TableModelMetaclass.registered_models.values():
         model.create()
