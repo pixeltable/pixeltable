@@ -782,3 +782,8 @@ class ViewModel(metaclass=TableModelMetaclass):
     """
     Base class for declarative Pixeltable view models.
     """
+
+
+def create_all() -> None:
+    for model in TableModelMetaclass._registered_models.values():
+        model.create()

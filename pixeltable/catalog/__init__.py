@@ -18,7 +18,7 @@ from .globals import (
 from .insertable_table import InsertableTable
 from .insertable_table_proxy import InsertableTableProxy
 from .local_table import LocalTable
-from .model import TableModel, ViewModel
+from .model import TableModel, ViewModel, create_all
 from .path import Path
 from .schema_object import SchemaObject
 from .table import Table

@@ -270,12 +270,13 @@ class TestTableModel:
             'string_mul': 'String',
             'string_radd': 'String',
             'string_rmul': 'String',
-            'type_cast': 'Required[Array[float32]]',
+            'type_cast': 'Array[float32]',
             'value': 'Float',
         }
 
+    @pytest.mark.parametrize('create_all', [False, True])
     @pytest.mark.parametrize('spec_type', ['model', 'query'])
-    def test_view_model(self, spec_type: Literal['model', 'query'], uses_db: None) -> None:
+    def test_view_model(self, spec_type: Literal['model', 'query'], create_all: bool, uses_db: None) -> None:
         class ExampleTableModel(pxt.TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
@@ -322,9 +323,12 @@ class TestTableModel:
             subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
             subview_col_3 = subview_col_2.rotate(30)
 
-        _ = ExampleTableModel.create()
-        _ = ExampleViewModel.create()
-        _ = ExampleViewModel2.create()
+        if create_all:
+            pxt.create_all()
+        else:
+            _ = ExampleTableModel.create()
+            _ = ExampleViewModel.create()
+            _ = ExampleViewModel2.create()
 
     def test_view_model_with_iterator(self, uses_db: None) -> None:
         class ExampleTableModel(pxt.TableModel, name='test_table'):

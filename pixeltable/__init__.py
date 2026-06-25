@@ -18,6 +18,7 @@ from .catalog import (
     VersionMetadata,
     View,
     ViewModel,
+    create_all,
 )
 from .exceptions import (
     AlreadyExistsError,

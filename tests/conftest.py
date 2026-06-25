@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 import pixeltable as pxt
 import pixeltable.utils.fault_injection as prod_fault_injection
+from pixeltable.catalog.model import TableModelMetaclass
 import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
@@ -204,6 +205,7 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
+    TableModelMetaclass._registered_models.clear()
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
