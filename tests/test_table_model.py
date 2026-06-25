@@ -388,8 +388,7 @@ class TestTableModel:
             class BadIterRef(pxt.ViewModel, name='bad_iter_ref', base=ValidTableModel, iterator='not a valid iterator'):
                 pass
 
-        # Type annotation conflicts with the `type=` argument in `Column()`.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'conflicts with the `type=` argument'):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Conflicting type annotation for column 'name'."):
 
             class TypeConflict(pxt.TableModel, name='type_conflict'):
                 name: pxt.Int = Column(type=pxt.String)  # type: ignore[assignment]
@@ -417,3 +416,79 @@ class TestTableModel:
 
             class InvalidBase(pxt.ViewModel, name='invalid_base', base=42):
                 pass
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must subclass exactly one of `TableModel`, `ViewModel`'):
+
+            class SubclassedModel(ValidTableModel, name='subclassed_model'):  # type: ignore[misc]
+                pass
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"has name 'dup_name', but that name was previously used by `FirstDup`"
+        ):
+
+            class FirstDup(pxt.TableModel, name='dup_name'):
+                id: pxt.Int
+
+            class SecondDup(pxt.TableModel, name='dup_name'):
+                id: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must define `type` or `value`, but not both'):
+
+            class BadColSpec(pxt.TableModel, name='bad_col_spec'):
+                id: pxt.Int
+                bad = Column()
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'Cannot set a type annotation for index'):
+
+            class IdxTypeConflict(pxt.TableModel, name='idx_type_conflict'):
+                img: pxt.Image
+                my_idx: pxt.Int = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+
+        with pytest.raises(AttributeError, match=r"Column 'undefined' is not defined yet"):
+
+            class SelfRef(pxt.TableModel, name='self_ref'):
+                id: pxt.Int
+                bad = SelfRef.undefined  # type: ignore[name-defined]
+
+        # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
+        # column refers to a column outside the model (here, a column belonging to a different, unbound model).
+        class OtherModel(pxt.TableModel, name='other_model'):
+            x: pxt.Int
+
+        class RefsOutOfScope(pxt.TableModel, name='refs_out_of_scope'):
+            y: pxt.Int
+            bad = OtherModel.x + 1  # type: ignore[operator]
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
+            RefsOutOfScope.create()
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'plus': duplicate definition"):
+
+            class DuplicateColumn(pxt.TableModel, name='duplicate_column'):
+                id: pxt.Int
+                plus = id + 1
+                plus = id + 2
+
+        # Forwarded `Table` methods that aren't available on a placeholder query raise `AttributeError` when the
+        # model isn't yet bound to an actual table.
+        with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
+            ValidTableModel.collect()
+
+        # `_PlaceholderQuery` clause methods reject being specified more than once in a `ViewModel` base query.
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`select\(\)` list already specified'):
+            ValidTableModel.select(ValidTableModel.id).select(ValidTableModel.id)
+
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'Invalid name: bad name'):
+            ValidTableModel.select(**{'bad name': ValidTableModel.id})
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`where\(\)` clause already specified'):
+            ValidTableModel.where(ValidTableModel.id > 0).where(ValidTableModel.id > 0)
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`group_by\(\)` clause already specified'):
+            ValidTableModel.group_by(ValidTableModel.id).group_by(ValidTableModel.id)
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`limit\(\)` clause already specified'):
+            ValidTableModel.limit(10).limit(5)
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`sample\(\)` clause already specified'):
+            ValidTableModel.sample(n=10).sample(n=5)

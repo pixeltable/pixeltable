@@ -324,7 +324,10 @@ class _ColumnCtx:
             self.known_idxs[name] = value
             return value
         else:
-            assert name not in self.known_cols  # `value` always gets set before `type` if both are defined
+            if name in self.known_cols:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA, f'Column {name!r}: duplicate definition.'
+                )
             spec: ColumnSpec
             if isinstance(value, Column):
                 spec = value.to_column_spec()
@@ -350,7 +353,7 @@ class _ColumnCtx:
             if existing_col_ref.col_type != type_:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Type annotation for column {name!r} conflicts with the `type=` argument in `Column()`',
+                    f'Conflicting type annotation for column {name!r}.',
                 )
             return existing_col_ref
         else:
