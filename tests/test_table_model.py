@@ -20,8 +20,18 @@ class TestTableModel:
             name: pxt.String
             value: pxt.Float
             img: pxt.Image
-            incr = value + 1
+            incr = value + 1  # computed column
             descr = pxtf.string.format('Name: {name}', name=name)
+
+            # Test all the custom `Column` properties
+            column_with_special_props = Column(
+                type=pxt.Video,
+                media_validation='on_read',
+                custom_metadata={'chicken': 'eggs'},
+                comment='This is a column with special properties',
+            )
+            computed_with_special_props = Column(value=(value / 3), stored=False)
+            computed_with_special_props_2 = Column(value=img.rotate(90), destination='.')
 
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
@@ -39,6 +49,9 @@ class TestTableModel:
             'incr': 'Float',
             'img': 'Image',
             'descr': 'Required[String]',
+            'column_with_special_props': 'Video',
+            'computed_with_special_props': 'Float',
+            'computed_with_special_props_2': 'Image',
         }
 
         assert_table_metadata_eq(
@@ -148,6 +161,57 @@ class TestTableModel:
                         'is_iterator_col': False,
                         'destination': None,
                     },
+                    'column_with_special_props': {
+                        'name': 'column_with_special_props',
+                        'type_': 'Video',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': 'on_read',
+                        'is_computed': False,
+                        'computed_with': None,
+                        'is_builtin': None,
+                        'depends_on': None,
+                        'defined_in': 'test_table',
+                        'comment': 'This is a column with special properties',
+                        'custom_metadata': {'chicken': 'eggs'},
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'computed_with_special_props': {
+                        'name': 'computed_with_special_props',
+                        'type_': 'Float',
+                        'version_added': 0,
+                        'is_stored': False,
+                        'is_primary_key': False,
+                        'media_validation': None,
+                        'is_computed': True,
+                        'computed_with': 'value / 3',
+                        'is_builtin': True,
+                        'depends_on': [('test_table', 'value')],
+                        'defined_in': 'test_table',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': None,
+                    },
+                    'computed_with_special_props_2': {
+                        'name': 'computed_with_special_props_2',
+                        'type_': 'Image',
+                        'version_added': 0,
+                        'is_stored': True,
+                        'is_primary_key': False,
+                        'media_validation': 'on_write',
+                        'is_computed': True,
+                        'computed_with': 'img.rotate(90)',
+                        'is_builtin': True,
+                        'depends_on': [('test_table', 'img')],
+                        'defined_in': 'test_table',
+                        'comment': None,
+                        'custom_metadata': None,
+                        'is_iterator_col': False,
+                        'destination': '.',
+                    },
                 },
                 'indices': {
                     'idx0': {'name': 'idx0', 'columns': ['id'], 'index_type': 'btree', 'parameters': None},
@@ -156,6 +220,12 @@ class TestTableModel:
                     'idx3': {'name': 'idx3', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
                     'idx4': {'name': 'idx4', 'columns': ['incr'], 'index_type': 'btree', 'parameters': None},
                     'idx5': {'name': 'idx5', 'columns': ['descr'], 'index_type': 'btree', 'parameters': None},
+                    'idx6': {
+                        'name': 'idx6',
+                        'columns': ['column_with_special_props'],
+                        'index_type': 'btree',
+                        'parameters': None,
+                    },
                     'clip_idx': {
                         'name': 'clip_idx',
                         'columns': ['img'],
@@ -427,7 +497,9 @@ class TestTableModel:
             class BadIterRef(pxt.ViewModel, name='bad_iter_ref', base=ValidTableModel, iterator='not a valid iterator'):
                 pass
 
-        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r"`media_validation` must be one of: \['on_read', 'on_write'\]"):
+        with pxt_raises(
+            excs.ErrorCode.INVALID_ARGUMENT, match=r"`media_validation` must be one of: \['on_read', 'on_write'\]"
+        ):
 
             class BadMediaValidation(pxt.TableModel, name='bad_media_validation', media_validation='on_ragnarok'):
                 pass
@@ -496,6 +568,19 @@ class TestTableModel:
                 id: pxt.Int
                 plus = id + 1
                 plus = id + 2
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Index 'dup_idx': duplicate definition"):
+
+            class DuplicateIndex(pxt.TableModel, name='duplicate_index'):
+                img: pxt.Image
+                dup_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+                dup_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'bad': invalid value"):
+
+            class InvalidValue(pxt.TableModel, name='invalid_value'):
+                id: pxt.Int
+                bad = object()
 
         # Forwarded `Table` methods that aren't available on a placeholder query raise `AttributeError` when the
         # model isn't yet bound to an actual table.

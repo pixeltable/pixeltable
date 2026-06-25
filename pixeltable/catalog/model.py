@@ -314,40 +314,28 @@ class _AnnotationRecorder(dict):
         super().__setitem__(key, value)
 
 
-class _TableSpec(TypedDict):
+class TableSpec(TypedDict):
     name: str
     base: _PlaceholderQuery | None
     iterator: func.GeneratingFunctionCall | None
     create_default_idxs: bool
     media_validation: MediaValidation
+    comment: str | None
+    custom_metadata: Any
 
 
 class _ModelNamespace(dict):
     """Class namespace that records the source order of every name bound in the body,
     including bare annotations (which never write to the namespace itself)."""
 
-    table_spec: _TableSpec
+    table_spec: TableSpec
     known_cols: dict[str, _PlaceholderColumnRef]
     known_idxs: dict[str, EmbeddingIndex]
 
-    def __init__(
-        self,
-        cls_name: str,
-        tbl_name: str,
-        base: _PlaceholderQuery | None,
-        iterator: func.GeneratingFunctionCall | None,
-        create_default_idxs: bool,
-        media_validation: MediaValidation,
-    ) -> None:
+    def __init__(self, table_spec: TableSpec) -> None:
         super().__init__()
 
-        self.table_spec = {
-            'name': tbl_name,
-            'base': base,
-            'iterator': iterator,
-            'create_default_idxs': create_default_idxs,
-            'media_validation': media_validation,
-        }
+        self.table_spec = table_spec
         self.known_cols = {}
         self.known_idxs = {}
 
@@ -364,10 +352,13 @@ class _ModelNamespace(dict):
 
     def set_col_value(self, name: str, value: Any) -> EmbeddingIndex | _PlaceholderColumnRef:
         if isinstance(value, EmbeddingIndex):
+            if name in self.known_cols or name in self.known_idxs:
+                raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Index {name!r}: duplicate definition.')
             self.known_idxs[name] = value
             return value
+
         else:
-            if name in self.known_cols:
+            if name in self.known_cols or name in self.known_idxs:
                 raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Column {name!r}: duplicate definition.')
             spec: ColumnSpec
             if isinstance(value, Column):
@@ -380,6 +371,11 @@ class _ModelNamespace(dict):
             else:
                 # Computed column expression.
                 expr = exprs.Expr.from_object(value)
+                if expr is None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_SCHEMA,
+                        f'Column {name!r}: invalid value (not a literal or expression recognized by Pixeltable).',
+                    )
                 spec = {'value': expr}
             col_ref = _PlaceholderColumnRef(name, spec)
             self.known_cols[name] = col_ref
@@ -409,11 +405,9 @@ class TableModelMetaclass(type):
 
     registered_models: ClassVar[dict[str, TableModelMetaclass]] = {}  # table name -> model
 
+    __table_spec__: TableSpec
     __columns__: dict[str, _PlaceholderColumnRef]
     __indexes__: dict[str, EmbeddingIndex]
-    __tablename__: str
-    __base_table__: _PlaceholderQuery | 'pxt.Query' | None
-    __iterator__: func.GeneratingFunctionCall | None
 
     _is_bound: bool
 
@@ -428,6 +422,8 @@ class TableModelMetaclass(type):
         iterator: func.GeneratingFunctionCall | None = None,
         create_default_idxs: bool = True,
         media_validation: Literal['on_read', 'on_write'] = 'on_write',
+        comment: str | None = None,
+        custom_metadata: Any = None,
     ) -> MutableMapping[str, object]:  # noqa: N804
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
@@ -482,17 +478,22 @@ class TableModelMetaclass(type):
                     )
                 if not isinstance(iterator, func.GeneratingFunctionCall):
                     raise excs.RequestError(
-                        excs.ErrorCode.INVALID_ARGUMENT, f'{display_name}: `iterator` must be a valid iterator reference.'
+                        excs.ErrorCode.INVALID_ARGUMENT,
+                        f'{display_name}: `iterator` must be a valid iterator reference.',
                     )
 
             media_validation_ = MediaValidation.validated(media_validation, '`media_validation`')
+
             namespace = _ModelNamespace(
-                cls_name=cls_name,
-                tbl_name=tbl_name,
-                base=base,
-                iterator=iterator,
-                create_default_idxs=create_default_idxs,
-                media_validation=media_validation_,
+                {
+                    'name': tbl_name,
+                    'base': base,
+                    'iterator': iterator,
+                    'create_default_idxs': create_default_idxs,
+                    'media_validation': media_validation_,
+                    'comment': comment,
+                    'custom_metadata': custom_metadata,
+                }
             )
 
             if base is not None and base.select_list is not None:
@@ -522,40 +523,38 @@ class TableModelMetaclass(type):
         if len(namespace.known_cols) == 0 and bases[0] is TableModel:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty `TableModel` not allowed.')
 
-        # Process declarations. We need to process bare annotations (such as `col1: int`) as well as
-        #    values (such as `col2 = Column.col1 + 1` or `idx0 = EmbeddingIndex(...)`).
-
-        namespace['__tablename__'] = namespace.table_spec['name']
-        namespace['__base_table__'] = namespace.table_spec['base']
-        namespace['__iterator__'] = namespace.table_spec['iterator']
+        namespace['__table_spec__'] = namespace.table_spec
         namespace['__columns__'] = namespace.known_cols
         namespace['__indexes__'] = namespace.known_idxs
 
         for idx_name in namespace.known_idxs:
             namespace.pop(idx_name)
 
+        # "normalize" the namespace to a plain dict; at this point, we're done with the special namespace treatment
+        namespace = dict(namespace)
+
         cls = super().__new__(mcs, cls_name, bases, namespace)
-        mcs.registered_models[namespace.table_spec['name']] = cls
+        mcs.registered_models[namespace['__table_spec__']['name']] = cls
         return cls
 
     def _resolve_tbl(cls) -> Table:
         import pixeltable as pxt
 
-        return pxt.get_table(cls.__tablename__)
+        return pxt.get_table(cls.__table_spec__['name'])
 
     def _resolve_column(cls, col_name: str) -> exprs.ColumnRef:
         return getattr(cls._resolve_tbl(), col_name)
 
     def create(cls) -> Table:
-        tbl_media_validation = 'on_write'  # TODO: allow configuring this at the table level
-
-        base: _PlaceholderQuery | pxt.Query | None = cls.__base_table__
-        iterator: func.GeneratingFunctionCall | None = cls.__iterator__
+        table_spec: TableSpec = cls.__table_spec__
         columns: dict[str, _PlaceholderColumnRef] = cls.__columns__
         indexes: dict[str, EmbeddingIndex] = cls.__indexes__
 
         catalog_columns: list[catalog.Column] = []
         subst_dict: dict[exprs.Expr, exprs.Expr] = {}
+
+        base = table_spec['base']
+        iterator = table_spec['iterator']
 
         initial_col_id = 0
         if base is not None:
@@ -590,7 +589,7 @@ class TableModelMetaclass(type):
                 catalog_col.tbl_handle = tbl_handle
                 catalog_col.id = next(next_col_id)
                 subst_dict[_PlaceholderColumnRef(name)] = exprs.ColumnRef(
-                    catalog_col.column_version_md(), perform_validation=(tbl_media_validation == 'on_read')
+                    catalog_col.column_version_md(), perform_validation=(table_spec['media_validation'] == 'on_read')
                 )
 
         for name, placeholder in columns.items():
@@ -610,11 +609,11 @@ class TableModelMetaclass(type):
             catalog_columns.append(catalog_col)
             subst_dict[placeholder] = exprs.ColumnRef(
                 catalog_col.column_version_md(),
-                perform_validation=subst_spec.get('media_validation', tbl_media_validation) == 'on_read',
+                perform_validation=subst_spec.get('media_validation', table_spec['media_validation']) == 'on_read',
             )
 
         cat = get_runtime().catalog
-        tbl_path = catalog.Path.parse(cls.__tablename__)
+        tbl_path = catalog.Path.parse(cls.__table_spec__['name'])
         base_tvp: TableVersionPath | None = None
 
         if issubclass(cls, TableModel):
@@ -624,10 +623,10 @@ class TableModelMetaclass(type):
                     columns=catalog_columns,
                     if_exists=IfExistsParam.ERROR,
                     primary_key=None,
-                    comment=None,
-                    custom_metadata=None,
-                    media_validation=MediaValidation.ON_WRITE,
-                    create_default_idxs=True,
+                    comment=table_spec['comment'],
+                    custom_metadata=table_spec['custom_metadata'],
+                    media_validation=table_spec['media_validation'],
+                    create_default_idxs=table_spec['create_default_idxs'],
                     is_versioned=True,
                     tbl_id=tbl_id,
                 )
@@ -647,11 +646,11 @@ class TableModelMetaclass(type):
                     sample_clause=base.sample_clause,
                     additional_columns=catalog_columns,
                     is_snapshot=False,
-                    create_default_idxs=True,
+                    create_default_idxs=table_spec['create_default_idxs'],
                     iterator=iterator,
-                    comment=None,
-                    custom_metadata=None,
-                    media_validation=MediaValidation.ON_WRITE,
+                    comment=table_spec['comment'],
+                    custom_metadata=table_spec['custom_metadata'],
+                    media_validation=table_spec['media_validation'],
                     if_exists=IfExistsParam.ERROR,
                     tbl_id=tbl_id,
                 )
