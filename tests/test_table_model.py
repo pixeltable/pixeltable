@@ -226,12 +226,12 @@ class TestTableModel:
             arith_mul = value * 2
             arith_rmul = 2 * value
             array_slice = arr[:, 1:3]
-            column_property_ref = img.fileurl
+            column_property_ref = img.fileurl  # type: ignore[attr-defined]
             column_ref = name
             comparison = value > 0.0
             compound_predicate = (value > 0.0) & (name != 'test')
             function_call = pxtf.math.floor(value)
-            in_predicate = name.isin(['Alice', 'Bob', 'Charlie'])
+            in_predicate = name.isin(['Alice', 'Bob', 'Charlie'])  # type: ignore[attr-defined]
             inline_array = pxt.array([value, value + 1, value + 2])
             inline_dict = {'name': name, 'img': img}  # noqa: RUF012
             inline_list = [name, img]  # noqa: RUF012
@@ -318,7 +318,7 @@ class TestTableModel:
             case 'model':
                 spec = ExampleViewModel
             case 'query':
-                spec = ExampleViewModel.where(ExampleTableModel.value > 1.0)
+                spec = ExampleViewModel.where(ExampleTableModel.value > 1.0)  # type: ignore[arg-type]
 
         class ExampleViewModel2(pxt.ViewModel, name='test_view_2', base=ExampleViewModel):
             subview_col_1 = ExampleTableModel.img.rotate(180)

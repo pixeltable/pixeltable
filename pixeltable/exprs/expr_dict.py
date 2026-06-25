@@ -1,4 +1,4 @@
-from typing import Generic, Iterable, Iterator, Mapping, TypeVar
+from typing import Generic, Iterable, Iterator, TypeVar
 
 from .expr import Expr
 

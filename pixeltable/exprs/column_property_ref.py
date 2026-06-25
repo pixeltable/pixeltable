@@ -81,7 +81,7 @@ class ColumnPropertyRef(Expr):
         return None
 
     def _substitute(self, spec: dict[Expr, Expr]) -> ColumnPropertyRef:
-        subst = self.col_ref.substitute(spec)
+        subst = self.components[0].substitute(spec)
         assert isinstance(subst, ColumnRef)
         return ColumnPropertyRef(subst, self.prop)
 

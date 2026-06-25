@@ -5,7 +5,7 @@ import itertools
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, MutableMapping
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog.table_path import TableVersionPath
@@ -14,7 +14,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
 from .catalog import retry_loop
-from .globals import MediaValidation, is_valid_identifier
+from .globals import IfExistsParam, MediaValidation, is_valid_identifier
 from .table import Table
 from .table_version import TableVersionKey
 from .table_version_handle import TableVersionHandle
@@ -44,11 +44,13 @@ FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
         'order_by',
         'recompute_columns',
         'sample',
+        'select',
         'show',
         'sync',
         'tail',
         'unlink_external_stores',
         'update',
+        'where',
     )
 )
 
@@ -91,7 +93,7 @@ class Column:
 
 @dataclass(frozen=True)
 class EmbeddingIndex:
-    column: str | exprs.Expr
+    column: Any
     embedding: func.Function | None = None
     string_embed: func.Function | None = None
     image_embed: func.Function | None = None
@@ -144,7 +146,7 @@ class _PlaceholderColumnRef(exprs.Expr):
     def __getattr__(self, item: str) -> Any:
         if item in ('errortype', 'errormsg', 'fileurl', 'localpath'):
             prop = exprs.ColumnPropertyRef.Property[item.upper()]
-            return exprs.ColumnPropertyRef(self, prop)
+            return exprs.ColumnPropertyRef(self, prop)  # type: ignore[arg-type]
         return super().__getattr__(item)
 
     def as_dict(self) -> dict[str, Any]:
@@ -251,10 +253,10 @@ class _PlaceholderQuery:
     def bind(self) -> 'pxt.Query':
         import pixeltable as pxt
 
-        tbl = self.from_clause.bind()
-        subst_dict = exprs.ExprDict[exprs.ColumnRef]()
+        tbl: Table = self.from_clause.bind()  # type: ignore[call-arg]
+        subst_dict: dict[exprs.Expr, exprs.Expr] = {}
         for col_name in tbl.columns():
-            placeholder = _PlaceholderColumnRef(col_name, {'type': ts.InvalidType()})
+            placeholder = _PlaceholderColumnRef(col_name, {'type': ts.InvalidType()})  # type: ignore[arg-type]
             subst_dict[placeholder] = getattr(tbl, col_name)
 
         select_list = (
@@ -280,14 +282,14 @@ class _PlaceholderQuery:
                 self.sample_clause.n_per_stratum,
                 self.sample_clause.fraction,
                 self.sample_clause.seed,
-                [expr.substitute(subst_dict) for expr in self.sample_clause.stratify_by],
+                [expr.substitute(subst_dict) for expr in self.sample_clause.stratify_exprs],
             )
             if self.sample_clause is not None
             else None
         )
 
         return pxt.Query(
-            FromClause([tbl._tbl_version_path]),
+            FromClause([tbl._tbl_path]),
             select_list,
             where_clause,
             group_by_clause,
@@ -419,7 +421,7 @@ class TableModelMetaclass(type):
     _is_bound: bool
 
     @classmethod
-    def __prepare__(mcs, cls_name: str, bases: tuple[type, ...], /, **kwargs: Any) -> dict[str, Any]:  # noqa: N804
+    def __prepare__(mcs, cls_name: str, bases: tuple[type, ...], /, **kwargs: Any) -> MutableMapping[str, object]:  # noqa: N804
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
             return super().__prepare__(cls_name, bases, **kwargs)
@@ -495,7 +497,7 @@ class TableModelMetaclass(type):
                 # Pre-populate the namespace with the iterator's outputs, appropriately typed.
                 for name, output in iterator.outputs.items():
                     assert is_valid_identifier(name)
-                    namespace[name] = _PlaceholderColumnRef(name, {'type': output.col_type})
+                    namespace[name] = _PlaceholderColumnRef(name, {'type': output.col_type})  # type: ignore[arg-type]
 
             return namespace
 
@@ -539,7 +541,7 @@ class TableModelMetaclass(type):
     def _resolve_column(cls, col_name: str) -> exprs.ColumnRef:
         return getattr(cls._resolve_tbl(), col_name)
 
-    def create(cls, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error') -> Table:
+    def create(cls) -> Table:
         tbl_media_validation = 'on_write'  # TODO: allow configuring this at the table level
 
         base: _PlaceholderQuery | pxt.Query | None = cls.__base_table__
@@ -548,7 +550,7 @@ class TableModelMetaclass(type):
         indexes: dict[str, EmbeddingIndex] = cls.__indexes__
 
         catalog_columns: list[catalog.Column] = []
-        subst_dict = exprs.ExprDict[exprs.ColumnRef]()
+        subst_dict: dict[exprs.Expr, exprs.Expr] = {}
 
         initial_col_id = 0
         if base is not None:
@@ -579,7 +581,7 @@ class TableModelMetaclass(type):
                 iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
             )
             for name, output in iterator.outputs.items():
-                catalog_col = catalog.Column.create(name, {'type': output.col_type, 'stored': output.is_stored})
+                catalog_col = catalog.Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
                 catalog_col.tbl_handle = tbl_handle
                 catalog_col.id = next(next_col_id)
                 subst_dict[_PlaceholderColumnRef(name)] = exprs.ColumnRef(
@@ -615,7 +617,7 @@ class TableModelMetaclass(type):
                 lambda: cat._create_table(
                     path=tbl_path,
                     columns=catalog_columns,
-                    if_exists=if_exists,
+                    if_exists=IfExistsParam.ERROR,
                     primary_key=None,
                     comment=None,
                     custom_metadata=None,
@@ -645,7 +647,7 @@ class TableModelMetaclass(type):
                     comment=None,
                     custom_metadata=None,
                     media_validation=MediaValidation.ON_WRITE,
-                    if_exists=if_exists,
+                    if_exists=IfExistsParam.ERROR,
                     tbl_id=tbl_id,
                 )
             )
@@ -692,7 +694,17 @@ class TableModelMetaclass(type):
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
-            return getattr(cls._resolve_tbl(), item)
+            if cls._is_bound:
+                # This model is bound to a table; forward the method call to the resolved Table instance.
+                return getattr(cls._resolve_tbl(), item)
+            elif hasattr(_PlaceholderQuery, item):
+                # This model is not bound to a table, but the desired operation is accessible as a placeholder query.
+                return getattr(_PlaceholderQuery(cls), item)  # type: ignore[arg-type]
+            else:
+                raise AttributeError(
+                    f'{item}(): `{cls.__name__}` is not yet bound to an actual table. You must first call '
+                    f'`{cls.__name__}.bind()`, `{cls.__name__}.create()`, or `pxt.create_all()`.'
+                )
         return super().__getattribute__(item)
 
     @property
@@ -703,18 +715,6 @@ class TableModelMetaclass(type):
         `MyModel.table.where(...).order_by(...).collect()`.
         """
         return cls._resolve_tbl()
-
-    def select(cls, *items: Any, **named_items: Any) -> _PlaceholderQuery | pxt.Query:
-        if cls._is_bound:
-            return cls.table.select(*items, **named_items)
-        else:
-            return _PlaceholderQuery(cls).select(*items, **named_items)
-
-    def where(cls, pred: exprs.Expr) -> _PlaceholderQuery | pxt.Query:
-        if cls._is_bound:
-            return cls.table.where(pred)
-        else:
-            return _PlaceholderQuery(cls).where(pred)
 
 
 class TableModel(metaclass=TableModelMetaclass):
