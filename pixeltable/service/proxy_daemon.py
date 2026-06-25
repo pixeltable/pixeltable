@@ -1,12 +1,12 @@
 """Proxy daemon: a Pixeltable process that serves the proxy protocol over HTTP, running catalog
 operations against its own database in direct mode.
 
-This module is both the daemon entrypoint (``python -m pixeltable.service.proxy_daemon``) and the
+This module is both the daemon entrypoint (python -m pixeltable.service.proxy_daemon) and the
 lifecycle and discovery API for these daemons: creating, starting, stopping, and deleting a daemon for
-a given database, and locating a running one via the ``port.lock`` file in its home directory.
+a given database, and locating a running one via the port.lock file in its home directory.
 """
 
-# This module intentionally omits `from __future__ import annotations`. FastAPI resolves a route
+# This module intentionally omits from __future__ import annotations. FastAPI resolves a route
 # handler's parameter annotations against the handler's *module* globals; our handlers are defined inside
 # _build_app() and reference fastapi types imported locally there. Under PEP 563 those annotations would
 # be strings unresolvable from module scope, and FastAPI would mis-parse the request body. Keeping

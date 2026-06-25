@@ -99,7 +99,6 @@ class TablePath(abc.ABC):
     @abc.abstractmethod
     def catalog_uri(self) -> Path:
         """The catalog this table belongs to."""
-        ...
 
     def find_tbl_version(self, id: UUID) -> TableVersionKey | None:
         """Return the version key of the table with the given id in this path's chain, or None."""
@@ -657,6 +656,7 @@ class TableMdPath(TablePath):
                         raise excs.NotFoundError(
                             excs.ErrorCode.INDEX_NOT_FOUND, f'Index {name!r} not found for column {col_name!r}'
                         )
+                    assert len(named) == 1
                     return named[0]
                 return candidates[0]
             level = level.base

@@ -28,6 +28,8 @@ class ViewProxy(TableProxy):
         return 'snapshot' if self._tbl_md_path.is_snapshot() else 'view'
 
     def _get_base_table(self) -> Table | None:
+        # TODO: implement
+        raise NotImplementedError()
         return None
         # base = self._tbl_md_path.base
         # if base is None:

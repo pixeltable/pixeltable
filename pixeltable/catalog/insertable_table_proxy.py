@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import collections.abc
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Iterator, Literal, Sequence, cast
 from uuid import UUID
 
 import pydantic
@@ -57,7 +56,7 @@ class InsertableTableProxy(TableProxy):
             # the kwargs form (t.insert(col=val, ...)) is a single row
             source = [kwargs]
             kwargs = None
-        if isinstance(source, collections.abc.Iterator):
+        if isinstance(source, Iterator):
             # materialize a generator/iterator of rows, matching the local insert path
             source = list(source)
 
@@ -88,21 +87,21 @@ class InsertableTableProxy(TableProxy):
 
     def compute(
         self,
-        source: collections.abc.Sequence[dict[str, Any]] | collections.abc.Sequence[pydantic.BaseModel],
+        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> list[dict[str, Any]]:
-        # str/bytes are technically Sequences; reject them explicitly rather than treating them as paths/URLs.
-        if isinstance(source, (str, bytes)) or not isinstance(source, collections.abc.Sequence) or len(source) == 0:
+        # str/bytes are technically Sequences; reject them explicitly (with a clear message) rather than letting
+        # them fall through to the element-type check or be interpreted as paths/URLs
+        if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',
+                'compute() requires a non-empty sequence of dicts or pydantic models',
             )
         if not all(isinstance(row, (dict, pydantic.BaseModel)) for row in source):
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'compute() requires a sequence of dicts or pydantic models; got {type(source).__name__}',
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'compute() requires a sequence of dicts or pydantic models'
             )
         rows = self._prepare_rows(list(source))
         return self._dispatch('compute', {'rows': rows, 'on_error': on_error})

@@ -99,7 +99,7 @@ class CatalogProxy(CatalogBase):
             'select_list': select_list,
             'where': where,
             'sample_clause': sample_clause,
-            'additional_columns': additional_columns if additional_columns is not None else {},
+            'additional_columns': additional_columns or {},
             'is_snapshot': is_snapshot,
             'create_default_idxs': create_default_idxs,
             'iterator': iterator,
