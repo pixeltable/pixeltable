@@ -25,8 +25,6 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 _thread_local = threading.local()
 
-_XACT_ISOLATION_LEVEL = 'REPEATABLE READ'
-
 _T = TypeVar('_T')
 
 
@@ -173,15 +171,13 @@ class Runtime:
             isolation_level: if specified, the isolation level for the new transaction. Can only be set when starting
                 the outermost transaction.
 
-        TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
-        that avoids tripping over any pending ops
         """
         from pixeltable.env import Env
 
         if not self.in_xact:
             assert self.session is None
             try:
-                self.isolation_level = isolation_level or _XACT_ISOLATION_LEVEL
+                self.isolation_level = isolation_level or Env.get().dbms.transaction_isolation_level
                 with (
                     Env.get().engine.connect().execution_options(isolation_level=self.isolation_level) as conn,
                     orm.Session(conn) as session,
@@ -200,7 +196,7 @@ class Runtime:
                 f'cannot change isolation level to {isolation_level!r} for a joined transaction '
                 f'(current: {self.isolation_level!r})'
             )
-            assert self.isolation_level == _XACT_ISOLATION_LEVEL or not for_write
+            assert self.isolation_level == Env.get().dbms.transaction_isolation_level or not for_write
             yield self.conn
 
     def start_progress(self, create_fn: Callable[[], Progress]) -> Progress:
