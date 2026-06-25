@@ -62,7 +62,7 @@ for method in FORWARDED_TABLE_METHODS:
 @dataclass(frozen=True)
 class Column:
     type: type | None = None
-    value: exprs.Expr | None = None
+    value: Any = None
     primary_key: bool | None = None
     stored: bool | None = None
     media_validation: Literal['on_read', 'on_write'] | None = None
@@ -396,6 +396,7 @@ class _ModelNamespace(dict):
             col_ref = _PlaceholderColumnRef(name, {'type': type_})
             self.known_cols[name] = col_ref
             super().__setitem__(name, col_ref)
+            return col_ref
 
 
 class TableModelMetaclass(type):
@@ -412,8 +413,8 @@ class TableModelMetaclass(type):
     _is_bound: bool
 
     @classmethod
-    def __prepare__(
-        mcs,
+    def __prepare__(  # type: ignore[override]
+        mcs,  # noqa: N804
         cls_name: str,
         bases: tuple[type, ...],
         /,
@@ -424,7 +425,7 @@ class TableModelMetaclass(type):
         media_validation: Literal['on_read', 'on_write'] = 'on_write',
         comment: str | None = None,
         custom_metadata: Any = None,
-    ) -> MutableMapping[str, object]:  # noqa: N804
+    ) -> MutableMapping[str, object]:
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
             return super().__prepare__(cls_name, bases)
@@ -466,6 +467,7 @@ class TableModelMetaclass(type):
                         f'{display_name}: `base` must be a valid base table reference '
                         f'(another `TableModel` or `ViewModel`, or a query over a model).',
                     )
+                assert isinstance(base, _PlaceholderQuery)
             elif bases[0] is ViewModel:
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{display_name} must specify a `base`.')
 
@@ -498,16 +500,16 @@ class TableModelMetaclass(type):
 
             if base is not None and base.select_list is not None:
                 # Pre-populate the namespace with named elements of the select list, appropriately typed.
-                for expr, name in base.select_list:
-                    if name is not None:
-                        assert is_valid_identifier(name)  # since it must be a Python symbol
-                        namespace[name] = _PlaceholderColumnRef(name, {'value': expr})
+                for expr, col_name in base.select_list:
+                    if col_name is not None:
+                        assert is_valid_identifier(col_name)  # since it must be a Python symbol
+                        namespace[col_name] = _PlaceholderColumnRef(col_name, {'value': expr})
 
             if iterator is not None:
                 # Pre-populate the namespace with the iterator's outputs, appropriately typed.
-                for name, output in iterator.outputs.items():
-                    assert is_valid_identifier(name)
-                    namespace[name] = _PlaceholderColumnRef(name, {'type': output.col_type})  # type: ignore[arg-type]
+                for col_name, output in iterator.outputs.items():
+                    assert is_valid_identifier(col_name)
+                    namespace[col_name] = _PlaceholderColumnRef(col_name, {'type': output.col_type})  # type: ignore[arg-type]
 
             return namespace
 
@@ -553,13 +555,13 @@ class TableModelMetaclass(type):
         catalog_columns: list[catalog.Column] = []
         subst_dict: dict[exprs.Expr, exprs.Expr] = {}
 
-        base = table_spec['base']
+        placeholder_base = table_spec['base']
         iterator = table_spec['iterator']
 
         initial_col_id = 0
-        if base is not None:
-            if isinstance(base, _PlaceholderQuery):
-                base = base.bind()
+        base: pxt.Query | None = None
+        if placeholder_base is not None:
+            base = placeholder_base.bind()
             if base.select_list is None:
                 # select(*): put all visible columns from the base table into scope
                 for col in base._first_tbl.columns():

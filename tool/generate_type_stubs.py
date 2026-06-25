@@ -42,6 +42,9 @@ def merge_stubs() -> None:
     )
     assert class_defn_idx is not None, '`TableModelMetaclass` class definition not found in model.pyi'
     generated_stub = [
+        # mypy fundamentally does not understand metaclasses; the disable-error-code="override" directive is one of the
+        # hacks we need to get it to cooperate.
+        '# mypy: disable-error-code="override"\n\n',
         # Inject additional imports not picked up by stubgen.
         'from typing import Iterable, overload\n',
         'import pandas as pd\n',

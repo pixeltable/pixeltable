@@ -525,7 +525,7 @@ class TestTableModel:
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must subclass exactly one of `TableModel`, `ViewModel`'):
 
-            class SubclassedModel(ValidTableModel, name='subclassed_model'):  # type: ignore[misc]
+            class SubclassedModel(ValidTableModel, name='subclassed_model'):
                 pass
 
         with pxt_raises(
@@ -548,7 +548,7 @@ class TestTableModel:
 
             class IdxTypeConflict(pxt.TableModel, name='idx_type_conflict'):
                 img: pxt.Image
-                my_idx: pxt.Int = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+                my_idx: pxt.Int = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))  # type: ignore[assignment]
 
         # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
         # column refers to a column outside the model (here, a column belonging to a different, unbound model).
@@ -557,7 +557,7 @@ class TestTableModel:
 
         class RefsOutOfScope(pxt.TableModel, name='refs_out_of_scope'):
             y: pxt.Int
-            bad = OtherModel.x + 1  # type: ignore[operator]
+            bad = OtherModel.x + 1
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
             RefsOutOfScope.create()
@@ -595,10 +595,10 @@ class TestTableModel:
             ValidTableModel.select(**{'bad name': ValidTableModel.id})
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`where\(\)` clause already specified'):
-            ValidTableModel.where(ValidTableModel.id > 0).where(ValidTableModel.id > 0)
+            ValidTableModel.where(ValidTableModel.id > 0).where(ValidTableModel.id > 0)  # type: ignore[arg-type]
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`group_by\(\)` clause already specified'):
-            ValidTableModel.group_by(ValidTableModel.id).group_by(ValidTableModel.id)
+            ValidTableModel.group_by(ValidTableModel.id).group_by(ValidTableModel.id)  # type: ignore[arg-type]
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`limit\(\)` clause already specified'):
             ValidTableModel.limit(10).limit(5)
