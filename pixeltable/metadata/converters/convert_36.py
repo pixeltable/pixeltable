@@ -11,8 +11,8 @@ _logger = logging.getLogger(__name__)
 
 
 @register_converter(version=36)
-def _(engine: sql.engine.Engine) -> None:
-    convert_table_md(engine, table_md_updater=__update_table_md, substitution_fn=__substitute_md)
+def _(conn: sql.Connection) -> None:
+    convert_table_md(conn, table_md_updater=__update_table_md, substitution_fn=__substitute_md)
 
 
 def __update_table_md(table_md: dict, table_id: UUID) -> None:
