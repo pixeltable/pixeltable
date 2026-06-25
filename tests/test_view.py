@@ -938,9 +938,10 @@ class TestView:
         assert t.count() == 115
         check(s, v, view_s)
 
-    def test_table_time_travel(self, uses_db: None) -> None:
-        pxt.create_dir('dir')
-        t = pxt.create_table('dir/test_tbl', {'c1': pxt.Int})
+    def test_table_time_travel(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('dir'))
+        t = pxt.create_table(p('dir/test_tbl'), {'c1': pxt.Int})
         assert t.get_metadata()['version'] == 0
         t.insert(c1=1)
         t.insert(c1=2)
@@ -953,7 +954,7 @@ class TestView:
         assert t.get_metadata()['version'] == 7
 
         # Check metadata
-        ver = [pxt.get_table(f'dir/test_tbl:{version}') for version in range(0, 8)]
+        ver = [pxt.get_table(p(f'dir/test_tbl:{version}')) for version in range(0, 8)]
         for i in range(len(ver)):
             assert ver[i].get_metadata()['is_snapshot']
             vmd = ver[i].get_metadata()
@@ -1001,7 +1002,7 @@ class TestView:
                     'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_tbl:{i}',
-                    'path': f'dir/test_tbl:{i}',
+                    'path': p(f'dir/test_tbl:{i}'),
                     'primary_key': None,
                     'iterator_call': None,
                     'schema_version': expected_schema_version,
@@ -1021,19 +1022,20 @@ class TestView:
         assert res[6] == [{'balloon': r['c2']} for r in res[5]]
         assert res[7] == res[6] + [{'balloon': f'str{i}'} for i in range(10, 20)]
 
-    def test_view_time_travel(self, uses_db: None) -> None:
-        pxt.create_dir('dir')
-        t = pxt.create_table('dir/test_tbl', {'c1': pxt.Int})
+    def test_view_time_travel(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('dir'))
+        t = pxt.create_table(p('dir/test_tbl'), {'c1': pxt.Int})
         assert t.get_metadata()['version'] == 0
         t.insert(c1=1)
         t.insert(c1=2)
         t.add_column(c2=pxt.String)
         t.insert({'c1': i, 'c2': f'str{i}'} for i in range(3, 10))
         assert t.get_metadata()['version'] == 4
-        v = pxt.create_view('dir/test_view', t.where(t.c1 % 2 == 0))
+        v = pxt.create_view(p('dir/test_view'), t.where(t.c1 % 2 == 0))
         assert v.get_metadata()['version'] == 0
         v.add_computed_column(c3=(v.c1 // 2))
-        vv = pxt.create_view('dir/test_subview', v.where(v.c1 % 3 == 0))
+        vv = pxt.create_view(p('dir/test_subview'), v.where(v.c1 % 3 == 0))
         assert vv.get_metadata()['version'] == 0
         v.add_column(c4=pxt.Int)
         assert v.get_metadata()['version'] == 2
@@ -1054,7 +1056,7 @@ class TestView:
         assert vv.get_metadata()['version'] == 3
 
         # Check view metadata
-        ver = [pxt.get_table(f'dir/test_view:{version}') for version in range(6)]
+        ver = [pxt.get_table(p(f'dir/test_view:{version}')) for version in range(6)]
         for i in range(len(ver)):
             assert ver[i].get_metadata()['is_snapshot']
             vmd = ver[i].get_metadata()
@@ -1099,7 +1101,7 @@ class TestView:
 
             assert_table_metadata_eq(
                 {
-                    'base': f'dir/test_tbl:{expected_base_version}',
+                    'base': p(f'dir/test_tbl:{expected_base_version}'),
                     'columns': {
                         name: {
                             'computed_with': computed_with,
@@ -1128,7 +1130,7 @@ class TestView:
                     'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_view:{i}',
-                    'path': f'dir/test_view:{i}',
+                    'path': p(f'dir/test_view:{i}'),
                     'primary_key': None,
                     'iterator_call': None,
                     'schema_version': expected_schema_version,
@@ -1148,7 +1150,7 @@ class TestView:
         assert res[5] == [{'balloon': i, 'hamburger': i // 2, 'c4': i // 2 + 91} for i in range(2, 20, 2)]
 
         # Check subview metadata
-        ver = [pxt.get_table(f'dir/test_subview:{version}') for version in range(4)]
+        ver = [pxt.get_table(p(f'dir/test_subview:{version}')) for version in range(4)]
         for i in range(len(ver)):
             assert ver[i].get_metadata()['is_snapshot']
             vmd = ver[i].get_metadata()
@@ -1189,7 +1191,7 @@ class TestView:
                 expected_base_version = 5
             assert_table_metadata_eq(
                 {
-                    'base': f'dir/test_view:{expected_base_version}',
+                    'base': p(f'dir/test_view:{expected_base_version}'),
                     'columns': {
                         name: {
                             'computed_with': computed_with,
@@ -1222,7 +1224,7 @@ class TestView:
                     'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_subview:{i}',
-                    'path': f'dir/test_subview:{i}',
+                    'path': p(f'dir/test_subview:{i}'),
                     'primary_key': None,
                     'iterator_call': None,
                     'schema_version': expected_schema_version,
@@ -1232,9 +1234,10 @@ class TestView:
                 vmd,
             )
 
-    def test_time_travel_over_snapshot(self, uses_db: None) -> None:
-        pxt.create_dir('dir')
-        t = pxt.create_table('dir/test_tbl', {'c1': pxt.Int})
+    def test_time_travel_over_snapshot(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('dir'))
+        t = pxt.create_table(p('dir/test_tbl'), {'c1': pxt.Int})
         assert t.get_metadata()['version'] == 0
 
         views: list[pxt.Table] = []
@@ -1245,8 +1248,8 @@ class TestView:
             t.insert(c1=i)
             t.add_computed_column(**{f'x{i}': t.c1 + i * 10})
             assert t.get_metadata()['version'] == (i + 1) * 2
-            snap = pxt.create_snapshot(f'dir/test_snap_{i}', t)
-            view = pxt.create_view(f'dir/test_view_{i}', snap)
+            snap = pxt.create_snapshot(p(f'dir/test_snap_{i}'), t)
+            view = pxt.create_view(p(f'dir/test_view_{i}'), snap)
             views.append(view)
             view_results.append(view.order_by(view.c1).collect())
 
@@ -1258,12 +1261,12 @@ class TestView:
             assert views[i].get_metadata()['version'] == 1
             updated_rs = views[i].order_by(views[i].c1).collect()
             assert len(updated_rs) == len(view_results[i])  # same number of rows as original snapshot
-            specific_version_0 = pxt.get_table(f'dir/test_view_{i}:0')
+            specific_version_0 = pxt.get_table(p(f'dir/test_view_{i}:0'))
             assert_resultset_eq(specific_version_0.order_by(specific_version_0.c1).collect(), view_results[i])
 
             # Now the main point of the test: when we get a *time travel handle* to the updated view, it should
             # still reflect the original snapshot data, not more recent data from the table.
-            specific_version_1 = pxt.get_table(f'dir/test_view_{i}:1')
+            specific_version_1 = pxt.get_table(p(f'dir/test_view_{i}:1'))
             assert_resultset_eq(specific_version_1.order_by(specific_version_1.c1).collect(), updated_rs)
 
     def test_column_defaults(self, make_catalog_path: Callable[[str], str]) -> None:

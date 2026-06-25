@@ -3807,8 +3807,9 @@ class TestTable:
         )
 
         # The remaining cases aren't supported over a hosted (proxy) catalog yet:
-        # - ColumnRef.__repr__ renders the column's table client-side (tbl._col_descriptor)
-        # - a view over a snapshot-of-a-view drops per-ancestor versions in the proxy md export
+        # - ColumnRef.__repr__ renders its owner table client-side via the local catalog plus the
+        #   LocalTable-only _col_descriptor/_index_descriptor, neither of which a proxy column's table satisfies
+        # - the iterator view over a snapshot-of-a-view renders an ancestor chain the proxy md export doesn't carry
         if catalog_mode != 'local':
             return
 
