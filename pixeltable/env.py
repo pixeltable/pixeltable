@@ -681,6 +681,7 @@ class Env:
         self.__register_package('librosa')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
         self.__register_package('markitdown')
+        self.__register_package('mediapipe')
         self.__register_package('mcp')
         self.__register_package('mistralai')
         self.__register_package('mistune')

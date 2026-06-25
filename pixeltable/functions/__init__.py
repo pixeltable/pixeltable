@@ -29,6 +29,7 @@ from . import (
     json,
     llama_cpp,
     math,
+    mediapipe,
     mistralai,
     net,
     ollama,
