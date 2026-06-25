@@ -2559,34 +2559,32 @@ class TestTable:
         assert np.all(t.order_by(t.computed3).collect().to_pandas()['computed3'][:10] == pd.Series([3.0] * 10))
 
         # bad update spec
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as excinfo:
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='dict key'):
             t.update({1: 1})  # type: ignore[dict-item]
-        assert 'dict key' in str(excinfo.value)
+
+        # key is a str but not a valid identifier
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='invalid column name'):
+            t.update({'c 1': 1})
 
         # unknown column
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as excinfo:
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column: unknown'):
             t.update({'unknown': 1})
-        assert 'Unknown column: unknown' in str(excinfo.value)
 
         # incompatible type
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as excinfo:
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='not compatible'):
             t.update({'c1': 1})
-        assert 'not compatible' in str(excinfo.value)
 
         # can't update primary key
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='primary key'):
             t.update({'c2': 1})
-        assert 'primary key' in str(excinfo.value)
 
         # can't update computed column
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is computed'):
             t.update({'computed1': 1})
-        assert 'is computed' in str(excinfo.value)
 
         # non-expr
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a recognized'):
             t.update({'c3': lambda c3: math.sqrt(c3)})
-        assert 'not a recognized' in str(excinfo.value)
 
         # non-Predicate filter
         with pxt_raises(
@@ -2597,9 +2595,8 @@ class TestTable:
         img_t = small_img_tbl
 
         # filter not expressible in SQL
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible'):
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
-        assert 'not expressible' in str(excinfo.value)
 
     def test_batch_update_return_rows(self, make_catalog_path: Callable[[str], str]) -> None:
         """Coverage for the `return_rows` parameter on Table.batch_update().

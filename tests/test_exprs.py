@@ -1527,7 +1527,7 @@ class TestExprs:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             # group_by with non-singleton table
-            _ = t.select(t.c2).group_by(t, t.c2)
+            _ = t.select(t.c2).group_by(t, t.c2)  # type: ignore[call-overload]
         assert 'group_by(): only one Table can be specified' in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED) as exc_info:

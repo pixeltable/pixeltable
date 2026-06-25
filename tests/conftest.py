@@ -197,11 +197,8 @@ def fault_injection() -> Iterator[None]:
         reset_runtime()
 
 
-@pytest.fixture(scope='function')
-def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
-    """Fixture for tests that interact with the underlying store (PosgreSQL or CockroachDB).
-    Cleans up the database before the test, and validates it after the test.
-    """
+def _reset_catalog_state() -> None:
+    """Clean and reinitialize the store/catalog before a test. Shared by the db-backed fixtures."""
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
@@ -212,10 +209,21 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     FileCache.get().validate()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
-    yield
 
+def _validate_catalog_state() -> None:
+    """Validate the store after a test. Shared by the db-backed fixtures."""
     Env.get().user = None
     get_runtime().catalog.validate_store()
+
+
+@pytest.fixture(scope='function')
+def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
+    """Fixture for tests that interact with the underlying store (PosgreSQL or CockroachDB).
+    Cleans up the database before the test, and validates it after the test.
+    """
+    _reset_catalog_state()
+    yield
+    _validate_catalog_state()
 
 
 @pytest.fixture(scope='session')
@@ -258,13 +266,7 @@ def make_catalog_path(
     Yields a path-builder mapping a bare path to the active catalog: the identity for local, and the bare
     path prefixed with the daemon's pxt:// uri for proxy (with an empty path mapping to the catalog root).
     """
-    clean_db()
-    Config.init({}, reinit=True)
-    Env.get().default_time_zone = None
-    Env.get().user = None
-    reload_catalog()
-    FileCache.get().validate()
-    FileCache.get().set_capacity(10 << 30)  # 10 GiB
+    _reset_catalog_state()
 
     if catalog_mode == 'proxy':
         from pixeltable.service import proxy_daemon
@@ -282,28 +284,20 @@ def make_catalog_path(
 
     yield p
 
-    Env.get().user = None
-    get_runtime().catalog.validate_store()
+    _validate_catalog_state()
 
 
 @pytest.fixture(scope='function')
 def make_local_path(init_env: None) -> Iterator[Callable[[str], str]]:
     """Stand-in for make_catalog_path() for tests that fail in proxy mode."""
-    clean_db()
-    Config.init({}, reinit=True)
-    Env.get().default_time_zone = None
-    Env.get().user = None
-    reload_catalog()
-    FileCache.get().validate()
-    FileCache.get().set_capacity(10 << 30)  # 10 GiB
+    _reset_catalog_state()
 
     def p(path: str) -> str:
         return path
 
     yield p
 
-    Env.get().user = None
-    get_runtime().catalog.validate_store()
+    _validate_catalog_state()
 
 
 def _free_disk_space() -> None:

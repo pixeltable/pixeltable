@@ -9,6 +9,7 @@ from typing_extensions import overload
 
 from pixeltable import exceptions as excs
 
+from .globals import is_valid_identifier
 from .schema_object import SchemaObject
 
 if TYPE_CHECKING:
@@ -104,12 +105,16 @@ class Table(SchemaObject):
         """
         return self.select().order_by(*items, asc=asc)
 
+    @overload
+    def group_by(self, grouping_tbl: 'Table', /) -> 'Query': ...
+    @overload
+    def group_by(self, *grouping_items: 'exprs.Expr') -> 'Query': ...
     def group_by(self, *items: 'exprs.Expr | Table') -> 'Query':
         """Group the rows of this table based on the expression.
 
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
-        return self.select().group_by(*items)
+        return self.select().group_by(*items)  # type: ignore[arg-type]
 
     def distinct(self) -> 'Query':
         """Remove duplicate rows from table."""
@@ -833,6 +838,10 @@ class Table(SchemaObject):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
                     f'Update specification: dict key must be column name; got {col_name!r}',
+                )
+            if not is_valid_identifier(col_name):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, f'Update specification: invalid column name {col_name!r}'
                 )
             if exprs.Expr.from_object(val) is None:
                 raise excs.RequestError(

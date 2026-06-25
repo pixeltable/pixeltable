@@ -21,6 +21,7 @@ from typing import (
     Sequence,
     TypeVar,
     cast,
+    overload,
 )
 from uuid import UUID
 
@@ -1355,6 +1356,14 @@ class Query:
             limit=self.limit_val,
             offset=self.offset_val,
         )
+
+    @overload
+    def group_by(self, grouping_tbl: catalog.Table, /) -> Query:
+        """Group a component view by its base table's rows."""
+
+    @overload
+    def group_by(self, *grouping_items: exprs.Expr) -> Query:
+        """Group by the given expressions."""
 
     def group_by(self, *grouping_items: exprs.Expr | catalog.Table) -> Query:
         """Add a group-by clause to this Query.
