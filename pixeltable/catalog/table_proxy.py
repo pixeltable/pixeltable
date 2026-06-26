@@ -86,6 +86,16 @@ class TableProxy(Table):
         # tbl_md_path during a mutation CAS retry; a key bound to the pre-refresh path would never converge.
         return self._tbl_md_path.snapshot_key()
 
+    @staticmethod
+    def _dispatch_args(local_vars: dict[str, Any]) -> dict[str, Any]:
+        """Build a server-dispatch args dict from a method's locals().
+
+        Must be called as the first statement of the method (before any other local is bound), so that local_vars
+        contains exactly the method's parameters. Callers then mutate the returned dict for any args that need
+        transforming before dispatch.
+        """
+        return {k: v for k, v in local_vars.items() if k != 'self'}
+
     def _dispatch(self, method: str, args: dict[str, Any]) -> Any:
         tbl_key = TableVersionKey(self._id, self._effective_version)
         return self._client.dispatch_table_method(
@@ -151,7 +161,7 @@ class TableProxy(Table):
         return getattr(self, name)
 
     def list_views(self, *, recursive: bool = True) -> list[str]:
-        return self._dispatch('list_views', {'recursive': recursive})
+        return self._dispatch('list_views', self._dispatch_args(locals()))
 
     def columns(self) -> list[str]:
         return [col_md.name for col_md in self._tbl_path.column_md() if col_md.name is not None]
@@ -180,9 +190,11 @@ class TableProxy(Table):
         schema: Mapping[str, type | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
+        bound_args = self._dispatch_args(locals())
         self._check_mutable('add columns to')
         self._validate_column_schema(schema)
-        return self._dispatch('add_columns', {'schema': normalize_schema(schema), 'if_exists': if_exists})
+        bound_args['schema'] = normalize_schema(schema)
+        return self._dispatch('add_columns', bound_args)
 
     def add_column(
         self,
@@ -191,9 +203,11 @@ class TableProxy(Table):
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
+        bound_args = self._dispatch_args(locals())
         self._check_mutable('add columns to')
         self._validate_column_schema(kwargs)
-        return self._dispatch('add_column', {'columns': normalize_schema(kwargs), 'if_exists': if_exists})
+        bound_args['columns'] = normalize_schema(bound_args.pop('kwargs'))
+        return self._dispatch('add_column', bound_args)
 
     def add_computed_column(
         self,
@@ -207,29 +221,21 @@ class TableProxy(Table):
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
         **kwargs: exprs.Expr,
     ) -> UpdateStatus:
+        bound_args = self._dispatch_args(locals())
         self._check_single_column_kwarg('add_computed_column', '`col_name=col_type` or `col_name=expression`', kwargs)
         self._check_mutable('add columns to')
-        return self._dispatch(
-            'add_computed_column',
-            {
-                'columns': kwargs,
-                'stored': stored,
-                'destination': destination,
-                'custom_metadata': custom_metadata,
-                'comment': comment,
-                'print_stats': print_stats,
-                'on_error': on_error,
-                'if_exists': if_exists,
-            },
-        )
+        bound_args['columns'] = bound_args.pop('kwargs')
+        return self._dispatch('add_computed_column', bound_args)
 
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
+        bound_args = self._dispatch_args(locals())
         self._check_mutable('drop columns from')
-        self._dispatch('drop_column', {'column': column, 'if_not_exists': if_not_exists})
+        self._dispatch('drop_column', bound_args)
 
     def rename_column(self, old_name: str, new_name: str) -> None:
+        bound_args = self._dispatch_args(locals())
         self._check_mutable('rename columns of')
-        self._dispatch('rename_column', {'old_name': old_name, 'new_name': new_name})
+        self._dispatch('rename_column', bound_args)
 
     def add_embedding_index(
         self,
@@ -243,21 +249,10 @@ class TableProxy(Table):
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
+        bound_args = self._dispatch_args(locals())
         self._check_mutable('add an index to')
         self._validate_embedding_args(embedding, string_embed, image_embed)
-        self._dispatch(
-            'add_embedding_index',
-            {
-                'column': column,
-                'idx_name': idx_name,
-                'embedding': embedding,
-                'string_embed': string_embed,
-                'image_embed': image_embed,
-                'metric': metric,
-                'precision': precision,
-                'if_exists': if_exists,
-            },
-        )
+        self._dispatch('add_embedding_index', bound_args)
 
     def drop_embedding_index(
         self,
@@ -266,8 +261,9 @@ class TableProxy(Table):
         idx_name: str | None = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
+        bound_args = self._dispatch_args(locals())
         self._check_mutable('drop an index from')
-        self._dispatch('drop_embedding_index', {'column': column, 'idx_name': idx_name, 'if_not_exists': if_not_exists})
+        self._dispatch('drop_embedding_index', bound_args)
 
     def drop_index(
         self,
@@ -276,8 +272,9 @@ class TableProxy(Table):
         idx_name: str | None = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
+        bound_args = self._dispatch_args(locals())
         self._check_mutable('drop an index from')
-        self._dispatch('drop_index', {'column': column, 'idx_name': idx_name, 'if_not_exists': if_not_exists})
+        self._dispatch('drop_index', bound_args)
 
     def insert(
         self,
@@ -308,12 +305,11 @@ class TableProxy(Table):
         cascade: bool = True,
         return_rows: bool = False,
     ) -> UpdateStatus:
+        bound_args = self._dispatch_args(locals())
         self._check_mutable('update')
         self._validate_update_value_spec(value_spec)
         self._validate_where(where)
-        return self._dispatch(
-            'update', {'value_spec': value_spec, 'where': where, 'cascade': cascade, 'return_rows': return_rows}
-        )
+        return self._dispatch('update', bound_args)
 
     def batch_update(
         self,
@@ -322,11 +318,10 @@ class TableProxy(Table):
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
     ) -> UpdateStatus:
+        bound_args = self._dispatch_args(locals())
         self._check_mutable('update')
-        return self._dispatch(
-            'batch_update',
-            {'rows': list(rows), 'cascade': cascade, 'if_not_exists': if_not_exists, 'return_rows': return_rows},
-        )
+        bound_args['rows'] = list(rows)
+        return self._dispatch('batch_update', bound_args)
 
     def recompute_columns(
         self,
@@ -335,11 +330,10 @@ class TableProxy(Table):
         errors_only: bool = False,
         cascade: bool = True,
     ) -> UpdateStatus:
+        bound_args = self._dispatch_args(locals())
         self._check_mutable('recompute columns of')
-        return self._dispatch(
-            'recompute_columns',
-            {'columns': list(columns), 'where': where, 'errors_only': errors_only, 'cascade': cascade},
-        )
+        bound_args['columns'] = list(columns)
+        return self._dispatch('recompute_columns', bound_args)
 
     def revert(self) -> None:
         self._check_mutable('revert')
@@ -356,4 +350,4 @@ class TableProxy(Table):
     ) -> UpdateStatus: ...
 
     def get_versions(self, n: int | None = None) -> list[VersionMetadata]:
-        return self._dispatch('get_versions', {'n': n})
+        return self._dispatch('get_versions', self._dispatch_args(locals()))

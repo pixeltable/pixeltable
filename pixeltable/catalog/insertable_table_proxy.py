@@ -109,14 +109,13 @@ class InsertableTableProxy(TableProxy):
     def _insert_query(
         self, query: 'Query', *, on_error: Literal['abort', 'ignore'], print_stats: bool, return_rows: bool
     ) -> UpdateStatus:
+        bound_args = self._dispatch_args(locals())
         if query._from_clause.catalog_uri != self._catalog_uri:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'Inserting from a query in a different catalog is not supported.'
             )
-        return self._dispatch(
-            'insert_query',
-            {'query': query.as_dict(), 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows},
-        )
+        bound_args['query'] = query.as_dict()
+        return self._dispatch('insert_query', bound_args)
 
     def _prepare_rows(self, source: list[Any]) -> list[dict[str, Any]]:
         """
@@ -160,5 +159,6 @@ class InsertableTableProxy(TableProxy):
         return converter.pxt_rows
 
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
+        bound_args = self._dispatch_args(locals())
         self._validate_where(where)
-        return self._dispatch('delete', {'where': where})
+        return self._dispatch('delete', bound_args)

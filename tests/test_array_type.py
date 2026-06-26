@@ -47,15 +47,15 @@ class TestArrayType:
         col_dtype: type[np.generic] | ColumnType,
         acceptable_dtypes: list,
         do_reload_catalog: bool,
-        p: Callable[[str], str],
+        make_catalog_path: Callable[[str], str],
     ) -> None:
         schema = {
             'array_col_req': pxt.Required[pxt.Array[col_dtype]],
             'array_col_opt': pxt.Array[col_dtype],  # type: ignore[misc]
         }
-        pxt.create_table(p('test_numpy_dtypes'), schema, if_exists='replace')
+        pxt.create_table(make_catalog_path('test_numpy_dtypes'), schema, if_exists='replace')
         reload_catalog(do_reload_catalog)
-        t = pxt.get_table(p('test_numpy_dtypes'))
+        t = pxt.get_table(make_catalog_path('test_numpy_dtypes'))
 
         # Generate inserts for all dtypes that these columns should accept
         validate_update_status(
