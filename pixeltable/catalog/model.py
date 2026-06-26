@@ -161,9 +161,10 @@ class _PlaceholderQuery:
     """
 
     from_clause: type[TableModelMetaclass]
-    select_list: list[tuple[exprs.Expr, str | None]] | None
+    select_clause: tuple[tuple[Any, ...], dict[str, Any]] | None
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
+    grouping_tbl: type[TableModelMetaclass] | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
     offset_val: exprs.Expr | None
@@ -172,35 +173,36 @@ class _PlaceholderQuery:
     def __init__(
         self,
         from_clause: type[TableModelMetaclass],
-        select_list: list[tuple[exprs.Expr, str | None]] | None = None,
+        select_clause: tuple[list[Any], dict[str, Any]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
+        grouping_tbl: type[TableModelMetaclass] | None = None,
         order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,
         limit_val: exprs.Expr | None = None,
         offset_val: exprs.Expr | None = None,
         sample_clause: SampleClause | None = None,
     ) -> None:
         self.from_clause = from_clause
-        self.select_list = select_list
+        self.select_clause = select_clause
         self.where_clause = where_clause
         self.group_by_clause = group_by_clause
+        self.grouping_tbl = grouping_tbl
         self.order_by_clause = order_by_clause
         self.limit_val = limit_val
         self.offset_val = offset_val
         self.sample_clause = sample_clause
 
     def select(self, *items: Any, **named_items: Any) -> _PlaceholderQuery:
-        if self.select_list is not None:
+        if self.select_clause is not None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA, '`select()` list already specified in `ViewModel` base query.'
             )
         for name in named_items:
             if not is_valid_identifier(name):
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid name: {name}')
-        select_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
-        if len(select_list) == 0:
+        if len(items) + len(named_items) == 0:
             return self
-        return dataclasses.replace(self, select_list=select_list)
+        return dataclasses.replace(self, select_clause=(items, named_items))
 
     def where(self, pred: exprs.Expr) -> _PlaceholderQuery:
         if self.where_clause is not None:
@@ -250,55 +252,54 @@ class _PlaceholderQuery:
         sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
         return dataclasses.replace(self, sample_clause=sample_clause)
 
-    def bind(self) -> 'pxt.Query':
-        import pixeltable as pxt
-
-        tbl: Table = self.from_clause.bind()  # type: ignore[call-arg]
+    def bind(self, binding_root: str) -> 'pxt.Query':
+        tbl: Table = self.from_clause.bind(binding_root)  # type: ignore[call-arg]
         subst_dict: dict[exprs.Expr, exprs.Expr] = {}
         for col_name in tbl.columns():
             placeholder = _PlaceholderColumnRef(col_name, {'type': ts.InvalidType()})  # type: ignore[arg-type]
             subst_dict[placeholder] = getattr(tbl, col_name)
 
-        select_list = (
-            [(expr.substitute(subst_dict), alias) for (expr, alias) in self.select_list]
-            if self.select_list is not None
-            else None
-        )
-        where_clause = self.where_clause.substitute(subst_dict) if self.where_clause is not None else None
-        group_by_clause = (
-            [expr.substitute(subst_dict) for expr in self.group_by_clause] if self.group_by_clause is not None else None
-        )
-        order_by_clause = (
-            [(expr.substitute(subst_dict), asc) for (expr, asc) in self.order_by_clause]
-            if self.order_by_clause is not None
-            else None
-        )
-        limit_val = self.limit_val.substitute(subst_dict) if self.limit_val is not None else None
-        offset_val = self.offset_val.substitute(subst_dict) if self.offset_val is not None else None
-        sample_clause = (
-            SampleClause(
-                None,
-                self.sample_clause.n,
-                self.sample_clause.n_per_stratum,
-                self.sample_clause.fraction,
-                self.sample_clause.seed,
-                [expr.substitute(subst_dict) for expr in self.sample_clause.stratify_exprs],
-            )
-            if self.sample_clause is not None
-            else None
-        )
+        q: pxt.Query
+        if self.select_clause is None:
+            q = tbl.select()
+        else:
+            items, named_items = self.select_clause
+            items = [expr.substitute(subst_dict) for expr in items]
+            named_items = {name: expr.substitute(subst_dict) for name, expr in named_items.items()}
+            q = tbl.select(*items, **named_items)
 
-        return pxt.Query(
-            FromClause([tbl._tbl_path]),
-            select_list,
-            where_clause,
-            group_by_clause,
-            None,
-            order_by_clause,
-            limit_val,
-            offset_val,
-            sample_clause,
-        )
+        if self.where_clause is not None:
+            where_clause = self.where_clause.substitute(subst_dict)
+            q = q.where(where_clause)
+
+        if self.group_by_clause is not None:
+            group_by_clause = [expr.substitute(subst_dict) for expr in self.group_by_clause]
+            q = q.group_by(*group_by_clause)
+
+        if self.grouping_tbl is not None:
+            grouping_tbl = self.grouping_tbl.bind(binding_root)
+            q = q.group_by(grouping_tbl)
+
+        if self.order_by_clause is not None:
+            order_by_clause = [(expr.substitute(subst_dict), asc) for (expr, asc) in self.order_by_clause]
+            for expr, asc in order_by_clause:
+                q = q.order_by(expr, asc=asc)
+
+        if self.limit_val is not None:
+            limit_val = self.limit_val.substitute(subst_dict)
+            offset_val = self.offset_val.substitute(subst_dict) if self.offset_val is not None else None
+            q = q.limit(limit_val, offset=offset_val)
+
+        if self.sample_clause is not None:
+            q = q.sample(
+                n=self.sample_clause.n,
+                n_per_stratum=self.sample_clause.n_per_stratum,
+                fraction=self.sample_clause.fraction,
+                seed=self.sample_clause.seed,
+                stratify_by=[expr.substitute(subst_dict) for expr in self.sample_clause.stratify_exprs],
+            )
+
+        return q
 
 
 class _AnnotationRecorder(dict):
@@ -498,12 +499,11 @@ class TableModelMetaclass(type):
                 }
             )
 
-            if base is not None and base.select_list is not None:
+            if base is not None and base.select_clause is not None:
                 # Pre-populate the namespace with named elements of the select list, appropriately typed.
-                for expr, col_name in base.select_list:
-                    if col_name is not None:
-                        assert is_valid_identifier(col_name)  # since it must be a Python symbol
-                        namespace[col_name] = _PlaceholderColumnRef(col_name, {'value': expr})
+                for col_name, expr in base.select_clause[1].items():
+                    assert is_valid_identifier(col_name)  # since it must be a Python symbol
+                    namespace[col_name] = _PlaceholderColumnRef(col_name, {'value': expr})
 
             if iterator is not None:
                 # Pre-populate the namespace with the iterator's outputs, appropriately typed.
@@ -600,7 +600,7 @@ class TableModelMetaclass(type):
         initial_col_id = 0
         base: pxt.Query | None = None
         if placeholder_base is not None:
-            base = placeholder_base.bind()
+            base = placeholder_base.bind(binding_root)
             if base.select_list is None:
                 # select(*): put all visible columns from the base table into scope
                 for col in base._first_tbl.columns():
