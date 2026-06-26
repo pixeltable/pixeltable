@@ -68,7 +68,27 @@ _JOB_STATUS_ROUTE_NAME = 'pxt_serve_job_status'
 _EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, np.generic, PIL.Image.Image, bytes)
 
 
-def _check_route_output_schema(output_cols: list[catalog.Column], error_prefix: str) -> None:
+def _validate_registered_schema(t: pxt.Table, schema_version: int) -> None:
+    """Raise 409 if the table's schema changed since the route was registered.
+
+    The route holds the table handle captured at registration (handles are thread-safe). A schema bump shows up
+    as a different schema_version; a drop (or drop-and-recreate at the same path under a new id) makes the
+    captured handle's metadata lookup raise TABLE_NOT_FOUND. Both mean the frozen request/response contract is
+    stale, so the caller should restart the service.
+    """
+    try:
+        changed = t.get_metadata()['schema_version'] != schema_version
+    except pxt.Error as exc:
+        if exc.error_code is not pxt.ErrorCode.TABLE_NOT_FOUND:
+            raise
+        changed = True
+    if changed:
+        raise HTTPException(
+            status_code=409, detail='table schema changed since route was registered; please restart the service'
+        )
+
+
+def _check_route_output_schema(output_cols: list[catalog.ColumnVersionMd], error_prefix: str) -> None:
     """Reject output column types whose values can't be served by FastAPI today.
 
     Array and Binary cells materialize into coalesced side files that the /media route can't serve as single units,
@@ -1146,8 +1166,6 @@ class FastAPIRouter(fastapi.APIRouter):
                 f'add_delete_route(): cannot delete from {md["kind"]} {md["name"]!r}',
             )
 
-        tbl_path = md['path']
-        tbl_id = md['id']
         schema_version = md['schema_version']
         col_md = md['columns']
 
@@ -1174,21 +1192,18 @@ class FastAPIRouter(fastapi.APIRouter):
             row_kwargs: dict[str, Any],
             url_for_media: Callable[[str], str],  # unused; part of the endpoint_op contract
         ) -> DeleteResponse:
-            tbl = pxt.get_table(tbl_path)
-            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
-                raise HTTPException(
-                    status_code=409,
-                    detail='table schema changed since route was registered; please restart the service',
-                )
+            # the table handle is thread-safe, so reuse the captured one; re-validate the frozen contract
+            _validate_registered_schema(t, schema_version)
 
             where_expr: exprs.Expr | None = None
             for name in match_columns:
-                predicate = tbl[name] == row_kwargs[name]
+                predicate = t[name] == row_kwargs[name]
                 where_expr = predicate if where_expr is None else (where_expr & predicate)
-            status = tbl.delete(where=where_expr)
+            status = t.delete(where=where_expr)
             return DeleteResponse(num_rows=status.num_rows)
 
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
+        cols_by_name = {col.name: col for col in t._tbl_path.column_md() if col.name is not None}
         match_cols = [cols_by_name[name] for name in match_columns]
         sig = self._create_endpoint_signature(input_cols=match_cols)
         endpoint = PxtEndpoint(
@@ -1537,29 +1552,25 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs must be [].
         """
         md = t.get_metadata()
-        tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
+        schema_version = md['schema_version']
 
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
+        cols_by_name = {col.name: col for col in t._tbl_path.column_md() if col.name is not None}
         pk_cols = [cols_by_name[name] for name in pk_col_names]
         input_cols = [cols_by_name[name] for name in input_col_names]
 
         def run_dml(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            # handles aren't thread-portable, so fetch and re-validate against the registered schema
-            tbl = pxt.get_table(tbl_path)
-            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
-                raise HTTPException(
-                    status_code=409,
-                    detail='table schema changed since route was registered; please restart the service',
-                )
+            # the table handle is thread-safe, so reuse the captured one; re-validate the frozen contract
+            _validate_registered_schema(t, schema_version)
             if route_type == 'update':
-                status = tbl.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
+                status = t.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
                 if status.num_rows == 0:
                     raise HTTPException(status_code=404, detail='row not found')
                 rows = status.rows or []
             elif route_type == 'compute':
-                rows = tbl.compute([row_kwargs])
+                rows = t.compute([row_kwargs])
             else:  # 'insert'
-                status = tbl.insert([row_kwargs], return_rows=True)
+                status = t.insert([row_kwargs], return_rows=True)
                 rows = status.rows or []
             if len(rows) != 1:
                 raise HTTPException(status_code=500, detail=f'operation returned unexpected row count ({len(rows)})')
@@ -1674,7 +1685,7 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool,
         error_prefix: str,
         route_type: Literal['insert', 'update', 'compute'],
-    ) -> tuple[list[str], list[str], list[str], dict[str, catalog.Column]]:
+    ) -> tuple[list[str], list[str], list[str], dict[str, catalog.ColumnVersionMd]]:
         """
         Validate insert-/update-route args. Returns (pk_col_names, input_col_names, output_col_names, cols_by_name).
         """
@@ -1695,7 +1706,8 @@ class FastAPIRouter(fastapi.APIRouter):
         if route_type == 'update' and not pk_col_names:
             raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
 
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
+        cols_by_name = {col.name: col for col in t._tbl_path.column_md() if col.name is not None}
         pk_set = set(pk_col_names)
 
         for name in [*(inputs or []), *(uploadfile_inputs or [])]:
@@ -1817,7 +1829,7 @@ class FastAPIRouter(fastapi.APIRouter):
         self,
         name: str,
         output_schema: dict[str, ts.ColumnType] | None = None,
-        output_cols: list[catalog.Column] | None = None,
+        output_cols: list[catalog.ColumnVersionMd] | None = None,
     ) -> type[pydantic.BaseModel]:
         assert (output_schema is None) != (output_cols is None)
         fields: dict[str, tuple[Any, FieldInfo]]
@@ -1829,7 +1841,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _create_endpoint_signature(
         self,
-        input_cols: list[catalog.Column] | None = None,
+        input_cols: list[catalog.ColumnVersionMd] | None = None,
         input_schema: dict[str, ts.ColumnType] | None = None,
         defaults: dict[str, Any] | None = None,  # input name -> default value
         upload_col_names: list[str] | None = None,

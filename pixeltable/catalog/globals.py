@@ -104,6 +104,10 @@ class ColumnVersionMd:
         return self.schema_col.name
 
     @property
+    def comment(self) -> str | None:
+        return self.schema_col.comment
+
+    @property
     def col_type(self) -> ts.ColumnType:
         return ts.ColumnType.from_dict(self.schema_col.col_type)
 
