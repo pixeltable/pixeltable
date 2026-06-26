@@ -1,5 +1,5 @@
 """
-Auto-generates type stubs for pixeltable.catalog.model.
+Auto-generates type stubs for pixeltable.catalog.model based on FORWARDED_TABLE_METHODS.
 
 This script first uses `stubgen` to generate stubs for both `model.py` and `table.py`, then merges the relevant
 method definitions from the `Table` class in `table.pyi` into the `TableModelMetaclass` definition in `model.pyi`.

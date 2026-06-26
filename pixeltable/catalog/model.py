@@ -62,6 +62,7 @@ for method in FORWARDED_TABLE_METHODS:
 
 @dataclass(frozen=True)
 class Column:
+    """A column specification used in a TableModel or ViewModel definition."""
     type: type | None = None
     value: Any = None
     primary_key: bool | None = None
@@ -94,6 +95,7 @@ class Column:
 
 @dataclass(frozen=True)
 class EmbeddingIndex:
+    """An embedding index specification used in a TableModel or ViewModel definition."""
     column: Any
     embedding: func.Function | None = None
     string_embed: func.Function | None = None
@@ -105,13 +107,24 @@ class EmbeddingIndex:
     precision: Literal['fp16', 'fp32'] = 'fp16'
 
 
+class TableSpec(TypedDict):
+    """Table specification from a TableModel or ViewModel."""
+    name: str
+    display_name: str
+    base: _PlaceholderQuery | None
+    iterator: func.GeneratingFunctionCall | None
+    create_default_idxs: bool
+    media_validation: MediaValidation
+    comment: str | None
+    custom_metadata: Any
+
+
 class _PlaceholderColumnRef(exprs.Expr):
     """
     A placeholder column reference used in TableModel definitions,
-    which gets substituted with an actual ColumnRef during Table creation.
+    which gets substituted with an actual ColumnRef during Table creation or binding.
     """
 
-    tbl_name: str
     name: str
     column_spec: ColumnSpec
 
@@ -157,8 +170,8 @@ class _PlaceholderColumnRef(exprs.Expr):
 @dataclasses.dataclass
 class _PlaceholderQuery:
     """
-    A placeholder query object that can be used in ViewModel definitions to reference a base table or query
-    that is not yet defined at the time of class body execution.
+    A placeholder query used in ViewModel definitions,
+    which gets substituted with an actual Query during Table creation or binding.
     """
 
     from_clause: type[TableModelMetaclass]
@@ -304,6 +317,11 @@ class _PlaceholderQuery:
 
 
 class _AnnotationRecorder(dict):
+    """
+    Used to override the default behavior of a class namespace's `__annotations__` dict, so that we can register
+    bare annotations promptly as placeholder columns in the class namespace, in the order they are declared.
+    """
+
     namespace: _ModelNamespace
 
     def __init__(self, namespace: _ModelNamespace) -> None:
@@ -312,24 +330,17 @@ class _AnnotationRecorder(dict):
 
     def __setitem__(self, key: str, value: Any) -> None:
         if not key.startswith('_'):
+            # Register the type annotation in the namespace
             self.namespace.set_col_type(key, value)
         super().__setitem__(key, value)
 
 
-class TableSpec(TypedDict):
-    name: str
-    display_name: str
-    base: _PlaceholderQuery | None
-    iterator: func.GeneratingFunctionCall | None
-    create_default_idxs: bool
-    media_validation: MediaValidation
-    comment: str | None
-    custom_metadata: Any
-
-
 class _ModelNamespace(dict):
-    """Class namespace that records the source order of every name bound in the body,
-    including bare annotations (which never write to the namespace itself)."""
+    """
+    Class namespace that manages placeholder column references, ensuring that all declarations (bare annotations,
+    computed column expressions, Column and EmbeddingIndex specifications) are registered promptly and in the exact
+    order of declaration.
+    """
 
     table_spec: TableSpec
     known_cols: dict[str, _PlaceholderColumnRef]
@@ -463,7 +474,7 @@ class TableModelMetaclass(type):
                 if isinstance(base, _PlaceholderQuery):
                     pass
                 elif isinstance(base, TableModelMetaclass):
-                    base = base.select()
+                    base = base.select()  # convert to a _PlaceholderQuery
                 else:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_ARGUMENT,
@@ -532,6 +543,8 @@ class TableModelMetaclass(type):
         namespace['__columns__'] = namespace.known_cols
         namespace['__indexes__'] = namespace.known_idxs
 
+        # Remove the direct index references from the namespace; unlike columns,
+        # they are not part of the table's namespace.
         for idx_name in namespace.known_idxs:
             namespace.pop(idx_name)
 
