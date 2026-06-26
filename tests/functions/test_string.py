@@ -3,6 +3,8 @@ import textwrap
 import unicodedata
 from typing import Callable
 
+import pytest
+
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.functions.string import (
@@ -41,6 +43,8 @@ from pixeltable.functions.string import (
 )
 
 from ..utils import pxt_raises, reload_catalog, skip_test_if_not_installed, validate_update_status
+
+pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pxt.udf

@@ -1,10 +1,14 @@
 # type: ignore
 
+import pytest
+
 import pixeltable as pxt
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 from tests.fault_injection import ExceptionFault
 from tests.utils import pxt_raises
+
+pytestmark = pytest.mark.local('fault-injection test of the rate-limit scheduler internals')
 
 
 class DummyError(Exception):

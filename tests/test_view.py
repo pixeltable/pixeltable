@@ -241,11 +241,11 @@ class TestView:
         reload_tester.run_reload_test()
 
     def test_add_column_to_view(
-        self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
+        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
     ) -> None:
         """Test add_column* methods for views"""
         p = make_catalog_path
-        t = test_tbl_dual
+        t = test_tbl
         t_c1_val0 = t.order_by(t.c1).collect()[0]['c1']
 
         # adding column with same name as a base table column at
@@ -1351,9 +1351,9 @@ class TestView:
         v1.update({'v1': 101})
         v2.update({'v2': 102})
 
-    def test_recompute_column(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_recompute_column(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = test_tbl_dual
+        t = test_tbl
         v = pxt.create_view(p('test_view'), t, additional_columns={'v1': t.c2 + 1})
         validate_update_status(v.recompute_columns(v.v1, cascade=True, where=v.c2 < 10), expected_rows=10)
 

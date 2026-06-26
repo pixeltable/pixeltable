@@ -308,6 +308,7 @@ class TestDestination:
         # as duplicates, so they are not double copied to the destination.
         assert len(r) + 1 == ObjectOps.count(t._id, dest=dest2_uri)
 
+    @pytest.mark.local('media destination/object-store internals')
     def test_dest_local_copy(self, uses_db: None) -> None:
         """Test destination attempting to copy a local file to another destination"""
 
@@ -411,6 +412,7 @@ class TestDestination:
         for uri in dest_uris:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
+    @pytest.mark.local('media destination/object-store internals')
     @rerun(reruns=3, reruns_delay=15)
     def test_presigned_url_all_destinations(self, uses_db: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
@@ -533,6 +535,7 @@ class TestDestination:
         StorageTarget.S3_STORE: ('boto3', 's3://open-images-dataset/validation/', '3c02ca9ec9b2b77b.jpg'),
     }
 
+    @pytest.mark.local('media destination/object-store internals')
     @pytest.mark.parametrize('dest_id', PUBLIC_TEST_OBJECTS.keys())
     def test_public_download(self, uses_db: None, dest_id: StorageTarget) -> None:
         """Test downloading a media object from a public Store"""

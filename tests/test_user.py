@@ -1,3 +1,5 @@
+import pytest
+
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
@@ -6,6 +8,8 @@ from pixeltable.utils.fault_injection import FaultLocation
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault
 from .utils import pxt_raises
+
+pytestmark = pytest.mark.local('multi-threaded/fault-injection test of user-namespace internals')
 
 
 class TestUser:

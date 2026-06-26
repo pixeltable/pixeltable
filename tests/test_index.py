@@ -43,9 +43,9 @@ class TestIndex:
         return np.zeros(10)
 
     def test_similarity_multiple_index(
-        self, multi_idx_img_tbl_dual: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
+        self, multi_idx_img_tbl: pxt.Table, local_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        t = multi_idx_img_tbl_dual
+        t = multi_idx_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
 
         # similarity query should fail because there are multiple indices
@@ -83,7 +83,7 @@ class TestIndex:
         self,
         use_index_name: bool,
         use_separate_embeddings: bool,
-        small_img_tbl_dual: pxt.Table,
+        small_img_tbl: pxt.Table,
         clip_or_local: tuple[pxt.Function, bool],
         reload_tester: ReloadTester,
     ) -> None:
@@ -91,7 +91,7 @@ class TestIndex:
         skip_test_if_not_installed('imagehash')
         if not is_dummy_model:
             skip_test_if_not_installed('transformers')
-        t = small_img_tbl_dual
+        t = small_img_tbl
         res = t.select(t.img, t.img.localpath, t.img.fileurl).head(1)
         sample_img = res[0, 'img']
         sample_img_localpath = res[0, 'img_localpath']
@@ -142,7 +142,7 @@ class TestIndex:
             t.drop_embedding_index(column='img')
 
     def test_deprecated_similarity(
-        self, small_img_tbl_dual: pxt.Table, clip_or_local: tuple[pxt.Function, bool], reload_tester: ReloadTester
+        self, small_img_tbl: pxt.Table, clip_or_local: tuple[pxt.Function, bool], reload_tester: ReloadTester
     ) -> None:
         """
         Test that the deprecated pattern still works, with a warning.
@@ -152,7 +152,7 @@ class TestIndex:
         skip_test_if_not_installed('imagehash')
         if not is_dummy_model:
             skip_test_if_not_installed('transformers')
-        t = small_img_tbl_dual
+        t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         _ = t.select(t.img.localpath).collect()
 
@@ -257,8 +257,8 @@ class TestIndex:
         # insert more rows in order to run the query function
         validate_update_status(queries.insert(query_rows))
 
-    def test_search_fn(self, small_img_tbl_dual: pxt.Table, local_embed: pxt.Function) -> None:
-        t = small_img_tbl_dual
+    def test_search_fn(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
+        t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         _ = t.select(t.img.localpath).collect()
 
@@ -273,13 +273,13 @@ class TestIndex:
 
     def test_similarity_errors(
         self,
-        indexed_img_tbl_dual: pxt.Table,
-        small_img_tbl_dual: pxt.Table,
+        indexed_img_tbl: pxt.Table,
+        small_img_tbl: pxt.Table,
         make_catalog_path: Callable[[str], str],
         local_embed: pxt.Function,
     ) -> None:
         p = make_catalog_path
-        t = indexed_img_tbl_dual
+        t = indexed_img_tbl
 
         type_failures = (
             ('item', '`str` or `PIL.Image.Image`', pxt.ErrorCode.TYPE_MISMATCH),
@@ -306,7 +306,7 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match="No embedding index found for column 'split'"):
             _ = t.order_by(t.split.similarity(string='red truck')).limit(1).collect()
 
-        t = small_img_tbl_dual
+        t = small_img_tbl
         t.add_embedding_index('img', image_embed=local_embed)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.order_by(t.img.similarity(string='red truck')).limit(1).collect()
@@ -334,11 +334,11 @@ class TestIndex:
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
     def test_add_index_after_drop(
-        self, small_img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+        self, small_img_tbl: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
     ) -> None:
         """Test that an index with the same name can be added after the previous one is dropped"""
         p = make_catalog_path
-        t = small_img_tbl_dual
+        t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
         orig_res = (
@@ -393,9 +393,9 @@ class TestIndex:
         assert_resultset_eq(orig_res, res, True)
 
     def test_add_embedding_index_if_exists(
-        self, small_img_tbl_dual: pxt.Table, reload_tester: ReloadTester, local_embed: pxt.Function
+        self, small_img_tbl: pxt.Table, reload_tester: ReloadTester, local_embed: pxt.Function
     ) -> None:
-        t = small_img_tbl_dual
+        t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
 
         def emb_idxs() -> dict[str, Any]:
@@ -482,6 +482,7 @@ class TestIndex:
         # sanity check persistence
         reload_tester.run_reload_test()
 
+    @pytest.mark.local('TODO: convert')
     def test_unnamed_duplicate_detection(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         t = small_img_tbl
 
@@ -521,13 +522,13 @@ class TestIndex:
 
     def test_update_img(
         self,
-        img_tbl_dual: pxt.Table,
-        test_tbl_dual: pxt.Table,
+        img_tbl: pxt.Table,
+        test_tbl: pxt.Table,
         make_catalog_path: Callable[[str], str],
         reload_tester: ReloadTester,
     ) -> None:
         p = make_catalog_path
-        img_t = img_tbl_dual
+        img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         short_rows = rows[:5]
         new_rows: list[dict[str, Any]] = []
@@ -574,10 +575,10 @@ class TestIndex:
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
     def test_embedding_access(
-        self, img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+        self, img_tbl: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
     ) -> None:
         p = make_catalog_path
-        img_t = img_tbl_dual
+        img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
         schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
@@ -607,7 +608,7 @@ class TestIndex:
 
     def test_embedding_basic(
         self,
-        img_tbl_dual: pxt.Table,
+        img_tbl: pxt.Table,
         make_catalog_path: Callable[[str], str],
         local_embed: pxt.Function,
         reload_tester: ReloadTester,
@@ -615,7 +616,7 @@ class TestIndex:
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
 
-        img_t = img_tbl_dual
+        img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
         schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
@@ -788,10 +789,8 @@ class TestIndex:
 
         reload_tester.run_reload_test()
 
-    def test_embedding_errors(
-        self, small_img_tbl_dual: pxt.Table, test_tbl_dual: pxt.Table, local_embed: pxt.Function
-    ) -> None:
-        img_t = small_img_tbl_dual
+    def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
+        img_t = small_img_tbl
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             img_t.add_embedding_index('img', metric='badmetric', image_embed=local_embed)  # type: ignore[arg-type]
@@ -814,7 +813,7 @@ class TestIndex:
             pxt.ErrorCode.TYPE_MISMATCH, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."
         ):
             # wrong column type
-            test_tbl_dual.add_embedding_index('c2', image_embed=local_embed)
+            test_tbl.add_embedding_index('c2', image_embed=local_embed)
 
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
@@ -909,20 +908,16 @@ class TestIndex:
                 pxt.ErrorCode.INVALID_ARGUMENT,
                 match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision",
             ):
-                test_tbl_dual.add_embedding_index(
-                    test_tbl_dual.c1, embedding=local_embedding.using(dim=4001), precision='fp16'
-                )
+                test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=4001), precision='fp16')
             with pxt_raises(
                 pxt.ErrorCode.INVALID_ARGUMENT,
                 match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for fp32 precision",
             ):
-                test_tbl_dual.add_embedding_index(
-                    test_tbl_dual.c1, embedding=local_embedding.using(dim=2001), precision='fp32'
-                )
+                test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=2001), precision='fp32')
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid precision.+Must be one of: \['fp16', 'fp32'\]"):
-            test_tbl_dual.add_embedding_index(
-                test_tbl_dual.c1,
+            test_tbl.add_embedding_index(
+                test_tbl.c1,
                 embedding=local_embedding.using(dim=2001),
                 precision='invalid',  # type: ignore[arg-type]
             )
@@ -930,9 +925,7 @@ class TestIndex:
             pxt.ErrorCode.INVALID_CONFIGURATION,
             match='is not a valid embedding: it returns an array of invalid length 0',
         ):
-            test_tbl_dual.add_embedding_index(
-                test_tbl_dual.c1, embedding=local_embedding.using(dim=0), precision='fp16'
-            )
+            test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=0), precision='fp16')
 
     def run_btree_test(self, p: Callable[[str], str], data: list, data_type: type | _GenericAlias) -> pxt.Table:
         t = pxt.create_table(p('btree_test'), {'data': data_type})

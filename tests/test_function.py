@@ -84,6 +84,7 @@ class TestFunction:
         assert isinstance(td['templates'], list) and len(td['templates']) == 1
         assert isinstance(Function.from_dict(td), func.ExprTemplateFunction)
 
+    @pytest.mark.local('inspects the in-process FunctionRegistry')
     def test_list(self, uses_db: None) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)
@@ -123,8 +124,8 @@ class TestFunction:
     def f2(a: int | None, b: float = 0.0, c: float | None = 1.0) -> float:
         return (0.0 if a is None else a) + b + (0.0 if c is None else c)
 
-    def test_call(self, test_tbl_dual: pxt.Table) -> None:
-        t = test_tbl_dual
+    def test_call(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
 
         r0 = t.select(t.c2, t.c3).order_by(t.c2).collect().to_pandas()
         # positional params with default args
@@ -196,8 +197,8 @@ class TestFunction:
     def udf_variadic_kw(**kwargs: Any) -> int:
         raise AssertionError()
 
-    def test_invalid_call(self, test_tbl_dual: pxt.Table) -> None:
-        t = test_tbl_dual
+    def test_invalid_call(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
         # Note: the wording is different across Python versions
         missing_a = r"missing.+'a'"
         missing_b = r"missing.+'b'"
@@ -577,9 +578,9 @@ class TestFunction:
         # reload_catalog()
         pxt.drop_dir(p('test'), force=True)
 
-    def test_query_with_limit(self, test_tbl_dual: pxt.Table) -> None:
+    def test_query_with_limit(self, test_tbl: pxt.Table) -> None:
         """@pxt.query bodies that use limit() with differently-shaped limit arguments."""
-        t = test_tbl_dual
+        t = test_tbl
 
         # limit(n) where n is a plain int parameter, return_scalar=True
         @pxt.query(return_scalar=True)
@@ -597,9 +598,9 @@ class TestFunction:
         res = t.select(t.c4, result=q4(4)).limit(2).collect()
         assert res[0]['result'][0] == [2, 3, 4]
 
-    def test_query_with_limit_errors(self, test_tbl_dual: pxt.Table) -> None:
+    def test_query_with_limit_errors(self, test_tbl: pxt.Table) -> None:
         """limit()/offset() reject non-(int constant | query parameter) arguments."""
-        t = test_tbl_dual
+        t = test_tbl
 
         # arithmetic on a query parameter is not allowed for limit
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
@@ -831,6 +832,7 @@ class TestFunction:
     def crt_test_udf(a: int, b: int, c: int = 5) -> pxt.Array[pxt.Int]:
         return np.ones((b, c)) * a
 
+    @pytest.mark.local('exercises a UDF conditional_return_type defined as a client-process-local class attribute')
     def test_conditional_return_type(self, uses_db: None) -> None:
         f = self.crt_test_udf
 
@@ -866,8 +868,8 @@ class TestFunction:
     def add2_with_default(x: int, y: int = 1) -> int:
         return x + y
 
-    def test_expr_udf(self, test_tbl_dual: pxt.Table) -> None:
-        t = test_tbl_dual
+    def test_expr_udf(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
         t.add_computed_column(other_int=t.c2 + 5)
 
         res1 = t.select(out=self.add1(t.c2)).order_by(t.c2).collect()
@@ -915,8 +917,8 @@ class TestFunction:
         res2 = t.select(out=self.add2(t.c2, 1)).order_by(t.c2).collect()
         assert_resultset_eq(res1, res2)
 
-    def test_expr_udf_method_property(self, test_tbl_dual: pxt.Table) -> None:
-        t = test_tbl_dual
+    def test_expr_udf_method_property(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
 
         # is_method: receiver-form `t.c2._expr_method_plus5()` matches function-form
         res_recv = t.select(out=t.c2._expr_method_plus5()).order_by(t.c2).collect()
@@ -1069,8 +1071,8 @@ class TestFunction:
     def typevar_udf(x: T, y: T, z: str = 'a') -> T:
         return x + y  # type: ignore[operator]
 
-    def test_overloaded_udf(self, test_tbl_dual: pxt.Table, reload_tester: ReloadTester) -> None:
-        t = test_tbl_dual
+    def test_overloaded_udf(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl
         fc_str = self.overloaded_udf(t.c1, t.c1)
         fc_int = self.overloaded_udf(t.c2, t.c2)
         fc_float = self.overloaded_udf(t.c3, t.c3)
@@ -1192,8 +1194,8 @@ class TestFunction:
         def value(self) -> T:
             return self.max
 
-    def test_overloaded_uda(self, test_tbl_dual: pxt.Table) -> None:
-        t = test_tbl_dual
+    def test_overloaded_uda(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
         fc_str = self.overloaded_uda(t.c1)
         fc_int = self.overloaded_uda(t.c2)
         fc_float = self.overloaded_uda(t.c3)
@@ -1263,6 +1265,7 @@ class TestFunction:
 
         reload_catalog()
 
+    @pytest.mark.local('swaps UDF code in the client process across catalog reloads; not visible to the daemon')
     @pytest.mark.parametrize('as_kwarg', [False, True])
     def test_udf_evolution(self, as_kwarg: bool, uses_db: None) -> None:
         """
@@ -1508,6 +1511,7 @@ class TestFunction:
         # mimic(udf_version_7)
         # reload_and_validate_table(validation_error=return_type_error.format(return_type='Array | None'))
 
+    @pytest.mark.local('patches a client-process-local UDF to raise on catalog load; not visible to the daemon')
     def test_udf_import_error(self, uses_db: None) -> None:
         """
         Tests that the Pixeltable catalog loads successfully when a function's conditional_return_type() method
@@ -1570,6 +1574,7 @@ class TestFunction:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
+    @pytest.mark.local('builds a retrieval tool from a table')
     def test_retrieval_tool(self, uses_db: None) -> None:
         t = pxt.create_table(
             'customers', {'customer_id': pxt.Required[pxt.String], 'name': pxt.Required[pxt.String], 'sales': pxt.Int}
@@ -1640,6 +1645,7 @@ class TestFunction:
         lookup.add_computed_column(matching=fn2(customer_id=lookup.lookup_id))
         assert lookup.matching.col_type == fn2.signature.return_type
 
+    @pytest.mark.local('builds a query function from a table via Function.from_table')
     def test_from_table(self, uses_db: None) -> None:
         schema = {'in1': pxt.Required[pxt.Int], 'in2': pxt.Required[pxt.String], 'in3': pxt.Float, 'in4': pxt.Image}
         t = pxt.create_table('test', schema)
@@ -1801,6 +1807,7 @@ class TestFunction:
 
         assert len(t.where(t.col_2.match('def')).collect()) == 1
 
+    @pytest.mark.local('runs a UDF-definition script in a subprocess')
     def test_udf_in_global_namespace(self, uses_db: None) -> None:
         process = subprocess.run(('python', 'tests/script_with_udf.py'), check=False, capture_output=True, text=True)
         assert process.returncode != 0  # The script should fail with an appropriate error message

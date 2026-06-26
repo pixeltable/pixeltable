@@ -19,6 +19,8 @@ from pixeltable.serving.deploy import build_deploy_bundle
 
 from ..utils import pxt_raises, skip_test_if_not_installed
 
+pytestmark = pytest.mark.local('pxt serve deploy-bundle packaging')
+
 
 class TestDeploy:
     def test_deploy_bundle(self, uses_db: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -280,9 +280,7 @@ class TestSample:
         new_table.insert(query)
         assert new_table.count() == 2 * n_sample
 
-    def test_sample_create_insert_table(
-        self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]
-    ) -> None:
+    def test_sample_create_insert_table(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, False)
 
@@ -296,7 +294,7 @@ class TestSample:
         n_sample = len(query.collect())
         self.check_create_insert(p, t, query, n_sample, sort_key='id')
 
-        t = test_tbl_dual
+        t = test_tbl
         query = t.sample(n=20)
         _ = query.collect()
         query = t.sample(n=20, seed=4171780)

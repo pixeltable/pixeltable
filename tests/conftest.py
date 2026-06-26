@@ -65,6 +65,19 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
             item.add_marker(pytest.mark.very_expensive)
 
+    offenders: list[str] = []
+    for item in items:
+        if 'uses_db' not in getattr(item, 'fixturenames', ()):
+            continue
+        marker = item.get_closest_marker('local')
+        if marker is None or not marker.args or not isinstance(marker.args[0], str) or not marker.args[0].strip():
+            offenders.append(item.nodeid)
+    if offenders:
+        raise pytest.UsageError(
+            "tests using the 'uses_db' fixture must be marked @pytest.mark.local('<reason>'):\n  "
+            + '\n  '.join(offenders)
+        )
+
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
@@ -246,14 +259,31 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
         proxy_daemon.delete(db)
 
 
-@pytest.fixture(scope='function', params=['local', 'proxy'])
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Drive the catalog-backend axis: any test that (transitively) reaches catalog_mode runs against both
+    'local' and 'proxy', unless marked @pytest.mark.local, in which case it runs 'local' only.
+
+    metafunc.fixturenames is the transitive fixture closure, so a test reaching make_catalog_path (directly
+    or via an adapted fixture like test_tbl) auto-forks with no per-test boilerplate. Tests that touch neither
+    catalog_mode nor make_catalog_path run once.
+    """
+    if 'catalog_mode' not in metafunc.fixturenames:
+        return
+    if metafunc.definition.get_closest_marker('local') is not None:
+        # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
+        return
+    metafunc.parametrize('catalog_mode', ['local', 'proxy'], indirect=True)
+
+
+@pytest.fixture(scope='function')
 def catalog_mode(request: pytest.FixtureRequest) -> CatalogMode:
     """The catalog backend under test: 'local' (in-process) or 'proxy' (delegated to a local daemon).
 
-    Request this alongside make_catalog_path() to gate assertions that only make sense in one mode (e.g.
-    inspecting the client-side LocalStore, which is empty over proxy) without excluding the test from the other.
+    The local/proxy axis is assigned by pytest_generate_tests(); a test marked @pytest.mark.local isn't
+    parametrized and gets 'local' here. Request this alongside make_catalog_path() to gate assertions that only
+    make sense in one mode (e.g. inspecting the client-side LocalStore, which is empty over proxy).
     """
-    return request.param
+    return getattr(request, 'param', 'local')
 
 
 @pytest.fixture(scope='function')
@@ -281,19 +311,6 @@ def make_catalog_path(
 
         def p(path: str) -> str:
             return path
-
-    yield p
-
-    _validate_catalog_state()
-
-
-@pytest.fixture(scope='function')
-def make_local_path(init_env: None) -> Iterator[Callable[[str], str]]:
-    """Stand-in for make_catalog_path() for tests that fail in proxy mode."""
-    _reset_catalog_state()
-
-    def p(path: str) -> str:
-        return path
 
     yield p
 
@@ -399,12 +416,7 @@ def clean_db(drop_md_tables: bool = False) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(uses_db: None) -> pxt.Table:
-    return create_test_tbl()
-
-
-@pytest.fixture(scope='function')
-def test_tbl_dual(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+def test_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
     return create_test_tbl(make_catalog_path('test_tbl'))
 
 
@@ -449,22 +461,12 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(uses_db: None) -> pxt.Table:
-    return create_all_datatypes_tbl()
-
-
-@pytest.fixture(scope='function')
-def all_datatypes_tbl_dual(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+def all_datatypes_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
     return create_all_datatypes_tbl(name=make_catalog_path('all_datatype_tbl'))
 
 
 @pytest.fixture(scope='function')
-def img_tbl(uses_db: None) -> pxt.Table:
-    return create_img_tbl('test_img_tbl')
-
-
-@pytest.fixture(scope='function')
-def img_tbl_dual(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+def img_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
     return create_img_tbl(make_catalog_path('test_img_tbl'))
 
 
@@ -489,26 +491,12 @@ def multi_img_tbl_exprs(multi_idx_img_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def small_img_tbl(uses_db: None) -> pxt.Table:
-    return create_img_tbl('small_img_tbl', num_rows=40)
-
-
-@pytest.fixture(scope='function')
-def small_img_tbl_dual(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+def small_img_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
     return create_img_tbl(make_catalog_path('small_img_tbl'), num_rows=40)
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(uses_db: None, local_embed: pxt.Function) -> pxt.Table:
-    t = create_img_tbl('indexed_img_tbl', num_rows=40)
-    t.add_embedding_index(
-        'img', idx_name='img_idx0', metric='cosine', image_embed=local_embed, string_embed=local_embed
-    )
-    return t
-
-
-@pytest.fixture(scope='function')
-def indexed_img_tbl_dual(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
+def indexed_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
     t = create_img_tbl(make_catalog_path('indexed_img_tbl'), num_rows=40)
     t.add_embedding_index(
         'img', idx_name='img_idx0', metric='cosine', image_embed=local_embed, string_embed=local_embed
@@ -517,19 +505,7 @@ def indexed_img_tbl_dual(make_catalog_path: Callable[[str], str], local_embed: p
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(uses_db: None, local_embed: pxt.Function) -> pxt.Table:
-    t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
-    t.add_embedding_index(
-        'img', idx_name='img_idx1', metric='cosine', image_embed=local_embed, string_embed=local_embed
-    )
-    t.add_embedding_index(
-        'img', idx_name='img_idx2', metric='cosine', image_embed=local_embed, string_embed=local_embed
-    )
-    return t
-
-
-@pytest.fixture(scope='function')
-def multi_idx_img_tbl_dual(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
+def multi_idx_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
     t = create_img_tbl(make_catalog_path('multi_idx_img_tbl'), num_rows=4)
     t.add_embedding_index(
         'img', idx_name='img_idx1', metric='cosine', image_embed=local_embed, string_embed=local_embed

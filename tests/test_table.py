@@ -1022,9 +1022,9 @@ class TestTable:
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
 
-    def test_create_from_query(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_create_from_query(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = test_tbl_dual
+        t = test_tbl
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table(p('test1'), source=query1)
         assert list(t1.columns()) == list(query1.schema.keys())
@@ -1061,9 +1061,9 @@ class TestTable:
         assert res2['c1'] == [r['c1'] for r in rows]
         assert res2['c2'] == [r['c2'] for r in rows]
 
-    def test_insert_query(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_query(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = test_tbl_dual
+        t = test_tbl
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table(p('test1'), source=query1)
         assert list(t1.columns()) == list(query1.schema.keys())
@@ -1708,7 +1708,7 @@ class TestTable:
         _ = pxt.get_table(p('test3'))
         pxt.drop_table(t)
 
-    def test_drop_table_force(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_drop_table_force(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.get_table(p('test_tbl'))
         v1 = pxt.create_view(p('v1'), t)
@@ -1722,9 +1722,7 @@ class TestTable:
         pxt.drop_table(p('test_tbl'), force=True)  # Drops everything else
         assert len(pxt.list_tables(p(''))) == 0
 
-    def test_drop_table_force_via_handle(
-        self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]
-    ) -> None:
+    def test_drop_table_force_via_handle(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.get_table(p('test_tbl'))
         v1 = pxt.create_view(p('v1'), t)
@@ -2071,6 +2069,7 @@ class TestTable:
         reason='Specifying a default media destination disrupts the file cache counts',
     )
     # TODO: cannot be converted because it inspects the local file cache via FileCache and tbl._id
+    @pytest.mark.local('inspects the local file cache via FileCache and tbl._id')
     def test_create_s3_image_table(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test', {'img': pxt.Image})
@@ -2379,9 +2378,9 @@ class TestTable:
         t2 = pxt.get_table(p('test'))
         _ = t2.show(n=0)
 
-    def test_batch_update(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_batch_update(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = test_tbl_dual
+        t = test_tbl
         num_rows = t.count()
         # update existing rows
         validate_update_status(t.batch_update([{'c1': '1', 'c2': 1}, {'c1': '2', 'c2': 2}]), expected_rows=2)
@@ -2481,10 +2480,8 @@ class TestTable:
         assert res[1].items() >= {'id': 2, 'val_upper': 'CHANGED', 'num_x2': 40.0}.items()
 
     def test_update(
-        self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]
+        self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, make_catalog_path: Callable[[str], str]
     ) -> None:
-        test_tbl = test_tbl_dual
-        small_img_tbl = small_img_tbl_dual
         t = test_tbl
         # update every type with a literal
         test_cases = [
@@ -2719,8 +2716,8 @@ class TestTable:
         assert status.rows is None  # default return_rows=False
         assert status.num_rows == 1
 
-    def test_cascading_update(self, test_tbl_dual: pxt.InsertableTable) -> None:
-        t = test_tbl_dual
+    def test_cascading_update(self, test_tbl: pxt.InsertableTable) -> None:
+        t = test_tbl
         t.add_computed_column(d1=t.c3 - 1)
         # add column that can be updated
         t.add_column(c10=pxt.Float)
@@ -2733,10 +2730,8 @@ class TestTable:
         assert_resultset_eq(r1, r2)
 
     def test_delete(
-        self, test_tbl_dual: pxt.Table, small_img_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]
+        self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, make_catalog_path: Callable[[str], str]
     ) -> None:
-        test_tbl = test_tbl_dual
-        small_img_tbl = small_img_tbl_dual
         t = test_tbl
 
         cnt = t.where(t.c3 < 10.0).count()
@@ -2839,6 +2834,7 @@ class TestTable:
         assert sorted(t.select(t.c9).collect()['c9']) == [2.0, 3.0]
 
     # TODO: cannot be converted because the UDF reads a client-process-local module global the daemon cannot see
+    @pytest.mark.local('UDF reads a client-process-local module global the daemon cannot see')
     def test_unstored_computed_cols(self, uses_db: None) -> None:
         schema = {'c1': pxt.Int, 'c2': pxt.Float}
         t = pxt.create_table('test', schema)
@@ -2895,14 +2891,14 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_computed_col_exceptions(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         if Env.get().is_using_cockroachdb:
             # TODO Fix this on CockroachDB; it's a problem!
             pytest.skip('Skipped on CockroachDB due to columns still being created when add_computed_column() fails.')
         # exception during insert()
         schema = {'c2': pxt.Int}
-        rows = list(test_tbl_dual.select(test_tbl_dual.c2).collect())
+        rows = list(test_tbl.select(test_tbl.c2).collect())
         t = pxt.create_table(p('test_insert'), schema)
         status = t.add_computed_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
@@ -2935,6 +2931,7 @@ class TestTable:
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
+    @pytest.mark.local('KeyboardInterrupt injection is client-process-local and does not reach the daemon')
     def test_computed_col_with_interrupts(self, uses_db: None) -> None:
         schema = {'c1': pxt.Int}
         t = pxt.create_table('test_interrupt', schema)
@@ -3006,9 +3003,9 @@ class TestTable:
         t.insert(rows, on_error='ignore')
         _ = t.select(t.c3.errortype).collect()
 
-    def test_computed_window_fn(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_computed_window_fn(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = test_tbl_dual
+        t = test_tbl
         # backfill
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
@@ -3046,8 +3043,8 @@ class TestTable:
             t1.revert()
         assert 'version 0' in str(excinfo.value)
 
-    def test_add_column(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        t = test_tbl_dual
+    def test_add_column(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        t = test_tbl
         orig_cols = set(t.columns())
         t.add_column(add1=pxt.Int)
         assert set(t.columns()) == orig_cols | {'add1'}
@@ -3208,9 +3205,9 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    def test_add_column_if_exists(self, test_tbl_dual: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_add_column_if_exists(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter of add_column."""
-        t = test_tbl_dual
+        t = test_tbl
         orig_cnames = t.columns()
         orig_res = t.select(t.c1).order_by(t.c1).collect()
 
@@ -3324,6 +3321,7 @@ class TestTable:
         return str(i + TestTable.recompute_udf_increment)
 
     # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
+    @pytest.mark.local('UDF reads client-process-local class attributes the daemon cannot see')
     def test_recompute_column(self, uses_db: None) -> None:
         t = pxt.create_table('recompute_test', schema={'i': pxt.Int, 's': pxt.String})
         status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
@@ -3446,9 +3444,9 @@ class TestTable:
         # if_not_exists='ignore' does nothing if the column does not exist
         t.drop_column(non_existing_col, if_not_exists='ignore')
 
-    def test_drop_column(self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_drop_column(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = test_tbl_dual
+        t = test_tbl
         dummy_t = pxt.create_table(p('dummy'), {'dummy_col': pxt.Int})
         num_orig_cols = len(t.columns())
         t.drop_column('c1')
@@ -3584,10 +3582,10 @@ class TestTable:
         check_rename(t, 'c1', 'c1_renamed')
 
     def test_add_computed_column(
-        self, test_tbl_dual: pxt.Table, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
+        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
     ) -> None:
         p = make_catalog_path
-        t = test_tbl_dual
+        t = test_tbl
         status = t.add_computed_column(add1=t.c2 + 10)
         assert status.num_excs == 0
         _ = t.show()
@@ -3653,12 +3651,11 @@ class TestTable:
     def test_repr(
         self,
         make_catalog_path: Callable[[str], str],
-        test_tbl_dual: pxt.Table,
+        test_tbl: pxt.Table,
         local_embed: pxt.Function,
         catalog_mode: CatalogMode,
     ) -> None:
         p = make_catalog_path
-        test_tbl = test_tbl_dual
         validate_repr(
             test_tbl,
             f"""

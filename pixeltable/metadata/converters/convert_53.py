@@ -8,7 +8,7 @@ from pixeltable.metadata.schema import Table, TableSchemaVersion
 
 
 @register_converter(version=53)
-def _(engine: sql.engine.Engine) -> None:
+def _(conn: sql.Connection) -> None:
     """
     Changes in version 54:
     - Function serialization is normalized to always use a list form. Function._as_dict() now emits 'signatures'
@@ -19,26 +19,25 @@ def _(engine: sql.engine.Engine) -> None:
     Table.md (embedding-index init_args, view predicates/iterator args) and in TableSchemaVersion.md
     (computed-column value_exprs, which moved out of Table.md in version 53).
     """
-    with engine.begin() as conn:
-        for row in conn.execute(sql.select(Table.id, Table.md)):
-            tbl_id, table_md = row[0], row[1]
-            updated_md = copy.deepcopy(table_md)
-            _normalize(updated_md)
-            if updated_md != table_md:
-                conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=updated_md))
+    for row in conn.execute(sql.select(Table.id, Table.md)):
+        tbl_id, table_md = row[0], row[1]
+        updated_md = copy.deepcopy(table_md)
+        _normalize(updated_md)
+        if updated_md != table_md:
+            conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=updated_md))
 
-        stmt = sql.select(TableSchemaVersion.tbl_id, TableSchemaVersion.schema_version, TableSchemaVersion.md)
-        for row in conn.execute(stmt):
-            tbl_id, schema_version, sv_md = row[0], row[1], row[2]
-            updated_md = copy.deepcopy(sv_md)
-            _normalize(updated_md)
-            if updated_md != sv_md:
-                conn.execute(
-                    sql.update(TableSchemaVersion)
-                    .where(TableSchemaVersion.tbl_id == tbl_id)
-                    .where(TableSchemaVersion.schema_version == schema_version)
-                    .values(md=updated_md)
-                )
+    stmt = sql.select(TableSchemaVersion.tbl_id, TableSchemaVersion.schema_version, TableSchemaVersion.md)
+    for row in conn.execute(stmt):
+        tbl_id, schema_version, sv_md = row[0], row[1], row[2]
+        updated_md = copy.deepcopy(sv_md)
+        _normalize(updated_md)
+        if updated_md != sv_md:
+            conn.execute(
+                sql.update(TableSchemaVersion)
+                .where(TableSchemaVersion.tbl_id == tbl_id)
+                .where(TableSchemaVersion.schema_version == schema_version)
+                .values(md=updated_md)
+            )
 
 
 def _normalize(md: Any) -> None:

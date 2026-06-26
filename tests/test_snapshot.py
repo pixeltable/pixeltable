@@ -229,10 +229,10 @@ class TestSnapshot:
         assert s2._id == id_before['test_snap_v']
 
     def test_errors(
-        self, test_tbl_dual: pxt.Table, local_embed: pxt.Function, make_catalog_path: Callable[[str], str]
+        self, test_tbl: pxt.Table, local_embed: pxt.Function, make_catalog_path: Callable[[str], str]
     ) -> None:
         p = make_catalog_path
-        tbl = test_tbl_dual
+        tbl = test_tbl
         snap_name = p('snap')
         snap = pxt.create_snapshot(snap_name, tbl)
         display_str = f'snapshot {snap_name!r}'

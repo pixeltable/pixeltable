@@ -8,6 +8,8 @@ import pixeltable.type_system as ts
 
 from ..utils import ensure_s3_pytest_resources_access, pxt_raises
 
+pytestmark = pytest.mark.local('TODO: convert; import/export (import)')
+
 EXPECTED_SCHEMA = {
     'name': ts.StringType(nullable=True),
     'human': ts.BoolType(nullable=True),
