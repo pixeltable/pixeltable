@@ -641,3 +641,96 @@ class TestTableModel:
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`sample\(\)` clause already specified'):
             ValidTableModel.sample(n=10).sample(n=5)
+
+    def test_table_model_validation_errors(self, uses_db: None) -> None:
+        """Errors that arise from a schema mismatch between a model and an existing table."""
+        t = pxt.create_table('test_table', {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'img': pxt.Image})
+        _ = pxt.create_view('test_view', t)
+        _ = pxt.create_snapshot('test_snapshot', t)
+
+        t_ok = pxt.create_table('ok_table', {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'img': pxt.Image})
+        _ = pxt.create_view('test_view_2', t_ok)
+        _ = pxt.create_view('test_iter_view', t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
+        _ = pxt.create_view('test_iter_view_2', t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
+        _ = pxt.create_view('test_iter_view_3', t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
+
+        class BadTableModel(pxt.TableModel, name='test_view'):
+            id: pxt.Required[pxt.Int]
+
+        class ExampleTableModel(pxt.TableModel, name='ok_table'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            img: pxt.Image
+
+        class BadViewModel(pxt.ViewModel, name='test_table', base=ExampleTableModel):
+            pass
+
+        class BadViewModel2(pxt.ViewModel, name='test_snapshot', base=ExampleTableModel):
+            pass
+
+        class GoodIterViewModel(
+            pxt.ViewModel,
+            name='test_iter_view',
+            base=ExampleTableModel,
+            iterator=pxtf.image.tile_iterator(ExampleTableModel.img, (256, 256)),
+        ):
+            pass
+
+        class IteratorMismatch(
+            pxt.ViewModel,
+            name='test_iter_view_2',
+            base=ExampleTableModel,
+            iterator=pxtf.image.tile_iterator(ExampleTableModel.img, (128, 128)),
+        ):
+            pass
+
+        class MissingIterator(pxt.ViewModel, name='test_iter_view_3', base=ExampleTableModel):
+            pass
+
+        class ExtraneousIterator(
+            pxt.ViewModel,
+            name='test_view_2',
+            base=ExampleTableModel,
+            iterator=pxtf.image.tile_iterator(ExampleTableModel.img, (256, 256)),
+        ):
+            pass
+
+        ExampleTableModel.create()  # should succeed; schema matches existing table
+
+        with pxt_raises(
+            excs.ErrorCode.SCHEMA_MISMATCH,
+            match=r"TableModel `BadTableModel` is defined as a table, but the existing 'test_view' is a view.",
+        ):
+            BadTableModel.create()
+
+        with pxt_raises(
+            excs.ErrorCode.SCHEMA_MISMATCH,
+            match=r"ViewModel `BadViewModel` is defined as a view, but the existing 'test_table' is a table.",
+        ):
+            BadViewModel.create()
+
+        with pxt_raises(
+            excs.ErrorCode.SCHEMA_MISMATCH,
+            match=r"ViewModel `BadViewModel2` is defined as a view, but the existing 'test_snapshot' is a snapshot.",
+        ):
+            BadViewModel2.create()
+
+        GoodIterViewModel.create()
+
+        with pxt_raises(
+            excs.ErrorCode.SCHEMA_MISMATCH,
+            match=r"Iterator for ViewModel `IteratorMismatch` does not match the existing table 'test_iter_view_2'.",
+        ):
+            IteratorMismatch.create()
+
+        with pxt_raises(
+            excs.ErrorCode.SCHEMA_MISMATCH,
+            match=r"Iterator for ViewModel `MissingIterator` does not match the existing table 'test_iter_view_3'.",
+        ):
+            MissingIterator.create()
+
+        with pxt_raises(
+            excs.ErrorCode.SCHEMA_MISMATCH,
+            match=r"Iterator for ViewModel `ExtraneousIterator` does not match the existing table 'test_view_2'.",
+        ):
+            ExtraneousIterator.create()

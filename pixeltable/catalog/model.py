@@ -569,14 +569,29 @@ class TableModelMetaclass(type):
         def has_changes(self) -> bool:
             return len(self.new_columns) > 0 or len(self.deleted_columns) > 0 or len(self.altered_columns) > 0
 
-    def validate_model(cls, existing_tbl: Table) -> ValidationResults:
+    def _validate_model(
+        cls, existing_tbl: Table, bound_base: pxt.Query | None, bound_iterator: func.GeneratingFunctionCall | None
+    ) -> ValidationResults:
         existing_md = existing_tbl.get_metadata()
         model_kind = 'view' if issubclass(cls, ViewModel) else 'table'
         if model_kind != existing_md['kind']:
             raise excs.RequestError(
                 excs.ErrorCode.SCHEMA_MISMATCH,
                 f'{cls.__table_spec__["display_name"]} is defined as a {model_kind}, '
-                f'but the existing table {existing_md["path"]!r} is a {existing_md["kind"]}.',
+                f'but the existing {existing_md["path"]!r} is a {existing_md["kind"]}.',
+            )
+
+        # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
+        # TODO: validate base table query
+
+        bound_iterator_str = 'None' if bound_iterator is None else bound_iterator.display_str()
+        if bound_iterator_str != str(existing_md['iterator_call']):
+            raise excs.RequestError(
+                excs.ErrorCode.SCHEMA_MISMATCH,
+                f'Iterator for {cls.__table_spec__["display_name"]} '
+                f'does not match the existing table {existing_md["path"]!r}.\n'
+                f'  Model iterator: {bound_iterator_str}\n'
+                f'  Existing iterator: {existing_md["iterator_call"]}',
             )
 
         # TODO: inspect columns and indices and populate the ValidationResults accordingly.
@@ -613,11 +628,6 @@ class TableModelMetaclass(type):
 
         if cls.is_bound:
             return cls._resolve_tbl(binding_root, if_not_exists='error')
-
-        existing_tbl = cls._resolve_tbl(binding_root, if_not_exists='ignore')
-        if existing_tbl is not None:
-            # TODO: Schema validation / schema merge
-            return cls.bind(binding_root)
 
         table_spec: TableSpec = cls.__table_spec__
         columns: dict[str, _PlaceholderColumnRef] = cls.__columns__
@@ -684,6 +694,13 @@ class TableModelMetaclass(type):
                 catalog_col.column_version_md(),
                 perform_validation=subst_spec.get('media_validation', table_spec['media_validation']) == 'on_read',
             )
+
+        # TODO: Validation against an existing table will happen here. For the time being, this is mostly a stub.
+        # TODO: If there is an existing table, schema merge (if possible) will happen here.
+        existing_tbl = cls._resolve_tbl(binding_root, if_not_exists='ignore')
+        if existing_tbl is not None:
+            cls._validate_model(existing_tbl, base, iterator)
+            return cls.bind(binding_root)
 
         cat = get_runtime().catalog
         bound_path = f'{binding_root}{table_spec["name"]}'
