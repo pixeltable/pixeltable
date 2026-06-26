@@ -10,11 +10,19 @@ import pixeltable.functions as pxtf
 from pixeltable import exceptions as excs, exprs
 from pixeltable.catalog.model import Column, EmbeddingIndex
 
-from .utils import assert_dicts_eq, assert_table_metadata_eq, dummy_embedding, pxt_raises, validate_update_status
+from .utils import (
+    assert_dicts_eq,
+    assert_table_metadata_eq,
+    capture_console_output,
+    dummy_embedding,
+    pxt_raises,
+    validate_update_status,
+)
 
 
 class TestTableModel:
-    def test_table_model_basic(self, uses_db: None) -> None:
+    @pytest.mark.parametrize('root', ['', 'dir/subdir'])
+    def test_table_model_basic(self, root: str, uses_db: None) -> None:
         class ExampleTableModel(pxt.TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
@@ -35,7 +43,18 @@ class TestTableModel:
 
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
-        tbl = ExampleTableModel.create()
+        expected_path = 'test_table' if root == '' else f'{root}/test_table'
+        if root != '':
+            pxt.create_dir(root, parents=True)
+
+        with capture_console_output(match=rf'Created {expected_path!r} from TableModel `ExampleTableModel`.'):
+            tbl = ExampleTableModel.create(root)
+
+        assert str(tbl._path()) == expected_path
+
+        if root != '':
+            return  # Exact metadata comparison only applies to the '' case
+
         metadata: dict[str, Any] = dict(tbl.get_metadata())
 
         metadata.pop('id')
@@ -386,8 +405,8 @@ class TestTableModel:
         )
 
     @pytest.mark.parametrize('create_all', [False, True])
-    @pytest.mark.parametrize('spec_type', ['model', 'query'])
-    def test_view_model(self, spec_type: Literal['model', 'query'], create_all: bool, uses_db: None) -> None:
+    @pytest.mark.parametrize('root', ['', 'dir/subdir'])
+    def test_view_model(self, create_all: bool, root: str, uses_db: None) -> None:
         class ExampleTableModel(pxt.TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
@@ -398,48 +417,67 @@ class TestTableModel:
 
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
-        spec: Any
-        match spec_type:
-            case 'model':
-                spec = ExampleTableModel
-            case 'query':
-                spec = ExampleTableModel.select(
-                    ExampleTableModel.value,
-                    ExampleTableModel.img,
-                    ExampleTableModel.value + 1,
-                    plusone=(ExampleTableModel.value + 1),
-                ).where(
-                    ExampleTableModel.value > 0.5  # type: ignore[arg-type]
-                )
-
-        class ExampleViewModel(pxt.ViewModel, name='test_view', base=spec):
+        class ExampleViewModel(pxt.ViewModel, name='test_view', base=ExampleTableModel):
             view_col_1: pxt.Image
             view_col_2 = view_col_1.rotate(90)
             view_col_3 = ExampleTableModel.img.rotate(90)  # Also try dereferencing a base table column
 
-            if spec_type == 'query':
-                view_col_4 = plusone + 5  # type: ignore[name-defined]  # Deference a column from the select list
-
             view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
             view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
 
-        match spec_type:
-            case 'model':
-                spec = ExampleViewModel
-            case 'query':
-                spec = ExampleViewModel.where(ExampleTableModel.value > 1.0)  # type: ignore[arg-type]
-
-        class ExampleViewModel2(pxt.ViewModel, name='test_view_2', base=ExampleViewModel):
+        class ExampleSubviewModel(pxt.ViewModel, name='test_subview', base=ExampleViewModel):
             subview_col_1 = ExampleTableModel.img.rotate(180)
             subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
             subview_col_3 = subview_col_2.rotate(30)
 
-        if create_all:
-            pxt.create_all()
-        else:
-            _ = ExampleTableModel.create()
-            _ = ExampleViewModel.create()
-            _ = ExampleViewModel2.create()
+        class ExampleViewModelFromQuery(
+            pxt.ViewModel,
+            name='test_view_from_query',
+            base=ExampleTableModel.select(
+                ExampleTableModel.value,
+                ExampleTableModel.img,
+                ExampleTableModel.value + 1,
+                plusone=(ExampleTableModel.value + 1),
+            ).where(
+                ExampleTableModel.value > 0.5  # type: ignore[arg-type]
+            ),
+        ):
+            view_col_1: pxt.Image
+            view_col_2 = view_col_1.rotate(90)
+            view_col_3 = ExampleTableModel.img.rotate(90)
+            view_col_4 = plusone + 5  # type: ignore[name-defined]
+
+            view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
+            view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
+
+        class ExampleSubviewModelFromQuery(
+            pxt.ViewModel,
+            name='test_subview_from_query',
+            base=ExampleViewModelFromQuery.where(ExampleTableModel.value > 1.0),
+        ):
+            subview_col_1 = ExampleTableModel.img.rotate(180)
+            subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
+            subview_col_3 = subview_col_2.rotate(30)
+
+        prefix = '' if root == '' else f'{root}/'
+        if root != '':
+            pxt.create_dir(root, parents=True)
+
+        with capture_console_output(
+            match=rf"Created '{prefix}test_table' from TableModel `ExampleTableModel`.\n"
+            rf"Created '{prefix}test_view' from ViewModel `ExampleViewModel`.\n"
+            rf"Created '{prefix}test_subview' from ViewModel `ExampleSubviewModel`.\n"
+            rf"Created '{prefix}test_view_from_query' from ViewModel `ExampleViewModelFromQuery`.\n"
+            rf"Created '{prefix}test_subview_from_query' from ViewModel `ExampleSubviewModelFromQuery`."
+        ):
+            if create_all:
+                pxt.create_all(root)
+            else:
+                _ = ExampleTableModel.create(root)
+                _ = ExampleViewModel.create(root)
+                _ = ExampleSubviewModel.create(root)
+                _ = ExampleViewModelFromQuery.create(root)
+                _ = ExampleSubviewModelFromQuery.create(root)
 
     def test_view_model_with_iterator(self, uses_db: None) -> None:
         class ExampleTableModel(pxt.TableModel, name='test_table'):

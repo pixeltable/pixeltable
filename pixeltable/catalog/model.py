@@ -5,10 +5,11 @@ import itertools
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, MutableMapping, TypedDict
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, MutableMapping, NamedTuple, TypedDict
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog.table_path import TableVersionPath
+from pixeltable.env import Env
 from pixeltable.query_clauses import FromClause, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
@@ -317,6 +318,7 @@ class _AnnotationRecorder(dict):
 
 class TableSpec(TypedDict):
     name: str
+    display_name: str
     base: _PlaceholderQuery | None
     iterator: func.GeneratingFunctionCall | None
     create_default_idxs: bool
@@ -415,7 +417,7 @@ class TableModelMetaclass(type):
 
     @classmethod
     def __prepare__(  # type: ignore[override]
-        mcs,  # noqa: N804
+        mcs,  # noqa: N804  # Neither mypy nor ruff seems to understand metaclasses.
         cls_name: str,
         bases: tuple[type, ...],
         /,
@@ -490,6 +492,7 @@ class TableModelMetaclass(type):
             namespace = _ModelNamespace(
                 {
                     'name': tbl_name,
+                    'display_name': display_name,
                     'base': base,
                     'iterator': iterator,
                     'create_default_idxs': create_default_idxs,
@@ -555,10 +558,34 @@ class TableModelMetaclass(type):
     def is_bound(cls) -> bool:
         return cls._binding_root is not None
 
-    def bind(cls, binding_root: str = '') -> pxt.Table:
+    class ValidationResults(NamedTuple):
+        new_columns: list[str]
+        deleted_columns: list[str]
+        altered_columns: list[str]
+
+        def has_changes(self) -> bool:
+            return len(self.new_columns) > 0 or len(self.deleted_columns) > 0 or len(self.altered_columns) > 0
+
+    def validate_model(cls, existing_tbl: Table) -> ValidationResults:
+        if issubclass(cls, ViewModel) != isinstance(existing_tbl, pxt.View):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Cannot validate model `{cls.__name__}` against table {existing_tbl.path!r}: '
+                f'the model is a {"view" if issubclass(cls, ViewModel) else "table"}, '
+                f'but the existing table is a {"view" if isinstance(existing_tbl, pxt.View) else "table"}.',
+            )
+
+    @classmethod
+    def _normalize_binding_root(cls, binding_root: str) -> str:
+        if binding_root.endswith('/'):
+            binding_root = binding_root[:-1]
         _ = catalog.Path.parse(binding_root, allow_empty_path=True)  # validate
         if len(binding_root) > 0:
             binding_root += '/'
+        return binding_root
+
+    def bind(cls, binding_root: str = '') -> pxt.Table:
+        binding_root = cls._normalize_binding_root(binding_root)
 
         tbl = cls._resolve_tbl(binding_root, if_not_exists='error')
 
@@ -575,9 +602,7 @@ class TableModelMetaclass(type):
             return tbl
 
     def create(cls, binding_root: str = '') -> Table:
-        _ = catalog.Path.parse(binding_root, allow_empty_path=True)  # validate
-        if len(binding_root) > 0:
-            binding_root += '/'
+        binding_root = cls._normalize_binding_root(binding_root)
 
         if cls.is_bound:
             return cls._resolve_tbl(binding_root, if_not_exists='error')
@@ -721,7 +746,9 @@ class TableModelMetaclass(type):
             kwargs['idx_name'] = idx_name
             tbl.add_embedding_index(**kwargs)
 
-        return cls.bind(binding_root)
+        Env.get().console_logger.info(f'Created {tbl._path()!r} from {cls.__table_spec__["display_name"]}.')
+
+        return cls.bind(binding_root)  # strip trailing slash
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:

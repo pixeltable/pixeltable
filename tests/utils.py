@@ -874,7 +874,7 @@ def reload_catalog(reload: bool = True) -> None:
 
 
 @contextmanager
-def capture_console_output() -> Iterator[StringIO]:
+def capture_console_output(match: str | None = None) -> Iterator[StringIO]:
     pxt_logger = logging.getLogger('pixeltable')
     try:
         sio = StringIO()
@@ -883,6 +883,11 @@ def capture_console_output() -> Iterator[StringIO]:
         handler.addFilter(ConsoleMessageFilter())
         pxt_logger.addHandler(handler)
         yield sio
+        if match is not None:
+            contents = sio.getvalue()
+            assert re.search(match, contents) is not None, (
+                f'Console output did not match.\nRegex: {match!r}\nActual: {contents}'
+            )
     finally:
         pxt_logger.removeHandler(handler)
         sio.flush()
