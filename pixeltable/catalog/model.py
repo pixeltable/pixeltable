@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, MutableMapping, NamedT
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog.table_path import TableVersionPath
 from pixeltable.env import Env
-from pixeltable.query_clauses import FromClause, SampleClause
+from pixeltable.query_clauses import SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
@@ -174,7 +174,7 @@ class _PlaceholderQuery:
     def __init__(
         self,
         from_clause: type[TableModelMetaclass],
-        select_clause: tuple[list[Any], dict[str, Any]] | None = None,
+        select_clause: tuple[tuple[Any, ...], dict[str, Any]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
         grouping_tbl: type[TableModelMetaclass] | None = None,
@@ -254,7 +254,7 @@ class _PlaceholderQuery:
         return dataclasses.replace(self, sample_clause=sample_clause)
 
     def bind(self, binding_root: str) -> 'pxt.Query':
-        tbl: Table = self.from_clause.bind(binding_root)  # type: ignore[call-arg]
+        tbl: Table = self.from_clause.bind(binding_root)  # type: ignore[arg-type]
         subst_dict: dict[exprs.Expr, exprs.Expr] = {}
         for col_name in tbl.columns():
             placeholder = _PlaceholderColumnRef(col_name, {'type': ts.InvalidType()})  # type: ignore[arg-type]
@@ -278,7 +278,7 @@ class _PlaceholderQuery:
             q = q.group_by(*group_by_clause)
 
         if self.grouping_tbl is not None:
-            grouping_tbl = self.grouping_tbl.bind(binding_root)
+            grouping_tbl = self.grouping_tbl.bind(binding_root)  # type: ignore[arg-type]
             q = q.group_by(grouping_tbl)
 
         if self.order_by_clause is not None:
@@ -289,7 +289,7 @@ class _PlaceholderQuery:
         if self.limit_val is not None:
             limit_val = self.limit_val.substitute(subst_dict)
             offset_val = self.offset_val.substitute(subst_dict) if self.offset_val is not None else None
-            q = q.limit(limit_val, offset=offset_val)
+            q = q.limit(limit_val, offset=offset_val)  # type: ignore[arg-type]
 
         if self.sample_clause is not None:
             q = q.sample(
@@ -562,18 +562,25 @@ class TableModelMetaclass(type):
         new_columns: list[str]
         deleted_columns: list[str]
         altered_columns: list[str]
+        new_indices: list[str]
+        deleted_indices: list[str]
+        altered_indices: list[str]
 
         def has_changes(self) -> bool:
             return len(self.new_columns) > 0 or len(self.deleted_columns) > 0 or len(self.altered_columns) > 0
 
     def validate_model(cls, existing_tbl: Table) -> ValidationResults:
-        if issubclass(cls, ViewModel) != isinstance(existing_tbl, pxt.View):
+        existing_md = existing_tbl.get_metadata()
+        model_kind = 'view' if issubclass(cls, ViewModel) else 'table'
+        if model_kind != existing_md['kind']:
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'Cannot validate model `{cls.__name__}` against table {existing_tbl.path!r}: '
-                f'the model is a {"view" if issubclass(cls, ViewModel) else "table"}, '
-                f'but the existing table is a {"view" if isinstance(existing_tbl, pxt.View) else "table"}.',
+                excs.ErrorCode.SCHEMA_MISMATCH,
+                f'{cls.__table_spec__["display_name"]} is defined as a {model_kind}, '
+                f'but the existing table {existing_md["path"]!r} is a {existing_md["kind"]}.',
             )
+
+        # TODO: inspect columns and indices and populate the ValidationResults accordingly.
+        return cls.ValidationResults([], [], [], [], [], [])
 
     @classmethod
     def _normalize_binding_root(cls, binding_root: str) -> str:

@@ -67,6 +67,7 @@ class ErrorCode(enum.Enum):
     INVALID_CONFIGURATION = 3013, 422, False
     NOT_BOUND = 3014, 400, False
     ALREADY_BOUND = 3015, 400, False
+    SCHEMA_MISMATCH = 3016, 422, False
 
     # AuthorizationError (4xxx)
     INSUFFICIENT_PRIVILEGES = 4000, 403, False

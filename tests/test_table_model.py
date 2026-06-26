@@ -1,6 +1,6 @@
 # ruff: noqa: F821
 
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 import pytest
@@ -438,9 +438,7 @@ class TestTableModel:
                 ExampleTableModel.img,
                 ExampleTableModel.value + 1,
                 plusone=(ExampleTableModel.value + 1),
-            ).where(
-                ExampleTableModel.value > 0.5  # type: ignore[arg-type]
-            ),
+            ).where(ExampleTableModel.value > 0.5),
         ):
             view_col_1: pxt.Image
             view_col_2 = view_col_1.rotate(90)
