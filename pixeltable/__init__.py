@@ -18,6 +18,7 @@ from .catalog import (
     VersionMetadata,
     View,
     ViewModel,
+    bind_all,
     create_all,
 )
 from .exceptions import (

@@ -342,7 +342,7 @@ class _ModelNamespace(dict):
         # Pre-seed __annotations__ so the compiler routes bare annotations through
         # our recorder rather than a plain dict it would otherwise create.
         super().__setitem__('__annotations__', _AnnotationRecorder(self))
-        super().__setitem__('_is_bound', False)
+        super().__setitem__('_binding_root', None)
 
     def __setitem__(self, key: str, value: Any) -> None:
         if not key.startswith('_'):
@@ -410,7 +410,7 @@ class TableModelMetaclass(type):
     __columns__: dict[str, _PlaceholderColumnRef]
     __indexes__: dict[str, EmbeddingIndex]
 
-    _is_bound: bool
+    _binding_root: str | None
 
     @classmethod
     def __prepare__(  # type: ignore[override]
@@ -539,15 +539,54 @@ class TableModelMetaclass(type):
         mcs.registered_models[namespace['__table_spec__']['name']] = cls
         return cls
 
-    def _resolve_tbl(cls) -> Table:
+    def _resolve_tbl(cls, binding_root: str, if_not_exists: Literal['error', 'ignore']) -> Table | None:
         import pixeltable as pxt
 
-        return pxt.get_table(cls.__table_spec__['name'])
+        if cls._binding_root is not None and binding_root != cls._binding_root:
+            raise excs.RequestError(
+                excs.ErrorCode.ALREADY_BOUND,
+                f'Cannot bind `{cls.__name__}` at {binding_root!r}: it is already bound at {cls._binding_root!r}.',
+            )
 
-    def _resolve_column(cls, col_name: str) -> exprs.ColumnRef:
-        return getattr(cls._resolve_tbl(), col_name)
+        bound_path = f'{binding_root}{cls.__table_spec__["name"]}'
+        return pxt.get_table(bound_path, if_not_exists=if_not_exists)
 
-    def create(cls) -> Table:
+    @property
+    def is_bound(cls) -> bool:
+        return cls._binding_root is not None
+
+    def bind(cls, binding_root: str = '') -> pxt.Table:
+        _ = catalog.Path.parse(binding_root, allow_empty_path=True)  # validate
+        if len(binding_root) > 0:
+            binding_root += '/'
+
+        tbl = cls._resolve_tbl(binding_root, if_not_exists='error')
+
+        if cls.is_bound:
+            return tbl
+
+        else:
+            col_refs = {col_name: getattr(tbl, col_name) for col_name in tbl.columns()}
+
+            # Table ops succeeded; now update the class.
+            for col_name, col_ref in col_refs.items():
+                setattr(cls, col_name, col_ref)
+            cls._binding_root = binding_root
+            return tbl
+
+    def create(cls, binding_root: str = '') -> Table:
+        _ = catalog.Path.parse(binding_root, allow_empty_path=True)  # validate
+        if len(binding_root) > 0:
+            binding_root += '/'
+
+        if cls.is_bound:
+            return cls._resolve_tbl(binding_root, if_not_exists='error')
+
+        existing_tbl = cls._resolve_tbl(binding_root, if_not_exists='ignore')
+        if existing_tbl is not None:
+            # TODO: Schema validation / schema merge
+            return cls.bind(binding_root)
+
         table_spec: TableSpec = cls.__table_spec__
         columns: dict[str, _PlaceholderColumnRef] = cls.__columns__
         indexes: dict[str, EmbeddingIndex] = cls.__indexes__
@@ -615,7 +654,8 @@ class TableModelMetaclass(type):
             )
 
         cat = get_runtime().catalog
-        tbl_path = catalog.Path.parse(cls.__table_spec__['name'])
+        bound_path = f'{binding_root}{table_spec["name"]}'
+        tbl_path = catalog.Path.parse(bound_path)
         base_tvp: TableVersionPath | None = None
 
         if issubclass(cls, TableModel):
@@ -681,46 +721,30 @@ class TableModelMetaclass(type):
             kwargs['idx_name'] = idx_name
             tbl.add_embedding_index(**kwargs)
 
-        return cls.bind()
-
-    def bind(cls) -> pxt.Table:
-        if cls.is_bound:
-            return cls._resolve_tbl()
-        else:
-            tbl = cls._resolve_tbl()
-            # TODO: Validation
-            for col_name in tbl.columns():
-                setattr(cls, col_name, getattr(tbl, col_name))
-            cls._is_bound = True
-            return tbl
-
-    @property
-    def is_bound(cls) -> bool:
-        return cls._is_bound
+        return cls.bind(binding_root)
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
-            if cls._is_bound:
-                # This model is bound to a table; forward the method call to the resolved Table instance.
-                return getattr(cls._resolve_tbl(), item)
-            elif hasattr(_PlaceholderQuery, item):
-                # This model is not bound to a table, but the desired operation is accessible as a placeholder query.
+            if not cls.is_bound and hasattr(_PlaceholderQuery, item):
+                # This model is not bound to a table, but the desired operation is accessible via a placeholder query.
                 return getattr(_PlaceholderQuery(cls), item)  # type: ignore[arg-type]
             else:
-                raise AttributeError(
-                    f'{item}(): `{cls.__name__}` is not yet bound to an actual table. You must first call '
-                    f'`{cls.__name__}.bind()`, `{cls.__name__}.create()`, or `pxt.create_all()`.'
-                )
+                try:
+                    return getattr(cls.table, item)
+                except excs.RequestError as exc:
+                    raise AttributeError(f'{item}(): {exc}') from exc
         return super().__getattribute__(item)
 
     @property
     def table(cls) -> Table:
-        """The underlying [`Table`][pixeltable.Table] this model is bound to.
-
-        Use this to access the full table and query API with static type information; e.g.,
-        `MyModel.table.where(...).order_by(...).collect()`.
-        """
-        return cls._resolve_tbl()
+        """The underlying [`Table`][pixeltable.Table] this model is bound to."""
+        if not cls.is_bound:
+            raise excs.RequestError(
+                excs.ErrorCode.NOT_BOUND,
+                f'`{cls.__name__}` is not yet bound to an actual table. You must first call '
+                f'`{cls.__name__}.bind()`, `{cls.__name__}.create()`, `pxt.bind_all()`, or `pxt.create_all()`.',
+            )
+        return cls._resolve_tbl(cls._binding_root, if_not_exists='error')
 
 
 # `name` will be ignored for the base classes, but is required to conform to the TableModelMetaclass signature
@@ -736,6 +760,11 @@ class ViewModel(metaclass=TableModelMetaclass, name=''):
     """
 
 
-def create_all() -> None:
+def bind_all(binding_root: str = '') -> None:
     for model in TableModelMetaclass.registered_models.values():
-        model.create()
+        model.bind(binding_root)
+
+
+def create_all(binding_root: str = '') -> None:
+    for model in TableModelMetaclass.registered_models.values():
+        model.create(binding_root)
