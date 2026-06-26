@@ -68,9 +68,6 @@ class InlineArray(Expr):
     def _equals(self, _: InlineArray) -> bool:
         return True  # Always true if components match
 
-    def _substitute(self, spec: dict[Expr, Expr]) -> InlineArray:
-        return InlineArray(c.substitute(spec) for c in self.components)
-
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
@@ -119,9 +116,6 @@ class InlineList(Expr):
 
     def _equals(self, _: InlineList) -> bool:
         return True  # Always true if components match
-
-    def _substitute(self, spec: dict[Expr, Expr]) -> InlineList:
-        return InlineList(c.substitute(spec) for c in self.components)
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
@@ -175,9 +169,6 @@ class InlineDict(Expr):
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('keys', self.keys)]
-
-    def _substitute(self, spec: dict[Expr, Expr]) -> InlineDict:
-        return InlineDict(dict(zip(self.keys, (c.substitute(spec) for c in self.components))))
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None

@@ -454,7 +454,7 @@ class Planner:
         spec: dict[exprs.Expr, exprs.Expr] = {
             exprs.ColumnRef(col.column_version_md()): e for col, e in update_targets.items()
         }
-        eval_exprs = exprs.Expr.list_substitute(eval_exprs, spec)
+        exprs.Expr.list_substitute(eval_exprs, spec)
         evaluated_cols: list[Column] = list(update_targets.keys()) + eval_cols
         select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
 

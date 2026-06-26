@@ -65,9 +65,6 @@ class StringOp(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('operator', self.operator.value)]
 
-    def _substitute(self, spec: dict[Expr, Expr]) -> StringOp:
-        return StringOp(self.operator, self._op1.substitute(spec), self._op2.substitute(spec))
-
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         left = sql_elements.get(self._op1)
         right = sql_elements.get(self._op2)

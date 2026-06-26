@@ -110,7 +110,7 @@ class ExprTemplateFunction(Function):
                 if param_name not in bound_args
             }
         )
-        substituted_expr = self.template.expr.substitute(
+        substituted_expr = self.template.expr.copy().substitute(
             {self.template.param_exprs[name]: expr for name, expr in with_defaults.items()}
         )
         return substituted_expr.col_type

@@ -63,6 +63,7 @@ for method in FORWARDED_TABLE_METHODS:
 @dataclass(frozen=True)
 class Column:
     """A column specification used in a TableModel or ViewModel definition."""
+
     type: type | None = None
     value: Any = None
     primary_key: bool | None = None
@@ -96,6 +97,7 @@ class Column:
 @dataclass(frozen=True)
 class EmbeddingIndex:
     """An embedding index specification used in a TableModel or ViewModel definition."""
+
     column: Any
     embedding: func.Function | None = None
     string_embed: func.Function | None = None
@@ -109,6 +111,7 @@ class EmbeddingIndex:
 
 class TableSpec(TypedDict):
     """Table specification from a TableModel or ViewModel."""
+
     name: str
     display_name: str
     base: _PlaceholderQuery | None

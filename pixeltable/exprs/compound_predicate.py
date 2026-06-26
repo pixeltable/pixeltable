@@ -68,9 +68,6 @@ class CompoundPredicate(Expr):
         non_matches = [op for op in self.components if not condition(op)]
         return (matches, self.make_conjunction(non_matches))
 
-    def _substitute(self, spec: dict[Expr, Expr]) -> CompoundPredicate:
-        return CompoundPredicate(self.operator, [op.substitute(spec) for op in self.components])
-
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         sql_exprs = [sql_elements.get(op) for op in self.components]
         if any(e is None for e in sql_exprs):

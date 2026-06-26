@@ -78,10 +78,6 @@ class Literal(Expr):
         # Return a sql object so that constants can participate in SQL expressions
         return sql.sql.expression.literal(self.val, type_=self.col_type.to_sa_type())
 
-    def _substitute(self, spec: dict[Expr, Expr]) -> Literal:
-        # Literals have no components, so we don't need to create a copy.
-        return self
-
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this will be called, even though sql_expr() does not return None
         data_row[self.slot_idx] = self.val

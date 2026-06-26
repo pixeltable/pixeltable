@@ -66,9 +66,6 @@ class JsonPath(Expr):
 
     @classmethod
     def __resolve_type(cls, col_type: ts.ColumnType, path_elements: list[str | int | slice]) -> ts.ColumnType:
-        if col_type.is_invalid_type():
-            return col_type
-
         if len(path_elements) == 0:
             # JsonPath expressions always have `nullable=True`, regardless of the schema. This is because
             # schema validation is optional in some runtime contexts, so it's possible to encounter data
@@ -262,10 +259,6 @@ class JsonPath(Expr):
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('path_elements', self.path_elements)]
-
-    def _substitute(self, spec: dict[Expr, Expr]) -> JsonPath:
-        anchor = self.anchor.substitute(spec) if self.anchor is not None else None
-        return JsonPath(anchor, self.path_elements, self.scope_idx)
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         """
