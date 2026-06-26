@@ -398,24 +398,33 @@ class TestIndex:
         t = small_img_tbl_dual
         sample_img = t.select(t.img).head(1)[0, 'img']
 
-        def index_names() -> list[str]:
-            return list(t.get_metadata()['indices'].keys())
-
-        initial_indexes = len(index_names())
+        def emb_idxs() -> dict[str, Any]:
+            return {name: idx for name, idx in t.get_metadata()['indices'].items() if idx['index_type'] == 'embedding'}
 
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
-        names = index_names()
-        assert len(names) == initial_indexes + 1
-        assert names[initial_indexes] == 'clip_idx'
+        assert set(emb_idxs()) == {'clip_idx'}
 
-        # when index name is not provided, the index is created with
-        # a newly generated name. And if_exists parameter does not apply
-        # and will be ignored.
-        t.add_embedding_index('img', embedding=local_embed, if_exists='error')
-        assert len(index_names()) == initial_indexes + 2
+        # when index name is not provided, duplicates are detected by the index definition (embeddings + metric +
+        # precision) on the column. local_embed here has the same definition as the named clip_idx above, so it
+        # is a duplicate
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='identical embedding index'):
+            t.add_embedding_index('img', embedding=local_embed, if_exists='error')
+        assert set(emb_idxs()) == {'clip_idx'}
 
-        t.add_embedding_index('img', embedding=local_embed, if_exists='invalid')  # type: ignore[arg-type]
-        assert len(index_names()) == initial_indexes + 3
+        # if_exists='ignore' makes the duplicate a no-op.
+        t.add_embedding_index('img', embedding=local_embed, if_exists='ignore')
+        assert set(emb_idxs()) == {'clip_idx'}
+
+        # if_exists is now validated on the unnamed path too.
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'if_exists must be one of'):
+            t.add_embedding_index('img', embedding=local_embed, if_exists='invalid')  # type: ignore[arg-type]
+        assert set(emb_idxs()) == {'clip_idx'}
+
+        # an index that differs in metric is not a duplicate
+        t.add_embedding_index('img', embedding=local_embed, metric='ip')
+        # an index using a different embedding (bound via .using()) is not a duplicate
+        t.add_embedding_index('img', embedding=local_embedding.using(dim=256))
+        assert len(emb_idxs()) == 3
 
         # when index name is provided, if_exists parameter is applied.
         # invalid value is rejected.
@@ -424,39 +433,45 @@ class TestIndex:
         assert (
             "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
         )
-        assert len(index_names()) == initial_indexes + 3
+        assert len(emb_idxs()) == 3
 
-        # if_exists='error' raises an error if the index name already exists.
-        # by default, if_exists='error'.
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
-            t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
-            t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, if_exists='error')
-        assert len(index_names()) == initial_indexes + 3
+        # if_exists='error' (the default) raises if the index name already exists, regardless of whether the
+        # definition matches: rejection on the named path is by name, not by definition. Vary the metric so each
+        # attempt has a definition that differs from the existing cosine clip_idx.
+        for metric in ('cosine', 'ip', 'l2'):
+            with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
+                t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, metric=metric)
+            with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
+                t.add_embedding_index(
+                    'img', idx_name='clip_idx', embedding=local_embed, metric=metric, if_exists='error'
+                )
+        assert len(emb_idxs()) == 3
 
         # if_exists='ignore' does nothing if the index name already exists: clip_idx keeps its position.
-        t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, if_exists='ignore')
-        names = index_names()
-        assert len(names) == initial_indexes + 3
-        assert names[initial_indexes] == 'clip_idx'
+        assert 'clip_idx' in emb_idxs() and len(emb_idxs()) == 3
+        assert emb_idxs()['clip_idx']['parameters']['metric'] == 'cosine'
+
+        # if_exists='ignore' on an existing name is a no-op even when the new embedding would fail validation:
+        # the name collision is resolved before the new index is constructed.
+        t.add_embedding_index('img', idx_name='clip_idx', embedding=self.bad_embed, if_exists='ignore')
+        assert 'clip_idx' in emb_idxs() and len(emb_idxs()) == 3
 
         # cannot use if_exists to ignore or replace an existing index
         # that is not an embedding (like, default btree indexes).
-        assert names[0] == 'idx0'
+        btree_name = next(
+            name
+            for name, idx in t.get_metadata()['indices'].items()
+            if idx['index_type'] == 'btree' and idx['columns'] == ['img']
+        )
         for ie in ('ignore', 'replace', 'replace_force'):
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not an embedding index'):
-                t.add_embedding_index('img', idx_name='idx0', embedding=local_embed, if_exists=ie)
-        names = index_names()
-        assert len(names) == initial_indexes + 3
-        assert names[0] == 'idx0'
-        assert names[initial_indexes] == 'clip_idx'
+                t.add_embedding_index('img', idx_name=btree_name, embedding=local_embed, if_exists=ie)
+        assert 'clip_idx' in emb_idxs() and len(emb_idxs()) == 3
 
-        # if_exists='replace' drops and re-adds the index, so clip_idx moves to the end of the index list.
-        t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, if_exists='replace')
-        names = index_names()
-        assert len(names) == initial_indexes + 3
-        assert names[initial_indexes] != 'clip_idx'
-        assert names[initial_indexes + 2] == 'clip_idx'
+        # if_exists='replace' replaces the existing index with the new one (here, with a different metric).
+        t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, metric='l2', if_exists='replace')
+        assert 'clip_idx' in emb_idxs() and len(emb_idxs()) == 3
+        assert emb_idxs()['clip_idx']['parameters']['metric'] == 'l2'
 
         # sanity check: use the replaced index to run a query.
         # use the index hint in similarity function to ensure clip_idx is used.
@@ -466,6 +481,43 @@ class TestIndex:
 
         # sanity check persistence
         reload_tester.run_reload_test()
+
+    def test_unnamed_duplicate_detection(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
+        t = small_img_tbl
+
+        def emb_indexes() -> dict[str, Any]:
+            return {name: idx for name, idx in t.get_metadata()['indices'].items() if idx['index_type'] == 'embedding'}
+
+        t.add_embedding_index('img', embedding=local_embed)
+        assert len(emb_indexes()) == 1
+        orig_name = next(iter(emb_indexes()))
+
+        # same definition with no idx_name -> duplicate, governed by if_exists
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='identical embedding index'):
+            t.add_embedding_index('img', embedding=local_embed)
+        t.add_embedding_index('img', embedding=local_embed, if_exists='ignore')
+        assert set(emb_indexes()) == {orig_name}
+
+        # replace drops the single matching index and recreates it under a fresh name
+        t.add_embedding_index('img', embedding=local_embed, if_exists='replace')
+        assert len(emb_indexes()) == 1 and orig_name not in emb_indexes()
+
+        # a different embedding bound via .using() is not a duplicate. Function == compares only self_path, so this
+        # guards against comparing function identity instead of the serialized definition.
+        t.add_embedding_index('img', embedding=local_embedding.using(dim=256))
+        # a different metric is not a duplicate
+        t.add_embedding_index('img', embedding=local_embed, metric='ip')
+        assert len(emb_indexes()) == 3
+
+        # duplicate detection is per-column: the same embedding on a different column is allowed
+        t.add_embedding_index('category', string_embed=local_embed)
+        assert len(emb_indexes()) == 4
+
+        # duplicate detection still works against indexes reconstructed from stored metadata after a reload
+        reload_catalog()
+        t = pxt.get_table('small_img_tbl')
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='identical embedding index'):
+            t.add_embedding_index('category', string_embed=local_embed)
 
     def test_update_img(
         self,

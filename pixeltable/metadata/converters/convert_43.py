@@ -9,9 +9,9 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 
 @register_converter(version=43)
-def _(engine: sql.engine.Engine) -> None:
+def _(conn: sql.Connection) -> None:
     """Converts ArrayTypes by replacing legacy dtype (which was a pxt Type ID) to numpy dtype."""
-    convert_table_md(engine, substitution_fn=_substitution_fn)
+    convert_table_md(conn, substitution_fn=_substitution_fn)
 
 
 def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | None:
