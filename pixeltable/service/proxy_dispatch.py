@@ -319,8 +319,8 @@ def _run_query_terminal(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
 
 
 def _query_collect(request: ProxyRequest) -> dict:
-    args = proxy_protocol.deserialize(request.args)
-    return _run_query_terminal(args['query'], lambda q: q.collect())
+    payload = proxy_protocol.deserialize(request.args)
+    return _run_query_terminal(payload['query'], lambda q: q._collect(args=payload.get('args')))
 
 
 def _query_head(request: ProxyRequest) -> dict:

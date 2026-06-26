@@ -27,7 +27,6 @@ from pixeltable import catalog, exceptions as excs, exprs, func, type_system as 
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
-from pixeltable.runtime import get_runtime
 from pixeltable.serving import SqlExport
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
@@ -125,11 +124,13 @@ def _check_json_value_servable(val: Any, col_name: str) -> None:
         for v in val:
             _check_json_value_servable(v, col_name)
     elif isinstance(val, _EMBEDDED_OBJECT_TYPES):
+        # Report the base PIL type ('Image'), not the concrete decoder subclass (e.g. PngImageFile), whose
+        # name depends on how the image was decoded.
+        type_name = 'Image' if isinstance(val, PIL.Image.Image) else type(val).__name__
         raise HTTPException(
             status_code=500,
             detail=(
-                f'output column {col_name!r}: JSON value contains an embedded {type(val).__name__}, '
-                'which is not supported.'
+                f'output column {col_name!r}: JSON value contains an embedded {type_name}, which is not supported.'
             ),
         )
 
@@ -1319,10 +1320,7 @@ class FastAPIRouter(fastapi.APIRouter):
         # current columns. Subsequent requests use this materialized query, so adding or
         # dropping columns on the underlying table doesn't silently change the API contract.
         template_query = query.template_query
-        from_clause = template_query._from_clause
-        assert from_clause.is_local
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=from_clause.tvps):
-            effective_select_list = list(template_query._effective_select_list)
+        effective_select_list = list(template_query._effective_select_list)
         template_query = pxt.Query(
             select_list=[(e, n) for e, n in effective_select_list],
             from_clause=template_query._from_clause,
@@ -1424,8 +1422,7 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            with get_runtime().catalog.begin_xact(for_write=False, read_tvps=template_query._from_clause.tvps):
-                result_set = template_query._collect(args=call_kwargs)
+            result_set = template_query._collect(args=call_kwargs)
             rows = list(result_set)
 
             # do error checking now, before converting data

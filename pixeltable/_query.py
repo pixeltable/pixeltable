@@ -16,6 +16,7 @@ from typing import (
     Hashable,
     Iterable,
     Iterator,
+    Literal,
     Mapping,
     NoReturn,
     Sequence,
@@ -874,16 +875,14 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        if not self._from_clause.is_local:
-            return self._collect_proxy()
-        tvps = self._from_clause.tvps
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
-            return self._collect()
+        return self._collect()
 
     def _collect_proxy(self) -> ResultSet:
         return self._exec_proxy('collect')
 
-    def _exec_proxy(self, method: str, **extra: Any) -> ResultSet:
+    _ProxyMethodNames = Literal['collect', 'head', 'tail']
+
+    def _exec_proxy(self, method: _ProxyMethodNames, **extra: Any) -> ResultSet:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
 
         cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
@@ -894,13 +893,16 @@ class Query:
         return ResultSet([Row(data, columns, schema) for data in result['rows']], schema)
 
     def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
-        assert get_runtime().in_xact
-        schema = self.schema
-        if args is None:
-            return ResultSet(list(self.cursor()), schema)
-        columns = {name: i for i, name in enumerate(schema)}
-        rows = [Row(tuple(data), columns, schema) for data in self._output_row_iterator(args=args)]
-        return ResultSet(rows, schema)
+        if not self._from_clause.is_local:
+            return self._exec_proxy('collect', args=args)
+        tvps = self._from_clause.tvps
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
+            schema = self.schema
+            if args is None:
+                return ResultSet(list(self.cursor()), schema)
+            columns = {name: i for i, name in enumerate(schema)}
+            rows = [Row(tuple(data), columns, schema) for data in self._output_row_iterator(args=args)]
+            return ResultSet(rows, schema)
 
     def cursor(self) -> ResultCursor:
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.
@@ -908,7 +910,7 @@ class Query:
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
         if not self._from_clause.is_local:
-            return ProxyResultCursor(self, self._collect_proxy())
+            return ProxyResultCursor(self, self._exec_proxy('collect'))
         return ResultCursor(self)
 
     async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:

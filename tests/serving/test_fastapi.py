@@ -17,8 +17,6 @@ import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
 from tests.utils import get_audio_files, get_image_files, get_video_files, pxt_raises, skip_test_if_not_installed, sleep
 
-pytestmark = pytest.mark.local('pxt serve FastAPI route handlers')
-
 
 @pxt.udf
 def json_embed_ndarray(i: int) -> pxt.Json:
@@ -384,6 +382,7 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     # TODO: fix (proxy): computed media is materialized under the daemon's media/tmp dir, which the
     # router's _allowed_media_dirs does not recognize, so it is not rewritten to a /media/ URL.
+    @pytest.mark.local('TODO: convert; computed media served from the daemon dir (proxy media gap)')
     def test_add_insert_route_video(
         self, uses_db: None, use_uploadfile: bool, route_type: Literal['insert', 'compute']
     ) -> None:
@@ -483,6 +482,7 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     # TODO: fix (proxy): computed media is materialized under the daemon's media/tmp dir, which the
     # router's _allowed_media_dirs does not recognize, so it is not rewritten to a /media/ URL.
+    @pytest.mark.local('TODO: convert; computed media served from the daemon dir (proxy media gap)')
     def test_add_insert_route_image(
         self, uses_db: None, use_uploadfile: bool, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
@@ -629,6 +629,7 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     # TODO: fix (proxy): computed media is materialized under the daemon's media/tmp dir, which the
     # router's _allowed_media_dirs does not recognize, so it is not rewritten to a /media/ URL.
+    @pytest.mark.local('TODO: convert; computed media served from the daemon dir (proxy media gap)')
     def test_add_insert_route_audio(
         self, uses_db: None, use_uploadfile: bool, route_type: Literal['insert', 'compute']
     ) -> None:
@@ -740,6 +741,7 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     # TODO: fix (proxy): computed media is materialized under the daemon's media/tmp dir, which the
     # router's _allowed_media_dirs does not recognize, so it is not rewritten to a /media/ URL.
+    @pytest.mark.local('TODO: convert; computed media served from the daemon dir (proxy media gap)')
     def test_add_insert_route_video_bg(
         self, uses_db: None, use_uploadfile: bool, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
@@ -944,13 +946,14 @@ class TestFastAPI:
         p0 = media_op['parameters'][0]
         assert p0['name'] == 'path' and p0['in'] == 'path'
 
-    def test_add_query_route_scalars(self, uses_db: None) -> None:
+    def test_add_query_route_scalars(self, make_catalog_path: Callable[[str], str]) -> None:
         """Multi-column scalar query route, plus retrieval_udf flavor and registration errors."""
+        p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        pxt.create_dir('test_serve')
-        t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String})
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int, 'text': pxt.String})
         t.add_computed_column(length=t.text.len())
         rows = [{'id': i, 'text': 'x' * i} for i in range(1, 6)]
         t.insert(rows)
@@ -1031,14 +1034,15 @@ class TestFastAPI:
         assert default_schema['properties']['min_len']['default'] == 3
         assert 'min_len' not in default_schema.get('required', [])
 
-    def test_add_query_route_single_column(self, uses_db: None) -> None:
+    def test_add_query_route_single_column(self, make_catalog_path: Callable[[str], str]) -> None:
         """Single-column queries: return_scalar=False produces dict-per-row in a wrapper,
         return_scalar=True produces a plain list of scalar values."""
+        p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        pxt.create_dir('test_serve')
-        t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String})
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int, 'text': pxt.String})
         t.insert([{'id': i, 'text': f't{i}'} for i in range(3)])
 
         @pxt.query
@@ -1064,14 +1068,15 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.json() == ['t0', 't1', 't2']
 
-    def test_add_query_route_one_row(self, uses_db: None) -> None:
+    def test_add_query_route_one_row(self, make_catalog_path: Callable[[str], str]) -> None:
         """one_row=True returns a flat JSON object (or bare scalar with return_scalar=True).
         0 rows -> 404; >1 rows -> 409."""
+        p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        pxt.create_dir('test_serve')
-        t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String})
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int, 'text': pxt.String})
         # id=0 appears twice on purpose, to exercise the >1-row branch
         t.insert([{'id': 0, 'text': 'dup-a'}, {'id': 0, 'text': 'dup-b'}, {'id': 1, 'text': 't1'}])
 
@@ -1125,6 +1130,7 @@ class TestFastAPI:
         assert scalar_schema.get('type') != 'array'
         assert 'rows' not in str(scalar_schema)
 
+    @pytest.mark.local('TODO: convert; query returns computed media served from the daemon dir (proxy media gap)')
     def test_add_query_route_image(self, uses_db: None) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
         skip_test_if_not_installed('fastapi')
@@ -1194,6 +1200,7 @@ class TestFastAPI:
         assert len(result['rows']) == 1
         assert '/media/' in result['rows'][0]['resized']
 
+    @pytest.mark.local('TODO: convert; query returns computed media served from the daemon dir (proxy media gap)')
     def test_add_query_route_image_transform(self, uses_db: None) -> None:
         """Inline image transformations (non-ColumnRef expressions) in the SELECT list.
 
@@ -1235,13 +1242,14 @@ class TestFastAPI:
         assert resp.headers['content-type'].startswith('image/')
         assert len(resp.content) > 0
 
-    def test_duplicate_routes(self, uses_db: None) -> None:
+    def test_duplicate_routes(self, make_catalog_path: Callable[[str], str]) -> None:
         """Registering the same (path, method) twice must raise rather than silently shadow."""
+        p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        pxt.create_dir('test_serve')
-        t = pxt.create_table('test_serve.dup', {'id': pxt.Required[pxt.Int], 'val': pxt.Int}, primary_key='id')
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(p('test_serve.dup'), {'id': pxt.Required[pxt.Int], 'val': pxt.Int}, primary_key='id')
 
         @pxt.query
         def lookup() -> pxt.Query:
@@ -1286,12 +1294,13 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/v1/c'"):
             router.add_insert_route(t, path='/c')
 
-    def test_add_query_route_errors(self, uses_db: None) -> None:
+    def test_add_query_route_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        pxt.create_dir('test_serve')
-        t = pxt.create_table('test_serve.docs', {'id': pxt.Int, 'text': pxt.String, 'image': pxt.Image})
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int, 'text': pxt.String, 'image': pxt.Image})
         t.insert([{'id': 1, 'text': 'a'}])
 
         @pxt.query
@@ -1332,17 +1341,15 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 
-    # TODO: fix (proxy): the compute route round-trips the embedded PIL image through the proxy, so its
-    # runtime type comes back as the concrete subclass (PngImageFile) and the error message says
-    # 'embedded PngImageFile' rather than the base 'embedded Image' the test expects.
-    def test_unservable_output_cols(self, uses_db: None) -> None:
+    def test_unservable_output_cols(self, make_catalog_path: Callable[[str], str]) -> None:
         """Routes reject Array/Binary output cols at registration; JSON with embedded objects is rejected per row."""
+        p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        pxt.create_dir('test_serve')
+        pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            'test_serve.unservable',
+            p('test_serve.unservable'),
             {
                 'id': pxt.Required[pxt.Int],
                 'val': pxt.Int,
