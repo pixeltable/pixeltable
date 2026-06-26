@@ -452,31 +452,27 @@ class Table(SchemaObject):
                 `Video`, `Document`, or `Array` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
                 automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
-            embedding: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`,
-                `Image`, `Audio`, `Video`, or `Document` (as appropriate for the column being indexed).
-                and returns a fixed-size 1-dimensional array of floats. If the UDF has multiple signatures that accept
-                different modalities, then a multimodal index will be created.
-            string_embed: An optional UDF to use for the string embedding component of this index. If specified
-                together with `embedding`, then `string_embed` supersedes the `String` signature of `embedding`.
-            image_embed: An optional UDF to use for the image embedding component of this index. If specified
-                together with `embedding`, then `image_embed` supersedes the `Image` signature of `embedding`.
-            audio_embed: An optional UDF to use for the audio embedding component of this index. If specified
-                together with `embedding`, then `audio_embed` supersedes the `Audio` signature of `embedding`.
-            video_embed: An optional UDF to use for the video embedding component of this index. If specified
-                together with `embedding`, then `video_embed` supersedes the `Video` signature of `embedding`.
-            document_embed: An optional UDF to use for the document embedding component of this index. If specified
-                together with `embedding`, then `document_embed` supersedes the `Document` signature of `embedding`.
+                When `idx_name` is omitted, duplicates are detected by the index definition (the embedding
+                function(s), `metric`, and `precision`) on the column: re-adding an index with an identical
+                definition is governed by `if_exists`.
+            string_embed: An optional UDF to use for the string embedding component of this index.
+            image_embed: An optional UDF to use for the image embedding component of this index.
+            audio_embed: An optional UDF to use for the audio embedding component of this index.
+            video_embed: An optional UDF to use for the video embedding component of this index.
+            document_embed: An optional UDF to use for the document embedding component of this index.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`.
                 The default is `'cosine'`.
             precision: level of precision for the embeddings; one of `'fp16'` or `'fp32'`.
-            if_exists: Directive for handling an existing index with the same name. Must be one of the following:
+            if_exists: Directive for handling an existing index. The existing index is the one with the same name
+                (if `idx_name` is given), or one with an identical definition on the same column (if `idx_name` is
+                omitted). Must be one of the following:
 
-                - `'error'`: raise an error if an index with the same name already exists.
-                - `'ignore'`: do nothing if an index with the same name already exists.
+                - `'error'`: raise an error if such an index already exists.
+                - `'ignore'`: do nothing if such an index already exists.
                 - `'replace'` or `'replace_force'`: replace the existing index with the new one.
 
         Raises:
-            Error: If an index with the specified name already exists for the table and `if_exists='error'`, or if
+            Error: If a matching index already exists for the table and `if_exists='error'`, or if
                 the specified column does not exist.
 
         Examples:

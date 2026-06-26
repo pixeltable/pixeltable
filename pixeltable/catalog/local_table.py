@@ -51,6 +51,8 @@ if TYPE_CHECKING:
     import pixeltable.plan
     from pixeltable.globals import TableDataSource
 
+    from .table_version import TableVersion
+
 
 _logger = logging.getLogger(__name__)
 
@@ -789,31 +791,32 @@ class LocalTable(Table):
             self.__check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
 
-            if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
-                if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
-                # An index with the same name already exists.
-                # Handle it according to if_exists.
-                if if_exists_ == IfExistsParam.ERROR:
-                    raise excs.AlreadyExistsError(
-                        excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}'
-                    )
-                if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Index {idx_name!r} is not an embedding index. Cannot {if_exists_.name.lower()} it.',
-                    )
-                if if_exists_ == IfExistsParam.IGNORE:
-                    return
-                assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
-                self.drop_index(idx_name=idx_name)
-                assert idx_name not in self._tbl_version.get().idxs_by_name
-            from pixeltable.index import EmbeddingIndex
-
             # idx_name must be a valid pixeltable column name
             if idx_name is not None:
                 Column.validate_name(idx_name)
+                # Named index: duplicate detection is by name. Handle a name collision before constructing the new
+                # index, so that if_exists='ignore' remains a true no-op and never surfaces validation errors.
+                if idx_name in self._tbl_version.get().idxs_by_name:
+                    if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
+                    # An index with the same name already exists. Handle it according to if_exists.
+                    if if_exists_ == IfExistsParam.ERROR:
+                        raise excs.AlreadyExistsError(
+                            excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}'
+                        )
+                    if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
+                            f'Index {idx_name!r} is not an embedding index. Cannot {if_exists_.name.lower()} it.',
+                        )
+                    if if_exists_ == IfExistsParam.IGNORE:
+                        return
+                    assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
+                    self.drop_index(idx_name=idx_name)
+                    assert idx_name not in self._tbl_version.get().idxs_by_name
 
-            # validate EmbeddingIndex args
+            from pixeltable.index import EmbeddingIndex
+
+            # validate EmbeddingIndex args; the resulting index is also used for duplicate detection
             idx = EmbeddingIndex(
                 metric=metric,
                 precision=precision,
@@ -826,9 +829,38 @@ class LocalTable(Table):
                 column=col,  # Pass column for shape validation
             )
             _ = idx.create_value_expr(col)  # validation only; result discarded
+
+            if idx_name is None:
+                # Unnamed index: duplicate detection is by index definition on this column.
+                matches = self._find_matching_embedding_idxs(col, idx)
+                if len(matches) > 0:
+                    if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
+                    if if_exists_ == IfExistsParam.ERROR:
+                        raise excs.AlreadyExistsError(
+                            excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                            f'An identical embedding index already exists on column {col.name!r} '
+                            f'(index {matches[0].name!r}). Pass a distinct idx_name, '
+                            f"or if_exists='ignore' / 'replace'.",
+                        )
+                    if if_exists_ == IfExistsParam.IGNORE:
+                        return
+                    assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
+                    for info in matches:
+                        self.drop_index(idx_name=info.name)
+
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?
             FileCache.get().emit_eviction_warnings()
+
+    def _find_matching_embedding_idxs(self, col: Column, idx: index.EmbeddingIndex) -> list[TableVersion.IndexInfo]:
+        """Return existing embedding indices on col that are defined identically to idx."""
+        # the serialized dict contains everything we care about
+        target = idx.as_dict()
+        return [
+            info
+            for info in self._tbl_version.get().idxs_by_col.get(col.qid, [])
+            if isinstance(info.idx, index.EmbeddingIndex) and info.idx.as_dict() == target
+        ]
 
     def drop_embedding_index(
         self,

@@ -89,7 +89,8 @@ class TestMigration:
             # perform a manual database "migration" to alter these specific UDF names before proceeding with the
             # main part of the migration test.
             with orm.Session(env.engine) as session:
-                convert_table_md(env.engine, substitution_fn=self.__substitute_md)
+                convert_table_md(session.connection(), substitution_fn=self.__substitute_md)
+                session.commit()
 
             # make sure we run the env db setup
             Env._init_env()
@@ -105,7 +106,8 @@ class TestMigration:
             # `test_udf_stored_batched` in the DB artifact metadata with a non-pickled variant.
             # TODO: Remove this workaround once we implement a better solution for dealing with legacy pickled UDFs.
             with orm.Session(env.engine) as session:
-                convert_table_schema_version_md(env.engine, schema_column_updater=self.__replace_pickled_udfs)
+                convert_table_schema_version_md(session.connection(), schema_column_updater=self.__replace_pickled_udfs)
+                session.commit()
 
             try:
                 reload_catalog()

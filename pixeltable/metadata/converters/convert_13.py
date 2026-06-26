@@ -10,15 +10,14 @@ _logger = logging.getLogger(__name__)
 
 
 @register_converter(version=13)
-def _(engine: sql.engine.Engine) -> None:
-    with engine.begin() as conn:
-        for row in conn.execute(sql.select(Table.id, Table.md)):
-            id = row[0]
-            md = row[1]
-            updated_md = __update_md(md)
-            if updated_md != md:
-                _logger.info(f'Updating schema for table: {id}')
-                conn.execute(sql.update(Table).where(Table.id == id).values(md=updated_md))
+def _(conn: sql.Connection) -> None:
+    for row in conn.execute(sql.select(Table.id, Table.md)):
+        id = row[0]
+        md = row[1]
+        updated_md = __update_md(md)
+        if updated_md != md:
+            _logger.info(f'Updating schema for table: {id}')
+            conn.execute(sql.update(Table).where(Table.id == id).values(md=updated_md))
 
 
 # Traverse the schema dictionary and replace instances of `ExplicitBatchedFunction` with
