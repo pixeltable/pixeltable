@@ -8,7 +8,6 @@ new method is "register a handler + make sure its arg/return types serialize" --
 
 from __future__ import annotations
 
-import base64
 import dataclasses
 import datetime
 import io
@@ -18,7 +17,7 @@ from uuid import UUID
 
 import numpy as np
 import PIL.Image
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
 
 from pixeltable import exprs, func, type_system as ts
 from pixeltable.catalog.dir import Dir
@@ -47,6 +46,9 @@ class ProxyRequest(BaseModel):
     args: dict[str, Any]  # method kwargs, type-driven-serialized
     request_id: str | None = None  # set for mutating methods (idempotency); unused for now
 
+    # raw binary parts referenced by 'blob' tags in args; carried by the framing layer, not in the JSON
+    _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
+
 
 class ProxyResponse(BaseModel):
     result: Any = None  # type-driven-serialized return value
@@ -54,9 +56,21 @@ class ProxyResponse(BaseModel):
     current_md: Any = None  # serialized TableMdPath (list[TableVersionMd]); set for path-bearing methods
     is_stale_md: bool = False  # True if the request's snapshot_path_key was behind the current schema version
 
+    # raw binary parts referenced by 'blob' tags in result/current_md; carried by the framing layer, not the JSON
+    _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
 
-def serialize(obj: Any) -> Any:
-    """Encode a Python value to a JSON-able form, tagging Pixeltable objects so deserialize() can rebuild them."""
+
+def _add_part(binary_parts: list[bytes], data: bytes) -> int:
+    """Append a binary part and return its index, referenced by a 'blob' tag in the JSON."""
+    binary_parts.append(data)
+    return len(binary_parts) - 1
+
+
+def serialize(obj: Any, binary_parts: list[bytes]) -> Any:
+    """Encode a Python value to a json-serializable dict that can be deserialized by deserialize().
+
+    Binary values are appended to binary_parts as raw bytes and referenced inside the dict by index.
+    """
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
     if isinstance(obj, IfExistsParam):
@@ -89,14 +103,16 @@ def serialize(obj: Any) -> Any:
             _TAG: 'DirEntry',
             'v': {
                 'is_dir': obj.dir is not None,
-                'table': None if obj.table is None else {'id': serialize(obj.table.id), 'md': obj.table.md},
-                'dir_entries': {name: serialize(child) for name, child in obj.dir_entries.items()},
+                'table': None
+                if obj.table is None
+                else {'id': serialize(obj.table.id, binary_parts), 'md': obj.table.md},
+                'dir_entries': {name: serialize(child, binary_parts) for name, child in obj.dir_entries.items()},
                 'table_error_count': obj.table_error_count,
             },
         }
     if isinstance(obj, UpdateStatus):
         d = dataclasses.asdict(obj)
-        d['rows'] = serialize(obj.rows)  # returned rows may hold non-JSON scalars (timestamps, etc.)
+        d['rows'] = serialize(obj.rows, binary_parts)  # returned rows may hold non-JSON scalars (timestamps, etc.)
         return {_TAG: 'UpdateStatus', 'v': d}
     if isinstance(obj, Dir):
         # a Dir is an identity-only handle; only its id crosses the wire
@@ -112,50 +128,50 @@ def serialize(obj: Any) -> Any:
         return str(obj)  # filesystem paths travel as strings
     if isinstance(obj, bytes):
         # a Binary cell, or an array column's stored byte form as returned by compute()
-        return {_TAG: 'bytes', 'v': base64.b64encode(obj).decode('ascii')}
+        return {_TAG: 'bytes', 'v': _add_part(binary_parts, obj)}
     if isinstance(obj, np.ndarray):
         buf = io.BytesIO()
-        np.save(buf, obj, allow_pickle=False)  # .npy carries dtype + shape for a faithful round-trip
-        return {_TAG: 'ndarray', 'v': base64.b64encode(buf.getvalue()).decode('ascii')}
+        np.save(buf, obj, allow_pickle=False)  # .npy carries dtype and shape
+        return {_TAG: 'ndarray', 'v': _add_part(binary_parts, buf.getvalue())}
     if isinstance(obj, PIL.Image.Image):
-        # an in-memory image (e.g. an unstored computed image column); file-backed media travels as a path
+        # an in-memory image; file-backed media travels as a path
         buf = io.BytesIO()
         fmt = obj.format or 'PNG'
         obj.save(buf, format=fmt)
-        return {_TAG: 'image', 'format': fmt, 'v': base64.b64encode(buf.getvalue()).decode('ascii')}
+        return {_TAG: 'image', 'format': fmt, 'v': _add_part(binary_parts, buf.getvalue())}
     if isinstance(obj, list):
-        return [serialize(x) for x in obj]
+        return [serialize(x, binary_parts) for x in obj]
     if isinstance(obj, tuple):
-        return {_TAG: 'tuple', 'v': [serialize(x) for x in obj]}
+        return {_TAG: 'tuple', 'v': [serialize(x, binary_parts) for x in obj]}
     if isinstance(obj, dict):
         if _TAG in obj:
             # a user dict whose own key collides with the reserved tag: store it as ordered key/value pairs so
             # the tag no longer sits at the top level and the dict round-trips
-            return {_TAG: 'rawdict', 'v': [[k, serialize(val)] for k, val in obj.items()]}
-        return {k: serialize(v) for k, v in obj.items()}
+            return {_TAG: 'rawdict', 'v': [[k, serialize(val, binary_parts)] for k, val in obj.items()]}
+        return {k: serialize(v, binary_parts) for k, v in obj.items()}
     raise AssertionError(f'cannot serialize {type(obj).__name__} for the proxy protocol')
 
 
-def deserialize(obj: Any) -> Any:
+def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
     """Inverse of serialize()."""
     if isinstance(obj, list):
-        return [deserialize(x) for x in obj]
+        return [deserialize(x, binary_parts) for x in obj]
     if isinstance(obj, dict):
         tag = obj.get(_TAG)
         if tag is None:
-            return {k: deserialize(v) for k, v in obj.items()}
+            return {k: deserialize(v, binary_parts) for k, v in obj.items()}
         v = obj['v']
         if tag == 'rawdict':
             # a user dict whose own key collided with the reserved tag; stored as ordered key/value pairs
-            return {k: deserialize(val) for k, val in v}
+            return {k: deserialize(val, binary_parts) for k, val in v}
         if tag == 'tuple':
-            return tuple(deserialize(x) for x in v)
+            return tuple(deserialize(x, binary_parts) for x in v)
         if tag == 'bytes':
-            return base64.b64decode(v)
+            return binary_parts[v]
         if tag == 'ndarray':
-            return np.load(io.BytesIO(base64.b64decode(v)), allow_pickle=False)
+            return np.load(io.BytesIO(binary_parts[v]), allow_pickle=False)
         if tag == 'image':
-            img = PIL.Image.open(io.BytesIO(base64.b64decode(v)))
+            img = PIL.Image.open(io.BytesIO(binary_parts[v]))
             img.load()  # read pixels now so the result doesn't depend on the transient buffer
             return img
         if tag == 'IfExistsParam':
@@ -184,13 +200,15 @@ def deserialize(obj: Any) -> Any:
             table = v['table']
             return DirEntry(
                 dir=schema.Dir(md={}) if v['is_dir'] else None,
-                dir_entries={name: deserialize(child) for name, child in v['dir_entries'].items()},
-                table=None if table is None else schema.Table(id=deserialize(table['id']), md=table['md']),
+                dir_entries={name: deserialize(child, binary_parts) for name, child in v['dir_entries'].items()},
+                table=None
+                if table is None
+                else schema.Table(id=deserialize(table['id'], binary_parts), md=table['md']),
                 table_error_count=v['table_error_count'],
             )
         if tag == 'UpdateStatus':
             d = dict(v)
-            d['rows'] = deserialize(d['rows'])
+            d['rows'] = deserialize(d['rows'], binary_parts)
             for field in ('row_count_stats', 'cascade_row_count_stats', 'ext_row_count_stats'):
                 d[field] = RowCountStats(**d[field])
             return UpdateStatus(**d)

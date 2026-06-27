@@ -14,7 +14,7 @@ import httpx
 
 from pixeltable import exceptions as excs
 
-from . import proxy_dispatch, proxy_protocol
+from . import framing, proxy_dispatch, proxy_protocol
 from .proxy_protocol import ProxyRequest, ProxyResponse
 
 if TYPE_CHECKING:
@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 
 class ProxyClient(abc.ABC):
     @abc.abstractmethod
-    def _send(self, request_json: str) -> str:
-        """Transport: send the request JSON to the server and return the response JSON."""
+    def _send(self, request_json: str, binary_parts: list[bytes]) -> tuple[str, list[bytes]]:
+        """Transport: send the request (json head + binary parts), return the response (head + parts)."""
 
     def send(
         self,
@@ -36,21 +36,25 @@ class ProxyClient(abc.ABC):
         snapshot_key: TablePathKey | None = None,
     ) -> ProxyResponse:
         """Run class_name.method(**args) on the server and return the raw response."""
+        binary_parts: list[bytes] = []
         request = ProxyRequest(
             class_name=class_name,
             method=method,
-            args=proxy_protocol.serialize(args),
+            args=proxy_protocol.serialize(args, binary_parts),
             path_key=None if path_key is None else path_key.as_dict(),
             snapshot_path_key=None if snapshot_key is None else snapshot_key.as_dict(),
         )
-        return ProxyResponse.model_validate_json(self._send(request.model_dump_json()))
+        response_json, response_parts = self._send(request.model_dump_json(), binary_parts)
+        response = ProxyResponse.model_validate_json(response_json)
+        response._binary_parts = response_parts
+        return response
 
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
         response = self.send(class_name, method, args)
         if response.error is not None:
             raise excs.Error.from_dict(response.error)
-        return proxy_protocol.deserialize(response.result)
+        return proxy_protocol.deserialize(response.result, response._binary_parts)
 
     def dispatch_table_method(
         self,
@@ -66,19 +70,19 @@ class ProxyClient(abc.ABC):
             snapshot_key = get_snapshot_key()
             response = self.send('Table', method, args, path_key=path_key, snapshot_key=snapshot_key)
             if response.current_md is not None:
-                refresh(proxy_protocol.deserialize(response.current_md))
+                refresh(proxy_protocol.deserialize(response.current_md, response._binary_parts))
             if response.error is not None:
                 raise excs.Error.from_dict(response.error)
             if response.is_stale_md:
                 continue  # server withheld a stale mutation; retry against the refreshed schema
-            return proxy_protocol.deserialize(response.result)
+            return proxy_protocol.deserialize(response.result, response._binary_parts)
 
 
 class InProcessProxyClient(ProxyClient):
     """In-process transport"""
 
-    def _send(self, request_json: str) -> str:
-        return proxy_dispatch.handle(request_json)
+    def _send(self, request_json: str, parts: list[bytes]) -> tuple[str, list[bytes]]:
+        return proxy_dispatch.handle(request_json, parts)
 
 
 class ProxyHttpClient(ProxyClient):
@@ -91,7 +95,9 @@ class ProxyHttpClient(ProxyClient):
         self._endpoint = endpoint
         self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
 
-    def _send(self, request_json: str) -> str:
-        response = self._http.post('/rpc', content=request_json, headers={'Content-Type': 'application/json'})
+    def _send(self, request_json: str, parts: list[bytes]) -> tuple[str, list[bytes]]:
+        body = framing.encode_body(request_json.encode(), parts)
+        response = self._http.post('/rpc', content=body, headers={'Content-Type': 'application/octet-stream'})
         response.raise_for_status()
-        return response.text
+        head, response_parts = framing.decode_body(response.content)
+        return head.decode(), response_parts

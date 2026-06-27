@@ -34,7 +34,7 @@ from pixeltable.env import Env
 from pixeltable.metadata.schema import base_metadata
 from pixeltable.runtime import get_runtime, reset_runtime
 
-from . import proxy_dispatch
+from . import framing, proxy_dispatch
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -322,10 +322,14 @@ def _build_app() -> 'FastAPI':
 
     @app.post('/rpc')
     async def rpc(request: Request) -> Response:
-        body = (await request.body()).decode()
+        request_json, request_parts = framing.decode_body(await request.body())
         # dispatch is synchronous and touches the database; keep it off the event loop
-        response_json = await run_in_threadpool(proxy_dispatch.handle, body)
-        return Response(content=response_json, media_type='application/json')
+        response_json, response_parts = await run_in_threadpool(
+            proxy_dispatch.handle, request_json.decode(), request_parts
+        )
+        return Response(
+            content=framing.encode_body(response_json.encode(), response_parts), media_type='application/octet-stream'
+        )
 
     @app.post('/reset')
     async def reset_endpoint() -> Response:

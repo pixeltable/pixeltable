@@ -212,8 +212,53 @@ class TestCatalog:
 
         f = pxt_str.contains
         assert isinstance(f, func.Function)
-        round_tripped = proxy_protocol.deserialize(proxy_protocol.serialize(f))
+        parts: list[bytes] = []
+        round_tripped = proxy_protocol.deserialize(proxy_protocol.serialize(f, parts), parts)
         assert round_tripped.self_path == f.self_path
+
+    def test_proxy_protocol_binary_parts(self) -> None:
+        # Binary values travel out-of-band as raw parts (no base64 in the JSON head), referenced by index.
+        import base64
+        import json
+
+        import numpy as np
+        import PIL.Image
+
+        from pixeltable.service import proxy_protocol
+
+        img = PIL.Image.new('RGB', (4, 4), color=(10, 20, 30))
+        arr = np.arange(6, dtype=np.float32).reshape(2, 3)
+        raw = bytes(range(256))
+        value = {'blob': raw, 'arr': arr, 'nested': [img], 'scalar': 7}
+
+        parts: list[bytes] = []
+        head = proxy_protocol.serialize(value, parts)
+        # three binary values -> three raw parts; the JSON head carries only their indices
+        assert len(parts) == 3
+        assert all(isinstance(p, bytes) for p in parts)
+        assert base64.b64encode(raw).decode() not in json.dumps(head)  # bytes are not inlined as base64
+
+        out = proxy_protocol.deserialize(head, parts)
+        assert out['blob'] == raw
+        assert np.array_equal(out['arr'], arr)
+        assert out['scalar'] == 7
+        assert out['nested'][0].tobytes() == img.tobytes()
+
+    def test_framing_roundtrip(self) -> None:
+        from pixeltable.service import framing
+
+        # a part whose bytes look like the framing structure (length prefixes) must survive intact
+        tricky = framing.encode(b'\x00\x00\x00\x05hello', [b'\xff\xff\xff\xff', b''])
+        cases: list[tuple[bytes, list[bytes]]] = [
+            (b'{}', []),
+            (b'head', [b'one']),
+            (b'\x00binary\x00head', [b'', b'a' * 10_000, tricky]),
+        ]
+        assert all(framing.decode(framing.encode(head, parts)) == (head, parts) for head, parts in cases)
+
+        # a truncated body is rejected rather than silently mis-parsed
+        with pytest.raises(ValueError, match='truncated'):
+            framing.decode(framing.encode(b'head', [b'abc'])[:-1])
 
     def test_json_reserved_key(self, make_catalog_path: Callable[[str], str]) -> None:
         # JSON cell values are user data and may contain a key that collides with the proxy protocol's reserved
