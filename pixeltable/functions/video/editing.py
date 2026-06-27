@@ -76,6 +76,11 @@ class make_video(pxt.Aggregator):
             self.container.mux(packet)
 
     def value(self) -> pxt.Video:
+        if self.container is None or self.stream is None:
+            # update() was only ever called with null frames (or not at all), so there is nothing to assemble
+            raise pxt.RequestError(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, 'make_video(): no frames to assemble into a video'
+            )
         for packet in self.stream.encode():
             self.container.mux(packet)
         self.container.close()
@@ -85,7 +90,7 @@ class make_video(pxt.Aggregator):
 @pxt.udf(is_method=True)
 def extract_audio(
     video_path: pxt.Video, stream_idx: int = 0, format: str = 'wav', codec: str | None = None
-) -> pxt.Audio:
+) -> pxt.Audio | None:
     """
     Extract an audio stream from a video.
 
@@ -95,7 +100,7 @@ def extract_audio(
         codec: The codec to use for the audio stream. If not provided, a default codec will be used.
 
     Returns:
-        The extracted audio.
+        The extracted audio, or None if the video has no audio stream at `stream_idx`.
 
     Examples:
         Add a computed column to a table `tbl` that extracts audio from an existing column `video_col`:
@@ -466,6 +471,15 @@ def segment_video(
 
                 _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
                 segment_duration = av_utils.get_video_duration(segment_path)
+                if segment_duration is None:
+                    # a generated segment whose duration we cannot read
+                    Path(segment_path).unlink()
+                    for p in output_paths:
+                        Path(p).unlink()
+                    raise pxt.RequestError(
+                        pxt.ErrorCode.INVALID_DATA_FORMAT,
+                        f'segment_video(): could not determine duration of a generated segment from {video!r}',
+                    )
                 if segment_duration == 0.0:
                     # we're done
                     Path(segment_path).unlink()
@@ -494,7 +508,12 @@ def _paths_to_segments(video: str, paths: list[str]) -> list[VideoSegment]:
     start_time = 0.0
     start_pts = 0
     for path in paths:
-        duration = av_utils.get_video_duration(path) or 0.0
+        duration = av_utils.get_video_duration(path)
+        if duration is None:
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_DATA_FORMAT,
+                f'segment_video(): could not determine duration of generated segment {path!r}',
+            )
         segment_end = start_time + duration
         segment_end_pts = start_pts + round(duration / video_time_base)
         segment: VideoSegment = {
@@ -742,11 +761,11 @@ def with_audio(
     Env.get().require_binary('ffmpeg')
     if video_start_time < 0:
         raise pxt.RequestError(
-            pxt.ErrorCode.INVALID_ARGUMENT, f'video_offset must be non-negative, got {video_start_time}'
+            pxt.ErrorCode.INVALID_ARGUMENT, f'video_start_time must be non-negative, got {video_start_time}'
         )
     if audio_start_time < 0:
         raise pxt.RequestError(
-            pxt.ErrorCode.INVALID_ARGUMENT, f'audio_offset must be non-negative, got {audio_start_time}'
+            pxt.ErrorCode.INVALID_ARGUMENT, f'audio_start_time must be non-negative, got {audio_start_time}'
         )
     if video_duration is not None and video_duration <= 0:
         raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'video_duration must be positive, got {video_duration}')

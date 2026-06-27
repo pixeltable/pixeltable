@@ -485,6 +485,10 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[Sce
     from scenedetect import FrameTimecode  # type: ignore[import-untyped]
 
     with av_utils.VideoFrames(Path(video), fps=fps) as frame_iter:
+        if frame_iter.video_framerate is None or frame_iter.video_framerate == 0:
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect: could not determine video frame rate of {video!s}'
+            )
         video_fps = float(frame_iter.video_framerate)
 
         scenes: list[SceneInfo] = []

@@ -1329,9 +1329,9 @@ class TestVideo:
         assert all(math.isclose(5.0, row['duration'], abs_tol=0.25) for row in result)
 
         # error conditions
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='video_offset must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='video_start_time must be non-negative'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, video_start_time=-1.0))
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='audio_offset must be non-negative'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='audio_start_time must be non-negative'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_start_time=-1.0))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='video_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, video_duration=0.0))

@@ -308,7 +308,7 @@ class LegacyFrame(TypedDict):
 @pxt.iterator(unstored_cols=['frame'])
 class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
     # A retrofitted implementation of the legacy frame iterator interface, with output schema `frame_idx`, `pos_msec`,
-    # and `pos_frame` (instead of `frame_attrs`). It wraps the new `frame_iterator` and dervies the legacy outputs from
+    # and `pos_frame` (instead of `frame_attrs`). It wraps the new `frame_iterator` and derives the legacy outputs from
     # `frame_attrs`.
     underlying: pxt.PxtIterator[Frame]
 
@@ -419,7 +419,8 @@ def video_splitter(
         assert overlap is None or overlap < duration
 
     video_path = Path(video)
-    assert video_path.exists() and video_path.is_file()
+    if not (video_path.exists() and video_path.is_file()):
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_DATA_FORMAT, f'video_splitter(): not a valid video file: {video}')
 
     overlap = overlap or 0.0
     min_segment_duration = min_segment_duration or 0.0
@@ -444,7 +445,7 @@ def video_splitter(
             end_ts = (
                 float(end_pts * video_stream.time_base)
                 if end_pts is not None and video_stream.time_base is not None
-                else 0.0
+                else None
             )
             yield {
                 'segment_start': start_ts,
@@ -475,6 +476,12 @@ def video_splitter(
 
                 # use the actual duration
                 actual_duration = av_utils.get_video_duration(segment_path)
+                if actual_duration is None:
+                    Path(segment_path).unlink()
+                    raise pxt.RequestError(
+                        pxt.ErrorCode.INVALID_DATA_FORMAT,
+                        f'video_splitter(): could not determine duration of a generated segment from {video}',
+                    )
                 if actual_duration - overlap == 0.0 or actual_duration < min_segment_duration:
                     # we're done
                     Path(segment_path).unlink()
@@ -532,6 +539,12 @@ def video_splitter(
             start_pts = 0
             for segment_path in output_paths:
                 actual_duration = av_utils.get_video_duration(segment_path)
+                if actual_duration is None:
+                    Path(segment_path).unlink()
+                    raise pxt.RequestError(
+                        pxt.ErrorCode.INVALID_DATA_FORMAT,
+                        f'video_splitter(): could not determine duration of a generated segment from {video}',
+                    )
                 if actual_duration < min_segment_duration:
                     Path(segment_path).unlink()
                     return

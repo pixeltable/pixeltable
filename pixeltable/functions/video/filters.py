@@ -1527,6 +1527,8 @@ def zoom(
         video_stream = container.streams.video[0]
         in_w = video_stream.width
         in_h = video_stream.height
+        if video_stream.average_rate is None or video_stream.average_rate == 0:
+            raise pxt.RequestError(pxt.ErrorCode.INVALID_DATA_FORMAT, 'zoom(): could not determine video frame rate')
         fps = float(video_stream.average_rate)
 
     # zoompan evaluates z/x/y expressions per frame.
