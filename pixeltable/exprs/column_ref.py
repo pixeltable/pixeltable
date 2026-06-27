@@ -183,7 +183,7 @@ class ColumnRef(Expr):
         if self.col_type.is_json_type():
             from .json_path import JsonPath
 
-            return JsonPath(self, [name])
+            return JsonPath(self)._append_field(name)
 
         return super().__getattr__(name)
 

@@ -608,7 +608,7 @@ def split_video(segment_length):
 
                 for i, segment in enumerate(video['segments']):
                     segment_file = output_dir / f'segment_{i + 1}.mp4'
-                    shutil.copy2(segment, segment_file)
+                    shutil.copy2(segment['video_segment'], segment_file)
                     total_size += segment_file.stat().st_size
 
                 total_mb = total_size / (1024 * 1024)

@@ -10,7 +10,13 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
-from pixeltable.functions.video import concat_videos_agg, frame_iterator, legacy_frame_iterator, video_splitter
+from pixeltable.functions.video import (
+    VideoSegment,
+    concat_videos_agg,
+    frame_iterator,
+    legacy_frame_iterator,
+    video_splitter,
+)
 from pixeltable.utils import av as av_utils
 
 from .utils import (
@@ -486,15 +492,19 @@ class TestVideo:
 
     def _validate_segments(
         self,
-        segments: list[str],
+        segments: list[VideoSegment],
         total_duration: float,
         duration: float | None = None,
         durations: list[float] | None = None,
         eps: float | None = None,
     ) -> None:
         assert duration is None or durations is None
+        assert all(s['video_segment'] is not None for s in segments)
+        assert all(s['segment_start_pts'] is not None for s in segments)
+        assert all(s['segment_end_pts'] is not None for s in segments)
+        assert all(s['segment_end'] > s['segment_start'] for s in segments)
         t = pxt.create_table('validate_segments', {'segment': pxt.Video}, media_validation='on_write')
-        t.insert({'segment': s} for s in segments)
+        t.insert({'segment': s['video_segment']} for s in segments)
         duration_expr = t.segment.get_metadata().streams[0].duration_seconds
         result = t.select(duration=duration_expr).head(n=len(segments))  # make sure output is ordered chronologically
         assert len(result) == len(segments)
@@ -600,7 +610,7 @@ class TestVideo:
 
         # basic test: reassemble segments into original video
         t.add_computed_column(segments=t.video.segment_video(duration=5.0))
-        t.add_computed_column(concat=concat_videos(t.segments))
+        t.add_computed_column(concat=concat_videos(t.segments.video_segment))
         res_df = (
             t.select(
                 url=t.video.fileurl,
@@ -617,9 +627,7 @@ class TestVideo:
         # assemble videos of different origin into a single video
         u = pxt.create_table('concat_videos_test2', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
         u.insert([{'v1': video_filepaths[0], 'v2': video_filepaths[1], 'v3': video_filepaths[2]}])
-        status = u.add_computed_column(
-            concat=concat_videos([u.v1.astype(pxt.String), u.v2.astype(pxt.String), u.v3.astype(pxt.String)])
-        )
+        status = u.add_computed_column(concat=concat_videos([u.v1, u.v2, u.v3]))
         assert status.num_excs == 0
         res = u.select(
             d1=u.v1.get_duration(), d2=u.v2.get_duration(), d3=u.v3.get_duration(), d_concat=u.concat.get_duration()
@@ -643,9 +651,7 @@ class TestVideo:
 
         t = pxt.create_table('test_mixed_audio', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
         t.insert([{'v1': no_audio, 'v2': with_audio, 'v3': no_audio}])
-        status = t.add_computed_column(
-            concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
-        )
+        status = t.add_computed_column(concat=concat_videos([t.v1, t.v2, t.v3]))
         assert status.num_excs == 0
         res = t.select(t.concat.get_metadata().streams[0].duration_seconds).collect()
         duration = res[0, 0]
@@ -656,9 +662,7 @@ class TestVideo:
 
         t = pxt.create_table('test_edge_cases', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
         t.insert([{'v1': short_video, 'v2': yuv422_video, 'v3': no_audio}])
-        status = t.add_computed_column(
-            concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
-        )
+        status = t.add_computed_column(concat=concat_videos([t.v1, t.v2, t.v3]))
         assert status.num_excs == 0
         # verify that we got a video
         res = t.select(fileurl=t.concat.fileurl, md=t.concat.get_metadata()).collect()
@@ -674,9 +678,7 @@ class TestVideo:
         t = pxt.create_table('test_resolution', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
         t.insert([{'v1': low_res, 'v2': high_res, 'v3': mid_res}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires that all videos have the same resolution'):
-            _ = t.add_computed_column(
-                concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
-            )
+            _ = t.add_computed_column(concat=concat_videos([t.v1, t.v2, t.v3]))
 
     @pytest.mark.local('pure UDF test')
     def test_concat_videos_agg(self, uses_db: None) -> None:
@@ -1797,6 +1799,20 @@ class TestVideo:
             res = t.select(t.scenes).collect()
             assert len(res) == len(video_filepaths)
             assert all(len(row['scenes']) > 0 for row in res)
+
+            all_scenes = [scene for row in res for scene in row['scenes']]
+            assert all(s['start_time'] is not None for s in all_scenes)
+            assert all(s['start_pts'] is not None for s in all_scenes)
+            assert all(s['duration'] is not None for s in all_scenes)
+            assert all(s['start_time'] >= 0.0 for s in all_scenes)
+            assert all(s['start_pts'] >= 0 for s in all_scenes)
+            assert all(s['duration'] > 0.0 for s in all_scenes)
+            # scenes are ordered chronologically
+            assert all(
+                row['scenes'][i]['start_time'] <= row['scenes'][i + 1]['start_time']
+                for row in res
+                for i in range(len(row['scenes']) - 1)
+            )
 
         # make sure the output is usable for the VideoSplitter
         v = pxt.create_view(
