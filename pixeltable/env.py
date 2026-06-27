@@ -21,7 +21,8 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
@@ -37,6 +38,10 @@ from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import ObjectPath
 from pixeltable.utils.sql import add_option_to_db_url
+
+if TYPE_CHECKING:
+    # aliased to avoid clashing with pathlib.Path above; env<->catalog is circular, so this stays type-only
+    from pixeltable.catalog.path import Path as CatalogPath
 
 _logger = logging.getLogger(__name__)
 
@@ -143,6 +148,13 @@ class Env:
         self._resource_pool_lock = threading.Lock()
         self._dbms = None
 
+        # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
+        # a table is materialized, so a ColumnRef can resolve its table against the right catalog. Lives here
+        # (process-global) rather than on the per-thread runtime because Table handles are shared across threads;
+        # the mapping is immutable per table id, so concurrent updates are idempotent.
+        self._tbl_catalog_uris: dict[UUID, CatalogPath] = {}
+        self._tbl_catalog_uris_lock = threading.Lock()
+
     @property
     def db_url(self) -> str:
         assert self._db_url is not None
@@ -181,6 +193,18 @@ class Env:
             tz_name = tz.key
         self.engine.dispose()
         self._create_engine(time_zone_name=tz_name)
+
+    def record_tbl_catalog_uri(self, tbl_id: UUID, catalog_uri: CatalogPath) -> None:
+        """Record which catalog a table belongs to. The mapping is immutable per table id."""
+        with self._tbl_catalog_uris_lock:
+            self._tbl_catalog_uris[tbl_id] = catalog_uri
+
+    def tbl_catalog_uri(self, tbl_id: UUID) -> CatalogPath:
+        """Return the catalog a table belongs to, defaulting to ROOT_PATH (the in-process catalog) if unrecorded."""
+        from pixeltable.catalog.path import ROOT_PATH
+
+        with self._tbl_catalog_uris_lock:
+            return self._tbl_catalog_uris.get(tbl_id, ROOT_PATH)
 
     @property
     def verbosity(self) -> int:

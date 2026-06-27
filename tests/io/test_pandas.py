@@ -13,6 +13,8 @@ from pixeltable.env import Env
 
 from ..utils import ensure_s3_pytest_resources_access, pxt_raises, skip_test_if_not_installed
 
+pytestmark = pytest.mark.local('TODO: convert; import/export (pandas)')
+
 EXPECTED_SCHEMA = {
     'int_col': ts.IntType(nullable=True),
     'float_col': ts.FloatType(nullable=True),

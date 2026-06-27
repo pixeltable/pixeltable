@@ -13,6 +13,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import func
 from pixeltable.catalog.table_version import TableVersionKey
+from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 
 from ..utils.description_helper import DescriptionHelper
@@ -36,10 +37,14 @@ class ColumnRef(Expr):
     Not thread-safe.
     """
 
+    # Invariant:
+    # - only execution-related methods (eg, eval()) access TableVersion/Column instances
+    # - all others are restricted to metadata structures: TablePath (not TVP), ColumnVersionMd
+    #
     # When this reference is created in the context of a view, it can also refer to a column of the view base.
     # For that reason, a ColumnRef needs to be serialized with the qualifying table id (column ids are only
     # unique in the context of a particular table).
-
+    #
     # Media validation:
     # - media validation is potentially cpu-intensive, and it's desirable to schedule and parallelize it during
     #   general expr evaluation
@@ -47,7 +52,7 @@ class ColumnRef(Expr):
     # - a validating ColumnRef cannot be translated to SQL (because the validation is done in Python)
     # - in that case, the ColumnRef also instantiates a second non-validating ColumnRef as a component (= dependency)
     # - the non-validating ColumnRef is used for SQL translation
-
+    #
     # TODO:
     # separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
     # insert them into the EvalCtxs as needed
@@ -434,7 +439,31 @@ class ColumnRef(Expr):
                 col_type = ts.ColumnType.infer_literal_type(vector)
                 expr = Literal(vector, col_type=col_type)
 
-        return SimilarityExpr(expr, col_ref=self, idx_name=idx)
+        from pixeltable.index import EmbeddingIndex
+
+        # Resolve the table through its owning catalog (which may be a proxy) so the index lookup works
+        # uniformly for local and hosted tables. get_table_by_id() manages its own transaction.
+        tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
+        assert tbl is not None
+        # get_idx_md() resolves the concrete index, raising if idx is ambiguous or doesn't exist.
+        idx_md = tbl._tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
+
+        # init_args carries one '<modality>_embed' entry per supported modality (see EmbeddingIndex.as_dict()).
+        # Array columns are exempt: similarity search uses the raw vector directly.
+        if not expr.col_type.is_array_type():
+            type_str = expr.col_type._type.name.lower()
+            if f'{type_str}_embed' not in idx_md.init_args:
+                article = 'an' if type_str[0] in 'aeiou' else 'a'
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Embedding index {idx_md.name!r} on column {self.col_md.name!r} does not have {article} '
+                    f'{type_str} embedding and does not support {type_str} queries',
+                )
+
+        table_version_key = TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
+        return SimilarityExpr(
+            expr, idx_name=idx_md.name, qcol_id=self.col_md.qcolid, table_version_key=table_version_key
+        )
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
         """
@@ -479,9 +508,11 @@ class ColumnRef(Expr):
 
         from pixeltable.index import EmbeddingIndex
 
-        idx_info = self.tbl_version.get().get_idx(self.col, idx, EmbeddingIndex)
-        val_col = idx_info.val_col
-        return ColumnRef(val_col.column_version_md())
+        tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
+        assert tbl is not None
+        idx_md = tbl._tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
+        val_qcolid = catalog.QColumnId(UUID(idx_md.indexed_col_tbl_id), idx_md.index_val_col_id)
+        return ColumnRef(tbl._tbl_path.get_column_md(val_qcolid))
 
     def default_column_name(self) -> str | None:
         return self.column_md.name
@@ -490,13 +521,13 @@ class ColumnRef(Expr):
         from pixeltable._query import Query
         from pixeltable.query_clauses import FromClause
 
-        # Load the context table at its effective_version, so a column accessed via a snapshot/view resolves
-        # against that pinned version rather than the live table. get_table_by_id() reads metadata and so must
-        # run inside a transaction; the resulting path's handles resolve lazily, so it stays valid afterwards.
-        cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
-            tbl = cat.get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
-        return Query(FromClause([tbl._tbl_version_path])).select(self)
+        # Resolve the column's table against the catalog it belongs to (which may be a hosted/proxy catalog),
+        # at its effective_version so a column accessed via a snapshot/view resolves against the pinned version
+        # rather than the live table. get_table_by_id() manages its own transaction, so no begin_xact is needed
+        # here (and a proxy catalog has none).
+        cat = get_runtime().get_catalog(Env.get().tbl_catalog_uri(self.col_md.tbl_id))
+        tbl = cat.get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
+        return Query(FromClause([tbl._tbl_path])).select(self)
 
     def show(self, *args: Any, **kwargs: Any) -> 'ResultSet':
         return self.select().show(*args, **kwargs)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 import traceback
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
+from typing import TYPE_CHECKING, Any, ClassVar, Iterator, NoReturn
 
 from typing_extensions import Self
 
@@ -101,6 +101,10 @@ class Error(Exception):
     error_code: ErrorCode
     retry_after: float | None
 
+    # Diagnostic text (e.g. an evaluation-environment stack trace) shown when the error is rendered locally,
+    # but withheld from to_dict() so it never travels to a remote client.
+    detail: str | None
+
     # Thousands digit of the ErrorCode values this class is allowed to carry.
     # The base Error class carries the 0xxx generic codes; each subclass narrows to its own group.
     _code_group: ClassVar[int] = 0
@@ -112,6 +116,15 @@ class Error(Exception):
         super().__init__(message)
         self.error_code = error_code
         self.retry_after = retry_after
+        self.detail = None
+
+    @property
+    def message(self) -> str:
+        """The human-facing message, without any attached diagnostic detail."""
+        return self.args[0] if len(self.args) > 0 else ''
+
+    def __str__(self) -> str:
+        return self.message if self.detail is None else f'{self.message}\n{self.detail}'
 
     @property
     def http_status(self) -> int:
@@ -127,12 +140,33 @@ class Error(Exception):
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation for REST error responses."""
-        d: dict[str, Any] = {'error_code': self.error_code.name, 'message': str(self), 'retryable': self.is_retryable}
-        if self.__cause__ is not None:
-            d['cause'] = str(self.__cause__)
+        d: dict[str, Any] = {
+            'error_code': self.error_code.name,
+            'message': self.message,
+            'retryable': self.is_retryable,
+        }
+        # Only surface a cause that is itself a Pixeltable Error, and only its user-facing message: str() on an
+        # arbitrary __cause__ (or an Error's detail) can leak internal types, stack traces, or filesystem paths.
+        if isinstance(self.__cause__, Error):
+            d['cause'] = self.__cause__.message
         if self.retry_after is not None:
             d['retry_after'] = self.retry_after
         return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> 'Error':
+        """Reconstruct an Error from to_dict() output."""
+        code = ErrorCode[d['error_code']]
+        subclass = _error_subclasses_by_group().get(code.value // 1000, Error)
+        return subclass._reconstruct(code, d)
+
+    @classmethod
+    def _reconstruct(cls, error_code: ErrorCode, d: dict[str, Any]) -> 'Error':
+        """Build an instance of this class from to_dict() output. Subclasses with extra serialized state
+        override this to restore it. Bypasses __init__ (which may require args not on the wire)."""
+        err = cls.__new__(cls)
+        Error.__init__(err, error_code, d.get('message', ''), retry_after=d.get('retry_after'))
+        return err
 
 
 class NotFoundError(Error):
@@ -194,6 +228,14 @@ class ExternalServiceError(Error):
             d['provider_http_status_code'] = self.provider_http_status_code
         return d
 
+    @classmethod
+    def _reconstruct(cls, error_code: ErrorCode, d: dict[str, Any]) -> 'Error':
+        err = super()._reconstruct(error_code, d)
+        assert isinstance(err, ExternalServiceError)
+        err.provider = d.get('provider')
+        err.provider_http_status_code = d.get('provider_http_status_code')
+        return err
+
 
 class ServiceUnavailableError(Error):
     """Database, store, or other infrastructure is unreachable."""
@@ -250,16 +292,20 @@ def raise_from_expr_eval_err(e: ExprEvalError) -> NoReturn:
         msg += f'\nwith {", ".join(input_msgs)}'
     assert e.exc_tb is not None
     stack_trace = traceback.format_tb(e.exc_tb)
+    # The stack frames belong to the (possibly non-local) evaluation environment, so they are carried as the
+    # error's detail rather than folded into the message
+    detail: str | None = None
     if len(stack_trace) > 2:
-        # append a stack trace if the exception happened in user code
-        # (frame 0 is ExprEvaluator and frame 1 is some expr's eval()
+        # the exception happened in user code; frame 0 is ExprEvaluator and frame 1 is some expr's eval(),
+        # so [-1:1:-1] drops those two and reverses the rest to put the most recent frame on top
         nl = '\n'
-        # [-1:1:-1]: leave out entries 0 and 1 (the ExprEvaluator and the expr's eval() frame), reversed
-        # so that the most recent frame is at the top
-        msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
+        detail = f'Stack:\n{nl.join(stack_trace[-1:1:-1])}'
     if isinstance(e.exc, Error):
-        raise type(e.exc)(e.exc.error_code, msg) from e
-    raise RequestError(ErrorCode.UNSUPPORTED_OPERATION, msg) from e
+        err: Error = type(e.exc)(e.exc.error_code, msg)
+    else:
+        err = RequestError(ErrorCode.UNSUPPORTED_OPERATION, msg)
+    err.detail = detail
+    raise err from e
 
 
 class PixeltableWarning(Warning):
@@ -283,3 +329,14 @@ def table_was_dropped(identifier: Any = None) -> NotFoundError:
 def is_table_not_found_error(e: BaseException) -> bool:
     """Returns True if the exception signals that a table was not found."""
     return isinstance(e, Error) and e.error_code == ErrorCode.TABLE_NOT_FOUND
+
+
+def _error_subclasses_by_group() -> dict[int, type[Error]]:
+    """Map each error-code group (thousands digit) to its Error subclass.from_dict."""
+
+    def subclasses(c: type[Error]) -> Iterator[type[Error]]:
+        yield c
+        for sub in c.__subclasses__():
+            yield from subclasses(sub)
+
+    return {c._code_group: c for c in subclasses(Error)}

@@ -276,7 +276,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pixeltable-pytest-logs-${{ matrix.display-name }}-${{ matrix.os }}-${{ matrix.python-version }}
-          path: /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/logs
+          path: |
+            /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/logs
+            /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/proxy_*/logs
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |

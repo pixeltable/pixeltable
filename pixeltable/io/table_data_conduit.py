@@ -770,18 +770,40 @@ class PydanticTableDataConduit(TableDataConduit):
                     f'Expected an instance of `{model_class.__name__}`; got `{type(row).__name__}` (in row {i})',
                 )
             try:
-                pxt_row = row.model_dump(mode='json')
+                # mode='python' (the default) keeps datetimes/dates as native objects and renders nested models
+                # as dicts, so that coercing each cell below yields the same values as the equivalent dict input
+                # (e.g. naive timestamps get localized to the session time zone, rather than left as ISO strings).
+                raw_row = row.model_dump()
             except pydantic_core.PydanticSerializationError as e:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Row {i}: error serializing pydantic model to JSON:\n{e}'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Row {i}: error serializing pydantic model:\n{e}'
                 ) from e
             # explicitly check that all required columns are present and non-None in the rows,
             # because we ignore nullability when validating the pydantic model
             for col_name in sorted_reqd_cols:
-                if pxt_row.get(col_name) is None:
+                if raw_row.get(col_name) is None:
                     raise excs.RequestError(
                         excs.ErrorCode.MISSING_REQUIRED, f'Missing required column {col_name!r} in row {i}'
                     )
+            # Coerce each cell to its column's stored representation, exactly as the dict path does
+            # (RowDataTableDataConduit._translate_row). This is what makes a pydantic model behave like the
+            # equivalent dict: timestamps localized, enums accepted only when their members are int/str values, etc.
+            assert self.pxt_schema is not None
+            pxt_row: dict[str, Any] = {}
+            for col_name, val in raw_row.items():
+                col_type = self.pxt_schema.get(col_name)
+                if col_type is None:
+                    # not a table column; leave it for downstream validation to report
+                    pxt_row[col_name] = val
+                    continue
+                try:
+                    pxt_row[col_name] = col_type.create_literal(val)
+                except TypeError as e:
+                    msg = str(e)
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Error in column {col_name!r} (row {i}): {msg[0].lower() + msg[1:]}',
+                    ) from e
             self.pxt_rows.append(pxt_row)
 
     def _validate_pydantic_model(self, model: type[pydantic.BaseModel]) -> None:
@@ -827,7 +849,8 @@ class PydanticTableDataConduit(TableDataConduit):
 
             # we ignore nullability: we want to accept optional model fields for required table columns, as long as
             # the model instances provide a non-null value
-            # allow_enum=True: model_dump(mode='json') converts enums to their values
+            # infer_pydantic_json=True maps an enum field to its value type, matching how an enum member is
+            # later coerced (an int/str-valued member satisfies the corresponding scalar column)
             inferred_pxt_type = ts.ColumnType.from_python_type(model_type, infer_pydantic_json=True)
             if inferred_pxt_type is None:
                 raise excs.RequestError(

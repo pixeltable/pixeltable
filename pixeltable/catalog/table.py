@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 
+import pandas as pd
 from typing_extensions import overload
 
+from pixeltable import exceptions as excs
+
+from .globals import is_valid_identifier
 from .schema_object import SchemaObject
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from pathlib import Path
 
-    import pandas as pd
     import pydantic
     import torch.utils.data
 
@@ -39,7 +42,7 @@ class Table(SchemaObject):
     @property
     @abc.abstractmethod
     def _tbl_path(self) -> 'TablePath':
-        """The metadata path backing this handle. Implemented by LocalTable and TableProxy."""
+        """The metadata path backing this handle."""
 
     @abc.abstractmethod
     def get_metadata(self) -> 'TableMetadata':
@@ -71,43 +74,52 @@ class Table(SchemaObject):
             A list of view paths.
         """
 
-    @abc.abstractmethod
     def select(self, *items: Any, **named_items: Any) -> 'Query':
         """Select columns or expressions from this table.
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
+        from pixeltable._query import Query
+        from pixeltable.query_clauses import FromClause
 
-    @abc.abstractmethod
+        query = Query(FromClause(tbls=[self._tbl_path]))
+        if len(items) == 0 and len(named_items) == 0:
+            return query
+        return query.select(*items, **named_items)
+
     def where(self, pred: 'exprs.Expr') -> 'Query':
         """Filter rows from this table based on the expression.
 
         See [`Query.where`][pixeltable.Query.where] for more details.
         """
+        return self.select().where(pred)
 
-    @abc.abstractmethod
     def join(self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'JoinType.LiteralType' = 'inner') -> 'Query':
         """Join this table with another table."""
+        return self.select().join(other, on=on, how=how)
 
-    @abc.abstractmethod
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'Query':
         """Order the rows of this table based on the expression.
 
         See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
+        return self.select().order_by(*items, asc=asc)
 
-    @abc.abstractmethod
-    def group_by(self, *items: 'exprs.Expr') -> 'Query':
+    @overload
+    def group_by(self, grouping_tbl: 'Table', /) -> 'Query': ...
+    @overload
+    def group_by(self, *grouping_items: 'exprs.Expr') -> 'Query': ...
+    def group_by(self, *items: 'exprs.Expr | Table') -> 'Query':
         """Group the rows of this table based on the expression.
 
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
+        return self.select().group_by(*items)  # type: ignore[arg-type]
 
-    @abc.abstractmethod
     def distinct(self) -> 'Query':
         """Remove duplicate rows from table."""
+        return self.select().distinct()
 
-    @abc.abstractmethod
     def limit(self, n: int, offset: int | None = None) -> 'Query':
         """Select a limited number of rows from the Table, optionally skipping rows for pagination.
 
@@ -127,8 +139,8 @@ class Table(SchemaObject):
 
             >>> t.limit(10, offset=20).collect()
         """
+        return self.select().limit(n, offset=offset)
 
-    @abc.abstractmethod
     def sample(
         self,
         n: int | None = None,
@@ -141,33 +153,36 @@ class Table(SchemaObject):
 
         See [`Query.sample`][pixeltable.Query.sample] for more details.
         """
+        return self.select().sample(
+            n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
+        )
 
-    @abc.abstractmethod
     def collect(self) -> 'ResultSet':
         """Return rows from this table."""
+        return self.select().collect()
 
-    @abc.abstractmethod
     def cursor(self) -> 'ResultCursor':
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over this table's rows.
 
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
+        return self.select().cursor()
 
-    @abc.abstractmethod
     def show(self, n: int = 20) -> 'ResultSet':
         """Return the first n rows from this table."""
+        return self.select().show(n)
 
-    @abc.abstractmethod
     def head(self, n: int = 10) -> 'ResultSet':
         """Return the first n rows inserted into this table."""
+        return self.select().head(n)
 
-    @abc.abstractmethod
     def tail(self, n: int = 10) -> 'ResultSet':
         """Return the last n rows inserted into this table."""
+        return self.select().tail(n)
 
-    @abc.abstractmethod
     def count(self) -> int:
         """Return the number of rows in this table."""
+        return self.select().count()
 
     @abc.abstractmethod
     def columns(self) -> list[str]:
@@ -824,6 +839,73 @@ class Table(SchemaObject):
             ... # contains {'errortype': ..., 'errormsg': ...}.
         """
 
+    def _validate_update_value_spec(self, value_spec: dict[str, Any]) -> None:
+        from pixeltable import exprs
+
+        for col_name, val in value_spec.items():
+            if not isinstance(col_name, str):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'Update specification: dict key must be column name; got {col_name!r}',
+                )
+            if not is_valid_identifier(col_name):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, f'Update specification: invalid column name {col_name!r}'
+                )
+            if exprs.Expr.from_object(val) is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
+                )
+
+    def _validate_where(self, where: 'exprs.Expr' | None) -> None:
+        from pixeltable import exprs
+
+        if where is not None and not isinstance(where, exprs.Expr):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
+            )
+
+    def _validate_column_schema(self, schema: Mapping[str, type | ColumnSpec]) -> None:
+        from .column import Column
+
+        for name, spec in schema.items():
+            if isinstance(spec, dict):
+                Column._validate_column_spec(name, spec)
+
+    def _validate_insert_source(self, source: TableDataSource | None) -> None:
+        if source is not None and isinstance(source, Sequence) and len(source) == 0:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
+
+    def _validate_embedding_args(
+        self, embedding: Function | None, string_embed: Function | None, image_embed: Function | None
+    ) -> None:
+        from pixeltable.func.function import Function
+
+        for name, fn in (('embedding', embedding), ('string_embed', string_embed), ('image_embed', image_embed)):
+            if fn is not None and not isinstance(fn, Function):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'`{name}` must be a Pixeltable function; got `{type(fn).__name__}`',
+                )
+
+    def _check_mutable(self, op_descr: str) -> None:
+        if self._tbl_path.is_snapshot():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.',
+            )
+
+    def _check_single_column_kwarg(self, method: str, value_form: str, kwargs: Mapping[str, Any]) -> None:
+        """Enforce that a single-column method (add_column/add_computed_column) got exactly one col_name= kwarg."""
+        if len(kwargs) != 1:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{method}() requires exactly one keyword argument of the form {value_form}; '
+                f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
+            )
+
     @abc.abstractmethod
     def update(
         self,
@@ -1029,7 +1111,6 @@ class Table(SchemaObject):
             >>> tbl.get_versions(n=5)
         """
 
-    @abc.abstractmethod
     def history(self, n: int | None = None) -> pd.DataFrame:
         """
         Returns a human-readable report about versions of this table.
@@ -1052,3 +1133,6 @@ class Table(SchemaObject):
 
             >>> tbl.history(n=5)
         """
+        versions = self.get_versions(n)
+        assert len(versions) > 0
+        return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))

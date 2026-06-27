@@ -1,10 +1,14 @@
 """Tests for pixeltable_cli.server.bridge - the translation layer between Pixeltable APIs and the dashboard REST API."""
 
+import pytest
+
 import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
 from pixeltable_cli.server import bridge
 
 from ..utils import dummy_embedding, get_test_video_files
+
+pytestmark = pytest.mark.local('pxt CLI metadata/data bridge')
 
 
 @pxt.udf

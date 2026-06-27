@@ -19,6 +19,8 @@ from pixeltable.io.sql import export_sql, import_sql
 
 from ..utils import error, get_documents, get_image_files, get_video_files, pxt_raises
 
+pytestmark = pytest.mark.local('TODO: convert; import/export (sql)')
+
 
 @dataclasses.dataclass(frozen=True)
 class _DialectSpec:

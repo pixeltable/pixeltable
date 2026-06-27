@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import inspect
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 from uuid import UUID
@@ -9,7 +10,7 @@ import cloudpickle  # type: ignore[import-untyped]
 import pixeltable.exceptions as excs
 from pixeltable.runtime import get_runtime
 
-from .function import Function
+from .function import Function, InvalidFunction
 from .signature import Signature
 
 if TYPE_CHECKING:
@@ -183,17 +184,27 @@ class CallableFunction(Function):
 
     def _as_dict(self) -> dict:
         if self.self_path is None:
-            # this is not a module function
+            # anonymous function (e.g. from Expr.apply() or a locally-defined @pxt.udf): serialize the pickled
+            # body by value so the result is self-contained (no reference into a particular catalog)
             assert not self.is_method and not self.is_property
-            from .function_registry import FunctionRegistry
-
-            id = FunctionRegistry.get().create_stored_function(self)
-            return {'id': id.hex}
+            store_md, binary = self.to_store()
+            return {'name': self.name, 'store_md': store_md, 'binary': base64.b64encode(binary).decode('ascii')}
         return super()._as_dict()
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
+        if 'binary' in d:
+            try:
+                return cls.from_store(d['name'], d['store_md'], base64.b64decode(d['binary']))
+            except Exception:
+                error_msg = (
+                    f'the locally defined UDF {d["name"]!r} could not be deserialized. This probably means the UDF\n'
+                    'was defined in a notebook (or other interactive environment), and the environment has changed\n'
+                    'since the UDF was defined.'
+                )
+                return InvalidFunction(d['name'], d, error_msg)
         if 'id' in d:
+            # legacy: body stored in the functions table (see schema.Function for the deprecation TODO)
             from .function_registry import FunctionRegistry
 
             return FunctionRegistry.get().get_stored_function(UUID(hex=d['id']))

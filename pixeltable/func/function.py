@@ -513,15 +513,13 @@ class Function(ABC):
         to an instance with from_dict().
         Subclasses can override _as_dict().
         """
-        # We currently only ever serialize a function that has a specific signature (not a polymorphic form).
-        assert not self.is_polymorphic
         classpath = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
         return {'_classpath': classpath, **self._as_dict()}
 
     def _as_dict(self) -> dict:
-        """Default serialization: store the path to self (which includes the module path) and signature."""
+        """Default serialization: store the path to self (which includes the module path) and its signatures."""
         assert self.self_path is not None
-        return {'path': self.self_path, 'signature': self.signature.as_dict()}
+        return {'path': self.self_path, 'signatures': [sig.as_dict() for sig in self.signatures]}
 
     @classmethod
     def from_dict(cls, d: dict) -> Function:

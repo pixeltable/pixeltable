@@ -420,16 +420,13 @@ class Expr(abc.ABC):
     def tbl_ids(self) -> set[UUID]:
         """Returns table ids referenced by this expr.
 
-        Avoids calling col_handle.get() / tbl_handle.get() / col property,
-        because those resolve through the per-thread catalog and would fire the cross-thread
-        assertion on a Query that's being used from a different thread than where it was
-        constructed.
+        Must only access metadata, not execution structures (eg, TableVersion).
         """
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
 
         col_ref_ids = {ref.col_md.qcolid.tbl_id for ref in self.subexprs(ColumnRef)}
-        rowid_ids = {ref.tbl.id for ref in self.subexprs(RowidRef)}
+        rowid_ids = {ref.tbl_id for ref in self.subexprs(RowidRef)}
         return col_ref_ids | rowid_ids
 
     @classmethod

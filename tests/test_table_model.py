@@ -19,6 +19,8 @@ from .utils import (
     validate_update_status,
 )
 
+pytestmark = pytest.mark.local('Models')
+
 
 class TestTableModel:
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
@@ -634,7 +636,7 @@ class TestTableModel:
             ValidTableModel.where(ValidTableModel.id > 0).where(ValidTableModel.id > 0)  # type: ignore[arg-type]
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`group_by\(\)` clause already specified'):
-            ValidTableModel.group_by(ValidTableModel.id).group_by(ValidTableModel.id)  # type: ignore[arg-type]
+            ValidTableModel.group_by(ValidTableModel.id).group_by(ValidTableModel.id)  # type: ignore[call-overload]
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`limit\(\)` clause already specified'):
             ValidTableModel.limit(10).limit(5)

@@ -8,6 +8,8 @@ import pixeltable as pxt
 
 from ..utils import get_image_files, pxt_raises, rerun, skip_test_if_not_installed
 
+pytestmark = pytest.mark.local('TODO: convert; import/export (fiftyone)')
+
 
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 @rerun(reruns=3, reruns_delay=8)

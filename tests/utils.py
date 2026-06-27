@@ -16,7 +16,7 @@ import uuid
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypedDict
 from unittest import TestCase
 from uuid import uuid4
 
@@ -37,12 +37,16 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
+from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 if TYPE_CHECKING:
     from pyiceberg.catalog.sql import SqlCatalog
 
 TESTS_DIR = Path(os.path.dirname(__file__))
+
+# The catalog backend a test runs against: 'local' (in-process) or 'proxy' (delegated to a local daemon).
+CatalogMode = Literal['local', 'proxy']
 
 
 _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
@@ -183,10 +187,11 @@ def create_table_data(
         serializable_json_values + non_serializable_json_values if non_serializable_json else serializable_json_values
     )
 
+    md_columns = t.get_metadata()['columns']
     if len(col_names) == 0:
-        col_names = [c.name for c in t._tbl_version_path.columns() if not c.is_computed]
+        col_names = [name for name, c in md_columns.items() if not c['is_computed']]
 
-    col_types = t._get_schema()
+    col_types = {name: t[name].col_type for name in col_names}
     for col_name in col_names:
         col_type = col_types[col_name]
         col_data: Any = None
@@ -307,7 +312,9 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     return tbl
 
 
-def create_all_datatypes_tbl(non_serializable_json: bool = False, arrow_compatible_json: bool = False) -> pxt.Table:
+def create_all_datatypes_tbl(
+    name: str = 'all_datatype_tbl', non_serializable_json: bool = False, arrow_compatible_json: bool = False
+) -> pxt.Table:
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
@@ -326,7 +333,7 @@ def create_all_datatypes_tbl(non_serializable_json: bool = False, arrow_compatib
         'c_video': pxt.Video,
         'c_document': pxt.Document,
     }
-    tbl = pxt.create_table('all_datatype_tbl', schema)
+    tbl = pxt.create_table(name, schema)
     example_rows = create_table_data(
         tbl, num_rows=11, non_serializable_json=non_serializable_json, arrow_compatible_json=arrow_compatible_json
     )
@@ -338,7 +345,7 @@ def create_all_datatypes_tbl(non_serializable_json: bool = False, arrow_compatib
     return tbl
 
 
-def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) -> pxt.Table:
+def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10, path: str = 'scalars_tbl') -> pxt.Table:
     """
     Creates a table with scalar columns, each of which contains randomly generated data.
     """
@@ -352,7 +359,7 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
         'c_string': ts.StringType(nullable=True),
         'c_timestamp': ts.TimestampType(nullable=True),
     }
-    tbl = pxt.create_table('scalars_tbl', schema)  # type: ignore[arg-type]
+    tbl = pxt.create_table(path, schema)  # type: ignore[arg-type]
 
     example_rows: list[dict[str, Any]] = []
     str_chars = 'abcdefghijklmnopqrstuvwxyzab'
@@ -577,11 +584,11 @@ def assert_resultset_eq(
     assert len(r1) == len(r2)
     assert len(r1.schema) == len(r2.schema)
     if compare_col_types:
-        assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
+        assert all(type1.matches(type2) for type1, type2 in zip(r1._schema.values(), r2._schema.values()))
     if compare_col_names:
         assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
-        assert_columns_eq(r1_col, r1.schema[r1_col], r1[r1_col], r2[r2_col])
+        assert_columns_eq(r1_col, r1._schema[r1_col], r1[r1_col], r2[r2_col])
 
 
 def assert_columns_eq(col_name: str, col_type: ts.ColumnType, c1: list[Any], c2: list[Any]) -> None:
@@ -919,20 +926,30 @@ class ReloadTester:
     """Utility to verify that queries return identical results after a catalog reload"""
 
     query_info: list[tuple[dict[str, Any], ResultSet]]  # list of (query.as_dict(), query.collect())
+    _has_proxy_query: bool  # set when a captured query runs against a delegated (proxied) catalog
 
     def __init__(self) -> None:
         self.query_info = []
+        self._has_proxy_query = False
 
     def clear(self) -> None:
         self.query_info = []
+        self._has_proxy_query = False
 
     def run_query(self, query: pxt.Query) -> ResultSet:
         query_dict = query.as_dict()
         result_set = query.collect()
         self.query_info.append((query_dict, result_set))
+        if not query._from_clause.is_local:
+            self._has_proxy_query = True
         return result_set
 
     def run_reload_test(self, clear: bool = True) -> None:
+        if self._has_proxy_query:
+            # reload semantics for delegated (proxied) tables are not implemented yet; skip for now
+            if clear:
+                self.clear()
+            return
         reload_catalog()
         assert len(self.query_info) > 0, 'No queries in ReloadTester!'
         # enumerate(): the list index is useful for debugging
@@ -1026,6 +1043,57 @@ def list_store_indexes(t: pxt.Table) -> list[str]:
             sql.text(f"SELECT indexname FROM pg_indexes WHERE tablename = '{sa_tbl_name}'")
         ).fetchall()
     return [row[0] for row in result]
+
+
+class MediaStore:
+    """Inspects the media store backing a table, for both in-process and hosted (proxy) catalogs.
+
+    A table created against a hosted catalog stores its media objects in the proxy daemon's own media store,
+    not in this process's. Since tests co-locate the daemon, that store is read directly off the filesystem
+    (the daemon's home is proxy_home(db)/media). This lets media-store assertions run unchanged in both
+    modes and actually validate the daemon's behavior.
+    """
+
+    @classmethod
+    def count(
+        cls,
+        tbl: pxt.Table,
+        *,
+        tbl_version: int | None = None,
+        default_input_dest: bool = False,
+        default_output_dest: bool = False,
+    ) -> int:
+        """Count the media objects stored for tbl (optionally a specific version) in its catalog's media store."""
+        catalog_uri = tbl._tbl_path.catalog_uri
+        if catalog_uri.db is None:
+            # in-process catalog: count in this process's media store
+            return ObjectOps.count(
+                tbl._id, tbl_version, default_input_dest=default_input_dest, default_output_dest=default_output_dest
+            )
+        # hosted catalog: the objects live in the daemon's media store. The tests use the default media config,
+        # where both the input and output dest are the daemon's home media dir, so count there directly.
+        from pixeltable.service import proxy_daemon
+
+        return ObjectOps.count(tbl._id, tbl_version, dest=str(proxy_daemon.proxy_home(catalog_uri.db) / 'media'))
+
+
+class TempStoreView:
+    """Counts the transient (temp) store backing a table's catalog, for both in-process and hosted catalogs.
+
+    Media files produced while running a query land in the temp store of whichever process runs the query: this
+    process for an in-process catalog, the proxy daemon (proxy_home(db)/tmp) for a hosted one. Tests co-locate the
+    daemon, so its temp store is read directly off the filesystem.
+    """
+
+    @classmethod
+    def count(cls, tbl: pxt.Table) -> int:
+        """Count the objects in the temp store of the catalog tbl lives in."""
+        catalog_uri = tbl._tbl_path.catalog_uri
+        if catalog_uri.db is None:
+            return TempStore.count()
+        from pixeltable.service import proxy_daemon
+
+        return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
 
 
 def validate_repr(t: Any, expected: str) -> None:

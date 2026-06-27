@@ -1184,9 +1184,16 @@ class TableVersion:
                 )
             if col_name == _ROWID_COLUMN_NAME:
                 # a valid rowid is a list of ints, one per rowid column
-                assert len(val) == len(self.store_tbl.rowid_columns())
-                for el in val:
-                    assert isinstance(el, int)
+                num_rowid_cols = len(self.store_tbl.rowid_columns())
+                if len(val) != num_rowid_cols:
+                    raise excs.Error(
+                        excs.ErrorCode.INTERNAL_ERROR,
+                        f'Malformed _rowid: expected {num_rowid_cols} components, got {len(val)}',
+                    )
+                if not all(isinstance(el, int) for el in val):
+                    raise excs.Error(
+                        excs.ErrorCode.INTERNAL_ERROR, f'Malformed _rowid: all components must be int, got {val!r}'
+                    )
                 continue
             col = self.path.get_column(col_name)
             if col is None:
@@ -1765,7 +1772,7 @@ class TableVersion:
             )
         if idx_name is not None and idx_name not in [info.name for info in candidates]:
             raise excs.NotFoundError(
-                excs.ErrorCode.COLUMN_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
+                excs.ErrorCode.INDEX_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
             )
         return candidates[0] if idx_name is None else next(info for info in candidates if info.name == idx_name)
 

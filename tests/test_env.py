@@ -1,3 +1,5 @@
+import pytest
+
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
@@ -5,6 +7,8 @@ from pixeltable.env import Env
 from pixeltable.runtime import reset_runtime
 
 from .utils import pxt_raises, skip_test_if_not_local
+
+pytestmark = pytest.mark.local('exercises process-global Env/Config and runtime reset')
 
 
 def _reset_env(reinit: bool, db_name: str) -> None:
