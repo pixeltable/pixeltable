@@ -285,9 +285,9 @@ def scene_detect_threshold(
 
         >>> tbl.select(tbl.video.scene_detect_threshold(threshold=8.0)).collect()
 
-        Detect both fade-to-black and fade-to-white using absolute method:
+        Detect fade-to-white transitions using the 'ceiling' method:
 
-        >>> tbl.select(tbl.video.scene_detect_threshold(method='absolute')).collect()
+        >>> tbl.select(tbl.video.scene_detect_threshold(method='ceiling')).collect()
 
         Add final scene boundary:
 

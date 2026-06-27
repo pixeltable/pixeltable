@@ -438,24 +438,24 @@ def crop(
     Examples:
         Crop using default xywh format:
 
-        >>> tbl.select(tbl.video.crop2([100, 50, 320, 240])).collect()
+        >>> tbl.select(tbl.video.crop([100, 50, 320, 240])).collect()
 
         Crop using xyxy format (common in object detection):
 
         >>> tbl.select(
-        ...     tbl.video.crop2([100, 50, 420, 290], bbox_format='xyxy')
+        ...     tbl.video.crop([100, 50, 420, 290], bbox_format='xyxy')
         ... ).collect()
 
         Crop using center format:
 
         >>> tbl.select(
-        ...     tbl.video.crop2([260, 170, 320, 240], bbox_format='cxcywh')
+        ...     tbl.video.crop([260, 170, 320, 240], bbox_format='cxcywh')
         ... ).collect()
 
         Use with yolox object detection output:
 
         >>> tbl.add_computed_column(
-        ...     cropped=tbl.video.crop2(tbl.detections.bboxes[0], bbox_format='xyxy')
+        ...     cropped=tbl.video.crop(tbl.detections.bboxes[0], bbox_format='xyxy')
         ... )
     """
     Env.get().require_binary('ffmpeg')

@@ -105,7 +105,7 @@ def extract_audio(
         ... )
     """
     if format not in av_utils.AUDIO_FORMATS:
-        raise ValueError(f'extract_audio(): unsupported audio format: {format}')
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'extract_audio(): unsupported audio format: {format}')
     default_codec, ext = av_utils.AUDIO_FORMATS[format]
 
     with av.open(video_path) as container:
@@ -220,7 +220,7 @@ def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | No
         ... ).collect()
     """
     if timestamp < 0:
-        raise ValueError("'timestamp' must be non-negative")
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'timestamp must be non-negative, got {timestamp}')
 
     try:
         with av.open(str(video)) as container:
