@@ -687,6 +687,7 @@ class TestExprs:
         p = make_catalog_path
         spec = {
             'f1': str,
+            'img': pxt.Image,
             'f2': {
                 'f2a': int,
                 'f2b': (int, str, pxt.Video, {'f2b1': str}),
@@ -730,6 +731,9 @@ class TestExprs:
             # dict resolution applied to heterogeneous tuple
             (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)]),
             (t.col.f4['*'].f4b, pxt.Json[[str | None]]),  # special '*' operator
+            # attribute access on a json path that resolves to a non-JSON type dispatches to that type's UDFs
+            (t.col.img.width, pxt.Int),  # is_property UDF auto-invokes
+            (t.col.img.rotate(90), pxt.Image),  # is_method UDF
         )
         for expr, expected_type in cases:
             print(expr)
@@ -751,6 +755,10 @@ class TestExprs:
             regex = rf'Invalid JsonPath: cannot resolve {re.escape(errstring)}'
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=regex):
                 _ = expr[el]
+
+        # an unknown method/property on such a json path raises, like any missing attribute
+        with pytest.raises(AttributeError):
+            _ = t.col.img.not_a_method
 
     def test_json_mapper(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl

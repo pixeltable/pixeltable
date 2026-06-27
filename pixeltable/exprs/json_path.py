@@ -223,8 +223,10 @@ class JsonPath(Expr):
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'R() requires a negative index')
         return JsonPath(None, [], args[0])
 
-    def __getattr__(self, name: str) -> 'JsonPath':
+    def __getattr__(self, name: str) -> 'Expr':
         assert isinstance(name, str)
+        if not self.col_type.is_json_type():
+            return super().__getattr__(name)
         return JsonPath(self.anchor, [*self.path_elements, name])
 
     def __getitem__(self, index: object) -> 'JsonPath':

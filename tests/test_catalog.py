@@ -248,17 +248,17 @@ class TestCatalog:
         from pixeltable.service import framing
 
         # a part whose bytes look like the framing structure (length prefixes) must survive intact
-        tricky = framing.encode(b'\x00\x00\x00\x05hello', [b'\xff\xff\xff\xff', b''])
+        tricky = framing.encode_body(b'\x00\x00\x00\x05hello', [b'\xff\xff\xff\xff', b''])
         cases: list[tuple[bytes, list[bytes]]] = [
             (b'{}', []),
             (b'head', [b'one']),
             (b'\x00binary\x00head', [b'', b'a' * 10_000, tricky]),
         ]
-        assert all(framing.decode(framing.encode(head, parts)) == (head, parts) for head, parts in cases)
+        assert all(framing.decode_body(framing.encode_body(head, parts)) == (head, parts) for head, parts in cases)
 
         # a truncated body is rejected rather than silently mis-parsed
         with pytest.raises(ValueError, match='truncated'):
-            framing.decode(framing.encode(b'head', [b'abc'])[:-1])
+            framing.decode_body(framing.encode_body(b'head', [b'abc'])[:-1])
 
     def test_json_reserved_key(self, make_catalog_path: Callable[[str], str]) -> None:
         # JSON cell values are user data and may contain a key that collides with the proxy protocol's reserved
