@@ -11,6 +11,8 @@ from pixeltable.config import Config
 
 from ..utils import create_all_datatypes_tbl, create_test_tbl, get_csv_file, get_image_files, validate_update_status
 
+pytestmark = pytest.mark.local('TODO: convert; import/export (csv)')
+
 
 class TestCsv:
     def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:

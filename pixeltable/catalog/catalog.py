@@ -1421,18 +1421,26 @@ class Catalog(CatalogBase):
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
     ) -> LocalTable | None:
-        """Must be executed inside a transaction. Might raise PendingTableOpsError."""
+        """Loads the table if it isn't already cached, starting its own (re-entrant) transaction to do so.
+        Might raise PendingTableOpsError."""
         if (tbl_id, version) not in self._tbls:
-            if version is None:
-                return self._load_tbl(tbl_id, ignore_pending_drop=ignore_if_dropped)
-            else:
-                return self._load_tbl_at_version(tbl_id, version)
-        return self._tbls.get((tbl_id, version))
+            # begin_xact() is re-entrant: it joins the caller's transaction if there is one, and otherwise
+            # starts a fresh read transaction (which also permits the metadata load). Cache hits stay xact-free.
+            with self.begin_xact(for_write=False):
+                if version is None:
+                    tbl = self._load_tbl(tbl_id, ignore_pending_drop=ignore_if_dropped)
+                else:
+                    tbl = self._load_tbl_at_version(tbl_id, version)
+        else:
+            tbl = self._tbls.get((tbl_id, version))
+        if tbl is not None:
+            Env.get().record_tbl_catalog_uri(tbl._id, ROOT_PATH)
+        return tbl
 
     def create_table(
         self,
         path: Path,
-        schema: dict[str, type | ColumnSpec | exprs.Expr],
+        schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
         primary_key: list[str] | None,
         comment: str | None,
@@ -1496,7 +1504,7 @@ class Catalog(CatalogBase):
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,
-        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
+        additional_columns: Mapping[str, ColumnSpec] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
@@ -2098,9 +2106,13 @@ class Catalog(CatalogBase):
             return None
         tbl_record, version_record = _unpack_row(row, [schema.Table, schema.TableVersion])
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+        if tbl_md.is_pure_snapshot:
+            # a pure snapshot has no physical table to load at a version; resolve it via its base_versions
+            return self._load_tbl(tbl_id)
         version_md = schema.md_from_dict(schema.VersionMd, version_record.md)
         tvp = self.construct_tvp(tbl_id, version, tbl_md.ancestors, version_md.created_at)
 
+        # snapshot_only=True: an anonymous snapshot doesn't have a physical table
         view = View(tbl_id, tvp, snapshot_only=True)
         self._tbls[tbl_id, version] = view
         return view
@@ -2461,7 +2473,7 @@ class Catalog(CatalogBase):
         status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
         assert status.rowcount == 1, status.rowcount
 
-    def load_md_for_export(self, tbl: LocalTable) -> list[TableVersionMd]:
+    def read_md_for_export(self, tbl: LocalTable) -> list[TableVersionMd]:
         """
         Load metadata for the given table along with all its ancestors. The values of TableMd.current_version and
         TableMd.current_schema_version will be adjusted to ensure that the metadata represent a valid (internally
@@ -2550,7 +2562,7 @@ class Catalog(CatalogBase):
                     TableVersionKey(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1])
                 )
             else:
-                base_path = TableVersionPath.from_md(tbl_md.view_md.base_versions)
+                base_path = TableVersionPath.from_schema_path(tbl_md.view_md.base_versions)
                 base = base_path.tbl_version
 
             tbl_version = TableVersion(

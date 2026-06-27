@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
+    from .path import Path
     from .table import Table
     from .table_metadata import TableMetadata
 
@@ -41,6 +42,8 @@ class View(LocalTable):
     The exception is a snapshot view without a predicate and without additional columns: in that case, the view
     is simply a reference to a specific set of base versions.
     """
+
+    _snapshot_only: bool
 
     def __init__(self, id: UUID, tbl_version_path: TableVersionPath, snapshot_only: bool):
         super().__init__(id, tbl_version_path)
@@ -78,7 +81,7 @@ class View(LocalTable):
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
-        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr],
+        additional_columns: Mapping[str, ColumnSpec],
         predicate: 'exprs.Expr' | None,
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,
@@ -188,7 +191,7 @@ class View(LocalTable):
             include_base_columns=include_base_columns,
             predicate=predicate.as_dict() if predicate is not None else None,
             sample_clause=sample_clause.as_dict() if sample_clause is not None else None,
-            base_versions=base_version_path.as_md(),
+            base_versions=base_version_path.as_schema_path(),
             iterator_call=iterator_call.as_dict() if iterator_call is not None else None,
         )
 
@@ -366,8 +369,8 @@ class View(LocalTable):
         else:
             return effective_versions[1:]
 
-    def _table_descriptor(self) -> str:
-        result = [self._display_str()]
+    def _table_descriptor(self, path: 'Path | None' = None) -> str:
+        result = [self._display_str(path)]
         bases_descrs: list[str] = []
         for base, effective_version in zip(self._get_base_tables(), self._effective_base_versions):
             if effective_version is None:

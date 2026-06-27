@@ -5,6 +5,8 @@ import pixeltable as pxt
 
 from ..utils import TESTS_DIR, rerun, skip_test_if_no_client, validate_update_status
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 # Test image path - using an image available in the test data
 TEST_IMAGE_PATH = TESTS_DIR / 'data' / 'images' / 'sewing-threads-smaller.jpg'
 

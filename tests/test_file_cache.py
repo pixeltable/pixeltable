@@ -11,6 +11,8 @@ from pixeltable.utils.filecache import FileCache
 
 from .utils import get_image_files, rerun
 
+pytestmark = pytest.mark.local('inspects local FileCache internals')
+
 
 class TestFileCache:
     # TODO: Understand why this test is flaky on Windows. (It appears to be a timing issue

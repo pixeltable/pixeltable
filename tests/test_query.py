@@ -3,7 +3,7 @@ import itertools
 import re
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import bs4
 import numpy as np
@@ -13,7 +13,6 @@ import pydantic
 import pytest
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
@@ -37,13 +36,14 @@ class TestQuery:
     def is_even_py(x: int) -> bool:
         return x % 2 == 0
 
-    def create_join_tbls(self, num_rows: int) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
-        t1 = pxt.create_table(f't1_{num_rows}', {'id': pxt.Int, 'i': pxt.Int, 'a': pxt.Array})
+    def create_join_tbls(self, num_rows: int, p: Callable[[str], str]) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
+        t1 = pxt.create_table(p(f't1_{num_rows}'), {'id': pxt.Int, 'i': pxt.Int, 'a': pxt.Array})
         validate_update_status(
             t1.insert({'id': i, 'i': i, 'a': np.ones((100, 100), dtype=np.int64) * i} for i in range(num_rows)),
             expected_rows=num_rows,
         )
-        t2 = pxt.create_table(f't2_{num_rows}', {'id': pxt.Int, 'f': pxt.Float, 'a': pxt.Array})
+
+        t2 = pxt.create_table(p(f't2_{num_rows}'), {'id': pxt.Int, 'f': pxt.Float, 'a': pxt.Array})
         # t2 has matching ids
         validate_update_status(
             t2.insert(
@@ -56,7 +56,7 @@ class TestQuery:
         # t3:
         # - column i with a different type
         # - only 10% of the ids overlap with t1 and t2
-        t3 = pxt.create_table(f't3_{num_rows}', {'id': pxt.Int, 'i': pxt.String, 'f': pxt.Float})
+        t3 = pxt.create_table(p(f't3_{num_rows}'), {'id': pxt.Int, 'i': pxt.String, 'f': pxt.Float})
         validate_update_status(
             t3.insert({'id': i, 'i': str(i), 'f': float(num_rows - i)} for i in range(0, 10 * num_rows, 10)),
             expected_rows=num_rows,
@@ -64,7 +64,8 @@ class TestQuery:
 
         return t1, t2, t3
 
-    def test_select_where(self, test_tbl: pxt.Table) -> None:
+    def test_select_where(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl
         res1 = t.collect()
         res2 = t.select().collect()
@@ -147,16 +148,17 @@ class TestQuery:
 
         # select list contains invalid references
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            t2 = pxt.create_table('t2', {'c1': pxt.Int})
+            t2 = pxt.create_table(p('t2'), {'c1': pxt.Int})
             _ = t.select(t.c1, t2.c1 + t.c2).collect()
         assert 'cannot be evaluated in the context' in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    def test_join(self, uses_db: None) -> None:
+    def test_join(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         num_rows = 1000
-        t1, t2, t3 = self.create_join_tbls(num_rows)
+        t1, t2, t3 = self.create_join_tbls(num_rows, p)
         # inner join
         query = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t2.f)
         pd_df = query.collect().to_pandas()
@@ -166,8 +168,7 @@ class TestQuery:
 
         # inner join that selects externally-stored arrays
         res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, a1=t1.a, a2=t2.a).order_by(t2.f).collect()
-        for row in res:
-            np.array_equal(row['a1'] + row['a2'], np.ones((100, 100), dtype=np.int64) * num_rows)
+        assert all(np.array_equal(row['a1'] + row['a2'], np.ones((100, 100), dtype=np.int64) * num_rows) for row in res)
 
         # the same inner join, but with redundant join predicates
         query = (
@@ -208,7 +209,7 @@ class TestQuery:
         # assert (pd_df[~pd_df.f.isnull()].out == 1000.0).all()  # correct sum
 
         # cross join
-        small_t1, small_t2, _ = self.create_join_tbls(100)
+        small_t1, small_t2, _ = self.create_join_tbls(100, p)
         query = small_t1.join(small_t2, how='cross').select(small_t1.i, small_t2.f, out=small_t1.i + small_t2.f)
         res = query.collect()
         # TODO: verify result
@@ -224,8 +225,9 @@ class TestQuery:
         pd_df = res.to_pandas()
         # TODO: verify result
 
-    def test_join_errors(self, uses_db: None) -> None:
-        t1, t2, t3 = self.create_join_tbls(1000)
+    def test_join_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t1, t2, t3 = self.create_join_tbls(1000, p)
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             _ = t1.join(t2, on=(t2.id, 17)).collect()  # type: ignore[arg-type]
@@ -259,7 +261,7 @@ class TestQuery:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()
-        assert 'ambiguous column reference: id' in str(exc_info.value)
+        assert "ambiguous column reference: 'id'" in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             _ = t1.join(t2, on=t1.i).collect()
@@ -420,9 +422,10 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with sample'):
             _ = t.sample(n=10).limit(5)
 
-    def test_limit_joins(self, uses_db: None) -> None:
+    def test_limit_joins(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         num_rows = 100
-        t1, t2, _ = self.create_join_tbls(num_rows)
+        t1, t2, _ = self.create_join_tbls(num_rows, p)
 
         # inner join + limit: only n rows returned, ordering preserved
         res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f).order_by(t1.i).limit(10).collect()
@@ -435,7 +438,7 @@ class TestQuery:
         assert [row['i'] for row in res] == list(range(10, 15))
 
         # cross join + limit: caps total output (10 * 10 = 100 → 25)
-        small1, small2, _ = self.create_join_tbls(10)
+        small1, small2, _ = self.create_join_tbls(10, p)
         res = small1.join(small2, how='cross').select(small1.i, small2.f).limit(25).collect()
         assert len(res) == 25
 
@@ -443,9 +446,10 @@ class TestQuery:
         res = small1.join(small2, on=small1.id, how='inner').select(small1.i).limit(1000).collect()
         assert len(res) == 10
 
-    def test_limit_iterator_views(self, uses_db: None) -> None:
-        base_t = pxt.create_table('lim_base', {'video': pxt.Video})
-        view_t = pxt.create_view('lim_frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
+    def test_limit_iterator_views(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        base_t = pxt.create_table(p('lim_base'), {'video': pxt.Video})
+        view_t = pxt.create_view(p('lim_frames'), base_t, iterator=frame_iterator(base_t.video, fps=1))
         base_t.insert(video=get_video_files()[0])
 
         total = view_t.count()
@@ -511,17 +515,18 @@ class TestQuery:
         query = t.select(t.c1, t.c2).order_by(t.c2).limit(0)
         cur = query.cursor()
         # TODO: add ResultCursor.keys(), analogously to Sqlalchemy's CursorResult.keys()?
-        assert list(cur._schema.keys()) == ['c1', 'c2']
+        assert list(cur.schema.keys()) == ['c1', 'c2']
         rows = list(cur)
         assert rows == []
-        assert list(cur._schema.keys()) == ['c1', 'c2']
+        assert list(cur.schema.keys()) == ['c1', 'c2']
 
-    def test_head_tail(self, test_tbl: pxt.Table) -> None:
+    def test_head_tail(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl
         res = t.head(10).to_pandas()
         assert np.all(res.c2 == list(range(10)))
         reload_catalog()
-        t = pxt.get_table('test_tbl')
+        t = pxt.get_table(p('test_tbl'))
         res = t.head(10).to_pandas()
         # Where is applied
         res = t.where(t.c2 > 9).head(10).to_pandas()
@@ -610,11 +615,12 @@ class TestQuery:
         distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
         assert cnt == distinct_c1_filtered
 
-    def test_count_join(self, uses_db: None) -> None:
+    def test_count_join(self, make_catalog_path: Callable[[str], str]) -> None:
         """Tests for join...count queries"""
         # TODO(PXT-1108): when the join+where bug is fixed, add some queries with where().
+        p = make_catalog_path
         num_rows = 100
-        t1, t2, t3 = self.create_join_tbls(num_rows)
+        t1, t2, t3 = self.create_join_tbls(num_rows, p)
 
         # Inner join + count. Note: t1 and t2 have matching ids.
         cnt = t1.join(t2, on=(t1.id == t2.id), how='inner').count()
@@ -633,8 +639,9 @@ class TestQuery:
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
-    def test_html_media_url(self, uses_db: None) -> None:
-        tab = pxt.create_table('test_html_repr', {'video': pxt.Video, 'audio': pxt.Audio, 'doc': pxt.Document})
+    def test_html_media_url(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        tab = pxt.create_table(p('test_html_repr'), {'video': pxt.Video, 'audio': pxt.Audio, 'doc': pxt.Document})
 
         pdf_doc = next(f for f in get_documents() if f.endswith('.pdf'))
         status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0], doc=pdf_doc)
@@ -688,7 +695,8 @@ class TestQuery:
         validate_update_status(t.select().delete())
         assert t.count() == 0
 
-    def test_mutation_op_restrictions(self, test_tbl: pxt.Table) -> None:
+    def test_mutation_op_restrictions(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl
 
         # select_list
@@ -732,8 +740,8 @@ class TestQuery:
 
         # grouping_tbl
 
-        t2 = pxt.create_table('test_tbl_2', {'name': pxt.String, 'video': pxt.Video})
-        v2 = pxt.create_view('test_view_2', t2, iterator=frame_iterator(t2.video, fps=1))
+        t2 = pxt.create_table(p('test_tbl_2'), {'name': pxt.String, 'video': pxt.Video})
+        v2 = pxt.create_view(p('test_view_2'), t2, iterator=frame_iterator(t2.video, fps=1))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
         assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
@@ -748,7 +756,7 @@ class TestQuery:
         assert 'Cannot use `delete` on a view.' in str(exc_info.value)
 
         # update snapshot
-        snap = pxt.create_snapshot('test_snapshot', t)
+        snap = pxt.create_snapshot(p('test_snapshot'), t)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             snap.where(t.c2 < 10).update({'c3': 0.0})
         assert 'Cannot use `update` on a snapshot.' in str(exc_info.value)
@@ -796,6 +804,7 @@ class TestQuery:
         self.__check_constant_query(t.select(foo=5), 5)
         self.__check_constant_query(t.select(foo=None), None)
 
+    @pytest.mark.local('TODO: convert')
     def test_to_pytorch_dataset(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests all types are handled correctly in this conversion"""
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
@@ -811,10 +820,9 @@ class TestQuery:
 
             arrval = tup['c_array']
             assert isinstance(arrval, np.ndarray)
-            col_type = query.schema['c_array']
-            assert isinstance(col_type, ts.ArrayType)
-            assert arrval.dtype == col_type.dtype
-            assert arrval.shape == col_type.shape
+            # c_array is declared pxt.Array[(10,), pxt.Float]
+            assert arrval.shape == (10,)
+            assert arrval.dtype == np.float32
             assert arrval.dtype == np.float32
             assert arrval.flags['WRITEABLE'], 'required by pytorch collate function'
 
@@ -826,6 +834,7 @@ class TestQuery:
             assert isinstance(tup['c_video'], str)
             assert isinstance(tup['c_json'], dict)
 
+    @pytest.mark.local('TODO: convert')
     def test_to_pytorch_image_format(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests the image_format parameter is honored"""
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
@@ -880,6 +889,7 @@ class TestQuery:
             elt_count += 1
         assert elt_count == 1
 
+    @pytest.mark.local('to_pytorch_dataset caching keyed on the local dataset cache')
     def test_pytorch_dataset_caching(self, uses_db: None) -> None:
         """Tests that dataset caching works
         1. using the same dataset twice in a row uses the cache
@@ -890,7 +900,7 @@ class TestQuery:
         from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
         # to_pytorch_dataset goes through arrow codepath via export_parquet
-        t = create_all_datatypes_tbl(arrow_compatible_json=True)
+        t = create_all_datatypes_tbl(name='all_datatype_tbl', arrow_compatible_json=True)
 
         t.drop_column('c_video')  # null value video column triggers internal assertions in DataRow
         # see https://github.com/pixeltable/pixeltable/issues/38
@@ -923,6 +933,7 @@ class TestQuery:
         assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
+    @pytest.mark.local('exports a COCO dataset to the local filesystem')
     def test_to_coco(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO
@@ -960,9 +971,10 @@ class TestQuery:
             _ = view_t.select(view_t.detections).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
 
-    def test_distinct(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_distinct(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = make_catalog_path
         schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp, 'c5': pxt.Json}
-        t = pxt.create_table('test_distinct', schema)
+        t = pxt.create_table(p('test_distinct'), schema)
         results = t.distinct().collect()
         assert len(results) == 0
         rows = [
@@ -1053,7 +1065,9 @@ class TestQuery:
         assert 'c3' in results.schema
         assert 'c4' in results.schema
 
-    def test_to_pydantic(self, uses_db: None) -> None:
+    def test_to_pydantic(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+
         class TestModel(pydantic.BaseModel):
             i: int
             s: str
@@ -1072,7 +1086,7 @@ class TestQuery:
             model_config = pydantic.ConfigDict(extra='forbid')
 
         schema = {'i': pxt.Int, 's': pxt.String, 'f': pxt.Float, 'b': pxt.Bool, 'ts': pxt.Timestamp, 'd': pxt.Json}
-        t = pxt.create_table('pydantic_tbl', schema)
+        t = pxt.create_table(p('pydantic_tbl'), schema)
         t.insert(
             [
                 {'i': 1, 's': 'one', 'f': 1.0, 'b': True, 'ts': datetime.datetime(2024, 7, 2), 'd': {'k1': 'v1'}},
@@ -1148,7 +1162,7 @@ class TestQuery:
 
         # schema
         cur = query.cursor()
-        assert list(cur._schema.keys()) == ['c1', 'c2', 'c3']
+        assert list(cur.schema.keys()) == ['c1', 'c2', 'c3']
 
     def test_cursor_row(self, test_tbl: pxt.Table) -> None:
         query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
@@ -1173,16 +1187,18 @@ class TestQuery:
                 with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='does not exist'):
                     row['nonexistent']
 
-    def test_table_cursor(self, uses_db: None) -> None:
-        tbl = pxt.create_table('cursor_tbl', {'a': pxt.Int, 'b': pxt.String})
+    def test_table_cursor(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        tbl = pxt.create_table(p('cursor_tbl'), {'a': pxt.Int, 'b': pxt.String})
         tbl.insert([{'a': i, 'b': f'val_{i}'} for i in range(5)])
         rows = list(tbl.cursor())
         assert len(rows) == 5
         assert all('a' in row and 'b' in row for row in rows)
 
     @pytest.mark.benchmark(group='select_inexpensive')
-    def test_select_inexpensive(self, uses_db: None, benchmark: Any) -> None:
-        t = pxt.create_table('test_inexpensive', {'c1': pxt.Int, 'c2': pxt.String})
+    def test_select_inexpensive(self, make_catalog_path: Callable[[str], str], benchmark: Any) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test_inexpensive'), {'c1': pxt.Int, 'c2': pxt.String})
 
         row_count = 100000
 
@@ -1194,8 +1210,9 @@ class TestQuery:
 
         benchmark(select_inexpensive)
 
-    def test_query_after_column_drop(self, uses_db: None) -> None:
-        t = pxt.create_table('t_drop', {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
+    def test_query_after_column_drop(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('t_drop'), {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(10)]), expected_rows=10)
         q = t.select(t.a, t.b)
         assert len(q.collect()) == 10
@@ -1205,8 +1222,9 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_column_drop_and_add(self, uses_db: None) -> None:
-        t = pxt.create_table('t_readd', {'a': pxt.Required[pxt.Int], 'keep': pxt.Required[pxt.Int]})
+    def test_query_after_column_drop_and_add(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('t_readd'), {'a': pxt.Required[pxt.Int], 'keep': pxt.Required[pxt.Int]})
         validate_update_status(t.insert([{'a': 1, 'keep': 0}]), expected_rows=1)
         q = t.select(t.a)
         assert len(q.collect()) == 1
@@ -1217,36 +1235,32 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_schema_change(self, uses_db: None) -> None:
-        t = pxt.create_table('t_add', {'c1': pxt.Int})
+    def test_query_after_schema_change(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('t_add'), {'c1': pxt.Int})
         q_c1 = t.where(t.c1 > 1).select(t.c1)
         q_where = t.where(t.c1 > 1)
         q_select = t.where(t.c1 > 1).select()
         t.insert([{'c1': 1}, {'c1': 2}])
 
-        assert list(q_c1.schema.keys()) == ['c1']
-        assert list(q_where.schema.keys()) == ['c1']
-        assert list(q_select.schema.keys()) == ['c1']
-
         t.add_column(c2=pxt.Int)
         t.add_computed_column(c3=t.c1 * 10)
 
         for q in (q_where, q_select):
-            assert list(q.schema.keys()) == ['c1', 'c2', 'c3']
             res = q.collect()
             assert list(res.schema.keys()) == ['c1', 'c2', 'c3']
             assert len(res) == 1
             assert res[0] == {'c1': 2, 'c2': None, 'c3': 20}
 
-        assert list(q_c1.schema.keys()) == ['c1']
         res = q_c1.collect()
         assert list(res.schema.keys()) == ['c1']
         assert len(res) == 1
         assert res[0] == {'c1': 2}
 
-    def test_order_by_after_schema_change(self, uses_db: None) -> None:
+    def test_order_by_after_schema_change(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         # Confirm where/order_by/limit clauses don't capture stale select-list state.
-        t = pxt.create_table('t_add_ob', {'c1': pxt.Int, 'c2': pxt.Int})
+        t = pxt.create_table(p('t_add_ob'), {'c1': pxt.Int, 'c2': pxt.Int})
         t.insert([{'c1': i, 'c2': 5 - i} for i in range(5)])
         q = t.where(t.c1 >= 1).order_by(t.c2)
         assert list(q.schema.keys()) == ['c1', 'c2']

@@ -4,6 +4,8 @@ import pixeltable as pxt
 
 from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 @pytest.mark.remote_api
 @pytest.mark.very_expensive  # Not really "very expensive", but Together AI is too unreliable for merge queue

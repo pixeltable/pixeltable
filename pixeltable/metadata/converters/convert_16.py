@@ -14,4 +14,4 @@ def _(conn: sql.Connection) -> None:
 def __update_table_md(table_md: dict, table_id: UUID) -> None:
     # External stores are not migratable; just drop them
     del table_md['remotes']
-    table_md['external_stores'] = {}
+    table_md['external_stores'] = []

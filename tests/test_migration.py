@@ -42,6 +42,57 @@ _logger = logging.getLogger('pixeltable_test')
 
 
 class TestMigration:
+    def test_convert_53_normalize(self) -> None:
+        """Unit test for the version 53->54 function-serialization normalization (no DB needed)."""
+        from pixeltable.metadata.converters.convert_53 import _normalize
+
+        # base form (Function._as_dict, non-polymorphic): singular 'signature' -> 'signatures' list, even when
+        # the function dict is nested (here as a computed-column value_expr)
+        md = {'cols': {'c': {'value_expr': {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signature': {'s': 1}}}}}
+        _normalize(md)
+        assert md['cols']['c']['value_expr'] == {
+            '_classpath': 'p.CallableFunction',
+            'path': 'a.f',
+            'signatures': [{'s': 1}],
+        }
+
+        # by-value ExprTemplateFunction: 'expr' + 'signature' -> 'templates' list
+        md = {'fn': {'_classpath': 'p.ExprTemplateFunction', 'expr': {'e': 1}, 'signature': {'s': 2}, 'name': 'g'}}
+        _normalize(md)
+        assert md['fn'] == {
+            '_classpath': 'p.ExprTemplateFunction',
+            'name': 'g',
+            'templates': [{'expr': {'e': 1}, 'signature': {'s': 2}}],
+        }
+
+        # a root-level function dict is rewritten too (the substitution_fn-based walkers never visit the root)
+        md = {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signature': {'s': 1}}
+        _normalize(md)
+        assert md == {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signatures': [{'s': 1}]}
+
+        # non-targets are left untouched:
+        # QueryTemplateFunction carries its own 'signature' (no 'path'/'expr')
+        qtf = {
+            '_classpath': 'p.QueryTemplateFunction',
+            'name': 'q',
+            'signature': {'s': 1},
+            'df': {},
+            'return_scalar': False,
+        }
+        md = {'fn': {**qtf}}
+        _normalize(md)
+        assert md['fn'] == qtf
+        # the store_md of a pickled UDF has a 'signature' but no '_classpath'
+        store = {'name': 'h', 'store_md': {'signature': {'s': 1}, 'batch_size': None}, 'binary': '=='}
+        md = {'fn': {'name': 'h', 'store_md': {'signature': {'s': 1}, 'batch_size': None}, 'binary': '=='}}
+        _normalize(md)
+        assert md['fn'] == store
+        # already-converted (list) forms are idempotent
+        already = {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signatures': [{'s': 1}]}
+        md = {'fn': {**already}}
+        _normalize(md)
+        assert md['fn'] == already
+
     @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
     @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Runs only on Python 3.10 (due to pickling issue)')

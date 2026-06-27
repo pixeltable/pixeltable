@@ -28,6 +28,8 @@ from ..utils import (
     validate_update_status,
 )
 
+pytestmark = pytest.mark.local('TODO: convert; import/export (label_studio)')
+
 _logger = logging.getLogger('pixeltable_test')
 
 

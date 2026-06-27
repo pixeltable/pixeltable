@@ -53,5 +53,5 @@ class SchemaObject(abc.ABC):
     def _display_name(self) -> str:
         """Return name displayed in error messages."""
 
-    def _display_str(self) -> str:
-        return f'{self._display_name()} {self._path()!r}'
+    def _display_str(self, path: 'catalog.Path | None' = None) -> str:
+        return f'{self._display_name()} {(path if path is not None else self._path())!r}'
