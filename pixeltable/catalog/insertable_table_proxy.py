@@ -81,6 +81,7 @@ class InsertableTableProxy(TableProxy):
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Hosted insert does not support a {type(source).__name__} source yet.',
             )
+        rows = self._wrap_media_uploads(rows)
         return self._dispatch(
             'insert', {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows}
         )
@@ -103,7 +104,7 @@ class InsertableTableProxy(TableProxy):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'compute() requires a sequence of dicts or pydantic models'
             )
-        rows = self._prepare_rows(list(source))
+        rows = self._wrap_media_uploads(self._prepare_rows(list(source)))
         return self._dispatch('compute', {'rows': rows, 'on_error': on_error})
 
     def _insert_query(
@@ -117,13 +118,54 @@ class InsertableTableProxy(TableProxy):
         bound_args['query'] = query.as_dict()
         return self._dispatch('insert_query', bound_args)
 
+    def _wrap_media_uploads(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Wrap local media-column file paths as MediaFileUpload so they ship to the daemon as binary parts.
+
+        Remote URLs (http/s3/...) and non-path values are left unchanged, matching the local insert path (which
+        stores remote URLs as-is and fetches them on access).
+        """
+        import urllib.parse
+        import urllib.request
+
+        from pixeltable.service.proxy_protocol import MediaFileUpload
+
+        media_cols = {
+            col_md.name
+            for col_md in self._tbl_md_path.column_md()
+            if col_md.name is not None and col_md.col_type.is_media_type()
+        }
+        if len(media_cols) == 0:
+            return rows
+
+        def local_path(val: str) -> str | None:
+            # mirrors DataRow.__setitem__'s local-vs-remote classification
+            parsed = urllib.parse.urlparse(val)
+            if len(parsed.scheme) <= 1:
+                return val  # bare local path (scheme <= 1 also covers Windows drive letters)
+            if parsed.scheme == 'file':
+                return urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+            return None  # remote URL
+
+        wrapped: list[dict[str, Any]] = []
+        for row in rows:
+            new_row = dict(row)
+            for name in media_cols & new_row.keys():
+                val = new_row[name]
+                if isinstance(val, str):
+                    p = local_path(val)
+                    if p is not None:
+                        new_row[name] = MediaFileUpload(p)
+            wrapped.append(new_row)
+        return wrapped
+
     def _prepare_rows(self, source: list[Any]) -> list[dict[str, Any]]:
         """
         Validate and normalize a non-empty list of dict/pydantic source rows for the hosted catalog:
         - pydantic models are validated and converted to dicts on the client (the model classes aren't
           importable on the server)
         - plain dicts are shipped as-is
-        - local media paths are shipped unchanged, for now
+
+        Local media-column paths are wrapped for upload separately, by the caller, via `_wrap_media_uploads()`.
         """
         if isinstance(source[0], pydantic.BaseModel):
             source = self._pydantic_to_rows(source)

@@ -247,7 +247,11 @@ class FastAPIRouter(fastapi.APIRouter):
         self._jobs = {}
         self._jobs_lock = threading.Lock()
         self._home_dir = Config.get().home.resolve()
-        self._allowed_media_dirs = [Env.get().media_dir.resolve(), Env.get().tmp_dir.resolve()]
+        self._allowed_media_dirs = [
+            Env.get().media_dir.resolve(),
+            Env.get().tmp_dir.resolve(),
+            Env.get().file_cache_dir.resolve(),
+        ]
         self._engine_cache = {}
         self._register_media_route()
         self._register_jobs_route()
@@ -2003,12 +2007,20 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _convert_media_val(self, val: Any, url_for_media: Callable[[str], str]) -> Any:
         """
-        If val is a file:// uri under the Pixeltable media or tmp directory, converts that to a fetchable url of
-        the /media endpoint. Otherwise returns val unchanged.
+        If val is a local media file (a file:// uri or a bare absolute path) under an allowed media directory,
+        converts it to a fetchable url of the /media endpoint. Otherwise returns val unchanged.
+
+        Media values reach here in either form: a file:// uri (e.g. a column's fileurl) or a bare local path
+        (e.g. a ResultSet's localpath, or a proxy-fetched file in the FileCache).
         """
-        if not isinstance(val, str) or not val.startswith('file:'):
+        if not isinstance(val, str):
             return val
-        file_path = LocalStore.file_url_to_path(val)
+        if val.startswith('file:'):
+            file_path = LocalStore.file_url_to_path(val)
+        elif os.path.isabs(val):
+            file_path = Path(val)
+        else:
+            return val  # a relative path or a remote (http/s3/...) url; leave for the client to fetch
         if file_path is None:
             return val
         resolved = file_path.resolve()

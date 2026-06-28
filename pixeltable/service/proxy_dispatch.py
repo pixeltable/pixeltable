@@ -8,17 +8,22 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import pathlib
 import traceback
+import urllib.parse
+import urllib.request
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import UUID, uuid4
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
+from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
+from pixeltable.utils.local_store import TempStore
 
 from . import proxy_protocol
-from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest, ProxyResponse
+from .proxy_protocol import PROTOCOL_VERSION, MediaFileUpload, MediaUrlRef, ProxyRequest, ProxyResponse
 
 _logger = logging.getLogger(__name__)
 
@@ -54,7 +59,7 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
                 if snapshot_key != _current_key(md):
                     resp = ProxyResponse(current_md=proxy_protocol.serialize(md, response_parts), is_stale_md=True)
                     return resp.model_dump_json(), response_parts
-            result = table_handler(request, tbl)
+            result = _convert_result(key, table_handler(request, tbl))
             with cat.begin_xact(for_write=False):
                 md = cat.read_md_for_export(tbl)
             resp = ProxyResponse(
@@ -67,7 +72,8 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
             )
-        resp = ProxyResponse(result=proxy_protocol.serialize(handler(request), response_parts))
+        result = _convert_result(key, handler(request))
+        resp = ProxyResponse(result=proxy_protocol.serialize(result, response_parts))
         return resp.model_dump_json(), response_parts
     except excs.Error as e:
         if e.detail is not None:
@@ -88,6 +94,46 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
         )
         err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
         return ProxyResponse(error=err.to_dict()).model_dump_json(), []
+
+
+def _result_local_path(val: str) -> pathlib.Path | None:
+    """Resolve a result media value to a local fs path (bare path or file:// URI), or None for a remote URL."""
+    parsed = urllib.parse.urlparse(val)
+    if len(parsed.scheme) <= 1:
+        return pathlib.Path(val)  # bare local path (scheme <= 1 also covers Windows drive letters)
+    if parsed.scheme == 'file':
+        return pathlib.Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
+    return None
+
+
+def _media_to_wire(value: Any) -> Any:
+    """Convert a single media-column result value for the wire.
+
+    Transient media (a file under the daemon TempStore, e.g. a computed-on-the-fly transform) is shipped back as
+    bytes via MediaFileUpload, landing in the client's TempStore. Persisted media (under the daemon media dir, e.g.
+    a stored column) is returned as a MediaUrlRef the client fetches lazily from the daemon's /media endpoint into
+    its FileCache. Remote URLs and non-string values (e.g. an in-memory PIL.Image) pass through unchanged.
+
+    Callers apply this only to values their result schema identifies as media.
+    """
+    if not isinstance(value, str):
+        return value
+    path = _result_local_path(value)
+    if path is None:
+        return value  # remote URL
+    if TempStore.contains_path(path):
+        return MediaFileUpload(str(path))
+    media_dir = Env.get().media_dir.resolve()
+    resolved = path.resolve()
+    if resolved == media_dir or media_dir in resolved.parents:
+        return MediaUrlRef(resolved.relative_to(media_dir).as_posix())
+    return value
+
+
+def _convert_result(key: tuple[str, str], result: Any) -> Any:
+    """Apply this method's registered output converter (if any) to prepare its result for the wire."""
+    converter = _RESULT_CONVERTERS.get(key)
+    return result if converter is None else converter(result)
 
 
 def _deserialize_args(request: ProxyRequest) -> dict:
@@ -352,6 +398,40 @@ def _query_count(request: ProxyRequest) -> int:
     return build().count()
 
 
+# Output converters: prepare a handler's return value for the wire. A media-bearing result ships its transient
+# (computed-on-the-fly) media back as bytes via MediaFileUpload; each converter knows the structure its handler
+# returns. Methods without a converter need no media handling.
+def _convert_row_media(rows: list[dict[str, Any]]) -> None:
+    """In place: ship transient media in named result rows (keyed by column name) back to the client as bytes."""
+    for row in rows:
+        for name in row:
+            row[name] = _media_to_wire(row[name])
+
+
+def _encode_update_status(result: Any) -> Any:
+    """Converter for handlers returning an UpdateStatus with rows (insert/insert_query/update/batch_update)."""
+    _convert_row_media(result.rows or [])
+    return result
+
+
+def _encode_compute_result(result: Any) -> Any:
+    """Converter for compute(), which returns a list of result-row dicts."""
+    _convert_row_media(result)
+    return result
+
+
+def _encode_result_set(result: dict) -> dict:
+    """Converter for query terminals returning {schema, rows} (rows are positional value lists).
+
+    Applied per value rather than by schema: the query-route media rewrite (`_fastapi.py`) turns a media
+    ColumnRef output into a `.localpath`/`.fileurl` (a String-typed expr), so the schema no longer marks those
+    positions as media. `_media_to_wire` is a no-op on non-media strings, so a per-value pass safely catches
+    both true media columns and these rewritten media paths.
+    """
+    result['rows'] = [[_media_to_wire(v) for v in row] for row in result['rows']]
+    return result
+
+
 # Catalog methods: handler(request) -> serializable result.
 _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'create_table'): _create_table,
@@ -414,4 +494,17 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'drop_embedding_index'): _drop_embedding_index,
     ('Table', 'drop_index'): _drop_index,
     ('Table', 'recompute_columns'): _recompute_columns,
+}
+
+# (class, method) -> output converter, for the methods whose result can carry media. handle() applies the
+# converter (if any) to a handler's return value before serialization.
+_RESULT_CONVERTERS: dict[tuple[str, str], Callable[[Any], Any]] = {
+    ('Query', 'collect'): _encode_result_set,
+    ('Query', 'head'): _encode_result_set,
+    ('Query', 'tail'): _encode_result_set,
+    ('Table', 'insert'): _encode_update_status,
+    ('Table', 'insert_query'): _encode_update_status,
+    ('Table', 'compute'): _encode_compute_result,
+    ('Table', 'update'): _encode_update_status,
+    ('Table', 'batch_update'): _encode_update_status,
 }

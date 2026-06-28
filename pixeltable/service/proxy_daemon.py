@@ -315,8 +315,11 @@ def _build_app() -> 'FastAPI':
     fastapi is imported here rather than at module level because it is an optional dependency, needed
     only when the daemon is actually served.
     """
-    from fastapi import FastAPI, Request, Response
+    from fastapi import FastAPI, HTTPException, Request, Response
     from fastapi.concurrency import run_in_threadpool
+    from fastapi.responses import FileResponse
+
+    from pixeltable.env import Env
 
     app = FastAPI()
 
@@ -340,6 +343,17 @@ def _build_app() -> 'FastAPI':
     @app.get('/health')
     def health() -> dict[str, str]:
         return {'status': 'ok'}
+
+    @app.get('/media/{ref:path}')
+    def serve_media(ref: str) -> FileResponse:
+        # serve a persisted media file by its media-dir-relative ref (see proxy_dispatch._media_to_wire)
+        media_dir = Env.get().media_dir.resolve()
+        resolved = (media_dir / ref).resolve()
+        if resolved != media_dir and media_dir not in resolved.parents:
+            raise HTTPException(status_code=404, detail='not found')
+        if not resolved.is_file():
+            raise HTTPException(status_code=404, detail='not found')
+        return FileResponse(resolved)
 
     return app
 

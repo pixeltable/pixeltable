@@ -15,7 +15,15 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
-from tests.utils import get_audio_files, get_image_files, get_video_files, pxt_raises, skip_test_if_not_installed, sleep
+from tests.utils import (
+    CatalogMode,
+    get_audio_files,
+    get_image_files,
+    get_video_files,
+    pxt_raises,
+    skip_test_if_not_installed,
+    sleep,
+)
 
 
 @pxt.udf
@@ -380,20 +388,22 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
-    # TODO: fix (proxy): computed media is materialized under the daemon's media/tmp dir, which the
-    # router's _allowed_media_dirs does not recognize, so it is not rewritten to a /media/ URL.
-    @pytest.mark.local('TODO: convert; computed media served from the daemon dir (proxy media gap)')
     def test_add_insert_route_video(
-        self, uses_db: None, use_uploadfile: bool, route_type: Literal['insert', 'compute']
+        self,
+        make_catalog_path: Callable[[str], str],
+        catalog_mode: CatalogMode,
+        use_uploadfile: bool,
+        route_type: Literal['insert', 'compute'],
     ) -> None:
-        """Test insert routes with video data, including FileResponse."""
+        """Test insert/compute routes with video data, including FileResponse and media serving."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
+        p = make_catalog_path
         video_path = get_video_files()[0]
-        pxt.create_dir('test_serve')
+        pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            'test_serve.videos', {'id': pxt.Int, 'video': pxt.Video, 'width': pxt.Int, 'height': pxt.Int}
+            p('test_serve.videos'), {'id': pxt.Int, 'video': pxt.Video, 'width': pxt.Int, 'height': pxt.Int}
         )
         t.add_computed_column(resized=t.video.resize(width=t.width, height=t.height))
         t.add_computed_column(thumbnail=t.video.extract_frame(timestamp=0.0))
@@ -425,37 +435,49 @@ class TestFastAPI:
             return_fileresponse=True,
         )
         client = make_test_client(router)
-        media_dir = str(Env.get().media_dir)
         post = make_media_poster(client, video_path, 'video', 'video/webm', use_uploadfile)
 
         # route /all: JSON response with media URLs
         resp = post('/all', 1, width=320, height=240)
         assert resp.status_code == 200, resp.text
         result = resp.json()
-        print(result)
         assert result['id'] == 1 and result['width'] == 320 and result['height'] == 240
 
-        # media URL format check (no row state needed)
-        if use_uploadfile:
+        # `video` is served as a /media/ URL when it was uploaded, or (over proxy) when a referenced local file
+        # had to be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
+        if use_uploadfile or catalog_mode == 'proxy':
             assert '/media/' in result['video'], result['video']
         else:
             assert result['video'].startswith('file:'), result['video']
-        if route_type == 'insert':
-            video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
-            if use_uploadfile:
-                assert video_local.startswith(media_dir + os.sep), f'video not under media_dir: {video_local}'
-                assert_media_fetchable(client, result['video'], video_local)
-            else:
-                assert not video_local.startswith(media_dir + os.sep), (
-                    f'external video moved into media_dir: {video_local}'
-                )
 
-            paths = t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
-            for col in ('resized', 'thumbnail'):
-                assert_media_fetchable(client, result[col], paths[col], label=col)
-            # verify persisted row
+        if route_type == 'insert':
+            if catalog_mode == 'local':
+                # storage-location / byte-identity checks only apply when the router and the table share a filesystem
+                media_dir = str(Env.get().media_dir)
+                video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
+                if use_uploadfile:
+                    assert video_local.startswith(media_dir + os.sep), f'video not under media_dir: {video_local}'
+                    assert_media_fetchable(client, result['video'], video_local)
+                else:
+                    assert not video_local.startswith(media_dir + os.sep), (
+                        f'external video moved into media_dir: {video_local}'
+                    )
+                paths = (
+                    t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
+                )
+                for col in ('resized', 'thumbnail'):
+                    assert_media_fetchable(client, result[col], paths[col], label=col)
+            else:
+                # over proxy the media lives on the daemon; verify each output is fetchable through the router
+                for col in ('video', 'resized', 'thumbnail'):
+                    media_resp = client.get(result[col])
+                    assert media_resp.status_code == 200, f'{col}: {media_resp.status_code}'
+                    assert len(media_resp.content) > 0, col
+
+            # verify the persisted row (scalar columns round-trip in both modes)
             row = t.where(t.id == 1).select(t.id, t.width, t.height).collect()[0]
             assert row == {'id': 1, 'width': 320, 'height': 240}
+
         # semantic check on computed media (runs in both modes)
         fetch_and_decode_media(client, result['resized'], assert_video_bytes, width=320, height=240)
         fetch_and_decode_media(client, result['thumbnail'], assert_image_bytes)
@@ -480,26 +502,29 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
-    # TODO: fix (proxy): computed media is materialized under the daemon's media/tmp dir, which the
-    # router's _allowed_media_dirs does not recognize, so it is not rewritten to a /media/ URL.
-    @pytest.mark.local('TODO: convert; computed media served from the daemon dir (proxy media gap)')
     def test_add_insert_route_image(
-        self, uses_db: None, use_uploadfile: bool, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+        self,
+        make_catalog_path: Callable[[str], str],
+        catalog_mode: CatalogMode,
+        use_uploadfile: bool,
+        tmp_path: pathlib.Path,
+        route_type: Literal['insert', 'compute'],
     ) -> None:
         """Image counterpart of test_add_insert_route_video. Structurally parallel so the two
         tests can later be generalized over a media-kind fixture."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
+        p = make_catalog_path
         image_path = get_image_files()[0]
         with PIL.Image.open(image_path) as img:
             orig_w, orig_h = img.size
-        pxt.create_dir('test_serve')
+        pxt.create_dir(p('test_serve'))
         # Unlike video.resize (which tolerates None width/height and preserves aspect ratio),
         # image.resize requires concrete ints - so width and height must be Required, and every
         # insert (even the /rotate one, which doesn't care about them) has to supply them.
         t = pxt.create_table(
-            'test_serve.images',
+            p('test_serve.images'),
             {'id': pxt.Int, 'image': pxt.Image, 'width': pxt.Required[pxt.Int], 'height': pxt.Required[pxt.Int]},
         )
         # resized: uses both scalar inputs (mirrors video.resize(width=..., height=...))
@@ -556,34 +581,40 @@ class TestFastAPI:
             return_fileresponse=True,
         )
         client = make_test_client(router)
-        media_dir = str(Env.get().media_dir)
         post = make_media_poster(client, image_path, 'image', 'image/jpeg', use_uploadfile)
 
         # route /all: JSON response with media URLs
         resp = post('/all', 1, width=128, height=96)
         assert resp.status_code == 200, resp.text
         result = resp.json()
-        print(result)
         assert result['id'] == 1 and result['width'] == 128 and result['height'] == 96
 
-        # media URL format check
-        if use_uploadfile:
+        # `image` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
+        # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
+        if use_uploadfile or catalog_mode == 'proxy':
             assert '/media/' in result['image'], result['image']
         else:
             assert result['image'].startswith('file:'), result['image']
         if route_type == 'insert':
-            image_local = t.where(t.id == 1).select(p=t.image.localpath).collect()[0]['p']
-            if use_uploadfile:
-                assert image_local.startswith(media_dir + os.sep), f'image not under media_dir: {image_local}'
-                assert_media_fetchable(client, result['image'], image_local)
+            if catalog_mode == 'local':
+                media_dir = str(Env.get().media_dir)
+                image_local = t.where(t.id == 1).select(p=t.image.localpath).collect()[0]['p']
+                if use_uploadfile:
+                    assert image_local.startswith(media_dir + os.sep), f'image not under media_dir: {image_local}'
+                    assert_media_fetchable(client, result['image'], image_local)
+                else:
+                    assert not image_local.startswith(media_dir + os.sep), (
+                        f'external image moved into media_dir: {image_local}'
+                    )
+                paths = t.where(t.id == 1).select(resized=t.resized.localpath, rotated=t.rotated.localpath).collect()[0]
+                for col in ('resized', 'rotated'):
+                    assert_media_fetchable(client, result[col], paths[col], label=col)
             else:
-                assert not image_local.startswith(media_dir + os.sep), (
-                    f'external image moved into media_dir: {image_local}'
-                )
-
-            paths = t.where(t.id == 1).select(resized=t.resized.localpath, rotated=t.rotated.localpath).collect()[0]
-            for col in ('resized', 'rotated'):
-                assert_media_fetchable(client, result[col], paths[col], label=col)
+                # over proxy the media lives on the daemon; verify each output is fetchable through the router
+                for col in ('image', 'resized', 'rotated'):
+                    media_resp = client.get(result[col])
+                    assert media_resp.status_code == 200, f'{col}: {media_resp.status_code}'
+                    assert len(media_resp.content) > 0, col
             # verify persisted row
             row = t.where(t.id == 1).select(t.id, t.width, t.height).collect()[0]
             assert row == {'id': 1, 'width': 128, 'height': 96}
@@ -611,7 +642,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
         assert_image_bytes(resp.content, size=(64, 48))
-        if route_type == 'insert':
+        if route_type == 'insert' and catalog_mode == 'local':
             resized_path = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, resized_path, 'image/')
 
@@ -621,17 +652,18 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
         assert_image_bytes(resp.content, size=(orig_w, orig_h))
-        if route_type == 'insert':
+        if route_type == 'insert' and catalog_mode == 'local':
             rotated_path = t.where(t.id == 3).select(p=t.rotated.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, rotated_path, 'image/')
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
-    # TODO: fix (proxy): computed media is materialized under the daemon's media/tmp dir, which the
-    # router's _allowed_media_dirs does not recognize, so it is not rewritten to a /media/ URL.
-    @pytest.mark.local('TODO: convert; computed media served from the daemon dir (proxy media gap)')
     def test_add_insert_route_audio(
-        self, uses_db: None, use_uploadfile: bool, route_type: Literal['insert', 'compute']
+        self,
+        make_catalog_path: Callable[[str], str],
+        catalog_mode: CatalogMode,
+        use_uploadfile: bool,
+        route_type: Literal['insert', 'compute'],
     ) -> None:
         """Audio counterpart of test_add_insert_route_video/_image. Structurally parallel so the
         three tests can later be generalized over a media-kind fixture. Uses the audio UDFs
@@ -639,13 +671,14 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
+        p = make_catalog_path
         # Use sample-16-bit.wav specifically so the mime type in upload mode is deterministic.
         audio_path = next(f for f in get_audio_files() if f.endswith('sample-16-bit.wav'))
-        pxt.create_dir('test_serve')
+        pxt.create_dir(p('test_serve'))
         # factor and end_time are Required because multiply_volume's `factor` param must be non-None
         # on every insert (the `scaled` computed column runs on every row).
         t = pxt.create_table(
-            'test_serve.audios',
+            p('test_serve.audios'),
             {'id': pxt.Int, 'audio': pxt.Audio, 'factor': pxt.Required[pxt.Float], 'end_time': pxt.Required[pxt.Float]},
         )
         # scaled: uses both scalar inputs (mirrors video.resize(width=..., height=...))
@@ -682,34 +715,42 @@ class TestFastAPI:
             return_fileresponse=True,
         )
         client = make_test_client(router)
-        media_dir = str(Env.get().media_dir)
         post = make_media_poster(client, audio_path, 'audio', 'audio/wav', use_uploadfile)
 
         # route /all: JSON response with media URLs
         resp = post('/all', 1, factor=0.5, end_time=0.5)
         assert resp.status_code == 200, resp.text
         result = resp.json()
-        print(result)
         assert result['id'] == 1 and result['factor'] == 0.5 and result['end_time'] == 0.5
 
-        # media URL format check
-        if use_uploadfile:
+        # `audio` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
+        # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
+        if use_uploadfile or catalog_mode == 'proxy':
             assert '/media/' in result['audio'], result['audio']
         else:
             assert result['audio'].startswith('file:'), result['audio']
         if route_type == 'insert':
-            audio_local = t.where(t.id == 1).select(p=t.audio.localpath).collect()[0]['p']
-            if use_uploadfile:
-                assert audio_local.startswith(media_dir + os.sep), f'audio not under media_dir: {audio_local}'
-                assert_media_fetchable(client, result['audio'], audio_local)
-            else:
-                assert not audio_local.startswith(media_dir + os.sep), (
-                    f'external audio moved into media_dir: {audio_local}'
+            if catalog_mode == 'local':
+                media_dir = str(Env.get().media_dir)
+                audio_local = t.where(t.id == 1).select(p=t.audio.localpath).collect()[0]['p']
+                if use_uploadfile:
+                    assert audio_local.startswith(media_dir + os.sep), f'audio not under media_dir: {audio_local}'
+                    assert_media_fetchable(client, result['audio'], audio_local)
+                else:
+                    assert not audio_local.startswith(media_dir + os.sep), (
+                        f'external audio moved into media_dir: {audio_local}'
+                    )
+                paths = (
+                    t.where(t.id == 1).select(scaled=t.scaled.localpath, normalized=t.normalized.localpath).collect()[0]
                 )
-
-            paths = t.where(t.id == 1).select(scaled=t.scaled.localpath, normalized=t.normalized.localpath).collect()[0]
-            for col in ('scaled', 'normalized'):
-                assert_media_fetchable(client, result[col], paths[col], label=col)
+                for col in ('scaled', 'normalized'):
+                    assert_media_fetchable(client, result[col], paths[col], label=col)
+            else:
+                # over proxy the media lives on the daemon; verify each output is fetchable through the router
+                for col in ('audio', 'scaled', 'normalized'):
+                    media_resp = client.get(result[col])
+                    assert media_resp.status_code == 200, f'{col}: {media_resp.status_code}'
+                    assert len(media_resp.content) > 0, col
             # verify persisted row
             row = t.where(t.id == 1).select(t.id, t.factor, t.end_time).collect()[0]
             assert row == {'id': 1, 'factor': 0.5, 'end_time': 0.5}
@@ -723,7 +764,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('audio/'), resp.headers['content-type']
         assert_audio_bytes(resp.content)
-        if route_type == 'insert':
+        if route_type == 'insert' and catalog_mode == 'local':
             scaled_path = t.where(t.id == 2).select(p=t.scaled.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, scaled_path, 'audio/')
 
@@ -733,27 +774,30 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('audio/'), resp.headers['content-type']
         assert_audio_bytes(resp.content)
-        if route_type == 'insert':
+        if route_type == 'insert' and catalog_mode == 'local':
             normalized_path = t.where(t.id == 3).select(p=t.normalized.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, normalized_path, 'audio/')
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
-    # TODO: fix (proxy): computed media is materialized under the daemon's media/tmp dir, which the
-    # router's _allowed_media_dirs does not recognize, so it is not rewritten to a /media/ URL.
-    @pytest.mark.local('TODO: convert; computed media served from the daemon dir (proxy media gap)')
     def test_add_insert_route_video_bg(
-        self, uses_db: None, use_uploadfile: bool, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+        self,
+        make_catalog_path: Callable[[str], str],
+        catalog_mode: CatalogMode,
+        use_uploadfile: bool,
+        tmp_path: pathlib.Path,
+        route_type: Literal['insert', 'compute'],
     ) -> None:
         """Background variant of test_add_insert_route_video: POST returns a job id/url, the
         work runs in FastAPIRouter._executor, and the result is fetched via /jobs/{id}."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
+        p = make_catalog_path
         video_path = get_video_files()[0]
-        pxt.create_dir('test_serve')
+        pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            'test_serve.videos', {'id': pxt.Int, 'video': pxt.Video, 'width': pxt.Int, 'height': pxt.Int}
+            p('test_serve.videos'), {'id': pxt.Int, 'video': pxt.Video, 'width': pxt.Int, 'height': pxt.Int}
         )
         t.add_computed_column(resized=t.video.resize(width=t.width, height=t.height))
         t.add_computed_column(thumbnail=t.video.extract_frame(timestamp=0.0))
@@ -783,7 +827,6 @@ class TestFastAPI:
             export_sql=SqlExport(db_connect=db_connect, table='bg_resize'),
         )
         client = make_test_client(router)
-        media_dir = str(Env.get().media_dir)
         post = make_media_poster(client, video_path, 'video', 'video/webm', use_uploadfile)
 
         # unknown job id -> 404 (exercised once; independent of the actual jobs)
@@ -796,22 +839,32 @@ class TestFastAPI:
         result = await_background_job(client, job)['result']
         assert result['id'] == 1 and result['width'] == 320 and result['height'] == 240
 
-        # media URL format check
-        if use_uploadfile:
+        # `video` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
+        # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
+        if use_uploadfile or catalog_mode == 'proxy':
             assert '/media/' in result['video'], result['video']
         else:
             assert result['video'].startswith('file:'), result['video']
         if route_type == 'insert':
-            video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
-            if use_uploadfile:
-                assert video_local.startswith(media_dir + os.sep), f'video not under media_dir: {video_local}'
-                assert_media_fetchable(client, result['video'], video_local)
+            if catalog_mode == 'local':
+                media_dir = str(Env.get().media_dir)
+                video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
+                if use_uploadfile:
+                    assert video_local.startswith(media_dir + os.sep), f'video not under media_dir: {video_local}'
+                    assert_media_fetchable(client, result['video'], video_local)
+                else:
+                    assert not video_local.startswith(media_dir + os.sep)
+                paths = (
+                    t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
+                )
+                for col in ('resized', 'thumbnail'):
+                    assert_media_fetchable(client, result[col], paths[col], label=col)
             else:
-                assert not video_local.startswith(media_dir + os.sep)
-
-            paths = t.where(t.id == 1).select(resized=t.resized.localpath, thumbnail=t.thumbnail.localpath).collect()[0]
-            for col in ('resized', 'thumbnail'):
-                assert_media_fetchable(client, result[col], paths[col], label=col)
+                # over proxy the media lives on the daemon; verify each output is fetchable through the router
+                for col in ('video', 'resized', 'thumbnail'):
+                    media_resp = client.get(result[col])
+                    assert media_resp.status_code == 200, f'{col}: {media_resp.status_code}'
+                    assert len(media_resp.content) > 0, col
         # semantic check on computed media (runs in both modes)
         fetch_and_decode_media(client, result['resized'], assert_video_bytes, width=320, height=240)
         fetch_and_decode_media(client, result['thumbnail'], assert_image_bytes)
@@ -823,7 +876,7 @@ class TestFastAPI:
         result = await_background_job(client, job)['result']
         # single-output response model: only 'resized' is present
         assert set(result.keys()) == {'resized'}, result
-        if route_type == 'insert':
+        if route_type == 'insert' and catalog_mode == 'local':
             resize_local = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
             assert_media_fetchable(client, result['resized'], resize_local)
         fetch_and_decode_media(client, result['resized'], assert_video_bytes, width=160)
@@ -1130,15 +1183,15 @@ class TestFastAPI:
         assert scalar_schema.get('type') != 'array'
         assert 'rows' not in str(scalar_schema)
 
-    @pytest.mark.local('TODO: convert; query returns computed media served from the daemon dir (proxy media gap)')
-    def test_add_query_route_image(self, uses_db: None) -> None:
+    def test_add_query_route_image(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
+        p = make_catalog_path
         image_path = get_image_files()[0]
-        pxt.create_dir('test_serve')
-        t = pxt.create_table('test_serve.images', {'id': pxt.Int, 'image': pxt.Image})
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(p('test_serve.images'), {'id': pxt.Int, 'image': pxt.Image})
         # A computed resize produces derived media stored under media_dir, which the route will
         # rewrite to /media/ URLs. The raw `image` column stays at its pinned external path.
         t.add_computed_column(resized=t.image.resize(size=(32, 32)))
@@ -1165,8 +1218,6 @@ class TestFastAPI:
         router.add_query_route(path='/one-bg', query=one_image, background=True)
         client = make_test_client(router)
 
-        resized_locals = {row['id']: row['p'] for row in t.select(t.id, p=t.resized.localpath).collect()}
-
         # JSON variant: wrapper with rows containing objects with 'resized' fields rewritten as media URLs
         resp = client.post('/all-json', json={})
         assert resp.status_code == 200, resp.text
@@ -1180,7 +1231,13 @@ class TestFastAPI:
 
         # FileResponse: exactly one matching row -> image bytes
         resp = client.post('/one-file', json={'img_id': 1})
-        assert_fileresponse_ok(resp, resized_locals[1], 'image/')
+        if catalog_mode == 'local':
+            resized_local = t.where(t.id == 1).select(p=t.resized.localpath).collect()[0]['p']
+            assert_fileresponse_ok(resp, resized_local, 'image/')
+        else:
+            assert resp.status_code == 200, resp.text
+            assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
+            assert len(resp.content) > 0
 
         # FileResponse: 0 matching rows -> 404
         resp = client.post('/one-file', json={'img_id': 999})
@@ -1200,21 +1257,22 @@ class TestFastAPI:
         assert len(result['rows']) == 1
         assert '/media/' in result['rows'][0]['resized']
 
-    @pytest.mark.local('TODO: convert; query returns computed media served from the daemon dir (proxy media gap)')
-    def test_add_query_route_image_transform(self, uses_db: None) -> None:
+    def test_add_query_route_image_transform(self, make_catalog_path: Callable[[str], str]) -> None:
         """Inline image transformations (non-ColumnRef expressions) in the SELECT list.
 
         The query-route rewrite at `_fastapi.py` only targets `ColumnRef` items. When the
         SELECT list contains a raw image-valued expression (e.g., `t.image.resize([16, 16])`),
         the expression evaluates to a `PIL.Image.Image` at runtime and `_create_output`
-        flushes it to a temp file so the JSON / FileResponse paths can deliver it.
+        flushes it to a temp file so the JSON / FileResponse paths can deliver it. Over a proxy table the
+        transform runs on the daemon and the result is shipped back as bytes (transient media download).
         """
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
+        p = make_catalog_path
         image_path = get_image_files()[0]
-        pxt.create_dir('test_serve')
-        t = pxt.create_table('test_serve.img_xform', {'id': pxt.Int, 'image': pxt.Image})
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(p('test_serve.img_xform'), {'id': pxt.Int, 'image': pxt.Image})
         t.insert([{'id': 1, 'image': image_path}, {'id': 2, 'image': image_path}])
 
         @pxt.query
@@ -1241,6 +1299,42 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/')
         assert len(resp.content) > 0
+
+    def test_add_mirror_route_video(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Round trip over a proxy table: an insert route ingests a local video; a query route returns the
+        persisted, computed `mirrored` video by id. Over proxy this exercises the upload path and the
+        persisted-media download (daemon media URL -> client FileCache)."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        p = make_catalog_path
+        video_path = get_video_files()[0]
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(p('test_serve.mirror'), {'id': pxt.Int, 'v': pxt.Video})
+        t.add_computed_column(mirrored=t.v.mirror_x())
+
+        @pxt.query
+        def get_mirrored(vid: int) -> pxt.Query:
+            return t.where(t.id == vid).select(mirrored=t.mirrored)
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ingest', uploadfile_inputs=['v'])
+        router.add_query_route(path='/mirrored', query=get_mirrored, one_row=True)
+        client = make_test_client(router)
+
+        # ingest a local video
+        post = make_media_poster(client, video_path, 'v', 'video/webm', use_uploadfile=True)
+        resp = post('/ingest', 1)
+        assert resp.status_code == 200, resp.text
+
+        # retrieve the persisted, computed mirrored video by id
+        resp = client.post('/mirrored', json={'vid': 1})
+        assert resp.status_code == 200, resp.text
+        url = resp.json()['mirrored']
+        assert '/media/' in url, url
+        media = client.get(url)
+        assert media.status_code == 200
+        assert len(media.content) > 0
 
     def test_duplicate_routes(self, make_catalog_path: Callable[[str], str]) -> None:
         """Registering the same (path, method) twice must raise rather than silently shadow."""

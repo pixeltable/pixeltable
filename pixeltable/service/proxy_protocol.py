@@ -27,11 +27,30 @@ from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionP
 from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
 from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause
+from pixeltable.utils.local_store import TempStore
 
 PROTOCOL_VERSION = 1
 
 # Reserved key marking a type-tagged value: {_TAG: <type-name>, 'v': <payload>}.
 _TAG = '$pxt'
+
+
+@dataclasses.dataclass
+class MediaFileUpload:
+    """Wraps a local media file so serialize() ships its bytes as a binary part; deserialize() writes them to the
+    local TempStore and yields the new path. Used to move file-backed media across the proxy boundary in both
+    directions (client insert/compute args and daemon transient result rows)."""
+
+    path: str
+
+
+@dataclasses.dataclass
+class MediaUrlRef:
+    """References persisted daemon media (under the media dir) by a media-dir-relative path. The daemon emits it for
+    result media; the client fetches it from the daemon's /media endpoint into its FileCache (see ProxyClient).
+    deserialize() yields it unchanged so the client can find and localize it after decoding the response."""
+
+    ref: str
 
 
 class ProxyRequest(BaseModel):
@@ -139,6 +158,12 @@ def serialize(obj: Any, binary_parts: list[bytes]) -> Any:
         fmt = obj.format or 'PNG'
         obj.save(buf, format=fmt)
         return {_TAG: 'image', 'format': fmt, 'v': _add_part(binary_parts, buf.getvalue())}
+    if isinstance(obj, MediaFileUpload):
+        with open(obj.path, 'rb') as f:
+            data = f.read()
+        return {_TAG: 'mediafile', 'ext': pathlib.Path(obj.path).suffix, 'v': _add_part(binary_parts, data)}
+    if isinstance(obj, MediaUrlRef):
+        return {_TAG: 'mediaurl', 'v': obj.ref}
     if isinstance(obj, list):
         return [serialize(x, binary_parts) for x in obj]
     if isinstance(obj, tuple):
@@ -174,6 +199,15 @@ def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
             img = PIL.Image.open(io.BytesIO(binary_parts[v]))
             img.load()  # read pixels now so the result doesn't depend on the transient buffer
             return img
+        if tag == 'mediafile':
+            # write the shipped bytes into the local TempStore and hand back the new path
+            dest = TempStore.create_path(extension=obj.get('ext', ''))
+            with open(dest, 'wb') as f:
+                f.write(binary_parts[v])
+            return str(dest)
+        if tag == 'mediaurl':
+            # persisted daemon media; the client localizes it from the daemon's /media endpoint (see ProxyClient)
+            return MediaUrlRef(v)
         if tag == 'IfExistsParam':
             return IfExistsParam[v]
         if tag == 'IfNotExistsParam':
