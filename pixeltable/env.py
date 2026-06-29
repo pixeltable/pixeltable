@@ -699,7 +699,6 @@ class Env:
         self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('imagehash')
-        self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
         self.__register_package('lance', library_name='pylance')
         self.__register_package('lancedb')
         self.__register_package('librosa')
@@ -928,7 +927,7 @@ def register_client(name: str, *, credential_param: str | None) -> Callable:
     otherwise it throws an exception.
 
     Args:
-        name: The name of the API client (e.g., 'openai' or 'label_studio').
+        name: The name of the API client (e.g., 'openai' or 'anthropic').
         credential_param: The factory parameter whose value must be treated as a secret, or
             None for factories whose parameters carry no credentials (e.g. object-store clients
             that read their auth from the surrounding AWS_*/GCS_* environment).

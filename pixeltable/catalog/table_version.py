@@ -24,7 +24,6 @@ from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectOps
 
-from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _ROWID_COLUMN_NAME, MediaValidation, QColumnId, TableVersionMd, is_valid_identifier
 from .tbl_ops import (
@@ -44,7 +43,6 @@ if TYPE_CHECKING:
     from pixeltable import exec, store
     from pixeltable._query import Query
     from pixeltable.catalog.table_version_handle import TableVersionHandle
-    from pixeltable.io import ExternalStore
     from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.plan import SampleClause
 
@@ -131,7 +129,6 @@ class TableVersion:
     idxs_by_name: dict[str, TableVersion.IndexInfo]
     idxs_by_col: dict[QColumnId, list[TableVersion.IndexInfo]]
 
-    external_stores: dict[str, ExternalStore]
     store_tbl: 'store.StoreBase' | None
 
     is_initialized: bool  # True if init() has been called
@@ -207,7 +204,6 @@ class TableVersion:
         self.idxs_by_name = {}
         self.idxs_by_col = {}
         self.supports_idxs = self.effective_version is None
-        self.external_stores = {}
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -313,7 +309,6 @@ class TableVersion:
             view_sn=0,
             column_md=column_md,
             index_md=index_md,
-            external_stores=[],
             view_md=view_md,
             additional_md={},
             is_versioned=is_versioned,
@@ -378,8 +373,6 @@ class TableVersion:
         self._init_schema()
         if self.is_mutable:
             cat.record_column_dependencies(self)
-        # init external stores; this needs to happen after the schema is created
-        self._init_external_stores()
 
         self.is_initialized = True
 
@@ -1509,33 +1502,6 @@ class TableVersion:
         self.delete_media(tbl_version=old_version)
         _logger.info(f'TableVersion {self.name!r}: reverted to version {self.version}')
 
-    def _init_external_stores(self) -> None:
-        from pixeltable.io.external_store import ExternalStore
-
-        for store_md in self.tbl_md.external_stores:
-            store_cls = resolve_symbol(store_md['class'])
-            assert isinstance(store_cls, type) and issubclass(store_cls, ExternalStore)
-            store = store_cls.from_dict(store_md['md'])
-            self.external_stores[store.name] = store
-
-    def link_external_store(self, store: ExternalStore) -> None:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
-        self.bump_version(bump_schema_version=True)
-
-        self.external_stores[store.name] = store
-        self._tbl_md.external_stores.append(
-            {'class': f'{type(store).__module__}.{type(store).__qualname__}', 'md': store.as_dict()}
-        )
-        self._write_md(new_version=True, new_schema_version=True)
-
-    def unlink_external_store(self, store: ExternalStore) -> None:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
-        del self.external_stores[store.name]
-        self.bump_version(bump_schema_version=True)
-        idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
-        self._tbl_md.external_stores.pop(idx)
-        self._write_md(new_version=True, new_schema_version=True)
-
     @property
     def id(self) -> UUID:
         return self.key.tbl_id
@@ -1788,12 +1754,6 @@ class TableVersion:
         if self.is_component_view:
             return 1 + self.base.get().num_rowid_columns()
         return 1
-
-    @classmethod
-    def _create_stores_md(cls, stores: Iterable[ExternalStore]) -> list[dict[str, Any]]:
-        return [
-            {'class': f'{type(store).__module__}.{type(store).__qualname__}', 'md': store.as_dict()} for store in stores
-        ]
 
     def as_dict(self) -> dict:
         return self.key.as_dict()

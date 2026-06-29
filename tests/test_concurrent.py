@@ -404,7 +404,6 @@ class TestConcurrentOps:
             t.describe()
             t.get_versions()
             t.history()
-            t.external_stores()
             t.get_base_table()
 
             # Query-builder + terminals

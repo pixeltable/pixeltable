@@ -167,7 +167,6 @@ dev = [
     "openai-whisper>=20250625 ; python_version < '3.14'",
     # whisperx is disabled because it hard-pins torch 2.8 (four full versions behind at the time of this writing).
     # "whisperx>=3.8.5 ; python_version < '3.14'",
-    "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
     "ollama>=0.6",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
     "mcp>=1.27.2",
