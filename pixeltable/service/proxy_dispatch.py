@@ -256,6 +256,29 @@ def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
     )
 
 
+def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
+    import datasets  # type: ignore[import-untyped]
+
+    assert isinstance(tbl, InsertableTable), tbl
+    kwargs = _deserialize_args(request)
+    # reassemble the shipped save_to_disk() directory: each entry pairs a relative path with a local temp file
+    # holding the shipped bytes
+    dataset_dir = TempStore.create_path()
+    for entry in kwargs['files']:
+        dest = dataset_dir / entry['relpath']
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(entry['upload'], dest)
+    dataset = datasets.load_from_disk(str(dataset_dir))
+    return tbl.insert(
+        dataset,
+        schema_overrides=kwargs['schema_overrides'],
+        on_error=kwargs['on_error'],
+        print_stats=kwargs['print_stats'],
+        return_rows=kwargs['return_rows'],
+        **(kwargs['extra_fields'] or {}),
+    )
+
+
 def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
     from pixeltable._query import Query
 
@@ -484,6 +507,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
     {
         'insert',
         'insert_source',
+        'insert_hf_dataset',
         'insert_query',
         'update',
         'delete',
@@ -510,6 +534,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'get_versions'): _get_versions,
     ('Table', 'insert'): _insert,
     ('Table', 'insert_source'): _insert_source,
+    ('Table', 'insert_hf_dataset'): _insert_hf_dataset,
     ('Table', 'insert_query'): _insert_query,
     ('Table', 'compute'): _compute,
     ('Table', 'update'): _update,
@@ -535,6 +560,7 @@ _RESULT_CONVERTERS: dict[tuple[str, str], Callable[[Any], Any]] = {
     ('Query', 'tail'): _encode_result_set,
     ('Table', 'insert'): _encode_update_status,
     ('Table', 'insert_source'): _encode_update_status,
+    ('Table', 'insert_hf_dataset'): _encode_update_status,
     ('Table', 'insert_query'): _encode_update_status,
     ('Table', 'compute'): _encode_compute_result,
     ('Table', 'update'): _encode_update_status,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any, Iterator, Literal, Sequence, cast
@@ -80,6 +82,18 @@ class InsertableTableProxy(TableProxy):
                 on_error=on_error,
                 print_stats=print_stats,
                 return_rows=return_rows,
+            )
+
+        # a HuggingFace dataset is shipped to the daemon in its own on-disk form and reconstructed there, rather
+        # than materialized into rows on the client
+        if self._is_hf_dataset(source):
+            return self._insert_hf_dataset(
+                source,
+                schema_overrides=schema_overrides,
+                on_error=on_error,
+                print_stats=print_stats,
+                return_rows=return_rows,
+                extra_fields=kwargs,
             )
 
         # source classification (and its 'unsupported data source type' error) is shared with the local insert path
@@ -214,6 +228,68 @@ class InsertableTableProxy(TableProxy):
                 'return_rows': return_rows,
             },
         )
+
+    def _is_hf_dataset(self, source: 'TableDataSource' | None) -> bool:
+        try:
+            import datasets  # type: ignore[import-untyped]
+        except ImportError:
+            return False
+        return isinstance(
+            source, (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict)
+        )
+
+    def _insert_hf_dataset(
+        self,
+        source: 'TableDataSource',
+        *,
+        schema_overrides: dict[str, ts.ColumnType] | None,
+        on_error: Literal['abort', 'ignore'],
+        print_stats: bool,
+        return_rows: bool,
+        extra_fields: dict[str, Any] | None,
+    ) -> UpdateStatus:
+        """
+        Ship a HuggingFace dataset to the daemon via its on-disk serialization.
+        - unfortunately HF Datasets are not reliably self-identifying, so we can't just ship the Dataset's identity
+          and re-instantiate it on the daemon
+        - datasets.save_to_disk() writes a self-contained Arrow copy (media bytes embedded, full feature metadata)
+        - this avoids materialization of the dataset in Python
+        """
+        from pixeltable.service.proxy_protocol import MediaFileUpload
+
+        # a streaming dataset (IterableDataset/IterableDatasetDict) has no on-disk serialization; supporting it
+        # would mean reading the entire stream into client memory, which is exactly what shipping the on-disk
+        # form avoids
+        dataset = cast(Any, source)
+        if not hasattr(dataset, 'save_to_disk'):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Importing a streaming HuggingFace dataset into a hosted table is not supported yet; '
+                'load the dataset without streaming=True.',
+            )
+
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            dataset.save_to_disk(tmp_dir)
+            files: list[dict[str, Any]] = []
+            for dir_path, _, names in os.walk(tmp_dir):
+                for name in sorted(names):
+                    abs_path = os.path.join(dir_path, name)
+                    rel_path = os.path.relpath(abs_path, tmp_dir).replace(os.sep, '/')
+                    files.append({'relpath': rel_path, 'upload': MediaFileUpload(abs_path)})
+            return self._dispatch(
+                'insert_hf_dataset',
+                {
+                    'files': files,
+                    'schema_overrides': self._normalize_schema_overrides(schema_overrides),
+                    'extra_fields': extra_fields or {},
+                    'on_error': on_error,
+                    'print_stats': print_stats,
+                    'return_rows': return_rows,
+                },
+            )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def _normalize_schema_overrides(
         self, schema_overrides: dict[str, ts.ColumnType] | None
