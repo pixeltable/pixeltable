@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import pathlib
+import shutil
 import traceback
 import urllib.parse
 import urllib.request
@@ -224,6 +225,31 @@ def _insert(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = _deserialize_args(request)
     return tbl.insert(
         kwargs['rows'],
+        on_error=kwargs['on_error'],
+        print_stats=kwargs['print_stats'],
+        return_rows=kwargs['return_rows'],
+    )
+
+
+def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
+    # only an InsertableTableProxy dispatches 'insert_source', so a non-InsertableTable here is an internal error
+    assert isinstance(tbl, InsertableTable), tbl
+    kwargs = _deserialize_args(request)
+    # 'source' is a local temp path (a shipped file), a remote URL string, or a list of temp paths (a shipped
+    # directory). tbl.insert() reads a local path or a URL directly; a directory is reassembled here.
+    source = kwargs['source']
+    if isinstance(source, list):
+        # reassemble the shipped directory, keeping its original name so format detection (e.g. by a *.parquet
+        # name) matches the local path
+        dest_dir = TempStore.create_path() / kwargs['source_dir_name']
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for path in source:
+            shutil.move(path, dest_dir / pathlib.Path(path).name)
+        source = str(dest_dir)
+    return tbl.insert(
+        source,
+        source_format=kwargs['source_format'],
+        schema_overrides=kwargs['schema_overrides'],
         on_error=kwargs['on_error'],
         print_stats=kwargs['print_stats'],
         return_rows=kwargs['return_rows'],
@@ -457,6 +483,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
 _MUTATION_METHODS: frozenset[str] = frozenset(
     {
         'insert',
+        'insert_source',
         'insert_query',
         'update',
         'delete',
@@ -482,6 +509,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'list_views'): _list_views,
     ('Table', 'get_versions'): _get_versions,
     ('Table', 'insert'): _insert,
+    ('Table', 'insert_source'): _insert_source,
     ('Table', 'insert_query'): _insert_query,
     ('Table', 'compute'): _compute,
     ('Table', 'update'): _update,
@@ -506,6 +534,7 @@ _RESULT_CONVERTERS: dict[tuple[str, str], Callable[[Any], Any]] = {
     ('Query', 'head'): _encode_result_set,
     ('Query', 'tail'): _encode_result_set,
     ('Table', 'insert'): _encode_update_status,
+    ('Table', 'insert_source'): _encode_update_status,
     ('Table', 'insert_query'): _encode_update_status,
     ('Table', 'compute'): _encode_compute_result,
     ('Table', 'update'): _encode_update_status,

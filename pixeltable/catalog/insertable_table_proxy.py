@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import urllib.parse
+import urllib.request
 from typing import TYPE_CHECKING, Any, Iterator, Literal, Sequence, cast
 from uuid import UUID
 
@@ -60,6 +63,25 @@ class InsertableTableProxy(TableProxy):
             # materialize a generator/iterator of rows, matching the local insert path
             source = list(source)
 
+        # a file/directory/URL source (parquet, ...) is read by the daemon from a shipped file rather than
+        # materialized into rows on the client -- except when the table has media columns, whose (possibly local)
+        # files must be shipped, so we read the source into rows here and route it through the media-upload path
+        if isinstance(source, str):
+            if self._has_media_columns():
+                rows = self._wrap_media_uploads(self._read_source_rows(source, source_format=source_format))
+                return self._dispatch(
+                    'insert',
+                    {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows},
+                )
+            return self._insert_source_file(
+                source,
+                source_format=source_format,
+                schema_overrides=schema_overrides,
+                on_error=on_error,
+                print_stats=print_stats,
+                return_rows=return_rows,
+            )
+
         # source classification (and its 'unsupported data source type' error) is shared with the local insert path
         data_source = TableDataConduit.create(
             source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
@@ -118,33 +140,105 @@ class InsertableTableProxy(TableProxy):
         bound_args['query'] = query.as_dict()
         return self._dispatch('insert_query', bound_args)
 
+    def _local_path(self, val: str) -> str | None:
+        """The local filesystem path for a bare path or file:// URL; None for a remote (http/s3/...) URL.
+
+        Mirrors DataRow.__setitem__'s local-vs-remote classification.
+        """
+        parsed = urllib.parse.urlparse(val)
+        if len(parsed.scheme) <= 1:
+            return val  # bare local path (scheme <= 1 also covers Windows drive letters)
+        if parsed.scheme == 'file':
+            return urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+        return None  # remote URL
+
+    def _media_column_names(self) -> set[str]:
+        return {
+            col_md.name
+            for col_md in self._tbl_md_path.column_md()
+            if col_md.name is not None and col_md.col_type.is_media_type()
+        }
+
+    def _has_media_columns(self) -> bool:
+        return len(self._media_column_names()) > 0
+
+    def _read_source_rows(
+        self, source: str, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None
+    ) -> list[dict[str, Any]]:
+        """Read a file/directory/URL source into rows on the client.
+
+        Used only when the table has media columns: the source's media values may be local file paths, whose
+        bytes must be shipped to the daemon (see _wrap_media_uploads). The values are kept in their source form;
+        the daemon validates and types them against the table schema.
+        """
+        from pixeltable.io.table_data_conduit import TableDataConduit
+
+        data_source = TableDataConduit.create(source, source_format=source_format)
+        data_source.src_pk = []
+        data_source.infer_schema()
+        return [row for batch in data_source.valid_row_batch() for row in batch]
+
+    def _insert_source_file(
+        self,
+        source: str,
+        *,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None,
+        schema_overrides: dict[str, ts.ColumnType] | None,
+        on_error: Literal['abort', 'ignore'],
+        print_stats: bool,
+        return_rows: bool,
+    ) -> UpdateStatus:
+        """Ship a media-free file/directory/URL source to the daemon, which reads it through its own conduit."""
+        from pixeltable.service.proxy_protocol import MediaFileUpload
+
+        local = self._local_path(source)
+        wire_source: Any
+        source_dir_name: str | None = None
+        if local is None:
+            wire_source = source  # remote URL: the daemon reads it directly
+        elif os.path.isdir(local):
+            # ship every file in the directory; the daemon reassembles them into a directory of the same name
+            wire_source = [MediaFileUpload(os.path.join(local, name)) for name in sorted(os.listdir(local))]
+            source_dir_name = os.path.basename(os.path.normpath(local))
+        else:
+            wire_source = MediaFileUpload(local)
+        return self._dispatch(
+            'insert_source',
+            {
+                'source': wire_source,
+                'source_dir_name': source_dir_name,
+                'source_format': source_format,
+                'schema_overrides': self._normalize_schema_overrides(schema_overrides),
+                'on_error': on_error,
+                'print_stats': print_stats,
+                'return_rows': return_rows,
+            },
+        )
+
+    def _normalize_schema_overrides(
+        self, schema_overrides: dict[str, ts.ColumnType] | None
+    ) -> dict[str, ts.ColumnType] | None:
+        """Normalize override values to ColumnType so they serialize, matching globals.create_table()."""
+        from pixeltable import type_system as ts
+
+        if schema_overrides is None:
+            return None
+        return {
+            name: t if isinstance(t, ts.ColumnType) else ts.ColumnType.normalize_type(t, nullable_default=True)
+            for name, t in schema_overrides.items()
+        }
+
     def _wrap_media_uploads(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Wrap local media-column file paths as MediaFileUpload so they ship to the daemon as binary parts.
 
         Remote URLs (http/s3/...) and non-path values are left unchanged, matching the local insert path (which
         stores remote URLs as-is and fetches them on access).
         """
-        import urllib.parse
-        import urllib.request
-
         from pixeltable.service.proxy_protocol import MediaFileUpload
 
-        media_cols = {
-            col_md.name
-            for col_md in self._tbl_md_path.column_md()
-            if col_md.name is not None and col_md.col_type.is_media_type()
-        }
+        media_cols = self._media_column_names()
         if len(media_cols) == 0:
             return rows
-
-        def local_path(val: str) -> str | None:
-            # mirrors DataRow.__setitem__'s local-vs-remote classification
-            parsed = urllib.parse.urlparse(val)
-            if len(parsed.scheme) <= 1:
-                return val  # bare local path (scheme <= 1 also covers Windows drive letters)
-            if parsed.scheme == 'file':
-                return urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
-            return None  # remote URL
 
         wrapped: list[dict[str, Any]] = []
         for row in rows:
@@ -152,7 +246,7 @@ class InsertableTableProxy(TableProxy):
             for name in media_cols & new_row.keys():
                 val = new_row[name]
                 if isinstance(val, str):
-                    p = local_path(val)
+                    p = self._local_path(val)
                     if p is not None:
                         new_row[name] = MediaFileUpload(p)
             wrapped.append(new_row)
