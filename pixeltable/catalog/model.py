@@ -1,24 +1,18 @@
 from __future__ import annotations
 
 import dataclasses
-import itertools
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, MutableMapping, NamedTuple, TypedDict
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
-from pixeltable.catalog.table_path import TableVersionPath
 from pixeltable.env import Env
 from pixeltable.query_clauses import SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
-from .catalog import retry_loop
-from .globals import IfExistsParam, MediaValidation, is_valid_identifier
+from .globals import MediaValidation, is_valid_identifier
 from .table import Table
-from .table_version import TableVersionKey
-from .table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
     import pixeltable as pxt
@@ -166,8 +160,24 @@ class _PlaceholderColumnRef(exprs.Expr):
             return exprs.ColumnPropertyRef(self, prop)  # type: ignore[arg-type]
         return super().__getattr__(item)
 
-    def as_dict(self) -> dict[str, Any]:
-        raise AssertionError('It should never be possible to serialize a placeholder.')
+    def _as_dict(self) -> dict[str, Any]:
+        # Placeholders are serialized so that a pre-substitution model can be shipped to whichever catalog
+        # creates the table (e.g. a proxied catalog). `name` is what substitution matches on; `col_type` keeps
+        # the enclosing value expression well-typed until the placeholder is substituted away server-side.
+        return {'name': self.name, 'col_type': self.col_type.as_dict()}
+
+    @classmethod
+    def _from_dict(cls, d: dict, _components: list[exprs.Expr], _tbl_versions: Any = None) -> _PlaceholderColumnRef:
+        # `normalize_type()` is idempotent on a ColumnType and preserves nullability, so round-tripping through
+        # the constructor reconstructs the exact placeholder type.
+        col_type = ts.ColumnType.from_dict(d['col_type'])
+        return cls(d['name'], {'type': col_type})  # type: ignore[arg-type]
+
+
+# `Expr.from_dict()` resolves expression classes by name from the `pixeltable.exprs` namespace. Register
+# `_PlaceholderColumnRef` there so that value expressions carrying placeholders can be deserialized by whichever
+# catalog creates the table (e.g. a proxied catalog's daemon), even though the class lives in `catalog.model`.
+exprs._PlaceholderColumnRef = _PlaceholderColumnRef  # type: ignore[attr-defined]
 
 
 @dataclasses.dataclass
@@ -585,34 +595,6 @@ class TableModelMetaclass(type):
         def has_changes(self) -> bool:
             return len(self.new_columns) > 0 or len(self.deleted_columns) > 0 or len(self.altered_columns) > 0
 
-    def _validate_model(
-        cls, existing_tbl: Table, bound_base: pxt.Query | None, bound_iterator: func.GeneratingFunctionCall | None
-    ) -> ValidationResults:
-        existing_md = existing_tbl.get_metadata()
-        model_kind = 'view' if issubclass(cls, ViewModel) else 'table'
-        if model_kind != existing_md['kind']:
-            raise excs.RequestError(
-                excs.ErrorCode.SCHEMA_MISMATCH,
-                f'{cls.__table_spec__["display_name"]} is defined as a {model_kind}, '
-                f'but the existing {existing_md["path"]!r} is a {existing_md["kind"]}.',
-            )
-
-        # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
-        # TODO: validate base table query
-
-        bound_iterator_str = 'None' if bound_iterator is None else bound_iterator.display_str()
-        if bound_iterator_str != str(existing_md['iterator_call']):
-            raise excs.RequestError(
-                excs.ErrorCode.SCHEMA_MISMATCH,
-                f'Iterator for {cls.__table_spec__["display_name"]} '
-                f'does not match the existing table {existing_md["path"]!r}.\n'
-                f'  Model iterator: {bound_iterator_str}\n'
-                f'  Existing iterator: {existing_md["iterator_call"]}',
-            )
-
-        # TODO: inspect columns and indices and populate the ValidationResults accordingly.
-        return cls.ValidationResults([], [], [], [], [], [])
-
     @classmethod
     def _normalize_binding_root(cls, binding_root: str) -> str:
         if binding_root.endswith('/'):
@@ -646,149 +628,57 @@ class TableModelMetaclass(type):
             return cls._resolve_tbl(binding_root, if_not_exists='error')
 
         table_spec: TableSpec = cls.__table_spec__
-        columns: dict[str, _PlaceholderColumnRef] = cls.__columns__
         indexes: dict[str, EmbeddingIndex] = cls.__indexes__
 
-        catalog_columns: list[catalog.Column] = []
-        subst_dict: dict[exprs.Expr, exprs.Expr] = {}
-
-        placeholder_base = table_spec['base']
-        iterator = table_spec['iterator']
-
-        initial_col_id = 0
+        # Bind the base query to an actual Query over the (already-existing) base table. This happens client-side,
+        # outside any transaction; the resulting Query references real columns and so is serializable to whichever
+        # catalog owns the table being created.
         base: pxt.Query | None = None
-        if placeholder_base is not None:
-            base = placeholder_base.bind(binding_root)
-            if base.select_list is None:
-                # select(*): put all visible columns from the base table into scope
-                for col in base._first_tbl.columns():
-                    subst_dict[_PlaceholderColumnRef(col.name)] = exprs.ColumnRef(col.column_version_md())
-            else:
-                initial_col_id = len(base.select_list)
-                for expr, name in base.select_list:
-                    if name is not None:
-                        subst_dict[_PlaceholderColumnRef(name)] = expr
-                for expr, name in base.select_list:
-                    if name is None and isinstance(expr, exprs.ColumnRef):
-                        subst_dict[_PlaceholderColumnRef(expr.column_md.name)] = expr
+        if table_spec['base'] is not None:
+            base = table_spec['base'].bind(binding_root)
 
-        tbl_id = uuid.uuid4()
-        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
-        next_col_id = itertools.count(initial_col_id)
+        # The model's own column specs, with `type` annotations resolved to ColumnTypes (the placeholder already
+        # computed these). Computed `value` expressions still carry `_PlaceholderColumnRef`s referencing sibling
+        # and base columns; those are substituted by the catalog that owns the table (see Catalog.create_from_model).
+        columns: dict[str, ColumnSpec] = {}
+        for name, placeholder in cls.__columns__.items():
+            spec: ColumnSpec = dict(placeholder.column_spec)  # type: ignore[assignment]
+            if 'type' in spec:
+                spec['type'] = placeholder.col_type  # type: ignore[typeddict-item]
+            columns[name] = spec
 
-        if iterator is not None:
-            subst_args = [arg.substitute(subst_dict) for arg in iterator.args]
-            subst_kwargs = {k: v.substitute(subst_dict) for k, v in iterator.kwargs.items()}
-            subst_bound_args = {k: v.substitute(subst_dict) for k, v in iterator.bound_args.items()}
-            iterator = func.GeneratingFunctionCall(
-                iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
-            )
-            for name, output in iterator.outputs.items():
-                catalog_col = catalog.Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
-                catalog_col.tbl_handle = tbl_handle
-                catalog_col.id = next(next_col_id)
-                subst_dict[_PlaceholderColumnRef(name)] = exprs.ColumnRef(
-                    catalog_col.column_version_md(), perform_validation=(table_spec['media_validation'] == 'on_read')
-                )
-
-        for name, placeholder in columns.items():
-            subst_spec: ColumnSpec = placeholder.column_spec.copy()
-            if 'value' in subst_spec:
-                subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
-                residual_placeholders = list(subst_spec['value'].subexprs(_PlaceholderColumnRef))
-                if len(residual_placeholders) > 0:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
-                        f'Column {name!r} in `{cls.__name__}` references columns that are not in '
-                        f"the model's scope: {[c.name for c in residual_placeholders]}",
-                    )
-            catalog_col = catalog.Column.create(name, subst_spec)
-            catalog_col.tbl_handle = tbl_handle
-            catalog_col.id = next(next_col_id)
-            catalog_columns.append(catalog_col)
-            subst_dict[placeholder] = exprs.ColumnRef(
-                catalog_col.column_version_md(),
-                perform_validation=subst_spec.get('media_validation', table_spec['media_validation']) == 'on_read',
-            )
-
-        # TODO: Validation against an existing table will happen here. For the time being, this is mostly a stub.
-        # TODO: If there is an existing table, schema merge (if possible) will happen here.
-        existing_tbl = cls._resolve_tbl(binding_root, if_not_exists='ignore')
-        if existing_tbl is not None:
-            cls._validate_model(existing_tbl, base, iterator)
-            return cls.bind(binding_root)
-
-        cat = get_runtime().catalog
         bound_path = f'{binding_root}{table_spec["name"]}'
         tbl_path = catalog.Path.parse(bound_path)
-        base_tvp: TableVersionPath | None = None
 
-        if issubclass(cls, TableModel):
-            create_fn = retry_loop(for_write=True)(
-                lambda: cat._create_table(
-                    path=tbl_path,
-                    columns=catalog_columns,
-                    if_exists=IfExistsParam.ERROR,
-                    primary_key=None,
-                    comment=table_spec['comment'],
-                    custom_metadata=table_spec['custom_metadata'],
-                    media_validation=table_spec['media_validation'],
-                    create_default_idxs=table_spec['create_default_idxs'],
-                    is_versioned=True,
-                    tbl_id=tbl_id,
-                )
-            )
+        cat = get_runtime().get_catalog(tbl_path)
+        tbl, was_created = cat.create_from_model(
+            path=tbl_path,
+            columns=columns,
+            display_name=table_spec['display_name'],
+            create_default_idxs=table_spec['create_default_idxs'],
+            media_validation=table_spec['media_validation'],
+            comment=table_spec['comment'],
+            custom_metadata=table_spec['custom_metadata'],
+            iterator=table_spec['iterator'],
+            base=base,
+        )
 
-        else:
-            assert issubclass(cls, ViewModel)
+        if was_created:
+            # Add any declared indexes. This is a separate (post-creation) step, using the routable Table API.
+            for idx_name, idx_spec in indexes.items():
+                col_ref = idx_spec.column
+                if isinstance(col_ref, str):
+                    col_ref = getattr(tbl, col_ref)
+                elif isinstance(col_ref, _PlaceholderColumnRef):
+                    col_ref = getattr(tbl, col_ref.name)
+                kwargs = dataclasses.asdict(idx_spec)
+                kwargs['column'] = col_ref
+                kwargs['idx_name'] = idx_name
+                tbl.add_embedding_index(**kwargs)
 
-            base_tvp = base._first_tbl
+            Env.get().console_logger.info(f'Created {tbl._path()!r} from {table_spec["display_name"]}.')
 
-            create_fn = retry_loop(for_write=True)(
-                lambda: cat._create_view(
-                    path=tbl_path,
-                    base=base_tvp,
-                    select_list=base.select_list,
-                    where=base.where_clause,
-                    sample_clause=base.sample_clause,
-                    additional_columns=catalog_columns,
-                    is_snapshot=False,
-                    create_default_idxs=table_spec['create_default_idxs'],
-                    iterator=iterator,
-                    comment=table_spec['comment'],
-                    custom_metadata=table_spec['custom_metadata'],
-                    media_validation=table_spec['media_validation'],
-                    if_exists=IfExistsParam.ERROR,
-                    tbl_id=tbl_id,
-                )
-            )
-
-        cat._roll_forward_ids.clear()
-        tbl_id_, _ = create_fn()
-        assert tbl_id == tbl_id_
-        if base_tvp is not None and base_tvp.is_mutable():
-            # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
-            cat._clear_tv_cache(base_tvp.tbl_version.key)
-        cat._roll_forward()
-
-        get_fn = retry_loop(read_tbl_ids=[tbl_id])(lambda: cat.get_table_by_id(tbl_id))
-        tbl = get_fn()
-
-        # Now add any declared indexes.
-        for idx_name, idx_spec in indexes.items():
-            col_ref = idx_spec.column
-            if isinstance(col_ref, str):
-                col_ref = getattr(tbl, col_ref)
-            elif isinstance(col_ref, _PlaceholderColumnRef):
-                col_ref = getattr(tbl, col_ref.name)
-            kwargs = dataclasses.asdict(idx_spec)
-            kwargs['column'] = col_ref
-            kwargs['idx_name'] = idx_name
-            tbl.add_embedding_index(**kwargs)
-
-        Env.get().console_logger.info(f'Created {tbl._path()!r} from {cls.__table_spec__["display_name"]}.')
-
-        return cls.bind(binding_root)  # strip trailing slash
+        return cls.bind(binding_root)
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:

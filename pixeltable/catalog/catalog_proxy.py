@@ -12,6 +12,7 @@ from .view_proxy import ViewProxy
 
 if TYPE_CHECKING:
     from pixeltable import exprs, func
+    from pixeltable._query import Query
     from pixeltable.plan import SampleClause
     from pixeltable.service.proxy_client import ProxyClient
     from pixeltable.types import ColumnSpec
@@ -110,6 +111,22 @@ class CatalogProxy(CatalogBase):
         }
         md, was_created = self._client.send_request('CatalogBase', 'create_view', args)
         return self._make_table(md, is_anon_snapshot=False), was_created
+
+    def create_from_model(
+        self,
+        path: Path,
+        columns: dict[str, ColumnSpec],
+        display_name: str,
+        create_default_idxs: bool,
+        media_validation: MediaValidation,
+        comment: str | None,
+        custom_metadata: Any,
+        iterator: func.GeneratingFunctionCall | None,
+        base: 'Query | None',
+    ) -> tuple[Table, bool]:
+        # TODO: serialize the model (columns carry placeholders; `base` is an already-bound Query) and dispatch
+        # to the daemon, which runs Catalog.create_from_model in its own catalog.
+        raise NotImplementedError('create_from_model is not yet supported over a proxied catalog')
 
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
         md = self._client.send_request('CatalogBase', 'get_table', {'path': path, 'if_not_exists': if_not_exists})
