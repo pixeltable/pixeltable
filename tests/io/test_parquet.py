@@ -1,6 +1,6 @@
 import datetime
 import pathlib
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,7 @@ from pixeltable.utils.arrow import to_pydict
 from ..utils import (
     SAMPLE_IMAGE_URL,
     CatalogMode,
+    assert_schema_eq,
     ensure_s3_pytest_resources_access,
     get_image_files,
     make_test_arrow_table,
@@ -21,11 +22,6 @@ from ..utils import (
     skip_test_if_not_installed,
     validate_update_status,
 )
-
-
-def public_schema(tbl: pxt.Table) -> dict[str, Any]:
-    """A table's column name -> ColumnType via the public API (works for proxy tables, unlike _get_schema())."""
-    return {name: getattr(tbl, name).col_type for name in tbl.columns()}
 
 
 def validate_parquet_files(path: pathlib.Path, rows: list[dict]) -> None:
@@ -253,7 +249,7 @@ class TestParquet:
 
         it = pxt.io.import_parquet(p('imported_test1'), parquet_path=str(export_file1))
         assert it.count() == t.count()
-        assert public_schema(it) == public_schema(t)
+        assert_schema_eq(it, t)
         assert it.select(it.c1).order_by(it.c1).collect() == t.select(t.c1).order_by(t.c1).collect()
         assert it.select(it.c2).order_by(it.c1).collect() == t.select(t.c2).order_by(t.c1).collect()
         c3_result = it.select(it.c3).order_by(it.c1).collect()
@@ -270,7 +266,7 @@ class TestParquet:
 
         it = pxt.io.import_parquet(p('imported_test3'), parquet_path=str(export_file3))
         assert it.count() == 1
-        assert public_schema(it) == public_schema(t)
+        assert_schema_eq(it, t)
         assert it.select(it.c1).collect() == t.where(t.c1 == 1).select(t.c1).collect()
         assert it.select(it.c2).collect() == t.where(t.c1 == 1).select(t.c2).collect()
         assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
@@ -303,14 +299,12 @@ class TestParquet:
         assert p('exported') in pxt.list_tables(p(''))
         assert exported_tab is not None
         assert tab.count() == exported_tab.count()
-        tab_schema, exported_schema = public_schema(tab), public_schema(exported_tab)
-        assert tab_schema == exported_schema
+        assert_schema_eq(exported_tab, tab)
         result_after = exported_tab.order_by(exported_tab.c_id).collect()
         for tup1, tup2 in zip(result_before, result_after):
             for (col1, val1), (col2, val2) in zip(tup1.items(), tup2.items()):
                 assert col1 == col2
-                assert tab_schema[col1] == exported_schema[col2]
-                if tab_schema[col1].is_array_type():
+                if isinstance(val1, np.ndarray):
                     assert val1.all() == val2.all()
                 else:
                     assert val1 == val2
