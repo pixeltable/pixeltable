@@ -477,11 +477,15 @@ class ObjectOps:
         )
 
     @classmethod
-    def validate_destination(cls, dest: str | Path | None, col_name: str | None = None) -> str:
+    def validate_destination(
+        cls, dest: str | Path | None, col_name: str | None = None, *, allow_local: bool = True
+    ) -> str:
         """Convert a Column destination parameter to a URI, else raise errors.
         Args:
             dest: The requested destination
             col_name: Used to raise error messages
+            allow_local: If False, a local-filesystem destination is rejected (e.g. for a hosted catalog, whose
+                server has no client-accessible local store)
         Returns:
             URI of destination, or raises an error
         """
@@ -494,6 +498,15 @@ class ObjectOps:
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH, f'{error_col_str}: `destination` must be a string or path; got {dest!r}'
             )
+
+        if not allow_local and dest is not None:
+            soa = ObjectPath.parse_object_storage_addr(dest, allow_obj_name=False)
+            if soa.storage_target == StorageTarget.LOCAL_STORE:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_col_str}: a local filesystem `destination` is not supported for a hosted table; use '
+                    'the default store or an external store such as s3:// or https://.',
+                )
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)

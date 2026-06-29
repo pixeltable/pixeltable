@@ -161,7 +161,8 @@ def serialize(obj: Any, binary_parts: list[bytes]) -> Any:
     if isinstance(obj, MediaFileUpload):
         with open(obj.path, 'rb') as f:
             data = f.read()
-        return {_TAG: 'mediafile', 'ext': pathlib.Path(obj.path).suffix, 'v': _add_part(binary_parts, data)}
+        # carry the original file name so the receiver's temp copy keeps it (e.g. for media validation errors)
+        return {_TAG: 'mediafile', 'name': pathlib.Path(obj.path).name, 'v': _add_part(binary_parts, data)}
     if isinstance(obj, MediaUrlRef):
         return {_TAG: 'mediaurl', 'v': obj.ref}
     if isinstance(obj, list):
@@ -200,8 +201,10 @@ def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
             img.load()  # read pixels now so the result doesn't depend on the transient buffer
             return img
         if tag == 'mediafile':
-            # write the shipped bytes into the local TempStore and hand back the new path
-            dest = TempStore.create_path(extension=obj.get('ext', ''))
+            # write the shipped bytes into the local TempStore, preserving the original file name, and hand back
+            # the new path
+            dest = TempStore.create_path(name=obj['name'])
+            dest.parent.mkdir(parents=True, exist_ok=True)
             with open(dest, 'wb') as f:
                 f.write(binary_parts[v])
             return str(dest)

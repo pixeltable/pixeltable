@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import builtins
+import contextlib
 import copy
 import hashlib
 import itertools
 import json
+import urllib.parse
+from contextvars import ContextVar
 from pathlib import Path
 from types import TracebackType
 from typing import (
@@ -27,6 +30,7 @@ from typing import (
 from uuid import UUID
 
 import pandas as pd
+import PIL.Image
 import pydantic
 import sqlalchemy.exc as sql_exc
 from typing_extensions import Self
@@ -46,6 +50,21 @@ if TYPE_CHECKING:
     import torch.utils.data
 
 __all__ = ['Query', 'ResultCursor', 'ResultSet', 'Row']
+
+# When set, _output_row_iterator() yields a file-backed media cell's URL instead of materializing it (opening
+# a PIL image, resolving a local path). The proxy daemon enables this while running a query so the result ships
+# media as URLs the client fetches on its own, rather than the daemon re-encoding file-backed images inline.
+_emit_media_as_urls: ContextVar[bool] = ContextVar('_emit_media_as_urls', default=False)
+
+
+@contextlib.contextmanager
+def emit_media_as_urls() -> Iterator[None]:
+    """Within this context, queries emit file-backed media as URLs rather than materialized values."""
+    token = _emit_media_as_urls.set(True)
+    try:
+        yield
+    finally:
+        _emit_media_as_urls.reset(token)
 
 
 class ResultSet:
@@ -865,8 +884,18 @@ class Query:
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=tbl_ids):
             try:
                 planned_exprs = self._compiled_select_list()
-                for data_row in self._exec(args=args):
-                    yield [data_row[e.slot_idx] for e in planned_exprs]
+                if _emit_media_as_urls.get():
+                    for data_row in self._exec(args=args):
+                        # for a file-backed media cell, hand back its URL instead of materializing the value
+                        yield [
+                            data_row.file_urls[e.slot_idx]
+                            if e.col_type.is_media_type() and data_row.file_urls[e.slot_idx] is not None
+                            else data_row[e.slot_idx]
+                            for e in planned_exprs
+                        ]
+                else:
+                    for data_row in self._exec(args=args):
+                        yield [data_row[e.slot_idx] for e in planned_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
@@ -889,8 +918,50 @@ class Query:
         assert isinstance(cat, CatalogProxy)
         result = cat.run_query(method, self.as_dict(), **extra)
         schema: dict[str, ColumnType] = result['schema']
+        rows: list[list[Any]] = result['rows']
+        self._materialize_result_media(cat, rows)
         columns = {name: i for i, name in enumerate(schema)}
-        return ResultSet([Row(data, columns, schema) for data in result['rows']], schema)
+        return ResultSet([Row(data, columns, schema) for data in rows], schema)
+
+    def _materialize_result_media(self, cat: 'catalog.CatalogProxy', rows: list[list[Any]]) -> None:
+        """Turn the daemon's media URLs in `rows` into the value each output expr should yield: a PIL image for an
+        image column, a local file path for a video/audio column or a `.localpath`, the daemon URL for a `.fileurl`.
+        Fetches the (remote) daemon URLs into the local store first.
+        """
+        # positions to localize, paired with whether the column wants a PIL image (vs a local file path); a
+        # `.fileurl` keeps its daemon URL as-is and so is not listed
+        targets: list[tuple[int, bool]] = []
+        for i, (e, _) in enumerate(self._effective_select_list):
+            is_localpath = (
+                isinstance(e, exprs.ColumnPropertyRef) and e.prop == exprs.ColumnPropertyRef.Property.LOCALPATH
+            )
+            if e.col_type.is_image_type():
+                targets.append((i, True))
+            elif e.col_type.is_media_type() or is_localpath:
+                targets.append((i, False))
+        if len(targets) == 0:
+            return
+
+        to_fetch: set[str] = set()
+        for row in rows:
+            for i, _ in targets:
+                val = row[i]
+                if isinstance(val, str):
+                    scheme = urllib.parse.urlparse(val).scheme
+                    if len(scheme) > 1 and scheme != 'file':
+                        to_fetch.add(val)
+        local_paths = cat.fetch_media(list(to_fetch)) if len(to_fetch) > 0 else {}
+
+        for row in rows:
+            for i, wants_image in targets:
+                val = row[i]
+                if isinstance(val, str):
+                    val = local_paths.get(val, val)
+                    if wants_image:
+                        img = PIL.Image.open(val)
+                        img.load()  # read pixels now so the cell doesn't depend on the file staying put
+                        val = img
+                row[i] = val
 
     def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
         if not self._from_clause.is_local:

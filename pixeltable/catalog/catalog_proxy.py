@@ -50,6 +50,10 @@ class CatalogProxy(CatalogBase):
         """Execute a Query method against the hosted catalog."""
         return self._client.send_request('Query', method, {'query': query_dict, **extra})
 
+    def fetch_media(self, urls: list[str]) -> dict[str, str]:
+        """Fetch each daemon media URL into the local store, returning {url: local_path}."""
+        return self._client.fetch_media(urls)
+
     def create_table(
         self,
         path: Path,

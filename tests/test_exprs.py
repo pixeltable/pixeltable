@@ -5,6 +5,7 @@ import base64
 import datetime
 import json
 import math
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -25,6 +26,7 @@ from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
 
 from .utils import (
+    CatalogMode,
     ReloadTester,
     assert_columns_eq,
     create_all_datatypes_tbl,
@@ -221,7 +223,7 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
-    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table) -> None:
+    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table, catalog_mode: CatalogMode) -> None:
         t = test_tbl
         # errortype/-msg for computed column
         res = t.select(error=t.c8.errortype).collect()
@@ -234,15 +236,23 @@ class TestExprs:
         res = img_t.select(img_t.img.fileurl).collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
-        all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
-        assert stored_urls <= all_urls
+        if catalog_mode == 'local':
+            all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
+            assert stored_urls <= all_urls
+        else:
+            # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
+            assert all(urllib.parse.urlparse(u).scheme in ('http', 'https') and '/media/' in u for u in stored_urls)
 
         # localpath
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
         stored_paths = set(res.iloc[:, 0])
         assert len(stored_paths) == len(res)
-        all_paths = set(get_image_files())
-        assert stored_paths <= all_paths
+        if catalog_mode == 'local':
+            all_paths = set(get_image_files())
+            assert stored_paths <= all_paths
+        else:
+            # over the proxy each localpath is a fetched local copy, openable but not the original source file
+            assert all(os.path.exists(p) for p in stored_paths)
 
         # errortype/-msg for image column
         res = img_t.select(error=img_t.img.errortype).collect().to_pandas()

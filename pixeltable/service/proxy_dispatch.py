@@ -360,15 +360,17 @@ def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _run_query_terminal(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
-    from pixeltable._query import Query  # lazy: _query pulls in plan/exec, only needed when a query runs
+    from pixeltable._query import Query, emit_media_as_urls  # lazy: _query pulls in plan/exec
 
     # from_dict() might load metadata
     @retry_loop(for_write=False)
     def build() -> Query:
         return Query.from_dict(query_dict)
 
-    rs = run(build())
-    return {'schema': dict(rs._schema), 'rows': [list(row._data) for row in rs._rows]}
+    # the schema keeps the original media column types; only the row values become URLs the client fetches
+    with emit_media_as_urls():
+        rs = run(build())
+        return {'schema': dict(rs._schema), 'rows': [list(row._data) for row in rs._rows]}
 
 
 def _query_collect(request: ProxyRequest) -> dict:
@@ -423,10 +425,11 @@ def _encode_compute_result(result: Any) -> Any:
 def _encode_result_set(result: dict) -> dict:
     """Converter for query terminals returning {schema, rows} (rows are positional value lists).
 
-    Applied per value rather than by schema: the query-route media rewrite (`_fastapi.py`) turns a media
-    ColumnRef output into a `.localpath`/`.fileurl` (a String-typed expr), so the schema no longer marks those
-    positions as media. `_media_to_wire` is a no-op on non-media strings, so a per-value pass safely catches
-    both true media columns and these rewritten media paths.
+    With emit_media_as_urls() active, a file-backed media column arrives here as its file URL (a string),
+    which _media_to_wire maps to a MediaUrlRef or MediaFileUpload; an in-memory computed image arrives as a
+    PIL image, which passes through to the `image` serialization tag. Applied per value rather than by schema
+    because a query may also select a media column's `.fileurl`/`.localpath` (a String-typed expr), whose path
+    value needs the same treatment; _media_to_wire is a no-op on non-media strings.
     """
     result['rows'] = [[_media_to_wire(v) for v in row] for row in result['rows']]
     return result

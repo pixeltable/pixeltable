@@ -8,7 +8,6 @@ HTTP, InProcessProxyClient in-process.
 from __future__ import annotations
 
 import abc
-import pathlib
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import UUID
@@ -18,7 +17,7 @@ import httpx
 from pixeltable import exceptions as excs
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.http import fetch_url
 
 from . import framing, proxy_dispatch, proxy_protocol
 from .proxy_protocol import MediaUrlRef, ProxyRequest, ProxyResponse
@@ -48,7 +47,7 @@ def _collect_media_refs(obj: Any, refs: set[str]) -> None:
 
 
 def _replace_media_refs(obj: Any, resolved: dict[str, str]) -> Any:
-    """Return obj with each MediaUrlRef replaced by its localized path from `resolved`."""
+    """Return obj with each MediaUrlRef replaced by its daemon URL from `resolved`."""
     if isinstance(obj, MediaUrlRef):
         return resolved[obj.ref]
     if isinstance(obj, dict):
@@ -93,12 +92,20 @@ class ProxyClient(abc.ABC):
         return response
 
     def _localize_media(self, result: Any) -> Any:
-        """Fetch any persisted media referenced by the result (MediaUrlRef) from the daemon into the local store.
+        """Resolve any MediaUrlRef in the result to a fetchable daemon URL.
 
-        Default no-op; the HTTP transport overrides it. The client does this itself (rather than via a plan's
-        cache-prefetch node) because it never executes plans.
+        Default no-op; the HTTP transport overrides it. Resolving to a URL (rather than fetching here) lets
+        UpdateStatus rows carry fetchable media URLs and lets a query result set fetch only what its column
+        types require (see Query._materialize_result_media).
         """
         return result
+
+    def fetch_media(self, urls: list[str]) -> dict[str, str]:
+        """Fetch each daemon/remote media URL into the local store, returning {url: local_path}.
+
+        Default identity (media is already local); the HTTP transport overrides it.
+        """
+        return {url: url for url in urls}
 
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
@@ -156,35 +163,30 @@ class ProxyHttpClient(ProxyClient):
     def _media_url(self, ref: str) -> str:
         return f'{self._endpoint}/media/{ref}'
 
-    def _fetch_media(self, ref: str) -> bytes:
-        response = self._http.get(f'/media/{ref}')
-        response.raise_for_status()
-        return response.content
-
     def _localize_media(self, result: Any) -> Any:
         refs: set[str] = set()
         _collect_media_refs(result, refs)
         if len(refs) == 0:
             return result
+        return _replace_media_refs(result, {ref: self._media_url(ref) for ref in refs})
 
+    def fetch_media(self, urls: list[str]) -> dict[str, str]:
         cache = FileCache.get()
         resolved: dict[str, str] = {}
         to_fetch: list[str] = []
-        for ref in refs:
-            hit = cache.lookup(self._media_url(ref))
+        for url in urls:
+            hit = cache.lookup(url)
             if hit is not None:
-                resolved[ref] = str(hit)
+                resolved[url] = str(hit)
             else:
-                to_fetch.append(ref)
+                to_fetch.append(url)
 
         if len(to_fetch) > 0:
-            # fetch the (WAN) bytes concurrently; FileCache bookkeeping stays on this thread (not thread-safe)
+            # fetch_url() handles every supported scheme (the daemon's http media URLs as well as external s3/http
+            # media); fetch concurrently, but keep FileCache bookkeeping on this thread (not thread-safe)
             with ThreadPoolExecutor(max_workers=min(16, len(to_fetch))) as executor:
-                blobs = list(executor.map(self._fetch_media, to_fetch))
-            for ref, data in zip(to_fetch, blobs):
-                tmp = TempStore.create_path(extension=pathlib.Path(ref).suffix)
-                with open(tmp, 'wb') as f:
-                    f.write(data)
-                resolved[ref] = str(cache.add(_PROXY_MEDIA_TBL_ID, _PROXY_MEDIA_COL_ID, self._media_url(ref), tmp))
+                tmp_paths = list(executor.map(fetch_url, to_fetch))
+            for url, tmp in zip(to_fetch, tmp_paths):
+                resolved[url] = str(cache.add(_PROXY_MEDIA_TBL_ID, _PROXY_MEDIA_COL_ID, url, tmp))
 
-        return _replace_media_refs(result, resolved)
+        return resolved

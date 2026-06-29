@@ -360,6 +360,8 @@ def _build_app() -> 'FastAPI':
 
 def _serve() -> None:
     """Daemon entrypoint. Env (PIXELTABLE_HOME/PGDATA/DB) is set by the launching start()."""
+    # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
+    os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
     try:
         import uvicorn
     except ModuleNotFoundError as e:

@@ -3,9 +3,11 @@ import json
 import os
 import pathlib
 import time
+import urllib.parse
 from typing import Any, Callable, Literal
 
 import av
+import httpx
 import numpy as np
 import PIL.Image
 import pydantic
@@ -134,11 +136,20 @@ def await_background_job(
         return body
 
 
+def get_media(client: Any, url: str) -> Any:
+    """GET a media URL. A router-served URL goes through the TestClient; a proxy-daemon URL (which carries a real
+    loopback host:port) is fetched directly, since the router can't serve the daemon's media store."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.hostname is not None and parsed.hostname != 'testserver':
+        return httpx.get(url)
+    return client.get(url)
+
+
 def assert_media_fetchable(client: Any, url: str, local_path: str, *, label: str = '') -> None:
     """Assert `url` is a /media/ URL, returns 200, and its bytes match `local_path`."""
     tag = f'{label}: ' if label else ''
     assert '/media/' in url, f'{tag}expected /media/ URL, got: {url}'
-    resp = client.get(url)
+    resp = get_media(client, url)
     assert resp.status_code == 200, f'{tag}{resp.text}'
     with open(local_path, 'rb') as f:
         assert resp.content == f.read(), f'{tag}downloaded bytes differ from stored file'
@@ -181,7 +192,7 @@ def assert_audio_bytes(data: bytes, *, duration_s: float | None = None, tol: flo
 def fetch_and_decode_media(client: Any, url: str, decoder: Callable[..., None], **kwargs: Any) -> None:
     """GET url, assert 200, then decode the bytes with decoder(bytes, **kwargs)."""
     assert '/media/' in url, f'expected /media/ URL, got: {url}'
-    resp = client.get(url)
+    resp = get_media(client, url)
     assert resp.status_code == 200, resp.text
     decoder(resp.content, **kwargs)
 
@@ -470,7 +481,7 @@ class TestFastAPI:
             else:
                 # over proxy the media lives on the daemon; verify each output is fetchable through the router
                 for col in ('video', 'resized', 'thumbnail'):
-                    media_resp = client.get(result[col])
+                    media_resp = get_media(client, result[col])
                     assert media_resp.status_code == 200, f'{col}: {media_resp.status_code}'
                     assert len(media_resp.content) > 0, col
 
@@ -612,7 +623,7 @@ class TestFastAPI:
             else:
                 # over proxy the media lives on the daemon; verify each output is fetchable through the router
                 for col in ('image', 'resized', 'rotated'):
-                    media_resp = client.get(result[col])
+                    media_resp = get_media(client, result[col])
                     assert media_resp.status_code == 200, f'{col}: {media_resp.status_code}'
                     assert len(media_resp.content) > 0, col
             # verify persisted row
@@ -748,7 +759,7 @@ class TestFastAPI:
             else:
                 # over proxy the media lives on the daemon; verify each output is fetchable through the router
                 for col in ('audio', 'scaled', 'normalized'):
-                    media_resp = client.get(result[col])
+                    media_resp = get_media(client, result[col])
                     assert media_resp.status_code == 200, f'{col}: {media_resp.status_code}'
                     assert len(media_resp.content) > 0, col
             # verify persisted row
@@ -862,7 +873,7 @@ class TestFastAPI:
             else:
                 # over proxy the media lives on the daemon; verify each output is fetchable through the router
                 for col in ('video', 'resized', 'thumbnail'):
-                    media_resp = client.get(result[col])
+                    media_resp = get_media(client, result[col])
                     assert media_resp.status_code == 200, f'{col}: {media_resp.status_code}'
                     assert len(media_resp.content) > 0, col
         # semantic check on computed media (runs in both modes)
@@ -1226,7 +1237,7 @@ class TestFastAPI:
         assert len(body['rows']) == 2
         for item in body['rows']:
             assert '/media/' in item['resized'], item['resized']
-            media_resp = client.get(item['resized'])
+            media_resp = get_media(client, item['resized'])
             assert media_resp.status_code == 200
 
         # FileResponse: exactly one matching row -> image bytes
@@ -1290,7 +1301,7 @@ class TestFastAPI:
         body = resp.json()
         assert 'thumb' in body
         assert '/media/' in body['thumb'], f'expected /media/ URL, got: {body["thumb"]!r}'
-        media_resp = client.get(body['thumb'])
+        media_resp = get_media(client, body['thumb'])
         assert media_resp.status_code == 200
         assert len(media_resp.content) > 0
 

@@ -30,6 +30,7 @@ from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
 from pixeltable.serving import SqlExport
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
+from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import LocalStore, TempStore
 
 _logger = logging.getLogger(__name__)
@@ -1932,8 +1933,12 @@ class FastAPIRouter(fastapi.APIRouter):
             local_path: Path
             if val.startswith('file:'):
                 local_path = LocalStore.file_url_to_path(val) or Path(val)
-            else:
+            elif os.path.isabs(val):
                 local_path = Path(val)
+            else:
+                # a remote reference (the proxy daemon's media, or an external s3/http url): fetch it to a local
+                # file so it can be returned as a FileResponse
+                local_path = fetch_url(val)
             if not local_path.exists() or not local_path.is_file():
                 raise HTTPException(status_code=500, detail=f'output file not found: {output_name!r}')
             media_type, _ = mimetypes.guess_type(local_path)
