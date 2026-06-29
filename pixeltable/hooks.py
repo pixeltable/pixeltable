@@ -93,7 +93,7 @@ class _PassthroughHandle:
     target: SpanHandle | None
 
 
-AnySpanHandle = Union[SpanHandle, _PassthroughHandle]
+BaseSpanHandle = SpanHandle | _PassthroughHandle
 
 _registry_lock = threading.Lock()
 _SUBSCRIBERS: tuple[Subscriber, ...] = ()
@@ -148,8 +148,8 @@ def _resolve_attrs(attrs: HookAttrs) -> dict[str, Any] | None:
 
 
 def span_start(
-    name: str, *, level: int = INFO, parent: AnySpanHandle | None = None, set_current: bool = False, attrs: HookAttrs = None
-) -> AnySpanHandle | None:
+    name: str, *, level: int = INFO, parent: BaseSpanHandle | None = None, set_current: bool = False, attrs: HookAttrs = None
+) -> BaseSpanHandle | None:
     subs = _SUBSCRIBERS
     if not subs:
         return None
@@ -179,7 +179,7 @@ def span_start(
     return handle
 
 
-def span_end(handle: AnySpanHandle | None, *, exc: BaseException | None = None, attrs: HookAttrs = None) -> None:
+def span_end(handle: BaseSpanHandle | None, *, exc: BaseException | None = None, attrs: HookAttrs = None) -> None:
     if not isinstance(handle, SpanHandle):
         return
     if handle.cv_token is not None:
@@ -198,7 +198,7 @@ def span_end(handle: AnySpanHandle | None, *, exc: BaseException | None = None, 
             _log_subscriber_error(s, 'on_span_end', e)
 
 
-def add_attrs(handle: AnySpanHandle | None, **attrs: Any) -> None:
+def add_attrs(handle: BaseSpanHandle | None, **attrs: Any) -> None:
     """Attach attrs ('pxt.'-prefixed, None values skipped) to be reported when the span ends.
 
     Argument computation is eager; call sites should guard with `if handle is not None:` (or
@@ -225,8 +225,8 @@ def emit(name: str, attrs: HookAttrs = None) -> None:
 
 @contextlib.contextmanager
 def span(
-    name: str, *, level: int = INFO, parent: AnySpanHandle | None = None, set_current: bool = False, **attrs: Any
-) -> Iterator[AnySpanHandle | None]:
+    name: str, *, level: int = INFO, parent: BaseSpanHandle | None = None, set_current: bool = False, **attrs: Any
+) -> Iterator[BaseSpanHandle | None]:
     """Context-manager sugar for a lexical-block span.
 
     Keyword attrs get a 'pxt.' prefix; None values are skipped.
@@ -257,7 +257,7 @@ class _CtxSnapshot:
     sub_ctxs: tuple[Any, ...]
 
 
-_CtxToken = tuple[_CtxSnapshot, Token[Union[SpanHandle, None]], tuple[Any, ...]]
+_CtxToken = tuple[_CtxSnapshot, Token[SpanHandle | None, None], tuple[Any, ...]]
 
 
 def capture_context() -> _CtxSnapshot | None:
