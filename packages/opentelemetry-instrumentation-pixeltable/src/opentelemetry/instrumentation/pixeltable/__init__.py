@@ -19,7 +19,7 @@ from opentelemetry import context as otel_context, metrics as otel_metrics, trac
 # can't see BaseInstrumentor despite the package shipping py.typed
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type: ignore[attr-defined]
 from opentelemetry.trace import StatusCode, set_span_in_context
-
+from opentelemetry.context import Context, Token
 from pixeltable import __version__, hooks
 
 from ._sdk import init
@@ -64,7 +64,7 @@ def _clean_attrs(attrs: dict[str, Any] | None) -> dict[str, Any]:
 @dataclasses.dataclass(slots=True)
 class _SpanToken:
     span: trace.Span
-    ctx_token: object | None
+    ctx_token: Token[Context] | None
 
 
 class _OtelSubscriber(hooks.Subscriber):
@@ -80,6 +80,7 @@ class _OtelSubscriber(hooks.Subscriber):
 
     def on_span_start(self, name: str, parent_token: Any, attrs: dict[str, Any] | None, set_current: bool) -> Any:
         if parent_token is not None:
+            assert isinstance(parent_token, _SpanToken)
             ctx = set_span_in_context(parent_token.span)
         else:
             ctx = otel_context.get_current()
@@ -89,7 +90,8 @@ class _OtelSubscriber(hooks.Subscriber):
         return _SpanToken(span, ctx_token)
 
     def on_span_end(self, token: Any, exc: BaseException | None, attrs: dict[str, Any] | None) -> None:
-        span: trace.Span = token.span
+        assert isinstance(token, _SpanToken)
+        span = token.span
         for k, v in _clean_attrs(attrs).items():
             span.set_attribute(k, v)
         if exc is not None:
