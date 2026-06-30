@@ -361,12 +361,16 @@ class _ModelNamespace(dict):
     known_cols: dict[str, _PlaceholderColumnRef]
     known_idxs: dict[str, EmbeddingIndex]
 
+    # Names that are produced by the base query or iterator; these cannot be redefined in the model.
+    reserved_cols: dict[str, Literal['base query', 'iterator']]
+
     def __init__(self, table_spec: TableSpec) -> None:
         super().__init__()
 
         self.table_spec = table_spec
         self.known_cols = {}
         self.known_idxs = {}
+        self.reserved_cols = {}
 
         # Pre-seed __annotations__ so the compiler routes bare annotations through
         # our recorder rather than a plain dict it would otherwise create.
@@ -379,7 +383,25 @@ class _ModelNamespace(dict):
             value = self.set_col_value(key, value)
         super().__setitem__(key, value)
 
+    def register_reference(self, name: str, placeholder: _PlaceholderColumnRef, kind: str) -> None:
+        """Make `name` resolvable in the class body without registering it as a column to create.
+
+        Used for a view's base-query columns and iterator outputs: the model can reference them, but they are
+        created by the select list / iterator, not as additional columns. The name is reserved so that an
+        explicit (re)definition of the same name is rejected.
+        """
+        self.reserved_cols[name] = kind
+        super().__setitem__(name, placeholder)
+
+    def _check_reserved(self, name: str) -> None:
+        if name in self.reserved_cols:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'{name!r} is already defined by the {self.reserved_cols[name]}; it cannot be redeclared.',
+            )
+
     def set_col_value(self, name: str, value: Any) -> EmbeddingIndex | _PlaceholderColumnRef:
+        self._check_reserved(name)
         if isinstance(value, EmbeddingIndex):
             if name in self.known_cols or name in self.known_idxs:
                 raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Index {name!r}: duplicate definition.')
@@ -411,6 +433,7 @@ class _ModelNamespace(dict):
             return col_ref
 
     def set_col_type(self, name: str, type_: Any) -> _PlaceholderColumnRef:
+        self._check_reserved(name)
         if name in self.known_idxs:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Cannot set a type annotation for index {name!r}.')
         if name in self.known_cols:
@@ -529,16 +552,20 @@ class TableModelMetaclass(type):
             )
 
             if base is not None and base.select_clause is not None:
-                # Pre-populate the namespace with named elements of the select list, appropriately typed.
+                # Make the select list's named columns referenceable in the body. They are created by the base
+                # query, not as additional columns, so register them as references rather than `known_cols`.
                 for col_name, expr in base.select_clause[1].items():
                     assert is_valid_identifier(col_name)  # since it must be a Python symbol
-                    namespace[col_name] = _PlaceholderColumnRef(col_name, {'value': expr})
+                    namespace.register_reference(
+                        col_name, _PlaceholderColumnRef(col_name, {'value': expr}), 'base query'
+                    )
 
             if iterator is not None:
-                # Pre-populate the namespace with the iterator's outputs, appropriately typed.
+                # Likewise for the iterator's outputs: referenceable, but created by the iterator.
                 for col_name, output in iterator.outputs.items():
                     assert is_valid_identifier(col_name)
-                    namespace[col_name] = _PlaceholderColumnRef(col_name, {'type': output.col_type})  # type: ignore[arg-type]
+                    placeholder = _PlaceholderColumnRef(col_name, {'type': output.col_type})  # type: ignore[arg-type]
+                    namespace.register_reference(col_name, placeholder, 'iterator')
 
             return namespace
 

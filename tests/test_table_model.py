@@ -629,6 +629,34 @@ class TestTableModel:
                 id: pxt.Int
                 bad = object()
 
+        # A model column may not redefine a name already provided by the base query...
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"'doubled' is already defined by the base query; it cannot be redeclared.",
+        ):
+
+            class QueryColCollision(
+                pxt.ViewModel, name='query_col_collision', base=ValidTableModel.select(doubled=ValidTableModel.id * 2)
+            ):
+                doubled = ValidTableModel.id * 3
+
+        # ...or by the iterator.
+        class ImageModel(pxt.TableModel, name='image_model'):
+            img: pxt.Image
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"'tile' is already defined by the iterator; it cannot be redeclared.",
+        ):
+
+            class IterColCollision(
+                pxt.ViewModel,
+                name='iter_col_collision',
+                base=ImageModel,
+                iterator=pxtf.image.tile_iterator(ImageModel.img, (256, 256)),
+            ):
+                tile = 5
+
         # Forwarded `Table` methods that aren't available on a placeholder query raise `AttributeError` when the
         # model isn't yet bound to an actual table.
         with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
