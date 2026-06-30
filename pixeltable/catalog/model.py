@@ -366,26 +366,25 @@ class _ModelNamespace(dict):
 
         # Pre-seed __annotations__ so the compiler routes bare annotations through
         # our recorder rather than a plain dict it would otherwise create.
-        super().__setitem__('__annotations__', _AnnotationRecorder(self))
-        super().__setitem__('_binding_root', None)
+        self['__annotations__'] = _AnnotationRecorder(self)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        if not key.startswith('_'):
-            # Replace the value with a _PlaceholderColumnRef or EmbeddingIndex
-            value = self.set_col_value(key, value)
-        super().__setitem__(key, value)
+        if key.startswith('__') and key.endswith('__'):
+            # "Dunder" methods and attributes are not table columns.
+            super().__setitem__(key, value)
+        elif not is_valid_identifier(key):
+            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Invalid column name: {key!r}')
+        else:
+            self.set_col_value(key, value)
 
-    def register_reference(
-        self, name: str, placeholder: _PlaceholderColumnRef, kind: Literal['base query', 'iterator']
+    def add_reserved_column_ref(
+        self, name: str, col_type: ts.ColumnType, kind: Literal['base query', 'iterator']
     ) -> None:
-        """Make `name` resolvable in the class body without registering it as a column to create.
-
-        Used for a view's base-query columns and iterator outputs: the model can reference them, but they are
-        created by the select list / iterator, not as additional columns. The name is reserved so that an
-        explicit (re)definition of the same name is rejected.
+        """Add `name` as a reserved column (it is resolvable in the class body, and its symbol cannot be reused,
+        but it does not have a ColumnSpec and will not be included in the list of columns for the view to create).
         """
         self.reserved_cols[name] = kind
-        super().__setitem__(name, placeholder)
+        super().__setitem__(name, _PlaceholderColumnRef(name, col_type))
 
     def _check_reserved(self, name: str) -> None:
         if name in self.reserved_cols:
@@ -394,13 +393,12 @@ class _ModelNamespace(dict):
                 f'{name!r} is already defined by the {self.reserved_cols[name]}; it cannot be redeclared.',
             )
 
-    def set_col_value(self, name: str, value: Any) -> EmbeddingIndex | _PlaceholderColumnRef:
+    def set_col_value(self, name: str, value: Any) -> None:
         self._check_reserved(name)
         if isinstance(value, EmbeddingIndex):
             if name in self.known_cols or name in self.known_idxs:
                 raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Index {name!r}: duplicate definition.')
             self.known_idxs[name] = value
-            return value
 
         else:
             if name in self.known_cols or name in self.known_idxs:
@@ -423,7 +421,8 @@ class _ModelNamespace(dict):
                     )
                 spec = {'value': expr}
             self.known_cols[name] = spec
-            return _PlaceholderColumnRef(name, _col_type_from_spec(spec))
+            # Add the column to the namespace so that it can be referenced in subsequent expressions in the class body.
+            super().__setitem__(name, _PlaceholderColumnRef(name, _col_type_from_spec(spec)))
 
     def set_col_type(self, name: str, type_: Any) -> None:
         self._check_reserved(name)
@@ -543,17 +542,16 @@ class TableModelMetaclass(type):
             )
 
             if base is not None and base.select_clause is not None:
-                # Make the select list's named columns referenceable in the body. They are created by the base
-                # query, not as additional columns, so register them as references rather than `known_cols`.
+                # Make the select list's named columns referenceable in the body.
                 for col_name, expr in base.select_clause[1].items():
                     assert is_valid_identifier(col_name)  # since it must be a Python symbol
-                    namespace.register_reference(col_name, _PlaceholderColumnRef(col_name, expr.col_type), 'base query')
+                    namespace.add_reserved_column_ref(col_name, expr.col_type, 'base query')
 
             if iterator is not None:
                 # Likewise for the iterator's outputs: referenceable, but created by the iterator.
                 for col_name, output in iterator.outputs.items():
                     assert is_valid_identifier(col_name)
-                    namespace.register_reference(col_name, _PlaceholderColumnRef(col_name, output.col_type), 'iterator')
+                    namespace.add_reserved_column_ref(col_name, output.col_type, 'iterator')
 
             return namespace
 
@@ -569,20 +567,15 @@ class TableModelMetaclass(type):
         if len(namespace.known_cols) == 0 and bases[0] is TableModel:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty `TableModel` not allowed.')
 
-        namespace['__table_spec__'] = namespace.table_spec
-        namespace['__columns__'] = namespace.known_cols
-        namespace['__indexes__'] = namespace.known_idxs
-
-        # Remove the direct index references from the namespace; unlike columns,
-        # they are not part of the table's namespace.
-        for idx_name in namespace.known_idxs:
-            namespace.pop(idx_name)
-
         # "normalize" the namespace to a plain dict; at this point, we're done with the special namespace treatment
-        namespace = dict(namespace)
+        namespace_dict = dict(namespace)
+        namespace_dict['__table_spec__'] = namespace.table_spec
+        namespace_dict['__columns__'] = namespace.known_cols
+        namespace_dict['__indexes__'] = namespace.known_idxs
+        namespace_dict['_binding_root'] = None
 
-        cls = super().__new__(mcs, cls_name, bases, namespace)
-        mcs.registered_models[namespace['__table_spec__']['name']] = cls
+        cls = super().__new__(mcs, cls_name, bases, namespace_dict)
+        mcs.registered_models[namespace.table_spec['name']] = cls
         return cls
 
     def _resolve_tbl(cls, binding_root: str, if_not_exists: Literal['error', 'ignore']) -> Table | None:
