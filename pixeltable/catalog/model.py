@@ -116,30 +116,25 @@ class TableSpec(TypedDict):
     custom_metadata: Any
 
 
+def _col_type_from_spec(column_spec: ColumnSpec) -> ts.ColumnType:
+    """The ColumnType that a column defined by `column_spec` will have."""
+    if 'type' in column_spec:
+        return ts.ColumnType.normalize_type(column_spec['type'], nullable_default=True, allow_builtin_types=False)
+    assert 'value' in column_spec
+    return column_spec['value'].col_type
+
+
 class _PlaceholderColumnRef(exprs.Expr):
     """
-    A placeholder column reference used in TableModel definitions,
-    which gets substituted with an actual ColumnRef during Table creation or binding.
+    A placeholder for a ColumnRef instance, which gets substituted with an actual ColumnRef during
+    Table creation or binding.
     """
 
     name: str
-    column_spec: ColumnSpec
 
-    def __init__(self, name: str, column_spec: ColumnSpec | None = None) -> None:
-        col_type: ts.ColumnType
-        if column_spec is None:
-            col_type = ts.InvalidType()
-        elif 'type' in column_spec:
-            type_ = column_spec['type']
-            col_type = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
-        else:
-            assert 'value' in column_spec
-            col_type = column_spec['value'].col_type
-
-        super().__init__(col_type)
-
+    def __init__(self, name: str, col_type: ts.ColumnType | None = None) -> None:
+        super().__init__(col_type if col_type is not None else ts.InvalidType())
         self.name = name
-        self.column_spec = column_spec
         self.id = self._create_id()
 
     def __repr__(self) -> str:
@@ -171,9 +166,7 @@ class _PlaceholderColumnRef(exprs.Expr):
 
     @classmethod
     def _from_dict(cls, d: dict, _components: list[exprs.Expr], _tbl_versions: Any = None) -> _PlaceholderColumnRef:
-        # normalize_type() is idempotent on a ColumnType and preserves nullability, so the constructor round-trips
-        # the exact placeholder type.
-        return cls(d['name'], {'type': ts.ColumnType.from_dict(d['col_type'])})  # type: ignore[arg-type]
+        return cls(d['name'], ts.ColumnType.from_dict(d['col_type']))
 
 
 # `Expr.from_dict()` resolves expression classes by name from the `pixeltable.exprs` namespace. Register
@@ -285,8 +278,7 @@ class _PlaceholderQuery:
         tbl: Table = self.from_clause.bind(binding_root)  # type: ignore[arg-type]
         subst_dict: dict[exprs.Expr, exprs.Expr] = {}
         for col_name in tbl.columns():
-            placeholder = _PlaceholderColumnRef(col_name, {'type': ts.InvalidType()})  # type: ignore[arg-type]
-            subst_dict[placeholder] = getattr(tbl, col_name)
+            subst_dict[_PlaceholderColumnRef(col_name)] = getattr(tbl, col_name)
 
         q: pxt.Query
         if self.select_clause is None:
@@ -358,7 +350,7 @@ class _ModelNamespace(dict):
     """
 
     table_spec: TableSpec
-    known_cols: dict[str, _PlaceholderColumnRef]
+    known_cols: dict[str, ColumnSpec]
     known_idxs: dict[str, EmbeddingIndex]
 
     # Names that are produced by the base query or iterator; these cannot be redefined in the model.
@@ -383,7 +375,9 @@ class _ModelNamespace(dict):
             value = self.set_col_value(key, value)
         super().__setitem__(key, value)
 
-    def register_reference(self, name: str, placeholder: _PlaceholderColumnRef, kind: str) -> None:
+    def register_reference(
+        self, name: str, placeholder: _PlaceholderColumnRef, kind: Literal['base query', 'iterator']
+    ) -> None:
         """Make `name` resolvable in the class body without registering it as a column to create.
 
         Used for a view's base-query columns and iterator outputs: the model can reference them, but they are
@@ -428,27 +422,24 @@ class _ModelNamespace(dict):
                         f'Column {name!r}: invalid value (not a literal or expression recognized by Pixeltable).',
                     )
                 spec = {'value': expr}
-            col_ref = _PlaceholderColumnRef(name, spec)
-            self.known_cols[name] = col_ref
-            return col_ref
+            self.known_cols[name] = spec
+            return _PlaceholderColumnRef(name, _col_type_from_spec(spec))
 
-    def set_col_type(self, name: str, type_: Any) -> _PlaceholderColumnRef:
+    def set_col_type(self, name: str, type_: Any) -> None:
         self._check_reserved(name)
+        type_ = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
         if name in self.known_idxs:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Cannot set a type annotation for index {name!r}.')
         if name in self.known_cols:
             # We previously processed this column via `set_col_value()`. Sanity check the type.
-            existing_col_ref = self.known_cols[name]
-            if existing_col_ref.col_type != type_:
+            if _col_type_from_spec(self.known_cols[name]) != type_:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA, f'Conflicting type annotation for column {name!r}.'
                 )
-            return existing_col_ref
-        else:
-            col_ref = _PlaceholderColumnRef(name, {'type': type_})
-            self.known_cols[name] = col_ref
-            super().__setitem__(name, col_ref)
-            return col_ref
+            return
+        # Bare annotation (`col: SomeType`): record the spec and make the name referenceable in the body.
+        self.known_cols[name] = {'type': type_}
+        super().__setitem__(name, _PlaceholderColumnRef(name, type_))
 
 
 class TableModelMetaclass(type):
@@ -459,7 +450,7 @@ class TableModelMetaclass(type):
     registered_models: ClassVar[dict[str, TableModelMetaclass]] = {}  # table name -> model
 
     __table_spec__: TableSpec
-    __columns__: dict[str, _PlaceholderColumnRef]
+    __columns__: dict[str, ColumnSpec]
     __indexes__: dict[str, EmbeddingIndex]
 
     _binding_root: str | None
@@ -556,16 +547,13 @@ class TableModelMetaclass(type):
                 # query, not as additional columns, so register them as references rather than `known_cols`.
                 for col_name, expr in base.select_clause[1].items():
                     assert is_valid_identifier(col_name)  # since it must be a Python symbol
-                    namespace.register_reference(
-                        col_name, _PlaceholderColumnRef(col_name, {'value': expr}), 'base query'
-                    )
+                    namespace.register_reference(col_name, _PlaceholderColumnRef(col_name, expr.col_type), 'base query')
 
             if iterator is not None:
                 # Likewise for the iterator's outputs: referenceable, but created by the iterator.
                 for col_name, output in iterator.outputs.items():
                     assert is_valid_identifier(col_name)
-                    placeholder = _PlaceholderColumnRef(col_name, {'type': output.col_type})  # type: ignore[arg-type]
-                    namespace.register_reference(col_name, placeholder, 'iterator')
+                    namespace.register_reference(col_name, _PlaceholderColumnRef(col_name, output.col_type), 'iterator')
 
             return namespace
 
@@ -666,14 +654,14 @@ class TableModelMetaclass(type):
         if table_spec['base'] is not None:
             base = table_spec['base'].bind(binding_root)
 
-        # The model's own column specs, with `type` annotations resolved to ColumnTypes (the placeholder already
-        # computed these). Computed `value` expressions still carry `_PlaceholderColumnRef`s referencing sibling
-        # and base columns; those are substituted by the catalog that owns the table (see Catalog.create_from_model).
+        # The model's own column specs, with `type` annotations resolved to ColumnTypes (so they're serializable
+        # for a proxied catalog). Computed `value` expressions still carry `_PlaceholderColumnRef`s referencing
+        # sibling and base columns; those are substituted by the catalog that owns the table (create_from_model).
         columns: dict[str, ColumnSpec] = {}
-        for name, placeholder in cls.__columns__.items():
-            spec = placeholder.column_spec.copy()
+        for name, col_spec in cls.__columns__.items():
+            spec = col_spec.copy()
             if 'type' in spec:
-                spec['type'] = placeholder.col_type  # type: ignore[typeddict-item]
+                spec['type'] = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
             columns[name] = spec
 
         bound_path = f'{binding_root}{table_spec["name"]}'

@@ -645,8 +645,7 @@ class TestTableModel:
             img: pxt.Image
 
         with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA,
-            match=r"'tile' is already defined by the iterator; it cannot be redeclared.",
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'tile' is already defined by the iterator; it cannot be redeclared."
         ):
 
             class IterColCollision(

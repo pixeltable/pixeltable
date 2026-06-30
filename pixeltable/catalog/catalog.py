@@ -1707,7 +1707,7 @@ class Catalog(CatalogBase):
 
         catalog_columns: list[Column] = []
         for name, spec in columns.items():
-            subst_spec: ColumnSpec = dict(spec)  # type: ignore[assignment]
+            subst_spec = spec.copy()
             if 'value' in subst_spec:
                 subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
                 residual_placeholders = list(subst_spec['value'].subexprs(_PlaceholderColumnRef))
@@ -1721,7 +1721,7 @@ class Catalog(CatalogBase):
             catalog_col.tbl_handle = tbl_handle
             catalog_col.id = next(next_col_id)
             catalog_columns.append(catalog_col)
-            subst_dict[_PlaceholderColumnRef(name, subst_spec)] = exprs.ColumnRef(
+            subst_dict[_PlaceholderColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
                 catalog_col.column_version_md(),
                 perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
             )

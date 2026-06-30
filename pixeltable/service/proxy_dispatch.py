@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING, Any, Callable
 from uuid import UUID, uuid4
 
 from pixeltable import exceptions as excs
+from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.runtime import get_runtime
-from pixeltable._query import Query
 
 from . import proxy_protocol
 from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest, ProxyResponse
