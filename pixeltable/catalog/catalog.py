@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import itertools
 import logging
 import random
 import time
@@ -9,7 +10,7 @@ from collections import defaultdict
 from collections.abc import Collection
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 import sqlalchemy as sql
@@ -17,7 +18,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, func
+from pixeltable import exceptions as excs, exprs, func
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -32,6 +33,7 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
+from .model import _PlaceholderColumnRef
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -1652,10 +1654,10 @@ class Catalog(CatalogBase):
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
     ) -> tuple[LocalTable, bool]:
-        """Create a table or view from a declarative model (`TableModel`/`ViewModel`).
+        """Create a table or view from a declarative model.
 
-        A model's column value expressions can reference sibling columns of the table being created (resolved to
-        the not-yet-created columns) as well as base-table columns (for views). Those references arrive as
+        A model's column value expressions can contain placeholder references to other columns in the same table.
+        Those references arrive as
         `_PlaceholderColumnRef`s and are substituted here, in the catalog that owns `path`, so they never have to
         be resolved across a proxy boundary. `base`, when present (i.e. this is a view), is an already-bound Query
         over the existing base table.
@@ -1663,19 +1665,11 @@ class Catalog(CatalogBase):
         If a table already exists at `path`, validates the model against it and returns it (idempotent rebind);
         otherwise creates it. Returns `(table, was_created)`.
         """
-        import itertools
-        from uuid import uuid4
-
-        from pixeltable import exprs
-
-        from .model import _PlaceholderColumnRef
-
-        is_view = base is not None
         subst_dict: dict[exprs.Expr, exprs.Expr] = {}
 
-        # Put base-table columns into scope so the model's columns/iterator can reference them.
         initial_col_id = 0
         if base is not None:
+            # Build substitutions for the base table's columns.
             if base.select_list is None:
                 # select(*): all visible columns from the base table
                 for col in base._first_tbl.columns():
@@ -1685,23 +1679,24 @@ class Catalog(CatalogBase):
                 for expr, name in base.select_list:
                     if name is not None:
                         subst_dict[_PlaceholderColumnRef(name)] = expr
-                for expr, name in base.select_list:
-                    if name is None and isinstance(expr, exprs.ColumnRef):
+                    elif isinstance(expr, exprs.ColumnRef):
                         subst_dict[_PlaceholderColumnRef(expr.column_md.name)] = expr
 
         # We allocate the table id up front so that self-referential ColumnRefs (built below) point at it; since
-        # this runs in the catalog that owns the table, no such reference ever crosses the wire.
+        # this runs in the catalog that owns the table, no such reference ever needs to be serialized.
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
         next_col_id = itertools.count(initial_col_id)
 
         if iterator is not None:
+            # Rebind the iterator with substitutions from the base table.
             subst_args = [arg.substitute(subst_dict) for arg in iterator.args]
             subst_kwargs = {k: v.substitute(subst_dict) for k, v in iterator.kwargs.items()}
             subst_bound_args = {k: v.substitute(subst_dict) for k, v in iterator.bound_args.items()}
             iterator = func.GeneratingFunctionCall(
                 iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
             )
+            # Build substitutions for the iterator's output columns.
             for name, output in iterator.outputs.items():
                 catalog_col = Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
                 catalog_col.tbl_handle = tbl_handle
@@ -1726,11 +1721,6 @@ class Catalog(CatalogBase):
             catalog_col.tbl_handle = tbl_handle
             catalog_col.id = next(next_col_id)
             catalog_columns.append(catalog_col)
-            # Key by a placeholder carrying this column's resolved col_type (not a bare-name `InvalidType` one):
-            # a same-named base/iterator column is already in scope as an `InvalidType` placeholder, and since the
-            # placeholder hash folds in col_type, the differing types keep the two keys in separate dict buckets,
-            # avoiding a same-name collision (`Expr.__eq__` builds a Comparison whose `__bool__` would raise).
-            # Substitution still matches by name regardless of col_type.
             subst_dict[_PlaceholderColumnRef(name, subst_spec)] = exprs.ColumnRef(
                 catalog_col.column_version_md(),
                 perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
@@ -1740,10 +1730,10 @@ class Catalog(CatalogBase):
         # consistency; we never trust a client to have validated).
         existing = self.get_table(path, IfNotExistsParam.IGNORE)
         if existing is not None:
-            self._validate_model_against_existing(existing, display_name, is_view, iterator)
+            self._validate_model_against_existing(existing, display_name, base, iterator)
             return existing, False
 
-        if not is_view:
+        if base is None:
             create_fn = retry_loop(for_write=True)(
                 lambda: self._create_table(
                     path=path,
@@ -1760,7 +1750,6 @@ class Catalog(CatalogBase):
             )
             base_tvp: TableVersionPath | None = None
         else:
-            assert base is not None
             base_tvp = base._first_tbl
             create_fn = retry_loop(for_write=True)(
                 lambda: self._create_view(
@@ -1796,11 +1785,15 @@ class Catalog(CatalogBase):
         return _get_tbl(), True
 
     def _validate_model_against_existing(
-        self, existing: LocalTable, display_name: str, is_view: bool, iterator: func.GeneratingFunctionCall | None
+        self,
+        existing: LocalTable,
+        display_name: str,
+        base: pxt.Query | None,
+        iterator: func.GeneratingFunctionCall | None,
     ) -> None:
         """Raise if a model's schema is incompatible with an already-existing table of the same name."""
         existing_md = existing.get_metadata()
-        model_kind = 'view' if is_view else 'table'
+        model_kind = 'table' if base is None else 'view'
         if model_kind != existing_md['kind']:
             raise excs.RequestError(
                 excs.ErrorCode.SCHEMA_MISMATCH,

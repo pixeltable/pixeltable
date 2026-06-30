@@ -124,9 +124,6 @@ class CatalogProxy(CatalogBase):
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
     ) -> tuple[Table, bool]:
-        # `columns` carry placeholder value expressions, which the daemon substitutes in its own catalog. `base`
-        # is an already-bound Query; like `run_query`, we ship it as a plain dict (proxy_protocol has no Query
-        # tag) and the daemon rebuilds it with Query.from_dict against its local base table.
         args = {
             'path': path,
             'columns': columns,

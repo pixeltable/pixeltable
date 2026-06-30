@@ -160,22 +160,24 @@ class _PlaceholderColumnRef(exprs.Expr):
             return exprs.ColumnPropertyRef(self, prop)  # type: ignore[arg-type]
         return super().__getattr__(item)
 
+    # Placeholders are serialized so that a pre-substitution model can be shipped to whichever catalog creates
+    # the table (e.g. a proxied catalog). We hook the standard `_as_dict()`/`_from_dict()` (not `as_dict()`/
+    # `from_dict()`) so that `Expr.from_dict()` reconstructs placeholders nested inside value expressions via its
+    # generic `_classname` dispatch; the registration below makes that dispatch resolve this class. `name` is
+    # what substitution matches on; `col_type` keeps the enclosing expression well-typed until substituted away.
+
     def _as_dict(self) -> dict[str, Any]:
-        # Placeholders are serialized so that a pre-substitution model can be shipped to whichever catalog
-        # creates the table (e.g. a proxied catalog). `name` is what substitution matches on; `col_type` keeps
-        # the enclosing value expression well-typed until the placeholder is substituted away server-side.
         return {'name': self.name, 'col_type': self.col_type.as_dict()}
 
     @classmethod
     def _from_dict(cls, d: dict, _components: list[exprs.Expr], _tbl_versions: Any = None) -> _PlaceholderColumnRef:
-        # `normalize_type()` is idempotent on a ColumnType and preserves nullability, so round-tripping through
-        # the constructor reconstructs the exact placeholder type.
-        col_type = ts.ColumnType.from_dict(d['col_type'])
-        return cls(d['name'], {'type': col_type})  # type: ignore[arg-type]
+        # normalize_type() is idempotent on a ColumnType and preserves nullability, so the constructor round-trips
+        # the exact placeholder type.
+        return cls(d['name'], {'type': ts.ColumnType.from_dict(d['col_type'])})  # type: ignore[arg-type]
 
 
 # `Expr.from_dict()` resolves expression classes by name from the `pixeltable.exprs` namespace. Register
-# `_PlaceholderColumnRef` there so that value expressions carrying placeholders can be deserialized by whichever
+# `_PlaceholderColumnRef` there so value expressions carrying placeholders can be deserialized by whichever
 # catalog creates the table (e.g. a proxied catalog's daemon), even though the class lives in `catalog.model`.
 exprs._PlaceholderColumnRef = _PlaceholderColumnRef  # type: ignore[attr-defined]
 
@@ -642,7 +644,7 @@ class TableModelMetaclass(type):
         # and base columns; those are substituted by the catalog that owns the table (see Catalog.create_from_model).
         columns: dict[str, ColumnSpec] = {}
         for name, placeholder in cls.__columns__.items():
-            spec: ColumnSpec = dict(placeholder.column_spec)  # type: ignore[assignment]
+            spec = placeholder.column_spec.copy()
             if 'type' in spec:
                 spec['type'] = placeholder.col_type  # type: ignore[typeddict-item]
             columns[name] = spec
@@ -664,7 +666,8 @@ class TableModelMetaclass(type):
         )
 
         if was_created:
-            # Add any declared indexes. This is a separate (post-creation) step, using the routable Table API.
+            # Add any declared embedding indexes.
+            # TODO: Bring this under the transaction umbrella of create_from_model().
             for idx_name, idx_spec in indexes.items():
                 col_ref = idx_spec.column
                 if isinstance(col_ref, str):

@@ -16,6 +16,7 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.runtime import get_runtime
+from pixeltable._query import Query
 
 from . import proxy_protocol
 from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest, ProxyResponse
@@ -73,14 +74,14 @@ def handle(request_json: str) -> str:
         # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
         # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire.
         ref = uuid4().hex
-        _logger.error(
-            'Internal error (ref %s) handling %s.%s:\n%s',
-            ref,
-            request.class_name,
-            request.method,
-            traceback.format_exc(),
-        )
-        err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
+        tb = traceback.format_exc()
+        _logger.error('Internal error (ref %s) handling %s.%s:\n%s', ref, request.class_name, request.method, tb)
+        msg = f'Internal proxy error (ref: {ref})'
+        if _logger.isEnabledFor(logging.DEBUG):
+            # With debug logging enabled (i.e. a dev/test catalog), ship the server-side traceback to the client
+            # too, so failures are diagnosable without access to the daemon's log.
+            msg = f'{msg}\n{tb}'
+        err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, msg)
         return ProxyResponse(error=err.to_dict()).model_dump_json()
 
 
@@ -119,14 +120,11 @@ def _create_view(request: ProxyRequest) -> tuple[list, bool]:
 
 def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
-    # `base` arrives as a Query dict (or None); rebuild it here. Query.from_dict() loads the base table's
-    # metadata, so it must run inside a transaction/retry loop.
+    # `base` arrives as a Query dict; rebuild it here.
     base_dict = kwargs.pop('base')
 
     @retry_loop(for_write=False)
     def build_base() -> Any:
-        from pixeltable._query import Query
-
         return None if base_dict is None else Query.from_dict(base_dict)
 
     cat = get_runtime().catalog
