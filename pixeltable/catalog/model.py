@@ -451,6 +451,7 @@ class TableModelMetaclass(type):
     __table_spec__: TableSpec
     __columns__: dict[str, ColumnSpec]
     __indexes__: dict[str, EmbeddingIndex]
+    __bound_table__: Table | None
 
     _binding_root: str | None
 
@@ -461,7 +462,7 @@ class TableModelMetaclass(type):
         bases: tuple[type, ...],
         /,
         name: str,
-        base: 'TableModel | ViewModel | _PlaceholderQuery | None' = None,
+        base: 'TableModelMetaclass | _PlaceholderQuery | None' = None,
         iterator: func.GeneratingFunctionCall | None = None,
         create_default_idxs: bool = True,
         media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -471,13 +472,13 @@ class TableModelMetaclass(type):
         if len(bases) == 0:
             # This is the TableModel or ViewModel base class itself; no additional processing.
             return super().__prepare__(cls_name, bases)
-        elif len(bases) > 1 or bases[0] not in (TableModel, ViewModel):
+        elif len(bases) > 1:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
                 'Pixeltable schemas must subclass exactly one of `TableModel`, `ViewModel`.',
             )
         else:
-            display_name = f'{bases[0].__name__} `{cls_name}`'
+            display_name = f'model `{cls_name}`'
 
             # Validate table name
             tbl_name = name
@@ -572,9 +573,11 @@ class TableModelMetaclass(type):
         namespace_dict['__table_spec__'] = namespace.table_spec
         namespace_dict['__columns__'] = namespace.known_cols
         namespace_dict['__indexes__'] = namespace.known_idxs
+        namespace_dict['__bound_table__'] = None
         namespace_dict['_binding_root'] = None
 
         cls = super().__new__(mcs, cls_name, bases, namespace_dict)
+        bases[0].__registered_models__[namespace.table_spec['name']] = cls
         mcs.registered_models[namespace.table_spec['name']] = cls
         return cls
 
@@ -721,11 +724,32 @@ class TableModel(metaclass=TableModelMetaclass, name=''):
     Base class for declarative Pixeltable table models.
     """
 
+    __registered_models__ = {}
+
 
 class ViewModel(metaclass=TableModelMetaclass, name=''):
     """
     Base class for declarative Pixeltable view models.
     """
+
+    __registered_models__ = {}
+
+
+def _create_all(cls) -> None:
+    print(cls)
+
+
+def model_base() -> type[TableModelMetaclass]:
+    cls = TableModelMetaclass('ModelBase', (), {}, name='')
+    cls.__registered_models__ = {}
+
+    def _create_all(binding_root: str = '') -> None:
+        import pixeltable as pxt
+        pxt.create_all(binding_root)
+
+    cls.create_all = _create_all
+
+    return cls
 
 
 def bind_all(binding_root: str = '') -> None:

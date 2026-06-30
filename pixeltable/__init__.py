@@ -20,6 +20,7 @@ from .catalog import (
     ViewModel,
     bind_all,
     create_all,
+    model_base,
 )
 from .exceptions import (
     AlreadyExistsError,
