@@ -437,7 +437,7 @@ class _ModelNamespace(dict):
                 )
             return
         # Bare annotation (`col: SomeType`): record the spec and make the name referenceable in the body.
-        self.known_cols[name] = {'type': type_}
+        self.known_cols[name] = {'type': type_}  # type: ignore[typeddict-item]
         super().__setitem__(name, _PlaceholderColumnRef(name, type_))
 
 
@@ -577,6 +577,7 @@ class TableModelMetaclass(type):
         namespace_dict['_binding_root'] = None
 
         cls = super().__new__(mcs, cls_name, bases, namespace_dict)
+        assert hasattr(bases[0], '__registered_models__')  # This was checked in __prepare__()
         bases[0].__registered_models__[namespace.table_spec['name']] = cls
         mcs.registered_models[namespace.table_spec['name']] = cls
         return cls
@@ -657,7 +658,7 @@ class TableModelMetaclass(type):
         for name, col_spec in cls.__columns__.items():
             spec = col_spec.copy()
             if 'type' in spec:
-                spec['type'] = ts.ColumnType.normalize_type(
+                spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
                     spec['type'], nullable_default=True, allow_builtin_types=False
                 )
             columns[name] = spec
@@ -721,9 +722,10 @@ class TableModelMetaclass(type):
 
 
 def model_base() -> type[TableModelMetaclass]:
+    # mypy fundamentally does not understand metaclasses.
     cls = TableModelMetaclass('ModelBase', (), {}, name='')
-    registered_models: dict[str, type[TableModelMetaclass]] = {}
-    cls.__registered_models__ = registered_models
+    registered_models: dict[str, TableModelMetaclass] = {}
+    cls.__registered_models__ = registered_models  # type: ignore[attr-defined]
 
     def _bind_all(binding_root: str = '') -> None:
         for model in registered_models.values():
@@ -733,7 +735,7 @@ def model_base() -> type[TableModelMetaclass]:
         for model in registered_models.values():
             model.create(binding_root)
 
-    cls.bind_all = _bind_all
-    cls.create_all = _create_all
+    cls.bind_all = _bind_all  # type: ignore[attr-defined]
+    cls.create_all = _create_all  # type: ignore[attr-defined]
 
-    return cls
+    return cls  # type: ignore[return-value]
