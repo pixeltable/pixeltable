@@ -1,4 +1,5 @@
 # ruff: noqa: F821
+# ruff: noqa: N806
 
 from typing import Any, Callable
 
@@ -516,21 +517,13 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.INVALID_ARGUMENT,
-            match=r'`base` not allowed for a `TableModel`; `BadBaseTable` must subclass `ViewModel` instead.',
-        ):
-
-            class BadBaseTable(ModelBase, name='bad_base_table', base='not_allowed'):
-                pass
-
-        with pxt_raises(
-            excs.ErrorCode.INVALID_ARGUMENT,
-            match=r'`iterator` not allowed for a `TableModel`; `BadIterTable` must subclass `ViewModel` instead.',
+            match=r'model `BadIterTable`: `iterator` can only be specified together with a `base`.',
         ):
 
             class BadIterTable(ModelBase, name='bad_iter_table', iterator='not_allowed'):
                 pass
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'Empty `TableModel` not allowed.'):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'Empty table schema not allowed.'):
 
             class EmptyTableModel(ModelBase, name='empty_table'):
                 pass
@@ -555,24 +548,21 @@ class TestTableModel:
             class TypeConflict(ModelBase, name='type_conflict'):
                 name: pxt.Int = Column(type=pxt.String)  # type: ignore[assignment]
 
-        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'model `NoBase` must specify a `base`.'):
-
-            class NoBase(ModelBase, name='no_base'):
-                pass
-
         with pxt_raises(
             excs.ErrorCode.INVALID_ARGUMENT,
             match=r'model `InvalidBase`: `base` must be a valid base table reference '
-            r'\(another `TableModel` or `ViewModel`, or a query over a model\).',
+            r'\(another Pixeltable model, or a query over a model\).',
         ):
 
             class InvalidBase(ModelBase, name='invalid_base', base=42):
                 pass
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must subclass exactly one of `TableModel`, `ViewModel`'):
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r'Pixeltable schemas must be direct subclasses of a ModelBase.'
+        ):
 
             class SubclassedModel(ValidTableModel, name='subclassed_model'):
-                pass
+                x: pxt.Int
 
         with pxt_raises(
             excs.ErrorCode.INVALID_SCHEMA, match=r"has name 'dup_name', but that name was previously used by `FirstDup`"

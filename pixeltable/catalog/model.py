@@ -470,12 +470,12 @@ class TableModelMetaclass(type):
         custom_metadata: Any = None,
     ) -> MutableMapping[str, object]:
         if len(bases) == 0:
-            # This is the TableModel or ViewModel base class itself; no additional processing.
+            # This is a model_base() class. No special processing.
             return super().__prepare__(cls_name, bases)
-        elif len(bases) > 1:
+        elif len(bases) > 1 or '__registered_models__' not in bases[0].__dict__:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                'Pixeltable schemas must subclass exactly one of `TableModel`, `ViewModel`.',
+                'Pixeltable schemas must be direct subclasses of a ModelBase. (Use `pxt.model_base()` to create one.)',
             )
         else:
             display_name = f'model `{cls_name}`'
@@ -495,11 +495,6 @@ class TableModelMetaclass(type):
 
             # Validate base
             if base is not None:
-                if bases[0] is TableModel:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_ARGUMENT,
-                        f'`base` not allowed for a `TableModel`; `{cls_name}` must subclass `ViewModel` instead.',
-                    )
                 if isinstance(base, _PlaceholderQuery):
                     pass
                 elif isinstance(base, TableModelMetaclass):
@@ -508,18 +503,23 @@ class TableModelMetaclass(type):
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_ARGUMENT,
                         f'{display_name}: `base` must be a valid base table reference '
-                        f'(another `TableModel` or `ViewModel`, or a query over a model).',
+                        f'(another Pixeltable model, or a query over a model).',
                     )
                 assert isinstance(base, _PlaceholderQuery)
-            elif bases[0] is ViewModel:
-                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{display_name} must specify a `base`.')
+                base_model = base.from_clause
+                if len(base_model.__bases__) == 0 or base_model.__bases__[0] is not bases[0]:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_ARGUMENT,
+                        f'{display_name}: `base` must reference a Pixeltable model with the same '
+                        f'`ModelBase` as `{cls_name}`.',
+                    )
 
             # Validate iterator
             if iterator is not None:
-                if bases[0] is TableModel:
+                if base is None:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_ARGUMENT,
-                        f'`iterator` not allowed for a `TableModel`; `{cls_name}` must subclass `ViewModel` instead.',
+                        f'{display_name}: `iterator` can only be specified together with a `base`.',
                     )
                 if not isinstance(iterator, func.GeneratingFunctionCall):
                     raise excs.RequestError(
@@ -560,13 +560,13 @@ class TableModelMetaclass(type):
         mcs, cls_name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
     ) -> TableModelMetaclass:
         if len(bases) == 0:
-            # This is the TableModel or ViewModel base class itself; no additional processing.
+            # This is a ModelBase class; no special processing.
             return super().__new__(mcs, cls_name, bases, namespace)
 
         assert isinstance(namespace, _ModelNamespace)
 
-        if len(namespace.known_cols) == 0 and bases[0] is TableModel:
-            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty `TableModel` not allowed.')
+        if len(namespace.known_cols) == 0 and namespace.table_spec['base'] is None:
+            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty table schema not allowed.')
 
         # "normalize" the namespace to a plain dict; at this point, we're done with the special namespace treatment
         namespace_dict = dict(namespace)
@@ -657,7 +657,9 @@ class TableModelMetaclass(type):
         for name, col_spec in cls.__columns__.items():
             spec = col_spec.copy()
             if 'type' in spec:
-                spec['type'] = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
+                spec['type'] = ts.ColumnType.normalize_type(
+                    spec['type'], nullable_default=True, allow_builtin_types=False
+                )
             columns[name] = spec
 
         bound_path = f'{binding_root}{table_spec["name"]}'
@@ -718,45 +720,20 @@ class TableModelMetaclass(type):
         return cls._resolve_tbl(cls._binding_root, if_not_exists='error')
 
 
-# `name` will be ignored for the base classes, but is required to conform to the TableModelMetaclass signature
-class TableModel(metaclass=TableModelMetaclass, name=''):
-    """
-    Base class for declarative Pixeltable table models.
-    """
-
-    __registered_models__ = {}
-
-
-class ViewModel(metaclass=TableModelMetaclass, name=''):
-    """
-    Base class for declarative Pixeltable view models.
-    """
-
-    __registered_models__ = {}
-
-
-def _create_all(cls) -> None:
-    print(cls)
-
-
 def model_base() -> type[TableModelMetaclass]:
     cls = TableModelMetaclass('ModelBase', (), {}, name='')
-    cls.__registered_models__ = {}
+    registered_models: dict[str, type[TableModelMetaclass]] = {}
+    cls.__registered_models__ = registered_models
+
+    def _bind_all(binding_root: str = '') -> None:
+        for model in registered_models.values():
+            model.bind(binding_root)
 
     def _create_all(binding_root: str = '') -> None:
-        import pixeltable as pxt
-        pxt.create_all(binding_root)
+        for model in registered_models.values():
+            model.create(binding_root)
 
+    cls.bind_all = _bind_all
     cls.create_all = _create_all
 
     return cls
-
-
-def bind_all(binding_root: str = '') -> None:
-    for model in TableModelMetaclass.registered_models.values():
-        model.bind(binding_root)
-
-
-def create_all(binding_root: str = '') -> None:
-    for model in TableModelMetaclass.registered_models.values():
-        model.create(binding_root)
