@@ -1,6 +1,6 @@
 # ruff: noqa: F821
 
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pytest
@@ -19,12 +19,12 @@ from .utils import (
     validate_update_status,
 )
 
-pytestmark = pytest.mark.local('Models')
-
 
 class TestTableModel:
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
-    def test_table_model_basic(self, root: str, uses_db: None) -> None:
+    def test_table_model_basic(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+
         class ExampleTableModel(pxt.TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
@@ -45,12 +45,12 @@ class TestTableModel:
 
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
-        expected_path = 'test_table' if root == '' else f'{root}/test_table'
+        expected_path = p('test_table' if root == '' else f'{root}/test_table')
         if root != '':
-            pxt.create_dir(root, parents=True)
+            pxt.create_dir(p(root), parents=True)
 
         with capture_console_output(match=rf'Created {expected_path!r} from TableModel `ExampleTableModel`.'):
-            tbl = ExampleTableModel.create(root)
+            tbl = ExampleTableModel.create(p(root))
 
         assert str(tbl._path()) == expected_path
 
@@ -78,7 +78,7 @@ class TestTableModel:
         assert_table_metadata_eq(
             {
                 'name': 'test_table',
-                'path': 'test_table',
+                'path': p('test_table'),
                 'columns': {
                     'id': {
                         'name': 'id',
@@ -274,7 +274,9 @@ class TestTableModel:
             tbl.get_metadata(),
         )
 
-    def test_table_model_query(self, uses_db: None) -> None:
+    def test_table_model_query(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+
         class ExampleTableModel(pxt.TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
@@ -283,7 +285,7 @@ class TestTableModel:
             incr = value + 1
             descr = pxtf.string.format('Name: {name}', name=name)
 
-        ExampleTableModel.create()
+        ExampleTableModel.create(p(''))
         ExampleTableModel.insert(
             [
                 {'id': 1, 'name': 'Alice', 'value': 3.14},
@@ -305,7 +307,9 @@ class TestTableModel:
             {'id': 3, 'descr': 'Name: Charlie'},
         ]
 
-    def test_all_table_exprs(self, uses_db: None) -> None:
+    def test_all_table_exprs(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+
         class AllExprsTableModel(pxt.TableModel, name='all_exprs_table'):
             id: pxt.Int
             name: pxt.String
@@ -335,7 +339,7 @@ class TestTableModel:
             string_rmul = 3 * name
             type_cast = arr.astype(pxt.Array[(2, 3), np.float32])  # type: ignore[misc]
 
-        tbl = AllExprsTableModel.create()
+        tbl = AllExprsTableModel.create(p(''))
 
         metadata = tbl.get_metadata()
         assert {name: info['type_'] for name, info in metadata['columns'].items()} == {
@@ -408,7 +412,9 @@ class TestTableModel:
 
     @pytest.mark.parametrize('create_all', [False, True])
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
-    def test_view_model(self, create_all: bool, root: str, uses_db: None) -> None:
+    def test_view_model(self, create_all: bool, root: str, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+
         class ExampleTableModel(pxt.TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
@@ -461,25 +467,27 @@ class TestTableModel:
 
         prefix = '' if root == '' else f'{root}/'
         if root != '':
-            pxt.create_dir(root, parents=True)
+            pxt.create_dir(p(root), parents=True)
 
         with capture_console_output(
-            match=rf"Created '{prefix}test_table' from TableModel `ExampleTableModel`.\n"
-            rf"Created '{prefix}test_view' from ViewModel `ExampleViewModel`.\n"
-            rf"Created '{prefix}test_subview' from ViewModel `ExampleSubviewModel`.\n"
-            rf"Created '{prefix}test_view_from_query' from ViewModel `ExampleViewModelFromQuery`.\n"
-            rf"Created '{prefix}test_subview_from_query' from ViewModel `ExampleSubviewModelFromQuery`."
+            match=rf'Created {p(f"{prefix}test_table")!r} from TableModel `ExampleTableModel`.\n'
+            rf'Created {p(f"{prefix}test_view")!r} from ViewModel `ExampleViewModel`.\n'
+            rf'Created {p(f"{prefix}test_subview")!r} from ViewModel `ExampleSubviewModel`.\n'
+            rf'Created {p(f"{prefix}test_view_from_query")!r} from ViewModel `ExampleViewModelFromQuery`.\n'
+            rf'Created {p(f"{prefix}test_subview_from_query")!r} from ViewModel `ExampleSubviewModelFromQuery`.'
         ):
             if create_all:
-                pxt.create_all(root)
+                pxt.create_all(p(root))
             else:
-                _ = ExampleTableModel.create(root)
-                _ = ExampleViewModel.create(root)
-                _ = ExampleSubviewModel.create(root)
-                _ = ExampleViewModelFromQuery.create(root)
-                _ = ExampleSubviewModelFromQuery.create(root)
+                _ = ExampleTableModel.create(p(root))
+                _ = ExampleViewModel.create(p(root))
+                _ = ExampleSubviewModel.create(p(root))
+                _ = ExampleViewModelFromQuery.create(p(root))
+                _ = ExampleSubviewModelFromQuery.create(p(root))
 
-    def test_view_model_with_iterator(self, uses_db: None) -> None:
+    def test_view_model_with_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+
         class ExampleTableModel(pxt.TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
@@ -495,11 +503,12 @@ class TestTableModel:
             view_col_1 = ExampleTableModel.value + 1
             view_col_2 = tile.rotate(90)  # type: ignore[name-defined]  # `tile` is defined by the iterator
 
-        _ = ExampleTableModel.create()
-        _ = ExampleViewModel.create()
+        _ = ExampleTableModel.create(p(''))
+        _ = ExampleViewModel.create(p(''))
 
-    def test_table_model_errors(self, uses_db: None) -> None:
+    def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
+        p = make_catalog_path
 
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'`name` must be a valid Pixeltable identifier'):
 
@@ -598,7 +607,7 @@ class TestTableModel:
             bad = OtherModel.x + 1
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
-            RefsOutOfScope.create()
+            RefsOutOfScope.create(p(''))
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'plus': duplicate definition"):
 
@@ -644,17 +653,18 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`sample\(\)` clause already specified'):
             ValidTableModel.sample(n=10).sample(n=5)
 
-    def test_table_model_validation_errors(self, uses_db: None) -> None:
+    def test_table_model_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
-        t = pxt.create_table('test_table', {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'img': pxt.Image})
-        _ = pxt.create_view('test_view', t)
-        _ = pxt.create_snapshot('test_snapshot', t)
+        p = make_catalog_path
+        t = pxt.create_table(p('test_table'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'img': pxt.Image})
+        _ = pxt.create_view(p('test_view'), t)
+        _ = pxt.create_snapshot(p('test_snapshot'), t)
 
-        t_ok = pxt.create_table('ok_table', {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'img': pxt.Image})
-        _ = pxt.create_view('test_view_2', t_ok)
-        _ = pxt.create_view('test_iter_view', t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
-        _ = pxt.create_view('test_iter_view_2', t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
-        _ = pxt.create_view('test_iter_view_3', t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
+        t_ok = pxt.create_table(p('ok_table'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'img': pxt.Image})
+        _ = pxt.create_view(p('test_view_2'), t_ok)
+        _ = pxt.create_view(p('test_iter_view'), t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
+        _ = pxt.create_view(p('test_iter_view_2'), t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
+        _ = pxt.create_view(p('test_iter_view_3'), t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
 
         class BadTableModel(pxt.TableModel, name='test_view'):
             id: pxt.Required[pxt.Int]
@@ -697,42 +707,44 @@ class TestTableModel:
         ):
             pass
 
-        ExampleTableModel.create()  # should succeed; schema matches existing table
+        ExampleTableModel.create(p(''))  # should succeed; schema matches existing table
 
+        # The validation errors below are raised by `Catalog.create_from_model` in the catalog that owns the
+        # table, so the paths they report are in-db paths (no proxy prefix) — identical in local and proxy modes.
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"TableModel `BadTableModel` is defined as a table, but the existing 'test_view' is a view.",
         ):
-            BadTableModel.create()
+            BadTableModel.create(p(''))
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"ViewModel `BadViewModel` is defined as a view, but the existing 'test_table' is a table.",
         ):
-            BadViewModel.create()
+            BadViewModel.create(p(''))
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"ViewModel `BadViewModel2` is defined as a view, but the existing 'test_snapshot' is a snapshot.",
         ):
-            BadViewModel2.create()
+            BadViewModel2.create(p(''))
 
-        GoodIterViewModel.create()
+        GoodIterViewModel.create(p(''))
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"Iterator for ViewModel `IteratorMismatch` does not match the existing table 'test_iter_view_2'.",
         ):
-            IteratorMismatch.create()
+            IteratorMismatch.create(p(''))
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"Iterator for ViewModel `MissingIterator` does not match the existing table 'test_iter_view_3'.",
         ):
-            MissingIterator.create()
+            MissingIterator.create(p(''))
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"Iterator for ViewModel `ExtraneousIterator` does not match the existing table 'test_view_2'.",
         ):
-            ExtraneousIterator.create()
+            ExtraneousIterator.create(p(''))

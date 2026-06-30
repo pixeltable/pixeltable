@@ -164,7 +164,11 @@ class TableProxy(Table):
         return self._dispatch('list_views', self._dispatch_args(locals()))
 
     def columns(self) -> list[str]:
-        return [col_md.name for col_md in self._tbl_path.column_md() if col_md.name is not None]
+        # Match local `columns()` semantics, which are name-unique (keyed by `cols_by_name`): `column_md()` is
+        # keyed by column id and can surface the same name more than once (e.g. a view whose select-list and an
+        # additional column share a name), so dedupe by name, preserving order.
+        names = [col_md.name for col_md in self._tbl_path.column_md() if col_md.name is not None]
+        return list(dict.fromkeys(names))
 
     def describe(self) -> None:
         if getattr(builtins, '__IPYTHON__', False):

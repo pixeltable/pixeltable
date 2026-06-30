@@ -124,9 +124,22 @@ class CatalogProxy(CatalogBase):
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
     ) -> tuple[Table, bool]:
-        # TODO: serialize the model (columns carry placeholders; `base` is an already-bound Query) and dispatch
-        # to the daemon, which runs Catalog.create_from_model in its own catalog.
-        raise NotImplementedError('create_from_model is not yet supported over a proxied catalog')
+        # `columns` carry placeholder value expressions, which the daemon substitutes in its own catalog. `base`
+        # is an already-bound Query; like `run_query`, we ship it as a plain dict (proxy_protocol has no Query
+        # tag) and the daemon rebuilds it with Query.from_dict against its local base table.
+        args = {
+            'path': path,
+            'columns': columns,
+            'display_name': display_name,
+            'create_default_idxs': create_default_idxs,
+            'media_validation': media_validation,
+            'comment': comment,
+            'custom_metadata': custom_metadata,
+            'iterator': iterator,
+            'base': base.as_dict() if base is not None else None,
+        }
+        md, was_created = self._client.send_request('CatalogBase', 'create_from_model', args)
+        return self._make_table(md, is_anon_snapshot=False), was_created
 
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
         md = self._client.send_request('CatalogBase', 'get_table', {'path': path, 'if_not_exists': if_not_exists})
