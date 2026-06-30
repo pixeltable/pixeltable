@@ -2,7 +2,7 @@
 Auto-generates type stubs for pixeltable.catalog.model based on FORWARDED_TABLE_METHODS.
 
 This script first uses `stubgen` to generate stubs for both `model.py` and `table.py`, then merges the relevant
-method definitions from the `Table` class in `table.pyi` into the `TableModelMetaclass` definition in `model.pyi`.
+method definitions from the `Table` class in `table.pyi` into the `TableModelMeta` definition in `model.pyi`.
 This is necessary because the model metaclass forwards certain method calls to an underlying table instance, and
 we want those methods to be properly typed on the model class.
 """
@@ -37,10 +37,8 @@ def merge_stubs() -> None:
     defns_to_merge.append('    # END Forwarded table methods merged from table.pyi\n')
 
     # Inject the merged definitions into the model stub, immediately after the class declaration.
-    class_defn_idx = next(
-        (i for i, line in enumerate(model_stub) if line.startswith('class TableModelMetaclass')), None
-    )
-    assert class_defn_idx is not None, '`TableModelMetaclass` class definition not found in model.pyi'
+    class_defn_idx = next((i for i, line in enumerate(model_stub) if line.startswith('class TableModelMeta')), None)
+    assert class_defn_idx is not None, '`TableModelMeta` class definition not found in model.pyi'
     generated_stub = [
         # mypy fundamentally does not understand metaclasses; the disable-error-code="override" directive is one of the
         # hacks we need to get it to cooperate.

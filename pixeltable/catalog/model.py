@@ -182,11 +182,11 @@ class _PlaceholderQuery:
     which gets substituted with an actual Query during Table creation or binding.
     """
 
-    from_clause: type[TableModelMetaclass]
+    from_clause: type[TableModelMeta]
     select_clause: tuple[tuple[Any, ...], dict[str, Any]] | None
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
-    grouping_tbl: type[TableModelMetaclass] | None
+    grouping_tbl: type[TableModelMeta] | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
     offset_val: exprs.Expr | None
@@ -194,11 +194,11 @@ class _PlaceholderQuery:
 
     def __init__(
         self,
-        from_clause: type[TableModelMetaclass],
+        from_clause: type[TableModelMeta],
         select_clause: tuple[tuple[Any, ...], dict[str, Any]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
-        grouping_tbl: type[TableModelMetaclass] | None = None,
+        grouping_tbl: type[TableModelMeta] | None = None,
         order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,
         limit_val: exprs.Expr | None = None,
         offset_val: exprs.Expr | None = None,
@@ -274,8 +274,8 @@ class _PlaceholderQuery:
         sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
         return dataclasses.replace(self, sample_clause=sample_clause)
 
-    def bind(self, binding_root: str) -> 'pxt.Query':
-        tbl: Table = self.from_clause.bind(binding_root)  # type: ignore[arg-type]
+    def _bind(self, binding_root: str) -> 'pxt.Query':
+        tbl: Table = self.from_clause._bind(binding_root)  # type: ignore[arg-type]
         subst_dict: dict[exprs.Expr, exprs.Expr] = {}
         for col_name in tbl.columns():
             subst_dict[_PlaceholderColumnRef(col_name)] = getattr(tbl, col_name)
@@ -298,7 +298,7 @@ class _PlaceholderQuery:
             q = q.group_by(*group_by_clause)
 
         if self.grouping_tbl is not None:
-            grouping_tbl = self.grouping_tbl.bind(binding_root)  # type: ignore[arg-type]
+            grouping_tbl = self.grouping_tbl._bind(binding_root)  # type: ignore[arg-type]
             q = q.group_by(grouping_tbl)
 
         if self.order_by_clause is not None:
@@ -441,12 +441,12 @@ class _ModelNamespace(dict):
         super().__setitem__(name, _PlaceholderColumnRef(name, type_))
 
 
-class TableModelMetaclass(type):
+class TableModelMeta(type):
     """
     Metaclass that collects annotated column definitions and other table metadata from a class body.
     """
 
-    registered_models: ClassVar[dict[str, TableModelMetaclass]] = {}  # table name -> model
+    registered_models: ClassVar[dict[str, TableModelMeta]] = {}  # table name -> model
 
     __table_spec__: TableSpec
     __columns__: dict[str, ColumnSpec]
@@ -462,7 +462,7 @@ class TableModelMetaclass(type):
         bases: tuple[type, ...],
         /,
         name: str,
-        base: 'TableModelMetaclass | _PlaceholderQuery | None' = None,
+        base: 'TableModelMeta | _PlaceholderQuery | None' = None,
         iterator: func.GeneratingFunctionCall | None = None,
         create_default_idxs: bool = True,
         media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -475,7 +475,8 @@ class TableModelMetaclass(type):
         elif len(bases) > 1 or '__registered_models__' not in bases[0].__dict__:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                'Pixeltable schemas must be direct subclasses of a ModelBase. (Use `pxt.model_base()` to create one.)',
+                'Pixeltable schemas must be direct subclasses of a model_base(). '
+                '(Use `pxt.model_base()` to create one.)',
             )
         else:
             display_name = f'model `{cls_name}`'
@@ -497,7 +498,7 @@ class TableModelMetaclass(type):
             if base is not None:
                 if isinstance(base, _PlaceholderQuery):
                     pass
-                elif isinstance(base, TableModelMetaclass):
+                elif isinstance(base, TableModelMeta):
                     base = base.select()  # convert to a _PlaceholderQuery
                 else:
                     raise excs.RequestError(
@@ -511,7 +512,7 @@ class TableModelMetaclass(type):
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_ARGUMENT,
                         f'{display_name}: `base` must reference a Pixeltable model with the same '
-                        f'`ModelBase` as `{cls_name}`.',
+                        f'`model_base()` as `{cls_name}`.',
                     )
 
             # Validate iterator
@@ -558,9 +559,9 @@ class TableModelMetaclass(type):
 
     def __new__(
         mcs, cls_name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
-    ) -> TableModelMetaclass:
+    ) -> TableModelMeta:
         if len(bases) == 0:
-            # This is a ModelBase class; no special processing.
+            # This is a model_base(); no special processing.
             return super().__new__(mcs, cls_name, bases, namespace)
 
         assert isinstance(namespace, _ModelNamespace)
@@ -618,7 +619,7 @@ class TableModelMetaclass(type):
             binding_root += '/'
         return binding_root
 
-    def bind(cls, binding_root: str = '') -> pxt.Table:
+    def _bind(cls, binding_root: str = '') -> pxt.Table:
         binding_root = cls._normalize_binding_root(binding_root)
 
         tbl = cls._resolve_tbl(binding_root, if_not_exists='error')
@@ -635,7 +636,7 @@ class TableModelMetaclass(type):
             cls._binding_root = binding_root
             return tbl
 
-    def create(cls, binding_root: str = '') -> Table:
+    def _create(cls, binding_root: str = '') -> Table:
         binding_root = cls._normalize_binding_root(binding_root)
 
         if cls.is_bound:
@@ -649,7 +650,7 @@ class TableModelMetaclass(type):
         # catalog owns the table being created.
         base: pxt.Query | None = None
         if table_spec['base'] is not None:
-            base = table_spec['base'].bind(binding_root)
+            base = table_spec['base']._bind(binding_root)
 
         # The model's own column specs, with `type` annotations resolved to ColumnTypes (so they're serializable
         # for a proxied catalog). Computed `value` expressions still carry `_PlaceholderColumnRef`s referencing
@@ -695,7 +696,7 @@ class TableModelMetaclass(type):
 
             Env.get().console_logger.info(f'Created {tbl._path()!r} from {table_spec["display_name"]}.')
 
-        return cls.bind(binding_root)
+        return cls._bind(binding_root)
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
@@ -721,19 +722,19 @@ class TableModelMetaclass(type):
         return cls._resolve_tbl(cls._binding_root, if_not_exists='error')
 
 
-def model_base() -> type[TableModelMetaclass]:
+def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
     # mypy fundamentally does not understand metaclasses.
-    cls = TableModelMetaclass('ModelBase', (), {}, name='')
-    registered_models: dict[str, TableModelMetaclass] = {}
+    cls = TableModelMeta(cls_name, (), {}, name='')
+    registered_models: dict[str, TableModelMeta] = {}
     cls.__registered_models__ = registered_models  # type: ignore[attr-defined]
 
     def _bind_all(binding_root: str = '') -> None:
         for model in registered_models.values():
-            model.bind(binding_root)
+            model._bind(binding_root)
 
     def _create_all(binding_root: str = '') -> None:
         for model in registered_models.values():
-            model.create(binding_root)
+            model._create(binding_root)
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]

@@ -25,9 +25,9 @@ class TestTableModel:
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
     def test_table_model_basic(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        ModelBase = pxt.model_base()
+        TableModel = pxt.model_base()
 
-        class ExampleTableModel(ModelBase, name='test_table'):
+        class ExampleTableModel(TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             value: pxt.Float
@@ -52,7 +52,7 @@ class TestTableModel:
             pxt.create_dir(p(root), parents=True)
 
         with capture_console_output(match=rf'Created {expected_path!r} from model `ExampleTableModel`.'):
-            ModelBase.create_all(p(root))
+            TableModel.create_all(p(root))
 
         tbl = ExampleTableModel.table
         assert str(tbl.get_metadata()['path']) == expected_path
@@ -279,9 +279,9 @@ class TestTableModel:
 
     def test_table_model_query(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        ModelBase = pxt.model_base()
+        TableModel = pxt.model_base()
 
-        class ExampleTableModel(ModelBase, name='test_table'):
+        class ExampleTableModel(TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             value: pxt.Float
@@ -289,7 +289,7 @@ class TestTableModel:
             incr = value + 1
             descr = pxtf.string.format('Name: {name}', name=name)
 
-        ModelBase.create_all(p(''))
+        TableModel.create_all(p(''))
         ExampleTableModel.insert(
             [
                 {'id': 1, 'name': 'Alice', 'value': 3.14},
@@ -313,9 +313,9 @@ class TestTableModel:
 
     def test_all_table_exprs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        ModelBase = pxt.model_base()
+        TableModel = pxt.model_base()
 
-        class AllExprsTableModel(ModelBase, name='all_exprs_table'):
+        class AllExprsTableModel(TableModel, name='all_exprs_table'):
             id: pxt.Int
             name: pxt.String
             value: pxt.Float
@@ -344,7 +344,7 @@ class TestTableModel:
             string_rmul = 3 * name
             type_cast = arr.astype(pxt.Array[(2, 3), np.float32])  # type: ignore[misc]
 
-        ModelBase.create_all(p(''))
+        TableModel.create_all(p(''))
         tbl = AllExprsTableModel.table
 
         metadata = tbl.get_metadata()
@@ -419,9 +419,9 @@ class TestTableModel:
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
     def test_view_model(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        ModelBase = pxt.model_base()
+        TableModel = pxt.model_base()
 
-        class ExampleTableModel(ModelBase, name='test_table'):
+        class ExampleTableModel(TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             value: pxt.Float
@@ -431,7 +431,7 @@ class TestTableModel:
 
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
-        class ExampleViewModel(ModelBase, name='test_view', base=ExampleTableModel):
+        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
             view_col_1: pxt.Image
             view_col_2 = view_col_1.rotate(90)
             view_col_3 = ExampleTableModel.img.rotate(90)  # Also try dereferencing a base table column
@@ -439,13 +439,13 @@ class TestTableModel:
             view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
             view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
 
-        class ExampleSubviewModel(ModelBase, name='test_subview', base=ExampleViewModel):
+        class ExampleSubviewModel(TableModel, name='test_subview', base=ExampleViewModel):
             subview_col_1 = ExampleTableModel.img.rotate(180)
             subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
             subview_col_3 = subview_col_2.rotate(30)
 
         class ExampleViewModelFromQuery(
-            ModelBase,
+            TableModel,
             name='test_view_from_query',
             base=ExampleTableModel.select(
                 ExampleTableModel.value,
@@ -463,7 +463,7 @@ class TestTableModel:
             view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
 
         class ExampleSubviewModelFromQuery(
-            ModelBase,
+            TableModel,
             name='test_subview_from_query',
             base=ExampleViewModelFromQuery.where(ExampleTableModel.value > 1.0),
         ):
@@ -482,20 +482,20 @@ class TestTableModel:
             rf'Created {p(f"{prefix}test_view_from_query")!r} from model `ExampleViewModelFromQuery`.\n'
             rf'Created {p(f"{prefix}test_subview_from_query")!r} from model `ExampleSubviewModelFromQuery`.'
         ):
-            ModelBase.create_all(p(root))
+            TableModel.create_all(p(root))
 
     def test_view_model_with_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        ModelBase = pxt.model_base()
+        TableModel = pxt.model_base()
 
-        class ExampleTableModel(ModelBase, name='test_table'):
+        class ExampleTableModel(TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             value: pxt.Float
             image: pxt.Image
 
         class ExampleViewModel(
-            ModelBase,
+            TableModel,
             name='test_view',
             base=ExampleTableModel,
             iterator=pxtf.image.tile_iterator(ExampleTableModel.image, (256, 256)),
@@ -503,16 +503,16 @@ class TestTableModel:
             view_col_1 = ExampleTableModel.value + 1
             view_col_2 = tile.rotate(90)  # type: ignore[name-defined]  # `tile` is defined by the iterator
 
-        ModelBase.create_all(p(''))
+        TableModel.create_all(p(''))
 
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
         p = make_catalog_path
-        ModelBase = pxt.model_base()
+        TableModel = pxt.model_base()
 
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'`name` must be a valid Pixeltable identifier'):
 
-            class BadTableName(ModelBase, name='invalid! table@name'):
+            class BadTableName(TableModel, name='invalid! table@name'):
                 pass
 
         with pxt_raises(
@@ -520,32 +520,32 @@ class TestTableModel:
             match=r'model `BadIterTable`: `iterator` can only be specified together with a `base`.',
         ):
 
-            class BadIterTable(ModelBase, name='bad_iter_table', iterator='not_allowed'):
+            class BadIterTable(TableModel, name='bad_iter_table', iterator='not_allowed'):
                 pass
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'Empty table schema not allowed.'):
 
-            class EmptyTableModel(ModelBase, name='empty_table'):
+            class EmptyTableModel(TableModel, name='empty_table'):
                 pass
 
-        class ValidTableModel(ModelBase, name='valid_table'):
+        class ValidTableModel(TableModel, name='valid_table'):
             id: pxt.Int
 
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match='must be a valid iterator reference'):
 
-            class BadIterRef(ModelBase, name='bad_iter_ref', base=ValidTableModel, iterator='not a valid iterator'):
+            class BadIterRef(TableModel, name='bad_iter_ref', base=ValidTableModel, iterator='not a valid iterator'):
                 pass
 
         with pxt_raises(
             excs.ErrorCode.INVALID_ARGUMENT, match=r"`media_validation` must be one of: \['on_read', 'on_write'\]"
         ):
 
-            class BadMediaValidation(ModelBase, name='bad_media_validation', media_validation='on_ragnarok'):
+            class BadMediaValidation(TableModel, name='bad_media_validation', media_validation='on_ragnarok'):
                 pass
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Conflicting type annotation for column 'name'."):
 
-            class TypeConflict(ModelBase, name='type_conflict'):
+            class TypeConflict(TableModel, name='type_conflict'):
                 name: pxt.Int = Column(type=pxt.String)  # type: ignore[assignment]
 
         with pxt_raises(
@@ -554,11 +554,11 @@ class TestTableModel:
             r'\(another Pixeltable model, or a query over a model\).',
         ):
 
-            class InvalidBase(ModelBase, name='invalid_base', base=42):
+            class InvalidBase(TableModel, name='invalid_base', base=42):
                 pass
 
         with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA, match=r'Pixeltable schemas must be direct subclasses of a ModelBase.'
+            excs.ErrorCode.INVALID_SCHEMA, match=r'Pixeltable schemas must be direct subclasses of a model_base\(\).'
         ):
 
             class SubclassedModel(ValidTableModel, name='subclassed_model'):
@@ -568,53 +568,53 @@ class TestTableModel:
             excs.ErrorCode.INVALID_SCHEMA, match=r"has name 'dup_name', but that name was previously used by `FirstDup`"
         ):
 
-            class FirstDup(ModelBase, name='dup_name'):
+            class FirstDup(TableModel, name='dup_name'):
                 id: pxt.Int
 
-            class SecondDup(ModelBase, name='dup_name'):
+            class SecondDup(TableModel, name='dup_name'):
                 id: pxt.Int
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'must define `type` or `value`, but not both'):
 
-            class BadColSpec(ModelBase, name='bad_col_spec'):
+            class BadColSpec(TableModel, name='bad_col_spec'):
                 id: pxt.Int
                 bad = Column()
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'Cannot set a type annotation for index'):
 
-            class IdxTypeConflict(ModelBase, name='idx_type_conflict'):
+            class IdxTypeConflict(TableModel, name='idx_type_conflict'):
                 img: pxt.Image
                 my_idx: pxt.Int = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))  # type: ignore[assignment]
 
         # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
         # column refers to a column outside the model (here, a column belonging to a different, unbound model).
-        class OtherModel(ModelBase, name='other_model'):
+        class OtherModel(TableModel, name='other_model'):
             x: pxt.Int
 
-        class RefsOutOfScope(ModelBase, name='refs_out_of_scope'):
+        class RefsOutOfScope(TableModel, name='refs_out_of_scope'):
             y: pxt.Int
             bad = OtherModel.x + 1
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
-            RefsOutOfScope.create(p(''))
+            RefsOutOfScope._create(p(''))
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'plus': duplicate definition"):
 
-            class DuplicateColumn(ModelBase, name='duplicate_column'):
+            class DuplicateColumn(TableModel, name='duplicate_column'):
                 id: pxt.Int
                 plus = id + 1
                 plus = id + 2
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Index 'dup_idx': duplicate definition"):
 
-            class DuplicateIndex(ModelBase, name='duplicate_index'):
+            class DuplicateIndex(TableModel, name='duplicate_index'):
                 img: pxt.Image
                 dup_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
                 dup_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'bad': invalid value"):
 
-            class InvalidValue(ModelBase, name='invalid_value'):
+            class InvalidValue(TableModel, name='invalid_value'):
                 id: pxt.Int
                 bad = object()
 
@@ -625,12 +625,12 @@ class TestTableModel:
         ):
 
             class QueryColCollision(
-                ModelBase, name='query_col_collision', base=ValidTableModel.select(doubled=ValidTableModel.id * 2)
+                TableModel, name='query_col_collision', base=ValidTableModel.select(doubled=ValidTableModel.id * 2)
             ):
                 doubled = ValidTableModel.id * 3
 
         # ...or by the iterator.
-        class ImageModel(ModelBase, name='image_model'):
+        class ImageModel(TableModel, name='image_model'):
             img: pxt.Image
 
         with pxt_raises(
@@ -638,7 +638,7 @@ class TestTableModel:
         ):
 
             class IterColCollision(
-                ModelBase,
+                TableModel,
                 name='iter_col_collision',
                 base=ImageModel,
                 iterator=pxtf.image.tile_iterator(ImageModel.img, (256, 256)),
@@ -672,7 +672,7 @@ class TestTableModel:
     def test_table_model_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
         p = make_catalog_path
-        ModelBase = pxt.model_base()
+        TableModel = pxt.model_base()
 
         t = pxt.create_table(p('test_table'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'img': pxt.Image})
         _ = pxt.create_view(p('test_view'), t)
@@ -684,22 +684,22 @@ class TestTableModel:
         _ = pxt.create_view(p('test_iter_view_2'), t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
         _ = pxt.create_view(p('test_iter_view_3'), t_ok, iterator=pxtf.image.tile_iterator(t_ok.img, (256, 256)))
 
-        class BadTableModel(ModelBase, name='test_view'):
+        class BadTableModel(TableModel, name='test_view'):
             id: pxt.Required[pxt.Int]
 
-        class ExampleTableModel(ModelBase, name='ok_table'):
+        class ExampleTableModel(TableModel, name='ok_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             img: pxt.Image
 
-        class BadViewModel(ModelBase, name='test_table', base=ExampleTableModel):
+        class BadViewModel(TableModel, name='test_table', base=ExampleTableModel):
             pass
 
-        class BadViewModel2(ModelBase, name='test_snapshot', base=ExampleTableModel):
+        class BadViewModel2(TableModel, name='test_snapshot', base=ExampleTableModel):
             pass
 
         class GoodIterViewModel(
-            ModelBase,
+            TableModel,
             name='test_iter_view',
             base=ExampleTableModel,
             iterator=pxtf.image.tile_iterator(ExampleTableModel.img, (256, 256)),
@@ -707,25 +707,25 @@ class TestTableModel:
             pass
 
         class IteratorMismatch(
-            ModelBase,
+            TableModel,
             name='test_iter_view_2',
             base=ExampleTableModel,
             iterator=pxtf.image.tile_iterator(ExampleTableModel.img, (128, 128)),
         ):
             pass
 
-        class MissingIterator(ModelBase, name='test_iter_view_3', base=ExampleTableModel):
+        class MissingIterator(TableModel, name='test_iter_view_3', base=ExampleTableModel):
             pass
 
         class ExtraneousIterator(
-            ModelBase,
+            TableModel,
             name='test_view_2',
             base=ExampleTableModel,
             iterator=pxtf.image.tile_iterator(ExampleTableModel.img, (256, 256)),
         ):
             pass
 
-        ExampleTableModel.create(p(''))  # should succeed; schema matches existing table
+        ExampleTableModel._create(p(''))  # should succeed; schema matches existing table
 
         # The validation errors below are raised by `Catalog.create_from_model` in the catalog that owns the
         # table, so the paths they report are in-db paths (no proxy prefix) — identical in local and proxy modes.
@@ -733,36 +733,36 @@ class TestTableModel:
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"model `BadTableModel` is defined as a table, but the existing 'test_view' is a view.",
         ):
-            BadTableModel.create(p(''))
+            BadTableModel._create(p(''))
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"model `BadViewModel` is defined as a view, but the existing 'test_table' is a table.",
         ):
-            BadViewModel.create(p(''))
+            BadViewModel._create(p(''))
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"model `BadViewModel2` is defined as a view, but the existing 'test_snapshot' is a snapshot.",
         ):
-            BadViewModel2.create(p(''))
+            BadViewModel2._create(p(''))
 
-        GoodIterViewModel.create(p(''))
+        GoodIterViewModel._create(p(''))
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"Iterator for model `IteratorMismatch` does not match the existing table 'test_iter_view_2'.",
         ):
-            IteratorMismatch.create(p(''))
+            IteratorMismatch._create(p(''))
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"Iterator for model `MissingIterator` does not match the existing table 'test_iter_view_3'.",
         ):
-            MissingIterator.create(p(''))
+            MissingIterator._create(p(''))
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
             match=r"Iterator for model `ExtraneousIterator` does not match the existing table 'test_view_2'.",
         ):
-            ExtraneousIterator.create(p(''))
+            ExtraneousIterator._create(p(''))

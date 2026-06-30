@@ -15,7 +15,7 @@ from mypy.types import AnyType, FunctionLike, Instance, NoneType, Type, TypeOfAn
 
 import pixeltable as pxt
 from pixeltable import exprs
-from pixeltable.catalog.model import TableModelMetaclass
+from pixeltable.catalog.model import TableModelMeta
 
 
 class PxtPlugin(Plugin):
@@ -72,21 +72,21 @@ _AGGREGATOR_FULLNAME = f'{pxt.Aggregator.__module__}.{pxt.Aggregator.__name__}'
 _PXTITERATOR_FULLNAME = f'{pxt.PxtIterator.__module__}.{pxt.PxtIterator.__name__}'
 _FN_CALL_FULLNAME = f'{exprs.Expr.__module__}.{exprs.Expr.__name__}'
 
-_TABLE_MODEL_METACLASS_FULLNAME = f'{TableModelMetaclass.__module__}.{TableModelMetaclass.__name__}'
+_TABLE_MODEL_METACLASS_FULLNAME = f'{TableModelMeta.__module__}.{TableModelMeta.__name__}'
 
 
 def create_model_base_class(ctx: DynamicClassDefContext) -> None:
     """
-    Mypy cannot use the result of a function call as a base class, so `ModelBase = pxt.model_base()` followed by
-    `class MyModel(ModelBase, ...)` produces "Variable is not valid as a type" / "Invalid base class" errors. Here we
+    Mypy cannot use the result of a function call as a base class, so `TableModel = pxt.model_base()` followed by
+    `class MyModel(TableModel, ...)` produces "Variable is not valid as a type" / "Invalid base class" errors. Here we
     intercept the `model_base()` call and synthesize a real class for the assignment target, carrying
-    `TableModelMetaclass` as its metaclass. That makes the name usable as a base class and lets mypy type-check the
+    `TableModelMeta` as its metaclass. That makes the name usable as a base class and lets mypy type-check the
     metaclass keyword arguments (`name=`, `base=`, ...) and the forwarded table methods on subclasses.
     """
     api = ctx.api
     metaclass = api.named_type_or_none(_TABLE_MODEL_METACLASS_FULLNAME)
     if metaclass is None:
-        # `TableModelMetaclass` isn't ready yet; try again on a later pass.
+        # `TableModelMeta` isn't ready yet; try again on a later pass.
         api.defer()
         return
     info = api.basic_new_typeinfo(ctx.name, api.named_type('builtins.object'), ctx.call.line)
