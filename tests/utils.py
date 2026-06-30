@@ -1198,5 +1198,5 @@ def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
             }
             for name, info in metadata['columns'].items()
         },
+        'indices': metadata['indices'],
     }
-    return {name: info['type_'] for name, info in metadata['columns'].items()}

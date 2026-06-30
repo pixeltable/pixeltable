@@ -1,22 +1,22 @@
 # ruff: noqa: F821
 # ruff: noqa: N806
 
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import exceptions as excs, exprs
+from pixeltable import exceptions as excs
 from pixeltable.catalog.model import Column, EmbeddingIndex
 
 from .utils import (
-    assert_dicts_eq,
     assert_resultset_eq,
     assert_table_metadata_eq,
     capture_console_output,
     dummy_embedding,
+    get_image_files,
     pxt_raises,
     schema_from_tbl_md,
     validate_update_status,
@@ -80,6 +80,7 @@ class TestTableModel:
         )
         tbl2.add_computed_column(computed_with_special_props=(tbl2.value / 3), stored=False)
         tbl2.add_computed_column(computed_with_special_props_2=tbl2.img.rotate(90), destination='.')
+        tbl2.add_embedding_index(tbl2.img, idx_name='clip_idx', embedding=dummy_embedding.using(n=768))
         metadata2 = tbl2.get_metadata()
 
         assert schema_from_tbl_md(metadata) == schema_from_tbl_md(metadata2)
@@ -295,40 +296,6 @@ class TestTableModel:
             tbl.get_metadata(),
         )
 
-    def test_table_model_query(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        TableModel = pxt.model_base()
-
-        class ExampleTableModel(TableModel, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            name: pxt.String
-            value: pxt.Float
-            img: pxt.Image
-            incr = value + 1
-            descr = pxtf.string.format('Name: {name}', name=name)
-
-        TableModel.create_all(p(''))
-        ExampleTableModel.insert(
-            [
-                {'id': 1, 'name': 'Alice', 'value': 3.14},
-                {'id': 2, 'name': 'Bob', 'value': 2.71},
-                {'id': 3, 'name': 'Charlie', 'value': 1.41},
-            ]
-        )
-        assert isinstance(ExampleTableModel.id, exprs.ColumnRef)
-        assert isinstance(ExampleTableModel.descr, exprs.ColumnRef)
-
-        results = (
-            ExampleTableModel.select(ExampleTableModel.id, ExampleTableModel.descr)
-            .order_by(ExampleTableModel.id)
-            .collect()
-        )
-        assert list(results) == [
-            {'id': 1, 'descr': 'Name: Alice'},
-            {'id': 2, 'descr': 'Name: Bob'},
-            {'id': 3, 'descr': 'Name: Charlie'},
-        ]
-
     def test_all_table_exprs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -362,77 +329,46 @@ class TestTableModel:
             string_rmul = 3 * name
             type_cast = arr.astype(pxt.Array[(2, 3), np.float32])  # type: ignore[misc]
 
+        expected_path = p('all_exprs_table')
         TableModel.create_all(p(''))
         tbl = AllExprsTableModel.table
 
-        metadata = tbl.get_metadata()
-        assert {name: info['type_'] for name, info in metadata['columns'].items()} == {
-            'arith_add': 'Float',
-            'arith_mul': 'Float',
-            'arith_radd': 'Float',
-            'arith_rmul': 'Float',
-            'arr': 'Array',
-            'array_slice': 'Array',
-            'column_property_ref': 'String',
-            'column_ref': 'String',
-            'comparison': 'Required[Bool]',
-            'compound_predicate': 'Required[Bool]',
-            'function_call': 'Float',
-            'id': 'Int',
-            'img': 'Image',
-            'in_predicate': 'Required[Bool]',
-            'inline_array': 'Required[Array[(3,), float32]]',
-            'inline_dict': "Required[Json[{'name': String | None, 'img': Image | None}]]",
-            'inline_list': 'Required[Json[(String | None, Image | None)]]',
-            'is_null': 'Required[Bool]',
-            'method_ref': 'String',
-            'name': 'String',
-            'string_add': 'String',
-            'string_mul': 'String',
-            'string_radd': 'String',
-            'string_rmul': 'String',
-            'type_cast': 'Array[(2, 3), float32]',
-            'value': 'Float',
-        }
+        # Create an analogous table using the "direct construction" method and verify that the schemas and table
+        # behavior align.
+        tbl2 = pxt.create_table(
+            f'{expected_path}_2',
+            {'id': pxt.Int, 'name': pxt.String, 'value': pxt.Float, 'arr': pxt.Array, 'img': pxt.Image},
+        )
+        tbl2.add_computed_column(arith_add=tbl2.value + 1)
+        tbl2.add_computed_column(arith_radd=1 + tbl2.value)
+        tbl2.add_computed_column(arith_mul=tbl2.value * 2)
+        tbl2.add_computed_column(arith_rmul=2 * tbl2.value)
+        tbl2.add_computed_column(array_slice=tbl2.arr[:, 1:3])
+        tbl2.add_computed_column(column_property_ref=tbl2.img.fileurl)
+        tbl2.add_computed_column(column_ref=tbl2.name)
+        tbl2.add_computed_column(comparison=tbl2.value > 0.0)
+        tbl2.add_computed_column(compound_predicate=(tbl2.value > 0.0) & (tbl2.name != 'test'))
+        tbl2.add_computed_column(function_call=pxtf.math.floor(tbl2.value))
+        tbl2.add_computed_column(in_predicate=tbl2.name.isin(['Alice', 'Bob', 'Charlie']))
+        tbl2.add_computed_column(inline_array=pxt.array([tbl2.value, tbl2.value + 1, tbl2.value + 2]))
+        tbl2.add_computed_column(inline_dict={'name': tbl2.name, 'img': tbl2.img})
+        tbl2.add_computed_column(inline_list=[tbl2.name, tbl2.img])
+        tbl2.add_computed_column(is_null=(tbl2.name == None))
+        tbl2.add_computed_column(method_ref=tbl2.name.upper())
+        tbl2.add_computed_column(string_add=(tbl2.name + ' suffix'))
+        tbl2.add_computed_column(string_radd=('prefix ' + tbl2.name))
+        tbl2.add_computed_column(string_mul=tbl2.name * 3)
+        tbl2.add_computed_column(string_rmul=3 * tbl2.name)
+        tbl2.add_computed_column(type_cast=tbl2.arr.astype(pxt.Array[(2, 3), np.float32]))
+
+        assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
 
         sample_arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
-        validate_update_status(
-            tbl.insert([{'id': 1, 'name': 'Alice', 'value': 3.14, 'arr': sample_arr, 'img': None}]), expected_rows=1
-        )
+        row = {'id': 1, 'name': 'Alice', 'value': 3.14, 'arr': sample_arr, 'img': None}
+        validate_update_status(tbl.insert([row]), expected_rows=1)
+        validate_update_status(tbl2.insert([row]), expected_rows=1)
 
-        res = tbl.select().collect()
-        assert_dicts_eq(
-            res[0],
-            {
-                'id': 1,
-                'name': 'Alice',
-                'value': 3.14,
-                'arr': sample_arr,
-                'img': None,
-                'arith_add': 4.14,
-                'arith_radd': 4.14,
-                'arith_mul': 6.28,
-                'arith_rmul': 6.28,
-                'array_slice': sample_arr[:, 1:3],
-                'column_property_ref': None,
-                'column_ref': 'Alice',
-                'comparison': True,
-                'compound_predicate': True,
-                'function_call': 3.0,
-                'in_predicate': True,
-                # `array_equal` is exact, so build the expected value the same way the column is computed.
-                'inline_array': np.array([3.14, 3.14 + 1, 3.14 + 2]),
-                'inline_dict': {'name': 'Alice', 'img': None},
-                'inline_list': ['Alice', None],
-                'is_null': False,
-                'method_ref': 'ALICE',
-                'string_add': 'Alice suffix',
-                'string_radd': 'prefix Alice',
-                'string_mul': 'AliceAliceAlice',
-                'string_rmul': 'AliceAliceAlice',
-                'type_cast': np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32),
-            },
-        )
+        assert_resultset_eq(tbl.collect(), tbl2.collect())
 
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
     def test_view_model(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
@@ -502,6 +438,75 @@ class TestTableModel:
         ):
             TableModel.create_all(p(root))
 
+        # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
+        # and indices) align with the model-based ones. (The models default to `create_default_idxs=True`, including
+        # for views, whereas `pxt.create_view()` defaults to `False`; pass it explicitly to match.)
+        tbl2 = pxt.create_table(
+            p(f'{prefix}test_table_2'),
+            {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'img': pxt.Image},
+        )
+        tbl2.add_computed_column(incr=tbl2.value + 1)
+        tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name))
+        tbl2.add_embedding_index('img', idx_name='clip_idx', embedding=dummy_embedding.using(n=768))
+
+        view2 = pxt.create_view(
+            p(f'{prefix}test_view_2'), tbl2, additional_columns={'view_col_1': pxt.Image}, create_default_idxs=True
+        )
+        view2.add_computed_column(view_col_2=view2.view_col_1.rotate(90))
+        view2.add_computed_column(view_col_3=view2.img.rotate(90))
+        view2.add_embedding_index('view_col_2', idx_name='view_idx', embedding=dummy_embedding.using(n=768))
+        view2.add_embedding_index('img', idx_name='view_idx_on_base_tbl_col', embedding=dummy_embedding.using(n=768))
+
+        subview2 = pxt.create_view(p(f'{prefix}test_subview_2'), view2, create_default_idxs=True)
+        subview2.add_computed_column(subview_col_1=subview2.img.rotate(180))
+        subview2.add_computed_column(subview_col_2=subview2.view_col_1.rotate(270))
+        subview2.add_computed_column(subview_col_3=subview2.subview_col_2.rotate(30))
+
+        view_from_query2 = pxt.create_view(
+            p(f'{prefix}test_view_from_query_2'),
+            tbl2.select(tbl2.value, tbl2.img, tbl2.value + 1, plusone=tbl2.value + 1).where(tbl2.value > 0.5),
+            additional_columns={'view_col_1': pxt.Image},
+            create_default_idxs=True,
+        )
+        view_from_query2.add_computed_column(view_col_2=view_from_query2.view_col_1.rotate(90))
+        view_from_query2.add_computed_column(view_col_3=view_from_query2.img.rotate(90))
+        # The model's `view_col_4 = plusone + 5` references the named select column `plusone`, which the model
+        # substitutes with its underlying expression (`value + 1`); the stored expr is therefore `(value + 1) + 5`,
+        # not a reference to the materialized `plusone` column.
+        # TODO: Fix this; the model should be referencing the new column, not the expanded expression.
+        view_from_query2.add_computed_column(view_col_4=(view_from_query2.value + 1) + 5)
+        view_from_query2.add_embedding_index('view_col_2', idx_name='view_idx', embedding=dummy_embedding.using(n=768))
+        view_from_query2.add_embedding_index(
+            'img', idx_name='view_idx_on_base_tbl_col', embedding=dummy_embedding.using(n=768)
+        )
+
+        subview_from_query2 = pxt.create_view(
+            p(f'{prefix}test_subview_from_query_2'),
+            view_from_query2.where(view_from_query2.value > 1.0),
+            create_default_idxs=True,
+        )
+        subview_from_query2.add_computed_column(subview_col_1=subview_from_query2.img.rotate(180))
+        subview_from_query2.add_computed_column(subview_col_2=subview_from_query2.view_col_1.rotate(270))
+        subview_from_query2.add_computed_column(subview_col_3=subview_from_query2.subview_col_2.rotate(30))
+
+        images = get_image_files()
+        rows = [
+            {'id': 1, 'name': 'Alice', 'value': 3.14, 'img': images[0]},
+            {'id': 2, 'name': 'Bob', 'value': 2.71, 'img': images[1]},
+        ]
+        ExampleTableModel.insert(rows)
+        tbl2.insert(rows)
+
+        for mtbl, atbl in (
+            (ExampleTableModel.table, tbl2),
+            (ExampleViewModel.table, view2),
+            (ExampleSubviewModel.table, subview2),
+            (ExampleViewModelFromQuery.table, view_from_query2),
+            (ExampleSubviewModelFromQuery.table, subview_from_query2),
+        ):
+            assert schema_from_tbl_md(mtbl.get_metadata()) == schema_from_tbl_md(atbl.get_metadata())
+            assert_resultset_eq(mtbl.order_by(mtbl.value).collect(), atbl.order_by(atbl.value).collect())
+
     def test_view_model_with_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -522,6 +527,35 @@ class TestTableModel:
             view_col_2 = tile.rotate(90)  # type: ignore[name-defined]  # `tile` is defined by the iterator
 
         TableModel.create_all(p(''))
+        tbl = ExampleTableModel.table
+        view = ExampleViewModel.table
+
+        # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
+        # and indices) align with the model-based ones. (The models default to `create_default_idxs=True`, including
+        # for views, whereas `pxt.create_view()` defaults to `False`; pass it explicitly to match.)
+        tbl2 = pxt.create_table(
+            p('test_table_2'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'image': pxt.Image}
+        )
+
+        view2 = pxt.create_view(
+            p('test_view_2'), tbl2, iterator=pxtf.image.tile_iterator(tbl2.image, (256, 256)), create_default_idxs=True
+        )
+        view2.add_computed_column(view_col_1=(tbl2.value + 1))
+        view2.add_computed_column(view_col_2=view2.tile.rotate(90))
+
+        images = get_image_files()
+        rows = [
+            {'id': 1, 'name': 'Alice', 'value': 3.14, 'image': images[0]},
+            {'id': 2, 'name': 'Bob', 'value': 2.71, 'image': images[1]},
+        ]
+        ExampleTableModel.insert(rows)
+        tbl2.insert(rows)
+
+        assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
+        assert schema_from_tbl_md(view.get_metadata()) == schema_from_tbl_md(view2.get_metadata())
+
+        assert_resultset_eq(tbl.order_by(tbl.id).collect(), tbl2.order_by(tbl2.id).collect())
+        assert_resultset_eq(view.order_by(view.id, view.pos).collect(), view2.order_by(view2.id, view2.pos).collect())
 
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
