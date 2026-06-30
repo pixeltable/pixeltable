@@ -14,15 +14,21 @@ from pixeltable import exceptions as excs
 
 from .table_path import TableMdPath
 from .table_proxy import TableProxy
+from .globals import is_hf_dataset
 
 if TYPE_CHECKING:
     from pixeltable import exprs, type_system as ts
     from pixeltable._query import Query
+    from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.service.proxy_client import ProxyClient
 
     from ..globals import TableDataSource
     from .table import Table
     from .update_status import UpdateStatus
+
+
+# byte budget per arrow batch when materializing a SQL source to parquet
+_SQL_PARQUET_BATCH_BYTES = 256 * 2**20
 
 
 class InsertableTableProxy(TableProxy):
@@ -50,6 +56,7 @@ class InsertableTableProxy(TableProxy):
         **kwargs: Any,
     ) -> UpdateStatus:
         from pixeltable.io.table_data_conduit import (
+            PandasTableDataConduit,
             PydanticTableDataConduit,
             QueryTableDataConduit,
             RowDataTableDataConduit,
@@ -65,12 +72,15 @@ class InsertableTableProxy(TableProxy):
             # materialize a generator/iterator of rows, matching the local insert path
             source = list(source)
 
-        # a file/directory/URL source (parquet, ...) is read by the daemon from a shipped file rather than
-        # materialized into rows on the client -- except when the table has media columns, whose (possibly local)
-        # files must be shipped, so we read the source into rows here and route it through the media-upload path
         if isinstance(source, str):
-            if self._has_media_columns():
-                rows = self._wrap_media_uploads(self._read_source_rows(source, source_format=source_format))
+            # A file/directory/URL source is sent to the daemon as-is. The exception is a source with media columns,
+            # whose (possibly local) files must be sent to the daemon, so we read the source into rows here and route it
+            # through the media-upload path.
+            if len(self._media_column_names()) > 0:
+                data_source = TableDataConduit.create(source, source_format=source_format)
+                data_source.src_pk = []
+                data_source.infer_schema()
+                rows = self._wrap_media_uploads([row for batch in data_source.valid_row_batch() for row in batch])
                 return self._dispatch(
                     'insert',
                     {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows},
@@ -84,9 +94,9 @@ class InsertableTableProxy(TableProxy):
                 return_rows=return_rows,
             )
 
-        # a HuggingFace dataset is shipped to the daemon in its own on-disk form and reconstructed there, rather
+        # a HuggingFace dataset is sent to the daemon in its own on-disk form and reconstructed there, rather
         # than materialized into rows on the client
-        if self._is_hf_dataset(source):
+        if is_hf_dataset(source):
             return self._insert_hf_dataset(
                 source,
                 schema_overrides=schema_overrides,
@@ -96,22 +106,27 @@ class InsertableTableProxy(TableProxy):
                 extra_fields=kwargs,
             )
 
-        # source classification (and its 'unsupported data source type' error) is shared with the local insert path
+        # source classification/error conditions are shared with the local insert path
         data_source = TableDataConduit.create(
             source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
         )
 
-        # a Table or Query source runs on the server against the same hosted catalog
         if isinstance(data_source, QueryTableDataConduit):
             return self._insert_query(
                 data_source.pxt_query, on_error=on_error, print_stats=print_stats, return_rows=return_rows
             )
-        # dict/pydantic rows are shipped to the daemon, which validates and inserts them through the same conduit
+
+        # in-memory data sources are sent as row dicts
         if isinstance(data_source, PydanticTableDataConduit):
             rows = self._pydantic_to_rows(cast('list[Any]', source))
         elif isinstance(data_source, RowDataTableDataConduit):
             assert data_source.raw_rows is not None
             rows = data_source.raw_rows
+        elif isinstance(data_source, PandasTableDataConduit):
+            data_source.src_pk = []
+            data_source.infer_schema()  # populates valid_rows (df -> pxt-native dicts)
+            assert data_source.valid_rows is not None
+            rows = data_source.valid_rows
         else:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -149,15 +164,102 @@ class InsertableTableProxy(TableProxy):
         bound_args = self._dispatch_args(locals())
         if query._from_clause.catalog_uri != self._catalog_uri:
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Inserting from a query in a different catalog is not supported.'
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Inserting from a query against a different database not supported.'
             )
         bound_args['query'] = query.as_dict()
         return self._dispatch('insert_query', bound_args)
 
+    def _insert_sql_source(
+        self,
+        sql_source: 'SqlDataSource',
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        return_rows: bool = False,
+        send_connect_url: bool = False,
+    ) -> 'UpdateStatus':
+        """Import a SQL source."""
+        if send_connect_url:
+            return self._insert_sql(
+                sql_source, on_error=on_error, print_stats=print_stats, return_rows=return_rows
+            )
+
+        import pyarrow.parquet as pq
+
+        from pixeltable.utils import arrow
+
+        from .update_status import UpdateStatus
+
+        schema = self._get_schema()
+        src_schema = {name: schema[name] for name in sql_source.col_names}
+
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            parquet_path = os.path.join(tmp_dir, 'sql_source.parquet')
+            writer: pq.ParquetWriter | None = None
+            for batch in arrow.record_batches_from_rows(
+                src_schema, self._sql_source_rows(sql_source, src_schema), _SQL_PARQUET_BATCH_BYTES
+            ):
+                if writer is None:
+                    writer = pq.ParquetWriter(parquet_path, batch.schema)
+                writer.write_batch(batch)
+            if writer is None:
+                # the source produced no rows; the destination table is already created, so nothing to send
+                return UpdateStatus()
+            writer.close()
+            return self._insert_source_file(
+                parquet_path,
+                source_format='parquet',
+                schema_overrides=None,
+                on_error=on_error,
+                print_stats=print_stats,
+                return_rows=return_rows,
+            )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def _sql_source_rows(
+        self, sql_source: 'SqlDataSource', schema: dict[str, 'ts.ColumnType']
+    ) -> Iterator[dict[str, Any]]:
+        """
+        Stream the SQL query result as row dicts keyed by output column name, enforcing non-nullable columns the way
+        SqlDataNode does (the store accepts NULLs, so the check belongs here).
+        """
+        result = sql_source.conn.execute(  # type: ignore[call-overload]
+            sql_source.select_stmt, execution_options={'stream_results': True}
+        )
+        for sa_row in result:
+            row: dict[str, Any] = {}
+            for name, val in zip(sql_source.col_names, sa_row, strict=True):
+                if val is None and not schema[name].nullable:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Error in column {name}: expected non-None value'
+                    )
+                row[name] = val
+            yield row
+
+    def _insert_sql(
+        self, sql_source: 'SqlDataSource', *, on_error: Literal['abort', 'ignore'], print_stats: bool, return_rows: bool
+    ) -> 'UpdateStatus':
+        """Send the source connection URL (incl credentials) + compiled SQL so the daemon can run the query itself."""
+        engine = sql_source.conn.engine
+        sql_text = str(sql_source.select_stmt.compile(dialect=engine.dialect, compile_kwargs={'literal_binds': True}))
+        return self._dispatch(
+            'insert_sql_source',
+            {
+                'connect_url': engine.url.render_as_string(hide_password=False),
+                'sql_text': sql_text,
+                'col_names': list(sql_source.col_names),
+                'on_error': on_error,
+                'print_stats': print_stats,
+                'return_rows': return_rows,
+            },
+        )
+
     def _local_path(self, val: str) -> str | None:
         """The local filesystem path for a bare path or file:// URL; None for a remote (http/s3/...) URL.
 
-        Mirrors DataRow.__setitem__'s local-vs-remote classification.
+        Mirrors DataRow.__setitem__()'s local-vs-remote classification.
         """
         parsed = urllib.parse.urlparse(val)
         if len(parsed.scheme) <= 1:
@@ -173,25 +275,6 @@ class InsertableTableProxy(TableProxy):
             if col_md.name is not None and col_md.col_type.is_media_type()
         }
 
-    def _has_media_columns(self) -> bool:
-        return len(self._media_column_names()) > 0
-
-    def _read_source_rows(
-        self, source: str, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None
-    ) -> list[dict[str, Any]]:
-        """Read a file/directory/URL source into rows on the client.
-
-        Used only when the table has media columns: the source's media values may be local file paths, whose
-        bytes must be shipped to the daemon (see _wrap_media_uploads). The values are kept in their source form;
-        the daemon validates and types them against the table schema.
-        """
-        from pixeltable.io.table_data_conduit import TableDataConduit
-
-        data_source = TableDataConduit.create(source, source_format=source_format)
-        data_source.src_pk = []
-        data_source.infer_schema()
-        return [row for batch in data_source.valid_row_batch() for row in batch]
-
     def _insert_source_file(
         self,
         source: str,
@@ -202,8 +285,8 @@ class InsertableTableProxy(TableProxy):
         print_stats: bool,
         return_rows: bool,
     ) -> UpdateStatus:
-        """Ship a media-free file/directory/URL source to the daemon, which reads it through its own conduit."""
-        from pixeltable.service.proxy_protocol import MediaFileUpload
+        """Send a media-free file/directory/URL source to the daemon."""
+        from pixeltable.service.proxy_protocol import LocalFile
 
         local = self._local_path(source)
         wire_source: Any
@@ -211,11 +294,11 @@ class InsertableTableProxy(TableProxy):
         if local is None:
             wire_source = source  # remote URL: the daemon reads it directly
         elif os.path.isdir(local):
-            # ship every file in the directory; the daemon reassembles them into a directory of the same name
-            wire_source = [MediaFileUpload(os.path.join(local, name)) for name in sorted(os.listdir(local))]
+            # send every file in the directory; the daemon reassembles them into a directory of the same name
+            wire_source = [LocalFile(os.path.join(local, name)) for name in sorted(os.listdir(local))]
             source_dir_name = os.path.basename(os.path.normpath(local))
         else:
-            wire_source = MediaFileUpload(local)
+            wire_source = LocalFile(local)
         return self._dispatch(
             'insert_source',
             {
@@ -229,15 +312,6 @@ class InsertableTableProxy(TableProxy):
             },
         )
 
-    def _is_hf_dataset(self, source: 'TableDataSource' | None) -> bool:
-        try:
-            import datasets  # type: ignore[import-untyped]
-        except ImportError:
-            return False
-        return isinstance(
-            source, (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict)
-        )
-
     def _insert_hf_dataset(
         self,
         source: 'TableDataSource',
@@ -249,16 +323,16 @@ class InsertableTableProxy(TableProxy):
         extra_fields: dict[str, Any] | None,
     ) -> UpdateStatus:
         """
-        Ship a HuggingFace dataset to the daemon via its on-disk serialization.
-        - unfortunately HF Datasets are not reliably self-identifying, so we can't just ship the Dataset's identity
+        Send a HuggingFace dataset to the daemon via its on-disk serialization.
+        - unfortunately HF Datasets are not reliably self-identifying, so we can't just send the Dataset's identity
           and re-instantiate it on the daemon
         - datasets.save_to_disk() writes a self-contained Arrow copy (media bytes embedded, full feature metadata)
         - this avoids materialization of the dataset in Python
         """
-        from pixeltable.service.proxy_protocol import MediaFileUpload
+        from pixeltable.service.proxy_protocol import LocalFile
 
         # a streaming dataset (IterableDataset/IterableDatasetDict) has no on-disk serialization; supporting it
-        # would mean reading the entire stream into client memory, which is exactly what shipping the on-disk
+        # would mean reading the entire stream into client memory, which is exactly what sending the on-disk
         # form avoids
         dataset = cast(Any, source)
         if not hasattr(dataset, 'save_to_disk'):
@@ -276,7 +350,7 @@ class InsertableTableProxy(TableProxy):
                 for name in sorted(names):
                     abs_path = os.path.join(dir_path, name)
                     rel_path = os.path.relpath(abs_path, tmp_dir).replace(os.sep, '/')
-                    files.append({'relpath': rel_path, 'upload': MediaFileUpload(abs_path)})
+                    files.append({'relpath': rel_path, 'upload': LocalFile(abs_path)})
             return self._dispatch(
                 'insert_hf_dataset',
                 {
@@ -305,12 +379,12 @@ class InsertableTableProxy(TableProxy):
         }
 
     def _wrap_media_uploads(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Wrap local media-column file paths as MediaFileUpload so they ship to the daemon as binary parts.
+        """Wrap local media-column file paths as MediaFileUpload so they send to the daemon as binary parts.
 
         Remote URLs (http/s3/...) and non-path values are left unchanged, matching the local insert path (which
         stores remote URLs as-is and fetches them on access).
         """
-        from pixeltable.service.proxy_protocol import MediaFileUpload
+        from pixeltable.service.proxy_protocol import LocalFile
 
         media_cols = self._media_column_names()
         if len(media_cols) == 0:
@@ -324,7 +398,7 @@ class InsertableTableProxy(TableProxy):
                 if isinstance(val, str):
                     p = self._local_path(val)
                     if p is not None:
-                        new_row[name] = MediaFileUpload(p)
+                        new_row[name] = LocalFile(p)
             wrapped.append(new_row)
         return wrapped
 
@@ -333,7 +407,7 @@ class InsertableTableProxy(TableProxy):
         Validate and normalize a non-empty list of dict/pydantic source rows for the hosted catalog:
         - pydantic models are validated and converted to dicts on the client (the model classes aren't
           importable on the server)
-        - plain dicts are shipped as-is
+        - plain dicts are sent as-is
 
         Local media-column paths are wrapped for upload separately, by the caller, via `_wrap_media_uploads()`.
         """

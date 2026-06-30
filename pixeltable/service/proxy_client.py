@@ -20,7 +20,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import fetch_url
 
 from . import framing, proxy_dispatch, proxy_protocol
-from .proxy_protocol import MediaUrlRef, ProxyRequest, ProxyResponse
+from .proxy_protocol import MediaPath, ProxyRequest, ProxyResponse
 
 if TYPE_CHECKING:
     from pixeltable.catalog.table_path import TablePathKey
@@ -31,34 +31,19 @@ _PROXY_MEDIA_TBL_ID = UUID(int=0)
 _PROXY_MEDIA_COL_ID = 0
 
 
-def _collect_media_refs(obj: Any, refs: set[str]) -> None:
-    """Collect the refs of all MediaUrlRef sentinels reachable in a decoded response."""
-    if isinstance(obj, MediaUrlRef):
-        refs.add(obj.ref)
-    elif isinstance(obj, dict):
-        for v in obj.values():
-            _collect_media_refs(v, refs)
-    elif isinstance(obj, (list, tuple)):
-        for v in obj:
-            _collect_media_refs(v, refs)
-    elif isinstance(obj, UpdateStatus):
-        for row in obj.rows or []:
-            _collect_media_refs(row, refs)
-
-
-def _replace_media_refs(obj: Any, resolved: dict[str, str]) -> Any:
-    """Return obj with each MediaUrlRef replaced by its daemon URL from `resolved`."""
-    if isinstance(obj, MediaUrlRef):
-        return resolved[obj.ref]
+def _replace_media_paths(obj: Any, make_url: Callable[[str], str]) -> Any:
+    """Return obj with each MediaPath replaced by its daemon url."""
+    if isinstance(obj, MediaPath):
+        return make_url(obj.path)
     if isinstance(obj, dict):
-        return {k: _replace_media_refs(v, resolved) for k, v in obj.items()}
+        return {k: _replace_media_paths(v, make_url) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_replace_media_refs(v, resolved) for v in obj]
+        return [_replace_media_paths(v, make_url) for v in obj]
     if isinstance(obj, tuple):
-        return tuple(_replace_media_refs(v, resolved) for v in obj)
+        return tuple(_replace_media_paths(v, make_url) for v in obj)
     if isinstance(obj, UpdateStatus):
         if obj.rows is not None:
-            obj.rows[:] = [_replace_media_refs(row, resolved) for row in obj.rows]
+            obj.rows[:] = [_replace_media_paths(row, make_url) for row in obj.rows]
         return obj
     return obj
 
@@ -92,20 +77,10 @@ class ProxyClient(abc.ABC):
         return response
 
     def _localize_media(self, result: Any) -> Any:
-        """Resolve any MediaUrlRef in the result to a fetchable daemon URL.
-
-        Default no-op; the HTTP transport overrides it. Resolving to a URL (rather than fetching here) lets
-        UpdateStatus rows carry fetchable media URLs and lets a query result set fetch only what its column
-        types require (see Query._materialize_result_media).
-        """
-        return result
+        """Resolve any MediaPath in the result to a fetchable daemon URL."""
 
     def fetch_media(self, urls: list[str]) -> dict[str, str]:
-        """Fetch each daemon/remote media URL into the local store, returning {url: local_path}.
-
-        Default identity (media is already local); the HTTP transport overrides it.
-        """
-        return {url: url for url in urls}
+        """Fetch each daemon/remote media URL into the local store, returning {url: local_path}."""
 
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
@@ -160,15 +135,11 @@ class ProxyHttpClient(ProxyClient):
         head, response_parts = framing.decode_body(response.content)
         return head.decode(), response_parts
 
-    def _media_url(self, ref: str) -> str:
-        return f'{self._endpoint}/media/{ref}'
+    def _media_url(self, media_path: str) -> str:
+        return f'{self._endpoint}/media/{media_path}'
 
     def _localize_media(self, result: Any) -> Any:
-        refs: set[str] = set()
-        _collect_media_refs(result, refs)
-        if len(refs) == 0:
-            return result
-        return _replace_media_refs(result, {ref: self._media_url(ref) for ref in refs})
+        return _replace_media_paths(result, self._media_url)
 
     def fetch_media(self, urls: list[str]) -> dict[str, str]:
         cache = FileCache.get()

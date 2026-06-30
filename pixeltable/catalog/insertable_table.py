@@ -257,6 +257,7 @@ class InsertableTable(LocalTable):
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         return_rows: bool = False,
+        send_connect_url: bool = False,
     ) -> pxt.UpdateStatus:
         """Stream a SqlDataSource into this table through a single insert plan.
 

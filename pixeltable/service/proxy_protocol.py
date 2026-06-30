@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import io
+import math
 import pathlib
 from typing import Any
 from uuid import UUID
@@ -36,21 +37,17 @@ _TAG = '$pxt'
 
 
 @dataclasses.dataclass
-class MediaFileUpload:
-    """Wraps a local media file so serialize() ships its bytes as a binary part; deserialize() writes them to the
-    local TempStore and yields the new path. Used to move file-backed media across the proxy boundary in both
-    directions (client insert/compute args and daemon transient result rows)."""
+class LocalFile:
+    """Wraps a local file so serialize()/deserialize() can handle it correctly."""
 
     path: str
 
 
 @dataclasses.dataclass
-class MediaUrlRef:
-    """References persisted daemon media (under the media dir) by a media-dir-relative path. The daemon emits it for
-    result media; the client fetches it from the daemon's /media endpoint into its FileCache (see ProxyClient).
-    deserialize() yields it unchanged so the client can find and localize it after decoding the response."""
+class MediaPath:
+    """References persisted daemon media (under the media dir) by a media-dir-relative path."""
 
-    ref: str
+    path: str
 
 
 class ProxyRequest(BaseModel):
@@ -90,6 +87,9 @@ def serialize(obj: Any, binary_parts: list[bytes]) -> Any:
 
     Binary values are appended to binary_parts as raw bytes and referenced inside the dict by index.
     """
+    if isinstance(obj, float) and not math.isfinite(obj):
+        # nan/inf are valid Float cell values but are lost (rendered as null) by JSON serialization
+        return {_TAG: 'float', 'v': repr(obj)}
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
     if isinstance(obj, IfExistsParam):
@@ -158,13 +158,13 @@ def serialize(obj: Any, binary_parts: list[bytes]) -> Any:
         fmt = obj.format or 'PNG'
         obj.save(buf, format=fmt)
         return {_TAG: 'image', 'format': fmt, 'v': _add_part(binary_parts, buf.getvalue())}
-    if isinstance(obj, MediaFileUpload):
+    if isinstance(obj, LocalFile):
         with open(obj.path, 'rb') as f:
             data = f.read()
         # carry the original file name so the receiver's temp copy keeps it (e.g. for media validation errors)
         return {_TAG: 'mediafile', 'name': pathlib.Path(obj.path).name, 'v': _add_part(binary_parts, data)}
-    if isinstance(obj, MediaUrlRef):
-        return {_TAG: 'mediaurl', 'v': obj.ref}
+    if isinstance(obj, MediaPath):
+        return {_TAG: 'mediaurl', 'v': obj.path}
     if isinstance(obj, list):
         return [serialize(x, binary_parts) for x in obj]
     if isinstance(obj, tuple):
@@ -187,6 +187,8 @@ def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
         if tag is None:
             return {k: deserialize(v, binary_parts) for k, v in obj.items()}
         v = obj['v']
+        if tag == 'float':
+            return float(v)  # nan/inf
         if tag == 'rawdict':
             # a user dict whose own key collided with the reserved tag; stored as ordered key/value pairs
             return {k: deserialize(val, binary_parts) for k, val in v}
@@ -210,7 +212,7 @@ def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
             return str(dest)
         if tag == 'mediaurl':
             # persisted daemon media; the client localizes it from the daemon's /media endpoint (see ProxyClient)
-            return MediaUrlRef(v)
+            return MediaPath(v)
         if tag == 'IfExistsParam':
             return IfExistsParam[v]
         if tag == 'IfNotExistsParam':

@@ -13,7 +13,7 @@ import shutil
 import traceback
 import urllib.parse
 import urllib.request
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 from uuid import UUID, uuid4
 
 from pixeltable import exceptions as excs
@@ -24,7 +24,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.local_store import TempStore
 
 from . import proxy_protocol
-from .proxy_protocol import PROTOCOL_VERSION, MediaFileUpload, MediaUrlRef, ProxyRequest, ProxyResponse
+from .proxy_protocol import PROTOCOL_VERSION, LocalFile, MediaPath, ProxyRequest, ProxyResponse
 
 _logger = logging.getLogger(__name__)
 
@@ -123,11 +123,11 @@ def _media_to_wire(value: Any) -> Any:
     if path is None:
         return value  # remote URL
     if TempStore.contains_path(path):
-        return MediaFileUpload(str(path))
+        return LocalFile(str(path))
     media_dir = Env.get().media_dir.resolve()
     resolved = path.resolve()
     if resolved == media_dir or media_dir in resolved.parents:
-        return MediaUrlRef(resolved.relative_to(media_dir).as_posix())
+        return MediaPath(resolved.relative_to(media_dir).as_posix())
     return value
 
 
@@ -277,6 +277,30 @@ def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
         return_rows=kwargs['return_rows'],
         **(kwargs['extra_fields'] or {}),
     )
+
+
+def _insert_sql_source(request: ProxyRequest, tbl: LocalTable) -> Any:
+    import sqlalchemy as sql
+
+    from pixeltable.io.data_sources import SqlDataSource
+
+    # only an InsertableTableProxy with read_on_server=True dispatches this, so a non-InsertableTable is an
+    # internal error
+    assert isinstance(tbl, InsertableTable), tbl
+    kwargs = _deserialize_args(request)
+    # the daemon connects to the source database itself and streams it in through the normal SqlDataNode path
+    engine = sql.create_engine(kwargs['connect_url'])
+    with engine.connect() as conn:
+        # text(...) executes like a SELECT here; SqlDataNode reads its rows positionally by col_names
+        sql_source = SqlDataSource(
+            select_stmt=cast(Any, sql.text(kwargs['sql_text'])), col_names=kwargs['col_names'], conn=conn
+        )
+        return tbl._insert_sql_source(
+            sql_source,
+            on_error=kwargs['on_error'],
+            print_stats=kwargs['print_stats'],
+            return_rows=kwargs['return_rows'],
+        )
 
 
 def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
@@ -508,6 +532,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
         'insert',
         'insert_source',
         'insert_hf_dataset',
+        'insert_sql_source',
         'insert_query',
         'update',
         'delete',
@@ -535,6 +560,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'insert'): _insert,
     ('Table', 'insert_source'): _insert_source,
     ('Table', 'insert_hf_dataset'): _insert_hf_dataset,
+    ('Table', 'insert_sql_source'): _insert_sql_source,
     ('Table', 'insert_query'): _insert_query,
     ('Table', 'compute'): _compute,
     ('Table', 'update'): _update,
@@ -561,6 +587,7 @@ _RESULT_CONVERTERS: dict[tuple[str, str], Callable[[Any], Any]] = {
     ('Table', 'insert'): _encode_update_status,
     ('Table', 'insert_source'): _encode_update_status,
     ('Table', 'insert_hf_dataset'): _encode_update_status,
+    ('Table', 'insert_sql_source'): _encode_update_status,
     ('Table', 'insert_query'): _encode_update_status,
     ('Table', 'compute'): _encode_compute_result,
     ('Table', 'update'): _encode_update_status,
