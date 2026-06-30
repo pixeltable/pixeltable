@@ -694,7 +694,7 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
 
     trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
     tc = TestCase()
-    tc.maxDiff = 10_000
+    tc.maxDiff = 25_000
     tc.assertDictEqual(expected, trimmed_actual)
 
 
@@ -710,7 +710,7 @@ def assert_version_metadata_eq(expected: dict[str, Any], actual: pxt.VersionMeta
 
     trimmed_actual = {k: v for k, v in actual.items() if k != 'created_at'}
     tc = TestCase()
-    tc.maxDiff = 10_000
+    tc.maxDiff = 25_000
     tc.assertDictEqual(expected, trimmed_actual)
 
 
@@ -1171,3 +1171,32 @@ def _(image: PIL.Image.Image, *, dim: int = LOCAL_EMBED_DIM) -> pxt.Array[(None,
 @local_embedding.conditional_return_type
 def _(dim: int) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
+
+
+def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
+    # Return a dict of schema information about that table that is invariant of table path and version history.
+    return {
+        'kind': metadata['kind'],
+        'comment': metadata['comment'],
+        'custom_metadata': metadata['custom_metadata'],
+        'media_validation': metadata['media_validation'],
+        'primary_key': metadata['primary_key'],
+        'iterator_call': metadata['iterator_call'],
+        'columns': {
+            name: {
+                'type_': info['type_'],
+                'is_stored': info['is_stored'],
+                'is_primary_key': info['is_primary_key'],
+                'media_validation': info['media_validation'],
+                'is_computed': info['is_computed'],
+                'computed_with': info['computed_with'],
+                'is_builtin': info['is_builtin'],
+                'comment': info['comment'],
+                'custom_metadata': info['custom_metadata'],
+                'is_iterator_col': info['is_iterator_col'],
+                'destination': info['destination'],
+            }
+            for name, info in metadata['columns'].items()
+        },
+    }
+    return {name: info['type_'] for name, info in metadata['columns'].items()}

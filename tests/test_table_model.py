@@ -13,10 +13,12 @@ from pixeltable.catalog.model import Column, EmbeddingIndex
 
 from .utils import (
     assert_dicts_eq,
+    assert_resultset_eq,
     assert_table_metadata_eq,
     capture_console_output,
     dummy_embedding,
     pxt_raises,
+    schema_from_tbl_md,
     validate_update_status,
 )
 
@@ -47,41 +49,57 @@ class TestTableModel:
 
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
-        expected_path = p('test_table' if root == '' else f'{root}/test_table')
+        expected_path = f'{p(root)}/test_table'.lstrip('/')
         if root != '':
             pxt.create_dir(p(root), parents=True)
 
+        print(expected_path)
         with capture_console_output(match=rf'Created {expected_path!r} from model `ExampleTableModel`.'):
             TableModel.create_all(p(root))
 
         tbl = ExampleTableModel.table
-        assert str(tbl.get_metadata()['path']) == expected_path
+        metadata = tbl.get_metadata()
+        assert str(metadata['path']) == expected_path
 
-        if root != '':
+        # Create an analogous table using the "direct construction" method and verify that the schemas and table
+        # behavior align.
+
+        tbl2 = pxt.create_table(
+            f'{expected_path}_2',
+            {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'img': pxt.Image},
+        )
+        tbl2.add_computed_column(incr=tbl2.value + 1)
+        tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name))
+        tbl2.add_column(
+            column_with_special_props={
+                'type': pxt.Video,
+                'media_validation': 'on_read',
+                'custom_metadata': {'chicken': 'eggs'},
+                'comment': 'This is a column with special properties',
+            }
+        )
+        tbl2.add_computed_column(computed_with_special_props=(tbl2.value / 3), stored=False)
+        tbl2.add_computed_column(computed_with_special_props_2=tbl2.img.rotate(90), destination='.')
+        metadata2 = tbl2.get_metadata()
+
+        assert schema_from_tbl_md(metadata) == schema_from_tbl_md(metadata2)
+
+        tbl.insert([{'id': 1, 'name': 'Alice', 'value': 3.14}])
+        tbl2.insert([{'id': 1, 'name': 'Alice', 'value': 3.14}])
+
+        assert_resultset_eq(tbl.collect(), tbl2.collect())
+
+        if p(root) != '':
             return  # Exact metadata comparison only applies to the '' case
 
-        metadata: dict[str, Any] = dict(tbl.get_metadata())
-
-        metadata.pop('id')
-        metadata.pop('version_created')
-        print(metadata)
-
-        assert {name: info['type_'] for name, info in metadata['columns'].items()} == {
-            'id': 'Required[Int]',
-            'name': 'String',
-            'value': 'Float',
-            'incr': 'Float',
-            'img': 'Image',
-            'descr': 'Required[String]',
-            'column_with_special_props': 'Video',
-            'computed_with_special_props': 'Float',
-            'computed_with_special_props_2': 'Image',
-        }
-
+        metadata_dict = dict(tbl.get_metadata())
+        metadata_dict.pop('id')
+        metadata_dict.pop('version_created')
+        print(metadata_dict)
         assert_table_metadata_eq(
             {
                 'name': 'test_table',
-                'path': p('test_table'),
+                'path': 'test_table',
                 'columns': {
                     'id': {
                         'name': 'id',
@@ -264,7 +282,7 @@ class TestTableModel:
                 'is_versioned': True,
                 'is_view': False,
                 'is_snapshot': False,
-                'version': 1,
+                'version': 2,
                 'schema_version': 1,
                 'comment': None,
                 'custom_metadata': None,
