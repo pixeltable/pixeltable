@@ -162,9 +162,9 @@ def serialize(obj: Any, binary_parts: list[bytes]) -> Any:
         with open(obj.path, 'rb') as f:
             data = f.read()
         # carry the original file name so the receiver's temp copy keeps it (e.g. for media validation errors)
-        return {_TAG: 'mediafile', 'name': pathlib.Path(obj.path).name, 'v': _add_part(binary_parts, data)}
+        return {_TAG: 'file', 'name': pathlib.Path(obj.path).name, 'v': _add_part(binary_parts, data)}
     if isinstance(obj, MediaPath):
-        return {_TAG: 'mediaurl', 'v': obj.path}
+        return {_TAG: 'mediapath', 'v': obj.path}
     if isinstance(obj, list):
         return [serialize(x, binary_parts) for x in obj]
     if isinstance(obj, tuple):
@@ -202,15 +202,15 @@ def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
             img = PIL.Image.open(io.BytesIO(binary_parts[v]))
             img.load()  # read pixels now so the result doesn't depend on the transient buffer
             return img
-        if tag == 'mediafile':
-            # write the shipped bytes into the local TempStore, preserving the original file name, and hand back
+        if tag == 'file':
+            # write the sent bytes into the local TempStore, preserving the original file name, and hand back
             # the new path
             dest = TempStore.create_path(name=obj['name'])
             dest.parent.mkdir(parents=True, exist_ok=True)
             with open(dest, 'wb') as f:
                 f.write(binary_parts[v])
             return str(dest)
-        if tag == 'mediaurl':
+        if tag == 'mediapath':
             # persisted daemon media; the client localizes it from the daemon's /media endpoint (see ProxyClient)
             return MediaPath(v)
         if tag == 'IfExistsParam':

@@ -16,10 +16,13 @@ import urllib.request
 from typing import TYPE_CHECKING, Any, Callable, cast
 from uuid import UUID, uuid4
 
+import sqlalchemy as sql
+
 from pixeltable import exceptions as excs
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.env import Env
+from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.local_store import TempStore
 
@@ -31,6 +34,7 @@ _logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from pixeltable.catalog import LocalTable
     from pixeltable.catalog.globals import TableVersionMd
+    from pixeltable.catalog.update_status import UpdateStatus
 
 
 def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[bytes]]:
@@ -49,7 +53,7 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
         if table_handler is not None:
             # path-bearing Table method. For a mutation, refuse to run if the client's snapshot_path_key is
             # behind the current schema (return is_stale_md + current_md so it refreshes and retries); reads
-            # run unconditionally. Either way, ship the table's current md back so the client's path refreshes.
+            # run unconditionally. Either way, send the table's current md back so the client's path refreshes.
             assert request.path_key is not None and request.snapshot_path_key is not None
             cat = get_runtime().catalog
             tbl = _resolve_tbl(TablePathKey.from_dict(request.path_key))
@@ -107,16 +111,8 @@ def _result_local_path(val: str) -> pathlib.Path | None:
     return None
 
 
-def _media_to_wire(value: Any) -> Any:
-    """Convert a single media-column result value for the wire.
-
-    Transient media (a file under the daemon TempStore, e.g. a computed-on-the-fly transform) is shipped back as
-    bytes via MediaFileUpload, landing in the client's TempStore. Persisted media (under the daemon media dir, e.g.
-    a stored column) is returned as a MediaUrlRef the client fetches lazily from the daemon's /media endpoint into
-    its FileCache. Remote URLs and non-string values (e.g. an in-memory PIL.Image) pass through unchanged.
-
-    Callers apply this only to values their result schema identifies as media.
-    """
+def _encode_local_path(value: Any) -> Any:
+    """Convert local file paths to LocalPath/MediaPath."""
     if not isinstance(value, str):
         return value
     path = _result_local_path(value)
@@ -235,11 +231,11 @@ def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
     # only an InsertableTableProxy dispatches 'insert_source', so a non-InsertableTable here is an internal error
     assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
-    # 'source' is a local temp path (a shipped file), a remote URL string, or a list of temp paths (a shipped
+    # 'source' is a local temp path (a sent file), a remote URL string, or a list of temp paths (a sent
     # directory). tbl.insert() reads a local path or a URL directly; a directory is reassembled here.
     source = kwargs['source']
     if isinstance(source, list):
-        # reassemble the shipped directory, keeping its original name so format detection (e.g. by a *.parquet
+        # reassemble the sent directory, keeping its original name so format detection (e.g. by a *.parquet
         # name) matches the local path
         dest_dir = TempStore.create_path() / kwargs['source_dir_name']
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -261,8 +257,8 @@ def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
 
     assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
-    # reassemble the shipped save_to_disk() directory: each entry pairs a relative path with a local temp file
-    # holding the shipped bytes
+    # reassemble the sent save_to_disk() directory: each entry pairs a relative path with a local temp file
+    # holding the sent bytes
     dataset_dir = TempStore.create_path()
     for entry in kwargs['files']:
         dest = dataset_dir / entry['relpath']
@@ -280,11 +276,7 @@ def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _insert_sql_source(request: ProxyRequest, tbl: LocalTable) -> Any:
-    import sqlalchemy as sql
-
-    from pixeltable.io.data_sources import SqlDataSource
-
-    # only an InsertableTableProxy with read_on_server=True dispatches this, so a non-InsertableTable is an
+    # only an InsertableTableProxy with send_connect_url=True dispatches this, so a non-InsertableTable is an
     # internal error
     assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
@@ -473,38 +465,24 @@ def _query_count(request: ProxyRequest) -> int:
     return build().count()
 
 
-# Output converters: prepare a handler's return value for the wire. A media-bearing result ships its transient
-# (computed-on-the-fly) media back as bytes via MediaFileUpload; each converter knows the structure its handler
-# returns. Methods without a converter need no media handling.
-def _convert_row_media(rows: list[dict[str, Any]]) -> None:
-    """In place: ship transient media in named result rows (keyed by column name) back to the client as bytes."""
+def _encode_row_media(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Converter for row dicts containing references to local files."""
     for row in rows:
         for name in row:
-            row[name] = _media_to_wire(row[name])
+            row[name] = _encode_local_path(row[name])
+    return rows
 
 
-def _encode_update_status(result: Any) -> Any:
-    """Converter for handlers returning an UpdateStatus with rows (insert/insert_query/update/batch_update)."""
-    _convert_row_media(result.rows or [])
-    return result
-
-
-def _encode_compute_result(result: Any) -> Any:
-    """Converter for compute(), which returns a list of result-row dicts."""
-    _convert_row_media(result)
-    return result
+def _encode_update_status(status: UpdateStatus) -> UpdateStatus:
+    """Converter for handlers returning an UpdateStatus with rows."""
+    if status.rows is not None:
+        _encode_row_media(status.rows)  # mutates the row dicts in place (UpdateStatus is frozen)
+    return status
 
 
 def _encode_result_set(result: dict) -> dict:
-    """Converter for query terminals returning {schema, rows} (rows are positional value lists).
-
-    With emit_media_as_urls() active, a file-backed media column arrives here as its file URL (a string),
-    which _media_to_wire maps to a MediaUrlRef or MediaFileUpload; an in-memory computed image arrives as a
-    PIL image, which passes through to the `image` serialization tag. Applied per value rather than by schema
-    because a query may also select a media column's `.fileurl`/`.localpath` (a String-typed expr), whose path
-    value needs the same treatment; _media_to_wire is a no-op on non-media strings.
-    """
-    result['rows'] = [[_media_to_wire(v) for v in row] for row in result['rows']]
+    """Converter for query terminals returning {schema, rows}."""
+    result['rows'] = [[_encode_local_path(v) for v in row] for row in result['rows']]
     return result
 
 
@@ -550,7 +528,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
     }
 )
 
-# Path-bearing Table methods: handler(request, tbl) -> result; handle() resolves tbl and ships current md back.
+# Path-bearing Table methods: handler(request, tbl) -> result; handle() resolves tbl and sends current md back.
 _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], Any]] = {
     ('Table', 'get_metadata'): _get_metadata,
     ('Table', '_path'): _get_path,
@@ -589,7 +567,7 @@ _RESULT_CONVERTERS: dict[tuple[str, str], Callable[[Any], Any]] = {
     ('Table', 'insert_hf_dataset'): _encode_update_status,
     ('Table', 'insert_sql_source'): _encode_update_status,
     ('Table', 'insert_query'): _encode_update_status,
-    ('Table', 'compute'): _encode_compute_result,
+    ('Table', 'compute'): _encode_row_media,
     ('Table', 'update'): _encode_update_status,
     ('Table', 'batch_update'): _encode_update_status,
 }

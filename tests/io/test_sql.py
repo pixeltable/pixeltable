@@ -417,11 +417,7 @@ class TestSql:
         assert list(result) == expected
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    def test_import_read_on_server(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str
-    ) -> None:
-        """`read_on_server=True`: a hosted destination has the daemon read the source DB directly (rather than the
-        client materializing it). A no-op for a local table; over the proxy it ships the connection URL + SQL."""
+    def test_import_on_server(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str) -> None:
         p = make_catalog_path
         engine = _import_engine(dbms, tmp_path)
         rows = [{'c_int': i, 'c_str': f'row_{i}'} for i in range(15)]

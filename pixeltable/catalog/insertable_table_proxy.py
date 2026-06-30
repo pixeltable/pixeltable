@@ -8,13 +8,16 @@ import urllib.request
 from typing import TYPE_CHECKING, Any, Iterator, Literal, Sequence, cast
 from uuid import UUID
 
+import pyarrow.parquet as pq
 import pydantic
 
 from pixeltable import exceptions as excs
+from pixeltable.utils import arrow
 
+from .globals import is_hf_dataset
 from .table_path import TableMdPath
 from .table_proxy import TableProxy
-from .globals import is_hf_dataset
+from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
     from pixeltable import exprs, type_system as ts
@@ -24,7 +27,6 @@ if TYPE_CHECKING:
 
     from ..globals import TableDataSource
     from .table import Table
-    from .update_status import UpdateStatus
 
 
 # byte budget per arrow batch when materializing a SQL source to parquet
@@ -164,7 +166,8 @@ class InsertableTableProxy(TableProxy):
         bound_args = self._dispatch_args(locals())
         if query._from_clause.catalog_uri != self._catalog_uri:
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Inserting from a query against a different database not supported.'
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Inserting from a query against a different database not supported.',
             )
         bound_args['query'] = query.as_dict()
         return self._dispatch('insert_query', bound_args)
@@ -180,15 +183,7 @@ class InsertableTableProxy(TableProxy):
     ) -> 'UpdateStatus':
         """Import a SQL source."""
         if send_connect_url:
-            return self._insert_sql(
-                sql_source, on_error=on_error, print_stats=print_stats, return_rows=return_rows
-            )
-
-        import pyarrow.parquet as pq
-
-        from pixeltable.utils import arrow
-
-        from .update_status import UpdateStatus
+            return self._insert_sql(sql_source, on_error=on_error, print_stats=print_stats, return_rows=return_rows)
 
         schema = self._get_schema()
         src_schema = {name: schema[name] for name in sql_source.col_names}
@@ -379,11 +374,7 @@ class InsertableTableProxy(TableProxy):
         }
 
     def _wrap_media_uploads(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Wrap local media-column file paths as MediaFileUpload so they send to the daemon as binary parts.
-
-        Remote URLs (http/s3/...) and non-path values are left unchanged, matching the local insert path (which
-        stores remote URLs as-is and fetches them on access).
-        """
+        """Wrap local media-column file paths as LocalFile so they send to the daemon as binary parts."""
         from pixeltable.service.proxy_protocol import LocalFile
 
         media_cols = self._media_column_names()

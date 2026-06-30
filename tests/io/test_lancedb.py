@@ -6,7 +6,6 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 import PIL.Image
-import pytest
 
 import pixeltable as pxt
 

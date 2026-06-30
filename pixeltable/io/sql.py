@@ -204,7 +204,7 @@ def import_sql(
                     f'`import_sql` requires a base table; {tbl_name!r} is a {existing._display_name()}.',
                 )
             _validate_append_compatibility(existing, tbl_name, schema)
-            existing._insert_sql_source(sql_data_source, on_error=on_error, read_on_server=send_connect_url)
+            existing._insert_sql_source(sql_data_source, on_error=on_error, send_connect_url=send_connect_url)
             return existing
 
         tbl = pxt.create_table(
@@ -216,7 +216,7 @@ def import_sql(
             if_exists='error',
         )
         try:
-            tbl._insert_sql_source(sql_data_source, on_error=on_error, read_on_server=send_connect_url)
+            tbl._insert_sql_source(sql_data_source, on_error=on_error, send_connect_url=send_connect_url)
         except BaseException:
             pxt.drop_table(tbl, if_not_exists='ignore')
             raise
