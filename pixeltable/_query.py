@@ -916,7 +916,7 @@ class Query:
 
         cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
         assert isinstance(cat, CatalogProxy)
-        result = cat.run_query(method, self.as_dict(), **extra)
+        result = cat.client.run_query(method, self.as_dict(), **extra)
         schema: dict[str, ColumnType] = result['schema']
         rows: list[list[Any]] = result['rows']
         self._materialize_result_media(cat, rows)
@@ -950,7 +950,7 @@ class Query:
                     scheme = urllib.parse.urlparse(val).scheme
                     if len(scheme) > 1 and scheme != 'file':
                         to_fetch.add(val)
-        local_paths = cat.fetch_media(list(to_fetch)) if len(to_fetch) > 0 else {}
+        local_paths = cat.client.fetch_media(list(to_fetch)) if len(to_fetch) > 0 else {}
 
         for row in rows:
             for i, wants_image in targets:
@@ -1025,7 +1025,7 @@ class Query:
 
             cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
             assert isinstance(cat, CatalogProxy)
-            return cat.run_query('count', self.as_dict())
+            return cat.client.run_query('count', self.as_dict())
 
         count_query = Query(
             from_clause=self._from_clause,

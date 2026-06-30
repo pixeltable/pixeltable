@@ -167,8 +167,6 @@ class Env:
 
     @property
     def is_proxy_daemon(self) -> bool:
-        """True in a process serving a hosted catalog over the proxy. Such a process has no client-accessible
-        local store, so it must reject local-filesystem media destinations."""
         return os.environ.get('PIXELTABLE_PROXY_DAEMON') == '1'
 
     @property

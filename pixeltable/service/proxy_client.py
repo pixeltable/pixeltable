@@ -82,6 +82,9 @@ class ProxyClient(abc.ABC):
     def fetch_media(self, urls: list[str]) -> dict[str, str]:
         """Fetch each daemon/remote media URL into the local store, returning {url: local_path}."""
 
+    def run_query(self, method: str, query_dict: dict, **extra: Any) -> Any:
+        """Execute a Query method."""
+
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
         response = self.send(class_name, method, args)
@@ -161,3 +164,7 @@ class ProxyHttpClient(ProxyClient):
                 resolved[url] = str(cache.add(_PROXY_MEDIA_TBL_ID, _PROXY_MEDIA_COL_ID, url, tmp))
 
         return resolved
+
+    def run_query(self, method: str, query_dict: dict, **extra: Any) -> Any:
+        """Execute a Query method against the hosted catalog."""
+        return self.send_request('Query', method, {'query': query_dict, **extra})

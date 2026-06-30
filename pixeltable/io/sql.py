@@ -197,7 +197,6 @@ def import_sql(
 
         existing = pxt.get_table(tbl_name, if_not_exists='ignore')
         if if_exists == 'append' and existing is not None:
-            # a base table reports _display_name() == 'table' in both the local and hosted (proxy) catalogs
             if existing._display_name() != 'table':
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
