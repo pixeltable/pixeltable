@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from typing import TYPE_CHECKING, Any, List, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 from uuid import UUID
 
 import pydantic
@@ -94,55 +94,24 @@ class View(LocalTable):
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
 
+        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None)) if tbl_id is not None else None
+
         # Convert select_list to more additional_columns if present
+        initial_col_id = len(iterator_call.outputs) if iterator_call is not None else 0
         include_base_columns: bool = select_list is None
-        select_list_columns: List[Column] = []
+        select_list_columns: list[Column] = []
         if not include_base_columns:
-            r = cls.select_list_to_additional_columns(select_list)
-            select_list_columns = [Column.create(name, spec) for name, spec in r.items()]
+            for i, (col_name, spec) in enumerate(cls.select_list_to_additional_columns(select_list).items()):
+                col = Column.create(col_name, spec)
+                if tbl_id is not None:
+                    col.id = initial_col_id + i
+                    col.tbl_handle = tbl_handle
+                select_list_columns.append(col)
 
-        columns = select_list_columns + additional_columns
-        cls._verify_schema(columns)
-
-        # verify that filters can be evaluated in the context of the base
-        if predicate is not None:
-            if not predicate.is_bound_by([base]):
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}',
-                )
-            # create a copy that we can modify and store
-            predicate = predicate.copy()
-        if sample_clause is not None:
-            # make sure that the sample clause can be computed in the context of the base
-            if sample_clause.stratify_exprs is not None and not all(
-                stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
-            ):
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
-                )
-
-            # create a copy that we can modify and store
-            sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
-
-        # same for value exprs; but we can skip this check if an explicit tbl_id is provided, as in the case of
-        # ViewModel.create()
-        if tbl_id is None:
-            for col in columns:
-                if not col.is_computed:
-                    continue
-                # make sure that the value can be computed in the context of the base
-                if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Column {col.name!r}: Value expression cannot be computed in the context of the '
-                        f'base table {base.tbl_name()!r}',
-                    )
-
+        iterator_cols: list[Column] = []
         if iterator_call is not None:
             assert _POS_COLUMN_NAME in iterator_call.outputs
-            known_col_names = {col.name for col in columns}
+            known_col_names = {col.name for col in select_list_columns + additional_columns}
             if include_base_columns:
                 known_col_names.update(col.name for col in base.columns())
             if any(name in known_col_names for name in iterator_call.outputs):
@@ -156,23 +125,62 @@ class View(LocalTable):
                     updated_outputs[unique_name] = output_info
                 iterator_call = dataclasses.replace(iterator_call, outputs=updated_outputs)
 
-            iterator_cols = []
-            for col_name, output_info in iterator_call.outputs.items():
+            for i, (col_name, output_info) in enumerate(iterator_call.outputs.items()):
                 stores_cellmd = Column.should_store_cellmd(
                     col_type=output_info.col_type, is_stored=output_info.is_stored, is_computed=False
                 )
-                iterator_cols.append(
-                    Column(
-                        col_name,
-                        col_type=output_info.col_type,
-                        sa_col_type=output_info.col_type.to_sa_type() if output_info.is_stored else None,
-                        is_iterator_col=True,
-                        stored=output_info.is_stored,
-                        stores_cellmd=stores_cellmd,
-                    )
+                col = Column(
+                    col_name,
+                    col_type=output_info.col_type,
+                    sa_col_type=output_info.col_type.to_sa_type() if output_info.is_stored else None,
+                    is_iterator_col=True,
+                    stored=output_info.is_stored,
+                    stores_cellmd=stores_cellmd,
+                )
+                if tbl_id is not None:
+                    col.id = i
+                    col.tbl_handle = tbl_handle
+                iterator_cols.append(col)
+
+        cls._verify_schema(select_list_columns + additional_columns)
+        columns = iterator_cols + select_list_columns + additional_columns
+
+        # verify that filters can be evaluated in the context of the base
+        if predicate is not None:
+            if not predicate.is_bound_by([base]):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}',
+                )
+            # create a copy that we can modify and store
+            predicate = predicate.copy()
+
+        # verify that the sample clause can be computed in the context of the base
+        if sample_clause is not None:
+            if sample_clause.stratify_exprs is not None and not all(
+                stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
+            ):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
                 )
 
-            columns = iterator_cols + columns
+            # create a copy that we can modify and store
+            sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
+
+        # verify that computed column expressions can be evaluated in the context of the base
+        # If a tbl_id is provided, then we also include sibling columns that are antecedent in the given column
+        # ordering. This is necessary to resolve class-based TableModel definitions, where computed columns may
+        # reference preceding columns that might not have been created yet.
+        for i, col in enumerate(columns):
+            # make sure that the value can be computed in the context of the base
+            siblings = columns[:i] if tbl_id is not None else []
+            if col.is_computed and col.value_expr is not None and not col.value_expr.is_bound_by([base], siblings):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col.name!r}: Value expression cannot be computed in the context of the '
+                    f'base table {base.tbl_name()!r}\n{col.value_expr}',
+                )
 
         iterator_args_expr: exprs.Expr = InlineDict(iterator_call.bound_args) if iterator_call is not None else None
         base_version_path = cls._get_snapshot_path(base) if is_snapshot else base

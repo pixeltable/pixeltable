@@ -282,9 +282,14 @@ class Expr(abc.ABC):
                 return result
             result = result.substitute({ref: ref.col.value_expr for ref in target_col_refs})
 
-    def is_bound_by(self, tbls: list[catalog.TablePath]) -> bool:
+    def is_bound_by(self, tbls: list[catalog.TablePath], siblings: list[catalog.Column] | None = None) -> bool:
         """Returns True if this expr can be evaluated in the context of tbls."""
         from .column_ref import ColumnRef
+
+        if siblings is None:
+            siblings = []
+        else:
+            assert all(sibling.tbl_handle is not None for sibling in siblings)
 
         def is_in(col_md: catalog.ColumnVersionMd, tbl: catalog.TablePath) -> bool:
             # the column must be physically present *and* pinned to the same version: the same physical column
@@ -294,7 +299,10 @@ class Expr(abc.ABC):
             return tbl.get_column_md(col_md.qcolid).col_effective_version == col_md.col_effective_version
 
         col_refs = self.subexprs(ColumnRef)
-        return all(any(is_in(col_ref.col_md, tbl) for tbl in tbls) for col_ref in col_refs)
+        return all(
+            any(is_in(col_ref.col_md, tbl) for tbl in tbls) or any(col_ref.col_md.qcolid == col.qid for col in siblings)
+            for col_ref in col_refs
+        )
 
     def retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
         """Retarget ColumnRefs in this expr to the given TableVersion instances (keyed by table id)."""
