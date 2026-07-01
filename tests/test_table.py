@@ -943,6 +943,7 @@ class TestTable:
             _ = pxt.create_table(p('validation_error'), {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})  # type: ignore[dict-item]
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
+    @pytest.mark.no_cloud
     def test_validate_on_read(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
@@ -977,6 +978,7 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
+    @pytest.mark.no_cloud
     def test_validate_on_read_with_computed_col(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
@@ -1198,6 +1200,7 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ZeroDivisionError'):
             t.compute([{'id': 0, 'data': None}], on_error='abort')
 
+    @pytest.mark.no_cloud
     def test_compute_media_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """compute() with a computed column on a media input, exercising media validation errors."""
         p = make_catalog_path
@@ -1243,6 +1246,7 @@ class TestTable:
         out = t.compute(({'id': 1}, {'id': 2}))
         assert out == [{'id': 1, 'plus1': 2}, {'id': 2, 'plus1': 3}]
 
+    @pytest.mark.no_cloud
     def test_array_and_media_columns(self, make_catalog_path: Callable[[str], str]) -> None:
         # arrays and in-memory images cross the wire inlined; a file-backed media path is read directly (the
         # daemon shares this client's filesystem and media store)
@@ -1266,6 +1270,7 @@ class TestTable:
         assert isinstance(out['a'], bytes)
         assert isinstance(out['rotated'], PIL.Image.Image)
 
+    @pytest.mark.no_cloud
     def test_compute_with_idx(self, make_catalog_path: Callable[[str], str], clip_embed: pxt.Function) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('transformers')
@@ -1508,6 +1513,7 @@ class TestTable:
 
             _ = t.insert([BadModel2(s='str_0', j=N4(s='str_0', n=N3(s={1, 2, 3})))])
 
+    @pytest.mark.no_cloud
     def test_pydantic_media(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         schema = {'img': pxt.Required[pxt.Image]}
@@ -2048,6 +2054,7 @@ class TestTable:
         ]
         self.check_bad_media(p, rows, pxt.Video, validate_local_path=catalog_mode == 'local')
 
+    @pytest.mark.no_cloud
     def test_file_paths(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'img': pxt.Image})
@@ -2068,6 +2075,7 @@ class TestTable:
         'PIXELTABLE_INPUT_MEDIA_DEST' in os.environ or 'PIXELTABLE_OUTPUT_MEDIA_DEST' in os.environ,
         reason='Specifying a default media destination disrupts the file cache counts',
     )
+
     # TODO: cannot be converted because it inspects the local file cache via FileCache and tbl._id
     @pytest.mark.local('inspects the local file cache via FileCache and tbl._id')
     def test_create_s3_image_table(self, uses_db: None) -> None:
@@ -2148,6 +2156,7 @@ class TestTable:
         with av.open(local_path) as container:
             assert container.streams.video[0].codec_context.name == 'h264'
 
+    @pytest.mark.no_cloud
     def test_create_video_table(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         if Env.get().is_using_cockroachdb:
@@ -2244,6 +2253,7 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
+    @pytest.mark.no_cloud
     def test_insert(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         schema: dict[str, type] = {

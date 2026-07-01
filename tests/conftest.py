@@ -48,6 +48,10 @@ DO_RERUN: bool
 
 def pytest_addoption(parser: argparsing.Parser) -> None:
     parser.addoption('--no-rerun', action='store_true', default=False, help='Do not rerun any failed tests.')
+    parser.addoption(
+        '--cloud', action='store_true', default=False,
+        help='Run tests against the cloud proxy (pxt://testorg:foxdb) instead of local/proxy modes.'
+    )
 
 
 def pytest_configure(config: PytestConfig) -> None:
@@ -263,6 +267,10 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Drive the catalog-backend axis: any test that (transitively) reaches catalog_mode runs against both
     'local' and 'proxy', unless marked @pytest.mark.local, in which case it runs 'local' only.
 
+    With --cloud, tests run against the cloud catalog instead of local/proxy.
+    Tests marked @pytest.mark.no_cloud are skipped when --cloud is set (they use local media files or
+    other resources unavailable to the cloud daemon, but work fine in local + proxy modes).
+
     metafunc.fixturenames is the transitive fixture closure, so a test reaching make_catalog_path (directly
     or via an adapted fixture like test_tbl) auto-forks with no per-test boilerplate. Tests that touch neither
     catalog_mode nor make_catalog_path run once.
@@ -272,16 +280,22 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if metafunc.definition.get_closest_marker('local') is not None:
         # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
         return
-    metafunc.parametrize('catalog_mode', ['local', 'proxy'], indirect=True)
+    if metafunc.config.getoption('--cloud', default=False):
+        if metafunc.definition.get_closest_marker('no_cloud') is not None:
+            metafunc.definition.add_marker(pytest.mark.skip(reason='not supported against cloud daemon'))
+            return
+        metafunc.parametrize('catalog_mode', ['cloud'], indirect=True)
+    else:
+        metafunc.parametrize('catalog_mode', ['local', 'proxy'], indirect=True)
 
 
 @pytest.fixture(scope='function')
 def catalog_mode(request: pytest.FixtureRequest) -> CatalogMode:
-    """The catalog backend under test: 'local' (in-process) or 'proxy' (delegated to a local daemon).
+    """The catalog backend under test: 'local', 'proxy' (local daemon), or 'cloud' (cloud proxy via NLB).
 
-    The local/proxy axis is assigned by pytest_generate_tests(); a test marked @pytest.mark.local isn't
+    The axis is assigned by pytest_generate_tests(); a test marked @pytest.mark.local isn't
     parametrized and gets 'local' here. Request this alongside make_catalog_path() to gate assertions that only
-    make sense in one mode (e.g. inspecting the client-side LocalStore, which is empty over proxy).
+    make sense in one mode (e.g. inspecting the client-side LocalStore, which is empty over proxy/cloud).
     """
     return getattr(request, 'param', 'local')
 
@@ -307,12 +321,34 @@ def make_catalog_path(
 
         def p(path: str) -> str:
             return f'{prefix}/{path}' if path else prefix
+    elif catalog_mode == 'cloud':
+        import uuid as _uuid
+
+        from pixeltable.config import Config
+
+        # PIXELTABLE_DB_URI (e.g. pxt://myorg:mydb) points at the cloud catalog.
+        # Falls back to a local default so the open-source test suite can run without
+        # a cloud environment (tests will fail gracefully if no real cloud is available).
+        db_uri = Config.get().get_string_value('DB_URI') or 'pxt://testorg:foxdb'
+        # Each test run gets its own namespace so tests don't collide.
+        run_id = _uuid.uuid4().hex[:8]
+        prefix = f'{db_uri}/test_{run_id}'
+        pxt.create_dir(prefix)
+
+        def p(path: str) -> str:
+            return f'{prefix}/{path}' if path else prefix
     else:
 
         def p(path: str) -> str:
             return path
 
     yield p
+
+    if catalog_mode == 'cloud':
+        try:
+            pxt.drop_dir(prefix, force=True)
+        except Exception:
+            pass
 
     _validate_catalog_state()
 

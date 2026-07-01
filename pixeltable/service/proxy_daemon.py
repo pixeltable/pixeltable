@@ -341,13 +341,21 @@ def _build_app() -> 'FastAPI':
 
 
 def _serve() -> None:
-    """Daemon entrypoint. Env (PIXELTABLE_HOME/PGDATA/DB) is set by the launching start()."""
+    """Daemon entrypoint.
+
+    Local mode (default): binds to a random loopback port, writes a port.lock file
+    for the SDK to discover, and manages the database lifecycle itself.
+
+    Fixed-address mode: when PIXELTABLE_DAEMON_HOST or PIXELTABLE_DAEMON_PORT is set,
+    binds to that address and port instead and skips the lock file. Used when an
+    external orchestrator (e.g. a sidecar) handles routing and discovery.
+    """
     try:
         import uvicorn
     except ModuleNotFoundError as e:
         raise excs.Error(
             excs.ErrorCode.INTERNAL_ERROR,
-            'The local proxy daemon requires the serve dependencies (fastapi, uvicorn). '
+            'The proxy daemon requires the serve dependencies (fastapi, uvicorn). '
             'Install them with: pip install pixeltable[serve]',
         ) from e
 
@@ -356,12 +364,20 @@ def _serve() -> None:
     # eagerly create/migrate this daemon's database before announcing readiness
     _ = get_runtime().catalog
 
+    config = Config.get()
+    daemon_host = config.get_string_value('DAEMON_HOST')
+    daemon_port = config.get_int_value('DAEMON_PORT')
+
+    if daemon_host is not None or daemon_port is not None:
+        uvicorn.run(app, host=daemon_host or '0.0.0.0', port=daemon_port or 8000, log_level='info')
+        return
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('127.0.0.1', 0))
     port = sock.getsockname()[1]
 
-    lock = Config.get().home / _LOCK_NAME  # this process's home is proxy_<db>
+    lock = config.home / _LOCK_NAME  # this process's home is proxy_<db>
     lock.write_text(json.dumps({'port': port, 'pid': os.getpid()}))
 
     def _cleanup(*_: Any) -> None:

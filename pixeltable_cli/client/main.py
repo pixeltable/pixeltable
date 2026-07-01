@@ -30,6 +30,14 @@ COMMANDS: dict[str, str] = {
     'daemon': 'control the daemon (start/stop/restart/status)',
     'localproxy': 'manage local proxy daemons (create/start/stop/delete)',
     'dashboard': 'print and open the dashboard URL',
+    'create-db': 'create a cloud-hosted database',
+    'list-dbs': 'list cloud-hosted databases for an org',
+    'delete-db': 'delete a cloud-hosted database',
+    'create-service': 'create a service from a table in a cloud-hosted database',
+    'list-services': 'list services in a cloud-hosted database',
+    'start-service': 'start a service',
+    'stop-service': 'stop a service',
+    'delete-service': 'delete a service',
 }
 
 

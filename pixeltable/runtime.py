@@ -133,23 +133,49 @@ class Runtime:
     def _make_proxy_catalog(self, catalog_uri: Path) -> CatalogBase:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
 
-        if catalog_uri.org != 'local':
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Hosted catalog {catalog_uri!r} is not supported yet'
-            )
-
-        from pixeltable.service import proxy_daemon
-        from pixeltable.service.proxy_client import ProxyHttpClient
-
         assert catalog_uri.db is not None
-        info = proxy_daemon.read_port_lock(catalog_uri.db)
-        if info is None:
-            db = catalog_uri.db
-            raise excs.NotFoundError(
-                excs.ErrorCode.SERVICE_NOT_FOUND,
-                f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
+
+        if catalog_uri.org == 'local':
+            from pixeltable.service import proxy_daemon
+            from pixeltable.service.proxy_client import ProxyHttpClient
+
+            info = proxy_daemon.read_port_lock(catalog_uri.db)
+            if info is None:
+                db = catalog_uri.db
+                raise excs.NotFoundError(
+                    excs.ErrorCode.SERVICE_NOT_FOUND,
+                    f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
+                )
+            return CatalogProxy(catalog_uri, ProxyHttpClient(f'http://127.0.0.1:{info["port"]}'))
+
+        # Cloud-hosted database: connect via TLS tunnel to the proxy sidecar.
+        import os
+        from pixeltable.service.proxy_cloud_client import ProxyCloudClient
+
+        api_key = Env.get().pxt_api_key
+        if api_key is None:
+            raise excs.AuthorizationError(
+                excs.ErrorCode.MISSING_CREDENTIALS,
+                f'A Pixeltable API key is required to connect to hosted database {catalog_uri!r}. '
+                'Set PIXELTABLE_API_KEY or add api_key to your config.',
             )
-        return CatalogProxy(catalog_uri, ProxyHttpClient(f'http://127.0.0.1:{info["port"]}'))
+        # PIXELTABLE_CLOUD_HOST is a domain suffix override (e.g. "dev.pxt.run").
+        # The full host is composed as {org}-{db}.{domain}.  Omit to use the
+        # production default (pxt.run), which proxy_cloud_client already encodes.
+        cloud_domain = os.environ.get('PIXELTABLE_CLOUD_HOST') or None
+        port_override = 9000
+        if cloud_domain and ':' in cloud_domain:
+            cloud_domain, _, port_str = cloud_domain.rpartition(':')
+            port_override = int(port_str)
+        host = f'{catalog_uri.org}-{catalog_uri.db}.{cloud_domain}' if cloud_domain else None
+        no_verify = os.environ.get('PIXELTABLE_CLOUD_NO_VERIFY', '') in ('1', 'true', 'yes')
+        return CatalogProxy(
+            catalog_uri,
+            ProxyCloudClient(
+                catalog_uri.org, catalog_uri.db, api_key,
+                host=host, port=port_override, no_verify=no_verify,
+            ),
+        )
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop:

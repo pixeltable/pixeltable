@@ -280,6 +280,7 @@ markers = [
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "local: test runs only against the in-process catalog, not the proxy (arg: reason)",
+    "no_cloud: test does not run against the cloud catalog (e.g. uses local media files); runs local + proxy only",
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)
