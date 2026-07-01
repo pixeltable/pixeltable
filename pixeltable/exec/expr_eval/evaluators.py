@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import itertools
 import logging
 import sys
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exceptions as excs, exprs, func
+from pixeltable import exceptions as excs, exprs, func, hooks
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -99,6 +100,13 @@ class FnCallEvaluator(Evaluator):
         if self.call_args_queue is not None:
             self.call_args_queue = asyncio.Queue[FnCallArgs]()
 
+    def _cell_span(self, row: exprs.DataRow) -> Any:
+        """Span for one row's UDF call, nested under the row's span; no-op when the row has no span."""
+        if row.span is None:
+            return contextlib.nullcontext()
+        # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under
+        return hooks.span(f'udf.{self.fn.display_name}', level=hooks.DEBUG, parent=row.span)
+
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.fn_call.slot_idx >= 0
 
@@ -187,15 +195,18 @@ class FnCallEvaluator(Evaluator):
     async def eval_batch(self, batched_call_args: FnCallArgs) -> None:
         result_batch: list[Any]
         try:
-            if self.fn.is_async:
-                result_batch = await self.fn.aexec_batch(
-                    *batched_call_args.batch_args, **batched_call_args.batch_kwargs
-                )
-            else:
-                # check for cancellation before starting something potentially long-running
-                if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
-                    return
-                result_batch = self.fn.exec_batch(batched_call_args.batch_args, batched_call_args.batch_kwargs)
+            # batched calls process many rows in one invocation, so they can't nest under a single row
+            # span; emit one span under the ambient operation span instead (see per-row span design)
+            with hooks.span(f'udf.{self.fn.display_name}', batch_size=len(batched_call_args.rows)):
+                if self.fn.is_async:
+                    result_batch = await self.fn.aexec_batch(
+                        *batched_call_args.batch_args, **batched_call_args.batch_kwargs
+                    )
+                else:
+                    # check for cancellation before starting something potentially long-running
+                    if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+                        return
+                    result_batch = self.fn.exec_batch(batched_call_args.batch_args, batched_call_args.batch_kwargs)
         except Exception as exc:
             _, _, exc_tb = sys.exc_info()
             for row in batched_call_args.rows:
@@ -215,7 +226,8 @@ class FnCallEvaluator(Evaluator):
         try:
             start_ts = datetime.datetime.now()
             _logger.debug(f'Start evaluating slot {self.fn_call.slot_idx}')
-            call_args.row[self.fn_call.slot_idx] = await self.fn.aexec(*call_args.args, **call_args.kwargs)
+            with self._cell_span(call_args.row):
+                call_args.row[self.fn_call.slot_idx] = await self.fn.aexec(*call_args.args, **call_args.kwargs)
             end_ts = datetime.datetime.now()
             _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
             self.dispatcher.dispatch([call_args.row], self.eval_ctx)
@@ -234,7 +246,8 @@ class FnCallEvaluator(Evaluator):
             if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
                 return
             try:
-                item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
+                with self._cell_span(item.row):
+                    item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 item.row.set_exc(self.fn_call.slot_idx, exc)

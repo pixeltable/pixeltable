@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Sequence, overload
 import pydantic
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, type_system as ts
+from pixeltable import exceptions as excs, hooks, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
@@ -158,18 +158,19 @@ class InsertableTable(LocalTable):
             source = [kwargs]
             kwargs = None
 
-        data_source = TableDataConduit.create(
-            source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
-        )
-        data_source.add_table_info(self)
-        data_source.prepare_for_insert_into_table()
+        with hooks.span('pixeltable.insert', set_current=True):
+            data_source = TableDataConduit.create(
+                source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
+            )
+            data_source.add_table_info(self)
+            data_source.prepare_for_insert_into_table()
 
-        return self._insert_table_data_source(
-            data_source=data_source,
-            fail_on_exception=fail_on_exception,
-            print_stats=print_stats,
-            return_rows=return_rows,
-        )
+            return self._insert_table_data_source(
+                data_source=data_source,
+                fail_on_exception=fail_on_exception,
+                print_stats=print_stats,
+                return_rows=return_rows,
+            )
 
     def compute(
         self,

@@ -9,7 +9,7 @@ from typing import AsyncIterator, Iterable
 import numpy as np
 
 import pixeltable.exceptions as excs
-from pixeltable import exprs
+from pixeltable import exprs, hooks
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
@@ -68,8 +68,11 @@ class ExprEvalNode(ExecNode):
     num_input_rows: int
     num_output_rows: int
 
+    _row_spans_opened: int  # count of per-row instrumentation spans opened, capped at MAX_ROW_SPANS
+
     BATCH_SIZE = 64
     MAX_BUFFERED_ROWS = 2048  # maximum number of rows that have been dispatched but not yet returned
+    MAX_ROW_SPANS = 100  # per-operation cap on per-row instrumentation spans, to bound span volume
 
     def __init__(
         self,
@@ -105,6 +108,7 @@ class ExprEvalNode(ExecNode):
         self.output_buffer = RowBuffer(self.MAX_BUFFERED_ROWS)
         self.num_input_rows = 0
         self.num_output_rows = 0
+        self._row_spans_opened = 0
         self.schedulers = {}
         # evaluators are owned by eval_ctx and reused across iterations; clear per-execution state
         # (closed flag, batched-call queue, etc.) so they accept work again
@@ -193,6 +197,13 @@ class ExprEvalNode(ExecNode):
 
         self.eval_ctx.init_rows(rows)
         self.set_var_slots(rows)
+        if hooks.active():
+            # per-row spans nest their UDF cell spans; suppressed (None) unless DEBUG is enabled under an
+            # operation span, so a bare query with no operation span stays dark
+            for row in rows:
+                if row.parent_row is None and self._row_spans_opened < self.MAX_ROW_SPANS:
+                    row.span = hooks.span_start('pixeltable.row', level=hooks.DEBUG, parent=hooks.current_span())
+                    self._row_spans_opened += 1
         self.dispatch(rows, self.eval_ctx)
 
     def _log_state(self, prefix: str) -> None:
@@ -466,6 +477,8 @@ class ExprEvalNode(ExecNode):
                     row.parent_row.vals[row.parent_slot_idx].complete_row()
             else:
                 for i in completed_idxs:
+                    hooks.span_end(rows[i].span)
+                    rows[i].span = None
                     self.completed_rows.put_nowait(rows[i])
                 self.completed_event.set()
                 self.num_in_flight -= len(completed_idxs)

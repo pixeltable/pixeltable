@@ -152,7 +152,7 @@ class TestHooks:
         op = hooks.span_start('op', set_current=True)
         suppressed = hooks.span_start('batch', level=hooks.DEBUG)
         assert not isinstance(suppressed, hooks.SpanHandle)
-        # children of a suppressed span parent to the nearest emitted ancestor
+        # a suppressed span returns None; its children fall back to the ambient span
         child = hooks.span_start('child', parent=suppressed)
         hooks.span_end(child)
         hooks.span_end(suppressed)  # no-op
