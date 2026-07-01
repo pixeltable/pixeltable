@@ -1667,7 +1667,6 @@ class Catalog(CatalogBase):
         """
         subst_dict: dict[exprs.Expr, exprs.Expr] = {}
 
-        initial_col_id = 0
         if base is not None:
             # Build substitutions for the base table's columns.
             if base.select_list is None:
@@ -1675,7 +1674,6 @@ class Catalog(CatalogBase):
                 for col in base._first_tbl.columns():
                     subst_dict[_PlaceholderColumnRef(col.name)] = exprs.ColumnRef(col.column_version_md())
             else:
-                initial_col_id = len(base.select_list)
                 for expr, name in base.select_list:
                     if name is not None:
                         subst_dict[_PlaceholderColumnRef(name)] = expr
@@ -1686,8 +1684,8 @@ class Catalog(CatalogBase):
         # this runs in the catalog that owns the table, no such reference ever needs to be serialized.
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
-        next_col_id = itertools.count(initial_col_id)
 
+        initial_col_id = 0
         if iterator is not None:
             # Rebind the iterator with substitutions from the base table.
             subst_args = [arg.substitute(subst_dict) for arg in iterator.args]
@@ -1697,14 +1695,19 @@ class Catalog(CatalogBase):
                 iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
             )
             # Build substitutions for the iterator's output columns.
-            for name, output in iterator.outputs.items():
+            for i, (name, output) in enumerate(iterator.outputs.items()):
                 catalog_col = Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
                 catalog_col.tbl_handle = tbl_handle
-                catalog_col.id = next(next_col_id)
+                catalog_col.id = i
                 subst_dict[_PlaceholderColumnRef(name)] = exprs.ColumnRef(
                     catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
                 )
+            initial_col_id += len(iterator.outputs)
 
+        if base is not None and base.select_list is not None:
+            initial_col_id += len(base.select_list)
+
+        next_col_id = itertools.count(initial_col_id)
         catalog_columns: list[Column] = []
         for name, spec in columns.items():
             subst_spec = spec.copy()

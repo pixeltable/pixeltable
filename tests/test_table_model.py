@@ -526,9 +526,18 @@ class TestTableModel:
             view_col_1 = ExampleTableModel.value + 1
             view_col_2 = tile.rotate(90)  # type: ignore[name-defined]  # `tile` is defined by the iterator
 
+        class ExampleViewModelFromQuery(
+            TableModel,
+            name='test_view_from_query',
+            base=ExampleTableModel.select(ExampleTableModel.id, ExampleTableModel.image, rot=ExampleTableModel.image.rotate(90)),
+            iterator=pxtf.image.tile_iterator(ExampleTableModel.image, (256, 256)),
+        ):
+            view_col_1 = tile.rotate(90)  # type: ignore[name-defined]
+
         TableModel.create_all(p(''))
         tbl = ExampleTableModel.table
         view = ExampleViewModel.table
+        view_from_query = ExampleViewModelFromQuery.table
 
         # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
         # and indices) align with the model-based ones. (The models default to `create_default_idxs=True`, including
@@ -543,6 +552,14 @@ class TestTableModel:
         view2.add_computed_column(view_col_1=(tbl2.value + 1))
         view2.add_computed_column(view_col_2=view2.tile.rotate(90))
 
+        view_from_query2 = pxt.create_view(
+            p('test_view_from_query_2'),
+            tbl2.select(tbl2.id, tbl2.image, rot=tbl2.image.rotate(90)),
+            iterator=pxtf.image.tile_iterator(tbl2.image, (256, 256)),
+            create_default_idxs=True,
+        )
+        view_from_query2.add_computed_column(view_col_1=view_from_query2.tile.rotate(90))
+
         images = get_image_files()
         rows = [
             {'id': 1, 'name': 'Alice', 'value': 3.14, 'image': images[0]},
@@ -553,9 +570,14 @@ class TestTableModel:
 
         assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
         assert schema_from_tbl_md(view.get_metadata()) == schema_from_tbl_md(view2.get_metadata())
+        assert schema_from_tbl_md(view_from_query.get_metadata()) == schema_from_tbl_md(view_from_query2.get_metadata())
 
         assert_resultset_eq(tbl.order_by(tbl.id).collect(), tbl2.order_by(tbl2.id).collect())
         assert_resultset_eq(view.order_by(view.id, view.pos).collect(), view2.order_by(view2.id, view2.pos).collect())
+        assert_resultset_eq(
+            view_from_query.order_by(view_from_query.id, view_from_query.pos).collect(),
+            view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
+        )
 
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
