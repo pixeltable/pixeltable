@@ -1,6 +1,8 @@
 from __future__ import annotations
+import __future__
 
 import dataclasses
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, MutableMapping, NamedTuple, TypedDict
@@ -356,13 +358,20 @@ class _ModelNamespace(dict):
     # Names that are produced by the base query or iterator; these cannot be redefined in the model.
     reserved_cols: dict[str, Literal['base query', 'iterator']]
 
-    def __init__(self, table_spec: TableSpec) -> None:
+    # The scope in which the class body is defined; used to evaluate stringized type annotations (see
+    # `set_col_type`). Populated from the defining frame in `TableModelMeta.__prepare__`.
+    eval_globals: dict[str, Any]
+    eval_locals: dict[str, Any]
+
+    def __init__(self, table_spec: TableSpec, eval_globals: dict[str, Any], eval_locals: dict[str, Any]) -> None:
         super().__init__()
 
         self.table_spec = table_spec
         self.known_cols = {}
         self.known_idxs = {}
         self.reserved_cols = {}
+        self.eval_globals = eval_globals
+        self.eval_locals = eval_locals
 
         # Pre-seed __annotations__ so the compiler routes bare annotations through
         # our recorder rather than a plain dict it would otherwise create.
@@ -426,6 +435,17 @@ class _ModelNamespace(dict):
 
     def set_col_type(self, name: str, type_: Any) -> None:
         self._check_reserved(name)
+        if isinstance(type_, str):
+            # Under `from __future__ import annotations` (PEP 563) -- and mandatory on Python 3.14+, where
+            # PEP 649 otherwise defers annotation evaluation entirely -- annotations arrive as strings. Evaluate
+            # the string in the scope where the model class is defined to recover the actual type.
+            try:
+                type_ = eval(type_, self.eval_globals, self.eval_locals)
+            except Exception as exc:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Could not resolve the type annotation {type_!r} for column {name!r}: {exc}',
+                ) from exc
         type_ = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
         if name in self.known_idxs:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Cannot set a type annotation for index {name!r}.')
@@ -530,6 +550,23 @@ class TableModelMeta(type):
 
             media_validation_ = MediaValidation.validated(media_validation, '`media_validation`')
 
+            # Capture the scope in which the class body is being defined, so that stringized type annotations
+            # (see `_ModelNamespace.set_col_type`) can be evaluated. `sys._getframe(1)` is the frame executing
+            # the `class ...:` statement (`__build_class__` is a C function and creates no frame).
+            caller = sys._getframe(1)
+
+            # On Python 3.14+, annotations are not evaluated eagerly (PEP 649), so the model's column annotations
+            # would be dropped and body references to them would raise `NameError` *before* we ever reach
+            # `__new__`. `from __future__ import annotations` restores the eager (stringized) behavior the model
+            # relies on. Detect its absence here -- before the body runs -- and fail with an actionable message.
+            future_annotations = bool(caller.f_code.co_flags & __future__.annotations.compiler_flag)
+            if sys.version_info >= (3, 14) and not future_annotations:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'{display_name}: On Python 3.14+, you must use `from __future__ import annotations` '
+                    'in your module in order to declare a TableModel.',
+                )
+
             namespace = _ModelNamespace(
                 {
                     'name': tbl_name,
@@ -540,7 +577,9 @@ class TableModelMeta(type):
                     'media_validation': media_validation_,
                     'comment': comment,
                     'custom_metadata': custom_metadata,
-                }
+                },
+                eval_globals=caller.f_globals,
+                eval_locals=caller.f_locals,
             )
 
             if base is not None and base.select_clause is not None:

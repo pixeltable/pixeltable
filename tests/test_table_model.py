@@ -1,6 +1,8 @@
 # ruff: noqa: F821
 # ruff: noqa: N806
 
+from __future__ import annotations
+
 from typing import Callable
 
 import numpy as np
