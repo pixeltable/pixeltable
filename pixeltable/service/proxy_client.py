@@ -17,8 +17,8 @@ from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import fetch_url
 
-from . import framing, proxy_protocol
-from .proxy_protocol import MediaPath, ProxyRequest, ProxyResponse
+from . import proxy_protocol
+from .proxy_protocol import MediaPath, ProxyRequest, ProxyResponse, decode_body, encode_body
 
 if TYPE_CHECKING:
     from pixeltable.catalog.table_path import TablePathKey
@@ -58,10 +58,10 @@ class ProxyClient:
 
     def _send(self, request_json: str, parts: list[bytes]) -> tuple[str, list[bytes]]:
         """Transport: POST the request (json head + binary parts) to /rpc, return the response (head + parts)."""
-        body = framing.encode_body(request_json.encode(), parts)
+        body = encode_body(request_json.encode(), parts)
         response = self._http.post('/rpc', content=body, headers={'Content-Type': 'application/octet-stream'})
         response.raise_for_status()
-        head, response_parts = framing.decode_body(response.content)
+        head, response_parts = decode_body(response.content)
         return head.decode(), response_parts
 
     def send(

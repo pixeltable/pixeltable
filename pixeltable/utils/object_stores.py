@@ -484,8 +484,7 @@ class ObjectOps:
         Args:
             dest: The requested destination
             col_name: Used to raise error messages
-            allow_local: If False, a local-filesystem destination is rejected (e.g. for a hosted catalog, whose
-                server has no client-accessible local store)
+            allow_local: If False, a local-filesystem destination is rejected
         Returns:
             URI of destination, or raises an error
         """

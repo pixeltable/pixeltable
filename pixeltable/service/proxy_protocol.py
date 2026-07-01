@@ -13,6 +13,7 @@ import datetime
 import io
 import math
 import pathlib
+import struct
 from typing import Any
 from uuid import UUID
 
@@ -62,7 +63,7 @@ class ProxyRequest(BaseModel):
     args: dict[str, Any]  # method kwargs, type-driven-serialized
     request_id: str | None = None  # set for mutating methods (idempotency); unused for now
 
-    # raw binary parts referenced by 'blob' tags in args; carried by the framing layer, not in the JSON
+    # raw binary parts referenced by 'blob' tags in args
     _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
 
 
@@ -72,7 +73,7 @@ class ProxyResponse(BaseModel):
     current_md: Any = None  # serialized TableMdPath (list[TableVersionMd]); set for path-bearing methods
     is_stale_md: bool = False  # True if the request's snapshot_path_key was behind the current schema version
 
-    # raw binary parts referenced by 'blob' tags in result/current_md; carried by the framing layer, not the JSON
+    # raw binary parts referenced by 'blob' tags in result/current_md
     _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
 
 
@@ -261,3 +262,35 @@ def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
             return datetime.date.fromisoformat(v)
         raise AssertionError(f'unknown proxy serialization tag: {tag!r}')
     return obj
+
+
+_U32 = struct.Struct('>I')
+
+
+def encode_body(head: bytes, binary_parts: list[bytes]) -> bytes:
+    out = [_U32.pack(len(head)), head, _U32.pack(len(binary_parts))]
+    for part in binary_parts:
+        out.append(_U32.pack(len(part)))
+        out.append(part)
+    return b''.join(out)
+
+
+def decode_body(body: bytes) -> tuple[bytes, list[bytes]]:
+    view = memoryview(body)
+    offset = 0
+
+    def take(n: int) -> bytes:
+        nonlocal offset
+        chunk = view[offset : offset + n]
+        if len(chunk) != n:
+            raise ValueError('truncated framed body')
+        offset += n
+        return bytes(chunk)
+
+    def take_u32() -> int:
+        return _U32.unpack(take(4))[0]
+
+    head = take(take_u32())
+    n_parts = take_u32()
+    binary_parts = [take(take_u32()) for _ in range(n_parts)]
+    return head, binary_parts
