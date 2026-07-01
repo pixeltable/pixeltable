@@ -249,6 +249,7 @@ def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
         on_error=kwargs['on_error'],
         print_stats=kwargs['print_stats'],
         return_rows=kwargs['return_rows'],
+        **(kwargs['extra_fields'] or {}),
     )
 
 

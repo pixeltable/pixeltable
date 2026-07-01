@@ -79,7 +79,15 @@ class InsertableTableProxy(TableProxy):
             # whose (possibly local) files must be sent to the daemon, so we read the source into rows here and route it
             # through the media-upload path.
             if len(self._media_column_names()) > 0:
-                data_source = TableDataConduit.create(source, source_format=source_format)
+                # parse the source into rows client-side (to upload its media files), honoring the same
+                # schema_overrides and reader options (extra_fields) the local/non-media paths receive.
+                # Normalize the overrides to ColumnType (schema inference requires instances, not type markers).
+                data_source = TableDataConduit.create(
+                    source,
+                    source_format=source_format,
+                    src_schema_overrides=self._normalize_schema_overrides(schema_overrides),
+                    extra_fields=kwargs,
+                )
                 data_source.src_pk = []
                 data_source.infer_schema()
                 rows = self._wrap_media_uploads([row for batch in data_source.valid_row_batch() for row in batch])
@@ -91,6 +99,7 @@ class InsertableTableProxy(TableProxy):
                 source,
                 source_format=source_format,
                 schema_overrides=schema_overrides,
+                extra_fields=kwargs,
                 on_error=on_error,
                 print_stats=print_stats,
                 return_rows=return_rows,
@@ -206,6 +215,7 @@ class InsertableTableProxy(TableProxy):
                 parquet_path,
                 source_format='parquet',
                 schema_overrides=None,
+                extra_fields=None,
                 on_error=on_error,
                 print_stats=print_stats,
                 return_rows=return_rows,
@@ -276,6 +286,7 @@ class InsertableTableProxy(TableProxy):
         *,
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None,
         schema_overrides: dict[str, ts.ColumnType] | None,
+        extra_fields: dict[str, Any] | None,
         on_error: Literal['abort', 'ignore'],
         print_stats: bool,
         return_rows: bool,
@@ -301,6 +312,7 @@ class InsertableTableProxy(TableProxy):
                 'source_dir_name': source_dir_name,
                 'source_format': source_format,
                 'schema_overrides': self._normalize_schema_overrides(schema_overrides),
+                'extra_fields': extra_fields,
                 'on_error': on_error,
                 'print_stats': print_stats,
                 'return_rows': return_rows,

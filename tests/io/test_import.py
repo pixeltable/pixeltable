@@ -2,12 +2,13 @@ import json
 from pathlib import Path
 from typing import Callable
 
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..utils import ensure_s3_pytest_resources_access, pxt_raises
+from ..utils import ensure_s3_pytest_resources_access, get_image_files, pxt_raises
 
 EXPECTED_SCHEMA = {
     'name': ts.StringType(nullable=True),
@@ -131,3 +132,33 @@ class TestImport:
         assert t2.count() == 10000
         t2.insert(jeopardy)
         assert t2.count() == 20000
+
+    def test_insert_file_reader_options(self, make_catalog_path: Callable[[str], str], tmp_path: Path) -> None:
+        """A file source's reader options (kwargs) and schema_overrides are honored, including for a table
+        with a media column."""
+        p = make_catalog_path
+
+        # a ';'-delimited CSV: the reader option is needed to split the columns correctly
+        csv_path = tmp_path / 'data.csv'
+        csv_path.write_text('a;b\n1;x\n2;y\n')
+
+        t = pxt.create_table(p('rdopt'), {'a': pxt.Int, 'b': pxt.String})
+        t.insert(str(csv_path), delimiter=';')
+        rows = list(t.order_by(t.a).collect())
+        assert [r['a'] for r in rows] == [1, 2]
+        assert [r['b'] for r in rows] == ['x', 'y']
+
+        # schema_overrides is honored on a file source (column 'a' kept as a string)
+        t2 = pxt.create_table(p('rdopt_ovr'), {'a': pxt.String, 'b': pxt.String})
+        t2.insert(str(csv_path), delimiter=';', schema_overrides={'a': ts.StringType(nullable=True)})
+        assert [r['a'] for r in t2.order_by(t2.a).collect()] == ['1', '2']
+
+        # a table with a media column, fed a ';'-delimited CSV whose image column holds local file paths
+        img_paths = get_image_files()[:2]
+        media_csv = tmp_path / 'media.csv'
+        media_csv.write_text('k;img\n' + ''.join(f'{i};{path}\n' for i, path in enumerate(img_paths)))
+        tm = pxt.create_table(p('rdopt_media'), {'k': pxt.Int, 'img': pxt.Image})
+        tm.insert(str(media_csv), delimiter=';')
+        media_rows = list(tm.order_by(tm.k).collect())
+        assert [r['k'] for r in media_rows] == [0, 1]
+        assert all(isinstance(r['img'], PIL.Image.Image) for r in media_rows)

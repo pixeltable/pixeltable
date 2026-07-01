@@ -1,13 +1,11 @@
 """Client-side transport for the proxy service.
 
 send_request() runs a remote catalog method and returns its result, re-raising any server-side error as
-the identical pixeltable exception. Subclasses implement only the transport (_send): ProxyHttpClient over
-HTTP, InProcessProxyClient in-process.
+the identical pixeltable exception. Requests are POSTed to a proxy daemon's /rpc endpoint over HTTP.
 """
 
 from __future__ import annotations
 
-import abc
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import UUID
@@ -19,7 +17,7 @@ from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import fetch_url
 
-from . import framing, proxy_dispatch, proxy_protocol
+from . import framing, proxy_protocol
 from .proxy_protocol import MediaPath, ProxyRequest, ProxyResponse
 
 if TYPE_CHECKING:
@@ -48,10 +46,23 @@ def _replace_media_paths(obj: Any, make_url: Callable[[str], str]) -> Any:
     return obj
 
 
-class ProxyClient(abc.ABC):
-    @abc.abstractmethod
-    def _send(self, request_json: str, binary_parts: list[bytes]) -> tuple[str, list[bytes]]:
-        """Transport: send the request (json head + binary parts), return the response (head + parts)."""
+class ProxyClient:
+    """Talks to a proxy daemon over HTTP: POSTs requests to its /rpc endpoint and localizes media results."""
+
+    _endpoint: str
+    _http: httpx.Client
+
+    def __init__(self, endpoint: str):
+        self._endpoint = endpoint
+        self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
+
+    def _send(self, request_json: str, parts: list[bytes]) -> tuple[str, list[bytes]]:
+        """Transport: POST the request (json head + binary parts) to /rpc, return the response (head + parts)."""
+        body = framing.encode_body(request_json.encode(), parts)
+        response = self._http.post('/rpc', content=body, headers={'Content-Type': 'application/octet-stream'})
+        response.raise_for_status()
+        head, response_parts = framing.decode_body(response.content)
+        return head.decode(), response_parts
 
     def send(
         self,
@@ -75,15 +86,6 @@ class ProxyClient(abc.ABC):
         response = ProxyResponse.model_validate_json(response_json)
         response._binary_parts = response_parts
         return response
-
-    def _localize_media(self, result: Any) -> Any:
-        """Resolve any MediaPath in the result to a fetchable daemon URL."""
-
-    def fetch_media(self, urls: list[str]) -> dict[str, str]:
-        """Fetch each daemon/remote media URL into the local store, returning {url: local_path}."""
-
-    def run_query(self, method: str, query_dict: dict, **extra: Any) -> Any:
-        """Execute a Query method."""
 
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
@@ -113,38 +115,19 @@ class ProxyClient(abc.ABC):
                 continue  # server withheld a stale mutation; retry against the refreshed schema
             return self._localize_media(proxy_protocol.deserialize(response.result, response._binary_parts))
 
-
-class InProcessProxyClient(ProxyClient):
-    """In-process transport"""
-
-    def _send(self, request_json: str, parts: list[bytes]) -> tuple[str, list[bytes]]:
-        return proxy_dispatch.handle(request_json, parts)
-
-
-class ProxyHttpClient(ProxyClient):
-    """HTTP transport: POSTs requests to a proxy /rpc endpoint."""
-
-    _endpoint: str
-    _http: httpx.Client
-
-    def __init__(self, endpoint: str):
-        self._endpoint = endpoint
-        self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
-
-    def _send(self, request_json: str, parts: list[bytes]) -> tuple[str, list[bytes]]:
-        body = framing.encode_body(request_json.encode(), parts)
-        response = self._http.post('/rpc', content=body, headers={'Content-Type': 'application/octet-stream'})
-        response.raise_for_status()
-        head, response_parts = framing.decode_body(response.content)
-        return head.decode(), response_parts
+    def run_query(self, method: str, query_dict: dict, **extra: Any) -> Any:
+        """Execute a Query method against the hosted catalog."""
+        return self.send_request('Query', method, {'query': query_dict, **extra})
 
     def _media_url(self, media_path: str) -> str:
         return f'{self._endpoint}/media/{media_path}'
 
     def _localize_media(self, result: Any) -> Any:
+        """Resolve any MediaPath in the result to a fetchable daemon URL."""
         return _replace_media_paths(result, self._media_url)
 
     def fetch_media(self, urls: list[str]) -> dict[str, str]:
+        """Fetch each daemon/remote media URL into the local store, returning {url: local_path}."""
         cache = FileCache.get()
         resolved: dict[str, str] = {}
         to_fetch: list[str] = []
@@ -164,7 +147,3 @@ class ProxyHttpClient(ProxyClient):
                 resolved[url] = str(cache.add(_PROXY_MEDIA_TBL_ID, _PROXY_MEDIA_COL_ID, url, tmp))
 
         return resolved
-
-    def run_query(self, method: str, query_dict: dict, **extra: Any) -> Any:
-        """Execute a Query method against the hosted catalog."""
-        return self.send_request('Query', method, {'query': query_dict, **extra})
