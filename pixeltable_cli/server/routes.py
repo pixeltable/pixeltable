@@ -10,6 +10,7 @@ import sqlalchemy as sa
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import Path
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
@@ -115,14 +116,30 @@ def list_dir(req: Request) -> models.LsResponse:
 
 
 def _list_dir(path: str, *, tree: bool, details: bool, counts: bool) -> models.LsResponse:
-    full_tree = pxt.get_dir_tree()
-    nodes = _get_dir_children(full_tree, path)
+    # A hosted path (pxt://<org>:<db>/...) lists a remote catalog; split off its catalog-root URI so we
+    # fetch that catalog's tree and navigate by the in-catalog remainder. catalog_root is '' for a local path.
+    path_obj = Path.parse(path, allow_empty_path=True)
+    db_uri = path_obj.uri
+    relative_path = '/'.join(path_obj.components)
+    full_tree = pxt.get_dir_tree(db_uri)
+    nodes = _get_dir_children(full_tree, relative_path)
+    _reroot(nodes, db_uri)
     if tree:
         return models.LsResponse(entries=[], tree={'path': path, 'entries': nodes})
     entries = [_to_entry(n, details=details) for n in nodes]
     if counts:
         _fill_counts(entries)
     return models.LsResponse(entries=entries)
+
+
+def _reroot(nodes: list[TreeNode], catalog_root: str) -> None:
+    """Prefix each node's path with catalog_root"""
+    if catalog_root == '':
+        return
+    for n in nodes:
+        n['path'] = f'{catalog_root}/{n["path"]}'
+        if n['kind'] == 'directory':
+            _reroot(n['entries'], catalog_root)
 
 
 @router.get('/api/tables/{path:path}/rows')

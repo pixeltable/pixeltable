@@ -153,19 +153,12 @@ class FileCache:
             self.total_size -= entry.size
 
     def validate(self) -> None:
-        """
-        Validation:
-        - all files in the cache directory are in self.cache
-        - all files in self.cache are in the cache directory
-        """
-        # validate directory contents
-        dir_contents = set(Env.get().file_cache_dir.glob('*'))
-        for entry in self.cache.values():
-            assert entry.path in dir_contents, f'{entry.path} not found in {dir_contents}'
-            dir_contents.remove(entry.path)
-        assert len(dir_contents) == 0, f'Found {len(dir_contents)} unexpected files in file cache: {dir_contents}'
+        """Check that every entry in self.cache still exists on disk.
 
-        # validate cache contents
+        The reverse (every file in file_cache_dir is tracked in self.cache) is not checked: file_cache_dir
+        can be shared by several pixeltable processes, so self.cache holds only this process's entries and a
+        file on disk that this process never added is not an inconsistency.
+        """
         for entry in self.cache.values():
             assert entry.path.exists(), f'{entry.path} does not exist'
 
