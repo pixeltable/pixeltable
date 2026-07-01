@@ -343,11 +343,18 @@ class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
 
 
 class VideoSegment(TypedDict):
+    """One segment of a video: the segment's video plus where it falls in the source video."""
+
     segment_start: float | None
+    """Segment start, in seconds from the start of the source video; None if the source stream does not report it."""
     segment_start_pts: int | None
+    """Segment start, as a presentation timestamp (in the source stream's time base); None if unavailable."""
     segment_end: float | None
+    """Segment end, in seconds from the start of the source video; None if the source stream does not report it."""
     segment_end_pts: int | None
+    """Segment end, as a presentation timestamp (in the source stream's time base); None if unavailable."""
     video_segment: pxt.Video
+    """The segment's video."""
 
 
 @pxt.iterator

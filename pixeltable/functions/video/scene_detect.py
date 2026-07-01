@@ -13,9 +13,14 @@ if TYPE_CHECKING:
 
 
 class SceneInfo(TypedDict):
-    start_time: float  # scene start, in seconds
-    start_pts: int  # scene start, as a presentation timestamp
-    duration: float  # scene duration, in seconds
+    """One scene detected within a video: where it starts and how long it lasts."""
+
+    start_time: float
+    """Scene start, in seconds from the start of the video."""
+    start_pts: int
+    """Scene start, as a presentation timestamp (in the video stream's time base)."""
+    duration: float
+    """Scene duration, in seconds."""
 
 
 @pxt.udf(is_method=True)
