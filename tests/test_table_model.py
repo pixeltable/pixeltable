@@ -19,6 +19,7 @@ from .utils import (
     get_image_files,
     pxt_raises,
     schema_from_tbl_md,
+    skip_test_if_not_installed,
     validate_update_status,
 )
 
@@ -372,6 +373,8 @@ class TestTableModel:
 
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
     def test_view_model(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
+        skip_test_if_not_installed('imagehash')
+
         p = make_catalog_path
         TableModel = pxt.model_base()
 
@@ -508,6 +511,8 @@ class TestTableModel:
             assert_resultset_eq(mtbl.order_by(mtbl.value).collect(), atbl.order_by(atbl.value).collect())
 
     def test_view_model_with_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+        skip_test_if_not_installed('imagehash')
+
         p = make_catalog_path
         TableModel = pxt.model_base()
 
