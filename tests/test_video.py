@@ -1023,7 +1023,7 @@ class TestVideo:
             self._validate_videos(result['col'])
 
         # also check the generated drawtext commands
-        assert pxtf.video._create_drawtext_params(
+        assert pxtf.video.filters._create_drawtext_params(
             text,
             font=None,
             font_size=24,
@@ -1039,7 +1039,7 @@ class TestVideo:
             box_opacity=1.0,
             box_border=None,
         ) == ["text='Line 1\nLine2\\: \\'quoted text\\''", 'fontsize=24', 'fontcolor=black@0.5', 'x=10', 'y=0']
-        assert pxtf.video._create_drawtext_params(
+        assert pxtf.video.filters._create_drawtext_params(
             text,
             font=None,
             font_size=24,
@@ -1065,7 +1065,7 @@ class TestVideo:
             'boxcolor=blue@0.5',
             'boxborderw=10|20|30|40',
         ]
-        assert pxtf.video._create_drawtext_params(
+        assert pxtf.video.filters._create_drawtext_params(
             text,
             font=None,
             font_size=24,
@@ -1091,7 +1091,7 @@ class TestVideo:
             'boxcolor=red@0.8',
             'boxborderw=10|20|30',
         ]
-        assert pxtf.video._create_drawtext_params(
+        assert pxtf.video.filters._create_drawtext_params(
             text,
             font=None,
             font_size=24,
@@ -1116,7 +1116,7 @@ class TestVideo:
             'boxcolor=blue@0.5',
             'boxborderw=10|20',
         ]
-        assert pxtf.video._create_drawtext_params(
+        assert pxtf.video.filters._create_drawtext_params(
             text,
             font=None,
             font_size=24,

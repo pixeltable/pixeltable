@@ -18,7 +18,6 @@ from .editing import (
     with_audio,
 )
 from .filters import (
-    _create_drawtext_params,
     adjust_brightness,
     crop,
     fade_in,
