@@ -13,9 +13,9 @@ import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import PIL.Image
 import sqlalchemy as sql
 
-from pixeltable.hooks import SpanHandle
 import pixeltable.utils.image as image_utils
 from pixeltable import catalog, env
+from pixeltable.hooks import SpanHandle
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.misc import non_none_dict_factory
 

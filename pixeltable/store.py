@@ -9,7 +9,7 @@ from uuid import UUID
 import psycopg
 import sqlalchemy as sql
 
-from pixeltable import catalog, exceptions as excs
+from pixeltable import catalog, exceptions as excs, hooks
 from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
@@ -596,7 +596,8 @@ class StoreBase:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
-            conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
+            with hooks.span(f'pixeltable.sa.insert_rows', set_current=True):
+                conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
         except sql.exc.IntegrityError as e:
             if (
                 isinstance(e.orig, psycopg.errors.UniqueViolation)

@@ -14,12 +14,13 @@ from collections.abc import Collection
 from typing import Any
 
 from opentelemetry import context as otel_context, metrics as otel_metrics, trace
+from opentelemetry.context import Context, Token
 
 # opentelemetry-instrumentation marks instrumentor.py with a module-level `# type: ignore`, so mypy
 # can't see BaseInstrumentor despite the package shipping py.typed
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type: ignore[attr-defined]
 from opentelemetry.trace import StatusCode, set_span_in_context
-from opentelemetry.context import Context, Token
+
 from pixeltable import __version__, hooks
 
 from ._sdk import init
