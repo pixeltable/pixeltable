@@ -168,12 +168,12 @@ class Dumper:
             'c9': pxt.Audio,
             'c10': pxt.Video,
             'c11': pxt.Document,
-            'c12': pxt.Array[np.float64, (10,)],  # type: ignore[misc]
+            'c12': pxt.Array[np.float64, (10,)],
             'c13': pxt.UUID,
             'c14': pxt.Date,
             'c16': pxt.Binary,
             'c17': pxt.Array,
-            'c18': pxt.Array[(2, None), np.str_],  # type: ignore[misc]
+            'c18': pxt.Array[(2, None), np.str_],
         }
         t = pxt.create_table(
             'base_table', schema, primary_key='c2', comment='This is a test table.', custom_metadata={'key': 'value'}

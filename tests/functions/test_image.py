@@ -58,7 +58,7 @@ class TestImage:
     def test_return_types(self, uses_db: None) -> None:
         for nullable in (True, False):
             type_hint = pxt.Image[(200, 300), 'RGB']  # type: ignore
-            type_hint = type_hint if nullable else pxt.Required[type_hint]  # type: ignore
+            type_hint = type_hint if nullable else pxt.Required[type_hint]
             t = pxt.create_table('test', {'img': type_hint, 'info': pxt.Required[pxt.Json]}, if_exists='replace')
 
             assert t.img.convert(mode='L').col_type == ts.ImageType(size=(200, 300), mode='L', nullable=nullable)

@@ -90,7 +90,7 @@ class TestIceberg:
         skip_test_if_not_installed('pyiceberg')
         catalog = TestIceberg._catalog(tmp_path)
 
-        fixed = pxt.create_table('test_iceberg_tensor', {'c_array': pxt.Array[(4,), pxt.Float]})  # type: ignore[misc]
+        fixed = pxt.create_table('test_iceberg_tensor', {'c_array': pxt.Array[(4,), pxt.Float]})
         fixed.insert([{'c_array': np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
             pxt.io.export_iceberg(fixed, catalog, 'pxt.tensor_fixed')
@@ -98,7 +98,7 @@ class TestIceberg:
     def test_export_variable_shape_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Variable-shape arrays map to pa.list_(...) and are exported as Iceberg lists."""
         skip_test_if_not_installed('pyiceberg')
-        variable = pxt.create_table('test_iceberg_tensor_var', {'c_array': pxt.Array[(None,), pxt.Float]})  # type: ignore[misc]
+        variable = pxt.create_table('test_iceberg_tensor_var', {'c_array': pxt.Array[(None,), pxt.Float]})
         variable.insert(
             [
                 {'c_array': np.array([1.0, 2.0, 3.0], dtype=np.float32)},
@@ -198,7 +198,7 @@ class TestIceberg:
             pxt.io.export_iceberg(t, catalog, 'pxt.if_exists', if_exists='badval')  # type: ignore[arg-type]
 
         # Replace + preflight failure: existing table must be preserved.
-        bad = pxt.create_table('test_iceberg_replace_bad', {'c_array': pxt.Array[(4,), pxt.Float]})  # type: ignore[misc]
+        bad = pxt.create_table('test_iceberg_replace_bad', {'c_array': pxt.Array[(4,), pxt.Float]})
         bad.insert([{'c_array': np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
             pxt.io.export_iceberg(bad, catalog, 'pxt.if_exists', if_exists='replace')

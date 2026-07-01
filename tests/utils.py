@@ -318,7 +318,7 @@ def create_all_datatypes_tbl(
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
-        'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
+        'c_array': pxt.Array[(10,), pxt.Float],
         'c_audio': pxt.Audio,
         'c_bool': pxt.Bool,
         'c_date': pxt.Date,

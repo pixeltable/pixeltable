@@ -1240,7 +1240,7 @@ class TestVision:
         image_files = get_image_files()[:3]
         t.insert({'img': f} for f in image_files)
 
-        segmentation_map = t.segmentation.segmentation.astype(pxt.Array[(None, None), np.int32])  # type: ignore[misc]
+        segmentation_map = t.segmentation.segmentation.astype(pxt.Array[(None, None), np.int32])
         _ = t.select(overlay_segmentation(t.img, segmentation_map)).collect()
 
         # test non-defaults

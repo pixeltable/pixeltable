@@ -68,7 +68,7 @@ class TestProject:
 
         # Subtype/supertype relationships
 
-        schema3 = {'img': pxt.Image, 'spec_img': pxt.Image[512, 512]}  # type: ignore[misc]
+        schema3 = {'img': pxt.Image, 'spec_img': pxt.Image[512, 512]}
         t3 = pxt.create_table('test_store_3', schema3)
 
         export_img_cols: dict[str, ColumnType] = {
