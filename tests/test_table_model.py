@@ -359,7 +359,7 @@ class TestTableModel:
         tbl2.add_computed_column(string_radd=('prefix ' + tbl2.name))
         tbl2.add_computed_column(string_mul=tbl2.name * 3)
         tbl2.add_computed_column(string_rmul=3 * tbl2.name)
-        tbl2.add_computed_column(type_cast=tbl2.arr.astype(pxt.Array[(2, 3), np.float32]))
+        tbl2.add_computed_column(type_cast=tbl2.arr.astype(pxt.Array[(2, 3), np.float32]))  # type: ignore[misc]
 
         assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
 
@@ -529,7 +529,9 @@ class TestTableModel:
         class ExampleViewModelFromQuery(
             TableModel,
             name='test_view_from_query',
-            base=ExampleTableModel.select(ExampleTableModel.id, ExampleTableModel.image, rot=ExampleTableModel.image.rotate(90)),
+            base=ExampleTableModel.select(
+                ExampleTableModel.id, ExampleTableModel.image, rot=ExampleTableModel.image.rotate(90)
+            ),
             iterator=pxtf.image.tile_iterator(ExampleTableModel.image, (256, 256)),
         ):
             view_col_1 = tile.rotate(90)  # type: ignore[name-defined]
@@ -724,7 +726,7 @@ class TestTableModel:
         with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
             ValidTableModel.collect()
 
-        # `_PlaceholderQuery` clause methods reject being specified more than once in a `ViewModel` base query.
+        # `ModelQuery` clause methods reject being specified more than once in a `ViewModel` base query.
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`select\(\)` list already specified'):
             ValidTableModel.select(ValidTableModel.id).select(ValidTableModel.id)
 

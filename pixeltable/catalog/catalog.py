@@ -33,7 +33,7 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .model import _PlaceholderColumnRef
+from .model import ModelColumnRef
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -1658,7 +1658,7 @@ class Catalog(CatalogBase):
 
         A model's column value expressions can contain placeholder references to other columns in the same table.
         Those references arrive as
-        `_PlaceholderColumnRef`s and are substituted here, in the catalog that owns `path`, so they never have to
+        `ModelColumnRef`s and are substituted here, in the catalog that owns `path`, so they never have to
         be resolved across a proxy boundary. `base`, when present (i.e. this is a view), is an already-bound Query
         over the existing base table.
 
@@ -1672,13 +1672,13 @@ class Catalog(CatalogBase):
             if base.select_list is None:
                 # select(*): all visible columns from the base table
                 for col in base._first_tbl.columns():
-                    subst_dict[_PlaceholderColumnRef(col.name)] = exprs.ColumnRef(col.column_version_md())
+                    subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(col.column_version_md())
             else:
                 for expr, name in base.select_list:
                     if name is not None:
-                        subst_dict[_PlaceholderColumnRef(name)] = expr
+                        subst_dict[ModelColumnRef(name)] = expr
                     elif isinstance(expr, exprs.ColumnRef):
-                        subst_dict[_PlaceholderColumnRef(expr.column_md.name)] = expr
+                        subst_dict[ModelColumnRef(expr.column_md.name)] = expr
 
         # We allocate the table id up front so that self-referential ColumnRefs (built below) point at it; since
         # this runs in the catalog that owns the table, no such reference ever needs to be serialized.
@@ -1699,7 +1699,7 @@ class Catalog(CatalogBase):
                 catalog_col = Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
                 catalog_col.tbl_handle = tbl_handle
                 catalog_col.id = i
-                subst_dict[_PlaceholderColumnRef(name)] = exprs.ColumnRef(
+                subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
                     catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
                 )
             initial_col_id += len(iterator.outputs)
@@ -1713,7 +1713,7 @@ class Catalog(CatalogBase):
             subst_spec = spec.copy()
             if 'value' in subst_spec:
                 subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
-                residual_placeholders = list(subst_spec['value'].subexprs(_PlaceholderColumnRef))
+                residual_placeholders = list(subst_spec['value'].subexprs(ModelColumnRef))
                 if len(residual_placeholders) > 0:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_SCHEMA,
@@ -1724,7 +1724,7 @@ class Catalog(CatalogBase):
             catalog_col.tbl_handle = tbl_handle
             catalog_col.id = next(next_col_id)
             catalog_columns.append(catalog_col)
-            subst_dict[_PlaceholderColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
+            subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
                 catalog_col.column_version_md(),
                 perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
             )
@@ -1733,12 +1733,16 @@ class Catalog(CatalogBase):
         # consistency; we never trust a client to have validated).
         existing = self.get_table(path, IfNotExistsParam.IGNORE)
         if existing is not None:
-            self._validate_model_against_existing(existing, display_name, base, iterator)
+            self._validate_model(existing, display_name, base, iterator)
             return existing, False
 
+        base_tvp: TableVersionPath | None
         if base is None:
-            create_fn = retry_loop(for_write=True)(
-                lambda: self._create_table(
+            base_tvp = None
+
+            @retry_loop(for_write=True)
+            def create_fn() -> tuple[UUID, bool]:
+                return self._create_table(
                     path=path,
                     columns=catalog_columns,
                     if_exists=IfExistsParam.ERROR,
@@ -1750,12 +1754,12 @@ class Catalog(CatalogBase):
                     is_versioned=True,
                     tbl_id=tbl_id,
                 )
-            )
-            base_tvp: TableVersionPath | None = None
         else:
             base_tvp = base._first_tbl
-            create_fn = retry_loop(for_write=True)(
-                lambda: self._create_view(
+
+            @retry_loop(for_write=True)
+            def create_fn() -> tuple[UUID, bool]:
+                return self._create_view(
                     path=path,
                     base=base_tvp,
                     select_list=base.select_list,
@@ -1771,7 +1775,6 @@ class Catalog(CatalogBase):
                     if_exists=IfExistsParam.ERROR,
                     tbl_id=tbl_id,
                 )
-            )
 
         self._roll_forward_ids.clear()
         created_id, _ = create_fn()
@@ -1787,7 +1790,7 @@ class Catalog(CatalogBase):
 
         return _get_tbl(), True
 
-    def _validate_model_against_existing(
+    def _validate_model(
         self,
         existing: LocalTable,
         display_name: str,

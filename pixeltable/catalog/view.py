@@ -169,13 +169,17 @@ class View(LocalTable):
             sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
 
         # verify that computed column expressions can be evaluated in the context of the base
-        # If a tbl_id is provided, then we also include sibling columns that are antecedent in the given column
+        # We also include additional columns that are antecedent in the given column
         # ordering. This is necessary to resolve class-based TableModel definitions, where computed columns may
         # reference preceding columns that might not have been created yet.
+        # TODO: Normalize _create() to make tbl_id a required parameter (always externally generated)
         for i, col in enumerate(columns):
-            # make sure that the value can be computed in the context of the base
-            siblings = columns[:i] if tbl_id is not None else []
-            if col.is_computed and col.value_expr is not None and not col.value_expr.is_bound_by([base], siblings):
+            antecedent_cols = columns[:i] if tbl_id is not None else []
+            if (
+                col.is_computed
+                and col.value_expr is not None
+                and not col.value_expr.is_bound_by([base], antecedent_cols)
+            ):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Column {col.name!r}: Value expression cannot be computed in the context of the '

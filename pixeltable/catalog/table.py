@@ -470,6 +470,10 @@ class Table(SchemaObject):
                 When `idx_name` is omitted, duplicates are detected by the index definition (the embedding
                 function(s), `metric`, and `precision`) on the column: re-adding an index with an identical
                 definition is governed by `if_exists`.
+            embedding: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`
+                or `Image` (as appropriate for the column being indexed) and returns a fixed-size 1-dimensional
+                array of floats. If omitted, then at least one of the modality-specific `*_embed` arguments must be
+                supplied.
             string_embed: An optional UDF to use for the string embedding component of this index.
             image_embed: An optional UDF to use for the image embedding component of this index.
             audio_embed: An optional UDF to use for the audio embedding component of this index.

@@ -108,7 +108,7 @@ class TableSpec(TypedDict):
 
     name: str
     display_name: str
-    base: _PlaceholderQuery | None
+    base: ModelQuery | None
     iterator: func.GeneratingFunctionCall | None
     create_default_idxs: bool
     media_validation: MediaValidation
@@ -124,7 +124,7 @@ def _col_type_from_spec(column_spec: ColumnSpec) -> ts.ColumnType:
     return column_spec['value'].col_type
 
 
-class _PlaceholderColumnRef(exprs.Expr):
+class ModelColumnRef(exprs.Expr):
     """
     A placeholder for a ColumnRef instance, which gets substituted with an actual ColumnRef during
     Table creation or binding.
@@ -138,12 +138,12 @@ class _PlaceholderColumnRef(exprs.Expr):
         self.id = self._create_id()
 
     def __repr__(self) -> str:
-        return f'_PlaceholderColumnRef({self.name!r})'
+        return f'ModelColumnRef({self.name!r})'
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('name', self.name)]
 
-    def _equals(self, other: _PlaceholderColumnRef) -> bool:
+    def _equals(self, other: ModelColumnRef) -> bool:
         return self.name == other.name
 
     def eval(self, data_row: exprs.data_row.DataRow, row_builder: exprs.row_builder.RowBuilder) -> None:
@@ -165,18 +165,18 @@ class _PlaceholderColumnRef(exprs.Expr):
         return {'name': self.name, 'col_type': self.col_type.as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, _components: list[exprs.Expr], _tbl_versions: Any = None) -> _PlaceholderColumnRef:
+    def _from_dict(cls, d: dict, _components: list[exprs.Expr], _tbl_versions: Any = None) -> ModelColumnRef:
         return cls(d['name'], ts.ColumnType.from_dict(d['col_type']))
 
 
 # `Expr.from_dict()` resolves expression classes by name from the `pixeltable.exprs` namespace. Register
-# `_PlaceholderColumnRef` there so value expressions carrying placeholders can be deserialized by whichever
+# `ModelColumnRef` there so value expressions carrying placeholders can be deserialized by whichever
 # catalog creates the table (e.g. a proxied catalog's daemon), even though the class lives in `catalog.model`.
-exprs._PlaceholderColumnRef = _PlaceholderColumnRef  # type: ignore[attr-defined]
+exprs.ModelColumnRef = ModelColumnRef  # type: ignore[attr-defined]
 
 
 @dataclasses.dataclass
-class _PlaceholderQuery:
+class ModelQuery:
     """
     A placeholder query used in ViewModel definitions,
     which gets substituted with an actual Query during Table creation or binding.
@@ -214,7 +214,7 @@ class _PlaceholderQuery:
         self.offset_val = offset_val
         self.sample_clause = sample_clause
 
-    def select(self, *items: Any, **named_items: Any) -> _PlaceholderQuery:
+    def select(self, *items: Any, **named_items: Any) -> ModelQuery:
         if self.select_clause is not None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA, '`select()` list already specified in `ViewModel` base query.'
@@ -226,26 +226,26 @@ class _PlaceholderQuery:
             return self
         return dataclasses.replace(self, select_clause=(items, named_items))
 
-    def where(self, pred: exprs.Expr) -> _PlaceholderQuery:
+    def where(self, pred: exprs.Expr) -> ModelQuery:
         if self.where_clause is not None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA, '`where()` clause already specified in `ViewModel` base query.'
             )
         return dataclasses.replace(self, where_clause=pred)
 
-    def group_by(self, *grouping_items: exprs.Expr) -> _PlaceholderQuery:
+    def group_by(self, *grouping_items: exprs.Expr) -> ModelQuery:
         if self.group_by_clause is not None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA, '`group_by()` clause already specified in `ViewModel` base query.'
             )
         return dataclasses.replace(self, group_by_clause=list(grouping_items))
 
-    def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> _PlaceholderQuery:
+    def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> ModelQuery:
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend((e.copy(), asc) for e in expr_list)
         return dataclasses.replace(self, order_by_clause=order_by_clause)
 
-    def limit(self, n: int, offset: int | None = None) -> _PlaceholderQuery:
+    def limit(self, n: int, offset: int | None = None) -> ModelQuery:
         if self.limit_val is not None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA, '`limit()` clause already specified in `ViewModel` base query.'
@@ -261,7 +261,7 @@ class _PlaceholderQuery:
         fraction: float | None = None,
         seed: int | None = None,
         stratify_by: Any = None,
-    ) -> _PlaceholderQuery:
+    ) -> ModelQuery:
         if self.sample_clause is not None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA, '`sample()` clause already specified in `ViewModel` base query.'
@@ -278,7 +278,7 @@ class _PlaceholderQuery:
         tbl: Table = self.from_clause._bind(binding_root)  # type: ignore[arg-type]
         subst_dict: dict[exprs.Expr, exprs.Expr] = {}
         for col_name in tbl.columns():
-            subst_dict[_PlaceholderColumnRef(col_name)] = getattr(tbl, col_name)
+            subst_dict[ModelColumnRef(col_name)] = getattr(tbl, col_name)
 
         q: pxt.Query
         if self.select_clause is None:
@@ -384,7 +384,7 @@ class _ModelNamespace(dict):
         but it does not have a ColumnSpec and will not be included in the list of columns for the view to create).
         """
         self.reserved_cols[name] = kind
-        super().__setitem__(name, _PlaceholderColumnRef(name, col_type))
+        super().__setitem__(name, ModelColumnRef(name, col_type))
 
     def _check_reserved(self, name: str) -> None:
         if name in self.reserved_cols:
@@ -422,7 +422,7 @@ class _ModelNamespace(dict):
                 spec = {'value': expr}
             self.known_cols[name] = spec
             # Add the column to the namespace so that it can be referenced in subsequent expressions in the class body.
-            super().__setitem__(name, _PlaceholderColumnRef(name, _col_type_from_spec(spec)))
+            super().__setitem__(name, ModelColumnRef(name, _col_type_from_spec(spec)))
 
     def set_col_type(self, name: str, type_: Any) -> None:
         self._check_reserved(name)
@@ -438,7 +438,7 @@ class _ModelNamespace(dict):
             return
         # Bare annotation (`col: SomeType`): record the spec and make the name referenceable in the body.
         self.known_cols[name] = {'type': type_}  # type: ignore[typeddict-item]
-        super().__setitem__(name, _PlaceholderColumnRef(name, type_))
+        super().__setitem__(name, ModelColumnRef(name, type_))
 
 
 class TableModelMeta(type):
@@ -462,7 +462,7 @@ class TableModelMeta(type):
         bases: tuple[type, ...],
         /,
         name: str,
-        base: 'TableModelMeta | _PlaceholderQuery | None' = None,
+        base: 'TableModelMeta | ModelQuery | None' = None,
         iterator: func.GeneratingFunctionCall | None = None,
         create_default_idxs: bool = True,
         media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -496,17 +496,17 @@ class TableModelMeta(type):
 
             # Validate base
             if base is not None:
-                if isinstance(base, _PlaceholderQuery):
+                if isinstance(base, ModelQuery):
                     pass
                 elif isinstance(base, TableModelMeta):
-                    base = base.select()  # convert to a _PlaceholderQuery
+                    base = base.select()  # convert to a ModelQuery
                 else:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_ARGUMENT,
                         f'{display_name}: `base` must be a valid base table reference '
                         f'(another Pixeltable model, or a query over a model).',
                     )
-                assert isinstance(base, _PlaceholderQuery)
+                assert isinstance(base, ModelQuery)
                 base_model = base.from_clause
                 if len(base_model.__bases__) == 0 or base_model.__bases__[0] is not bases[0]:
                     raise excs.RequestError(
@@ -653,7 +653,7 @@ class TableModelMeta(type):
             base = table_spec['base']._bind(binding_root)
 
         # The model's own column specs, with `type` annotations resolved to ColumnTypes (so they're serializable
-        # for a proxied catalog). Computed `value` expressions still carry `_PlaceholderColumnRef`s referencing
+        # for a proxied catalog). Computed `value` expressions still carry `ModelColumnRef`s referencing
         # sibling and base columns; those are substituted by the catalog that owns the table (create_from_model).
         columns: dict[str, ColumnSpec] = {}
         for name, col_spec in cls.__columns__.items():
@@ -687,7 +687,7 @@ class TableModelMeta(type):
                 col_ref = idx_spec.column
                 if isinstance(col_ref, str):
                     col_ref = getattr(tbl, col_ref)
-                elif isinstance(col_ref, _PlaceholderColumnRef):
+                elif isinstance(col_ref, ModelColumnRef):
                     col_ref = getattr(tbl, col_ref.name)
                 kwargs = dataclasses.asdict(idx_spec)
                 kwargs['column'] = col_ref
@@ -700,9 +700,9 @@ class TableModelMeta(type):
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
-            if not cls.is_bound and hasattr(_PlaceholderQuery, item):
+            if not cls.is_bound and hasattr(ModelQuery, item):
                 # This model is not bound to a table, but the desired operation is accessible via a placeholder query.
-                return getattr(_PlaceholderQuery(cls), item)  # type: ignore[arg-type]
+                return getattr(ModelQuery(cls), item)  # type: ignore[arg-type]
             else:
                 try:
                     return getattr(cls.table, item)

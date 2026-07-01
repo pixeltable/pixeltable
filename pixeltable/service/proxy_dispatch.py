@@ -77,10 +77,6 @@ def handle(request_json: str) -> str:
         tb = traceback.format_exc()
         _logger.error('Internal error (ref %s) handling %s.%s:\n%s', ref, request.class_name, request.method, tb)
         msg = f'Internal proxy error (ref: {ref})'
-        if _logger.isEnabledFor(logging.DEBUG):
-            # With debug logging enabled (i.e. a dev/test catalog), ship the server-side traceback to the client
-            # too, so failures are diagnosable without access to the daemon's log.
-            msg = f'{msg}\n{tb}'
         err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, msg)
         return ProxyResponse(error=err.to_dict()).model_dump_json()
 
