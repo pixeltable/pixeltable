@@ -62,7 +62,6 @@ class TestTableModel2:
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
         expected_path = f'{p("")}/test_table'.lstrip('/')
-        pxt.create_dir(p(''), parents=True)
 
         print(expected_path)
         with capture_console_output(match=rf'Created {expected_path!r} from model `ExampleTableModel`.'):
