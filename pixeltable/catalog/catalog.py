@@ -4,6 +4,7 @@ import dataclasses
 import functools
 import logging
 import random
+import sys
 import time
 from collections import defaultdict
 from collections.abc import Collection
@@ -17,7 +18,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, func
+from pixeltable import exceptions as excs, func, hooks
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -377,6 +378,8 @@ class Catalog(CatalogBase):
                 self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
 
+            # one span per acquisition attempt; retries show up as sibling spans
+            xact_span = hooks.span_start('pixeltable.catalog.begin_xact', attrs={'pxt.for_write': for_write})
             try:
                 self._in_write_xact = for_write
                 self._x_locked_tbl_ids = set()
@@ -424,6 +427,8 @@ class Catalog(CatalogBase):
                             raise
 
                     assert not self._undo_actions
+                    hooks.span_end(xact_span)
+                    xact_span = None
                     yield conn
                     return
 
@@ -448,6 +453,10 @@ class Catalog(CatalogBase):
                 raise
 
             finally:
+                # still non-None here means this attempt failed; sys.exc_info() carries the escaping exception
+                # (None on retry `continue`s, which consumed it); no-op after the yield
+                hooks.span_end(xact_span, exc=sys.exc_info()[1])
+                xact_span = None
                 self._in_write_xact = False
                 self._x_locked_tbl_ids.clear()
                 self._column_dependents = None

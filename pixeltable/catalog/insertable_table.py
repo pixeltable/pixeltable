@@ -159,11 +159,12 @@ class InsertableTable(LocalTable):
             kwargs = None
 
         with hooks.span('pixeltable.insert', set_current=True):
-            data_source = TableDataConduit.create(
-                source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
-            )
-            data_source.add_table_info(self)
-            data_source.prepare_for_insert_into_table()
+            with hooks.span('pixeltable.data_source.prepare'):
+                data_source = TableDataConduit.create(
+                    source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
+                )
+                data_source.add_table_info(self)
+                data_source.prepare_for_insert_into_table()
 
             return self._insert_table_data_source(
                 data_source=data_source,

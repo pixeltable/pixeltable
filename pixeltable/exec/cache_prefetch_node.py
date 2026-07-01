@@ -6,10 +6,10 @@ import logging
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator
+from typing import Any, AsyncIterator, Iterator
 from uuid import UUID
 
-from pixeltable import exceptions as excs, exprs
+from pixeltable import exceptions as excs, exprs, hooks
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.progress_reporter import ProgressReporter
@@ -223,16 +223,25 @@ class CachePrefetchNode(ExecNode):
                 self.__add_ready_row(row, row_idx)
 
         _logger.debug(f'submitting {len(cache_misses)} urls')
+        # carry the ambient instrumentation span onto the worker threads so fetch spans nest correctly
+        hooks_ctx = hooks.capture_context()
         for url in cache_misses:
-            f = executor.submit(self.__fetch_url, url)
+            f = executor.submit(self.__fetch_url, url, hooks_ctx)
             _logger.debug(f'submitted {url} for idx {url_pos[url]}')
             self.in_flight_requests[f] = url
 
-    def __fetch_url(self, url: str) -> tuple[Path | None, Exception | None]:
+    def __fetch_url(self, url: str, hooks_ctx: Any) -> tuple[Path | None, Exception | None]:
+        """Runs on a worker thread of the ThreadPoolExecutor."""
+        hooks_token = hooks.restore_context(hooks_ctx)
         try:
-            return fetch_url(url), None
+            # the span sits inside the try so a failed fetch is recorded on it before being converted
+            # into a return value
+            with hooks.span('media.fetch', level=hooks.DEBUG, url=url):
+                return fetch_url(url), None
         except Exception as e:
             # we want to add the file url to the exception message
             exc = excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, f'Failed to download {url}: {e}')
             _logger.debug(f'Failed to download {url}: {e}', exc_info=e)
             return None, exc
+        finally:
+            hooks.exit_context(hooks_token)
