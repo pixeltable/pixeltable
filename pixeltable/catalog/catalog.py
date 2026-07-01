@@ -1460,8 +1460,10 @@ class Catalog(CatalogBase):
         """
 
         columns = [Column.create(name, spec) for name, spec in schema.items()]
-        create_fn = retry_loop(for_write=True)(
-            lambda: self._create_table(
+
+        @retry_loop(for_write=True)
+        def create_fn() -> tuple[UUID, bool]:
+            return self._create_table(
                 path,
                 columns,
                 if_exists,
@@ -1472,7 +1474,6 @@ class Catalog(CatalogBase):
                 create_default_idxs,
                 is_versioned,
             )
-        )
 
         self._roll_forward_ids.clear()
         tbl_id, is_created = create_fn()
@@ -1549,8 +1550,10 @@ class Catalog(CatalogBase):
         assert isinstance(base, TableVersionPath)
 
         additional_columns_ = [Column.create(name, spec) for name, spec in additional_columns.items()]
-        create_fn = retry_loop(for_write=True)(
-            lambda: self._create_view(
+
+        @retry_loop(for_write=True)
+        def create_fn() -> tuple[UUID, bool]:
+            return self._create_view(
                 path,
                 base,
                 select_list,
@@ -1565,7 +1568,6 @@ class Catalog(CatalogBase):
                 media_validation,
                 if_exists,
             )
-        )
 
         self._roll_forward_ids.clear()
         view_id, is_created = create_fn()
