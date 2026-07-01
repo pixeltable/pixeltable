@@ -350,7 +350,7 @@ def columns(req: Request) -> models.ColumnsResponse:
         )
     if path is not None:
         _validate_path(path)
-    paths = [path] if path is not None else _collect_table_paths()
+    paths = _resolve_table_paths(path)
     entries: list[models.ColumnEntry] = []
     for p in paths:
         try:
@@ -385,7 +385,7 @@ def indexes(req: Request) -> models.IdxsResponse:
         )
     if path is not None:
         _validate_path(path)
-    paths = [path] if path is not None else _collect_table_paths()
+    paths = _resolve_table_paths(path)
     entries: list[models.IdxEntry] = []
     for p in paths:
         try:
@@ -567,17 +567,39 @@ def _tbl_count(path: str) -> int | None:
         return None
 
 
-def _collect_table_paths() -> list[str]:
+def _resolve_table_paths(path: str | None) -> list[str]:
+    """Resolve an optional path to the list of table paths it designates.
+
+    None designates every table in the in-process catalog. A directory (including a hosted db root, e.g.
+    pxt://org:db) designates every table beneath it, recursively. Any other path designates a single table.
+    """
+    if path is None:
+        return _collect_from_tree(pxt.get_dir_tree(''), scope='')
+    try:
+        tree = pxt.get_dir_tree(path)
+    except excs.NotFoundError:
+        raise  # the path doesn't exist: report it rather than silently returning nothing
+    except excs.Error:
+        return [path]  # exists but is not a directory: a single table
+    return _collect_from_tree(tree, scope=path)
+
+
+def _collect_from_tree(nodes: list[TreeNode], scope: str) -> list[str]:
+    """Collect the path of every table node in the tree, recursing into directories.
+
+    Node paths are relative to the tree's own root, so prepend scope to make each path resolve in its
+    catalog; scope is '' for the in-process catalog root, whose node paths are already fully qualified.
+    """
     paths: list[str] = []
 
-    def collect(nodes: list[TreeNode]) -> None:
-        for n in nodes:
+    def collect(ns: list[TreeNode]) -> None:
+        for n in ns:
             if n['kind'] == 'directory':
                 collect(n['entries'])
             else:
-                paths.append(n['path'])
+                paths.append(f'{scope}/{n["path"]}' if scope != '' else n['path'])
 
-    collect(pxt.get_dir_tree())
+    collect(nodes)
     return paths
 
 

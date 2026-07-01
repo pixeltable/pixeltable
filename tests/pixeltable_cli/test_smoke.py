@@ -178,8 +178,8 @@ class TestDescribe:
 
 class TestColumns:
     def test_lists(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
-        """columns lists every column; `computed` is an alias for `columns --computed`.
-        The no-path form walks every table in the catalog."""
+        """columns lists a single table, walks a directory recursively, or (no path) the whole catalog;
+        `computed` is an alias for `columns --computed`."""
         p = make_catalog_path
         pxt.create_dir(p('cli_cols'), if_exists='ignore')
         t = pxt.create_table(p('cli_cols.t'), {'a': pxt.Int, 'b': pxt.String}, if_exists='replace')
@@ -201,16 +201,30 @@ class TestColumns:
         # text mode also works
         assert 'doubled' in cli('computed', p('cli_cols/t')).stdout
 
-        # no-path: walks every table in the daemon's in-process catalog, exercising the try/except continue
-        # for unloadable metadata. This form has no proxy analog (it doesn't target a specific catalog).
+        # a directory path walks every table beneath it, recursively (dual: a bare dir locally, a
+        # db-scoped dir over proxy)
+        pxt.create_dir(p('cli_cols.sub'), if_exists='ignore')
+        pxt.create_table(p('cli_cols.sub.t2'), {'z': pxt.Int}, if_exists='replace')
+        walked = {e['table'] for e in cli('columns', p('cli_cols'), '--json').json}
+        assert p('cli_cols/t') in walked
+        assert p('cli_cols/sub/t2') in walked
+
+        # a nonexistent path is reported, not silently empty
+        assert cli('columns', p('cli_cols/does_not_exist'), check=False).returncode != 0
+
+        # the whole catalog: the no-path form locally, the db root (pxt://org:db) over proxy
         if catalog_mode == 'local':
             entries = cli('columns', '--json').json
-            assert ('cli_cols/t', 'a') in {(e['table'], e['column']) for e in entries}
+        else:
+            entries = cli('columns', p(''), '--json').json
+        tables = {e['table'] for e in entries}
+        assert p('cli_cols/t') in tables
+        assert p('cli_cols/sub/t2') in tables
 
 
 class TestIdxs:
     def test_lists(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
-        """idxs runs against one table or globally; the no-path form walks every table."""
+        """idxs runs against one table, a directory (recursively), or the whole catalog."""
         p = make_catalog_path
         pxt.create_dir(p('cli_idx'), if_exists='ignore')
         pxt.create_table(p('cli_idx.t'), {'a': pxt.Int}, if_exists='replace')
@@ -222,10 +236,19 @@ class TestIdxs:
         # text: command runs cleanly regardless of catalog content
         assert cli('idxs', p('cli_idx/t')).returncode == 0
 
-        # no-path: walks every table in the daemon's in-process catalog (no proxy analog); smoke check
-        # only since auto-indexes vary
+        # a directory path walks every table beneath it, recursively; plain tables carry auto-created
+        # btree indexes, so both tables show up
+        pxt.create_dir(p('cli_idx.sub'), if_exists='ignore')
+        pxt.create_table(p('cli_idx.sub.t2'), {'a': pxt.Int}, if_exists='replace')
+        walked = {e['table'] for e in cli('idxs', p('cli_idx'), '--json').json}
+        assert p('cli_idx/t') in walked
+        assert p('cli_idx/sub/t2') in walked
+
+        # the whole catalog: the no-path form locally, the db root (pxt://org:db) over proxy
         if catalog_mode == 'local':
             assert cli('idxs', '--json').returncode == 0
+        else:
+            assert p('cli_idx/t') in {e['table'] for e in cli('idxs', p(''), '--json').json}
 
     def test_embedding_filter(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
         """--embedding filters to embedding indexes only; a table with both a btree-style
