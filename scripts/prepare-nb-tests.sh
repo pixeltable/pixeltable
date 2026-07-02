@@ -44,7 +44,6 @@ EXPENSIVE_NOTEBOOKS=(
     search-semantic-text
     search-similar-images
     ten-minute-tour
-    using-label-studio-with-pixeltable
     video-image-slideshow
     working-with-hugging-face
     working-with-llama-cpp

@@ -80,8 +80,6 @@
             <outline text="method|pixeltable.Table.list_views" />
             <outline text="method|pixeltable.Table.pull" />
             <outline text="method|pixeltable.Table.push" />
-            <outline text="method|pixeltable.Table.sync" />
-            <outline text="method|pixeltable.Table.unlink_external_stores" />
           </outline>
 
           <outline text="class|pixeltable.Query">

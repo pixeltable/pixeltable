@@ -784,26 +784,6 @@ def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None =
         assert status.num_rows == expected_rows, status
 
 
-def validate_sync_status(
-    status: pxt.UpdateStatus,
-    expected_external_rows_created: int | None = None,
-    expected_external_rows_updated: int | None = None,
-    expected_external_rows_deleted: int | None = None,
-    expected_pxt_rows_updated: int | None = None,
-    expected_num_excs: int | None = 0,
-) -> None:
-    if expected_external_rows_created is not None:
-        assert status.external_rows_created == expected_external_rows_created, status
-    if expected_external_rows_updated is not None:
-        assert status.external_rows_updated == expected_external_rows_updated, status
-    if expected_external_rows_deleted is not None:
-        assert status.external_rows_deleted == expected_external_rows_deleted, status
-    if expected_pxt_rows_updated is not None:
-        assert status.pxt_rows_updated == expected_pxt_rows_updated, status
-    if expected_num_excs is not None:
-        assert status.num_excs == expected_num_excs, status
-
-
 def iceberg_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> 'SqlCatalog':
     """
     Instantiate a sqlite Iceberg catalog at the specified path. If no catalog exists, one will be created.
