@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -23,7 +23,7 @@ class DatabaseRecord(BaseModel):
 
 
 class CreateDatabaseRequest(BaseModel):
-    operation_type: str = ServiceOperationType.CREATE_DATABASE
+    operation_type: Literal[ServiceOperationType.CREATE_DATABASE] = ServiceOperationType.CREATE_DATABASE
     org_slug: str
     db_name: str
     location: str = 'aws'
@@ -35,7 +35,7 @@ class CreateDatabaseResponse(BaseModel):
 
 
 class GetDatabaseRequest(BaseModel):
-    operation_type: str = ServiceOperationType.GET_DATABASE
+    operation_type: Literal[ServiceOperationType.GET_DATABASE] = ServiceOperationType.GET_DATABASE
     org_slug: str
     db_name: str
 
@@ -45,7 +45,7 @@ class GetDatabaseResponse(BaseModel):
 
 
 class ListDatabasesRequest(BaseModel):
-    operation_type: str = ServiceOperationType.LIST_DATABASES
+    operation_type: Literal[ServiceOperationType.LIST_DATABASES] = ServiceOperationType.LIST_DATABASES
     org_slug: str
 
 
@@ -54,7 +54,7 @@ class ListDatabasesResponse(BaseModel):
 
 
 class UpdateDatabaseRequest(BaseModel):
-    operation_type: str = ServiceOperationType.UPDATE_DATABASE
+    operation_type: Literal[ServiceOperationType.UPDATE_DATABASE] = ServiceOperationType.UPDATE_DATABASE
     org_slug: Optional[str] = None
     db_slug: str
     db_name: Optional[str] = None
@@ -63,7 +63,7 @@ class UpdateDatabaseRequest(BaseModel):
 
 
 class DeleteDatabaseRequest(BaseModel):
-    operation_type: str = ServiceOperationType.DELETE_DATABASE
+    operation_type: Literal[ServiceOperationType.DELETE_DATABASE] = ServiceOperationType.DELETE_DATABASE
     org_slug: str
     db_name: str
 
@@ -94,7 +94,7 @@ class ServiceRecord(BaseModel):
 
 
 class CreateServiceRequest(BaseModel):
-    operation_type: str = ServiceOperationType.CREATE_SERVICE
+    operation_type: Literal[ServiceOperationType.CREATE_SERVICE] = ServiceOperationType.CREATE_SERVICE
     org_slug: str
     db_name: str
     service_name: str
@@ -108,7 +108,7 @@ class CreateServiceResponse(BaseModel):
 
 
 class GetServiceRequest(BaseModel):
-    operation_type: str = ServiceOperationType.GET_SERVICE
+    operation_type: Literal[ServiceOperationType.GET_SERVICE] = ServiceOperationType.GET_SERVICE
     org_slug: str
     db_name: str
     service_name: str
@@ -119,7 +119,7 @@ class GetServiceResponse(BaseModel):
 
 
 class ListServicesRequest(BaseModel):
-    operation_type: str = ServiceOperationType.LIST_SERVICES
+    operation_type: Literal[ServiceOperationType.LIST_SERVICES] = ServiceOperationType.LIST_SERVICES
     org_slug: str
     db_name: str
 
@@ -129,7 +129,7 @@ class ListServicesResponse(BaseModel):
 
 
 class StartServiceRequest(BaseModel):
-    operation_type: str = ServiceOperationType.START_SERVICE
+    operation_type: Literal[ServiceOperationType.START_SERVICE] = ServiceOperationType.START_SERVICE
     org_slug: str
     db_name: str
     service_name: str
@@ -142,7 +142,7 @@ class StartServiceResponse(BaseModel):
 
 
 class StopServiceRequest(BaseModel):
-    operation_type: str = ServiceOperationType.STOP_SERVICE
+    operation_type: Literal[ServiceOperationType.STOP_SERVICE] = ServiceOperationType.STOP_SERVICE
     org_slug: str
     db_name: str
     service_name: str
@@ -153,7 +153,7 @@ class StopServiceResponse(BaseModel):
 
 
 class UpdateServiceRequest(BaseModel):
-    operation_type: str = ServiceOperationType.UPDATE_SERVICE
+    operation_type: Literal[ServiceOperationType.UPDATE_SERVICE] = ServiceOperationType.UPDATE_SERVICE
     org_slug: Optional[str] = None
     db_slug: str
     service_name: str
@@ -166,7 +166,7 @@ class UpdateServiceResponse(BaseModel):
 
 
 class DeleteServiceRequest(BaseModel):
-    operation_type: str = ServiceOperationType.DELETE_SERVICE
+    operation_type: Literal[ServiceOperationType.DELETE_SERVICE] = ServiceOperationType.DELETE_SERVICE
     org_slug: str
     db_name: str
     service_name: str
@@ -177,14 +177,14 @@ class DeleteServiceResponse(BaseModel):
 
 
 class ListServiceRunsRequest(BaseModel):
-    operation_type: str = ServiceOperationType.LIST_SERVICE_RUNS
+    operation_type: Literal[ServiceOperationType.LIST_SERVICE_RUNS] = ServiceOperationType.LIST_SERVICE_RUNS
     org_slug: Optional[str] = None
     db_slug: str
     service_name: str
 
 
 class GetServiceRunRequest(BaseModel):
-    operation_type: str = ServiceOperationType.GET_SERVICE_RUN
+    operation_type: Literal[ServiceOperationType.GET_SERVICE_RUN] = ServiceOperationType.GET_SERVICE_RUN
     org_slug: Optional[str] = None
     db_slug: str
     service_name: str
@@ -195,7 +195,7 @@ class GetServiceRunRequest(BaseModel):
 
 
 class SetSecretRequest(BaseModel):
-    operation_type: str = ServiceOperationType.SET_SECRET
+    operation_type: Literal[ServiceOperationType.SET_SECRET] = ServiceOperationType.SET_SECRET
     org_slug: str
     db_name: str
     key: str
@@ -207,7 +207,7 @@ class SetSecretResponse(BaseModel):
 
 
 class DeleteSecretRequest(BaseModel):
-    operation_type: str = ServiceOperationType.DELETE_SECRET
+    operation_type: Literal[ServiceOperationType.DELETE_SECRET] = ServiceOperationType.DELETE_SECRET
     org_slug: str
     db_name: str
     key: str
@@ -218,7 +218,7 @@ class DeleteSecretResponse(BaseModel):
 
 
 class ListSecretsRequest(BaseModel):
-    operation_type: str = ServiceOperationType.LIST_SECRETS
+    operation_type: Literal[ServiceOperationType.LIST_SECRETS] = ServiceOperationType.LIST_SECRETS
     org_slug: str
     db_name: str
 
@@ -231,7 +231,7 @@ class ListSecretsResponse(BaseModel):
 
 
 class StartDatabaseRequest(BaseModel):
-    operation_type: str = ServiceOperationType.START_DATABASE
+    operation_type: Literal[ServiceOperationType.START_DATABASE] = ServiceOperationType.START_DATABASE
     org_slug: Optional[str] = None
     db_slug: str
 
@@ -241,7 +241,7 @@ class StartDatabaseResponse(BaseModel):
 
 
 class StopDatabaseRequest(BaseModel):
-    operation_type: str = ServiceOperationType.STOP_DATABASE
+    operation_type: Literal[ServiceOperationType.STOP_DATABASE] = ServiceOperationType.STOP_DATABASE
     org_slug: Optional[str] = None
     db_slug: str
 
@@ -251,7 +251,7 @@ class StopDatabaseResponse(BaseModel):
 
 
 class UpdateRuntimeRequest(BaseModel):
-    operation_type: str = ServiceOperationType.UPDATE_RUNTIME
+    operation_type: Literal[ServiceOperationType.UPDATE_RUNTIME] = ServiceOperationType.UPDATE_RUNTIME
     org_slug: Optional[str] = None
     db_slug: str
     runtime_image: Optional[str] = None
@@ -273,7 +273,7 @@ class OrgRecord(BaseModel):
 
 
 class ListOrgsRequest(BaseModel):
-    operation_type: str = ServiceOperationType.LIST_ORGS
+    operation_type: Literal[ServiceOperationType.LIST_ORGS] = ServiceOperationType.LIST_ORGS
 
 
 class ListOrgsResponse(BaseModel):
