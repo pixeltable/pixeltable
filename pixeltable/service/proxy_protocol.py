@@ -73,8 +73,12 @@ class ProxyRequest(BaseModel):
 class ProxyResponse(BaseModel):
     result: Any = None  # return value
     error: dict[str, Any] | None = None  # excs.Error.to_dict(), set instead of result on failure
-    current_md: Any = None  # serialized TableMdPath (list[TableVersionMd]); set for Table requests with stale metadata
-    is_stale_md: bool = False  # True if the request's snapshot_path_key was behind the current schema version
+
+    # serialized TableMdPath (list[TableVersionMd]); returned after a mutation so the client refreshes its md
+    current_md: Any = None
+
+    # True if the request's snapshot_path_key was behind the current schema version
+    is_stale_md: bool = False
 
     # raw binary parts referenced by 'blob' tags in result/current_md
     _binary_parts: list[bytes] = PrivateAttr(default_factory=list)

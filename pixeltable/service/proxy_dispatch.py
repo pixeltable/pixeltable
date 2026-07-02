@@ -57,7 +57,8 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             assert request.path_key is not None and request.snapshot_path_key is not None
             cat = get_runtime().catalog
             tbl = _resolve_tbl(TablePathKey.from_dict(request.path_key))
-            if request.method in _MUTATION_METHODS:
+            is_mutation = request.method in _MUTATION_METHODS
+            if is_mutation:
                 # refuse to run if the client's snapshot_path_key is behind the current schema
                 snapshot_key = TablePathKey.from_dict(request.snapshot_path_key)
                 with cat.begin_xact(for_write=False):
@@ -67,13 +68,15 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
                     resp = ProxyResponse(current_md=proxy_protocol.serialize(md, response_parts), is_stale_md=True)
                     return resp.model_dump_json(), response_parts
 
-            result = _convert_result(key, table_handler(request, tbl))
+            result_json = proxy_protocol.serialize(_convert_result(key, table_handler(request, tbl)), response_parts)
+            if not is_mutation:
+                # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
+                return ProxyResponse(result=result_json).model_dump_json(), response_parts
+
+            # a mutation bumps the table version; return the new md so the client's path refreshes
             with cat.begin_xact(for_write=False):
                 md = cat.read_md_for_export(tbl)
-            resp = ProxyResponse(
-                result=proxy_protocol.serialize(result, response_parts),
-                current_md=proxy_protocol.serialize(md, response_parts),
-            )
+            resp = ProxyResponse(result=result_json, current_md=proxy_protocol.serialize(md, response_parts))
             return resp.model_dump_json(), response_parts
 
         handler = _HANDLERS.get(key)
