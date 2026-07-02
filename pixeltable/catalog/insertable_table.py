@@ -23,7 +23,7 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuild
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
-    from pixeltable import exprs
+    from pixeltable import exprs, index
     from pixeltable.globals import TableDataSource
     from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
@@ -75,6 +75,7 @@ class InsertableTable(LocalTable):
         create_default_idxs: bool,
         is_versioned: bool,
         tbl_id: UUID | None = None,
+        embedding_idxs: list[tuple[Column, str | None, index.IndexBase]] | None = None,
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
@@ -102,6 +103,7 @@ class InsertableTable(LocalTable):
             view_md=None,
             is_versioned=is_versioned,
             tbl_id=tbl_id,
+            embedding_idxs=embedding_idxs,
         )
 
         ops = (

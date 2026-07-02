@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from pixeltable._query import Query
     from pixeltable.plan import SampleClause
     from pixeltable.service.proxy_client import ProxyClient
-    from pixeltable.types import ColumnSpec
+    from pixeltable.types import ColumnSpec, EmbeddingIndexSpec
 
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
@@ -123,6 +123,7 @@ class CatalogProxy(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
+        embedding_idxs: list['EmbeddingIndexSpec'],
     ) -> tuple[Table, bool]:
         args = {
             'path': path,
@@ -134,6 +135,7 @@ class CatalogProxy(CatalogBase):
             'custom_metadata': custom_metadata,
             'iterator': iterator,
             'base': base.as_dict() if base is not None else None,
+            'embedding_idxs': embedding_idxs,
         }
         md, was_created = self._client.send_request('CatalogBase', 'create_from_model', args)
         return self._make_table(md, is_anon_snapshot=False), was_created

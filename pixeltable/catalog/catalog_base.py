@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from pixeltable import exprs, func
     from pixeltable._query import Query
     from pixeltable.plan import SampleClause
-    from pixeltable.types import ColumnSpec
+    from pixeltable.types import ColumnSpec, EmbeddingIndexSpec
 
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
@@ -67,6 +67,7 @@ class CatalogBase(abc.ABC):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
+        embedding_idxs: list['EmbeddingIndexSpec'],
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod

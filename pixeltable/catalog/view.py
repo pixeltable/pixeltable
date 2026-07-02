@@ -26,6 +26,7 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, T
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
+    from pixeltable import index
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
@@ -91,6 +92,7 @@ class View(LocalTable):
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,
         tbl_id: UUID | None = None,
+        embedding_idxs: list[tuple[Column, str | None, index.IndexBase]] | None = None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
 
@@ -220,6 +222,7 @@ class View(LocalTable):
             create_default_idxs=create_default_idxs,
             is_versioned=base.is_versioned(),
             tbl_id=tbl_id,
+            embedding_idxs=embedding_idxs,
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
