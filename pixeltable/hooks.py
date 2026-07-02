@@ -30,7 +30,7 @@ import threading
 from contextvars import ContextVar, Token
 from typing import Any, Callable, Iterator
 
-_logger = logging.getLogger('pixeltable.hooks')
+_logger = logging.getLogger(__name__)
 
 TRACE = 5
 DEBUG = 10
@@ -97,7 +97,7 @@ def subscribe(subscriber: Subscriber) -> None:
     """Register a subscriber to receive instrumentation callbacks; idempotent."""
     global _SUBSCRIBERS  # noqa: PLW0603
     with _registry_lock:
-        if subscriber not in _SUBSCRIBERS:
+        if all(s is not subscriber for s in _SUBSCRIBERS):
             _SUBSCRIBERS = (*_SUBSCRIBERS, subscriber)
 
 
