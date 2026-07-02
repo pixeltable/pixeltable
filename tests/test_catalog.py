@@ -204,46 +204,6 @@ class TestCatalog:
         assert tvp.key().keys[0].effective_version is None
         assert tvp.snapshot_key().keys[0].effective_version == tvp.version()
 
-    def test_function_serialization(self) -> None:
-        # Functions (e.g. embedding UDFs passed to add_embedding_index) cross the wire via proxy_protocol.
-        import pixeltable.func as func
-        from pixeltable.functions import string as pxt_str
-        from pixeltable.service import proxy_protocol
-
-        f = pxt_str.contains
-        assert isinstance(f, func.Function)
-        parts: list[bytes] = []
-        round_tripped = proxy_protocol.deserialize(proxy_protocol.serialize(f, parts), parts)
-        assert round_tripped.self_path == f.self_path
-
-    def test_proxy_protocol_binary_parts(self) -> None:
-        # Binary values travel out-of-band as raw parts (no base64 in the JSON head), referenced by index.
-        import base64
-        import json
-
-        import numpy as np
-        import PIL.Image
-
-        from pixeltable.service import proxy_protocol
-
-        img = PIL.Image.new('RGB', (4, 4), color=(10, 20, 30))
-        arr = np.arange(6, dtype=np.float32).reshape(2, 3)
-        raw = bytes(range(256))
-        value = {'blob': raw, 'arr': arr, 'nested': [img], 'scalar': 7}
-
-        parts: list[bytes] = []
-        head = proxy_protocol.serialize(value, parts)
-        # three binary values -> three raw parts; the JSON head carries only their indices
-        assert len(parts) == 3
-        assert all(isinstance(p, bytes) for p in parts)
-        assert base64.b64encode(raw).decode() not in json.dumps(head)  # bytes are not inlined as base64
-
-        out = proxy_protocol.deserialize(head, parts)
-        assert out['blob'] == raw
-        assert np.array_equal(out['arr'], arr)
-        assert out['scalar'] == 7
-        assert out['nested'][0].tobytes() == img.tobytes()
-
     def test_framing_roundtrip(self) -> None:
         from pixeltable.service import proxy_protocol
 

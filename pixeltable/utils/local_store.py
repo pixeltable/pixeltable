@@ -10,7 +10,6 @@ import urllib.request
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import ClassVar
 from uuid import UUID
 
 import PIL.Image
@@ -273,10 +272,6 @@ class TempStore:
     It reuses some of the LocalStore functionality to create unique file names and save objects.
     """
 
-    # maps a temp file path to the original user-supplied filename it was created for, so an error can
-    # reference the user's filename rather than the opaque temp path
-    __original_names: ClassVar[dict[str, str]] = {}
-
     @classmethod
     def _tmp_dir(cls) -> Path:
         """Returns the path to the temporary directory where files are stored."""
@@ -307,37 +302,20 @@ class TempStore:
         assert file_path.exists(), f'Object path does not exist: {file_path}'
         assert cls.contains_path(file_path), f'Object path must be in the TempStore: {file_path}'
         file_path.unlink()
-        cls.__original_names.pop(str(file_path), None)
         _logger.debug(f'Media Storage: deleted {file_path}')
 
     @classmethod
-    def create_path(
-        cls, tbl_id: UUID | None = None, extension: str | None = None, original_name: str | None = None
-    ) -> Path:
+    def create_path(cls, tbl_id: UUID | None = None, extension: str | None = None) -> Path:
         """Return a new, unique Path located in the temporary store.
         If tbl_id is provided, the path name will be similar to a LocalStore path based on the tbl_id.
-        Otherwise a random UUID will be used to create the path.
-        If original_name is provided, the returned path is associated with it, so substitute_original_names()
-        can later restore the original name in a message."""
+        Otherwise a random UUID will be used to create the path."""
         if extension is None:
             extension = ''
         if tbl_id is not None:
-            path = LocalStore(cls._tmp_dir())._prepare_path_raw(tbl_id, 0, 0, extension)
-        else:
-            path = cls._tmp_dir() / f'{uuid.uuid4()}{extension}'
-        if original_name is not None:
-            cls.__original_names[str(path)] = original_name
-        return path
-
-    @classmethod
-    def substitute_original_names(cls, text: str) -> str:
-        """Replace any registered temp file path in text with the original user-supplied filename."""
-        for path, original_name in list(cls.__original_names.items()):
-            text = text.replace(path, original_name)
-        return text
+            return LocalStore(cls._tmp_dir())._prepare_path_raw(tbl_id, 0, 0, extension)
+        return cls._tmp_dir() / f'{uuid.uuid4()}{extension}'
 
     @classmethod
     def clear(cls) -> None:
         """Clear all files from the temporary store."""
         LocalStore(cls._tmp_dir()).clear()
-        cls.__original_names.clear()

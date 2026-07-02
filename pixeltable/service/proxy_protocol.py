@@ -39,7 +39,7 @@ _TAG = '$pxt'
 
 @dataclasses.dataclass
 class LocalFile:
-    """A reference to a local file so serialize()/deserialize() can handle it correctly."""
+    """A reference to a local file so _serialize()/_deserialize() can handle it correctly."""
 
     path: str
 
@@ -69,6 +69,9 @@ class ProxyRequest(BaseModel):
     # raw binary parts referenced by 'blob' tags in args
     _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
 
+    # temp path -> the client's original filename; needed for informative error messages
+    _uploaded_names: dict[str, str] = PrivateAttr(default_factory=dict)
+
 
 class ProxyResponse(BaseModel):
     result: Any = None  # return value
@@ -90,8 +93,8 @@ def _add_part(binary_parts: list[bytes], data: bytes) -> int:
     return len(binary_parts) - 1
 
 
-def serialize(obj: Any, binary_parts: list[bytes]) -> Any:
-    """Encode a Python value to a json-serializable dict that can be deserialized by deserialize().
+def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
+    """Encode a Python value to a json-serializable dict that can be deserialized by _deserialize().
 
     Binary values are appended to binary_parts as raw bytes and referenced inside the dict by index.
     """
@@ -132,14 +135,14 @@ def serialize(obj: Any, binary_parts: list[bytes]) -> Any:
                 'is_dir': obj.dir is not None,
                 'table': None
                 if obj.table is None
-                else {'id': serialize(obj.table.id, binary_parts), 'md': obj.table.md},
-                'dir_entries': {name: serialize(child, binary_parts) for name, child in obj.dir_entries.items()},
+                else {'id': _serialize(obj.table.id, binary_parts), 'md': obj.table.md},
+                'dir_entries': {name: _serialize(child, binary_parts) for name, child in obj.dir_entries.items()},
                 'table_error_count': obj.table_error_count,
             },
         }
     if isinstance(obj, UpdateStatus):
         d = dataclasses.asdict(obj)
-        d['rows'] = serialize(obj.rows, binary_parts)  # returned rows may hold non-JSON scalars (timestamps, etc.)
+        d['rows'] = _serialize(obj.rows, binary_parts)  # returned rows may hold non-JSON scalars (timestamps, etc.)
         return {_TAG: 'UpdateStatus', 'v': d}
     if isinstance(obj, Dir):
         # a Dir is an identity-only handle; only its id crosses the wire
@@ -175,34 +178,35 @@ def serialize(obj: Any, binary_parts: list[bytes]) -> Any:
     if isinstance(obj, MediaPath):
         return {_TAG: 'mediapath', 'v': obj.path}
     if isinstance(obj, list):
-        return [serialize(x, binary_parts) for x in obj]
+        return [_serialize(x, binary_parts) for x in obj]
     if isinstance(obj, tuple):
-        return {_TAG: 'tuple', 'v': [serialize(x, binary_parts) for x in obj]}
+        return {_TAG: 'tuple', 'v': [_serialize(x, binary_parts) for x in obj]}
     if isinstance(obj, dict):
         if _TAG in obj:
             # a user dict whose own key collides with the reserved tag: store it as ordered key/value pairs so
             # the tag no longer sits at the top level and the dict round-trips
-            return {_TAG: 'rawdict', 'v': [[k, serialize(val, binary_parts)] for k, val in obj.items()]}
-        return {k: serialize(v, binary_parts) for k, v in obj.items()}
+            return {_TAG: 'rawdict', 'v': [[k, _serialize(val, binary_parts)] for k, val in obj.items()]}
+        return {k: _serialize(v, binary_parts) for k, v in obj.items()}
     raise AssertionError(f'cannot serialize {type(obj).__name__} for the proxy protocol')
 
 
-def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
-    """Inverse of serialize()."""
+def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, str] | None = None) -> Any:
+    """Inverse of _serialize(). When uploaded_names is provided, each 'file' arg maps its temp path to the
+    original filename in it."""
     if isinstance(obj, list):
-        return [deserialize(x, binary_parts) for x in obj]
+        return [_deserialize(x, binary_parts, uploaded_names) for x in obj]
     if isinstance(obj, dict):
         tag = obj.get(_TAG)
         if tag is None:
-            return {k: deserialize(v, binary_parts) for k, v in obj.items()}
+            return {k: _deserialize(v, binary_parts, uploaded_names) for k, v in obj.items()}
         v = obj['v']
         if tag == 'float':
             return float(v)  # nan/inf
         if tag == 'rawdict':
             # a user dict whose own key collided with the reserved tag; stored as ordered key/value pairs
-            return {k: deserialize(val, binary_parts) for k, val in v}
+            return {k: _deserialize(val, binary_parts, uploaded_names) for k, val in v}
         if tag == 'tuple':
-            return tuple(deserialize(x, binary_parts) for x in v)
+            return tuple(_deserialize(x, binary_parts, uploaded_names) for x in v)
         if tag == 'bytes':
             return binary_parts[v]
         if tag == 'ndarray':
@@ -212,12 +216,14 @@ def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
             img.load()  # read pixels now so the result doesn't depend on the transient buffer
             return img
         if tag == 'file':
-            # write the sent bytes to an opaque temp path (extension preserved for media-type detection);
-            # register the original file name so an error can reference it rather than the temp path
-            dest = TempStore.create_path(extension=pathlib.Path(obj['name']).suffix, original_name=obj['name'])
+            # write the sent bytes to an opaque temp path (extension preserved for media-type detection); record
+            # the original file name so an error can reference it rather than the temp path
+            dest = TempStore.create_path(extension=pathlib.Path(obj['name']).suffix)
             dest.parent.mkdir(parents=True, exist_ok=True)
             with open(dest, 'wb') as f:
                 f.write(binary_parts[v])
+            if uploaded_names is not None:
+                uploaded_names[str(dest)] = obj['name']
             return str(dest)
         if tag == 'mediapath':
             # persisted daemon media; the client localizes it from the daemon's /media endpoint (see ProxyClient)
@@ -248,15 +254,17 @@ def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
             table = v['table']
             return DirEntry(
                 dir=schema.Dir(md={}) if v['is_dir'] else None,
-                dir_entries={name: deserialize(child, binary_parts) for name, child in v['dir_entries'].items()},
+                dir_entries={
+                    name: _deserialize(child, binary_parts, uploaded_names) for name, child in v['dir_entries'].items()
+                },
                 table=None
                 if table is None
-                else schema.Table(id=deserialize(table['id'], binary_parts), md=table['md']),
+                else schema.Table(id=_deserialize(table['id'], binary_parts, uploaded_names), md=table['md']),
                 table_error_count=v['table_error_count'],
             )
         if tag == 'UpdateStatus':
             d = dict(v)
-            d['rows'] = deserialize(d['rows'], binary_parts)
+            d['rows'] = _deserialize(d['rows'], binary_parts)
             for field in ('row_count_stats', 'cascade_row_count_stats'):
                 d[field] = RowCountStats(**d[field])
             return UpdateStatus(**d)
@@ -270,6 +278,27 @@ def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
             return datetime.date.fromisoformat(v)
         raise AssertionError(f'unknown proxy serialization tag: {tag!r}')
     return obj
+
+
+def serialize_request(request: ProxyRequest) -> None:
+    """Encode request.args in place, appending any binary values to request._binary_parts for transport."""
+    request.args = _serialize(request.args, request._binary_parts)
+
+
+def deserialize_request(request: ProxyRequest) -> dict[str, Any]:
+    """Decode request.args, recording each uploaded file's temp-path-to-original-name mapping on the request."""
+    return _deserialize(request.args, request._binary_parts, request._uploaded_names)
+
+
+def serialize_response(response: ProxyResponse) -> None:
+    """Encode response.result and response.current_md in place, appending binary values to response._binary_parts."""
+    response.result = _serialize(response.result, response._binary_parts)
+    response.current_md = _serialize(response.current_md, response._binary_parts)
+
+
+def deserialize_response(response: ProxyResponse, value: Any) -> Any:
+    """Decode a value carried by response (its result or current_md), resolving binary references from it."""
+    return _deserialize(value, response._binary_parts)
 
 
 _U32 = struct.Struct('>I')

@@ -74,15 +74,15 @@ class ProxyClient:
         snapshot_key: TablePathKey | None = None,
     ) -> ProxyResponse:
         """Run class_name.method(**args) on the server and return the raw response."""
-        binary_parts: list[bytes] = []
         request = ProxyRequest(
             class_name=class_name,
             method=method,
-            args=proxy_protocol.serialize(args, binary_parts),
+            args=args,
             path_key=None if path_key is None else path_key.as_dict(),
             snapshot_path_key=None if snapshot_key is None else snapshot_key.as_dict(),
         )
-        response_json, response_parts = self._send(request.model_dump_json(), binary_parts)
+        proxy_protocol.serialize_request(request)
+        response_json, response_parts = self._send(request.model_dump_json(), request._binary_parts)
         response = ProxyResponse.model_validate_json(response_json)
         response._binary_parts = response_parts
         return response
@@ -92,7 +92,7 @@ class ProxyClient:
         response = self.send(class_name, method, args)
         if response.error is not None:
             raise excs.Error.from_dict(response.error)
-        return self._localize_media(proxy_protocol.deserialize(response.result, response._binary_parts))
+        return self._localize_media(proxy_protocol.deserialize_response(response, response.result))
 
     def dispatch_table_method(
         self,
@@ -108,12 +108,12 @@ class ProxyClient:
             snapshot_key = get_snapshot_key()
             response = self.send('Table', method, args, path_key=path_key, snapshot_key=snapshot_key)
             if response.current_md is not None:
-                refresh(proxy_protocol.deserialize(response.current_md, response._binary_parts))
+                refresh(proxy_protocol.deserialize_response(response, response.current_md))
             if response.error is not None:
                 raise excs.Error.from_dict(response.error)
             if response.is_stale_md:
                 continue  # server withheld a stale mutation; retry against the refreshed schema
-            return self._localize_media(proxy_protocol.deserialize(response.result, response._binary_parts))
+            return self._localize_media(proxy_protocol.deserialize_response(response, response.result))
 
     def run_query(self, method: str, query_dict: dict, **extra: Any) -> Any:
         """Execute a Query method against the hosted catalog."""

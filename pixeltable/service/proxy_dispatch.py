@@ -43,7 +43,6 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
     """Entry point for an incoming proxy request; always returns a ProxyResponse as (JSON head, binary parts)."""
     request = ProxyRequest.model_validate_json(request_json)
     request._binary_parts = request_parts
-    response_parts: list[bytes] = []
     try:
         if request.protocol_version != PROTOCOL_VERSION:
             raise excs.RequestError(
@@ -65,28 +64,24 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
                     md = cat.read_md_for_export(tbl)
                 if snapshot_key != _current_key(md):
                     # return the current md and is_stale_md=True so the client refreshes and retries
-                    resp = ProxyResponse(current_md=proxy_protocol.serialize(md, response_parts), is_stale_md=True)
-                    return resp.model_dump_json(), response_parts
+                    return _encode_response(ProxyResponse(current_md=md, is_stale_md=True))
 
-            result_json = proxy_protocol.serialize(_convert_result(key, table_handler(request, tbl)), response_parts)
+            result = _convert_result(key, table_handler(request, tbl))
             if not is_mutation:
                 # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
-                return ProxyResponse(result=result_json).model_dump_json(), response_parts
+                return _encode_response(ProxyResponse(result=result))
 
             # a mutation bumps the table version; return the new md so the client's path refreshes
             with cat.begin_xact(for_write=False):
                 md = cat.read_md_for_export(tbl)
-            resp = ProxyResponse(result=result_json, current_md=proxy_protocol.serialize(md, response_parts))
-            return resp.model_dump_json(), response_parts
+            return _encode_response(ProxyResponse(result=result, current_md=md))
 
         handler = _HANDLERS.get(key)
         if handler is None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
             )
-        result = _convert_result(key, handler(request))
-        resp = ProxyResponse(result=proxy_protocol.serialize(result, response_parts))
-        return resp.model_dump_json(), response_parts
+        return _encode_response(ProxyResponse(result=_convert_result(key, handler(request))))
 
     except excs.Error as e:
         if e.detail is not None:
@@ -94,10 +89,10 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             # for whoever reads the server logs
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
         error_dict = e.to_dict()
-        error_dict['message'] = TempStore.substitute_original_names(error_dict['message'])
+        error_dict['message'] = _restore_upload_names(error_dict['message'], request._uploaded_names)
         if 'cause' in error_dict:
-            error_dict['cause'] = TempStore.substitute_original_names(error_dict['cause'])
-        return ProxyResponse(error=error_dict).model_dump_json(), []
+            error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
+        return _encode_response(ProxyResponse(error=error_dict))
 
     except Exception:
         # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
@@ -109,7 +104,7 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
         error_dict = err.to_dict()
         if os.environ.get('PXTTEST_IN_CI'):
             error_dict['detail'] = tb
-        return ProxyResponse(error=error_dict).model_dump_json(), []
+        return _encode_response(ProxyResponse(error=error_dict))
 
 
 def _result_local_path(val: str) -> pathlib.Path | None:
@@ -150,17 +145,30 @@ def _convert_result(key: tuple[str, str], result: Any) -> Any:
     return result if converter is None else converter(result)
 
 
+def _encode_response(response: ProxyResponse) -> tuple[str, list[bytes]]:
+    """Encode a response as (JSON head, binary parts), moving any binary values in it out to the parts list."""
+    proxy_protocol.serialize_response(response)
+    return response.model_dump_json(), response._binary_parts
+
+
+def _restore_upload_names(text: str, uploaded_names: dict[str, str]) -> str:
+    """Replace any uploaded-file temp path in text with the client's original filename."""
+    for temp_path, original_name in uploaded_names.items():
+        text = text.replace(temp_path, original_name)
+    return text
+
+
 def _deserialize_args(request: ProxyRequest) -> dict:
     """Deserialize the request's args inside a read transaction.
 
     Rebuilding Expr/Query/Function values from the wire loads table-version metadata, which needs a retry loop.
-    Handlers that carry such values must deserialize through here rather than calling proxy_protocol.deserialize()
-    directly.
+    Handlers that carry such values must deserialize through here rather than calling
+    proxy_protocol.deserialize_request() directly.
     """
 
     @retry_loop(for_write=False)
     def deserialize() -> dict:
-        return proxy_protocol.deserialize(request.args, request._binary_parts)
+        return proxy_protocol.deserialize_request(request)
 
     return deserialize()
 
@@ -220,7 +228,7 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
 def _catalog_method(request: ProxyRequest) -> Any:
     """Generic handler for catalog methods whose return value is directly serializable."""
     method = getattr(get_runtime().catalog, request.method)
-    return method(**proxy_protocol.deserialize(request.args, request._binary_parts))
+    return method(**proxy_protocol.deserialize_request(request))
 
 
 def _resolve_tbl(path_key: TablePathKey) -> LocalTable:
@@ -242,11 +250,11 @@ def _get_metadata(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _list_views(request: ProxyRequest, tbl: LocalTable) -> Any:
-    return tbl.list_views(recursive=proxy_protocol.deserialize(request.args, request._binary_parts)['recursive'])
+    return tbl.list_views(recursive=proxy_protocol.deserialize_request(request)['recursive'])
 
 
 def _get_versions(request: ProxyRequest, tbl: LocalTable) -> Any:
-    return tbl.get_versions(proxy_protocol.deserialize(request.args, request._binary_parts)['n'])
+    return tbl.get_versions(proxy_protocol.deserialize_request(request)['n'])
 
 
 def _insert(request: ProxyRequest, tbl: LocalTable) -> Any:
@@ -452,7 +460,7 @@ def _get_path(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
     # rebase the title onto the client's catalog so it shows the table's full pxt:// path
-    args = proxy_protocol.deserialize(request.args, request._binary_parts)
+    args = proxy_protocol.deserialize_request(request)
     catalog_uri = Path.parse(args['catalog_uri'], allow_empty_path=True)
     display_path = dataclasses.replace(tbl._path(), org=catalog_uri.org, db=catalog_uri.db)
     helper = tbl._descriptors(path=display_path)
@@ -472,24 +480,24 @@ def _run_query(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
 
 
 def _query_collect(request: ProxyRequest) -> dict:
-    payload = proxy_protocol.deserialize(request.args, request._binary_parts)
+    payload = proxy_protocol.deserialize_request(request)
     return _run_query(payload['query'], lambda q: q._collect(args=payload.get('args'), media_as_urls=True))
 
 
 def _query_head(request: ProxyRequest) -> dict:
-    args = proxy_protocol.deserialize(request.args, request._binary_parts)
+    args = proxy_protocol.deserialize_request(request)
     return _run_query(args['query'], lambda q: q._head(args['n'], media_as_urls=True))
 
 
 def _query_tail(request: ProxyRequest) -> dict:
-    args = proxy_protocol.deserialize(request.args, request._binary_parts)
+    args = proxy_protocol.deserialize_request(request)
     return _run_query(args['query'], lambda q: q._tail(args['n'], media_as_urls=True))
 
 
 def _query_count(request: ProxyRequest) -> int:
     from pixeltable._query import Query
 
-    query_dict = proxy_protocol.deserialize(request.args, request._binary_parts)['query']
+    query_dict = proxy_protocol.deserialize_request(request)['query']
 
     @retry_loop(for_write=False)
     def build() -> Query:
