@@ -19,6 +19,7 @@ from .globals import (
 from .insertable_table import InsertableTable
 from .insertable_table_proxy import InsertableTableProxy
 from .local_table import LocalTable
+from .model import model_base
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table import Table
