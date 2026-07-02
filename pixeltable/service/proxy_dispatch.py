@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import pathlib
 import shutil
 import traceback
@@ -90,15 +91,13 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
         # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
         # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire.
         ref = uuid4().hex
-        _logger.error(
-            'Internal error (ref %s) handling %s.%s:\n%s',
-            ref,
-            request.class_name,
-            request.method,
-            traceback.format_exc(),
-        )
+        tb = traceback.format_exc()
+        _logger.error('Internal error (ref %s) handling %s.%s:\n%s', ref, request.class_name, request.method, tb)
         err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
-        return ProxyResponse(error=err.to_dict()).model_dump_json(), []
+        error_dict = err.to_dict()
+        if os.environ.get('PXTTEST_IN_CI'):
+            error_dict['detail'] = tb
+        return ProxyResponse(error=error_dict).model_dump_json(), []
 
 
 def _result_local_path(val: str) -> pathlib.Path | None:
