@@ -28,6 +28,9 @@ class CreateDatabaseRequest(BaseModel):
     db_name: str
     location: str = 'aws'
     region: str = 'us-east-1'
+    cpu: float = 0.5
+    memory_mb: int = 512
+    disk_gb: int = 10
 
 
 class CreateDatabaseResponse(BaseModel):
@@ -60,6 +63,9 @@ class UpdateDatabaseRequest(BaseModel):
     db_name: Optional[str] = None
     default_bucket: Optional[str] = None
     workers: Optional[int] = None
+    cpu: Optional[float] = None
+    memory_mb: Optional[int] = None
+    disk_gb: Optional[int] = None
 
 
 class DeleteDatabaseRequest(BaseModel):
@@ -101,6 +107,9 @@ class CreateServiceRequest(BaseModel):
     table_path: str
     workers_min: int = 1
     description: Optional[str] = None
+    cpu: float = 0.5
+    memory_mb: int = 512
+    disk_gb: int = 10
 
 
 class CreateServiceResponse(BaseModel):
@@ -157,6 +166,9 @@ class UpdateServiceRequest(BaseModel):
     service_name: str
     workers_min: Optional[int] = None
     description: Optional[str] = None
+    cpu: Optional[float] = None
+    memory_mb: Optional[int] = None
+    disk_gb: Optional[int] = None
 
 
 class UpdateServiceResponse(BaseModel):
