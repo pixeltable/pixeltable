@@ -40,6 +40,7 @@ from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.query_clauses import FromClause, JoinClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
+from pixeltable.service.proxy_client import ProxyClient
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
@@ -378,27 +379,70 @@ class ResultCursor(Iterable[Row]):
 
 
 class ProxyResultCursor(ResultCursor):
-    """A ResultCursor over a result already materialized from a proxy catalog.
+    """A ResultCursor over a result fetched in full from a proxy catalog.
+
+    The daemon's media URLs are fetched into the local store here, when the cursor is opened.
 
     TODO: implement a streaming protocol
     """
 
-    _result_set: ResultSet
+    _client: ProxyClient
+    _rows: list[list[Any]]
 
-    def __init__(self, query: Query, result_set: ResultSet):
+    def __init__(self, query: Query, client: ProxyClient, schema: dict[str, ColumnType], rows: list[list[Any]]):
         super().__init__(query)
-        self._result_set = result_set
+        self._client = client
+        self._rows = rows
         # use the fetched result's schema/columns as authoritative (avoids any client-side schema staleness)
-        self._schema = result_set._schema
-        self._columns = {name: i for i, name in enumerate(result_set._schema)}
+        self._schema = schema
+        self._columns = {name: i for i, name in enumerate(schema)}
 
     def open(self) -> None:
         if self._row_iterator is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is already open.')
         if self._closed:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is closed and cannot be reopened.')
+        self._materialize_media()
         # a generator (not a plain iterator) so the inherited close() can call _row_iterator.close()
-        self._row_iterator = (list(row._data) for row in self._result_set._rows)
+        self._row_iterator = (row for row in self._rows)
+
+    def as_result_set(self) -> ResultSet:
+        return ResultSet(list(self), self._schema)
+
+    def _materialize_media(self) -> None:
+        """Materialize daemon-resident media files into the local store/as PIL images."""
+        media_items: list[tuple[int, bool]] = []  # (select list item index, whether PIL image)
+        for i, (e, _) in enumerate(self._query._effective_select_list):
+            is_localpath = (
+                isinstance(e, exprs.ColumnPropertyRef) and e.prop == exprs.ColumnPropertyRef.Property.LOCALPATH
+            )
+            if e.col_type.is_image_type():
+                media_items.append((i, True))
+            elif e.col_type.is_media_type() or is_localpath:
+                media_items.append((i, False))
+        if len(media_items) == 0:
+            return
+
+        media_urls: set[str] = set()
+        for row in self._rows:
+            for i, _ in media_items:
+                val = row[i]
+                if isinstance(val, str):
+                    scheme = urllib.parse.urlparse(val).scheme
+                    if len(scheme) > 1 and scheme != 'file':
+                        media_urls.add(val)
+        local_paths = self._client.fetch_media(list(media_urls)) if len(media_urls) > 0 else {}
+
+        for row in self._rows:
+            for i, is_img in media_items:
+                val = row[i]
+                if isinstance(val, str):
+                    val = local_paths.get(val, val)
+                    if is_img:
+                        img = PIL.Image.open(val)
+                        img.load()
+                        val = img
+                    row[i] = val
 
 
 class Query:
@@ -767,7 +811,7 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with group_by()')
         if not self._from_clause.is_local:
             # the rowid order_by needs the table's local store; run head() on the hosting catalog instead
-            return self._exec_proxy('head', n=n)
+            return self._exec_proxy('head', n=n).as_result_set()
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n)._collect(media_as_urls=media_as_urls)
@@ -800,7 +844,7 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with group_by()')
         if not self._from_clause.is_local:
             # the rowid order_by needs the table's local store; run tail() on the hosting catalog instead
-            return self._exec_proxy('tail', n=n)
+            return self._exec_proxy('tail', n=n).as_result_set()
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n)._collect(media_as_urls=media_as_urls)
@@ -897,66 +941,19 @@ class Query:
     def collect(self) -> ResultSet:
         return self._collect()
 
-    def _collect_proxy(self) -> ResultSet:
-        return self._exec_proxy('collect')
-
     _ProxyMethodNames = Literal['collect', 'head', 'tail']
 
-    def _exec_proxy(self, method: _ProxyMethodNames, **extra: Any) -> ResultSet:
+    def _exec_proxy(self, method: _ProxyMethodNames, **extra: Any) -> ProxyResultCursor:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
 
         cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
         assert isinstance(cat, CatalogProxy)
         result = cat.client.run_query(method, self.as_dict(), **extra)
-        schema: dict[str, ColumnType] = result['schema']
-        rows: list[list[Any]] = result['rows']
-        self._materialize_result_media(cat, rows)
-        columns = {name: i for i, name in enumerate(schema)}
-        return ResultSet([Row(data, columns, schema) for data in rows], schema)
-
-    def _materialize_result_media(self, cat: 'catalog.CatalogProxy', rows: list[list[Any]]) -> None:
-        """Turn the daemon's media URLs in `rows` into the value each output expr should yield: a PIL image for an
-        image column, a local file path for a video/audio column or a `.localpath`, the daemon URL for a `.fileurl`.
-        Fetches the (remote) daemon URLs into the local store first.
-        """
-        # positions to localize, paired with whether the column wants a PIL image (vs a local file path); a
-        # `.fileurl` keeps its daemon URL as-is and so is not listed
-        targets: list[tuple[int, bool]] = []
-        for i, (e, _) in enumerate(self._effective_select_list):
-            is_localpath = (
-                isinstance(e, exprs.ColumnPropertyRef) and e.prop == exprs.ColumnPropertyRef.Property.LOCALPATH
-            )
-            if e.col_type.is_image_type():
-                targets.append((i, True))
-            elif e.col_type.is_media_type() or is_localpath:
-                targets.append((i, False))
-        if len(targets) == 0:
-            return
-
-        to_fetch: set[str] = set()
-        for row in rows:
-            for i, _ in targets:
-                val = row[i]
-                if isinstance(val, str):
-                    scheme = urllib.parse.urlparse(val).scheme
-                    if len(scheme) > 1 and scheme != 'file':
-                        to_fetch.add(val)
-        local_paths = cat.client.fetch_media(list(to_fetch)) if len(to_fetch) > 0 else {}
-
-        for row in rows:
-            for i, wants_image in targets:
-                val = row[i]
-                if isinstance(val, str):
-                    val = local_paths.get(val, val)
-                    if wants_image:
-                        img = PIL.Image.open(val)
-                        img.load()  # read pixels now so the cell doesn't depend on the file staying put
-                        val = img
-                row[i] = val
+        return ProxyResultCursor(self, cat.client, result['schema'], result['rows'])
 
     def _collect(self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False) -> ResultSet:
         if not self._from_clause.is_local:
-            return self._exec_proxy('collect', args=args)
+            return self._exec_proxy('collect', args=args).as_result_set()
         tvps = self._from_clause.tvps
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
             schema = self.schema
@@ -976,7 +973,7 @@ class Query:
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
         if not self._from_clause.is_local:
-            return ProxyResultCursor(self, self._exec_proxy('collect'))
+            return self._exec_proxy('collect')
         return ResultCursor(self)
 
     async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:

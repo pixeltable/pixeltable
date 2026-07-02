@@ -10,6 +10,7 @@ import urllib.request
 import uuid
 from collections import defaultdict
 from pathlib import Path
+from typing import ClassVar
 from uuid import UUID
 
 import PIL.Image
@@ -274,7 +275,7 @@ class TempStore:
 
     # maps a temp file path to the original user-supplied filename it was created for, so an error can
     # reference the user's filename rather than the opaque temp path
-    __original_names: dict[str, str] = {}
+    __original_names: ClassVar[dict[str, str]] = {}
 
     @classmethod
     def _tmp_dir(cls) -> Path:

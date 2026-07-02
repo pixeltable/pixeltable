@@ -123,18 +123,24 @@ def _result_local_path(val: str) -> pathlib.Path | None:
 
 
 def _encode_local_path(value: Any) -> Any:
-    """Convert local file paths to LocalPath/MediaPath."""
+    """Encode local file paths as LocalFile/MediaPath."""
     if not isinstance(value, str):
         return value
     path = _result_local_path(value)
     if path is None:
-        return value  # remote URL
+        return value  # remote URL: the client fetches it directly
     if TempStore.contains_path(path):
         return LocalFile(str(path))
     media_dir = Env.get().media_dir.resolve()
     resolved = path.resolve()
     if resolved == media_dir or media_dir in resolved.parents:
         return MediaPath(resolved.relative_to(media_dir).as_posix())
+    cache_dir = Env.get().file_cache_dir.resolve()
+    if resolved == cache_dir or cache_dir in resolved.parents:
+        # a file-cache copy of remote media (e.g. from .localpath): send its bytes, since the daemon's local
+        # path can't be resolved by the client
+        # TODO: send the url and have the client fetch it directly?
+        return LocalFile(str(path))
     return value
 
 
