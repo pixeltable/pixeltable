@@ -232,10 +232,6 @@ class TableMd:
     # TODO: replace with mutable_views: list[UUID] to help with debugging
     view_sn: int
 
-    # Metadata format for external stores:
-    # {'class': 'pixeltable.io.label_studio.LabelStudioProject', 'md': {'project_id': 3}}
-    external_stores: list[dict[str, Any]]
-
     column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: ViewMd | None

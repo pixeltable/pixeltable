@@ -26,10 +26,6 @@ tts-1 = 500  # OpenAI uses a per-model rate limit configuration (see below for d
 [mistral]
 api_key = 'my-mistral-api-key'
 rate_limit = 600  # Mistral uses a single rate limit for all models
-
-[label_studio]
-url = 'http://localhost:8080/'
-api_key = 'my-label-studio-api-key'
 ```
 
 ## System settings
@@ -72,8 +68,6 @@ api_key = 'my-label-studio-api-key'
 | GOOGLE_GENAI_USE_VERTEXAI | | (bool) Set to `true` to use Vertex AI instead of Google AI Studio |
 | GROQ_API_KEY | [groq]<br/>api_key | (string) API key to use for Groq AI services |
 | HF_TOKEN | [hf]<br/>token | (string) Hugging Face token for use with Hugging Face services |
-| LABEL_STUDIO_API_KEY | [label_studio]<br/>api_key | (string) API key to use for Label Studio |
-| LABEL_STUDIO_URL | [label_studio]<br/>url | (string) URL of the Label Studio server to use |
 | MISTRAL_API_KEY | [mistral]<br/>api_key | (string) API key to use for Mistral AI services |
 | OPENAI_API_KEY | [openai]<br/>api_key | (string) API key to use for OpenAI services |
 | OPENAI_BASE_URL | [openai]<br/>base_url | (string, optional) Base URL to use for OpenAI services |

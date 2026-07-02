@@ -345,15 +345,5 @@ class TableProxy(Table):
         self._check_mutable('revert')
         self._dispatch('revert', {})
 
-    def external_stores(self) -> list[str]: ...
-
-    def unlink_external_stores(
-        self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
-    ) -> None: ...
-
-    def sync(
-        self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
-    ) -> UpdateStatus: ...
-
     def get_versions(self, n: int | None = None) -> list[VersionMetadata]:
         return self._dispatch('get_versions', self._dispatch_args(locals()))
