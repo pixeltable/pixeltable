@@ -668,6 +668,8 @@ class TestExprs:
         )
         t.add_computed_column(item_of_list=t.list_of_dicts[:].a)
         t.add_computed_column(item_of_vartype_list=t.list_of_dicts[:].b)
+        # field access on a list projects over its elements without an explicit slice/'*'
+        t.add_computed_column(bare_item_of_list=t.list_of_dicts.a)
         res = t.order_by(t.c2).collect()
         orig = res['attr']
         assert all(res['item'][i] == orig[i] for i in range(len(res)))
@@ -679,6 +681,7 @@ class TestExprs:
         assert all(res['slice_range_step'][i] == orig[i][3:7:2] for i in range(len(orig)))
         assert all(res['slice_range_step_item'][i] == orig[i][3:7:2] for i in range(len(orig)))
         assert all(res['item_of_list'][i] == [i, i + 1, i + 2] for i in range(len(res)))
+        assert all(res['bare_item_of_list'][i] == res['item_of_list'][i] for i in range(len(res)))
         assert all(
             res['item_of_vartype_list'][i] == [res['c2'][i], res['c1'][i], res['c3'][i]] for i in range(len(res))
         )
@@ -730,6 +733,7 @@ class TestExprs:
             # dict resolution applied to heterogeneous tuple
             (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)]),
             (t.col.f4['*'].f4b, pxt.Json[[str | None]]),  # special '*' operator
+            (t.col.f4.f4a, pxt.Json[[int | None]]),  # field access on a list projects without an explicit slice/'*'
         )
         for expr, expected_type in cases:
             print(expr)

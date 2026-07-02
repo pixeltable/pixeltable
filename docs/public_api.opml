@@ -354,6 +354,8 @@
         <outline text="class|pixeltable.functions.CodecContextMetadata" />
         <outline text="class|pixeltable.functions.ContainerMetadata" />
         <outline text="class|pixeltable.functions.StreamMetadata" />
+        <outline text="class|pixeltable.functions.video.SceneInfo" />
+        <outline text="class|pixeltable.functions.video.VideoSegment" />
       </outline>
 
       <!-- AI Integrations group -->
