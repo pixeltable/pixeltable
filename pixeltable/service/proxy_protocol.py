@@ -330,4 +330,6 @@ def decode_body(body: bytes) -> tuple[bytes, list[bytes]]:
     head = take(take_u32())
     n_parts = take_u32()
     binary_parts = [take(take_u32()) for _ in range(n_parts)]
+    if offset != len(view):
+        raise ValueError('trailing bytes after framed body')
     return head, binary_parts

@@ -201,16 +201,21 @@ class InsertableTableProxy(TableProxy):
         try:
             parquet_path = os.path.join(tmp_dir, 'sql_source.parquet')
             writer: pq.ParquetWriter | None = None
-            for batch in arrow.record_batches_from_rows(
-                src_schema, self._sql_source_rows(sql_source, src_schema), _SQL_PARQUET_BATCH_BYTES
-            ):
-                if writer is None:
-                    writer = pq.ParquetWriter(parquet_path, batch.schema)
-                writer.write_batch(batch)
+            try:
+                for batch in arrow.record_batches_from_rows(
+                    src_schema, self._sql_source_rows(sql_source, src_schema), _SQL_PARQUET_BATCH_BYTES
+                ):
+                    if writer is None:
+                        writer = pq.ParquetWriter(parquet_path, batch.schema)
+                    writer.write_batch(batch)
+            finally:
+                # ParquetWriter writes the file footer on close(), so the parquet is incomplete until then; close
+                # here so the file is complete before it is read below, and so an error frees the handle for cleanup
+                if writer is not None:
+                    writer.close()
             if writer is None:
                 # the source produced no rows; the destination table is already created, so nothing to send
                 return UpdateStatus()
-            writer.close()
             return self._insert_source_file(
                 parquet_path,
                 source_format='parquet',
