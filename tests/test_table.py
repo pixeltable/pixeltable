@@ -2075,7 +2075,6 @@ class TestTable:
         'PIXELTABLE_INPUT_MEDIA_DEST' in os.environ or 'PIXELTABLE_OUTPUT_MEDIA_DEST' in os.environ,
         reason='Specifying a default media destination disrupts the file cache counts',
     )
-
     # TODO: cannot be converted because it inspects the local file cache via FileCache and tbl._id
     @pytest.mark.local('inspects the local file cache via FileCache and tbl._id')
     def test_create_s3_image_table(self, uses_db: None) -> None:

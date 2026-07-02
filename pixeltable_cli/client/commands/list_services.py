@@ -7,10 +7,7 @@ from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(
-        prog='pxt list-services',
-        description='List services in a cloud-hosted database.',
-    )
+    parser = Parser(prog='pxt list-services', description='List services in a cloud-hosted database.')
     parser.add_argument('db_uri', help='Database URI: pxt://org:db')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)

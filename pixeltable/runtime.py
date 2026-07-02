@@ -150,6 +150,7 @@ class Runtime:
 
         # Cloud-hosted database: connect via TLS tunnel to the proxy sidecar.
         import os
+
         from pixeltable.service.proxy_cloud_client import ProxyCloudClient
 
         api_key = Env.get().pxt_api_key
@@ -172,8 +173,7 @@ class Runtime:
         return CatalogProxy(
             catalog_uri,
             ProxyCloudClient(
-                catalog_uri.org, catalog_uri.db, api_key,
-                host=host, port=port_override, no_verify=no_verify,
+                catalog_uri.org, catalog_uri.db, api_key, host=host, port=port_override, no_verify=no_verify
             ),
         )
 

@@ -8,7 +8,6 @@ from pydantic import BaseModel
 
 from .operation_types import ServiceOperationType
 
-
 # ── Database ──────────────────────────────────────────────────────────────────
 
 
@@ -54,6 +53,15 @@ class ListDatabasesResponse(BaseModel):
     databases: list[DatabaseRecord]
 
 
+class UpdateDatabaseRequest(BaseModel):
+    operation_type: str = ServiceOperationType.UPDATE_DATABASE
+    org_slug: Optional[str] = None
+    db_slug: str
+    db_name: Optional[str] = None
+    default_bucket: Optional[str] = None
+    workers: Optional[int] = None
+
+
 class DeleteDatabaseRequest(BaseModel):
     operation_type: str = ServiceOperationType.DELETE_DATABASE
     org_slug: str
@@ -62,6 +70,10 @@ class DeleteDatabaseRequest(BaseModel):
 
 class DeleteDatabaseResponse(BaseModel):
     db_name: str
+
+
+# Alias matching the cloud protocol's naming (no trailing 's').
+ListDatabaseRequest = ListDatabasesRequest
 
 
 # ── Service ───────────────────────────────────────────────────────────────────
@@ -140,6 +152,19 @@ class StopServiceResponse(BaseModel):
     service: ServiceRecord
 
 
+class UpdateServiceRequest(BaseModel):
+    operation_type: str = ServiceOperationType.UPDATE_SERVICE
+    org_slug: Optional[str] = None
+    db_slug: str
+    service_name: str
+    workers_min: Optional[int] = None
+    description: Optional[str] = None
+
+
+class UpdateServiceResponse(BaseModel):
+    service: ServiceRecord
+
+
 class DeleteServiceRequest(BaseModel):
     operation_type: str = ServiceOperationType.DELETE_SERVICE
     org_slug: str
@@ -148,6 +173,13 @@ class DeleteServiceRequest(BaseModel):
 
 
 class DeleteServiceResponse(BaseModel):
+    service_name: str
+
+
+class ListServiceRunsRequest(BaseModel):
+    operation_type: str = ServiceOperationType.LIST_SERVICE_RUNS
+    org_slug: Optional[str] = None
+    db_slug: str
     service_name: str
 
 
@@ -185,3 +217,56 @@ class ListSecretsRequest(BaseModel):
 
 class ListSecretsResponse(BaseModel):
     keys: list[str]
+
+
+# ── Start / Stop / UpdateRuntime ──────────────────────────────────────────────
+
+
+class StartDatabaseRequest(BaseModel):
+    operation_type: str = ServiceOperationType.START_DATABASE
+    org_slug: Optional[str] = None
+    db_slug: str
+
+
+class StartDatabaseResponse(BaseModel):
+    message: str = 'started'
+
+
+class StopDatabaseRequest(BaseModel):
+    operation_type: str = ServiceOperationType.STOP_DATABASE
+    org_slug: Optional[str] = None
+    db_slug: str
+
+
+class StopDatabaseResponse(BaseModel):
+    message: str = 'stopped'
+
+
+class UpdateRuntimeRequest(BaseModel):
+    operation_type: str = ServiceOperationType.UPDATE_RUNTIME
+    org_slug: Optional[str] = None
+    db_slug: str
+    runtime_image: Optional[str] = None
+
+
+class UpdateRuntimeResponse(BaseModel):
+    message: str = 'runtime update triggered'
+
+
+# ── Org ───────────────────────────────────────────────────────────────────────
+
+
+class OrgRecord(BaseModel):
+    org_id: str
+    org_slug: str
+    default_db_slug: Optional[str] = None
+    created_at: float
+    updated_at: float
+
+
+class ListOrgsRequest(BaseModel):
+    operation_type: str = ServiceOperationType.LIST_ORGS
+
+
+class ListOrgsResponse(BaseModel):
+    orgs: list[OrgRecord]

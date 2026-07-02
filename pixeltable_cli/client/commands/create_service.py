@@ -7,10 +7,7 @@ from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(
-        prog='pxt create-service',
-        description='Create a service from a table in a cloud-hosted database.',
-    )
+    parser = Parser(prog='pxt create-service', description='Create a service from a table in a cloud-hosted database.')
     parser.add_argument('table_uri', help='Table URI: pxt://org:db/tables/<path>')
     parser.add_argument('--name', required=True, help='Service name')
     parser.add_argument('--workers', type=int, default=1, help='Number of workers (default: 1)')
@@ -33,8 +30,12 @@ def run(argv: list[str]) -> None:
         if not table_path:
             parser.error('table_uri must include a table path, e.g. pxt://org:db/tables/my_table')
         service_create(
-            p.org, p.db, args.name, table_path,
-            workers_min=args.workers, workers_max=args.workers,
+            p.org,
+            p.db,
+            args.name,
+            table_path,
+            workers_min=args.workers,
+            workers_max=args.workers,
             json_output=args.json_output,
         )
     except Exception as e:

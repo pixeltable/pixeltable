@@ -49,8 +49,10 @@ DO_RERUN: bool
 def pytest_addoption(parser: argparsing.Parser) -> None:
     parser.addoption('--no-rerun', action='store_true', default=False, help='Do not rerun any failed tests.')
     parser.addoption(
-        '--cloud', action='store_true', default=False,
-        help='Run tests against the cloud proxy (pxt://testorg:foxdb) instead of local/proxy modes.'
+        '--cloud',
+        action='store_true',
+        default=False,
+        help='Run tests against the cloud proxy (pxt://testorg:foxdb) instead of local/proxy modes.',
     )
 
 

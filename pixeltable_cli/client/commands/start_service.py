@@ -7,10 +7,7 @@ from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(
-        prog='pxt start-service',
-        description='Start a service in a cloud-hosted database.',
-    )
+    parser = Parser(prog='pxt start-service', description='Start a service in a cloud-hosted database.')
     parser.add_argument('service_uri', help='Service URI: pxt://org:db/services/<name>')
     parser.add_argument('--workers', type=int, default=None, help='Override worker count')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
@@ -30,11 +27,7 @@ def run(argv: list[str]) -> None:
         if not svc_name:
             parser.error('service_uri must include a service name')
         workers = args.workers
-        service_start(
-            p.org, p.db, svc_name,
-            workers_min=workers, workers_max=workers,
-            json_output=args.json_output,
-        )
+        service_start(p.org, p.db, svc_name, workers_min=workers, workers_max=workers, json_output=args.json_output)
     except Exception as e:
         if args.json_output:
             print(json.dumps({'error': str(e)}), file=sys.stderr)

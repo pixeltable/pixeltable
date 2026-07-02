@@ -7,10 +7,7 @@ from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(
-        prog='pxt create-db',
-        description='Create a cloud-hosted Pixeltable database.',
-    )
+    parser = Parser(prog='pxt create-db', description='Create a cloud-hosted Pixeltable database.')
     parser.add_argument('db_uri', help='Database URI: pxt://org:db')
     parser.add_argument('--location', default='aws', help='Cloud provider (default: aws)')
     parser.add_argument('--region', default='us-east-1', help='Region (default: us-east-1)')

@@ -15,9 +15,9 @@ For dev clusters, set PIXELTABLE_CLOUD_HOST={org}-{db}.dev.pxt.run in the enviro
 from __future__ import annotations
 
 import http.client
-import ssl
-import socket
 import logging
+import socket
+import ssl
 
 from . import proxy_client
 
@@ -116,10 +116,7 @@ class ProxyCloudClient(proxy_client.ProxyClient):
                     self._connect()
                 assert self._http_conn is not None
                 self._http_conn.request(
-                    'POST',
-                    '/rpc',
-                    body=request_json.encode(),
-                    headers={'Content-Type': 'application/json'},
+                    'POST', '/rpc', body=request_json.encode(), headers={'Content-Type': 'application/json'}
                 )
                 response = self._http_conn.getresponse()
                 body = response.read().decode()
