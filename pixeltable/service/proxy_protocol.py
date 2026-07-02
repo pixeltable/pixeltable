@@ -191,7 +191,7 @@ def deserialize(obj: Any) -> Any:
         if tag == 'UpdateStatus':
             d = dict(v)
             d['rows'] = deserialize(d['rows'])
-            for field in ('row_count_stats', 'cascade_row_count_stats', 'ext_row_count_stats'):
+            for field in ('row_count_stats', 'cascade_row_count_stats'):
                 d[field] = RowCountStats(**d[field])
             return UpdateStatus(**d)
         if tag == 'Dir':

@@ -16,7 +16,6 @@ import toml
 from sqlalchemy import orm
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
@@ -98,7 +97,6 @@ class TestMigration:
     @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Runs only on Python 3.10 (due to pickling issue)')
     def test_db_migration(self, init_env: None) -> None:
         skip_test_if_not_installed('transformers')
-        skip_test_if_not_installed('label_studio_sdk')
 
         env = Env.get()
         pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
@@ -172,8 +170,6 @@ class TestMigration:
                     self._run_v14_tests()
                 if old_version >= 15:
                     self._run_v15_tests()
-                if old_version >= 17:
-                    self._run_v17_tests()
                 if old_version >= 19:
                     self._run_v19_tests(old_version)
                 if old_version >= 30:
@@ -276,31 +272,6 @@ class TestMigration:
         # Test that InlineDicts are properly loaded
         inline_dict = v.where(v.c2 == 19).select(v.base_table_inline_dict).head(1)['base_table_inline_dict'][0]
         assert inline_dict == {'int': 22, 'dict': {'key': 'val'}, 'expr': 'test string 19'}
-
-    @classmethod
-    def _run_v17_tests(cls) -> None:
-        from pixeltable.io.external_store import MockProject
-        from pixeltable.io.label_studio import LabelStudioProject
-
-        t = pxt.get_table('base_table')
-        v = pxt.get_table('views/view')
-
-        # Test that external stores are loaded properly.
-        assert len(v.external_stores()) == 2
-        stores = list(v._tbl_version.get().external_stores.values())
-        assert len(stores) == 2
-        store0 = stores[0]
-        assert isinstance(store0, MockProject)
-        assert store0.get_export_columns() == {'int_field': ts.IntType()}
-        assert store0.get_import_columns() == {'str_field': ts.StringType()}
-        assert store0.col_mapping == {v.view_test_udf.col.handle: 'int_field', t.c1.col.handle: 'str_field'}
-        store1 = stores[1]
-        assert isinstance(store1, LabelStudioProject)
-        assert store1.project_id == 4171780
-
-        # Test that the stored proxies were retained properly
-        assert len(store1.stored_proxies) == 1
-        assert t.base_table_image_rot.col.handle in store1.stored_proxies
 
     @classmethod
     def _run_v19_tests(cls, version: int) -> None:

@@ -1058,39 +1058,6 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
-    def external_stores(self) -> list[str]: ...
-
-    @abc.abstractmethod
-    def unlink_external_stores(
-        self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
-    ) -> None:
-        """
-        Unlinks this table's external stores.
-
-        Args:
-            stores: If specified, will unlink only the specified named store or list of stores. If not specified,
-                will unlink all of this table's external stores.
-            ignore_errors (bool): If `True`, no exception will be thrown if a specified store is not linked
-                to this table.
-            delete_external_data (bool): If `True`, then the external data store will also be deleted. WARNING: This
-                is a destructive operation that will delete data outside Pixeltable, and cannot be undone.
-        """
-
-    @abc.abstractmethod
-    def sync(
-        self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
-    ) -> UpdateStatus:
-        """
-        Synchronizes this table with its linked external stores.
-
-        Args:
-            stores: If specified, will synchronize only the specified named store or list of stores. If not specified,
-                will synchronize all of this table's external stores.
-            export_data: If `True`, data from this table will be exported to the external stores during synchronization.
-            import_data: If `True`, data from the external stores will be imported to this table during synchronization.
-        """
-
-    @abc.abstractmethod
     def get_versions(self, n: int | None = None) -> list[VersionMetadata]:
         """
         Returns information about versions of this table, most recent first.
