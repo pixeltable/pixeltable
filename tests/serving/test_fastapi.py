@@ -17,6 +17,8 @@ import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
 from tests.utils import get_audio_files, get_image_files, get_video_files, pxt_raises, skip_test_if_not_installed, sleep
 
+pytestmark = pytest.mark.local('pxt serve FastAPI route handlers')
+
 
 @pxt.udf
 def json_embed_ndarray(i: int) -> pxt.Json:

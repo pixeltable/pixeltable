@@ -9,6 +9,8 @@ from pixeltable.env import Env
 
 from ..utils import SAMPLE_IMAGE_URL, get_audio_files, get_video_files
 
+pytestmark = pytest.mark.local('expr-eval/insert performance benchmark')
+
 
 @pxt.udf
 def noop_str(s: str) -> bool:

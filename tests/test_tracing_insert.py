@@ -1,10 +1,10 @@
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 from pixeltable import hooks
 
 from .test_hooks import RecordingSubscriber
+from .utils import pxt_raises
 
 
 @pxt.udf
@@ -19,6 +19,7 @@ def fail_on_three(x: int) -> int:
     return x + 1
 
 
+@pytest.mark.local('subscribes an in-process hooks subscriber the daemon cannot see')
 class TestInsertTracing:
     """End-to-end span nesting for the insert() path: operation -> row -> udf cell."""
 
@@ -84,7 +85,7 @@ class TestInsertTracing:
         sub = RecordingSubscriber()
         hooks.subscribe(sub)
         try:
-            with pytest.raises(excs.ExprEvalError, match='ValueError'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ValueError'):
                 t.insert([{'c': i} for i in range(10)])
             op = sub.find('pixeltable.insert')
             assert op['ended']
@@ -100,7 +101,7 @@ class TestInsertTracing:
         hooks.subscribe(sub)
         hooks.set_span_level(hooks.DEBUG)
         try:
-            with pytest.raises(excs.ExprEvalError, match='ValueError'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ValueError'):
                 t.insert([{'c': i} for i in range(10)])
             rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
             assert len(rows) > 0

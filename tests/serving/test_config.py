@@ -18,6 +18,8 @@ from pixeltable.serving._config import create_service_from_config, lookup_servic
 from tests.serving.test_fastapi import assert_sqlite_row, make_sqlite_target
 from tests.utils import skip_test_if_not_installed
 
+pytestmark = pytest.mark.local('pxt serve config loading and app creation')
+
 
 class TestConfig:
     def test_load_valid_config(self, uses_db: None, tmp_path: pathlib.Path) -> None:

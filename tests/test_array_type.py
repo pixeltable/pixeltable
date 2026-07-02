@@ -1,4 +1,4 @@
-from typing import Iterable
+from typing import Callable, Iterable
 
 import numpy as np
 import pytest
@@ -13,7 +13,10 @@ from .utils import pxt_raises, reload_catalog, validate_update_status
 
 class TestArrayType:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_array_dtypes(self, do_reload_catalog: bool, init_env: None, uses_db: None) -> None:
+    def test_array_dtypes(
+        self, do_reload_catalog: bool, init_env: None, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
         test_cases: list = [
             (np.bool, [np.bool, pxt.Bool]),
             (np.str_, [np.str_, pxt.String]),
@@ -35,20 +38,24 @@ class TestArrayType:
         ]
         for col_dtype, acceptable_dtypes in test_cases:
             try:
-                self._test_array_dtype(col_dtype, acceptable_dtypes, do_reload_catalog)
+                self._test_array_dtype(col_dtype, acceptable_dtypes, do_reload_catalog, p)
             except Exception as e:
                 raise type(e)(f'Failed for col_dtype={col_dtype}') from e
 
     def _test_array_dtype(
-        self, col_dtype: type[np.generic] | ColumnType, acceptable_dtypes: list, do_reload_catalog: bool
+        self,
+        col_dtype: type[np.generic] | ColumnType,
+        acceptable_dtypes: list,
+        do_reload_catalog: bool,
+        make_catalog_path: Callable[[str], str],
     ) -> None:
         schema = {
             'array_col_req': pxt.Required[pxt.Array[col_dtype]],
             'array_col_opt': pxt.Array[col_dtype],  # type: ignore[misc]
         }
-        pxt.create_table('test_numpy_dtypes', schema, if_exists='replace')
+        pxt.create_table(make_catalog_path('test_numpy_dtypes'), schema, if_exists='replace')
         reload_catalog(do_reload_catalog)
-        t = pxt.get_table('test_numpy_dtypes')
+        t = pxt.get_table(make_catalog_path('test_numpy_dtypes'))
 
         # Generate inserts for all dtypes that these columns should accept
         validate_update_status(
@@ -101,8 +108,11 @@ class TestArrayType:
             case _:
                 raise ValueError(f'Unsupported dtype: {literal_dtype}')
 
-    def test_non_parameterized_array_accepts_all_dtypes(self, init_env: None, uses_db: None) -> None:
-        t = pxt.create_table('test_numpy_dtypes', {'array': pxt.Array})
+    def test_non_parameterized_array_accepts_all_dtypes(
+        self, init_env: None, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test_numpy_dtypes'), {'array': pxt.Array})
         validate_update_status(t.insert(array=(1, 1)), 1)
         validate_update_status(t.insert(array=[1.0, 2.0]), 1)
         validate_update_status(t.insert(array=['abc', 'def']), 1)
@@ -111,7 +121,10 @@ class TestArrayType:
         )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_array_shape_validation(self, do_reload_catalog: bool, init_env: None, uses_db: None) -> None:
+    def test_array_shape_validation(
+        self, do_reload_catalog: bool, init_env: None, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
         schema = {
             'arr_1': pxt.Array[(1,), np.uint8],  # type: ignore[misc]
             'arr_2': pxt.Array[(2, 2), pxt.Float],  # type: ignore[misc]
@@ -119,9 +132,9 @@ class TestArrayType:
             'arr_4': pxt.Array[(3, None, 2), np.int32],  # type: ignore[misc]
             'arr_5': pxt.Array,
         }
-        pxt.create_table('test_numpy_dtypes', schema)
+        pxt.create_table(p('test_numpy_dtypes'), schema)
         reload_catalog(do_reload_catalog)
-        t = pxt.get_table('test_numpy_dtypes')
+        t = pxt.get_table(p('test_numpy_dtypes'))
 
         validate_update_status(t.insert(arr_1=np.ones((1,), dtype=np.uint8)), 1)
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='arr_1'):

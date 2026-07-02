@@ -10,8 +10,8 @@ _logger = logging.getLogger(__name__)
 
 
 @register_converter(version=39)
-def _(engine: sql.engine.Engine) -> None:
-    convert_table_md(engine, table_modifier=__table_modifier)
+def _(conn: sql.Connection) -> None:
+    convert_table_md(conn, table_modifier=__table_modifier)
 
 
 def __table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, updated_table_md: dict) -> None:
@@ -74,13 +74,13 @@ def migrate_error_to_cellmd_columns(
     Safe version with error handling and optional backup.
 
     Args:
-        engine: SQLAlchemy engine
+        conn: SQLAlchemy connection
         store_name: Name of the table to modify
         col_names: List of column name prefixes
         backup_table: Optional name for backup table
 
     Usage:
-        migrate_error_to_cellmd_columns(engine, 'my_table', ['columnname'], 'my_table_backup')
+        migrate_error_to_cellmd_columns(conn, 'my_table', ['columnname'], 'my_table_backup')
     """
 
     try:

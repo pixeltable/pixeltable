@@ -7,7 +7,7 @@ from pixeltable.metadata.schema import Table, TableSchemaVersion
 
 
 @register_converter(version=52)
-def _(engine: sql.engine.Engine) -> None:
+def _(conn: sql.Connection) -> None:
     """
     Changes in version 53:
     - some column metadata (col_type, is_pk, value_expr) moved from the table level (ColumnMd) to
@@ -17,39 +17,36 @@ def _(engine: sql.engine.Engine) -> None:
 
     This converter reads all table and schema metadata in memory, updates them, and writes them back.
     """
-    assert engine.dialect.name == 'postgresql', engine.dialect.name
+    assert conn.engine.dialect.name == 'postgresql', conn.engine.dialect.name
 
-    with engine.connect().execution_options(isolation_level='SERIALIZABLE') as conn:
-        # Read the table and table schema version metadata from the store
-        # table id -> TableMd
-        table_mds: dict[UUID, dict] = {}
-        # table id -> schema version -> SchemaVersionMd
-        table_schema_versions: dict[UUID, dict[int, dict]] = {}
-        for row in conn.execute(sql.select(Table.id, Table.md)):
-            assert row.id not in table_mds, row.id
-            table_mds[row.id] = row.md
-        for row in conn.execute(
-            sql.select(TableSchemaVersion.tbl_id, TableSchemaVersion.schema_version, TableSchemaVersion.md)
-        ):
-            versions = table_schema_versions.setdefault(row.tbl_id, {})
-            assert row.schema_version not in versions, (row.tbl_id, row.schema_version)
-            versions[row.schema_version] = row.md
+    # Read the table and table schema version metadata from the store
+    # table id -> TableMd
+    table_mds: dict[UUID, dict] = {}
+    # table id -> schema version -> SchemaVersionMd
+    table_schema_versions: dict[UUID, dict[int, dict]] = {}
+    for row in conn.execute(sql.select(Table.id, Table.md)):
+        assert row.id not in table_mds, row.id
+        table_mds[row.id] = row.md
+    for row in conn.execute(
+        sql.select(TableSchemaVersion.tbl_id, TableSchemaVersion.schema_version, TableSchemaVersion.md)
+    ):
+        versions = table_schema_versions.setdefault(row.tbl_id, {})
+        assert row.schema_version not in versions, (row.tbl_id, row.schema_version)
+        versions[row.schema_version] = row.md
 
-        # Convert and write back the updated metadata
-        for tbl_id, tbl_md in table_mds.items():
-            _convert_table_and_versions(tbl_md, table_schema_versions[tbl_id])
-            result = conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=tbl_md))
+    # Convert and write back the updated metadata
+    for tbl_id, tbl_md in table_mds.items():
+        _convert_table_and_versions(tbl_md, table_schema_versions[tbl_id])
+        result = conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=tbl_md))
+        assert result.rowcount == 1
+        for schema_version, schema_version_md in table_schema_versions[tbl_id].items():
+            result = conn.execute(
+                sql.update(TableSchemaVersion)
+                .where(TableSchemaVersion.tbl_id == tbl_id)
+                .where(TableSchemaVersion.schema_version == schema_version)
+                .values(md=schema_version_md)
+            )
             assert result.rowcount == 1
-            for schema_version, schema_version_md in table_schema_versions[tbl_id].items():
-                result = conn.execute(
-                    sql.update(TableSchemaVersion)
-                    .where(TableSchemaVersion.tbl_id == tbl_id)
-                    .where(TableSchemaVersion.schema_version == schema_version)
-                    .values(md=schema_version_md)
-                )
-                assert result.rowcount == 1
-
-        conn.commit()
 
 
 # field name -> is required

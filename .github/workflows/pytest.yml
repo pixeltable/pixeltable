@@ -253,7 +253,9 @@ jobs:
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
+          python tool/generate_type_stubs.py
           mypy pixeltable tests tool
+          mypy pixeltable/catalog/model.py
           # The instrumentation package is a src-layout PEP 420 namespace package and needs explicit base/namespace flags.
           MYPYPATH=packages/opentelemetry-instrumentation-pixeltable/src mypy --explicit-package-bases --namespace-packages \
             packages/opentelemetry-instrumentation-pixeltable/src/opentelemetry/instrumentation/pixeltable \
@@ -283,7 +285,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pixeltable-pytest-logs-${{ matrix.display-name }}-${{ matrix.os }}-${{ matrix.python-version }}
-          path: /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/logs
+          path: |
+            /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/logs
+            /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/proxy_*/logs
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |

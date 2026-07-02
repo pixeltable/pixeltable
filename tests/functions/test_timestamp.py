@@ -3,11 +3,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+import pytest
+
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.env import Env
 
 from ..utils import validate_update_status
+
+pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestTimestamp:

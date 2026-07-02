@@ -129,8 +129,11 @@ install-deps:
 	@python -m ipykernel install --user --name=pixeltable
 	@touch .make-install/others
 
+pixeltable/catalog/model.pyi: pixeltable/catalog/model.py pixeltable/catalog/table.py tool/generate_type_stubs.py
+	@python tool/generate_type_stubs.py
+
 .PHONY: install
-install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others
+install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others pixeltable/catalog/model.pyi
 
 .PHONY: test
 test: pytest check
@@ -161,7 +164,8 @@ fullpytest: install
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,unversioned_table,view}.py
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) \
+	    tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,table_model,unversioned_table,view}.py
 
 .PHONY: nbtest
 nbtest: install
@@ -177,6 +181,8 @@ stresstest: install
 typecheck: install
 	@echo 'Running `mypy` ...'
 	@mypy pixeltable pixeltable_cli tests tool
+	# Separate direct check of model.py (which is shadowed by the generated model.pyi in the main run)
+	@mypy pixeltable/catalog/model.py
 	@echo 'Running `mypy` on $(OTEL_PKG) ...'
 	@MYPYPATH=$(OTEL_PKG)/src mypy --explicit-package-bases --namespace-packages \
 		$(OTEL_PKG)/src/opentelemetry/instrumentation/pixeltable $(OTEL_PKG)/tests

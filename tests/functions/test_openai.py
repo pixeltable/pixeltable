@@ -9,11 +9,19 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
-from pixeltable import exceptions as excs
 from pixeltable.config import Config
 
-from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    SAMPLE_IMAGE_URL,
+    pxt_raises,
+    rerun,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
+
+pytestmark = pytest.mark.local('UDF/integration test')
 
 _logger = logging.getLogger('pixeltable_test')
 
@@ -149,9 +157,8 @@ class TestOpenai:
         # contain the string "json", it refuses the request.
         # TODO This should probably not be throwing an exception, but rather logging the error in
         # `t.chat_output_4.errormsg` etc.
-        with pytest.raises(excs.ExprEvalError) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'messages' must contain the word 'json'"):
             t.insert(input='Say something interesting.')
-        assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
 
     def test_responses(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')

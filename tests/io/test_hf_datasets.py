@@ -10,6 +10,8 @@ import pixeltable as pxt
 
 from ..utils import pxt_raises, rerun, skip_test_if_no_config, skip_test_if_not_installed
 
+pytestmark = pytest.mark.local('TODO: convert; import/export (hf_datasets)')
+
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 

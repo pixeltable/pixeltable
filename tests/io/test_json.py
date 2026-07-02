@@ -9,6 +9,8 @@ from pixeltable.config import Config
 
 from ..utils import create_all_datatypes_tbl, get_image_files, skip_test_if_not_installed, validate_update_status
 
+pytestmark = pytest.mark.local('TODO: convert; import/export (json)')
+
 
 class TestJson:
     def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:

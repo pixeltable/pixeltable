@@ -7,6 +7,8 @@ from pixeltable.functions import reve
 
 from ..utils import rerun, skip_test_if_no_client, validate_update_status
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 _logger = logging.getLogger('pixeltable_test')
 
 
