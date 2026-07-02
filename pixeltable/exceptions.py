@@ -65,6 +65,9 @@ class ErrorCode(enum.Enum):
     UNSUPPORTED_OPERATION = 3010, 400, False
     INVALID_STATE = 3011, 400, False
     INVALID_CONFIGURATION = 3013, 422, False
+    NOT_BOUND = 3014, 400, False
+    ALREADY_BOUND = 3015, 400, False
+    SCHEMA_MISMATCH = 3016, 422, False
 
     # AuthorizationError (4xxx)
     INSUFFICIENT_PRIVILEGES = 4000, 403, False

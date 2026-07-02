@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs
+from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.env import Env
@@ -156,12 +157,29 @@ def _create_table(request: ProxyRequest) -> tuple[list, bool]:
     return md, was_created
 
 
-def _create_view(request: ProxyRequest) -> list:
+def _create_view(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
-    tbl = cat.create_view(**kwargs)
+    tbl, was_created = cat.create_view(**kwargs)
     with cat.begin_xact(for_write=False):
-        return cat.read_md_for_export(tbl)
+        md = cat.read_md_for_export(tbl)
+    return md, was_created
+
+
+def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
+    kwargs = _deserialize_args(request)
+    # `base` arrives as a Query dict; rebuild it here.
+    base_dict = kwargs.pop('base')
+
+    @retry_loop(for_write=False)
+    def build_base() -> Any:
+        return None if base_dict is None else Query.from_dict(base_dict)
+
+    cat = get_runtime().catalog
+    tbl, was_created = cat.create_from_model(base=build_base(), **kwargs)
+    with cat.begin_xact(for_write=False):
+        md = cat.read_md_for_export(tbl)
+    return md, was_created
 
 
 def _get_table(request: ProxyRequest) -> list | None:
@@ -488,6 +506,7 @@ def _encode_result_set(result: dict) -> dict:
 _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'create_table'): _create_table,
     ('CatalogBase', 'create_view'): _create_view,
+    ('CatalogBase', 'create_from_model'): _create_from_model,
     ('CatalogBase', 'get_table'): _get_table,
     ('CatalogBase', 'get_table_by_id'): _get_table_by_id,
     ('CatalogBase', 'move'): _catalog_method,

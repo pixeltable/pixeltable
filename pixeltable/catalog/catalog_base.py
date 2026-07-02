@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from pixeltable import exprs, func
+    from pixeltable._query import Query
     from pixeltable.plan import SampleClause
     from pixeltable.types import ColumnSpec
 
@@ -52,7 +53,21 @@ class CatalogBase(abc.ABC):
         custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
-    ) -> Table: ...
+    ) -> tuple[Table, bool]: ...
+
+    @abc.abstractmethod
+    def create_from_model(
+        self,
+        path: Path,
+        columns: dict[str, ColumnSpec],
+        display_name: str,
+        create_default_idxs: bool,
+        media_validation: MediaValidation,
+        comment: str | None,
+        custom_metadata: Any,
+        iterator: func.GeneratingFunctionCall | None,
+        base: 'Query | None',
+    ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None: ...

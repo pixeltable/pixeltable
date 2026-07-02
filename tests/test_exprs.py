@@ -346,7 +346,7 @@ class TestExprs:
                 _ = t.select(op1 + op2).collect()
             with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH):
                 _ = t.select(op1 - op2).collect()
-            if self.is_str(op1) and self.is_int(op2):
+            if (self.is_str(op1) and self.is_int(op2)) or (self.is_int(op1) and self.is_str(op2)):
                 _ = t.select(op1 * op2).collect()
             else:
                 with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH):
@@ -464,7 +464,7 @@ class TestExprs:
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
-        assert '+ requires numeric types, but c6 has type dict' in str(exc_info.value)
+        assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
 
     def test_comparison(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -1670,6 +1670,7 @@ class TestExprs:
         t = pxt.create_table(p('test_str_concat'), schema)
         t.add_computed_column(s3=t.s1 + '-' + t.s2)
         t.add_computed_column(s4=t.s1 * 3)
+        t.add_computed_column(s4a=3 * t.s1)
         t.add_computed_column(s5=(t.s1 + t.s2) * 2)
         t.add_computed_column(s6=t.s1 + t.s2 * 2)
         t.add_computed_column(s7='a' * t.i1)
@@ -1678,22 +1679,22 @@ class TestExprs:
         result = t.order_by(t.i1).collect()
         assert result['s3'] == ['left-right', 'A-B']
         assert result['s4'] == ['leftleftleft', 'AAA']
+        assert result['s4a'] == ['leftleftleft', 'AAA']
         assert result['s5'] == ['leftrightleftright', 'ABAB']
         assert result['s6'] == ['leftrightright', 'ABB']
         assert result['s7'] == ['aa', 'aaa']
         assert result['s8'] == ['rightright', 'BBB']
 
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r'\* on strings requires `String` and `Int`'):
             _ = t.add_computed_column(invalid_op=t.s1 * 's1')
-        assert '* on strings requires int type,' in str(exc_info.value)
 
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r'\+ on strings requires `String` and `String`'):
             _ = t.add_computed_column(invalid_op=t.s1 + 3)
-        assert '+ on strings requires string type,' in str(exc_info.value)
 
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=r'requires numeric types, but left operand has type `String \| None`'
+        ):
             _ = t.add_computed_column(invalid_op=t.s1 / t.s2)
-        assert 'requires numeric types, but s1 has type String | None' in str(exc_info.value)
 
         results = reload_tester.run_query(
             t.select(a=t.s1 + t.s2, b=t.s1 * 3, c=t.s2 * t.i1, d=(t.s1 + '/' + t.s2) * 2).order_by(t.i1)
