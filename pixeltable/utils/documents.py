@@ -17,6 +17,16 @@ class DocumentHandle:
     pdf_doc: PdfDocument | None = None
     txt_doc: str | None = None
 
+    def close(self) -> None:
+        # pdf_doc keeps the source file open until closed; the other handles are parsed into memory
+        if self.pdf_doc is not None:
+            self.pdf_doc.close()
+
+    @classmethod
+    def validate(cls, path: str) -> None:
+        # open the document to confirm it is readable, then release the file handle
+        get_document_handle(path).close()
+
 
 def get_document_handle(path: str) -> DocumentHandle:
     _, extension = os.path.splitext(path)

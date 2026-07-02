@@ -320,8 +320,6 @@ def _build_app() -> 'FastAPI':
     from fastapi.concurrency import run_in_threadpool
     from fastapi.responses import FileResponse
 
-    from pixeltable.env import Env
-
     app = FastAPI()
 
     @app.post('/rpc')
