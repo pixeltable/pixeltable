@@ -5,6 +5,16 @@ from __future__ import annotations
 from enum import Enum
 
 
+class PixeltableStoreOperationType(str, Enum):
+    """Operation types for Pixeltable-managed storage (home buckets)."""
+
+    GET_BUCKET_CREDENTIALS = 'get_bucket_credentials'
+    GET_PRESIGNED_URL = 'get_presigned_url'
+
+
+PIXELTABLE_STORE_OPERATIONS = frozenset(PixeltableStoreOperationType)
+
+
 class ServiceOperationType(str, Enum):
     """Operation types for cloud database and service management."""
 
