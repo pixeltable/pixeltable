@@ -616,6 +616,9 @@ class ColumnType:
     def create_literal(self, val: Any) -> Any:
         """Create a literal of this type from val or raise TypeError if not possible"""
         if val is not None:
+            if isinstance(val, enum.Enum):
+                # an enum member is stored as its underlying value
+                val = val.value
             if isinstance(val, Path):
                 # normalize a filesystem path to its string form, so a pathlib.Path (e.g. from a pydantic field
                 # typed Path) is treated like the equivalent str path
